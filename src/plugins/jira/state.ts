@@ -1,7 +1,7 @@
 import { openSurface } from "../../plugin-api/host";
 import { definePaneViews } from "../../plugin-api/paneViews";
 import { definePluginSettings } from "../../plugin-api/settings";
-import { JIRA_ISSUES, JIRA_PLUGIN_ID } from "./kinds";
+import { JIRA_ISSUES, JIRA_PLUGIN } from "./kinds";
 
 export type JiraList =
     | { kind: "mine" }
@@ -83,7 +83,7 @@ export interface JiraSettings {
     detailWidth: number | null;
 }
 
-export const jiraSettings = definePluginSettings(JIRA_PLUGIN_ID, (saved): JiraSettings => {
+export const jiraSettings = definePluginSettings(JIRA_PLUGIN.id, (saved): JiraSettings => {
     const width = (saved as { detailWidth?: unknown } | null)?.detailWidth;
     return { detailWidth: typeof width === "number" ? width : null };
 });

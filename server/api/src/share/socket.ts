@@ -6,44 +6,46 @@ import type {
   ShareOpen,
   ShareServerMessage,
 } from "@sikemux/protocol";
-import { ShareCloseCode, validator } from "@sikemux/protocol";
+import { ShareCloseCode } from "@sikemux/protocol";
 import { sql, type Kysely } from "kysely";
-import type { RawData, WebSocket } from "ws";
+import type { WebSocket } from "ws";
 
-import {
-  checkStanding,
-  isSession,
-  type Identity,
-  type Verifier,
-} from "../auth.ts";
+import { checkStanding, type Identity } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import {
   shareMessage,
   shareViewerMessage,
   signedBy,
 } from "../devices/signature.ts";
-import { ApiFailure } from "../http.ts";
-import type { RateLimiter } from "../limits.ts";
-import type { Logger } from "../log.ts";
+import {
+  ChallengedSocket,
+  HelloRefused,
+  type SocketContext,
+  type SocketKind,
+} from "../sockets/socket.ts";
 import type { ShareOptions } from "./options.ts";
 import { Room, type HostLink, type Relay, type ViewerLink } from "./relay.ts";
 
-export interface ShareContext {
-  db: Kysely<Tables>;
-  verifier: Verifier;
+export interface ShareContext extends SocketContext {
   relay: Relay;
-  limiter: RateLimiter;
-  log: Logger;
   options: ShareOptions;
 }
 
-class HelloRefused extends Error {}
+export const SHARE_SOCKET: SocketKind = {
+  name: "share",
+  incoming: "ShareClientMessage",
+  codes: ShareCloseCode,
+};
 
-const protocol = validator();
-
-export function failedShareHelloKeys(ip: string, key?: string): string[] {
-  return [`share-failed-ip:${ip}`, ...(key ? [`share-failed-key:${key}`] : [])];
-}
+/** A viewer signed in with a token carries it, so its expiry can close the connection. */
+type Who =
+  | { role: "host" }
+  | {
+      role: "viewer";
+      room: Room;
+      identity: Identity | null;
+      since: ShareHello["since"];
+    };
 
 /** Marks the share ended in the database and tells everyone on it. */
 export async function endShare(
@@ -121,9 +123,13 @@ export async function recheckShares(
     if (standing.get(host.key) !== host.userId) host.removed();
 }
 
-/** Whether `proof` is what the share's link holds, by the check its host gave. */
+/**
+ * Whether `proof` is what the share's link holds, by the check its host gave. Hosts on 0.5.3 and
+ * earlier give none, and their shares are open to anyone signed in who has the link.
+ */
 function provesLink(proof: string | undefined, check: string | null): boolean {
-  if (!proof || !check) return false;
+  if (!check) return true;
+  if (!proof) return false;
   const given = createHash("sha256")
     .update(Buffer.from(proof, "base64url"))
     .digest();
@@ -161,60 +167,26 @@ function roomFor(
  * Viewers only ever read; what they ask, such as an older page, goes sealed to the host, which
  * decides what to answer.
  */
-export class ShareSocket implements HostLink, ViewerLink {
+export class ShareSocket
+  extends ChallengedSocket<ShareClientMessage, ShareHello, Who>
+  implements HostLink, ViewerLink
+{
   readonly id = randomBytes(9).toString("base64url");
   key = "";
   userId = "";
-  private role: "host" | "viewer" | null = null;
-  private phase: "hello" | "proving" | "open" | "closing" = "hello";
+  private role: ShareHello["role"] = "viewer";
   private room: Room | null = null;
-  private readonly nonce = randomBytes(32).toString("hex");
-  private readonly challengeExpires: number;
-  private lastHeard = Date.now();
-  private messageWindow = { started: 0, count: 0 };
-  private queue: Promise<void> = Promise.resolve();
-  private readonly timers: NodeJS.Timeout[] = [];
-  private authTimer: NodeJS.Timeout | undefined;
-  private readonly log: Logger;
 
-  private readonly ws: WebSocket;
-  private readonly ip: string;
   private readonly context: ShareContext;
 
   constructor(ws: WebSocket, ip: string, context: ShareContext) {
-    this.ws = ws;
-    this.ip = ip;
+    super(ws, ip, context, SHARE_SOCKET);
     this.context = context;
-    this.challengeExpires = Date.now() + context.options.challengeMs;
-    this.log = context.log.child({ share: true });
   }
 
-  start() {
-    const { options, relay } = this.context;
-    relay.sockets += 1;
-    this.ws.on("message", (data, isBinary) => this.onMessage(data, isBinary));
-    this.ws.on("close", () => this.onClose());
-    this.ws.on("error", (error) =>
-      this.log.debug({ err: error }, "a share connection failed"),
-    );
-    this.send({
-      type: "challenge",
-      nonce: this.nonce,
-      expiresAt: new Date(this.challengeExpires).toISOString(),
-    });
-    this.timers.push(
-      setTimeout(() => {
-        if (this.phase === "hello")
-          this.close(ShareCloseCode.helloTimeout, "no hello in time");
-      }, options.helloTimeoutMs),
-      setInterval(() => {
-        if (Date.now() - this.lastHeard > options.silenceMs) {
-          this.ws.terminate();
-          return;
-        }
-        if (this.phase === "open") this.send({ type: "ping" });
-      }, options.heartbeatMs),
-    );
+  override start() {
+    this.context.relay.sockets += 1;
+    super.start();
   }
 
   send(message: ShareServerMessage) {
@@ -246,88 +218,31 @@ export class ShareSocket implements HostLink, ViewerLink {
     this.close(ShareCloseCode.restarting, "restarting");
   }
 
-  private close(code: ShareCloseCode, reason: string) {
-    if (this.phase === "closing") return;
-    this.phase = "closing";
-    this.ws.close(code, reason);
-  }
-
-  private serially(task: () => Promise<void>) {
-    this.queue = this.queue.then(task).catch((error: unknown) => {
-      this.log.error({ err: error }, "a share connection's work failed");
-      this.close(ShareCloseCode.serverError, "server error");
-    });
-  }
-
-  private onMessage(data: RawData, isBinary: boolean) {
-    this.lastHeard = Date.now();
+  protected limits() {
     const { options } = this.context;
-    const size = Array.isArray(data)
-      ? data.reduce((total, part) => total + part.length, 0)
-      : data instanceof ArrayBuffer
-        ? data.byteLength
-        : data.length;
-    const limit =
-      this.role === "host"
-        ? options.maxHostMessageBytes
-        : options.maxViewerMessageBytes;
-    if (size > limit) {
-      this.close(ShareCloseCode.badMessage, "message too large");
-      return;
-    }
-    const now = Date.now();
-    if (now - this.messageWindow.started >= 1_000)
-      this.messageWindow = { started: now, count: 0 };
-    this.messageWindow.count += 1;
-    const perSecond =
-      this.role === "host"
-        ? options.hostMessagesPerSecond
-        : options.viewerMessagesPerSecond;
-    if (this.messageWindow.count > perSecond) {
-      this.close(ShareCloseCode.overLimit, "too many messages");
-      return;
-    }
-    if (this.phase === "closing") return;
-
-    let value: unknown;
-    try {
-      value = isBinary ? undefined : JSON.parse(data.toString());
-    } catch {
-      value = undefined;
-    }
-    const result = protocol.validate("ShareClientMessage", value);
-    if (!result.ok) {
-      this.close(ShareCloseCode.badMessage, "not a share message");
-      return;
-    }
-    this.handle(result.value);
+    return this.role === "host"
+      ? {
+          perSecond: options.hostMessagesPerSecond,
+          bytes: options.maxHostMessageBytes,
+        }
+      : {
+          perSecond: options.viewerMessagesPerSecond,
+          bytes: options.maxViewerMessageBytes,
+        };
   }
 
-  private handle(message: ShareClientMessage) {
-    if (message.type === "hello") {
-      if (this.phase !== "hello") {
-        this.close(ShareCloseCode.badMessage, "one hello per connection");
-        return;
-      }
-      this.phase = "proving";
-      this.serially(() => this.prove(message));
-      return;
-    }
-    if (this.phase !== "open") {
-      this.close(ShareCloseCode.badMessage, "hello first");
-      return;
-    }
-    if (message.type === "pong") return;
-    if (this.role === "host") {
+  protected handle(message: Exclude<ShareClientMessage, ShareHello>, who: Who) {
+    if (who.role === "host") {
       switch (message.type) {
         case "open":
           this.serially(() => this.open(message));
           return;
-        case "publish": {
-          const room = this.hostRoom(message.share);
-          if (room) room.publish(message.frame, this.context.options);
+        case "publish":
+          this.hostRoom(message.share)?.publish(
+            message.frame,
+            this.context.options,
+          );
           return;
-        }
         case "answer":
           this.hostRoom(message.share)
             ?.viewers.get(message.viewer)
@@ -348,11 +263,11 @@ export class ShareSocket implements HostLink, ViewerLink {
           });
           return;
         case "auth":
-          this.serially(() => this.reauthenticate(message.token));
+          this.reauthenticate(message.token, this.userId, () => !this.key);
           return;
       }
     }
-    this.close(ShareCloseCode.badMessage, `a ${this.role} does not send that`);
+    this.refuse(`a ${who.role} does not send that`);
   }
 
   /** The room of a share this connection opened, or null. */
@@ -375,39 +290,45 @@ export class ShareSocket implements HostLink, ViewerLink {
     this.send({ type: "ended", share: id, reason: "stopped" });
   }
 
-  private async prove(hello: ShareHello) {
-    try {
-      if (Date.now() > this.challengeExpires)
-        throw new HelloRefused("the challenge expired");
-      if (hello.role === "host") await this.proveHost(hello);
-      else await this.proveViewer(hello);
-    } catch (error) {
-      if (!(error instanceof HelloRefused || error instanceof ApiFailure))
-        throw error;
-      for (const key of failedShareHelloKeys(this.ip, hello.key))
-        this.context.limiter.allow(
-          key,
-          this.context.options.failedHellosPerMinute,
-        );
-      this.log.info(
-        { role: hello.role, why: error.message },
-        "refused a share hello",
-      );
-      this.close(ShareCloseCode.unauthenticated, "not signed in");
-    }
+  protected prove(hello: ShareHello): Promise<Who | undefined> {
+    return hello.role === "host"
+      ? this.proveHost(hello)
+      : this.proveViewer(hello);
   }
 
-  private async proveHost(hello: ShareHello) {
-    const { db, limiter, options, relay, log } = this.context;
+  protected opened(who: Who) {
+    const { options, log } = this.context;
+    if (who.role === "host") {
+      this.send({ type: "ready", heartbeatMs: options.heartbeatMs });
+      log.info({ key: this.key.slice(0, 8) }, "a host opened its shares");
+      return;
+    }
+    const { room, identity, since } = who;
+    if (identity) this.watchExpiry(identity.expiresAt);
+    this.send({
+      type: "ready",
+      heartbeatMs: options.heartbeatMs,
+      expiresAt: room.expiresAt.toISOString(),
+      hostOnline: room.host !== null,
+      ...(identity ? { authExpiresAt: identity.expiresAt.toISOString() } : {}),
+    });
+    const frames = room.framesAfter(since);
+    for (let at = 0; at < frames.length; at += options.framesPerMessage)
+      this.send({
+        type: "frames",
+        frames: frames.slice(at, at + options.framesPerMessage),
+      });
+    room.countViewers();
+    log.info(
+      { share: room.id, userId: this.userId, viewers: room.viewers.size },
+      "a viewer joined a share",
+    );
+  }
+
+  private async proveHost(hello: ShareHello): Promise<Who | undefined> {
+    const { db, relay } = this.context;
     if (!hello.key || !hello.signature)
       throw new HelloRefused("a host proves its key");
-    if (
-      limiter.exceeded(
-        `share-failed-key:${hello.key}`,
-        options.failedHellosPerMinute,
-      )
-    )
-      throw new HelloRefused("too many failed hellos for this key");
     if (
       !signedBy(hello.key, shareMessage(this.nonce, hello.key), hello.signature)
     )
@@ -415,7 +336,7 @@ export class ShareSocket implements HostLink, ViewerLink {
     const account = (await hostAccounts(db, [hello.key])).get(hello.key);
     if (!account)
       throw new HelloRefused("the key is not a host on any account");
-    if (this.phase === "closing") return;
+    if (this.phase === "closing") return undefined;
 
     this.key = hello.key;
     this.userId = account;
@@ -424,20 +345,18 @@ export class ShareSocket implements HostLink, ViewerLink {
     if (older instanceof ShareSocket)
       older.close(ShareCloseCode.replaced, "a newer connection for this host");
     relay.hosts.set(this.key, this);
-    this.phase = "open";
-    this.send({ type: "ready", heartbeatMs: options.heartbeatMs });
-    log.info({ key: this.key.slice(0, 8) }, "a host opened its shares");
+    return { role: "host" };
   }
 
   /** Who a viewer is: a phone or the web app by its token, or a Mac by its host's key. */
-  private async viewerIdentity(hello: ShareHello): Promise<Identity | null> {
+  private async viewer(
+    hello: ShareHello,
+  ): Promise<{ userId: string; key: string; identity: Identity | null }> {
     const { db, verifier } = this.context;
     if (hello.token) {
       const identity = await verifier.verify(hello.token);
-      if (!isSession(identity))
-        throw new HelloRefused("a viewer signs in with a session token");
       await checkStanding(db, identity);
-      return identity;
+      return { userId: identity.userId, key: "", identity };
     }
     if (!hello.key || !hello.signature)
       throw new HelloRefused("a viewer sends its token or its host's key");
@@ -452,14 +371,13 @@ export class ShareSocket implements HostLink, ViewerLink {
     const account = (await hostAccounts(db, [hello.key])).get(hello.key);
     if (!account)
       throw new HelloRefused("the key is not a host on any account");
-    this.key = hello.key;
-    return null;
+    return { userId: account, key: hello.key, identity: null };
   }
 
-  private async proveViewer(hello: ShareHello) {
-    const { db, options, log } = this.context;
+  private async proveViewer(hello: ShareHello): Promise<Who | undefined> {
+    const { db, options } = this.context;
     if (!hello.share) throw new HelloRefused("a viewer names the share");
-    const identity = await this.viewerIdentity(hello);
+    const viewer = await this.viewer(hello);
     const row = await db
       .selectFrom("shares")
       .select([
@@ -473,16 +391,13 @@ export class ShareSocket implements HostLink, ViewerLink {
       ])
       .where("id", "=", hello.share)
       .executeTakeFirst();
-    if (this.phase === "closing") return;
+    if (this.phase === "closing") return undefined;
     if (!row || !provesLink(hello.proof, row.viewer_check)) {
       this.close(ShareCloseCode.notFound, "no such share");
-      return;
+      return undefined;
     }
-    this.userId =
-      identity?.userId ??
-      (await hostAccounts(db, [this.key])).get(this.key) ??
-      "";
-    this.role = "viewer";
+    this.key = viewer.key;
+    this.userId = viewer.userId;
     if (row.ended_at || row.expires_at.getTime() <= Date.now()) {
       this.send({
         type: "ended",
@@ -490,35 +405,21 @@ export class ShareSocket implements HostLink, ViewerLink {
         reason: row.ended_reason === "stopped" ? "stopped" : "expired",
       });
       this.close(ShareCloseCode.ended, "the share ended");
-      return;
+      return undefined;
     }
     const room = roomFor(this.context, row);
     if (room.viewers.size >= options.viewersPerShare) {
       this.close(ShareCloseCode.overLimit, "too many viewers");
-      return;
+      return undefined;
     }
     this.room = room;
     room.viewers.set(this.id, this);
-    this.phase = "open";
-    if (identity) this.watchExpiry(identity.expiresAt);
-    this.send({
-      type: "ready",
-      heartbeatMs: options.heartbeatMs,
-      expiresAt: row.expires_at.toISOString(),
-      hostOnline: room.host !== null,
-      ...(identity ? { authExpiresAt: identity.expiresAt.toISOString() } : {}),
-    });
-    const frames = room.framesAfter(hello.since);
-    for (let at = 0; at < frames.length; at += options.framesPerMessage)
-      this.send({
-        type: "frames",
-        frames: frames.slice(at, at + options.framesPerMessage),
-      });
-    room.countViewers();
-    log.info(
-      { share: row.id, userId: this.userId, viewers: room.viewers.size },
-      "a viewer joined a share",
-    );
+    return {
+      role: "viewer",
+      room,
+      identity: viewer.identity,
+      since: hello.since,
+    };
   }
 
   private async open(message: ShareOpen) {
@@ -544,7 +445,7 @@ export class ShareSocket implements HostLink, ViewerLink {
       if (
         existing.host_key !== this.key ||
         existing.ended_at ||
-        existing.viewer_check !== message.viewers
+        existing.viewer_check !== (message.viewers ?? null)
       ) {
         this.send({ type: "refused", share: message.share, reason: "exists" });
         return;
@@ -568,7 +469,7 @@ export class ShareSocket implements HostLink, ViewerLink {
           user_id: this.userId,
           host_key: this.key,
           expires_at: expiresAt,
-          viewer_check: message.viewers,
+          viewer_check: message.viewers ?? null,
         })
         .onConflict((conflict) => conflict.column("id").doNothing())
         .returning("id")
@@ -594,39 +495,7 @@ export class ShareSocket implements HostLink, ViewerLink {
       room.attachHost(this);
   }
 
-  private watchExpiry(expiresAt: Date) {
-    clearTimeout(this.authTimer);
-    const delay =
-      expiresAt.getTime() - Date.now() + this.context.options.authGraceMs;
-    this.authTimer = setTimeout(
-      () => this.close(ShareCloseCode.unauthenticated, "the sign-in expired"),
-      Math.max(0, delay),
-    );
-  }
-
-  private async reauthenticate(token: string) {
-    const { verifier, db } = this.context;
-    try {
-      const identity = await verifier.verify(token);
-      if (this.key || !isSession(identity))
-        throw new HelloRefused(
-          "only a viewer signed in with a session renews it",
-        );
-      if (identity.userId !== this.userId)
-        throw new HelloRefused("the token is for another account");
-      await checkStanding(db, identity);
-      this.watchExpiry(identity.expiresAt);
-    } catch (error) {
-      if (!(error instanceof HelloRefused || error instanceof ApiFailure))
-        throw error;
-      this.close(ShareCloseCode.unauthenticated, "not signed in");
-    }
-  }
-
-  private onClose() {
-    this.phase = "closing";
-    for (const timer of this.timers) clearTimeout(timer);
-    clearTimeout(this.authTimer);
+  protected closed() {
     const { relay } = this.context;
     relay.sockets -= 1;
     if (this.role === "host") {

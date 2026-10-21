@@ -5,6 +5,7 @@
 
 use std::time::{Duration, Instant};
 
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Manager};
 
 use super::{BrowserManager, TabStrip};
@@ -107,7 +108,7 @@ impl BrowserManager {
         now: Instant,
         pressure: Pressure,
     ) -> Vec<(String, String, tauri::Webview)> {
-        let agents = self.lock();
+        let agents = self.agents.locked();
         agents
             .iter()
             .filter(|(agent_id, _)| !self.recording(agent_id))
@@ -129,15 +130,15 @@ impl BrowserManager {
     /// A page with a dialog open, files waiting for its chooser, or a download
     /// under way would lose them along with the page.
     fn held(&self, tab_id: &str) -> bool {
-        self.dialogs_lock().contains_key(tab_id)
-            || self.uploads_lock().contains_key(tab_id)
-            || self.downloads_lock().keys().any(|(tab, _)| tab == tab_id)
+        self.dialogs.locked().contains_key(tab_id)
+            || self.uploads.locked().contains_key(tab_id)
+            || self.downloads.locked().keys().any(|(tab, _)| tab == tab_id)
     }
 
     fn recording(&self, agent_id: &str) -> bool {
         #[cfg(target_os = "macos")]
         {
-            self.recordings_lock().contains_key(agent_id)
+            self.recordings.locked().contains_key(agent_id)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -155,7 +156,7 @@ impl BrowserManager {
         pressure: Pressure,
     ) {
         let view = {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             let Some(agent) = agents.get_mut(agent_id) else {
                 return;
             };
@@ -173,7 +174,7 @@ impl BrowserManager {
             }
             view
         };
-        self.stalls_lock().remove(tab_id);
+        self.stalls.locked().remove(tab_id);
         super::drop_view(view);
         self.announce(app);
     }

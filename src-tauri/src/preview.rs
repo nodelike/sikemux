@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::Serialize;
+use sikemux_process::sync::Locked;
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::{Manager, Runtime, State, UriSchemeContext, UriSchemeResponder};
 
@@ -44,11 +45,7 @@ pub async fn preview_file(previews: State<'_, Previews>, path: String) -> AppRes
         return Err(AppError::Fs(format!("{} is not a file", path.display())));
     }
     let mime = mime_of(&canonical)?;
-    previews
-        .granted
-        .lock()
-        .map_err(|_| AppError::Other("preview grants poisoned".into()))?
-        .insert(canonical);
+    previews.granted.locked().insert(canonical);
     let modified = metadata
         .modified()
         .ok()
@@ -109,10 +106,7 @@ fn answer(previews: &Previews, request: &Request<Vec<u8>>) -> Response<Vec<u8>> 
     else {
         return status(StatusCode::NOT_FOUND);
     };
-    let granted = previews
-        .granted
-        .lock()
-        .is_ok_and(|granted| granted.contains(&path));
+    let granted = previews.granted.locked().contains(&path);
     if !granted {
         return status(StatusCode::FORBIDDEN);
     }

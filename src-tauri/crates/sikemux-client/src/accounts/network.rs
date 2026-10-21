@@ -9,11 +9,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iroh::{RelayConfig, RelayMap, RelayUrl};
+use sikemux_wire::protocol::BuildChannel;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::rustls::pki_types::ServerName;
 
-use super::protocol::{Channel, ChannelVersions, Network, Relay};
+use super::protocol::{ChannelVersions, Network, Relay};
 
 pub const DEFAULT_RELAY: &str = "https://relay.sikemux.com/";
 pub const DEFAULT_QUIC_PORT: u16 = 7842;
@@ -66,21 +67,12 @@ pub fn usable_relays(network: &Network) -> Option<Vec<Relay>> {
     (!usable.is_empty()).then_some(usable)
 }
 
-/// A version with a prerelease tag, like `0.5.0-nightly.3`, is a nightly.
-pub fn channel_of(version: &str) -> Channel {
-    if version.contains('-') {
-        Channel::Nightly
-    } else {
-        Channel::Stable
-    }
-}
-
 /// The oldest version allowed for `version`'s channel, when `version` is older
 /// than it. A version that does not parse is never too old, and a minimum of
 /// `0.0.0`, the server's default, allows every version.
 pub fn too_old(version: &str, minimum: &ChannelVersions) -> Option<String> {
-    let oldest = match channel_of(version) {
-        Channel::Nightly => &minimum.nightly,
+    let oldest = match BuildChannel::of_release(version) {
+        BuildChannel::Nightly => &minimum.nightly,
         _ => &minimum.stable,
     };
     let current = semver::Version::parse(version).ok()?;
@@ -272,8 +264,6 @@ mod tests {
         assert_eq!(too_old("0.4.2", &minimum), None);
         assert_eq!(too_old("0.0.0-test", &versions("0.0.0", "0.0.0")), None);
         assert_eq!(too_old("", &minimum), None);
-        assert_eq!(channel_of("0.5.0-nightly.1"), Channel::Nightly);
-        assert_eq!(channel_of("0.5.0"), Channel::Stable);
     }
 
     #[test]

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorPane } from "./EditorPane";
 import { getState, setState } from "../state/store";
+import { fileRead, wholeFile } from "../test/files";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
@@ -29,13 +30,9 @@ describe("EditorPane CLI queue", () => {
     beforeEach(() => {
         setState(initial, true);
         invoke.mockReset();
-        invoke.mockImplementation(async (command: string) => {
-            if (command === "read_file") return "# Preview heading\n\n**locked**\n\n| Key | Action |\n| --- | --- |\n| ⌘P | Open project |";
-            if (command === "read_file_versioned") {
-                return {
-                    content: "# Preview heading\n\n**locked**\n\n| Key | Action |\n| --- | --- |\n| ⌘P | Open project |",
-                    version: "version-1",
-                };
+        invoke.mockImplementation(async (command: string, args?: unknown) => {
+            if (fileRead(command, args)) {
+                return wholeFile("# Preview heading\n\n**locked**\n\n| Key | Action |\n| --- | --- |\n| ⌘P | Open project |", "version-1");
             }
             if (command === "cli_open_result") return undefined;
             return null;
@@ -108,7 +105,7 @@ describe("EditorPane CLI queue", () => {
         const readme = "[site](https://example.com/docs) [guide](./docs/My%20Guide.md#setup) [top](#top)";
         const fallback = invoke.getMockImplementation()!;
         invoke.mockImplementation(async (command: string, args?: unknown) => {
-            if (command === "read_file_versioned") return { content: readme, version: "version-1" };
+            if (fileRead(command, args)) return wholeFile(readme, "version-1");
             return fallback(command, args);
         });
         queueWithoutLine();

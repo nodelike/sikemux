@@ -4,7 +4,7 @@ import { basename } from "../../plugin-api/host";
 import { IconBruno, IS_MACOS } from "../../plugin-api/ui";
 import { BrunoOverlay } from "./components/BrunoOverlay";
 import { brunoDocuments } from "./documents";
-import { BRUNO_CLIENT, BRUNO_PLUGIN_ID } from "./kinds";
+import { BRUNO_CLIENT, BRUNO_PLUGIN } from "./kinds";
 import {
     activeBrunoPane,
     brunoSaveRequest,
@@ -28,11 +28,11 @@ const inBruno = (action: (paneId: string) => void) => () => {
 };
 
 registerFrontendPlugin({
-    id: BRUNO_PLUGIN_ID,
+    id: BRUNO_PLUGIN.id,
     surfaces: [
         {
             kind: BRUNO_CLIENT,
-            title: "Bruno",
+            title: BRUNO_PLUGIN.name,
             icon: (size) => <IconBruno size={size} />,
             render: ({ paneId, visible }) => <BrunoPane paneId={paneId} active={visible} />,
             quickOpen: () => togglePalette("requestPalette"),
@@ -40,7 +40,7 @@ registerFrontendPlugin({
         },
     ],
     open: () => openBrunoSession(),
-    openTitle: "Open Bruno",
+    openTitle: `Open ${BRUNO_PLUGIN.name}`,
     mark: (size) => <IconBruno size={size} />,
     openShortcut: IS_MACOS ? "Meta+Alt+KeyB" : "Ctrl+Alt+KeyB",
     shortcuts: [

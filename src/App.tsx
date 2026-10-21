@@ -29,7 +29,6 @@ import { ThemePalette } from "./palettes/ThemePalette";
 import { AccountDialogHost } from "./agents/AccountDialog";
 import { DialogHost } from "./shell/DialogHost";
 import { ShareHost } from "./share/ShareControls";
-import { BuddyBridge } from "./buddies/Buddy";
 import { BuddyPickerHost } from "./buddies/BuddyPicker";
 import { ImageViewer } from "./editor/ImageViewer";
 import { useOccludeNativeViews } from "./state/nativeViews";
@@ -69,6 +68,7 @@ import { startSpareShells } from "./terminal/spareShell";
 import { coreSessionsApi } from "./api/coreSessions";
 import type { Workspace as SharedWorkspace } from "./api/generated/wire";
 import { fetchCoreWorkspace, startCoreWorkspace } from "./state/coreWorkspace";
+import { startHosts } from "./hosts/hosts";
 import { applyHydrate, canFlushPersist, flushPersist, hydrationAllowsPersistence, subscribePersist, type HydrationResult } from "./state/persist";
 import {
     dispatchFolder,
@@ -92,33 +92,25 @@ import { dirname } from "./lib/paths";
 import type { StandaloneCommand } from "./commands/registry";
 import { agentDetectionApi } from "./api/agentDetection";
 import { allowLanguageServers } from "./editor/languageServerTrust";
-import { projectActionCommand, trustProjectConfig } from "./projects/projectConfigRuntime";
+import { trustProjectConfig } from "./projects/projectConfigRuntime";
+import { projectActionCommands } from "./projects/projectActions";
 import { worktreeHasLiveOwners } from "./git/worktreeLifecycle";
 import { performanceTelemetry } from "./lib/performance";
-import { workbenchRuntime } from "./workbench/runtime";
+import { releaseClosedPaneResources } from "./terminal/paneResources";
 import { personRuns, runProjectTask, stopTaskRun } from "./tasks/projectTaskActions";
 import { useProjectTasks, useTaskRuns, type ProjectTask, type TaskRun } from "./tasks/coreTasks";
 import { showTaskTerminals } from "./tasks/taskTerminals";
-import { activeProjectConfigMatches, whenTrusted } from "./projects/projectTrust";
-import {
-    applicationActionContext,
-    applicationActionContextFingerprint,
-    executeApplicationAction,
-    getApplicationActionRevision,
-    loadApplicationActions,
-    resolveApplicationActions,
-    subscribeApplicationActions,
-} from "./actions/bridge";
-import { projectControllerBridge } from "./projects/controllerBridge";
+import { activeProject, refreshProject, setOpenProjects, subscribeProjects, watchProjects } from "./projects/projectState";
 import { onCoreChanged, type CoreChange } from "./api/coreChanged";
 import { pluginsApi } from "./api/plugins";
 import "./plugins/builtin";
 import { watchInbox } from "./rail/useInbox";
 import { useInstalledPlugins } from "./plugins/installed";
 import { useRailDock } from "./rail/railMotion";
+import { openUrl } from "./api/system";
+import brandMark from "../brand/mark/mark-white.svg";
 
 const SettingsPanel = lazy(() => import("./settings/SettingsPanel").then((module) => ({ default: module.SettingsPanel })));
-const ProjectSettingsPanel = lazy(() => import("./settings/ProjectSettingsPanel").then((module) => ({ default: module.ProjectSettingsPanel })));
 
 /* The welcome, the release notes and the diagnostics panel, none of which exist
    until someone opens one. */
@@ -171,14 +163,16 @@ export function gitChangeInvalidates(kind: string, args: unknown[], repo: string
 }
 
 /** Reads again what the core says moved in a project: the paths, with `.git` standing for its git state, which anything may depend on. */
-export function onGitChanged({ project, paths }: CoreChange): void {
+export function onGitChanged({ project, paths, host }: CoreChange): void {
     const repo = project ?? "";
     // An empty list would mean "these zero paths changed", and the scoped
     // consumers would refresh nothing, so it means "unknown" as none does.
     const moved = paths?.length && !paths.includes(".git") ? [...paths] : null;
-    filesApi.invalidate(repo || undefined);
-    invalidate((kind, args) => gitChangeInvalidates(kind, args, repo, moved));
-    emit({ type: "fs-changed", repo, ...(moved ? { paths: moved } : {}) });
+    if (host === undefined) {
+        filesApi.invalidate(repo || undefined);
+        invalidate((kind, args) => gitChangeInvalidates(kind, args, repo, moved));
+    }
+    emit({ type: "fs-changed", repo, ...(moved ? { paths: moved } : {}), ...(host === undefined ? {} : { host }) });
 }
 
 interface TreeDropTarget {
@@ -261,71 +255,27 @@ function projectRepoKeyOf(s: ReturnType<typeof getState>): string {
 }
 
 /*
- * The live project, kept in step with the controller, the task registry and the
- * actions a checked-in sikemux.json contributes.
+ * The live project, kept in step with the controller and the task registry.
  *
- * All of it hangs off which project is in front and what its config says, so it
- * sits below the shell rather than inside it: the shell no longer re-renders
+ * All of it hangs off which project is in front, so it sits below the shell rather than inside it: the shell no longer re-renders
  * because a task started or a worktree list came back.
  */
 function ProjectBridge() {
-    const activeSessionId = useStore((s) => s.activeSessionId);
     const activeProjectCwd = useStore(activeProjectCwdOf);
     const projectRepoKey = useStore(projectRepoKeyOf);
-    const projectControllerSnapshot = useSyncExternalStore(
-        projectControllerBridge.subscribe,
-        projectControllerBridge.getActiveSnapshot,
-        projectControllerBridge.getActiveSnapshot,
-    );
-    const projectConfig = projectControllerSnapshot?.cwd === activeProjectCwd ? (projectControllerSnapshot.config ?? null) : null;
 
-    useEffect(() => {
-        void projectControllerBridge.start();
-        return () => {
-            projectControllerBridge.stop();
-        };
-    }, []);
+    useEffect(() => watchProjects(), []);
 
     useEffect(() => {
         showTaskTerminals();
         return onCoreChanged("tasks", (change) => {
-            if (change.project) void projectControllerBridge.refresh(change.project);
+            if (change.project) void refreshProject(change.project);
         });
     }, []);
 
     useEffect(() => {
-        let cancelled = false;
-        let dispose: (() => void) | null = null;
-        if (!activeProjectCwd || projectConfig?.status !== "valid") return;
-
-        void loadApplicationActions()
-            .then((runtime) => {
-                if (cancelled) return;
-                const registration = runtime.registerProjectActions({
-                    projectId: activeSessionId,
-                    projectRoot: activeProjectCwd,
-                    configPath: projectConfig.path,
-                    actions: projectConfig.config.actions,
-                    isCurrent: () => activeProjectConfigMatches(activeProjectCwd, projectConfig),
-                    execute: (action) => {
-                        whenTrusted(activeProjectCwd, projectConfig, () => cmd.runCustomCommand(projectActionCommand(action)));
-                    },
-                });
-                dispose = () => registration.dispose();
-            })
-            .catch((error: unknown) => {
-                if (!cancelled) reportError("load project actions")(error);
-            });
-
-        return () => {
-            cancelled = true;
-            dispose?.();
-        };
-    }, [activeProjectCwd, activeSessionId, projectConfig]);
-
-    useEffect(() => {
         const roots = projectRepoKey ? projectRepoKey.split("\0") : [];
-        void projectControllerBridge.reconcile(roots, activeProjectCwd || null);
+        setOpenProjects(roots, activeProjectCwd || null);
     }, [activeProjectCwd, projectRepoKey]);
 
     return null;
@@ -355,19 +305,12 @@ function ApplicationCommandPalette() {
         const id = s.sessions[s.activeSessionId]?.activeWindowId;
         return id && s.windows[id]?.role === "term" ? id : null;
     });
-    const projectControllerSnapshot = useSyncExternalStore(
-        projectControllerBridge.subscribe,
-        projectControllerBridge.getActiveSnapshot,
-        projectControllerBridge.getActiveSnapshot,
-    );
+    const projectControllerSnapshot = useSyncExternalStore(subscribeProjects, activeProject, activeProject);
     const activeProjectSnapshot = projectControllerSnapshot?.cwd === activeProjectCwd ? projectControllerSnapshot : null;
     const projectConfig = activeProjectSnapshot?.config ?? null;
     const activeWorktrees = activeProjectSnapshot?.worktrees ?? [];
     const offeredTasks = useProjectTasks(activeProjectCwd || null);
     const taskRuns = useTaskRuns();
-    useSyncExternalStore(subscribeApplicationActions, getApplicationActionRevision, getApplicationActionRevision);
-    useStore(applicationActionContextFingerprint);
-    const actionContext = applicationActionContext(getState());
 
     const runStandalone =
         (id: string, execute: () => void): (() => void) =>
@@ -375,19 +318,9 @@ function ApplicationCommandPalette() {
             cmd.noteRecentCommand(`standalone:${id}`);
             execute();
         };
-    const contributedActionCommands: StandaloneCommand[] = resolveApplicationActions(actionContext).map((action) => ({
-        id: action.commandId,
-        title: action.title,
-        detail: action.detail,
-        category: action.category,
-        shortcut: action.shortcut,
-        disabled: !action.enabled,
-        execute: () => {
-            void executeApplicationAction(action.actionId, applicationActionContext(getState())).catch(reportError(`run action ${action.commandId}`));
-        },
-    }));
     const projectCommands: StandaloneCommand[] = [];
     if (projectConfig?.status === "valid") {
+        projectCommands.push(...projectActionCommands(activeProjectCwd, projectConfig));
         if (projectConfig.config.preview?.command) {
             projectCommands.push({
                 id: "project.preview.start",
@@ -416,9 +349,7 @@ function ApplicationCommandPalette() {
                 detail: projectConfig.config.preview.url,
                 category: "Project · Preview",
                 execute: runStandalone("project.preview.open", () => {
-                    void invoke("open_url", { url: projectConfig.config.preview!.url!, app: null, shortcut: null }).catch(
-                        reportError("open project preview"),
-                    );
+                    void openUrl(projectConfig.config.preview!.url!).catch(reportError("open project preview"));
                 }),
             });
         }
@@ -494,7 +425,7 @@ function ApplicationCommandPalette() {
                                   return git
                                       .worktreeRemove(activeProjectCwd, worktree.path)
                                       .then(async () => {
-                                          await projectControllerBridge.refresh(activeProjectCwd);
+                                          await refreshProject(activeProjectCwd);
                                           notify("success", `Removed worktree ${worktree.branch ?? worktree.path}`);
                                       })
                                       .catch(reportError("remove worktree"));
@@ -507,6 +438,13 @@ function ApplicationCommandPalette() {
     const standaloneCommands: StandaloneCommand[] = [
         ...(activeKind === "project" && activeProjectCwd
             ? [
+                  {
+                      id: "project.settings",
+                      title: "Project settings",
+                      detail: "How its code is built and run, what agents know and may do, and its Git and worktrees",
+                      category: "Project",
+                      execute: runStandalone("project.settings", () => cmd.openProjectSettings()),
+                  } satisfies StandaloneCommand,
                   languageServersAllowedHere
                       ? ({
                             id: "project.language-servers.stop",
@@ -587,7 +525,6 @@ function ApplicationCommandPalette() {
         },
         ...worktreeCommands,
         ...taskCommands,
-        ...contributedActionCommands,
         ...projectCommands,
     ];
 
@@ -620,6 +557,22 @@ function ShellBackdrop() {
     return useBackdropImage() ? <div className="shell-image" aria-hidden="true" /> : null;
 }
 
+/** A start that finishes within this shows only the window's ground, so it never flashes. */
+const SHOW_BOOT_AFTER_MS = 400;
+/** A start still going after this says what it waits on. */
+const NAME_THE_WAIT_AFTER_MS = 3000;
+
+/** Whether `after` milliseconds have passed while the app is still starting. */
+function useBootDelay(ready: boolean, after: number): boolean {
+    const [passed, setPassed] = useState(false);
+    useEffect(() => {
+        if (ready) return;
+        const timer = setTimeout(() => setPassed(true), after);
+        return () => clearTimeout(timer);
+    }, [ready, after]);
+    return passed;
+}
+
 export default function App() {
     useKeymap();
     usePinchZoom();
@@ -632,6 +585,9 @@ export default function App() {
     useRailWidthVars();
     const [bootReady, setBootReady] = useState(false);
     const [bootIssue, setBootIssue] = useState<string | null>(null);
+    const [coreAnswered, setCoreAnswered] = useState(false);
+    const bootShown = useBootDelay(bootReady, SHOW_BOOT_AFTER_MS);
+    const bootSlow = useBootDelay(bootReady, NAME_THE_WAIT_AFTER_MS);
     const sideRailVisible = useStore((s) => s.sideRailOpen);
     const tabRailVisible = useStore((s) => s.tabRailOpen);
     const activeSessionIsProject = useStore((s) => s.sessions[s.activeSessionId]?.kind === "project");
@@ -647,7 +603,6 @@ export default function App() {
         void simApi.offerToAgents(iosSimulator).catch(swallow("switch the iOS Simulator"));
     }, [iosSimulator]);
     const settingsOpen = useStore((s) => s.settingsOpen);
-    const projectSettingsOpen = useStore((s) => s.projectSettingsPage !== null);
     const uiTextScale = useStore((s) => s.uiTextScale);
     useEffect(() => {
         document.documentElement.style.setProperty("--ui-text-scale", String(uiTextScale));
@@ -669,7 +624,6 @@ export default function App() {
             filePaletteOpen ||
             newTabPaletteOpen ||
             settingsOpen ||
-            projectSettingsOpen ||
             commandPaletteOpen ||
             themePaletteOpen ||
             sessionSwitcherOpen ||
@@ -681,6 +635,8 @@ export default function App() {
         let disposed = false;
         let unsub = () => {};
         let stopSpareShells = () => {};
+        let stopHosts = () => {};
+        let stopPaneResources = () => {};
         let stopAccountSync = () => {};
         let stopWorkspaceSync = () => {};
         let bootFinished = false;
@@ -695,8 +651,13 @@ export default function App() {
         void pluginsApi.manifests().then(cmd.setPluginManifests, swallow("plugin manifests"));
         let accounts: AgentAccountBook | null | undefined;
         let workspace: SharedWorkspace | undefined;
-        Promise.all([invoke<BootInfo>("boot_init"), agentApi.accounts().catch(() => undefined), fetchCoreWorkspace()])
-            .then(([boot, book, shared]) => {
+        const fromCore = Promise.all([agentApi.accounts().catch(() => undefined), fetchCoreWorkspace()]);
+        void fromCore.then(
+            () => !disposed && setCoreAnswered(true),
+            () => {},
+        );
+        Promise.all([invoke<BootInfo>("boot_init"), fromCore])
+            .then(([boot, [book, shared]]) => {
                 if (disposed) return;
                 accounts = book;
                 workspace = shared;
@@ -739,14 +700,7 @@ export default function App() {
             .finally(() => {
                 const writable = hydrationResult !== null && hydrationAllowsPersistence(hydrationResult);
                 if (!disposed && writable) {
-                    try {
-                        workbenchRuntime.start();
-                    } catch (error) {
-                        setBootIssue("Sikemux could not open the saved workspace. Nothing has been written; reload to retry.");
-                        finishBoot("error");
-                        swallow("workbench start")(error);
-                        return;
-                    }
+                    stopPaneResources = releaseClosedPaneResources();
                     unsub = subscribePersist();
                     if (workspace) stopWorkspaceSync = startCoreWorkspace(workspace);
                     stopAccountSync = syncAgentAccounts(accounts);
@@ -754,6 +708,7 @@ export default function App() {
                     introduceNotifications();
                     void restoreCoreSessions();
                     stopSpareShells = startSpareShells();
+                    stopHosts = startHosts();
                 }
                 finishBoot(disposed ? "cancelled" : writable ? "success" : "error");
             });
@@ -764,7 +719,8 @@ export default function App() {
             stopWorkspaceSync();
             stopAccountSync();
             stopSpareShells();
-            workbenchRuntime.stop();
+            stopHosts();
+            stopPaneResources();
         };
     }, []);
 
@@ -784,7 +740,7 @@ export default function App() {
     useEffect(() => watchTerminalTitles(), []);
     useEffect(() => watchFocusForAgentStatus(), []);
     /* Fetched ahead so the first chat opened draws at once; a failure here leaves opening one to fetch it again. */
-    useEffect(() => whenIdle(() => void import("./chat/AgentSurface").catch(() => undefined)), []);
+    useEffect(() => whenIdle(() => void import("./chat/AgentSurface").catch(swallow("preload the chat surface"))), []);
 
     useEffect(() => {
         let disposed = false;
@@ -895,18 +851,25 @@ export default function App() {
     if (!bootReady) {
         return (
             <div className="shell boot-shell">
-                <section className="boot-state" role={bootIssue ? "alert" : "status"} aria-live="polite">
-                    <span className="boot-state-mark" aria-hidden="true">
-                        S
-                    </span>
-                    <h1>{bootIssue ? "Workspace protected" : "Opening workspace"}</h1>
-                    <p>{bootIssue ?? "Hydrating sessions and preparing terminal ownership…"}</p>
-                    {bootIssue && (
+                {bootIssue ? (
+                    <section className="boot-state" role="alert" aria-live="polite">
+                        <img className="boot-state-mark" src={brandMark} alt="" />
+                        <h1>Workspace protected</h1>
+                        <p>{bootIssue}</p>
                         <button type="button" onClick={() => window.location.reload()}>
                             Reload safely
                         </button>
-                    )}
-                </section>
+                    </section>
+                ) : (
+                    bootShown && (
+                        <section className="boot-state" role="status" aria-live="polite" aria-label="Opening Sikemux">
+                            <img className="boot-state-mark" src={brandMark} alt="" />
+                            {bootSlow && (
+                                <p className="boot-state-wait">{coreAnswered ? "Opening your workspace" : "Waiting for Sikemux to start"}</p>
+                            )}
+                        </section>
+                    )
+                )}
                 <Toaster />
             </div>
         );
@@ -922,7 +885,6 @@ export default function App() {
             <NotchBridge />
             <RemoteChatBridge />
             <AgentNameBridge />
-            <BuddyBridge />
             <AgentQuestionBridge />
             <AgentBoardBridge />
             <GlobalSkillsBridge />
@@ -937,16 +899,11 @@ export default function App() {
                         <SideRail />
                     </RailPeek>
                 )}
-                <main className={`stage${settingsOpen || projectSettingsOpen ? " stage--settings" : ""}`}>
+                <main className={`stage${settingsOpen ? " stage--settings" : ""}`}>
                     <Workspace />
                     {settingsOpen && (
                         <Suspense fallback={null}>
                             <SettingsPanel />
-                        </Suspense>
-                    )}
-                    {projectSettingsOpen && !settingsOpen && (
-                        <Suspense fallback={null}>
-                            <ProjectSettingsPanel />
                         </Suspense>
                     )}
                 </main>

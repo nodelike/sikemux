@@ -1,9 +1,6 @@
+import { recordOf } from "../lib/guards";
 import type { AcpEvent } from "../api/acp";
 import type { AcpPermissionRequest, ChatAction, ChatFailure } from "./types";
-
-export function recordOf(value: unknown): Record<string, unknown> | null {
-    return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
 
 type ChatEvent = Pick<AcpEvent, "payload"> & { kind: string };
 

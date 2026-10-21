@@ -37,21 +37,32 @@ unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_CERTIFI
 unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
 export APPLE_SIGNING_IDENTITY=-
 
+# The Release workflow compiles the app and packs it on separate machines, so
+# the app compiles while the core does: BUILD_STEP=compile, then BUILD_STEP=package.
+STEP="${BUILD_STEP:-all}"
+[[ "$STEP" == "all" || "$STEP" == "compile" || "$STEP" == "package" ]] || {
+  echo "BUILD_STEP must be compile or package" >&2
+  exit 2
+}
+
 "$ROOT/scripts/icons.sh"
 TARGET_ARGS=()
 [[ -n "$TARGET" ]] && TARGET_ARGS=(--target "$TARGET")
 # A release builds the voice and simulator helpers first and signs them, because
 # the app is compiled with their hashes.
-if [[ "${PREBUILT_HELPERS:-0}" != "1" ]]; then
+if [[ "${PREBUILT_HELPERS:-0}" != "1" && "$STEP" != "package" ]]; then
   node "$ROOT/scripts/build-voice-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
   node "$ROOT/scripts/build-sim-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 fi
+if [[ "$STEP" != "package" ]]; then
+  printf '→ pnpm tauri build --no-bundle'
+  printf ' %q' "${BUILD_ARGS[@]}"
+  echo
+  pnpm tauri build --no-bundle "${BUILD_ARGS[@]}"
+fi
+[[ "$STEP" == "compile" ]] && exit 0
 node "$ROOT/scripts/build-notch-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 node "$ROOT/scripts/build-cli-sidecar.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
-printf '→ pnpm tauri build --no-bundle'
-printf ' %q' "${BUILD_ARGS[@]}"
-echo
-pnpm tauri build --no-bundle "${BUILD_ARGS[@]}"
 printf '→ pnpm tauri bundle'
 printf ' %q' "${BUILD_ARGS[@]}"
 echo

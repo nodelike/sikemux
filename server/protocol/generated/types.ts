@@ -79,6 +79,12 @@ export const apnsEnvironmentValues: readonly ApnsEnvironment[] = [
   "production",
 ];
 
+/** The host a sign-in code belonged to, once approved. */
+export interface ApprovedHost {
+  key: DeviceKey;
+  name: string;
+}
+
 /** A semantic version, such as 0.5.0 or 0.6.0-nightly.3. */
 export type AppVersion = string;
 
@@ -124,6 +130,11 @@ export interface DeviceRegistration {
   channel?: Channel;
   nonce: string;
   signature: string;
+}
+
+/** What a device or host is called on the account, everywhere it is shown. */
+export interface DeviceRename {
+  name: string;
 }
 
 /** A host is a core people connect to, such as a Mac. A client connects to hosts, such as a phone. */
@@ -237,7 +248,7 @@ export interface JoinRequest {
   host: DeviceKey;
 }
 
-/** The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal. */
+/** The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them. */
 export interface JoinTicket {
   /** The ticket's format. Only 1 exists. */
   v: number;
@@ -251,6 +262,10 @@ export interface JoinTicket {
   issuedAt: number;
   /** When it stops being good, in unix seconds: ten minutes after issuedAt. */
   expiresAt: number;
+  /** The host that added the joining app to the account, when a host did, so the host it joins can say which. */
+  via?: DeviceKey;
+  /** What the account calls the host in via. */
+  viaName?: string;
   signature: string;
 }
 
@@ -653,12 +668,12 @@ export interface ShareHost {
 /** A shared chat's id: 16 random bytes the host picks, in unpadded base64url. */
 export type ShareId = string;
 
-/** Host only: start a share. The server answers opened or refused. */
+/** Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link. */
 export interface ShareOpen {
   type: "open";
   share: ShareId;
   expiresAt: string;
-  viewers: ShareViewerCheck;
+  viewers?: ShareViewerCheck;
 }
 
 /** To the host: the share is open and viewers may join. */
@@ -768,6 +783,7 @@ export interface Definitions {
   AccountStatus: AccountStatus;
   ApiError: ApiError;
   ApnsEnvironment: ApnsEnvironment;
+  ApprovedHost: ApprovedHost;
   AppVersion: AppVersion;
   Challenge: Challenge;
   Channel: Channel;
@@ -776,6 +792,7 @@ export interface Definitions {
   DeviceKey: DeviceKey;
   DeviceList: DeviceList;
   DeviceRegistration: DeviceRegistration;
+  DeviceRename: DeviceRename;
   DeviceRole: DeviceRole;
   ErrorCode: ErrorCode;
   ErrorDetail: ErrorDetail;

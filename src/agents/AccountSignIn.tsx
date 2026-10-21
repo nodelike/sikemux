@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { portsApi } from "../api/ports";
 import { reportError } from "../state/toast";
 import type { ProviderProfile } from "../state/types";
 import { cancelSignIn, dismissSignIn, signIn, submitSignInCode, useSignIn } from "./accounts";
+import { openUrl } from "../api/system";
 
 /**
  * Signs one account in through its CLI's own login. While the browser is out,
@@ -28,10 +28,7 @@ export function AccountSignIn({
             <span className="account-sign-in waiting">
                 <span className="account-sign-in-note">Finish signing in in your browser</span>
                 {state.url && (
-                    <button
-                        type="button"
-                        className={buttonClass}
-                        onClick={() => void portsApi.openExternal(state.url!).catch(reportError("Open sign-in page"))}>
+                    <button type="button" className={buttonClass} onClick={() => void openUrl(state.url!).catch(reportError("Open sign-in page"))}>
                         Open page
                     </button>
                 )}

@@ -15,8 +15,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), slackApi: api }));
 
-import { invalidate } from "../../../plugin-api/resources";
 import { SlackPane } from "./SlackPane";
+import { slack } from "../resources";
 
 const signedIn: SlackStatus = {
     configured: true,
@@ -43,7 +43,7 @@ const renderPane = () => render(<SlackPane paneId={`slack-${++pane}`} active />)
 
 afterEach(() => {
     cleanup();
-    invalidate((kind) => kind.startsWith("slack."));
+    slack.refresh();
 });
 
 beforeEach(() => {

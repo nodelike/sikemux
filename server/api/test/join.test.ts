@@ -157,11 +157,12 @@ describe("POST /v1/devices/{key}/join", () => {
     expect((await join(phone.key, other.key, token)).status).toBe(404);
   });
 
-  it("refuses the Mac app's sign-in", async () => {
+  it("links hosts for the Mac app's sign-in, as Macs on 0.5.3 ask, but joins no phone", async () => {
     const { host, phone } = await account();
-    const response = await join(phone.key, host.key, await macToken("user_a"));
-    expect(response.status).toBe(403);
-    expect((await body(response, "ApiError")).error.code).toBe("forbidden");
+    const other = await registered(app, "user_a", "host");
+    const token = await macToken("user_a");
+    expect((await join(other.key, host.key, token)).status).toBe(200);
+    expect((await join(phone.key, host.key, token)).status).toBe(404);
   });
 
   it("refuses a request without a host key", async () => {

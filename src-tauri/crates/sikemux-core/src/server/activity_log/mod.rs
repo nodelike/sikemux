@@ -9,20 +9,22 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::Value;
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
-use crate::acp::account::directory_variable;
 use crate::agent_catalog::AgentKind;
 use crate::launch::model_feed::Feed;
+use crate::launch::named_account;
 pub(crate) use pricing::PriceOverride;
 use pricing::{Prices, PricingInfo};
 
-use super::transcript::{self, Cli};
+use super::transcript;
 use super::Core;
 
 const DAY_MS: i64 = 86_400_000;
@@ -52,9 +54,7 @@ pub(crate) struct Transcript {
 pub(crate) fn place(core: &Core, agent_id: &str) -> Option<Place> {
     if let Some(chat) = core.chats.get(agent_id) {
         let launch = chat.current_launch();
-        let home = directory_variable(&launch.provider)
-            .and_then(|variable| launch.env.get(variable))
-            .map(PathBuf::from);
+        let home = named_account(&launch.provider, &launch.env).map(PathBuf::from);
         let session = chat.feed.start().map(|start| start.session_id);
         return Some(Place {
             transcript: transcript_of(&launch.provider, session, home.as_deref()),
@@ -82,12 +82,8 @@ pub(crate) fn transcript_of(
     home: Option<&Path>,
 ) -> Option<Transcript> {
     let session = session?;
-    let cli = Cli::of(agent)?;
-    let path = transcript::locate(cli, home, &session)?;
-    let kind = match cli {
-        Cli::Claude => AgentKind::Claude,
-        Cli::Codex => AgentKind::Codex,
-    };
+    let kind = AgentKind::from_name(agent)?;
+    let path = transcript::locate(kind, home, &session)?;
     Some(Transcript {
         kind,
         session,
@@ -96,9 +92,7 @@ pub(crate) fn transcript_of(
 }
 
 pub(crate) fn chat_launched(core: &Core, launch: &crate::protocol::ChatLaunch) {
-    let home = directory_variable(&launch.provider)
-        .and_then(|variable| launch.env.get(variable))
-        .map(PathBuf::from);
+    let home = named_account(&launch.provider, &launch.env).map(PathBuf::from);
     let place = Place {
         agent: launch.provider.clone(),
         cwd: launch.cwd.to_string_lossy().into_owned(),
@@ -112,7 +106,7 @@ pub(crate) fn chat_launched(core: &Core, launch: &crate::protocol::ChatLaunch) {
 pub(crate) fn resumed_by(spawn: &crate::protocol::TerminalSpawn) -> Option<Option<String>> {
     let command = spawn.direct_command.as_ref()?;
     let agent = spawn.context.as_ref()?.agent_type.as_deref()?;
-    Some(resumed_session_in_args(agent, &command.args).map(str::to_owned))
+    Some(crate::launch::terminal::resumed_session(agent, &command.args).map(str::to_owned))
 }
 
 pub(crate) fn terminal_launched(
@@ -152,12 +146,6 @@ pub(crate) struct ActivityLog {
     feed: Option<Feed>,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
 /// The database the app kept before the core did, moved over once.
 fn take_over_app_database(path: &Path) {
     let Some(old) = sikemux_process::paths::config_file("activity", "sqlite3") else {
@@ -193,7 +181,7 @@ impl ActivityLog {
     /// reason for the action it describes to fail, so errors are dropped here.
     fn with_database<T>(&self, work: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Option<T> {
         let path = self.path.as_ref()?;
-        let mut cache = lock(&self.database);
+        let mut cache = self.database.locked();
         if cache.is_none() {
             *cache = Some(open(path).ok()?);
         }
@@ -209,7 +197,7 @@ impl ActivityLog {
     /// only what is written from now on is counted.
     pub(crate) fn launched(self: &Arc<Self>, place: Place, transport: &'static str, resumed: bool) {
         let log = self.clone();
-        let at_ms = now_ms();
+        let at_ms = epoch_ms() as i64;
         in_background(move || {
             log.with_database(|db| {
                 db.execute(
@@ -237,9 +225,9 @@ impl ActivityLog {
 
     /// The agent began a turn; the commit it began on says which commits it made.
     pub(crate) fn turn_started(self: &Arc<Self>, agent_id: &str, cwd: String) {
-        let started_ms = now_ms();
+        let started_ms = epoch_ms() as i64;
         {
-            let mut turns = lock(&self.turns);
+            let mut turns = self.turns.locked();
             if turns.contains_key(agent_id) {
                 return;
             }
@@ -255,7 +243,9 @@ impl ActivityLog {
         let agent_id = agent_id.to_owned();
         in_background(move || {
             let head = head(&cwd);
-            if let Some(turn) = lock(&log.turns)
+            if let Some(turn) = log
+                .turns
+                .locked()
                 .get_mut(&agent_id)
                 .filter(|turn| turn.started_ms == started_ms)
             {
@@ -265,10 +255,10 @@ impl ActivityLog {
     }
 
     pub(crate) fn turn_ended(self: &Arc<Self>, agent_id: &str, place: Place) {
-        let Some(turn) = lock(&self.turns).remove(agent_id) else {
+        let Some(turn) = self.turns.locked().remove(agent_id) else {
             return;
         };
-        let ended_ms = now_ms();
+        let ended_ms = epoch_ms() as i64;
         let log = self.clone();
         in_background(move || {
             log.with_database(|db| {
@@ -318,7 +308,7 @@ impl ActivityLog {
     /// A commit the person made in Sikemux.
     pub(crate) fn record_commit(&self, repo: &str) {
         if let Some(sha) = head(repo) {
-            self.insert_commits(repo, &[(&sha, now_ms())], None);
+            self.insert_commits(repo, &[(&sha, epoch_ms() as i64)], None);
         }
     }
 
@@ -360,7 +350,7 @@ impl ActivityLog {
                 summarize(
                     db,
                     offset_ms.clamp(-DAY_MS, DAY_MS),
-                    now_ms(),
+                    epoch_ms() as i64,
                     project,
                     &prices,
                 )
@@ -443,45 +433,18 @@ fn migrate(connection: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
-}
-
 fn git(repo: &str, args: &[&str]) -> Option<String> {
-    let mut command = crate::git::git_command(repo);
-    command.args(args);
-    let output = sikemux_process::run(&mut command, None, GIT_TIMEOUT, 1024 * 1024, None).ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    crate::git::Git::at(repo)
+        .timeout(GIT_TIMEOUT)
+        .limit(1024 * 1024)
+        .text(args)
+        .ok()
 }
 
 fn head(repo: &str) -> Option<String> {
     git(repo, &["rev-parse", "--verify", "--quiet", "HEAD"])
         .map(|sha| sha.trim().to_string())
         .filter(|sha| !sha.is_empty())
-}
-
-/// The session a terminal agent's command resumes, read from its arguments.
-pub(crate) fn resumed_session_in_args<'a>(agent: &str, args: &'a [String]) -> Option<&'a str> {
-    if agent == "codex" {
-        return (args.first().map(String::as_str) == Some("resume"))
-            .then(|| args.last().map(String::as_str))
-            .flatten();
-    }
-    let flag = match agent {
-        "claude" | "hermes" | "omp" | "grok" => "--resume",
-        "pi" | "opencode" => "--session",
-        "muse" => "resume",
-        _ => return None,
-    };
-    args.windows(2)
-        .find(|pair| pair[0] == flag)
-        .map(|pair| pair[1].as_str())
 }
 
 // ---- tokens ------------------------------------------------------------
@@ -1167,19 +1130,25 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(
-            resumed_session_in_args("claude", &args(&["--model", "opus", "--resume", "abc"])),
+            crate::launch::terminal::resumed_session(
+                "claude",
+                &args(&["--model", "opus", "--resume", "abc"])
+            ),
             Some("abc")
         );
         assert_eq!(
-            resumed_session_in_args("codex", &args(&["resume", "--sandbox", "x", "abc"])),
+            crate::launch::terminal::resumed_session(
+                "codex",
+                &args(&["resume", "--sandbox", "x", "abc"])
+            ),
             Some("abc")
         );
         assert_eq!(
-            resumed_session_in_args("pi", &args(&["--session", "s1"])),
+            crate::launch::terminal::resumed_session("pi", &args(&["--session", "s1"])),
             Some("s1")
         );
         assert_eq!(
-            resumed_session_in_args("claude", &args(&["--model", "opus"])),
+            crate::launch::terminal::resumed_session("claude", &args(&["--model", "opus"])),
             None
         );
     }

@@ -7,8 +7,8 @@ const host = vi.hoisted(() => ({ confirmDialog: vi.fn() }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), databaseApi: api }));
 vi.mock("../../../plugin-api/host", async (importOriginal) => ({ ...(await importOriginal<object>()), ...host }));
 
-import { invalidate } from "../../../plugin-api/resources";
 import { HistoryPanel } from "./HistoryPanel";
+import { database } from "../resources";
 
 const NOW = Date.UTC(2026, 9, 4, 12, 0, 0);
 
@@ -21,7 +21,7 @@ const entries: HistoryEntry[] = [
 
 afterEach(() => {
     cleanup();
-    invalidate((kind) => kind.startsWith("database."));
+    database.refresh();
 });
 beforeEach(() => {
     api.history.mockReset();

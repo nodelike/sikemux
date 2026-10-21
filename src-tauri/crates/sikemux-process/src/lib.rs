@@ -7,9 +7,12 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+pub mod clock;
 pub mod files;
 pub mod paths;
+pub mod sync;
 pub mod user_environment;
+pub mod vars;
 
 #[derive(Debug)]
 pub enum ProcessRunError {

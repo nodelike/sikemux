@@ -60,7 +60,7 @@ export function ChatMenu({
         <View style={styles.confirm}>
           <Text style={styles.title}>Stop this chat?</Text>
           <Text style={styles.body}>
-            {agentName} stops on {hostName}, along with anything it still has running.
+            {agentName} stops and closes on {hostName}, along with anything it still has running.
           </Text>
           <Button
             kind="danger"

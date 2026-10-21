@@ -1,12 +1,11 @@
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::task::spawn_blocking;
 
 use super::context::session_transcript_path;
-use super::roots::{grok_root, omp_session_dirs};
+use super::roots::omp_session_dirs;
 use super::{condense, MAX_TITLE_CHARS};
 use crate::agent_catalog::AgentKind;
 use sikemux_process::paths::expand_home;
@@ -95,7 +94,7 @@ fn rename_session(
             super::omp::rename_omp_session(&path, &name, super::omp::omp_title_index().as_deref())
         }
         AgentKind::Grok => super::grok::rename_grok_session(
-            &grok_root().ok_or("session not found")?,
+            &AgentKind::Grok.home_root().ok_or("session not found")?,
             cwd,
             session_id,
             &name,
@@ -143,11 +142,7 @@ pub(super) fn append_line(path: &Path, line: &str) -> Result<(), String> {
 }
 
 pub(super) fn now_iso8601() -> String {
-    let ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(0);
-    crate::accounts::live::rfc3339(ms)
+    crate::accounts::live::rfc3339(sikemux_process::clock::epoch_ms())
 }
 
 #[cfg(test)]

@@ -1,177 +1,50 @@
-use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use base64::{engine::general_purpose, Engine as _};
-use serde::Serialize;
-use sha2::{Digest, Sha256};
+use serde_json::Value;
 use tauri::async_runtime::spawn_blocking;
 
 use crate::error::{AppError, AppResult};
 
-#[derive(Serialize)]
-pub struct DirEntry {
-    name: String,
-    path: String,
-    is_dir: bool,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    ignored: bool,
-}
-
-/// One directory's listing within a batch. A folder that has been deleted
-/// since the tree last saw it reports its own error instead of failing every
-/// other folder in the same request.
-#[derive(Serialize)]
-pub struct DirListing {
-    path: String,
-    entries: Vec<DirEntry>,
-    error: Option<String>,
-}
-
-/// What a path turned out to be, or nothing at all when it is not there.
-#[derive(Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PathKind {
-    File,
-    Dir,
-}
-
-#[derive(Serialize)]
-pub struct FileSnapshot {
-    content: String,
-    version: String,
-}
-
-#[derive(Serialize)]
-pub struct FileWriteResult {
-    version: String,
-}
-
-type FileWriteLock = Arc<Mutex<()>>;
-type WeakFileWriteLock = Weak<Mutex<()>>;
-
-fn file_write_locks() -> &'static Mutex<HashMap<PathBuf, WeakFileWriteLock>> {
-    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, WeakFileWriteLock>>> = OnceLock::new();
-    LOCKS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn write_lock_for(path: &Path) -> AppResult<FileWriteLock> {
-    let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let mut locks = file_write_locks()
-        .lock()
-        .map_err(|_| AppError::Other("file write lock registry poisoned".into()))?;
-    locks.retain(|_, lock| lock.strong_count() > 0);
-    if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
-        return Ok(lock);
-    }
-    let lock = Arc::new(Mutex::new(()));
-    locks.insert(key, Arc::downgrade(&lock));
-    Ok(lock)
-}
-
-fn content_version(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
-}
-
-/// List a directory, directories first then files, both alphabetical.
-/// `.git` is hidden; other dotfiles are kept (it's a code editor).
+/// The file tree's and the editor's methods on this host's own disk: the same
+/// `files.*` the core serves other devices, run here so nothing waits on the
+/// core's connection, and a whole file read at once.
 #[tauri::command]
-pub async fn read_dir(path: String) -> AppResult<Vec<DirEntry>> {
-    spawn_blocking(move || read_dir_sync(path))
-        .await
-        .map_err(|e| AppError::Other(format!("read_dir join: {e}")))?
-}
-
-fn read_dir_sync(path: String) -> AppResult<Vec<DirEntry>> {
-    let mut out = Vec::new();
-    for entry in fs::read_dir(&path)? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name == ".git" {
-            continue;
-        }
-        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        out.push(DirEntry {
-            name,
-            path: entry.path().to_string_lossy().into_owned(),
-            is_dir,
-            ignored: false,
-        });
-    }
-    out.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-    Ok(out)
-}
-
-/// How many directories one batch may list. The file tree asks about every
-/// folder the user has expanded, which is a number they choose.
-const READ_DIRS_MAX: usize = 512;
-
-/// List several directories in one round trip. A watcher rescan used to send
-/// one IPC per expanded folder.
-#[tauri::command]
-pub async fn read_dirs(paths: Vec<String>) -> AppResult<Vec<DirListing>> {
-    if paths.len() > READ_DIRS_MAX {
-        return Err(AppError::Fs(format!(
-            "a directory batch may name at most {READ_DIRS_MAX} paths"
-        )));
-    }
-    spawn_blocking(move || {
-        let mut listings: Vec<DirListing> = paths
-            .into_iter()
-            .map(|path| match read_dir_sync(path.clone()) {
-                Ok(entries) => DirListing {
-                    path,
-                    entries,
-                    error: None,
-                },
-                Err(error) => DirListing {
-                    path,
-                    entries: Vec::new(),
-                    error: Some(error.to_string()),
-                },
-            })
-            .collect();
-        mark_ignored(&mut listings);
-        listings
+pub async fn files_call(
+    manager: tauri::State<'_, crate::pty::PtyManager>,
+    method: String,
+    params: Value,
+) -> AppResult<Value> {
+    use sikemux_core::files;
+    let path = params
+        .get("path")
+        .and_then(Value::as_str)
+        .map(PathBuf::from);
+    let (method, answer) = spawn_blocking(move || {
+        let answer = files::run(&method, params, files::MAX_TEXT_BYTES);
+        (method, answer)
     })
     .await
-    .map_err(|e| AppError::Other(format!("read_dirs join: {e}")))
-}
-
-fn repo_root(dir: &Path) -> Option<PathBuf> {
-    dir.ancestors()
-        .find(|ancestor| ancestor.join(".git").exists())
-        .map(Path::to_path_buf)
-}
-
-/// Flags the entries git ignores, asking each repository once for all of its folders.
-fn mark_ignored(listings: &mut [DirListing]) {
-    let mut by_repo: HashMap<PathBuf, Vec<String>> = HashMap::new();
-    for listing in listings.iter() {
-        if let Some(root) = repo_root(Path::new(&listing.path)) {
-            let paths = by_repo.entry(root).or_default();
-            paths.extend(listing.entries.iter().map(|entry| entry.path.clone()));
-        }
+    .map_err(|e| AppError::Other(format!("files_call join: {e}")))?;
+    let answer = answer.map_err(|error| crate::pty::core_message(error.to_string()))?;
+    if let Some(path) = path.filter(|_| files::saved(&method, &answer)) {
+        person_wrote(&manager, path);
     }
-    let ignored: std::collections::HashSet<String> = by_repo
-        .into_iter()
-        .flat_map(|(root, paths)| sikemux_core::git::ignored_paths(&root.to_string_lossy(), &paths))
-        .collect();
-    if ignored.is_empty() {
+    Ok(answer)
+}
+
+/// Tells the core the person wrote `path`, so the change is theirs even
+/// while an agent is at work in the same checkout.
+fn person_wrote(manager: &crate::pty::PtyManager, path: PathBuf) {
+    let Some(client) = manager.current_client() else {
         return;
-    }
-    for entry in listings
-        .iter_mut()
-        .flat_map(|listing| listing.entries.iter_mut())
-    {
-        entry.ignored = ignored.contains(&entry.path);
-    }
+    };
+    tauri::async_runtime::spawn(async move {
+        let params = serde_json::json!({ "path": path });
+        let _ = client.call("personSaved", params).await;
+    });
 }
 
 /// A screenshot dragged straight from the macOS thumbnail lives in a folder
@@ -213,70 +86,7 @@ fn keep_copy(source: &Path, dir: &Path) -> Option<String> {
     Some(target.to_string_lossy().into_owned())
 }
 
-/// How many paths one batch may ask about. A transcript on screen mentions
-/// far fewer than this; the cap is what stops a runaway caller.
-const PATH_KINDS_MAX: usize = 256;
-
-/// Say which of these paths exist, and which of those are directories. The
-/// chat asks before it turns something that reads like a filename into a link.
-#[tauri::command]
-pub async fn path_kinds(paths: Vec<String>) -> AppResult<Vec<Option<PathKind>>> {
-    if paths.len() > PATH_KINDS_MAX {
-        return Err(AppError::Fs(format!(
-            "a path batch may name at most {PATH_KINDS_MAX} paths"
-        )));
-    }
-    spawn_blocking(move || {
-        paths
-            .into_iter()
-            .map(|path| {
-                fs::metadata(&path).ok().map(|meta| {
-                    if meta.is_dir() {
-                        PathKind::Dir
-                    } else {
-                        PathKind::File
-                    }
-                })
-            })
-            .collect()
-    })
-    .await
-    .map_err(|e| AppError::Other(format!("path_kinds join: {e}")))
-}
-
-#[tauri::command]
-pub async fn read_file(path: String) -> AppResult<String> {
-    spawn_blocking(move || {
-        let bytes = read_bounded(Path::new(&path), EDITOR_TEXT_MAX_BYTES)?;
-        String::from_utf8(bytes).map_err(|_| AppError::NotText(path))
-    })
-    .await
-    .map_err(|e| AppError::Other(format!("read_file join: {e}")))?
-}
-
-/// Read editor text together with an opaque content version. The version is
-/// subsequently required by `write_file_versioned`, so external edits cannot
-/// be silently replaced by a stale editor buffer.
-#[tauri::command]
-pub async fn read_file_versioned(path: String) -> AppResult<FileSnapshot> {
-    spawn_blocking(move || {
-        let path = PathBuf::from(path);
-        let lock = write_lock_for(&path)?;
-        let _guard = lock
-            .lock()
-            .map_err(|_| AppError::Other("file write lock poisoned".into()))?;
-        let bytes = read_bounded(&path, EDITOR_TEXT_MAX_BYTES)?;
-        let version = content_version(&bytes);
-        let content =
-            String::from_utf8(bytes).map_err(|_| AppError::NotText(path.display().to_string()))?;
-        Ok(FileSnapshot { content, version })
-    })
-    .await
-    .map_err(|e| AppError::Other(format!("read_file_versioned join: {e}")))?
-}
-
 const INLINE_TEXT_MAX_BYTES: u64 = 1024 * 1024;
-const EDITOR_TEXT_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Refuses anything but a regular file. Opening without blocking means a named
 /// pipe is turned away instead of hanging until something writes to it.
@@ -357,274 +167,6 @@ pub async fn open_in_default_app(path: String) -> AppResult<()> {
     spawn_blocking(move || open::that_detached(&path).map_err(AppError::from))
         .await
         .map_err(|e| AppError::Other(format!("open_in_default_app join: {e}")))?
-}
-
-#[tauri::command]
-pub async fn write_file(
-    manager: tauri::State<'_, crate::pty::PtyManager>,
-    path: String,
-    content: String,
-) -> AppResult<()> {
-    let written = PathBuf::from(&path);
-    spawn_blocking(move || write_file_atomic(PathBuf::from(path), content.as_bytes()))
-        .await
-        .map_err(|e| AppError::Other(format!("write_file join: {e}")))??;
-    person_wrote(&manager, written);
-    Ok(())
-}
-
-/// Tells the core the person wrote `path`, so the change is theirs even
-/// while an agent is at work in the same checkout.
-fn person_wrote(manager: &crate::pty::PtyManager, path: PathBuf) {
-    let Some(client) = manager.current_client() else {
-        return;
-    };
-    tauri::async_runtime::spawn(async move {
-        let params = serde_json::json!({ "path": path });
-        let _ = crate::core_call::call(&client, "personSaved".to_owned(), params).await;
-    });
-}
-
-/// Atomically replace an editor file only when its current content still
-/// matches the version the editor opened or most recently saved.
-#[tauri::command]
-pub async fn write_file_versioned(
-    manager: tauri::State<'_, crate::pty::PtyManager>,
-    path: String,
-    content: String,
-    expected_version: String,
-) -> AppResult<FileWriteResult> {
-    let written = PathBuf::from(&path);
-    let result = spawn_blocking(move || {
-        if expected_version.len() != 64
-            || !expected_version
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
-        {
-            return Err(AppError::BadArg(
-                "expected_version must be a SHA-256 hex digest",
-            ));
-        }
-        let path = PathBuf::from(path);
-        let lock = write_lock_for(&path)?;
-        let _guard = lock
-            .lock()
-            .map_err(|_| AppError::Other("file write lock poisoned".into()))?;
-        write_file_versioned_sync(path, content.as_bytes(), &expected_version)
-    })
-    .await
-    .map_err(|e| AppError::Other(format!("write_file_versioned join: {e}")))??;
-    person_wrote(&manager, written);
-    Ok(result)
-}
-
-/// Get the new bytes onto the device before the rename that publishes them.
-///
-/// macOS turns an ordinary fsync into a full flush of the drive's write cache,
-/// tens of milliseconds every save. A barrier gives the ordering this needs —
-/// no rename can reach the disk ahead of the bytes it names — without that
-/// flush, and is what SQLite and Apple's own frameworks ask for.
-///
-/// The directory is deliberately not flushed afterwards. Losing the rename to a
-/// power cut means the save did not happen, which the editor already survives;
-/// paying a second full barrier to rule that out is not worth a save.
-fn sync_before_replace(file: &fs::File) -> AppResult<()> {
-    #[cfg(target_os = "macos")]
-    {
-        use std::os::fd::AsRawFd;
-        // A filesystem that does not know the barrier falls through to fsync.
-        // SAFETY: `file` stays open for the call, so its descriptor is valid, and
-        // F_BARRIERFSYNC takes no pointer.
-        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } != -1 {
-            return Ok(());
-        }
-    }
-    file.sync_all()?;
-    Ok(())
-}
-
-fn version_or_conflict(path: &Path) -> AppResult<String> {
-    match read_bounded(path, EDITOR_TEXT_MAX_BYTES) {
-        Ok(bytes) => Ok(content_version(&bytes)),
-        Err(AppError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-            Err(AppError::FileConflict(format!(
-                "{} was deleted or moved outside Sikemux",
-                path.display()
-            )))
-        }
-        Err(error) => Err(error),
-    }
-}
-
-fn write_file_versioned_sync(
-    path: PathBuf,
-    content: &[u8],
-    expected_version: &str,
-) -> AppResult<FileWriteResult> {
-    let target = fs::canonicalize(&path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            AppError::FileConflict(format!(
-                "{} was deleted or moved outside Sikemux",
-                path.display()
-            ))
-        } else {
-            AppError::from(error)
-        }
-    })?;
-    let actual_version = version_or_conflict(&target)?;
-    if actual_version != expected_version {
-        return Err(AppError::FileConflict(format!(
-            "{} changed outside Sikemux; reload it before saving",
-            path.display()
-        )));
-    }
-
-    let parent = target
-        .parent()
-        .ok_or_else(|| AppError::Fs("invalid file path".into()))?;
-    let existing_permissions = fs::metadata(&target)?.permissions();
-    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-    temp.as_file().set_permissions(existing_permissions)?;
-    temp.write_all(content)?;
-    temp.flush()?;
-    sync_before_replace(temp.as_file())?;
-
-    // Re-check after the temporary file is durable. This narrows the external
-    // writer race to the final atomic replacement rather than the full write.
-    let latest_version = version_or_conflict(&target)?;
-    if latest_version != expected_version {
-        return Err(AppError::FileConflict(format!(
-            "{} changed while Sikemux was saving; no editor bytes were written",
-            path.display()
-        )));
-    }
-
-    temp.persist(&target).map_err(|e| AppError::from(e.error))?;
-    Ok(FileWriteResult {
-        version: content_version(content),
-    })
-}
-
-pub(crate) fn write_file_atomic(path: PathBuf, content: &[u8]) -> AppResult<()> {
-    // Preserve an existing symlink by replacing its resolved target instead
-    // of replacing the symlink itself with a regular file.
-    let target = fs::canonicalize(&path).unwrap_or(path);
-    let parent = target
-        .parent()
-        .ok_or_else(|| AppError::Fs("invalid file path".into()))?;
-    fs::create_dir_all(parent)?;
-    let existing_permissions = fs::metadata(&target).ok().map(|meta| meta.permissions());
-    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-    if let Some(permissions) = existing_permissions {
-        temp.as_file().set_permissions(permissions)?;
-    }
-    temp.write_all(content)?;
-    temp.flush()?;
-    sync_before_replace(temp.as_file())?;
-    temp.persist(&target).map_err(|e| AppError::from(e.error))?;
-    Ok(())
-}
-
-/// Write a new file, refusing to overwrite an existing path.
-#[tauri::command]
-pub async fn write_file_new(path: String, content: String) -> AppResult<()> {
-    spawn_blocking(move || write_file_new_sync(path, content))
-        .await
-        .map_err(|e| AppError::Other(format!("write_file_new join: {e}")))?
-}
-
-fn write_file_new_sync(path: String, content: String) -> AppResult<()> {
-    use std::io::Write;
-
-    let p = std::path::PathBuf::from(&path);
-    if let Some(parent) = p.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&p)
-        .map_err(AppError::from)?;
-    file.write_all(content.as_bytes()).map_err(AppError::from)
-}
-
-/// Create an empty file. Fails if it already exists so we never blow away
-/// an existing file with a "new file" action. Parent dirs are auto-created
-/// so the caller can pass nested paths in one go.
-#[tauri::command]
-pub async fn create_file(path: String) -> AppResult<()> {
-    spawn_blocking(move || create_file_sync(path))
-        .await
-        .map_err(|e| AppError::Other(format!("create_file join: {e}")))?
-}
-
-fn create_file_sync(path: String) -> AppResult<()> {
-    let p = std::path::PathBuf::from(&path);
-    if let Some(parent) = p.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&p)
-        .map(|_| ())
-        .map_err(|error| {
-            if error.kind() == std::io::ErrorKind::AlreadyExists {
-                AppError::Fs(format!("already exists: {path}"))
-            } else {
-                AppError::from(error)
-            }
-        })
-}
-
-/// Create a directory (and any missing parents). Idempotent — succeeds if
-/// the dir already exists, since "new folder" is forgiving.
-#[tauri::command]
-pub async fn create_dir(path: String) -> AppResult<()> {
-    spawn_blocking(move || fs::create_dir_all(&path).map_err(AppError::from))
-        .await
-        .map_err(|e| AppError::Other(format!("create_dir join: {e}")))?
-}
-
-/// Rename / move an entry. Refuses to overwrite an existing path so the
-/// rename UI can never silently clobber a file. Caller passes absolute
-/// `src` + absolute `dest`.
-#[tauri::command]
-pub async fn rename_path(src: String, dest: String) -> AppResult<()> {
-    spawn_blocking(move || rename_path_sync(src, dest))
-        .await
-        .map_err(|e| AppError::Other(format!("rename_path join: {e}")))?
-}
-
-fn rename_path_sync(src: String, dest: String) -> AppResult<()> {
-    let src_p = std::path::PathBuf::from(&src);
-    let dest_p = std::path::PathBuf::from(&dest);
-    if !src_p.exists() {
-        return Err(AppError::Fs(format!("source missing: {}", src)));
-    }
-    if let Some(parent) = dest_p.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    rename_no_replace(&src_p, &dest_p).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AlreadyExists {
-            AppError::Fs(format!("destination already exists: {dest}"))
-        } else {
-            AppError::from(error)
-        }
-    })
-}
-
-#[cfg(unix)]
-fn rename_no_replace(src: &Path, dest: &Path) -> std::io::Result<()> {
-    use rustix::fs::{renameat_with, RenameFlags, CWD};
-    renameat_with(CWD, src, CWD, dest, RenameFlags::NOREPLACE).map_err(std::io::Error::from)
-}
-
-#[cfg(windows)]
-fn rename_no_replace(src: &Path, dest: &Path) -> std::io::Result<()> {
-    // Windows MoveFile semantics refuse an existing destination unless the
-    // replace flag is explicitly requested; std::fs::rename does not request it.
-    fs::rename(src, dest)
 }
 
 /// Copy an external file into a target directory, preserving its basename.
@@ -853,61 +395,9 @@ fn reveal_in_finder_sync(path: String) -> AppResult<()> {
     Ok(())
 }
 
-/// Move a file or directory to the platform's recoverable Trash/Recycle Bin.
-#[tauri::command]
-pub async fn delete_path(path: String) -> AppResult<()> {
-    spawn_blocking(move || delete_path_sync(path))
-        .await
-        .map_err(|e| AppError::Other(format!("delete_path join: {e}")))?
-}
-
-fn delete_path_sync(path: String) -> AppResult<()> {
-    let p = std::path::PathBuf::from(&path);
-    if !p.exists() {
-        return Err(AppError::Fs(format!("path missing: {}", path)));
-    }
-    trash::delete(&p).map_err(|error| AppError::Fs(error.to_string()))?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn listings_flag_what_git_ignores() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let repo = dir.path();
-        let status = sikemux_process::user_environment::command("git")
-            .args(["init", "-q"])
-            .current_dir(repo)
-            .status()
-            .unwrap();
-        assert!(status.success());
-        fs::write(repo.join(".gitignore"), "*.log\ndist/\n").unwrap();
-        fs::write(repo.join("debug.log"), "").unwrap();
-        fs::write(repo.join("main.rs"), "").unwrap();
-        fs::create_dir(repo.join("dist")).unwrap();
-        fs::write(repo.join("dist/app.js"), "").unwrap();
-
-        let paths = [repo, &repo.join("dist")].map(|p| p.to_string_lossy().into_owned());
-        let listings = tauri::async_runtime::block_on(read_dirs(paths.to_vec())).unwrap();
-        let ignored: Vec<(&str, bool)> = listings
-            .iter()
-            .flat_map(|listing| &listing.entries)
-            .map(|entry| (entry.name.as_str(), entry.ignored))
-            .collect();
-        assert_eq!(
-            ignored,
-            [
-                ("dist", true),
-                (".gitignore", false),
-                ("debug.log", true),
-                ("main.rs", false),
-                ("app.js", true),
-            ]
-        );
-    }
 
     #[cfg(unix)]
     #[test]
@@ -964,47 +454,5 @@ mod tests {
             ),
             "contents that are not base64 must be refused"
         );
-    }
-
-    #[test]
-    fn a_versioned_save_replaces_the_file_and_refuses_a_stale_version() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("note.txt");
-        fs::write(&path, b"before").expect("seed");
-        let original = content_version(b"before");
-
-        let result = write_file_versioned_sync(path.clone(), b"after", &original)
-            .expect("the save must land");
-        assert_eq!(result.version, content_version(b"after"));
-        assert_eq!(fs::read(&path).expect("read back"), b"after");
-
-        let stale = write_file_versioned_sync(path.clone(), b"later", &original);
-        assert!(
-            matches!(stale, Err(AppError::FileConflict(_))),
-            "a stale version must be refused"
-        );
-        assert_eq!(fs::read(&path).expect("read back"), b"after");
-    }
-
-    #[test]
-    fn an_atomic_write_keeps_the_file_readable_and_keeps_its_permissions() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("script.sh");
-        fs::write(&path, b"old").expect("seed");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
-        }
-
-        write_file_atomic(path.clone(), b"new").expect("atomic write");
-
-        assert_eq!(fs::read(&path).expect("read back"), b"new");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(&path).expect("metadata").permissions().mode();
-            assert_eq!(mode & 0o777, 0o755);
-        }
     }
 }

@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, SkeletonRows, StaleNotice } from "../../../plugin-api/ui";
-import { failureMessage, signozApi, type TraceSummary } from "../api";
+import { errorText, formatDuration } from "../../../plugin-api/format";
+import { signozApi, type TraceSummary } from "../api";
 import { signozTracesR } from "../resources";
 import { scopeOf, signozSettings, updateView, useExploreView } from "../state";
 import { logTime } from "./LogRow";
-import { formatDuration } from "../../../plugin-api/format";
 
 const PAGE = 100;
 
@@ -43,7 +43,7 @@ export function TraceList({ paneId, active }: { paneId: string; active: boolean 
             <div className="sgz-trace-rows" role="list">
                 {first.status === "loading" && !first.data && <SkeletonRows rows={8} label="Loading traces" />}
                 <StaleNotice handle={first} />
-                {first.error && !first.data && <EmptyState tone="error" message={failureMessage(first.error)} />}
+                {first.error && !first.data && <EmptyState tone="error" message={errorText(first.error)} />}
                 {first.data && traces.length === 0 && <EmptyState message="No traces in this window." />}
                 {traces.map((trace) => (
                     <button

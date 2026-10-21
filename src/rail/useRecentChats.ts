@@ -4,6 +4,7 @@ import { getIpcTransport } from "../api/transport";
 import { usePageVisible } from "../hooks/usePageVisible";
 import { swallow } from "../state/toast";
 import type { AgentType } from "../state/types";
+import { chatKey } from "../state/selectors";
 
 export const RECENT_CHATS_PAGE = 12;
 const MAX_RELOAD = 100;
@@ -36,8 +37,6 @@ interface Loaded {
     status: RecentChats["status"];
 }
 
-export const chatKey = (chat: { agent: string; id: string }) => `${chat.agent}\0${chat.id}`;
-
 /**
  * Saved chats a page at a time. Changing what is listed starts again from the
  * top; anything that only changes what is in the list reloads the rows already
@@ -47,7 +46,7 @@ export function useRecentChats({ enabled, providers, projects, open, query }: Re
     const needle = query.trim();
     const providerList = useMemo(() => providers.map((provider) => ({ agent: provider.type, configPath: provider.configPath ?? null })), [providers]);
     const listKey = JSON.stringify([providerList, [...projects].sort(), needle]);
-    const exclude = useMemo(() => [...open].sort((a, b) => chatKey(a).localeCompare(chatKey(b))), [open]);
+    const exclude = useMemo(() => [...open].sort((a, b) => chatKey(a.agent, a.id).localeCompare(chatKey(b.agent, b.id))), [open]);
     const excludeKey = JSON.stringify(exclude);
 
     const [loaded, setLoaded] = useState<Loaded>({ listKey: "", chats: [], next: null, status: "loading" });
@@ -135,8 +134,12 @@ export function useRecentChats({ enabled, providers, projects, open, query }: Re
                 if (gen !== generation.current) return;
                 loadingMore.current = false;
                 setLoaded((current) => {
-                    const seen = new Set(current.chats.map(chatKey));
-                    return { ...current, chats: [...current.chats, ...page.sessions.filter((chat) => !seen.has(chatKey(chat)))], next: page.next };
+                    const seen = new Set(current.chats.map((chat) => chatKey(chat.agent, chat.id)));
+                    return {
+                        ...current,
+                        chats: [...current.chats, ...page.sessions.filter((chat) => !seen.has(chatKey(chat.agent, chat.id)))],
+                        next: page.next,
+                    };
                 });
             },
             (error: unknown) => {

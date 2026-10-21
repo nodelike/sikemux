@@ -715,8 +715,6 @@ impl Session {
                     None => Reply::Answer(approvals::cancelled_elicitation()),
                 }
             }
-            "execCommandApproval" => Reply::Ask(approvals::legacy_command(&session, params)),
-            "applyPatchApproval" => Reply::Ask(approvals::legacy_patch(&session, params)),
             _ => Reply::Refuse,
         }
     }
@@ -842,7 +840,7 @@ mod tests {
 
     #[test]
     fn a_usage_limit_says_when_it_resets() {
-        let now = crate::server::remote::unix_ms();
+        let now = sikemux_process::clock::epoch_ms();
         let said = |at: &str| {
             resets_at(&format!("You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at {at}."))
         };

@@ -2,20 +2,18 @@
 // with an access token, choosing the team calls are for, and saying who is signed in.
 
 use std::path::Path;
-use std::time::Duration;
 
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use sikemux_plugin_api::StreamSink;
+use sikemux_plugin_api::store;
+use sikemux_plugin_api::{SignInStatus, StreamSink};
 
 use crate::client::{self, at, text, Session};
 use crate::config::{self, Account, Install, SignIn, VercelConfig};
 use crate::error::{VercelError, VercelResult};
 use crate::oauth;
-
-const BROWSER_WAIT: Duration = Duration::from_secs(300);
 
 /// Who a token belongs to, as `/v2/user` says.
 pub fn account_of(data: &Value) -> VercelResult<Account> {
@@ -57,13 +55,9 @@ pub fn teams_of(data: &Value) -> Vec<Team> {
         .collect()
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct Status {
-    pub configured: bool,
-    pub ok: bool,
-    pub auth_failed: bool,
-    pub message: Option<String>,
+pub struct Signed {
     pub account: Option<Account>,
     pub teams: Vec<Team>,
     /// The team calls use when they name none, by id; none for the account's own projects.
@@ -75,70 +69,62 @@ pub struct Status {
     pub browser_sign_in: bool,
 }
 
+pub type Status = SignInStatus<Signed>;
+
 /// Who is signed in, whether its token still works, and the teams it can see.
 pub async fn status(data_dir: &Path) -> Status {
-    let config = config::load(data_dir);
+    let config = match config::load(data_dir) {
+        Ok(config) => config,
+        Err(error) => {
+            let signed = Signed {
+                personal: true,
+                browser_sign_in: oauth::APP.available(),
+                ..Signed::default()
+            };
+            return Status::checked(false, signed, &Err::<(), _>(error));
+        }
+    };
+    let mut signed = Signed {
+        account: config.account.clone(),
+        teams: Vec::new(),
+        team: config.team.clone(),
+        personal: true,
+        browser_sign_in: oauth::APP.available(),
+    };
     let browser = config
         .account
         .as_ref()
         .is_some_and(|account| account.sign_in == SignIn::Browser);
-    let base = |ok: bool,
-                auth_failed: bool,
-                message: Option<String>,
-                teams: Vec<Team>,
-                default_team: Option<String>| Status {
-        configured: config.account.is_some(),
-        ok,
-        auth_failed,
-        message,
-        account: config.account.clone(),
-        personal: default_team.is_none(),
-        team: config.team.clone().or(default_team),
-        teams,
-        browser_sign_in: oauth::available(),
+    let check = if browser {
+        installs_status(&config, data_dir, &mut signed).await
+    } else {
+        token_status(data_dir, &mut signed).await
     };
-    if browser {
-        return installs_status(&config, data_dir, base).await;
-    }
-    let session = match Session::of(data_dir, Some("")).await {
-        Ok(session) => session,
-        Err(VercelError::Unconfigured) => return base(false, false, None, Vec::new(), None),
-        Err(error) => return base(false, false, Some(error.to_string()), Vec::new(), None),
-    };
-    let answered = futures::future::try_join(
+    Status::checked(config.account.is_some(), signed, &check)
+}
+
+async fn token_status(data_dir: &Path, signed: &mut Signed) -> VercelResult<()> {
+    let session = Session::of(data_dir, Some("")).await?;
+    let (user, teams) = futures::future::try_join(
         session.get("/v2/user", &[]),
         session.get("/v2/teams", &[("limit", "100".into())]),
     )
-    .await;
-    match answered {
-        Ok((user, teams)) => {
-            let teams = teams_of(&teams);
-            let default_team = Some(text(&user, "/user/defaultTeamId"))
-                .filter(|id| teams.iter().any(|team| &team.id == id));
-            base(true, false, None, teams, default_team)
-        }
-        Err(error) => failed(error, base),
-    }
-}
-
-fn failed(
-    error: VercelError,
-    base: impl Fn(bool, bool, Option<String>, Vec<Team>, Option<String>) -> Status,
-) -> Status {
-    match error {
-        VercelError::Unconfigured => base(false, false, None, Vec::new(), None),
-        VercelError::Auth(_) => base(false, true, Some(error.to_string()), Vec::new(), None),
-        VercelError::RateLimited => base(true, false, Some(error.to_string()), Vec::new(), None),
-        error => base(false, false, Some(error.to_string()), Vec::new(), None),
-    }
+    .await?;
+    let teams = teams_of(&teams);
+    let default_team = Some(text(&user, "/user/defaultTeamId"))
+        .filter(|id| teams.iter().any(|team| &team.id == id));
+    signed.personal = default_team.is_none();
+    signed.team = signed.team.take().or(default_team);
+    signed.teams = teams;
+    Ok(())
 }
 
 /// A browser sign-in sees only the teams the integration is installed on.
 async fn installs_status(
     config: &VercelConfig,
     data_dir: &Path,
-    base: impl Fn(bool, bool, Option<String>, Vec<Team>, Option<String>) -> Status,
-) -> Status {
+    signed: &mut Signed,
+) -> VercelResult<()> {
     let teams: Vec<Team> = config
         .installs
         .iter()
@@ -160,19 +146,14 @@ async fn installs_status(
                 .then(|| teams.first().map(|team| team.id.clone()))
                 .flatten()
         });
-    let answered = match Session::of(data_dir, Some(chosen.as_deref().unwrap_or(""))).await {
-        Ok(session) => session.get("/v2/user", &[]).await,
-        Err(error) => Err(error),
-    };
-    let status = match answered {
-        Ok(_) => base(true, false, None, teams, chosen.clone()),
-        Err(error) => failed(error, base),
-    };
-    Status {
-        personal,
-        team: chosen,
-        ..status
-    }
+    signed.personal = personal;
+    signed.team = chosen.clone();
+    Session::of(data_dir, Some(chosen.as_deref().unwrap_or("")))
+        .await?
+        .get("/v2/user", &[])
+        .await?;
+    signed.teams = teams;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -192,15 +173,12 @@ pub async fn sign_in(data_dir: &Path, input: TokenSignIn) -> VercelResult<()> {
         ));
     }
     let account = account_of(&client::request(&token, Method::GET, "/v2/user", &[], None).await?)?;
-    let data_dir = data_dir.to_path_buf();
-    let removed = config::blocking(Box::new(move || {
-        let mut config = config::load(&data_dir);
-        let removed = replace_account(&mut config, &account)?;
+    let removed = store::update(data_dir, move |config: &mut VercelConfig| {
+        let removed = replace_account(config, &account)?;
         config::keychain_write(&account, None, &token)?;
         config.account = Some(account);
-        config::save(&data_dir, &config)?;
         Ok(removed)
-    }))
+    })
     .await?;
     finish(removed).await;
     Ok(())
@@ -210,15 +188,7 @@ pub async fn sign_in(data_dir: &Path, input: TokenSignIn) -> VercelResult<()> {
 /// down the stream. The person picks a team there; signing in again adds another.
 /// Stopping the stream stops the wait.
 pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> VercelResult<()> {
-    let callback = oauth::listen().await?;
-    let state = oauth::new_state()?;
-    sink.send(json!({ "url": oauth::install_url(&state) }))
-        .map_err(|_| VercelError::Auth("the sign-in was closed".into()))?;
-    let code = tokio::time::timeout(BROWSER_WAIT, oauth::code(&callback, &state))
-        .await
-        .map_err(|_| VercelError::Auth("nobody finished signing in".into()))??;
-    drop(callback);
-    let installed = oauth::exchange(&code).await?;
+    let installed: oauth::Installed = oauth::APP.sign_in(&client::HTTP, sink).await?;
     if !is_id(&installed.installation_id) {
         return Err(VercelError::Response(
             "Vercel named the installation strangely".into(),
@@ -259,17 +229,14 @@ pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> VercelR
             configuration: installed.installation_id,
         },
     };
-    let data_dir = data_dir.to_path_buf();
-    let removed = config::blocking(Box::new(move || {
-        let mut config = config::load(&data_dir);
-        let removed = replace_account(&mut config, &account)?;
+    let removed = store::update(data_dir, move |config: &mut VercelConfig| {
+        let removed = replace_account(config, &account)?;
         config::keychain_write(&account, install.team.as_deref(), &token)?;
         config.team = install.team.clone();
         config.upsert(install);
         config.account = Some(account);
-        config::save(&data_dir, &config)?;
         Ok(removed)
-    }))
+    })
     .await?;
     finish(removed).await;
     Ok(())
@@ -332,14 +299,7 @@ async fn finish(removed: Vec<Removed>) {
 
 /// Signs out, and removes the integration from every team it was installed on.
 pub async fn sign_out(data_dir: &Path) -> VercelResult<()> {
-    let data_dir = data_dir.to_path_buf();
-    let removed = config::blocking(Box::new(move || {
-        let mut config = config::load(&data_dir);
-        let removed = clear_account(&mut config)?;
-        config::save(&data_dir, &config)?;
-        Ok(removed)
-    }))
-    .await?;
+    let removed = store::update(data_dir, clear_account).await?;
     finish(removed).await;
     Ok(())
 }
@@ -357,21 +317,20 @@ pub async fn set_team(data_dir: &Path, input: TeamChoice) -> VercelResult<()> {
         .team
         .map(|team| team.trim().to_string())
         .filter(|team| !team.is_empty());
-    let data_dir = data_dir.to_path_buf();
-    config::blocking(Box::new(move || {
-        let mut config = config::load(&data_dir);
+    store::update(data_dir, move |config: &mut VercelConfig| {
         if config.account.is_none() {
             return Err(VercelError::Unconfigured);
         }
         config.team = team;
-        config::save(&data_dir, &config)
-    }))
+        Ok(())
+    })
     .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn a_token_belongs_to_its_user_and_sees_their_teams() {

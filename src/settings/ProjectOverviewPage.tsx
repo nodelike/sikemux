@@ -49,7 +49,7 @@ export function ProjectOverviewPage({
                         </div>
                         <div className="project-row-note">{suggestion.title}</div>
                     </div>
-                    <button type="button" className="settings-btn primary" onClick={() => cmd.openProjectSettings("suggestions")}>
+                    <button type="button" className="settings-btn primary" onClick={() => cmd.setProjectSettingsPage(project, "suggestions")}>
                         Review
                     </button>
                 </div>
@@ -63,7 +63,7 @@ export function ProjectOverviewPage({
                         <div className="project-banner-title">Nothing is set up yet</div>
                         <div className="project-row-note">An agent can read the repository, run the build and tests, and suggest a full setup.</div>
                     </div>
-                    <button type="button" className="settings-btn primary" onClick={() => cmd.openProjectSettings("suggestions")}>
+                    <button type="button" className="settings-btn primary" onClick={() => cmd.setProjectSettingsPage(project, "suggestions")}>
                         Set up with an agent
                     </button>
                 </div>
@@ -75,7 +75,7 @@ export function ProjectOverviewPage({
                 {checked.length === 0 ? (
                     <p className="settings-hint">
                         Choose what Done means for a folder to see its health here.{" "}
-                        <button type="button" className="project-link" onClick={() => cmd.openProjectSettings("done")}>
+                        <button type="button" className="project-link" onClick={() => cmd.setProjectSettingsPage(project, "done")}>
                             Choose Done means
                         </button>
                     </p>

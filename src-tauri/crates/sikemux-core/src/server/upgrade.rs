@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use sikemux_process::sync::Locked;
 use tokio::io::AsyncWriteExt;
 
 use crate::frozen::{
@@ -225,11 +226,7 @@ async fn hand_over(core: &Arc<Core>, binary: PathBuf) -> String {
     for flush in flushing {
         let _ = flush.await;
     }
-    let calls = core
-        .tools
-        .lock()
-        .ok()
-        .and_then(|tools| tools.as_ref().map(|tools| tools.open_calls()));
+    let calls = core.tools.locked().as_ref().map(|tools| tools.open_calls());
     if let Some(calls) = calls {
         let deadline = Instant::now() + TOOL_SETTLE;
         while calls.load(Ordering::Acquire) > 0 && Instant::now() < deadline {

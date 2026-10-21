@@ -2,25 +2,19 @@ import type { GitCheatsheetSection } from "../state/gitTypes";
 import { PRIMARY_SHORTCUT } from "../lib/platform";
 import type { GitPanel } from "../state/types";
 import { helpRows } from "./gitPaneLogic";
-import type { GitAiProvider } from "./gitPaneTypes";
+import type { CommitMessageAgentType } from "../agents/catalog";
 
-export const AI_PROVIDER_LABEL: Record<GitAiProvider, string> = {
-    hermes: "Hermes",
-    codex: "Codex",
-    claude: "Claude",
-};
-
-export const AI_MODELS: Record<GitAiProvider, string[]> = {
+export const AI_MODELS: Record<CommitMessageAgentType, string[]> = {
     hermes: ["openai/gpt-5.5", "openai/gpt-5.1", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.1", "google/gemini-2.5-pro"],
     codex: ["gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1", "gpt-5"],
     claude: ["sonnet", "opus", "haiku", "opusplan", "sonnet[1m]", "default"],
 };
 
-export const DEFAULT_AI_PROVIDER: GitAiProvider = "hermes";
+export const DEFAULT_AI_PROVIDER: CommitMessageAgentType = "hermes";
 
 /** Height of the Git pane's built-in terminal, as a percent of the right column. */
 
-export const defaultAiModel = (provider: GitAiProvider): string => AI_MODELS[provider][0];
+export const defaultAiModel = (provider: CommitMessageAgentType): string => AI_MODELS[provider][0];
 
 export const GIT_PANEL_BY_KEY: Partial<Record<string, GitPanel>> = { "1": "files", "2": "commits", "3": "branches" };
 

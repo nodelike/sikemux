@@ -10,8 +10,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use sikemux_process::sync::Locked;
 
 use super::{line_count, read_text, Edit, Lines};
+use crate::git::Git;
 use crate::server::names::project_of;
 use crate::server::Core;
 
@@ -143,9 +145,9 @@ pub(crate) fn owners_at(core: &Core, dir: &Path, staged: bool) -> Result<Owners,
     };
     type Read = HashMap<(PathBuf, bool), (u64, Arc<Diff>)>;
     static READ: Mutex<Option<Read>> = Mutex::new(None);
-    let lock = || READ.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let at = (dir.to_path_buf(), staged);
-    let kept = lock()
+    let kept = READ
+        .locked()
         .get_or_insert_with(HashMap::new)
         .get(&at)
         .map(|(read_at, diff)| (*read_at, diff.clone()));
@@ -163,7 +165,7 @@ pub(crate) fn owners_at(core: &Core, dir: &Path, staged: bool) -> Result<Owners,
                 Some(diff) => diff?,
                 None => read_diff(dir, staged, true, None, false)?,
             });
-            let mut read = lock();
+            let mut read = READ.locked();
             let read = read.get_or_insert_with(HashMap::new);
             if read.len() >= REMEMBERED_CHECKOUTS && !read.contains_key(&at) {
                 read.clear();
@@ -375,24 +377,17 @@ fn patched_diff(diff: &Diff, staged: bool, moved: &[String]) -> Result<Diff, Str
 /// The checkout's top folder and its `HEAD` commit, or that commit's first
 /// parent when `amend`, none before the first, from one git run.
 fn top_and_base(dir: &Path, amend: bool) -> Result<(PathBuf, Option<String>), String> {
-    let mut command = sikemux_process::user_environment::command("git");
-    command
-        .args(["-c", "core.fsmonitor=false", "-c", "core.quotePath=false"])
-        .args([
-            "rev-parse",
-            "--show-toplevel",
-            "--verify",
-            "--quiet",
-            if amend {
-                "HEAD^1^{commit}"
-            } else {
-                "HEAD^{commit}"
-            },
-        ])
-        .current_dir(dir)
-        .env("GIT_TERMINAL_PROMPT", "0");
-    let output = sikemux_process::run(&mut command, None, TIMEOUT, OUTPUT_LIMIT, None)
-        .map_err(|error| format!("git did not run: {error}"))?;
+    let output = paths_as_written(dir).output(&[
+        "rev-parse",
+        "--show-toplevel",
+        "--verify",
+        "--quiet",
+        if amend {
+            "HEAD^1^{commit}"
+        } else {
+            "HEAD^{commit}"
+        },
+    ])?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut lines = stdout.lines();
     let top = lines.next().filter(|top| !top.is_empty()).ok_or_else(|| {
@@ -880,23 +875,20 @@ pub(super) fn run(
     index: Option<&Path>,
     input: Option<&[u8]>,
 ) -> Result<Vec<u8>, String> {
-    let mut command = sikemux_process::user_environment::command("git");
-    command
-        .args(["-c", "core.fsmonitor=false", "-c", "core.quotePath=false"])
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_TERMINAL_PROMPT", "0");
+    let mut git = paths_as_written(dir);
     if let Some(index) = index {
-        command.env("GIT_INDEX_FILE", index);
+        git = git.index(index);
     }
-    let output = sikemux_process::run(&mut command, input, TIMEOUT, OUTPUT_LIMIT, None)
-        .map_err(|error| format!("git did not run: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "git {} failed: {}",
-            args.first().copied().unwrap_or_default(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
+    if let Some(input) = input {
+        git = git.input(input);
     }
-    Ok(output.stdout)
+    git.stdout(args)
+}
+
+/// Git in `dir` writing paths as they are, never quoted.
+fn paths_as_written(dir: &Path) -> Git<'static> {
+    Git::at(dir)
+        .config("core.quotePath", "false")
+        .timeout(TIMEOUT)
+        .limit(OUTPUT_LIMIT)
 }

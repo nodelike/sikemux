@@ -26,11 +26,11 @@ The rail on the right has three pages, picked from the icons at its foot or by s
 
 ## A folder with several repositories
 
-When the project folder is not a repository itself but holds several, such as `backend/` and `web/`, the Git pane lists them. Star one and it becomes the project's default: the Git pane opens it, the top bar shows its branch, the diff pane reviews it, and new agent worktrees are cut from it. When the folder holds only one repository, that one is used without asking. The choice stays on your Mac.
+When the project folder is not a repository itself but holds several, such as `backend/` and `web/`, the Git pane lists them. Star one, or pick it in [project settings](#project-settings), and it becomes the project's default: the Git pane opens it, the top bar shows its branch, the diff pane reviews it, and new agent worktrees are cut from it. When the folder holds only one repository, that one is used without asking. The choice stays on your Mac.
 
 ## Project settings
 
-Each project has settings for how its code is built and run, apart from the app's. Open them with **Settings** at the foot of the project's tree in the sidebar; `Esc` or going anywhere else in the project closes them.
+Each project has settings for how its code is built and run, apart from the app's. They open in a tab of their own: right-click the project in the side rail and pick **Project settings**, or run **Project settings** from the command palette.
 
 **Overview** opens first. It shows suggestions waiting for you, settings the project has moved past, such as a JDK chosen here after `pom.xml` started asking for a newer Java, with the change that fixes it, and **Health**: each folder's Done means and whether it last passed. **Check setup** runs them all; a failing one can go to an agent to fix.
 
@@ -50,6 +50,8 @@ Each project has settings for how its code is built and run, apart from the app'
 
 **Tasks** lists what the project can run: the tasks in its `sikemux.json`, the ones only you have, and the ones found in its build files, with **Add a task** and **Find tasks with an agent**. Below them is what `sikemux.json` adds besides tasks, whether this Mac trusts it, with **Stop trusting** to have its commands ask again, and what is wrong with it when it is not valid.
 
+Under them, **Check** is the command in `sikemux.json` that Sikemux runs on each commit, and that agents run on a card's change when its pull request has no CI.
+
 **Done means** picks, for each folder, the tasks an agent's work must pass before it says it is finished, such as the tests. Agents start them themselves; by default only the folders an agent changed are checked, and an agent whose check fails fixes it and runs it again before telling you. You can have it stop and tell you instead.
 
 **What agents know** shows the brief every agent working in the project reads in `workspace_inspect` before it builds, runs or tests anything: each folder's language and version, the settings above, the environment loaded (secret values never), the tasks, and Done means. Your own notes for agents go at the end.
@@ -58,7 +60,9 @@ Each project has settings for how its code is built and run, apart from the app'
 
 **Suggestions** holds what agents suggest for these settings. An agent never changes them itself: when it finds one missing or wrong, such as a Spring profile the tests need, it sends a suggestion with why, and what it ran to check. You tick the changes you want and apply them, or discard the rest. **Set up this project** asks an agent to read the repository, run the build and the tests, and suggest a full setup at once.
 
-These settings stay on your Mac and are not written into the project.
+**General** holds whether new chats start in a worktree, whether the project may start language servers, and the Space it sits under. **Git** picks the repository the project's Git views use, when its folder holds several.
+
+Apart from Check, which is in `sikemux.json`, these settings stay on your Mac and are not written into the project.
 
 ## Project config
 

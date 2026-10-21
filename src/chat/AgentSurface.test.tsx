@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
     terminalProps: vi.fn(),
     screen: [] as string[],
     addAgent: vi.fn(),
-    state: { deskPanes: {} as Record<string, string>, windows: {} as Record<string, unknown>, keybindingOverrides: {}, agentStatus: {} },
+    state: { deskPanes: {} as Record<string, string>, windows: {} as Record<string, unknown>, keybindingOverrides: {}, agentStatus: {}, agents: {} },
 }));
 
 vi.mock("./AgentChatPane", () => ({ AgentChatPane: mocks.chatPane }));
@@ -62,7 +62,7 @@ afterEach(() => {
     mocks.toggleDesk.mockClear();
     mocks.renameAgent.mockClear();
     mocks.addAgent.mockClear();
-    mocks.state = { deskPanes: {}, windows: {}, keybindingOverrides: {}, agentStatus: {} };
+    mocks.state = { deskPanes: {}, windows: {}, keybindingOverrides: {}, agentStatus: {}, agents: {} };
 });
 
 /* The window layer keeps a live agent mounted so it keeps its process. The
@@ -86,6 +86,7 @@ it("shows the desk toggle as on while the agent's desk is in the layout", () => 
     mocks.state = {
         keybindingOverrides: {},
         agentStatus: {},
+        agents: {},
         deskPanes: { "desk-1": "agent-1" },
         windows: {
             "window-1": {

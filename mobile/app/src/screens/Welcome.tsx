@@ -10,6 +10,7 @@ import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
+import { problem as problemOf } from '@/core/problem';
 import { AppleMark, GitHubMark, GoogleG } from '@/ui/brands';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button } from '@/ui/controls';
@@ -106,7 +107,7 @@ function describe(error: unknown): string {
   const code = (error as { code?: unknown } | undefined)?.code;
   if (typeof code === 'string' && code.startsWith('ERR_REQUEST'))
     return 'Apple did not sign you in. Check this iPhone is signed in to an Apple Account in Settings, then try again.';
-  return error instanceof Error ? error.message : String(error);
+  return problemOf(error);
 }
 
 /** Apple signs in with the system's sheet, so it is offered only on iPhones. */

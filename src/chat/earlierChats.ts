@@ -8,7 +8,7 @@ import { agentSessionsApi } from "../api/agentSessions";
 import * as cmd from "../state/commands";
 import { useResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
-import { agentWindowId, ownerSessionId } from "../state/selectors";
+import { agentForChat, agentWindowId, chatKey, ownerSessionId } from "../state/selectors";
 import { toAgentBuddy } from "../buddies/agentBuddy";
 import { getState, useStore } from "../state/store";
 import type { AgentBuddy } from "../state/types";
@@ -102,9 +102,9 @@ export function useEarlierChats(agentId: string, needle: string | null): Earlier
                 .then((matches) => {
                     if (!current) return;
                     const offered = available.split(" ");
-                    const open = new Set(Object.values(getState().agents).map((agent) => `${agent.type}/${agent.resumeId ?? agent.id}`));
+                    const open = new Set(Object.values(getState().agents).map((agent) => chatKey(agent.type, agent.resumeId ?? agent.id)));
                     const chats = matches
-                        .filter((found) => offered.includes(found.cli) && !open.has(`${found.cli}/${found.sessionId}`))
+                        .filter((found) => offered.includes(found.cli) && !open.has(chatKey(found.cli, found.sessionId)))
                         .map((found): EarlierChat => ({
                             chat: {
                                 agent: found.cli,
@@ -148,7 +148,7 @@ export async function wakeEarlier(earlier: EarlierChat): Promise<PromptContext> 
     if (!cmd.addAgent(chat.agent, chat.id, chat.title, { sessionId, profileId, background: true })) {
         throw new Error(`"${chat.title}" could not be opened again`);
     }
-    const agent = Object.values(getState().agents).find((candidate) => candidate.type === chat.agent && candidate.resumeId === chat.id);
+    const agent = agentForChat(Object.values(getState().agents), chat);
     if (!agent) throw new Error(`"${chat.title}" could not be opened again`);
     if (agent.launchState === "dormant") cmd.resumeAgent(agent.id);
     let name = agent.name;

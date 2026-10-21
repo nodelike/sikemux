@@ -5,40 +5,10 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::agent_catalog::AgentKind;
 use crate::launch::homes;
-use crate::sessions::roots;
 
 use super::shim;
-
-struct Home {
-    variable: &'static str,
-    config: &'static str,
-    empty_config: &'static str,
-    session_store: &'static str,
-    session_store_is_folder: bool,
-    root: fn() -> Option<PathBuf>,
-    with_hook: fn(&str, &str) -> Result<String, String>,
-}
-
-const HERMES: Home = Home {
-    variable: "HERMES_HOME",
-    config: "config.yaml",
-    empty_config: "{}\n",
-    session_store: "state.db",
-    session_store_is_folder: false,
-    root: roots::hermes_root,
-    with_hook: hermes_config,
-};
-
-const GROK: Home = Home {
-    variable: "GROK_HOME",
-    config: "config.toml",
-    empty_config: "",
-    session_store: "sessions",
-    session_store_is_folder: true,
-    root: roots::grok_root,
-    with_hook: grok_config,
-};
 
 /// The variables that start `provider` in a private home running the git
 /// hook, where `given` reads the variables its launch already has. A Grok chat
@@ -49,22 +19,25 @@ pub(crate) fn environment<'a>(
     terminal: bool,
     given: impl Fn(&str) -> Option<&'a str>,
 ) -> Vec<(String, String)> {
-    let home = match provider {
-        "hermes" => &HERMES,
-        "grok" if terminal => &GROK,
+    let Some(kind) = AgentKind::from_name(provider) else {
+        return Vec::new();
+    };
+    let with_hook: fn(&str, &str) -> Result<String, String> = match kind {
+        AgentKind::Hermes => hermes_config,
+        AgentKind::Grok if terminal => grok_config,
         _ => return Vec::new(),
     };
-    let Some((data_dir, command)) = shim::hook() else {
+    let (Some((data_dir, command)), Some((home, _))) = (shim::hook(), homes::private(kind)) else {
         return Vec::new();
     };
     let given = given(home.variable).map(PathBuf::from);
-    match guarded_home(home, data_dir, &command, provider, agent_id, given) {
+    match guarded_home(kind, data_dir, &command, with_hook, agent_id, given) {
         Ok(path) => {
             let mut env = vec![(
                 home.variable.to_owned(),
                 path.to_string_lossy().into_owned(),
             )];
-            if provider == "hermes" {
+            if kind == AgentKind::Hermes {
                 // Hermes skips a hook in its config until someone approves it at a terminal.
                 env.push(("HERMES_ACCEPT_HOOKS".into(), "1".into()));
             }
@@ -78,10 +51,10 @@ pub(crate) fn environment<'a>(
 }
 
 fn guarded_home(
-    home: &Home,
+    kind: AgentKind,
     data_dir: &Path,
     command: &str,
-    provider: &str,
+    with_hook: fn(&str, &str) -> Result<String, String>,
     agent_id: &str,
     given: Option<PathBuf>,
 ) -> Result<PathBuf, String> {
@@ -91,21 +64,17 @@ fn guarded_home(
             if agent_id.is_empty() || agent_id.contains('/') || agent_id.starts_with('.') {
                 return Err(format!("{agent_id:?} cannot name a folder"));
             }
-            let source = given
-                .or_else(home.root)
-                .ok_or("the home folder is unavailable")?;
-            let private = data_dir.join("agent-home").join(provider).join(agent_id);
-            homes::share_session_store(&source, home.session_store, home.session_store_is_folder)
-                .and_then(|()| {
-                    homes::private_home(&private, &source, home.config, home.empty_config)
-                })
-                .map_err(|error| error.to_string())?;
+            let private = data_dir
+                .join("agent-home")
+                .join(kind.as_str())
+                .join(agent_id);
+            homes::private_home(kind, &private, given)?;
             private
         }
     };
-    let config_path = path.join(home.config);
+    let config_path = path.join(homes::private(kind).ok_or("no private home")?.1.config);
     let config = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let hooked = (home.with_hook)(&config, command)?;
+    let hooked = with_hook(&config, command)?;
     if hooked != config {
         sikemux_process::files::write_atomic(&config_path, hooked.as_bytes(), true)
             .map_err(|error| error.to_string())?;

@@ -17,7 +17,6 @@ const MAX_COMMAND_CHARS: usize = 8_000;
 #[derive(Deserialize)]
 pub(crate) struct CommandParams {
     pub command: String,
-    #[serde(default)]
     pub cwd: Option<PathBuf>,
     /// Only `SIKEMUX_` variables are passed on.
     #[serde(default)]

@@ -4,7 +4,8 @@ import { GitColumns } from "../../git/GitColumns";
 import { notify, openUrl, reportError, swallow } from "../../plugin-api/host";
 import { useResourceEnabled } from "../../plugin-api/resources";
 import { EmptyState, IconChevron, IconDownload, IconExternal, IconFile, IconRefresh, SkeletonRows, StaleNotice, Tooltip } from "../../plugin-api/ui";
-import { hostApi, failureMessage, type Release, type RepoRef } from "../api";
+import { hostApi, type Release, type RepoRef } from "../api";
+import { errorText } from "../../lib/format";
 import { useHost } from "../registry";
 import { releasesR } from "../resources";
 import { SectionIcon } from "./ActionsIcon";
@@ -221,7 +222,7 @@ export function ReleasesView({ paneId, repo, active }: Props) {
             ) : releases.error && !releases.data ? (
                 <EmptyState
                     title="Could not read releases"
-                    message={failureMessage(releases.error)}
+                    message={errorText(releases.error)}
                     tone="error"
                     action={{ label: "Try again", onClick: () => void releases.refresh() }}
                 />

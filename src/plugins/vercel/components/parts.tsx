@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { confirmDialog, copyWithNotice, notify, openUrl, swallow } from "../../../plugin-api/host";
-import { formatAgo } from "../../../plugin-api/format";
-import { invalidate } from "../../../plugin-api/resources";
+import { errorText, formatAgo } from "../../../plugin-api/format";
 import type { ContextMenuItem } from "../../../plugin-api/ui";
-import { failureMessage, vercelApi, type VercelDeployment } from "../api";
+import { vercelApi, type VercelDeployment } from "../api";
+import { vercel, vercelDeploymentsR, vercelLogR, vercelProjectsR } from "../resources";
 
 const STATE_LABELS: Record<string, string> = {
     READY: "Ready",
@@ -158,16 +158,7 @@ export function Avatar({ name }: { name: string | null }) {
 
 export const Ago = ({ at }: { at: number }) => <span className="vercel-muted">{formatAgo(at)}</span>;
 
-/** Calls `refresh` every few seconds while something is building, so its state and log keep up. */
-export function useUnderwayPoll(active: boolean, underway: boolean, refresh: () => unknown) {
-    useEffect(() => {
-        if (!active || !underway) return;
-        const timer = window.setInterval(() => void refresh(), 4000);
-        return () => window.clearInterval(timer);
-    }, [active, underway, refresh]);
-}
-
-const changed = () => invalidate((kind) => kind.startsWith("vercel.") && kind !== "vercel.status");
+const changed = () => vercel.refresh(vercelProjectsR, vercelDeploymentsR, vercelLogR);
 
 /** What can be done to a deployment, each asking the person first, as Vercel's own menu offers them. */
 export function useDeploymentActions(team: string) {
@@ -180,7 +171,7 @@ export function useDeploymentActions(team: string) {
             notify("success", done);
             changed();
         } catch (error) {
-            notify("error", `${confirm.confirmLabel}: ${failureMessage(error)}`);
+            notify("error", `${confirm.confirmLabel}: ${errorText(error)}`);
         } finally {
             setBusy(false);
         }

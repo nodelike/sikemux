@@ -44,7 +44,7 @@ export type MessageTone = "held" | "failed" | null;
 const STILL_GOING: ReadonlySet<MessageOutcome> = new Set(["typed", "waiting", "returned"]);
 const LATER: ReadonlySet<MessageOutcome> = new Set(["delivered", "returned", "dropped"]);
 
-const SENDERS: Readonly<Record<string, string>> = { person: "You", board: "Board", auto: "Auto", sikemux: "Sikemux" };
+const SENDERS: Readonly<Record<string, string>> = { person: "You", board: "Agent board", auto: "Auto", sikemux: "Sikemux" };
 
 const OUTCOMES: Readonly<Record<MessageOutcome, string>> = {
     steered: "Read mid-turn",

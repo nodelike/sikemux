@@ -20,10 +20,9 @@ mod oauth;
 use std::path::Path;
 use std::sync::Arc;
 
-use serde::Serialize;
 use serde_json::Value;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
 use crate::error::JiraResult;
@@ -41,12 +40,6 @@ struct Jira {
 async fn signed_in(data_dir: &Path, outcome: JiraResult<()>) -> Result<Value, PluginError> {
     outcome?;
     reply(auth::status(data_dir).await)
-}
-
-async fn answer<T: Serialize>(
-    result: impl std::future::Future<Output = JiraResult<T>>,
-) -> Result<Value, PluginError> {
-    reply(result.await?)
 }
 
 impl Plugin for Jira {
@@ -117,7 +110,9 @@ impl Plugin for Jira {
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(!config::load(ctx.data_dir()).sites.is_empty()) })
+        Box::pin(async move {
+            Ok(config::load(ctx.data_dir()).is_ok_and(|config| !config.sites.is_empty()))
+        })
     }
 }
 
@@ -129,35 +124,6 @@ mod tests {
         PluginContext::new(
             std::env::temp_dir().join(format!("sikemux-jira-{name}-{}", std::process::id())),
         )
-    }
-
-    #[test]
-    fn its_manifest_parses_with_its_tools() {
-        let plugin = plugin().map_err(|error| error.to_string());
-        let names = plugin
-            .as_ref()
-            .map(|plugin| {
-                plugin
-                    .manifest()
-                    .tools
-                    .iter()
-                    .map(|tool| tool.name.clone())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        assert_eq!(
-            names,
-            [
-                "jira_search",
-                "jira_issue",
-                "jira_comment",
-                "jira_transition",
-                "jira_create",
-                "jira_edit",
-                "jira_link",
-                "jira_worklog"
-            ]
-        );
     }
 
     #[tokio::test]

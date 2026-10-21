@@ -18,7 +18,7 @@ const TICKET = { v: 1, keyId: 'prod-1', account: 'user_2abc', host: HOST.core, p
 const token = async () => 'session-token';
 
 let steps: JoinStep[];
-let AccountProblem: typeof import('@/account/api').AccountProblem;
+let ApiProblem: typeof import('@/account/api').ApiProblem;
 let JoinFailed: typeof import('./joining').JoinFailed;
 let joinHost: typeof import('./joining').joinHost;
 let pairedDevices: typeof import('./paired').pairedDevices;
@@ -32,7 +32,7 @@ async function failure(signal?: AbortSignal) {
 beforeEach(async () => {
   vi.resetModules();
   clearDisk();
-  ({ AccountProblem } = await import('@/account/api'));
+  ({ ApiProblem } = await import('@/account/api'));
   ({ JoinFailed, joinHost } = await import('./joining'));
   ({ pairedDevices } = await import('./paired'));
   steps = [];
@@ -73,15 +73,15 @@ describe('joining a host on the account', () => {
     device.join.mockRejectedValue(MobileError.Connection.new({ message: 'could not reach the host: timed out' }));
     expect((await failure()).title).toBe("Can't reach Work MacBook");
 
-    api.joinTicket.mockRejectedValue(new AccountProblem("Can't reach Sikemux. Check the phone is online."));
+    api.joinTicket.mockRejectedValue(new ApiProblem("Can't reach Sikemux. Check the phone is online."));
     expect((await failure()).title).toBe("Can't reach Sikemux");
     expect(steps.at(-1)).toBe('asking');
   });
 
   it('says when the host has left the account or the phone asked too often', async () => {
-    api.joinTicket.mockRejectedValue(new AccountProblem('None of your hosts has that key.', 404));
+    api.joinTicket.mockRejectedValue(new ApiProblem('None of your hosts has that key.', 404));
     expect((await failure()).title).toBe('Work MacBook is no longer on your account');
-    api.joinTicket.mockRejectedValue(new AccountProblem('Too many tickets.', 429));
+    api.joinTicket.mockRejectedValue(new ApiProblem('Too many tickets.', 429));
     expect((await failure()).title).toBe('Too many tries');
     expect(device.join).not.toHaveBeenCalled();
   });

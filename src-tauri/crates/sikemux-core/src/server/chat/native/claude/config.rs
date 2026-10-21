@@ -4,15 +4,16 @@
 use serde_json::{json, Value};
 
 use super::super::json::text;
+use crate::acp::pickers;
+use crate::launch::PermissionMode;
 
 pub(crate) const DEFAULT: &str = "default";
 
 /// The permission mode Claude Code runs in for each of the app's modes.
-pub(crate) fn permission_mode(mode: &str) -> Result<&'static str, String> {
+pub(crate) fn permission_mode(mode: PermissionMode) -> &'static str {
     match mode {
-        "bypass" => Ok("bypassPermissions"),
-        "workspace-write" => Ok("acceptEdits"),
-        _ => Err(format!("Unsupported permission mode: {mode}")),
+        PermissionMode::Bypass => "bypassPermissions",
+        PermissionMode::WorkspaceWrite => "acceptEdits",
     }
 }
 
@@ -108,23 +109,8 @@ pub(crate) fn effort_levels(models: &[Value], model: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn level_name(level: &str) -> String {
-    level
-        .split(['_', '-'])
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 fn model_option(models: &[Value], current: &str) -> Value {
-    let options: Vec<Value> = models
+    let choices = models
         .iter()
         .filter_map(|model| {
             let value = text(model, "value")?;
@@ -141,45 +127,31 @@ fn model_option(models: &[Value], current: &str) -> Value {
             } else {
                 text(model, "description")
             };
-            let mut option = json!({ "value": value, "name": name });
-            if let Some(description) = description {
-                option["description"] = json!(description);
-            }
-            Some(option)
+            Some(pickers::choice(value, name, description))
         })
         .collect();
-    json!({
-        "id": "model",
-        "name": "Model",
-        "description": "AI model to use",
-        "category": "model",
-        "type": "select",
-        "currentValue": current,
-        "options": options,
-    })
+    pickers::model_select(Some("AI model to use"), current, choices)
 }
 
 fn effort_option(levels: &[String], current: &str) -> Value {
-    let mut options = vec![json!({ "value": DEFAULT, "name": "Default" })];
-    options.extend(
+    let mut choices = vec![pickers::choice(DEFAULT, "Default", None)];
+    choices.extend(
         levels
             .iter()
-            .map(|level| json!({ "value": level, "name": level_name(level) })),
+            .map(|level| pickers::choice(level, &pickers::level_name(level), None)),
     );
     let current = if current == DEFAULT || levels.iter().any(|level| level == current) {
         current
     } else {
         DEFAULT
     };
-    json!({
-        "id": "effort",
-        "name": "Effort",
-        "description": "Available effort levels for this model",
-        "category": "thought_level",
-        "type": "select",
-        "currentValue": current,
-        "options": options,
-    })
+    pickers::effort_select(
+        "effort",
+        "Effort",
+        "Available effort levels for this model",
+        current,
+        choices,
+    )
 }
 
 /// The chat's options for `model` at `effort`. A model that takes no effort

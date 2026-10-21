@@ -1,4 +1,5 @@
 import { invokeCommand as invoke } from "./invoke";
+import { isRecord } from "../lib/guards";
 
 export interface ReleaseContributor {
     login: string;
@@ -32,8 +33,6 @@ export interface HeldRelease {
     credits: ReleaseCredits | null;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-
 function parseContributor(value: unknown): ReleaseContributor | null {
     if (!isRecord(value)) return null;
     const { login, name, commits, avatar } = value;
@@ -57,5 +56,3 @@ export const releasesApi = {
     notes: (version: string) => invoke<ReleaseNotes>("release_notes", { version }),
     avatars: (urls: string[]) => invoke<Record<string, string>>("release_avatars", { urls }),
 };
-
-export const openInBrowser = (url: string) => invoke<void>("open_url", { url, app: null, shortcut: null });

@@ -1,4 +1,5 @@
 import { useReverification, useSession } from "@clerk/react";
+import { chooseFactor } from "@sikemux/protocol/account";
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
 import { problemText } from "./api.ts";
@@ -55,38 +56,28 @@ function Reverify({ ask }: { ask: Ask }) {
   useEffect(() => {
     if (!session || started.current === ask) return;
     started.current = ask;
-    let live = true;
     void (async () => {
       try {
         const verification = await session.startVerification({
           level: ask.level ?? "first_factor",
         });
-        if (!live) return;
         if (verification.status === "complete") return ask.complete();
         if (verification.status === "needs_second_factor")
           return setStep(secondStep(verification.supportedSecondFactors));
-        const factors = verification.supportedFirstFactors ?? [];
-        const email = factors.find(
-          (factor) => factor.strategy === "email_code",
-        );
-        if (email?.strategy === "email_code") {
+        const factor = chooseFactor(verification.supportedFirstFactors ?? []);
+        if (factor?.strategy === "email_code") {
           await session.prepareFirstFactorVerification({
             strategy: "email_code",
-            emailAddressId: email.emailAddressId,
+            emailAddressId: factor.emailAddressId,
           });
-          if (live) setStep({ kind: "email", email: email.safeIdentifier });
-        } else if (factors.some((factor) => factor.strategy === "password")) {
-          setStep({ kind: "password" });
+          setStep({ kind: "email", email: factor.to });
         } else {
-          setStep({ kind: "unsupported" });
+          setStep(factor ? { kind: "password" } : { kind: "unsupported" });
         }
       } catch (error) {
-        if (live) setProblem(problemText(error));
+        setProblem(problemText(error));
       }
     })();
-    return () => {
-      live = false;
-    };
   }, [session, ask]);
 
   const attempt = async (

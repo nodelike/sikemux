@@ -7,6 +7,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use sikemux_process::sync::Locked;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use url::Url;
@@ -75,10 +76,7 @@ impl LocalFiles {
         let port = url.port()?;
         let path = url.path().strip_prefix('/')?;
         let (token, rest) = path.split_once('/').unwrap_or((path, ""));
-        let shares = self
-            .shares
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let shares = self.shares.locked();
         let share = shares
             .values()
             .find(|share| share.port == port && share.token == token)?;
@@ -87,10 +85,7 @@ impl LocalFiles {
 
     fn share(&self, root: &Path, only: Option<PathBuf>) -> Result<Share, String> {
         let key = only.clone().unwrap_or_else(|| root.to_path_buf());
-        let mut shares = self
-            .shares
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let mut shares = self.shares.locked();
         if let Some(share) = shares.get(&key) {
             return Ok(share.clone());
         }

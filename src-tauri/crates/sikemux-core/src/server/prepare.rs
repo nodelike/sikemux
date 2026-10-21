@@ -3,9 +3,10 @@ use std::path::PathBuf;
 
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
+use sikemux_process::vars;
 use sikemux_pty::launch::{
-    account_dir, account_variable, configure_interactive_command, configure_pty_environment,
-    validate_direct_command, PtyContext,
+    account_dir, configure_interactive_command, configure_pty_environment, validate_direct_command,
+    PtyContext,
 };
 use sikemux_pty::shell::{
     configure_shell_integration, configure_task_command, inherited_ssh_environment,
@@ -34,7 +35,6 @@ pub(crate) struct Owner {
     pub started_by: Option<String>,
     /// The folder an agent keeps its account and sessions in, when the
     /// launch named one rather than leaving it to the CLI's default.
-    #[serde(default)]
     pub account_home: Option<PathBuf>,
 }
 
@@ -117,7 +117,10 @@ pub(crate) fn prepare_terminal(
         &HashMap::new(),
     );
     let mut owner = Owner::from_context(context.as_ref());
-    let variable = owner.agent_type.as_deref().and_then(account_variable);
+    let variable = owner
+        .agent_type
+        .as_deref()
+        .and_then(crate::launch::account_variable);
     owner.account_home = variable
         .and_then(|variable| env.get(variable))
         .map(|home| account_dir(home));
@@ -158,7 +161,7 @@ pub(crate) fn prepare_terminal(
         cmd.arg("-l");
     }
     if let Some(startup) = startup.as_deref() {
-        cmd.env("SIKEMUX_SHELL", &shell);
+        cmd.env(vars::SHELL, &shell);
         cmd.arg("-c");
         cmd.arg(startup_bootstrap(startup, login_shell));
     }
@@ -240,10 +243,10 @@ pub(crate) fn prepare_task(
         launch.cli_endpoint.as_deref(),
         login_shell_environment(),
     );
-    task_command.env("SIKEMUX_TASK_EXECUTION_ID", execution_id);
-    task_command.env("SIKEMUX_TASK_TERMINAL_KEY", terminal_key);
-    task_command.env("SIKEMUX_TASK_ID", task_id);
-    task_command.env("SIKEMUX_TASK_SOURCE", source.as_str());
+    task_command.env(vars::TASK_EXECUTION_ID, execution_id);
+    task_command.env(vars::TASK_TERMINAL_KEY, terminal_key);
+    task_command.env(vars::TASK_ID, task_id);
+    task_command.env(vars::TASK_SOURCE, source.as_str());
     for (key, value) in env {
         task_command.env(key, value);
     }

@@ -7,7 +7,7 @@ import type { MatrixCell, RundeckJob } from "../api";
 import { rndJobCellsR, rndJobIndexR, rndProjectsR, useProdEnvs } from "../resources";
 import { basenameOf, displayStatus, groupSegments, isLiveStatus, isProdTarget, targetTone, type EnvTone } from "../shape";
 import { openRundeckJob, rundeckSettings, setDeployTarget } from "../state";
-import { useEvery } from "../../../plugin-api/hooks";
+import { useRefreshEvery } from "../../../plugin-api/hooks";
 import { branchKind, statusKind } from "./branchStyle";
 import { useMenuKeys } from "./hooks";
 import "../branch.css";
@@ -53,7 +53,7 @@ export function RundeckTopBarItem({ projectCwd, stripHovered }: PluginTopBarProp
     );
     const cells = useResourceEnabled(matches.length > 0, rndJobCellsR, matches);
     const deploying = cells.data?.some((cell) => isLiveStatus(cell.latest?.status)) ?? false;
-    useEvery(matches.length > 0, deploying ? 10_000 : 60_000, () => void cells.refresh().catch(() => {}));
+    useRefreshEvery(cells, matches.length === 0 ? null : deploying ? 10_000 : 60_000);
 
     const active =
         matches.find((job) => picked && job.project === picked.project && job.id === picked.jobId) ??

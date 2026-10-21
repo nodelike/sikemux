@@ -4,8 +4,9 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_plugin_api::codehost::ReviewFeedback;
 
 use crate::client;
 use crate::error::{BitbucketError, BitbucketResult};
@@ -59,22 +60,6 @@ struct PullRow {
     participants: Vec<Participant>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Feedback {
-    /// `comment/`, `inline/` or `review/` and what names it on Bitbucket.
-    pub id: String,
-    pub author: Option<String>,
-    pub bot: bool,
-    pub body: String,
-    pub path: Option<String>,
-    pub line: Option<u64>,
-    /// `CHANGES_REQUESTED` for a reviewer who asked for changes.
-    pub state: Option<String>,
-    pub at: String,
-    pub url: Option<String>,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeedbackQuery {
@@ -90,7 +75,10 @@ fn pull_path(thread: &Thread, rest: &str) -> BitbucketResult<String> {
         .path(&format!("/pullrequests/{}{rest}", thread.number))
 }
 
-pub async fn feedback(data_dir: &Path, input: FeedbackQuery) -> BitbucketResult<Vec<Feedback>> {
+pub async fn feedback(
+    data_dir: &Path,
+    input: FeedbackQuery,
+) -> BitbucketResult<Vec<ReviewFeedback>> {
     let mut query = vec![
         ("pagelen", "100".to_owned()),
         ("sort", "updated_on".to_owned()),
@@ -107,7 +95,7 @@ pub async fn feedback(data_dir: &Path, input: FeedbackQuery) -> BitbucketResult<
     let comments = comments
         .into_iter()
         .filter(|row| !row.deleted)
-        .map(|row| Feedback {
+        .map(|row| ReviewFeedback {
             id: format!(
                 "{}/{}",
                 if row.inline.is_some() {
@@ -142,7 +130,7 @@ pub async fn feedback(data_dir: &Path, input: FeedbackQuery) -> BitbucketResult<
                 .and_then(|user| user.uuid)
                 .or(author.clone())
                 .unwrap_or_default();
-            Feedback {
+            ReviewFeedback {
                 id: format!("review/{who}@{at}"),
                 author,
                 bot: false,

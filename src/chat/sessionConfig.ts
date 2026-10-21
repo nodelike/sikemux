@@ -1,5 +1,5 @@
-import { recordOf } from "./acpEvents";
-import { agentSupportsChat, type ChatAgentType } from "../agents/agentLaunch";
+import { recordOf } from "../lib/guards";
+import { chatDriver } from "../agents/catalog";
 import type { Agent } from "../state/types";
 
 /** One value a session option can take. */
@@ -17,14 +17,13 @@ export interface SessionConfig {
     options: ConfigChoice[];
 }
 
-const LEGACY_EFFORT_ID: Partial<Record<ChatAgentType, string>> = { claude: "effort", codex: "reasoning_effort" };
-
 /** The option that sets how hard the model thinks. Agents name it differently
     but tag it with the same category. */
-export function effortConfig(configs: SessionConfig[], type: Agent["type"]): SessionConfig | undefined {
-    const legacy = agentSupportsChat(type) ? LEGACY_EFFORT_ID[type] : undefined;
-    return configs.find((config) => config.category === "thought_level") ?? configs.find((config) => config.id === legacy);
+export function effortConfig(configs: SessionConfig[]): SessionConfig | undefined {
+    return configs.find((config) => config.category === "thought_level");
 }
+
+const EFFORT_ON_EVERY_MODEL = new Set(["claude", "codex"]);
 
 const NAMED_VERSION = /^(\p{L}+)\s+(\d+(?:\.\d+)?)\b/u;
 
@@ -72,13 +71,12 @@ export function sessionConfigs(setup: Record<string, unknown>): SessionConfig[] 
     });
 }
 
-/* Claude and Codex always show both pickers, disabled until the session
-   fills them. The other agents only offer effort for some models, so theirs
-   comes and goes with the model. */
+/* Agents on the Claude and Codex drivers always show both pickers, disabled
+   until the session fills them. The others only offer effort for some models,
+   so theirs comes and goes with the model. */
 export function pickerSlots(configs: SessionConfig[], type: Agent["type"]): { id: string; config?: SessionConfig }[] {
     const slots: { id: string; config?: SessionConfig }[] = [{ id: "model", config: configs.find((item) => item.id === "model") }];
-    const effort = effortConfig(configs, type);
-    const legacy = agentSupportsChat(type) ? LEGACY_EFFORT_ID[type] : undefined;
-    if (effort || legacy) slots.push({ id: effort?.id ?? legacy ?? "effort", config: effort });
+    const effort = effortConfig(configs);
+    if (effort || EFFORT_ON_EVERY_MODEL.has(chatDriver(type) ?? "")) slots.push({ id: effort?.id ?? "effort", config: effort });
     return slots;
 }

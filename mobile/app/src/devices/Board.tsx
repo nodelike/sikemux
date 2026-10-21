@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Text, View, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import type { ConnectionLike } from '@sikemux/native';
@@ -6,6 +6,7 @@ import type { ConnectionLike } from '@sikemux/native';
 import {
   cardColumn,
   cardQuestion,
+  COLUMN_LABELS,
   RUN_WAITS_ON_PERSON,
   shortTitle,
   ticketAbove,
@@ -17,51 +18,24 @@ import { kindLabel, messageRows, messageTone, outcomeLabel, type AgentMessageLog
 import type { AgentQuestion } from '@mac/agents/agentQuestions';
 import { formatAge } from '@mac/lib/format';
 import type { ProjectInfo, Snapshot } from '@/core/protocol';
-import { useHostQuestions } from '@/devices/questions';
+import { useHostCall } from '@/core/hostCalls';
 import { agentDisplay } from '@mac/state/agentStatus';
-import { folder } from '@/devices/words';
+import { projectAt, projectName } from '@/devices/words';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Row, Rows, SectionLabel } from '@/ui/list';
 import { EmptyState } from '@/ui/prompt';
 import { Dot, NeedsYou, Working } from '@/ui/status';
 import { fonts, type Palette, typeFor, useColors, useStyles } from '@/ui/theme';
 
-const COLUMNS: readonly [BoardColumn, string][] = [
-  ['needs', 'Needs you'],
-  ['progress', 'In progress'],
-  ['open', 'Open'],
-  ['done', 'Done'],
-];
+const COLUMNS: readonly BoardColumn[] = ['needs', 'progress', 'open', 'done'];
 
-type Read<T> = { board?: T; problem?: string };
+const NO_QUESTIONS: AgentQuestion[] = [];
 
 /** Something on the host changed that may have moved cards: an agent started, finished or asked. */
 function seenOf(snapshot: Snapshot): string {
   const chats = snapshot.chats.map((chat) => `${chat.agentId}:${chat.group}:${chat.running}:${chat.activeAt}`);
   const terminals = snapshot.sessions.map((session) => `${session.agentId}:${session.agentState}`);
   return [...chats, ...terminals].join(' ');
-}
-
-/** What the host answers `method` with, read again whenever `seen` changes. */
-function useCall<T>(connection: ConnectionLike | undefined, method: string, params: unknown, seen: string): Read<T> {
-  const [read, setRead] = useState<Read<T>>({});
-  const asked = JSON.stringify(params);
-  useEffect(() => {
-    if (!connection) return;
-    let current = true;
-    connection.call(method, asked).then(
-      (text) => {
-        if (current) setRead({ board: JSON.parse(text) as T });
-      },
-      (error: unknown) => {
-        if (current) setRead({ problem: error instanceof Error ? error.message : String(error) });
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [connection, method, asked, seen]);
-  return read;
 }
 
 /** A project's board, read only: cards move on the Mac or by the agents themselves. Unscoped, a row per board. */
@@ -79,16 +53,22 @@ export function Board({
   onScope: (project: string) => void;
 }) {
   const seen = seenOf(snapshot);
-  const questions = useHostQuestions(connection, seen);
-  return scope ? (
-    <OneBoard core={core} connection={connection} snapshot={snapshot} scope={scope} questions={questions} seen={seen} />
-  ) : (
-    <AllBoards connection={connection} snapshot={snapshot} questions={questions} seen={seen} onScope={onScope} />
+  const read = useHostCall<AgentQuestion[]>(connection, 'questions', null, seen);
+  const questions = read.data ?? NO_QUESTIONS;
+  return (
+    <>
+      {read.problem ? <Problem what="the agents' questions" text={read.problem} /> : null}
+      {scope ? (
+        <OneBoard core={core} connection={connection} snapshot={snapshot} scope={scope} questions={questions} seen={seen} />
+      ) : (
+        <AllBoards connection={connection} snapshot={snapshot} questions={questions} seen={seen} onScope={onScope} />
+      )}
+    </>
   );
 }
 
-function Problem({ text }: { text: string }) {
-  return <EmptyState icon="IconWarning" text={`Couldn't read the board: ${text}`} />;
+function Problem({ what, text }: { what: string; text: string }) {
+  return <EmptyState icon="IconWarning" text={`Couldn't read ${what}: ${text}`} />;
 }
 
 function OneBoard({
@@ -106,20 +86,20 @@ function OneBoard({
   questions: readonly AgentQuestion[];
   seen: string;
 }) {
-  const read = useCall<ProjectBoard>(connection, 'board', { project: scope.path }, seen);
-  if (read.problem) return <Problem text={read.problem} />;
-  if (!read.board) return null;
-  const cards = [...read.board.cards].sort((a, b) => b.updatedAt - a.updatedAt);
+  const read = useHostCall<ProjectBoard>(connection, 'board', { project: scope.path }, seen);
+  if (read.problem) return <Problem what="the board" text={read.problem} />;
+  if (!read.data) return null;
+  const cards = [...read.data.cards].sort((a, b) => b.updatedAt - a.updatedAt);
   const byId = new Map(cards.map((card) => [card.id, card]));
   return (
     <>
       {cards.length ? null : <EmptyState icon="IconBoard" text={`No cards on ${scope.name}'s board.`} />}
-      {COLUMNS.map(([column, label]) => {
+      {COLUMNS.map((column) => {
         const shown = cards.filter((card) => cardColumn(card, questions) === column);
         if (!shown.length) return null;
         return (
           <View key={column}>
-            <SectionLabel count={shown.length}>{label}</SectionLabel>
+            <SectionLabel count={shown.length}>{COLUMN_LABELS[column]}</SectionLabel>
             <Rows>
               {shown.map((card) => (
                 <CardRow key={card.id} core={core} card={card} cards={cards} byId={byId} snapshot={snapshot} questions={questions} />
@@ -140,17 +120,18 @@ function BetweenAgents({ connection, snapshot, project }: { connection: Connecti
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const [logged, setLogged] = useState(project);
-  const latest = snapshot.inbox.agentMessages?.[logged] ?? 0;
-  const read = useCall<AgentMessageLog>(connection, 'agentMessages', { project, limit: MESSAGES_SHOWN * 5 }, String(latest));
-  const answered = read.board?.project;
+  const latest = snapshot.inbox.agentMessages[logged] ?? 0;
+  const read = useHostCall<AgentMessageLog>(connection, 'agentMessages', { project, limit: MESSAGES_SHOWN * 5 }, String(latest));
+  const answered = read.data?.project;
   if (answered && answered !== logged) setLogged(answered);
-  if (!read.board) return null;
+  if (read.problem) return <Problem what="the messages between agents" text={read.problem} />;
+  if (!read.data) return null;
   const agentOf = (id: string) => {
     const chat = snapshot.chats.find((known) => known.agentId === id);
     const terminal = snapshot.sessions.find((session) => session.agentId === id);
     return { name: chat?.name ?? terminal?.agentName, cli: chat?.provider ?? terminal?.agentType };
   };
-  const rows = messageRows(read.board.entries, (id) => agentOf(id).name).slice(0, MESSAGES_SHOWN);
+  const rows = messageRows(read.data.entries, (id) => agentOf(id).name).slice(0, MESSAGES_SHOWN);
   if (!rows.length) return null;
   return (
     <View>
@@ -281,27 +262,27 @@ function AllBoards({
   onScope: (project: string) => void;
 }) {
   const colors = useColors();
-  const read = useCall<ProjectBoard[]>(connection, 'boards', null, seen);
-  if (read.problem) return <Problem text={read.problem} />;
-  if (!read.board) return null;
-  const boards = read.board.filter((board) => board.cards.length > 0);
+  const read = useHostCall<ProjectBoard[]>(connection, 'boards', null, seen);
+  if (read.problem) return <Problem what="the boards" text={read.problem} />;
+  if (!read.data) return null;
+  const boards = read.data.filter((board) => board.cards.length > 0);
   if (!boards.length) return <EmptyState icon="IconBoard" text="No board has cards yet." />;
   return (
     <>
       <SectionLabel>Boards</SectionLabel>
       <Rows>
         {boards.map((board) => {
-          const project = snapshot.workspace.projects.find((known) => known.path === board.project);
-          const counts = COLUMNS.map(([column, label]) => {
+          const project = projectAt(snapshot, board.project);
+          const counts = COLUMNS.map((column) => {
             const count = board.cards.filter((card) => cardColumn(card, questions) === column).length;
-            return count ? `${count} ${label.toLowerCase()}` : null;
+            return count ? `${count} ${COLUMN_LABELS[column].toLowerCase()}` : null;
           }).filter(Boolean);
           const needs = board.cards.some((card) => cardColumn(card, questions) === 'needs');
           return (
             <Row
               key={board.project}
               mark={<Icon name="IconFolder" size={18} color={colors.live} />}
-              title={project?.name ?? folder(board.project)}
+              title={projectName(snapshot, board.project)}
               detail={counts.join(' · ')}
               end={needs ? <NeedsYou /> : null}
               onPress={project ? () => onScope(project.id) : undefined}

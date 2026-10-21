@@ -5,8 +5,9 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
+use sikemux_plugin_api::codehost::{Billable, Job, Run, RunDetail, RunPage, RunTiming, Step};
 
 use crate::client;
 use crate::common::LIST_PAGES;
@@ -57,34 +58,6 @@ struct RunList {
     workflow_runs: Vec<RunRow>,
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Run {
-    pub id: u64,
-    pub name: String,
-    pub title: String,
-    pub workflow_id: u64,
-    /// The workflow file, e.g. `.github/workflows/release.yml`.
-    pub path: Option<String>,
-    pub run_number: u64,
-    pub attempt: u64,
-    pub event: String,
-    /// `queued`, `in_progress`, `completed`, and the waiting-for-approval ones.
-    pub status: String,
-    /// Only set once the run is over: `success`, `failure`, `cancelled`, and the rest.
-    pub conclusion: Option<String>,
-    pub branch: Option<String>,
-    pub sha: String,
-    pub short_sha: String,
-    pub actor: Option<String>,
-    pub avatar_url: Option<String>,
-    pub created_at: String,
-    pub started_at: Option<String>,
-    pub updated_at: String,
-    pub pull_requests: Vec<u64>,
-    pub url: String,
-}
-
 /// A run is over once GitHub says it is completed; everything else is still moving.
 pub fn is_finished(status: &str) -> bool {
     status == "completed"
@@ -105,8 +78,8 @@ impl From<RunRow> for Run {
                 .unwrap_or_default(),
             name: row.name.unwrap_or_default(),
             short_sha: short(&row.head_sha),
-            id: row.id,
-            workflow_id: row.workflow_id,
+            id: row.id.to_string(),
+            workflow_id: row.workflow_id.to_string(),
             path: row
                 .path
                 .map(|path| path.split('@').next().unwrap_or_default().to_string()),
@@ -137,6 +110,10 @@ impl From<RunRow> for Run {
 pub struct RunQuery {
     #[serde(flatten)]
     pub repo: RepoRef,
+    #[serde(
+        default,
+        deserialize_with = "sikemux_plugin_api::codehost::numeric_id_if_any"
+    )]
     pub workflow_id: Option<u64>,
     pub branch: Option<String>,
     /// One of GitHub's run statuses or conclusions, which it filters by interchangeably.
@@ -147,14 +124,6 @@ pub struct RunQuery {
     pub head_sha: Option<String>,
     pub page: Option<u32>,
     pub per_page: Option<u32>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunPage {
-    pub runs: Vec<Run>,
-    pub total: u64,
-    pub next_page: Option<u32>,
 }
 
 /// Filters only ever reach GitHub as query values it recognises, so a typed
@@ -256,6 +225,7 @@ pub async fn list(data_dir: &Path, input: RunQuery) -> GithubResult<RunPage> {
 pub struct RunRef {
     #[serde(flatten)]
     pub repo: RepoRef,
+    #[serde(deserialize_with = "sikemux_plugin_api::codehost::numeric_id")]
     pub run_id: u64,
 }
 
@@ -299,38 +269,10 @@ struct JobList {
     jobs: Vec<JobRow>,
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Step {
-    pub number: u64,
-    pub name: String,
-    pub status: String,
-    pub conclusion: Option<String>,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Job {
-    pub id: u64,
-    pub name: String,
-    pub status: String,
-    pub conclusion: Option<String>,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
-    pub runner: Option<String>,
-    pub url: Option<String>,
-    /// The check run this job is also recorded as, which is where its
-    /// annotations live.
-    pub check_run_id: Option<u64>,
-    pub steps: Vec<Step>,
-}
-
 impl From<JobRow> for Job {
     fn from(row: JobRow) -> Self {
         Self {
-            id: row.id,
+            id: row.id.to_string(),
             name: row.name,
             status: row.status.unwrap_or_else(|| "queued".into()),
             conclusion: row.conclusion,
@@ -341,7 +283,8 @@ impl From<JobRow> for Job {
             check_run_id: row
                 .check_run_url
                 .as_deref()
-                .and_then(crate::annotations::check_run_id),
+                .and_then(crate::annotations::check_run_id)
+                .map(|id| id.to_string()),
             steps: row
                 .steps
                 .into_iter()
@@ -373,13 +316,6 @@ pub async fn jobs(data_dir: &Path, input: RunRef) -> GithubResult<Vec<Job>> {
         .repo
         .path(&format!("/actions/runs/{}/jobs", input.run_id))?;
     job_rows(data_dir, &path, &latest()).await
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct RunDetail {
-    pub run: Run,
-    pub jobs: Vec<Job>,
 }
 
 pub async fn detail(data_dir: &Path, input: RunRef) -> GithubResult<RunDetail> {
@@ -532,30 +468,12 @@ struct TimingRow {
     billable: std::collections::BTreeMap<String, BillableRow>,
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Billable {
-    /// The runner it ran on: `UBUNTU`, `MACOS`, `WINDOWS`.
-    pub runner: String,
-    pub total_ms: u64,
-    pub jobs: u64,
-}
-
-/// What a run took on the clock, and what it is billed for. A run on a
-/// private repository costs minutes; a public one is free and reports none.
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Timing {
-    pub run_duration_ms: Option<u64>,
-    pub billable: Vec<Billable>,
-}
-
-pub async fn timing(data_dir: &Path, input: RunRef) -> GithubResult<Timing> {
+pub async fn timing(data_dir: &Path, input: RunRef) -> GithubResult<RunTiming> {
     let path = input
         .repo
         .path(&format!("/actions/runs/{}/timing", input.run_id))?;
     let row: TimingRow = client::get(data_dir, &path, &[]).await?;
-    Ok(Timing {
+    Ok(RunTiming {
         run_duration_ms: row.run_duration_ms,
         billable: row
             .billable
@@ -574,6 +492,7 @@ pub async fn timing(data_dir: &Path, input: RunRef) -> GithubResult<Timing> {
 pub struct JobRef {
     #[serde(flatten)]
     pub repo: RepoRef,
+    #[serde(deserialize_with = "sikemux_plugin_api::codehost::numeric_id")]
     pub job_id: u64,
 }
 
@@ -609,6 +528,7 @@ pub async fn rerun_job(data_dir: &Path, input: RerunJob) -> GithubResult<()> {
 pub struct AttemptRef {
     #[serde(flatten)]
     pub repo: RepoRef,
+    #[serde(deserialize_with = "sikemux_plugin_api::codehost::numeric_id")]
     pub run_id: u64,
     pub attempt: u64,
 }

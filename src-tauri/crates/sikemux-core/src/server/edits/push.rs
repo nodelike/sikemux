@@ -423,21 +423,11 @@ fn tree(top: &Path, commit: &str) -> Result<String, String> {
 /// Runs git against a remote, which may ask over the network and run the
 /// repository's push hooks, so it gets longer than git run locally.
 fn remote_git(top: &Path, args: &[&str]) -> Result<(), String> {
-    let mut command = sikemux_process::user_environment::command("git");
-    command
-        .args(args)
-        .current_dir(top)
-        .env("GIT_TERMINAL_PROMPT", "0");
-    let output = sikemux_process::run(&mut command, None, PUSH_WAIT, PUSH_OUTPUT_LIMIT, None)
-        .map_err(|error| format!("git did not run: {error}"))?;
-    if output.status.success() {
-        return Ok(());
-    }
-    Err(format!(
-        "git {} failed: {}",
-        args.first().copied().unwrap_or_default(),
-        String::from_utf8_lossy(&output.stderr).trim()
-    ))
+    crate::git::Git::at(top)
+        .timeout(PUSH_WAIT)
+        .limit(PUSH_OUTPUT_LIMIT)
+        .stdout(args)
+        .map(drop)
 }
 
 #[cfg(test)]

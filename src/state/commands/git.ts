@@ -4,9 +4,9 @@ import { collectPanes } from "../layout";
 import type { DiffTarget } from "../types";
 import { ensureRoleWindow } from "./shared";
 
-export const openDiffPane = (): void => ensureRoleWindow("diff", "diff", "diff");
+export const openDiffPane = (): void => ensureRoleWindow("diff");
 
-export const openGitWorkbench = (): void => ensureRoleWindow("git", "git", "Git");
+export const openGitWorkbench = (): void => ensureRoleWindow("git");
 
 export function openGitPane(): void {
     openGitWorkbench();
@@ -37,7 +37,7 @@ function focusDiff(target: DiffTarget): void {
     const session = st.sessions[st.activeSessionId];
     if (!session) return;
     setState((state) => ({ diffTarget: { ...state.diffTarget, [session.cwd]: target } }));
-    ensureRoleWindow("diff", "diff", "diff");
+    ensureRoleWindow("diff");
 }
 
 /** Review one changed file in the diff tab. `path` is repo-relative. */

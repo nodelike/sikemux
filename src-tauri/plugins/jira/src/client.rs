@@ -1,15 +1,14 @@
-use std::sync::OnceLock;
-use std::time::Duration;
-
-use futures::StreamExt;
-use reqwest::{Client, Method, RequestBuilder, Response, StatusCode};
+use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde_json::Value;
+use sikemux_plugin_api::http::{self, BodyError, Deadline, Http, Redirects};
 
 use crate::config::Site;
-use crate::error::{JiraError, JiraResult};
+use crate::error::{Jira, JiraError, JiraResult};
 use crate::oauth;
 
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
+pub static HTTP: Http<Jira> = Http::new(Redirects::Refuse, Deadline::WholeAnswer, 16);
 
 /// Where a request goes and who it is from: the site itself with an email and its API
 /// token, or Atlassian's API for the site with a browser sign-in's access token.
@@ -31,40 +30,15 @@ pub enum Auth {
     },
 }
 
-pub fn http() -> JiraResult<&'static Client> {
-    static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            Client::builder()
-                .pool_idle_timeout(Duration::from_secs(25))
-                .timeout(Duration::from_secs(30))
-                .redirect(reqwest::redirect::Policy::none())
-                .user_agent("sikemux-jira/0.1")
-                .build()
-                .ok()
-        })
-        .as_ref()
-        .ok_or_else(|| JiraError::Transport("could not start the HTTP client".into()))
-}
-
 pub async fn read_limited(response: Response) -> JiraResult<Vec<u8>> {
-    let too_big = || JiraError::Response("more than 16 MiB came back; narrow the query".into());
-    if response
-        .content_length()
-        .is_some_and(|size| size > MAX_RESPONSE_BYTES as u64)
-    {
-        return Err(too_big());
-    }
-    let mut stream = response.bytes_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
-            return Err(too_big());
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(bytes)
+    http::read_body(response, MAX_RESPONSE_BYTES)
+        .await
+        .map_err(|error| match error {
+            BodyError::TooBig(_) => {
+                JiraError::Response("more than 16 MiB came back; narrow the query".into())
+            }
+            error => error.into(),
+        })
 }
 
 /// Jira's error body: `errorMessages` for the request and `errors` per field.
@@ -102,19 +76,21 @@ pub async fn send(
     let (mut status, mut bytes) = send_once(credentials, None, &method, path, query, body).await?;
     if status == StatusCode::UNAUTHORIZED {
         if let Auth::Atlassian { site, token } = &credentials.auth {
-            let renewed = oauth::renew(site, token).await?;
+            let renewed = oauth::ACCESS
+                .renew(&site.account_id, token, oauth::entry(site))
+                .await?
+                .token;
             (status, bytes) =
                 send_once(credentials, Some(&renewed), &method, path, query, body).await?;
         }
     }
-    let parsed: Value = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    };
     if status.is_success() {
-        return Ok(parsed);
+        if bytes.is_empty() {
+            return Ok(Value::Null);
+        }
+        return Ok(serde_json::from_slice(&bytes)?);
     }
+    let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     let message = error_message(&parsed)
         .unwrap_or_else(|| String::from_utf8_lossy(&bytes).chars().take(400).collect());
     if matches!(status.as_u16(), 401) {
@@ -130,25 +106,32 @@ pub async fn send(
     })
 }
 
-/// A picture the site gives only to someone signed in, such as a project's avatar: its
-/// content type and its bytes.
+/// A picture the site gives only to someone signed in, such as a project's avatar.
 pub async fn fetch(
     credentials: &Credentials,
     path: &str,
     query: &[(String, String)],
-) -> JiraResult<(Option<String>, Vec<u8>)> {
+) -> JiraResult<Response> {
     let get = |renewed: Option<String>| {
         signed(
-            http().map(|client| client.get(format!("{}{path}", credentials.url))),
+            HTTP.client()
+                .map(|client| client.get(format!("{}{path}", credentials.url))),
             credentials,
             renewed.as_deref(),
         )
         .map(|request| request.header("Accept", "image/*").query(query))
     };
-    let mut response = get(None)?.send().await?;
+    let mut response = HTTP.send(get(None)?).await?;
     if response.status() == StatusCode::UNAUTHORIZED {
         if let Auth::Atlassian { site, token } = &credentials.auth {
-            response = get(Some(oauth::renew(site, token).await?))?.send().await?;
+            response = HTTP
+                .send(get(Some(
+                    oauth::ACCESS
+                        .renew(&site.account_id, token, oauth::entry(site))
+                        .await?
+                        .token,
+                ))?)
+                .await?;
         }
     }
     let status = response.status();
@@ -158,12 +141,7 @@ pub async fn fetch(
             message: "the picture did not load".into(),
         });
     }
-    let kind = response
-        .headers()
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string);
-    Ok((kind, read_limited(response).await?))
+    Ok(response)
 }
 
 fn signed(
@@ -188,15 +166,16 @@ async fn send_once(
     query: &[(&str, String)],
     body: Option<&Value>,
 ) -> JiraResult<(StatusCode, Vec<u8>)> {
-    let request =
-        http().map(|client| client.request(method.clone(), format!("{}{path}", credentials.url)));
+    let request = HTTP
+        .client()
+        .map(|client| client.request(method.clone(), format!("{}{path}", credentials.url)));
     let mut request = signed(request, credentials, renewed)?
         .header("Accept", "application/json")
         .query(query);
     if let Some(body) = body {
         request = request.json(body);
     }
-    let response = request.send().await?;
+    let response = HTTP.send(request).await?;
     let status = response.status();
     Ok((status, read_limited(response).await?))
 }

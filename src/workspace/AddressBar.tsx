@@ -143,7 +143,7 @@ export function AddressBar({
             .then((next) => {
                 if (asking === asked.current) setFound(next);
             })
-            .catch(() => {});
+            .catch(swallow("suggest addresses"));
     };
 
     const edit = (text: string, forward: boolean) => {

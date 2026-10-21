@@ -44,9 +44,7 @@ export function MessagesPanel({ folder, onClose }: { folder: string; onClose: ()
                     <IconClose size={12} />
                 </button>
             </header>
-            <p className="board-auto-about">
-                What this project's agents sent each other, newest first. Only who, what kind and how it went is kept, never the text.
-            </p>
+            <p className="board-auto-about">Newest first. Sikemux keeps who sent what kind and how it went, never the text.</p>
             {log && rows.length === 0 ? (
                 <p className="board-auto-hint">No agent has messaged another here yet.</p>
             ) : (

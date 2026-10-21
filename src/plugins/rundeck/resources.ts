@@ -1,92 +1,40 @@
-import { peekResource, resource, useResource } from "../../plugin-api/resources";
-import {
-    rundeckApi,
-    type JobDetail,
-    type JobIndexEntry,
-    type MatrixCell,
-    type MatrixResult,
-    type OptionValue,
-    type PlanRequest,
-    type PlanResult,
-    type ProjectExecutions,
-    type RundeckExecution,
-    type RundeckJob,
-    type RundeckProject,
-    type RundeckLists,
-    type RundeckStatus,
-} from "./api";
+import { peekResource, useResource } from "../../plugin-api/resources";
+import { defineService } from "../../plugin-api/service";
+import { rundeckApi, type PlanRequest, type RundeckJob } from "./api";
+import { RUNDECK_PLUGIN } from "./kinds";
 import { DEFAULT_BRANCH_OPTIONS, DEFAULT_PROD_ENVS } from "./shape";
 
-export const rndStatusR = resource({
-    kind: "rnd.status",
-    fetch: (): Promise<RundeckStatus> => rundeckApi.status(),
-    staleAfterMs: 60_000,
-});
+export const rundeck = defineService(RUNDECK_PLUGIN, rundeckApi.status);
 
-export const rndProjectsR = resource({
-    kind: "rnd.projects",
-    fetch: (): Promise<RundeckProject[]> => rundeckApi.projects(),
-    staleAfterMs: 5 * 60_000,
-});
+export const rndProjectsR = rundeck.resource("projects", () => rundeckApi.projects(), 5 * 60_000);
 
-export const rndJobsR = resource({
-    kind: "rnd.jobs",
-    fetch: (project: string): Promise<RundeckJob[]> => rundeckApi.jobs(project),
-    staleAfterMs: 60_000,
-});
+export const rndJobsR = rundeck.resource("jobs", (project: string) => rundeckApi.jobs(project), 60_000);
 
-export const rndJobIndexR = resource({
-    kind: "rnd.jobIndex",
-    fetch: (): Promise<JobIndexEntry[]> => rundeckApi.jobIndex(),
-    staleAfterMs: 5 * 60_000,
-});
+export const rndJobIndexR = rundeck.resource("jobIndex", () => rundeckApi.jobIndex(), 5 * 60_000);
 
-export const rndJobDetailR = resource({
-    kind: "rnd.jobDetail",
-    fetch: (jobId: string): Promise<JobDetail> => rundeckApi.jobDetail(jobId),
-    staleAfterMs: 60_000,
-});
+export const rndJobDetailR = rundeck.resource("jobDetail", (jobId: string) => rundeckApi.jobDetail(jobId), 60_000);
 
-export const rndOptionValuesR = resource({
-    kind: "rnd.optionValues",
-    fetch: (url: string): Promise<OptionValue[]> => rundeckApi.optionValues(url),
-    staleAfterMs: 60_000,
-});
+export const rndOptionValuesR = rundeck.resource("optionValues", (url: string) => rundeckApi.optionValues(url), 60_000);
 
-export const rndMatrixR = resource({
-    kind: "rnd.matrix",
-    fetch: (project: string): Promise<MatrixResult> => rundeckApi.branchesMatrix(project),
-    staleAfterMs: 30_000,
-});
+export const rndMatrixR = rundeck.resource("matrix", (project: string) => rundeckApi.branchesMatrix(project), 30_000);
 
-export const rndJobCellsR = resource({
-    kind: "rnd.jobCells",
-    fetch: (jobs: RundeckJob[]): Promise<MatrixCell[]> => rundeckApi.jobCells(jobs),
-    staleAfterMs: 30_000,
-});
+export const rndJobCellsR = rundeck.resource("jobCells", (jobs: RundeckJob[]) => rundeckApi.jobCells(jobs), 30_000);
 
-export const rndExecutionsR = resource({
-    kind: "rnd.executions",
-    fetch: (jobId: string, project: string, max: number): Promise<RundeckExecution[]> => rundeckApi.executions(jobId, project, max),
-    staleAfterMs: 15_000,
-});
+export const rndExecutionsR = rundeck.resource(
+    "executions",
+    (jobId: string, project: string, max: number) => rundeckApi.executions(jobId, project, max),
+    15_000,
+);
 
-export const rndProjectExecutionsR = resource({
-    kind: "rnd.projectExecutions",
-    fetch: (project: string, max: number): Promise<ProjectExecutions> => rundeckApi.projectExecutions(project, max, 0),
-    staleAfterMs: 15_000,
-});
+export const rndProjectExecutionsR = rundeck.resource(
+    "projectExecutions",
+    (project: string, max: number) => rundeckApi.projectExecutions(project, max, 0),
+    15_000,
+);
 
-export const rndPlanR = resource({
-    kind: "rnd.plan",
-    fetch: (request: PlanRequest): Promise<PlanResult> => rundeckApi.plan(request),
-    staleAfterMs: 10_000,
-});
+export const rndPlanR = rundeck.resource("plan", (request: PlanRequest) => rundeckApi.plan(request), 10_000);
 
-export const rndListsR = resource({
-    kind: "rnd.lists",
-    fetch: (): Promise<RundeckLists> => rundeckApi.lists(),
-});
+export const rndListsR = rundeck.resource("lists", () => rundeckApi.lists());
 
 /** Job options that hold the git branch, as the plugin keeps them. */
 export function useBranchOptions(): string[] {

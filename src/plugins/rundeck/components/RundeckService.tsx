@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { currentBranch, git, openUrl, swallow } from "../../../plugin-api/host";
-import { useEvery, useNow } from "../../../plugin-api/hooks";
-import { formatAgo, formatDuration } from "../../../plugin-api/format";
+import { useNow, useRefreshEvery } from "../../../plugin-api/hooks";
+import { errorText, formatAgo, formatDuration } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconExternal, IconFetch, IconGit, IconRun, IconWarning, SkeletonRows, Tooltip } from "../../../plugin-api/ui";
-import { failureMessage, type RundeckExecution } from "../api";
+import { type RundeckExecution } from "../api";
 import { rndExecutionsR, rndJobDetailR, rndJobsR, useBranchOptions, useProdEnvs } from "../resources";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
@@ -35,7 +35,7 @@ export function RundeckService({ paneId, active, level }: Props) {
     const runs = useMemo(() => newestExecutions(execs.data ?? []), [execs.data]);
     const running = liveRun(runs);
     const now = useNow(active && !!running);
-    useEvery(active, running ? 3_000 : 20_000, () => void execs.refresh().catch(() => {}));
+    useRefreshEvery(execs, !active ? null : running ? 3_000 : 20_000);
 
     const branchFor = (ex: RundeckExecution) => branchOf(ex.job?.options, branchOptions);
     const summary = jobs.data?.find((j) => j.id === job.jobId) ?? null;
@@ -65,7 +65,7 @@ export function RundeckService({ paneId, active, level }: Props) {
         try {
             openForm(currentBranch(await git.status(job.repoPath)) ?? "");
         } catch (e) {
-            setActionError(failureMessage(e));
+            setActionError(errorText(e));
         }
     };
     const openRun = (ex: RundeckExecution) => cmd.rundeckPush(paneId, { kind: "execution", ...job, executionId: ex.id });

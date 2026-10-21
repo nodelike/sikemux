@@ -32,9 +32,7 @@ struct Ask {
 
 #[derive(Serialize, Deserialize)]
 struct Reply {
-    #[serde(default)]
     ok: Option<Value>,
-    #[serde(default)]
     error: Option<String>,
 }
 

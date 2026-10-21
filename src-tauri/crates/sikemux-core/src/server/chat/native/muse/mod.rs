@@ -10,44 +10,35 @@ mod items;
 mod state;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use url::Url;
+use sikemux_process::sync::Locked;
 use uuid::Uuid;
 
-use crate::acp::prompt_blocks;
+use crate::launch::PermissionMode;
 use crate::protocol::ChatLaunch;
 
 use super::super::Respond;
 use super::file_link;
 use super::json::text;
+use super::parts::{context_text, parts, picture, Part};
+use super::pending::{Answered, Purpose};
 use super::process::{Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
-use super::session::{Backend, Opened, Prompt, Sink, TurnEnd};
+use super::servers;
+use super::session::{self, Backend, Opened, Prompt, Sink, TurnEnd};
 use approvals::Question;
 use commands::Command;
 use config::{Mode, Models};
 use items::Follow;
 use state::{Effect, Session};
 
-/// How many subagent conversations a resumed history reads.
-const MAX_SUBAGENT_SESSIONS: usize = 64;
-
 /// The largest picture handed to Muse, which takes at most ten megabytes in
 /// one message once it is base64.
 const MAX_IMAGE_BYTES: u64 = 7 * 1024 * 1024;
-
-const IMAGE_TYPES: [(&str, &str); 5] = [
-    ("png", "image/png"),
-    ("jpg", "image/jpeg"),
-    ("jpeg", "image/jpeg"),
-    ("gif", "image/gif"),
-    ("webp", "image/webp"),
-];
 
 /// A command's id. Muse wants every command to carry a fresh UUIDv7, and names
 /// a fresh turn by the id of the command that started it.
@@ -64,10 +55,6 @@ struct Driver {
 }
 
 impl Driver {
-    fn lock(&self) -> MutexGuard<'_, Session> {
-        self.session.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     fn apply(&self, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
@@ -87,12 +74,12 @@ impl Driver {
             Follow::Subagent(child) => (
                 "view/subscribe",
                 json!({ "sessionId": child }),
-                json!({ "subscribe": child }),
+                Purpose::Subscribe(child),
             ),
             Follow::ReadSubagent { child, result } => (
                 "session/read",
                 json!({ "sessionId": child, "excludeItems": false }),
-                json!({ "readSubagent": { "child": child, "result": result } }),
+                Purpose::ReadSubagent { child, result },
             ),
             Follow::Patch {
                 session,
@@ -101,7 +88,7 @@ impl Driver {
             } => (
                 "item/readOutput",
                 json!({ "sessionId": session, "itemId": call, "outputRef": output_ref }),
-                json!({ "patch": { "session": session, "call": call } }),
+                Purpose::Patch { session, call },
             ),
         };
         if let Err(error) = self.rpc.send_for(method, params, purpose) {
@@ -110,47 +97,33 @@ impl Driver {
     }
 
     /// The answer to a request sent with `purpose`.
-    fn purpose_answered(&self, purpose: Value, result: Result<Value, Value>) {
-        if let Some(child) = purpose["subscribe"].as_str() {
-            if let Err(error) = result {
-                eprintln!(
-                    "sikemux core: Muse subagent {child} could not be followed: {}",
-                    error_text(&error)
-                );
-            }
-        } else if let Some(read) = purpose.get("readSubagent") {
-            let child = read["child"].as_str().unwrap_or_default();
-            let said: Vec<Value> = result
-                .ok()
-                .and_then(|read| read["history"]["items"].as_array().cloned())
-                .unwrap_or_default();
-            let effects = if said.iter().any(|item| item["kind"] != "userMessage") {
-                self.lock().told_subagent(child, &said)
-            } else {
-                read["result"]
-                    .as_str()
-                    .map(|result| self.lock().subagent_said(child, result))
-                    .unwrap_or_default()
-            };
-            self.apply(effects);
-        } else if let Some(patch) = purpose.get("patch") {
-            if let Ok(read) = result {
-                let session = patch["session"].as_str().unwrap_or_default();
-                let call = patch["call"].as_str().unwrap_or_default();
-                self.show_patch(session, call, &read);
-            }
-        } else if let Some(turn_id) = purpose["interrupt"].as_str() {
-            if result.is_ok() {
-                let effects = self.lock().interrupted(turn_id);
+    fn purpose_answered(&self, purpose: Purpose, result: Answered) {
+        match (purpose, result) {
+            (Purpose::Subscribe(child), Err(error)) => eprintln!(
+                "sikemux core: Muse subagent {child} could not be followed: {}",
+                error_text(&error)
+            ),
+            (Purpose::ReadSubagent { child, result }, read) => {
+                let said: Vec<Value> = read
+                    .ok()
+                    .and_then(|read| read["history"]["items"].as_array().cloned())
+                    .unwrap_or_default();
+                let effects = if said.iter().any(|item| item["kind"] != "userMessage") {
+                    self.session.locked().told_subagent(&child, &said)
+                } else {
+                    result
+                        .map(|result| self.session.locked().subagent_said(&child, &result))
+                        .unwrap_or_default()
+                };
                 self.apply(effects);
             }
-        } else if let Some(steer) = purpose.get("steer") {
-            if result.is_ok() {
-                let paths: Vec<String> =
-                    serde_json::from_value(steer["paths"].clone()).unwrap_or_default();
-                self.sink
-                    .prompted(steer["text"].as_str().unwrap_or_default(), &paths);
+            (Purpose::Patch { session, call }, Ok(read)) => self.show_patch(&session, &call, &read),
+            (Purpose::Interrupt(turn_id), Ok(_)) => {
+                let effects = self.session.locked().interrupted(&turn_id);
+                self.apply(effects);
             }
+            (Purpose::Steer { text, paths }, Ok(_)) => self.sink.prompted(&text, &paths),
+            _ => {}
         }
     }
 
@@ -169,7 +142,7 @@ impl Driver {
         let Some(content) = content else {
             return;
         };
-        let cwd = self.lock().cwd.clone();
+        let cwd = self.session.locked().cwd.clone();
         let blocks =
             items::patch_blocks(&content, &cwd, &|path| std::fs::read_to_string(path).ok());
         if !blocks.is_empty() {
@@ -182,30 +155,27 @@ impl Driver {
 
     /// Asks Muse to stop the turn with this id.
     fn interrupt(&self, turn_id: String) {
-        let session_id = self.lock().session_id.clone();
+        let session_id = self.session.locked().session_id.clone();
         let _ = self.rpc.send_for(
             "turn/interrupt",
             json!({ "sessionId": session_id, "commandId": command_id(), "turnId": turn_id }),
-            json!({ "interrupt": turn_id }),
+            Purpose::Interrupt(turn_id),
         );
     }
 
     /// Puts one stage of an approval to the person, once.
     fn ask(&self, params: &Value) {
-        let session = self.lock().session_for(params);
+        let session = self.session.locked().session_for(params);
         let Some(question) = approvals::question(&session, params) else {
             return;
         };
-        if !self.lock().ask(question.key()) {
+        if !self.session.locked().ask(question.key()) {
             return;
         }
         let wire_session = params["sessionId"].as_str().unwrap_or_default().to_owned();
-        let request = question.request.clone();
-        let Ok(question) = serde_json::to_value(&question) else {
-            return;
-        };
         let reply = json!({ "session": wire_session, "question": question });
-        self.sink.ask(request, reply.clone(), self.responder(reply));
+        self.sink
+            .ask(question.request, reply.clone(), self.responder(reply));
     }
 
     fn responder(&self, reply: Value) -> Respond {
@@ -242,7 +212,7 @@ impl Driver {
             self.ask(params);
             return;
         }
-        let effects = self.lock().handle(method, params);
+        let effects = self.session.locked().handle(method, params);
         self.apply(effects);
     }
 
@@ -301,22 +271,22 @@ struct MuseState {
     rpc: RpcState,
     session: Session,
     session_tools: bool,
-    launch: ChatLaunch,
+    #[serde(flatten)]
+    kept: Kept,
+}
+
+/// What a Muse chat knows of its session, as it hands it to a core that
+/// takes it over.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Kept {
     cwd: String,
     models: Models,
     model: String,
     effort: Option<String>,
     mode: Mode,
+    /// What `skill/list` answered, for the commands the chat offers.
     skills: Value,
-}
-
-/// Why starting failed, with the last thing Muse printed when it stopped.
-fn start_error(process: &Process, error: String) -> String {
-    let stderr = process.stderr();
-    match stderr.lines().rev().find(|line| !line.trim().is_empty()) {
-        Some(line) => format!("{error}: {}", line.trim()),
-        None => error,
-    }
 }
 
 /// A running `muse serve` and the connection to it.
@@ -340,7 +310,7 @@ impl Host {
         let mut args = mode.serve_args();
         args.splice(1..1, std::mem::take(&mut bare.args));
         let (process, writer, lines) = Process::spawn(&bare, args, Vec::<(String, String)>::new())?;
-        let rpc = Rpc::versioned(writer);
+        let rpc = Rpc::new(writer, true);
         let driver = Driver { rpc, sink, session };
         let (reading, _) = Reading::start(driver.clone(), lines);
         let initialized = driver
@@ -356,11 +326,11 @@ impl Host {
                 }),
             )
             .await
-            .map_err(|error| start_error(&process, error))?;
+            .map_err(|error| process.start_error(error))?;
         driver
             .rpc
             .notify("initialized", Value::Null)
-            .map_err(|error| start_error(&process, error))?;
+            .map_err(|error| process.start_error(error))?;
         let session_tools = initialized["grantedCapabilities"]
             .as_array()
             .is_some_and(|granted| granted.iter().any(|name| name == "sessionMcp"));
@@ -374,7 +344,7 @@ impl Host {
 
     /// The per-session settings Muse takes when it opens or loads a session.
     fn session_config(&self, launch: &ChatLaunch) -> Value {
-        let servers = config::tool_servers(&launch.mcp_servers);
+        let servers = config::tool_servers(&servers::tool_servers(launch));
         if self.session_tools && !servers.is_empty() {
             json!({ "mcpServers": servers })
         } else {
@@ -386,13 +356,7 @@ impl Host {
 pub(crate) struct Muse {
     host: Host,
     launch: ChatLaunch,
-    cwd: String,
-    models: Models,
-    model: String,
-    effort: Option<String>,
-    mode: Mode,
-    /// What `skill/list` answered, for the commands the chat offers.
-    skills: Value,
+    kept: Kept,
 }
 
 async fn list_models(rpc: &Rpc) -> Models {
@@ -407,67 +371,49 @@ async fn list_models(rpc: &Rpc) -> Models {
 
 /// The conversations of every subagent `items` started, and theirs.
 async fn subagent_histories(rpc: &Rpc, items: &[Value]) -> HashMap<String, Vec<Value>> {
-    let mut histories = HashMap::new();
-    let mut queue = history::subagents(items);
-    while let Some(child) = queue.pop() {
-        if histories.contains_key(&child) || histories.len() >= MAX_SUBAGENT_SESSIONS {
-            continue;
-        }
-        let read = rpc
-            .request(
-                "session/read",
-                json!({ "sessionId": child, "excludeItems": false }),
-            )
-            .await;
-        let said: Vec<Value> = read
-            .ok()
-            .and_then(|read| read["history"]["items"].as_array().cloned())
-            .unwrap_or_default();
-        queue.extend(history::subagents(&said));
-        histories.insert(child, said);
-    }
-    histories
+    let read = |child: String| async move {
+        rpc.request(
+            "session/read",
+            json!({ "sessionId": child, "excludeItems": false }),
+        )
+        .await
+        .ok()
+        .and_then(|read| read["history"]["items"].as_array().cloned())
+        .unwrap_or_default()
+    };
+    session::subagent_histories(history::subagents(items), read, history::subagents).await
 }
 
 /// A file the person attached, as Muse's input for it: the picture itself
 /// when it is one Muse can look at, otherwise a link to it.
-fn attachment(name: Option<&str>, uri: &str) -> Value {
-    let path = Url::parse(uri).ok().and_then(|url| url.to_file_path().ok());
-    let picture = path.as_deref().and_then(|path| {
-        let extension = path.extension()?.to_str()?.to_lowercase();
-        let (_, media_type) = IMAGE_TYPES.iter().find(|(known, _)| *known == extension)?;
-        let size = std::fs::metadata(path).ok()?.len();
-        if size > MAX_IMAGE_BYTES {
+fn attachment(name: &str, uri: &str) -> Value {
+    let image = picture(uri).and_then(|(path, media_type)| {
+        if std::fs::metadata(&path).ok()?.len() > MAX_IMAGE_BYTES {
             return None;
         }
-        let bytes = std::fs::read(path).ok()?;
+        let bytes = std::fs::read(&path).ok()?;
         Some(json!({
             "type": "image",
             "mediaType": media_type,
             "base64Data": base64::engine::general_purpose::STANDARD.encode(bytes),
         }))
     });
-    picture.unwrap_or_else(|| json!({ "type": "text", "text": file_link(name, uri) }))
+    image.unwrap_or_else(|| json!({ "type": "text", "text": file_link(Some(name), uri) }))
 }
 
-/// Muse's input for the prompt's blocks.
-fn input(blocks: &[Value]) -> Vec<Value> {
+/// Muse's input for the prompt.
+fn input(parts: Vec<Part>) -> Vec<Value> {
     let said = |text: String| json!({ "type": "text", "text": text });
-    blocks
-        .iter()
-        .filter_map(|block| match block["type"].as_str()? {
-            "text" => Some(said(block["text"].as_str()?.to_owned())),
-            "resource_link" => Some(attachment(block["name"].as_str(), block["uri"].as_str()?)),
-            "resource" => {
-                let resource = &block["resource"];
-                let uri = resource["uri"].as_str()?;
-                let body = resource["text"].as_str()?;
-                Some(said(format!(
-                    "{}\n<context ref=\"{uri}\">\n{body}\n</context>",
-                    file_link(None, uri)
-                )))
-            }
-            _ => None,
+    parts
+        .into_iter()
+        .map(|part| match part {
+            Part::Text(text) => said(text),
+            Part::File { name, uri } => attachment(&name, &uri),
+            Part::Context { uri, text } => said(format!(
+                "{}\n{}",
+                file_link(None, &uri),
+                context_text(&uri, &text)
+            )),
         })
         .collect()
 }
@@ -482,13 +428,13 @@ impl Muse {
     }
 
     fn session_id(&self) -> String {
-        self.driver().lock().session_id.clone()
+        self.driver().session.locked().session_id.clone()
     }
 
     /// Writes a steer to Muse now, so a stop sent after it reaches Muse after
     /// it too. None when no turn is running.
     fn send_steer(&self, prompt: &Prompt) -> Result<Option<Sent>, String> {
-        let Some(turn_id) = self.driver().lock().active_turn() else {
+        let Some(turn_id) = self.driver().session.locked().active_turn() else {
             return Ok(None);
         };
         let input = self.prompt_input(prompt)?;
@@ -501,21 +447,17 @@ impl Muse {
                     "expectedTurnId": turn_id,
                     "input": input,
                 }),
-                Some(json!({ "steer": { "text": prompt.text, "paths": prompt.paths } })),
+                Some(Purpose::Steer {
+                    text: prompt.text.clone(),
+                    paths: prompt.paths.clone(),
+                }),
             )
             .map(Some)
             .map_err(|error| error_text(&error))
     }
 
     fn prompt_input(&self, prompt: &Prompt) -> Result<Vec<Value>, String> {
-        let blocks = prompt_blocks(
-            prompt.text.clone(),
-            prompt.paths.clone(),
-            prompt.context.clone(),
-            true,
-        )?;
-        let blocks = serde_json::to_value(blocks).map_err(|error| error.to_string())?;
-        Ok(input(blocks.as_array().map_or(&[], Vec::as_slice)))
+        Ok(input(parts(prompt)?))
     }
 
     fn say(&self, said: &str) {
@@ -534,7 +476,7 @@ impl Muse {
     /// Sends `input` as turn `turn`.
     async fn send_turn(&self, turn: u64, prompt: &Prompt, input: Vec<Value>) -> Result<(), String> {
         let id = command_id();
-        self.driver().lock().begin(
+        self.driver().session.locked().begin(
             turn,
             &id,
             prompt.message_id.clone(),
@@ -547,19 +489,19 @@ impl Muse {
             "displayText": prompt.text,
             "ifBusy": "queue",
         });
-        if let Some(effort) = &self.effort {
+        if let Some(effort) = &self.kept.effort {
             params["reasoningEffort"] = json!(effort);
         }
         match self.rpc().request("turn/start", params).await {
             Ok(started) => {
                 let turn_id = text(&started, "turnId").unwrap_or(&id).to_owned();
-                if self.driver().lock().started(turn, &turn_id) {
+                if self.driver().session.locked().started(turn, &turn_id) {
                     self.driver().interrupt(turn_id);
                 }
                 Ok(())
             }
             Err(error) => {
-                self.driver().lock().abandon(turn);
+                self.driver().session.locked().abandon(turn);
                 Err(error)
             }
         }
@@ -596,15 +538,15 @@ impl Muse {
             }
             Command::Status => {
                 let (totals, context) = {
-                    let session = self.driver().lock();
+                    let session = self.driver().session.locked();
                     (session.totals.clone(), session.context.clone())
                 };
                 self.say(&commands::status_text(&commands::Status {
-                    model: &self.model,
-                    effort: self.effort.as_deref(),
-                    cwd: &self.cwd,
-                    approval: self.mode.approval_mode(),
-                    sandbox: self.mode.sandbox_name(),
+                    model: &self.kept.model,
+                    effort: self.kept.effort.as_deref(),
+                    cwd: &self.kept.cwd,
+                    approval: self.kept.mode.approval_mode(),
+                    sandbox: self.kept.mode.sandbox_name(),
                     session: &session_id,
                     totals: totals.as_ref(),
                     context: context.as_ref(),
@@ -634,7 +576,7 @@ impl Muse {
     ) -> Result<(Value, Vec<Value>), String> {
         let config = host.session_config(launch);
         let rpc = &host.driver.rpc;
-        let failed = |error: String| start_error(&host.process, error);
+        let failed = |error: String| host.process.start_error(error);
         let Some(resume_id) = &launch.resume_id else {
             let opened = rpc
                 .request(
@@ -688,22 +630,22 @@ impl Muse {
                 &session_id,
                 json!({ "sessionUpdate": "session_info_update", "title": title }),
             );
-            driver.lock().titled = true;
+            driver.session.locked().titled = true;
         }
         let children = subagent_histories(&driver.rpc, items).await;
         let mut out = Vec::new();
-        history::replay(&session_id, items, &children, &self.cwd, &mut out);
+        history::replay(&session_id, items, &children, &self.kept.cwd, &mut out);
         for (session, update) in out {
             driver.sink.update(&session, update);
         }
-        driver.lock().turns = history::turns(items);
+        driver.session.locked().turns = history::turns(items);
         driver
             .sink
             .update(&session_id, json!({ "sessionUpdate": "history_loaded" }));
     }
 
     async fn offer_commands(&mut self) {
-        self.skills = self
+        self.kept.skills = self
             .rpc()
             .request("skill/list", json!({ "sessionId": self.session_id() }))
             .await
@@ -712,7 +654,7 @@ impl Muse {
             &self.session_id(),
             json!({
                 "sessionUpdate": "available_commands_update",
-                "availableCommands": commands::available(&self.skills),
+                "availableCommands": commands::available(&self.kept.skills),
             }),
         );
     }
@@ -725,36 +667,29 @@ impl Muse {
         let mut launch = self.launch.clone();
         launch.resume_id = Some(self.session_id());
         let host = Host::start(&launch, mode, sink, session).await?;
-        drop(std::mem::replace(&mut self.host, host));
+        let old = std::mem::replace(&mut self.host, host);
         // The old host lets go of the session only once it has died.
-        let mut tries = 0;
-        loop {
-            match Self::open(&self.host, &launch, mode, false).await {
-                Ok(_) => return Ok(()),
-                Err(_) if tries < 20 => {
-                    tries += 1;
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
+        old.process.stop().await;
+        Self::open(&self.host, &launch, mode, false).await.map(drop)
     }
 }
 
 /// Every item of a session's view, paged in when Muse would not hand its
 /// history over whole.
 async fn page_history(rpc: &Rpc, session_id: &str) -> Vec<Value> {
+    let pages = rpc
+        .pages("view/page", |cursor| {
+            let mut params = json!({ "sessionId": session_id, "limit": 1000 });
+            if !cursor.is_null() {
+                params["cursor"] = cursor.clone();
+            }
+            params
+        })
+        .await
+        .unwrap_or_default();
     let mut order: Vec<String> = Vec::new();
     let mut latest: HashMap<String, Value> = HashMap::new();
-    let mut cursor = Value::Null;
-    loop {
-        let mut params = json!({ "sessionId": session_id, "limit": 1000 });
-        if !cursor.is_null() {
-            params["cursor"] = cursor.clone();
-        }
-        let Ok(page) = rpc.request("view/page", params).await else {
-            break;
-        };
+    for page in &pages {
         for event in page["events"].as_array().into_iter().flatten() {
             let item = &event["params"]["item"];
             let Some(id) = item["itemId"].as_str() else {
@@ -765,10 +700,6 @@ async fn page_history(rpc: &Rpc, session_id: &str) -> Vec<Value> {
             }
             latest.insert(id.to_owned(), item.clone());
         }
-        match page["nextCursor"].as_str() {
-            Some(next) if cursor != next => cursor = Value::from(next),
-            _ => break,
-        }
     }
     order
         .into_iter()
@@ -778,7 +709,7 @@ async fn page_history(rpc: &Rpc, session_id: &str) -> Vec<Value> {
 
 impl Backend for Muse {
     async fn start(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
-        let mode = Mode::from_app(&launch.permission_mode)?;
+        let mode = Mode::from_app(PermissionMode::parse(&launch.permission_mode)?);
         let cwd = launch.cwd.to_string_lossy().into_owned();
         // Muse asks again about approvals left waiting as soon as a session
         // loads, so the session is known by its id before then.
@@ -793,7 +724,7 @@ impl Backend for Muse {
             .as_str()
             .ok_or("Muse opened a session without an id")?
             .to_owned();
-        *host.driver.lock() = Session::new(session_id.clone(), cwd.clone());
+        *host.driver.session.locked() = Session::new(session_id.clone(), cwd.clone());
 
         let model = launch
             .model
@@ -810,19 +741,21 @@ impl Backend for Muse {
                     json!({ "sessionId": session_id, "commandId": command_id(), "model": { "modelId": model } }),
                 )
                 .await
-                .map_err(|error| start_error(&host.process, error))?;
+                .map_err(|error| host.process.start_error(error))?;
         }
         let effort = models.effort_for(&model, launch.effort.as_deref());
 
         let mut muse = Self {
             host,
             launch: launch.clone(),
-            cwd,
-            models,
-            model,
-            effort,
-            mode,
-            skills: Value::Null,
+            kept: Kept {
+                cwd,
+                models,
+                model,
+                effort,
+                mode,
+                skills: Value::Null,
+            },
         };
         if launch.resume_id.is_some() {
             muse.replay(&opened, &items).await;
@@ -837,14 +770,14 @@ impl Backend for Muse {
                 "promptCapabilities": { "image": true, "embeddedContext": true },
             }),
             setup: json!({
-                "configOptions": muse.models.options(&muse.model, muse.effort.as_deref()),
+                "configOptions": muse.kept.models.options(&muse.kept.model, muse.kept.effort.as_deref()),
             }),
         };
         Ok((muse, opened))
     }
 
     async fn prompt(&mut self, turn: u64, prompt: Prompt) -> Result<(), String> {
-        if let Some(command) = commands::parse(&prompt.text, &self.skills) {
+        if let Some(command) = commands::parse(&prompt.text, &self.kept.skills) {
             return self.command(turn, &prompt, command).await;
         }
         let input = self.prompt_input(&prompt)?;
@@ -879,16 +812,16 @@ impl Backend for Muse {
     }
 
     async fn cancel(&mut self) -> Result<(), String> {
-        let turn = self.driver().lock().cancel();
+        let turn = self.driver().session.locked().cancel();
         if let Some(turn_id) = turn {
             self.driver().interrupt(turn_id);
         }
         Ok(())
     }
 
-    async fn set_permission_mode(&mut self, mode: &str) -> Result<(), String> {
-        let mode = Mode::from_app(mode)?;
-        if mode.serve_args() != self.mode.serve_args() {
+    async fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
+        let mode = Mode::from_app(mode);
+        if mode.serve_args() != self.kept.mode.serve_args() {
             self.restart(mode).await?;
         } else {
             self.rpc()
@@ -898,11 +831,7 @@ impl Backend for Muse {
                 )
                 .await?;
         }
-        self.mode = mode;
-        self.launch.permission_mode = match mode {
-            Mode::Ask => "workspace-write".to_owned(),
-            Mode::FullAccess => "bypass".to_owned(),
-        };
+        self.kept.mode = mode;
         Ok(())
     }
 
@@ -910,7 +839,7 @@ impl Backend for Muse {
         let session_id = self.session_id();
         match config_id {
             "model" => {
-                if !self.models.offers(value) {
+                if !self.kept.models.offers(value) {
                     return Err(format!("Muse does not offer the model {value}"));
                 }
                 self.rpc()
@@ -919,12 +848,18 @@ impl Backend for Muse {
                         json!({ "sessionId": session_id, "commandId": command_id(), "model": { "modelId": value } }),
                     )
                     .await?;
-                self.model = value.to_owned();
-                self.effort = self.models.effort_for(value, self.effort.as_deref());
+                self.kept.model = value.to_owned();
+                self.kept.effort = self
+                    .kept
+                    .models
+                    .effort_for(value, self.kept.effort.as_deref());
             }
             "reasoning_effort" => {
-                if !self.models.supports_effort(&self.model, value) {
-                    return Err(format!("{} does not offer the effort {value}", self.model));
+                if !self.kept.models.supports_effort(&self.kept.model, value) {
+                    return Err(format!(
+                        "{} does not offer the effort {value}",
+                        self.kept.model
+                    ));
                 }
                 self.rpc()
                     .request(
@@ -932,11 +867,14 @@ impl Backend for Muse {
                         json!({ "sessionId": session_id, "commandId": command_id(), "reasoningEffort": value }),
                     )
                     .await?;
-                self.effort = Some(value.to_owned());
+                self.kept.effort = Some(value.to_owned());
             }
             _ => return Err(format!("Muse has no option {config_id}")),
         }
-        Ok(self.models.options(&self.model, self.effort.as_deref()))
+        Ok(self
+            .kept
+            .models
+            .options(&self.kept.model, self.kept.effort.as_deref()))
     }
 
     async fn stop_task(&mut self, task_id: &str) -> Result<(), String> {
@@ -954,7 +892,7 @@ impl Backend for Muse {
     /// a new session.
     async fn rewind(&mut self, message_id: &str) -> Result<Option<String>, String> {
         let (session_id, turn_id, before) = {
-            let session = self.driver().lock();
+            let session = self.driver().session.locked();
             let turn_id = session
                 .message_turns
                 .get(message_id)
@@ -990,7 +928,7 @@ impl Backend for Muse {
                         json!({
                             "commandId": command_id(),
                             "workspaceRoot": self.launch.cwd,
-                            "approvalMode": self.mode.approval_mode(),
+                            "approvalMode": self.kept.mode.approval_mode(),
                             "config": config,
                         }),
                     )
@@ -1004,18 +942,21 @@ impl Backend for Muse {
         self.rpc()
             .request(
                 "session/setApprovalMode",
-                json!({ "sessionId": moved, "commandId": command_id(), "mode": self.mode.approval_mode() }),
+                json!({ "sessionId": moved, "commandId": command_id(), "mode": self.kept.mode.approval_mode() }),
             )
             .await?;
-        if !self.model.is_empty() {
+        if !self.kept.model.is_empty() {
             self.rpc()
                 .request(
                     "session/setModel",
-                    json!({ "sessionId": moved, "commandId": command_id(), "model": { "modelId": self.model } }),
+                    json!({ "sessionId": moved, "commandId": command_id(), "model": { "modelId": self.kept.model } }),
                 )
                 .await?;
         }
-        self.driver().lock().moved(moved.clone(), &turn_id);
+        self.driver()
+            .session
+            .locked()
+            .moved(moved.clone(), &turn_id);
         Ok(Some(moved))
     }
 
@@ -1030,13 +971,8 @@ impl Backend for Muse {
     async fn release(self) -> Result<(Value, Released), String> {
         let Self {
             host,
-            launch,
-            cwd,
-            models,
-            model,
-            effort,
-            mode,
-            skills,
+            launch: _,
+            kept,
         } = self;
         let Host {
             process,
@@ -1046,20 +982,14 @@ impl Backend for Muse {
         } = host;
         let (_, lines) = reading.stop().await.ok_or("Muse stopped")?;
         let session = std::mem::replace(
-            &mut *driver.lock(),
+            &mut *driver.session.locked(),
             Session::new(String::new(), String::new()),
         );
         let state = MuseState {
             rpc: driver.rpc.state(),
             session,
             session_tools,
-            launch,
-            cwd,
-            models,
-            model,
-            effort,
-            mode,
-            skills,
+            kept,
         };
         let state = serde_json::to_value(state).map_err(|error| error.to_string())?;
         let released = process.release(lines).await?;
@@ -1067,14 +997,14 @@ impl Backend for Muse {
     }
 
     fn adopt(
-        _launch: &ChatLaunch,
+        launch: &ChatLaunch,
         sink: Sink,
         state: Value,
         (process, writer, lines): (Process, Writer, Lines),
     ) -> Result<Self, String> {
         let state: MuseState = serde_json::from_value(state).map_err(|error| error.to_string())?;
         let driver = Driver {
-            rpc: Rpc::restored(writer, true, state.rpc),
+            rpc: Rpc::restored(writer, state.rpc),
             sink,
             session: Arc::new(Mutex::new(state.session)),
         };
@@ -1086,13 +1016,8 @@ impl Backend for Muse {
                 reading,
                 session_tools: state.session_tools,
             },
-            launch: state.launch,
-            cwd: state.cwd,
-            models: state.models,
-            model: state.model,
-            effort: state.effort,
-            mode: state.mode,
-            skills: state.skills,
+            launch: launch.clone(),
+            kept: state.kept,
         })
     }
 

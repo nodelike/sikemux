@@ -2,6 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import { CoreEvent, MobileError, type ConnectionLike, type CoreListener } from '@sikemux/native';
 
+import { problem } from '@/core/problem';
 import { keepUnchanged, readHost, readView, type HostInfo, type Snapshot } from '@/core/protocol';
 import { goOffline, thisDevice } from '@/device/identity';
 import { onNetworkChange } from '@/network/connectivity';
@@ -36,7 +37,6 @@ const AWAY_MS = 10_000;
 /** After the phone changes network, a connection that cannot answer in this time is replaced. */
 const CHECK_MS = 5000;
 
-const UNPAIRED = 'This host no longer knows this phone. Forget it, then connect again.';
 const DAMAGED = "The list of paired hosts couldn't be read, so it was started again. Connect your hosts again.";
 
 type Entry = {
@@ -119,13 +119,6 @@ function set(core: string, found: Entry, live: Live) {
 function outdated(error: unknown): Outdated | undefined {
   if (!MobileError.Outdated.instanceOf(error)) return undefined;
   return error.inner.macIsOlder ? 'host' : 'phone';
-}
-
-export function problem(error: unknown): string {
-  if (MobileError.Refused.instanceOf(error)) return error.inner.message;
-  if (MobileError.Connection.instanceOf(error)) return error.inner.message;
-  if (MobileError.Unpaired.instanceOf(error)) return UNPAIRED;
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** A host that turned this phone away, or speaks another version, stays so until someone acts. */
@@ -441,6 +434,11 @@ function useHost<T>(core: string, read: () => T): T {
   return useSyncExternalStore((listener) => subscribeHost(core, listener), read);
 }
 
+/** The host's connection while it is open. */
+export function connectionOf(live: Live | undefined): ConnectionLike | undefined {
+  return live?.status === 'open' ? live.connection : undefined;
+}
+
 /**
  * One device's live state; the device stays connected while this is mounted and `watching`. Only that host's
  * changes re-render.
@@ -464,7 +462,7 @@ export function useHostStatus(core: string, watching = true): HostStatus {
 export async function forget(core: string) {
   forgotten.add(core);
   const found = entries.get(core);
-  const connection = found?.live.status === 'open' ? found.live.connection : undefined;
+  const connection = connectionOf(found?.live);
   const goodbye = (async () => {
     await withdrawKey(core, connection).catch(() => {});
     await connection?.unpair();

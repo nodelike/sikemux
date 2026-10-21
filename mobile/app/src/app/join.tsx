@@ -3,6 +3,7 @@ import { Animated, AppState, Easing, StyleSheet, Text, View } from 'react-native
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 
+import { problem as problemOf } from '@/core/problem';
 import { APPROVAL_SECONDS, expired, JoinFailed, joinHost, useJoinScreen, type JoinFailure, type JoinStep } from '@/devices/joining';
 import { useStill } from '@/ui/motion';
 import { DeviceIcon, Icon } from '@/ui/Icon';
@@ -60,7 +61,7 @@ function Handshake() {
 
 function stopped(error: unknown): JoinFailure {
   if (error instanceof JoinFailed) return error.failure;
-  return { title: 'Connecting stopped', detail: error instanceof Error ? error.message : String(error) };
+  return { title: 'Connecting stopped', detail: problemOf(error) };
 }
 
 /** Connects to a host on the account; someone at the host still allows it. `arrived` marks a host that just signed in. */

@@ -31,16 +31,13 @@ pub(crate) struct Code {
     /// What the project is called, for a host that keeps a copy of its own.
     pub project: String,
     /// Its `origin`, which a host that has the project finds it by.
-    #[serde(default)]
     pub remote: Option<String>,
     pub commit: String,
-    #[serde(default)]
     pub branch: Option<String>,
     /// Where the lead works inside the repository.
     #[serde(default)]
     pub inside: String,
     /// What the lead has not committed, as a binary patch on `commit`.
-    #[serde(default)]
     pub patch: Option<String>,
 }
 
@@ -206,28 +203,9 @@ fn fetch(repo: &Path, bundle: &Path, into: &str) -> Result<(), String> {
     .map(drop)
 }
 
-/// A remote's address with its scheme, user and `.git` left out, so the same
-/// repository reads the same however it was cloned.
-fn normalized(url: &str) -> String {
-    let url = url.trim().trim_end_matches('/');
-    let url = url.strip_suffix(".git").unwrap_or(url);
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let rest = match rest.split_once('@') {
-        Some((user, host)) if !user.contains('/') => host,
-        _ => rest,
-    };
-    let rest = match rest.split_once(':') {
-        Some((host, path)) if !path.starts_with(|c: char| c.is_ascii_digit()) => {
-            format!("{host}/{path}")
-        }
-        _ => rest.to_owned(),
-    };
-    rest.to_lowercase()
-}
-
 /// The checkout of a project here whose `origin` is `remote`.
 fn project_with(core: &Core, remote: &str) -> Option<PathBuf> {
-    let wanted = normalized(remote);
+    let wanted = crate::git::remote::normalized_remote(remote);
     core.workspaces
         .project_paths()
         .into_iter()
@@ -239,7 +217,7 @@ fn project_with(core: &Core, remote: &str) -> Option<PathBuf> {
             .ok()?;
             let repo = PathBuf::from(repo);
             let origin = git(&repo, &["remote", "get-url", "origin"]).ok()?;
-            (normalized(&origin) == wanted).then_some(repo)
+            (crate::git::remote::normalized_remote(&origin) == wanted).then_some(repo)
         })
 }
 
@@ -248,7 +226,7 @@ fn project_with(core: &Core, remote: &str) -> Option<PathBuf> {
 fn clone_dir(core: &Core, host: &str, code: &Code) -> PathBuf {
     use sha2::Digest;
     let key = match &code.remote {
-        Some(remote) => normalized(remote),
+        Some(remote) => crate::git::remote::normalized_remote(remote),
         None => format!("{host}:{}", code.project),
     };
     let digest = hex::encode(sha2::Sha256::digest(key.as_bytes()));

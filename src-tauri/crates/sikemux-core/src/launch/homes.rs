@@ -2,12 +2,41 @@
 //! touching the person's own.
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-/// Makes `home` a private copy of `source`: every entry is linked back to the
-/// real one, except the config file, which is copied afresh so the person's
-/// latest settings come along.
+use crate::agent_catalog::{AgentKind, Home, PrivateHome};
+
+/// The home `kind` keeps, when Sikemux gives its launches private copies of it.
+pub fn private(kind: AgentKind) -> Option<(&'static Home, &'static PrivateHome)> {
+    let home = kind.entry().home.as_ref()?;
+    Some((home, home.private.as_ref()?))
+}
+
+/// Makes `destination` a private copy of `kind`'s home: of `source`, else of
+/// the one the person's shell names, sharing the store its sessions are in.
 pub fn private_home(
+    kind: AgentKind,
+    destination: &Path,
+    source: Option<PathBuf>,
+) -> Result<(), String> {
+    let (_, private) =
+        private(kind).ok_or_else(|| format!("{} keeps no private home", kind.as_str()))?;
+    let source = source
+        .or_else(|| kind.home_root())
+        .ok_or("the home folder is unavailable")?;
+    share_session_store(
+        &source,
+        private.session_store,
+        private.session_store_is_folder,
+    )
+    .and_then(|()| copy_home(destination, &source, private.config, private.empty_config))
+    .map_err(|error| error.to_string())
+}
+
+/// Makes `home` a copy of `source`: every entry is linked back to the real
+/// one, except the config file, which is copied afresh so the person's latest
+/// settings come along.
+fn copy_home(
     home: &Path,
     source: &Path,
     config_name: &str,
@@ -40,7 +69,7 @@ pub fn private_home(
 /// Makes the store an agent keeps its sessions in inside its real home, if it
 /// has none yet, so a private home links to it rather than starting its own.
 /// Sikemux lists and resumes sessions from the real home.
-pub fn share_session_store(real_home: &Path, name: &str, folder: bool) -> std::io::Result<()> {
+fn share_session_store(real_home: &Path, name: &str, folder: bool) -> std::io::Result<()> {
     let store = real_home.join(name);
     if std::fs::symlink_metadata(&store).is_ok() {
         return Ok(());

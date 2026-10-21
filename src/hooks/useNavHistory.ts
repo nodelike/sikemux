@@ -1,6 +1,5 @@
 import { useCallback, useRef } from "react";
 import type { EditorView } from "@codemirror/view";
-import { NavigationHistory, type NavigationLocation } from "../workbench/navigationHistory";
 
 export interface NavEntry {
     path: string;
@@ -16,18 +15,48 @@ interface NavOptions {
     openOther: (entry: NavEntry) => void;
 }
 
+const NAV_HISTORY_CAPACITY = 128;
+
+const sameEntry = (left: NavEntry, right: NavEntry): boolean =>
+    left.path === right.path && left.line === right.line && left.character === right.character;
+
+/** Browser-style back and forward through the places a jump left from and went to. */
+class NavHistory {
+    private readonly backward: NavEntry[] = [];
+    private readonly forward: NavEntry[] = [];
+    private current: NavEntry | null = null;
+
+    push(entry: NavEntry): void {
+        if (this.current && sameEntry(this.current, entry)) return;
+        if (this.current) this.backward.push(this.current);
+        this.current = entry;
+        this.forward.length = 0;
+        if (this.backward.length >= NAV_HISTORY_CAPACITY) this.backward.shift();
+    }
+
+    back(): NavEntry | null {
+        return this.move(this.backward, this.forward);
+    }
+
+    ahead(): NavEntry | null {
+        return this.move(this.forward, this.backward);
+    }
+
+    private move(from: NavEntry[], to: NavEntry[]): NavEntry | null {
+        const target = from.pop();
+        if (!target) return null;
+        if (this.current) to.push(this.current);
+        this.current = target;
+        return target;
+    }
+}
+
 export function useNavHistory(opts: NavOptions) {
     const optionsRef = useRef(opts);
     optionsRef.current = opts;
-    const ownerRef = useRef<{ project: string; history: NavigationHistory } | null>(null);
+    const ownerRef = useRef<{ project: string; history: NavHistory } | null>(null);
     if (!ownerRef.current || ownerRef.current.project !== opts.project) {
-        const project = opts.project;
-        ownerRef.current = {
-            project,
-            history: new NavigationHistory({
-                isLocationCurrent: (location) => location.project === project,
-            }),
-        };
+        ownerRef.current = { project: opts.project, history: new NavHistory() };
     }
 
     const captureCurrentPos = useCallback((): NavEntry | null => {
@@ -40,9 +69,8 @@ export function useNavHistory(opts: NavOptions) {
         return { path, line: line.number - 1, character: head - line.from };
     }, []);
 
-    const navigateTo = useCallback((location: NavigationLocation) => {
+    const navigateTo = useCallback((entry: NavEntry) => {
         const current = optionsRef.current;
-        const entry = { path: location.path, line: location.line ?? 0, character: location.column ?? 0 };
         if (entry.path === current.getCurrentPath() && current.getView()) {
             current.scrollLiveTo(entry.line, entry.character);
         } else {
@@ -52,26 +80,12 @@ export function useNavHistory(opts: NavOptions) {
 
     const push = useCallback(
         (target: NavEntry) => {
+            const history = ownerRef.current?.history;
+            if (!history) return;
             const origin = captureCurrentPos();
-            const owner = ownerRef.current;
-            if (!owner) return;
-            if (origin) {
-                owner.history.push({ project: owner.project, path: origin.path, line: origin.line, column: origin.character });
-            }
-            const result = owner.history.push({
-                project: owner.project,
-                path: target.path,
-                line: target.line,
-                column: target.character,
-            });
-            if (result === "pushed" || result === "duplicate") {
-                navigateTo({
-                    project: owner.project,
-                    path: target.path,
-                    line: target.line,
-                    column: target.character,
-                });
-            }
+            if (origin) history.push(origin);
+            history.push(target);
+            navigateTo(target);
         },
         [captureCurrentPos, navigateTo],
     );
@@ -82,7 +96,7 @@ export function useNavHistory(opts: NavOptions) {
     }, [navigateTo]);
 
     const forward = useCallback(() => {
-        const target = ownerRef.current?.history.forward();
+        const target = ownerRef.current?.history.ahead();
         if (target) navigateTo(target);
     }, [navigateTo]);
 

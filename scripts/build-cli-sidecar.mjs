@@ -150,7 +150,17 @@ mkdirSync(binariesDir, { recursive: true });
 
 const suffix = requestedTarget.includes("windows") ? ".exe" : "";
 const shipped = new Map();
-if (requestedTarget === "universal-apple-darwin") {
+// The Release workflow builds the core on a machine of its own, alongside the helpers.
+const prebuiltCore = process.env.PREBUILT_CORE;
+if (prebuiltCore) {
+  const destination = join(
+    binariesDir,
+    `sikemux-host-${requestedTarget}${suffix}`,
+  );
+  copyFileSync(prebuiltCore, destination);
+  chmodSync(destination, 0o755);
+  shipped.set("sikemux-host", destination);
+} else if (requestedTarget === "universal-apple-darwin") {
   const arm = buildFor("aarch64-apple-darwin", true);
   const intel = buildFor("x86_64-apple-darwin", true);
   for (const name of sidecars) {

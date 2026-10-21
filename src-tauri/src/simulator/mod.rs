@@ -6,11 +6,13 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sikemux_core::cli::protocol::PAGE_REPLY_TIMEOUT;
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::sim::SimManager;
@@ -23,8 +25,8 @@ pub mod tools;
 const CORE_SIMULATOR: &str = "/Library/Developer/PrivateFrameworks/CoreSimulator.framework";
 /// Simulators take gigabytes of memory each, so agents may have Sikemux boot at most this many.
 pub(crate) const MAX_BOOTED: usize = 3;
-/// One tool call's whole budget, well inside the 66 s the core waits for an answer.
-const CALL_DEADLINE: Duration = Duration::from_secs(50);
+/// One tool call's whole budget, well inside the time the page has to answer.
+const CALL_DEADLINE: Duration = Duration::from_secs(PAGE_REPLY_TIMEOUT.as_secs() - 15);
 /// A device Sikemux booted is shut down this long after nobody holds it, so an agent that restarts finds it still running.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(180);
 const CANCELLED: &str = "the simulator call was cancelled";
@@ -147,12 +149,6 @@ pub(crate) async fn pause(duration: Duration) -> Result<(), String> {
     checkpoint()
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
 /// The helper says "Boot it first", but agents start a device with `sim_attach`.
 fn for_agents(message: String) -> String {
     message.replace(
@@ -185,10 +181,6 @@ impl SimulatorManager {
             turns: Mutex::default(),
             cancels: Mutex::default(),
         }
-    }
-
-    fn shared(&self) -> MutexGuard<'_, Shared> {
-        lock(&self.shared)
     }
 
     pub(crate) fn emit(&self, event: &str, payload: Value) {
@@ -239,13 +231,18 @@ impl SimulatorManager {
         agent_id: &str,
         work: impl Future<Output = Result<T, String>>,
     ) -> Result<T, String> {
-        let cancels = Arc::clone(lock(&self.cancels).entry(agent_id.to_owned()).or_default());
+        let cancels = Arc::clone(
+            self.cancels
+                .locked()
+                .entry(agent_id.to_owned())
+                .or_default(),
+        );
         let call = Call {
             started_at: cancels.load(Ordering::SeqCst),
             cancels,
             deadline: Instant::now() + CALL_DEADLINE,
         };
-        let turn = Arc::clone(lock(&self.turns).entry(agent_id.to_owned()).or_default());
+        let turn = Arc::clone(self.turns.locked().entry(agent_id.to_owned()).or_default());
         CALL.scope(call, async move {
             let _turn = tokio::time::timeout(CALL_DEADLINE, turn.lock_owned())
                 .await
@@ -261,7 +258,7 @@ impl SimulatorManager {
 
     /// Stops the agent's running call at its next step, and the calls waiting behind it.
     pub(crate) fn cancel(&self, agent_id: &str) {
-        if let Some(cancels) = lock(&self.cancels).get(agent_id) {
+        if let Some(cancels) = self.cancels.locked().get(agent_id) {
             cancels.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -290,7 +287,7 @@ impl SimulatorManager {
             .claim(&device.udid, agent_id, project)
             .map_err(|holder| tools::in_use(device, &holder))?;
         let previous = {
-            let mut shared = self.shared();
+            let mut shared = self.shared.locked();
             shared
                 .projects
                 .insert(project.to_owned(), device.udid.clone());
@@ -323,14 +320,14 @@ impl SimulatorManager {
 
     /// Keeps what attaching learned about the device, such as its screen.
     pub(crate) fn set_device(&self, agent_id: &str, device: &Device) {
-        if let Some(attachment) = self.shared().attachments.get_mut(agent_id) {
+        if let Some(attachment) = self.shared.locked().attachments.get_mut(agent_id) {
             attachment.device = device.clone();
         }
     }
 
     /// Lets go of the agent's device, and tells the desk.
     pub fn release(&self, agent_id: &str) -> Option<Device> {
-        let attachment = self.shared().attachments.remove(agent_id)?;
+        let attachment = self.shared.locked().attachments.remove(agent_id)?;
         self.claims.release(&attachment.device.udid, agent_id);
         self.emit(tools::DETACHED_EVENT, json!({ "agentId": agent_id }));
         self.let_go(attachment.device.clone());
@@ -341,7 +338,7 @@ impl SimulatorManager {
     pub fn forget_agent(&self, agent_id: &str) {
         self.cancel(agent_id);
         self.release(agent_id);
-        let mut shared = self.shared();
+        let mut shared = self.shared.locked();
         shared.desk.remove(agent_id);
         shared.offered.remove(agent_id);
     }
@@ -365,14 +362,14 @@ impl SimulatorManager {
             tokio::time::sleep(SHUTDOWN_GRACE).await;
             if manager.unheld_boot(&udid) {
                 let _ = manager.request("shutdown", json!({ "udid": udid })).await;
-                manager.shared().booted.remove(&udid);
+                manager.shared.locked().booted.remove(&udid);
             }
         });
     }
 
     /// Sikemux booted the device and no agent anywhere holds it now.
     fn unheld_boot(&self, udid: &str) -> bool {
-        let shared = self.shared();
+        let shared = self.shared.locked();
         shared.booted.contains(udid)
             && !shared
                 .attachments
@@ -384,7 +381,7 @@ impl SimulatorManager {
     /// Lets go of everything as Sikemux quits, and shuts down the devices it
     /// booted that no other copy of Sikemux holds.
     pub fn drain(&self) {
-        let udids: Vec<String> = self.shared().booted.iter().cloned().collect();
+        let udids: Vec<String> = self.shared.locked().booted.iter().cloned().collect();
         self.step_aside();
         let unheld: Vec<String> = udids
             .into_iter()
@@ -408,12 +405,12 @@ impl SimulatorManager {
     /// Lets go of every device but leaves them running, for an update's
     /// restart to take them up again.
     pub fn step_aside(&self) {
-        self.shared().attachments.clear();
+        self.shared.locked().attachments.clear();
         self.claims.release_all();
     }
 
     pub fn saved(&self) -> SavedSimulators {
-        let shared = self.shared();
+        let shared = self.shared.locked();
         SavedSimulators {
             attachments: shared
                 .attachments
@@ -457,7 +454,7 @@ impl SimulatorManager {
             };
             taken.push(device.udid.clone());
             agents.push(held.agent_id.clone());
-            self.shared().attachments.insert(
+            self.shared.locked().attachments.insert(
                 held.agent_id,
                 Attachment {
                     device,
@@ -470,7 +467,7 @@ impl SimulatorManager {
             );
         }
         {
-            let mut shared = self.shared();
+            let mut shared = self.shared.locked();
             shared.desk = saved.desk;
             shared.projects = saved.projects;
             shared.offered = saved.offered;
@@ -481,7 +478,7 @@ impl SimulatorManager {
             .filter(|udid| !taken.contains(udid))
             .collect();
         self.adopt_booted(idle);
-        self.shared().booted.extend(taken.iter().cloned());
+        self.shared.locked().booted.extend(taken.iter().cloned());
         self.follow_logs(taken);
         agents
     }
@@ -489,7 +486,7 @@ impl SimulatorManager {
     /// Takes over devices an earlier run booted and nobody holds, so they shut down after the usual wait.
     pub fn adopt_booted(&self, udids: Vec<String>) {
         for udid in udids {
-            self.shared().booted.insert(udid.clone());
+            self.shared.locked().booted.insert(udid.clone());
             self.shut_down_when_idle(udid, false);
         }
     }
@@ -515,7 +512,8 @@ impl SimulatorManager {
 
     pub fn attachments(&self) -> Vec<AttachmentInfo> {
         let mut listed: Vec<AttachmentInfo> = self
-            .shared()
+            .shared
+            .locked()
             .attachments
             .iter()
             .map(|(agent_id, attachment)| AttachmentInfo {
@@ -531,12 +529,12 @@ impl SimulatorManager {
 
     /// A device Sikemux booted, whether for an agent or from a desk tab.
     pub fn note_booted(&self, udid: &str) {
-        self.shared().booted.insert(udid.to_owned());
+        self.shared.locked().booted.insert(udid.to_owned());
     }
 
     /// How many of the devices running now Sikemux booted.
     pub(crate) fn booted_by_sikemux(&self, devices: &[Device]) -> usize {
-        let shared = self.shared();
+        let shared = self.shared.locked();
         devices
             .iter()
             .filter(|device| device.booted && shared.booted.contains(&device.udid))
@@ -544,23 +542,27 @@ impl SimulatorManager {
     }
 
     pub(crate) fn desk_device(&self, agent_id: &str) -> Option<String> {
-        self.shared().desk.get(agent_id).cloned()
+        self.shared.locked().desk.get(agent_id).cloned()
     }
 
     pub(crate) fn project_device(&self, project: &str) -> Option<String> {
-        self.shared().projects.get(project).cloned()
+        self.shared.locked().projects.get(project).cloned()
     }
 
     pub(crate) fn note_offered(&self, agent_id: &str, offered: bool) {
-        self.shared().offered.insert(agent_id.to_owned(), offered);
+        self.shared
+            .locked()
+            .offered
+            .insert(agent_id.to_owned(), offered);
     }
 
     pub(crate) fn offered_to(&self, agent_id: &str) -> Option<bool> {
-        self.shared().offered.get(agent_id).copied()
+        self.shared.locked().offered.get(agent_id).copied()
     }
 
     pub(crate) fn attached(&self, agent_id: &str) -> Option<Device> {
-        self.shared()
+        self.shared
+            .locked()
             .attachments
             .get(agent_id)
             .map(|attachment| attachment.device.clone())
@@ -568,20 +570,20 @@ impl SimulatorManager {
 
     /// Numbers a fresh read the way the agent's earlier reads were numbered.
     pub(crate) fn number(&self, agent_id: &str, elements: &[Element]) -> Vec<Numbered> {
-        match self.shared().attachments.get_mut(agent_id) {
+        match self.shared.locked().attachments.get_mut(agent_id) {
             Some(attachment) => attachment.numbers.assign(elements),
             None => Numbering::default().assign(elements),
         }
     }
 
     pub(crate) fn remember_read(&self, agent_id: &str, app: String, elements: Vec<Numbered>) {
-        if let Some(attachment) = self.shared().attachments.get_mut(agent_id) {
+        if let Some(attachment) = self.shared.locked().attachments.get_mut(agent_id) {
             attachment.read = Some((app, elements));
         }
     }
 
     pub(crate) fn last_read(&self, agent_id: &str) -> Option<(String, Vec<Numbered>)> {
-        self.shared().attachments.get(agent_id)?.read.clone()
+        self.shared.locked().attachments.get(agent_id)?.read.clone()
     }
 
     /// A launch of `bundle` this agent sent within `window` that has not reached the front: its pid, once known.
@@ -591,13 +593,13 @@ impl SimulatorManager {
         bundle: &str,
         window: Duration,
     ) -> Option<Option<i64>> {
-        let shared = self.shared();
+        let shared = self.shared.locked();
         let (at, pid) = shared.attachments.get(agent_id)?.launches.get(bundle)?;
         (at.elapsed() < window).then_some(*pid)
     }
 
     pub(crate) fn note_launch(&self, agent_id: &str, bundle: &str, pid: Option<i64>) {
-        if let Some(attachment) = self.shared().attachments.get_mut(agent_id) {
+        if let Some(attachment) = self.shared.locked().attachments.get_mut(agent_id) {
             let at = attachment
                 .launches
                 .get(bundle)
@@ -608,13 +610,14 @@ impl SimulatorManager {
     }
 
     pub(crate) fn forget_launch(&self, agent_id: &str, bundle: &str) {
-        if let Some(attachment) = self.shared().attachments.get_mut(agent_id) {
+        if let Some(attachment) = self.shared.locked().attachments.get_mut(agent_id) {
             attachment.launches.remove(bundle);
         }
     }
 
     pub(crate) fn log_generation(&self, agent_id: &str, process: Option<&str>) -> Option<i64> {
-        self.shared()
+        self.shared
+            .locked()
             .attachments
             .get(agent_id)?
             .log_generations
@@ -628,7 +631,7 @@ impl SimulatorManager {
         process: Option<&str>,
         generation: i64,
     ) {
-        if let Some(attachment) = self.shared().attachments.get_mut(agent_id) {
+        if let Some(attachment) = self.shared.locked().attachments.get_mut(agent_id) {
             attachment
                 .log_generations
                 .insert(process.map(str::to_owned), generation);
@@ -695,9 +698,7 @@ const RECHECK: Duration = Duration::from_secs(30);
 /// Why this Mac cannot run the simulator, or nothing when it can.
 pub fn unsupported_reason() -> Option<String> {
     static CHECKED: Mutex<Option<(Instant, Option<String>)>> = Mutex::new(None);
-    let mut checked = CHECKED
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut checked = CHECKED.locked();
     if let Some((at, reason)) = checked.as_ref() {
         if at.elapsed() < RECHECK {
             return reason.clone();
@@ -794,9 +795,14 @@ pub async fn simulator_set_desk_device(
     agent_id: String,
     udid: String,
 ) -> Result<(), String> {
-    manager.shared().desk.insert(agent_id.clone(), udid.clone());
+    manager
+        .shared
+        .locked()
+        .desk
+        .insert(agent_id.clone(), udid.clone());
     let Some(project) = manager
-        .shared()
+        .shared
+        .locked()
         .attachments
         .get(&agent_id)
         .map(|attachment| attachment.project.clone())

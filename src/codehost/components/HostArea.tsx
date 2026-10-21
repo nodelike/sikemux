@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
 import { EmptyState, SkeletonRows } from "../../plugin-api/ui";
-import { failureMessage } from "../api";
+import { errorText } from "../../lib/format";
 import { LocalRepoProvider } from "../localRepo";
 import { useHost } from "../registry";
 import { hostStatusR, workflowsR } from "../resources";
@@ -62,7 +62,7 @@ export function HostArea({ paneId, section, repo, branch, cwd, active }: Props) 
             <div className="gha-pane" data-active={active ? "1" : "0"}>
                 <EmptyState
                     title={`Could not reach ${host.name}`}
-                    message={failureMessage(status.error)}
+                    message={errorText(status.error)}
                     tone="error"
                     action={{ label: "Try again", onClick: () => void status.refresh() }}
                 />

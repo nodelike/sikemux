@@ -3,13 +3,13 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
-use crate::client::{get_json, limited, seg, Session};
+use crate::client::{get_json, seg, Session, HTTP};
 use crate::error::{RundeckError, RundeckResult};
 use crate::executions::{self, branch_from_options, Execution, ExecutionList, RunRequest};
 use crate::jobs::{self, JobDetail, JobOption};
@@ -106,7 +106,7 @@ async fn definitions(session: &Session, project: Option<&str>) -> RundeckResult<
     let fetched = join_all(
         projects
             .iter()
-            .map(|project| limited(jobs::definitions(session, &project.name))),
+            .map(|project| HTTP.limited(jobs::definitions(session, &project.name))),
     )
     .await;
     let mut found = Vec::new();
@@ -236,7 +236,7 @@ pub async fn resolve(
     let wanted = job.trim().trim_matches('/');
     if wanted.is_empty() {
         return Err(RundeckError::BadArg(
-            "name a job by its id or group/name path",
+            "name a job by its id or group/name path".into(),
         ));
     }
     if looks_like_id(wanted) {
@@ -267,7 +267,7 @@ pub async fn resolve(
             let near = closest(&paths, wanted);
             let place =
                 project.map_or_else(|| "any project".to_string(), |p| format!("project {p}"));
-            Err(RundeckError::Unclear(if near.is_empty() {
+            Err(RundeckError::BadArg(if near.is_empty() {
                 format!("no job in {place} is named {wanted}; rundeck_jobs lists them")
             } else {
                 format!(
@@ -276,7 +276,7 @@ pub async fn resolve(
                 )
             }))
         }
-        many => Err(RundeckError::Unclear(format!(
+        many => Err(RundeckError::BadArg(format!(
             "{wanted} names {} jobs: {}; give the full path, or the project",
             many.len(),
             many.iter()
@@ -316,13 +316,6 @@ pub struct Outcome {
     note: Option<String>,
 }
 
-fn now_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs() as i64)
-        .unwrap_or_default()
-}
-
 fn status_of(execution: &Execution) -> String {
     execution
         .custom_status
@@ -344,7 +337,7 @@ fn duration_secs(execution: &Execution) -> Option<i64> {
     let started = execution.date_started.as_ref()?.unixtime? / 1000;
     let ended = match execution.date_ended.as_ref().and_then(|date| date.unixtime) {
         Some(ended) => ended / 1000,
-        None => now_secs(),
+        None => sikemux_process::clock::epoch_secs() as i64,
     };
     Some((ended - started).max(0))
 }
@@ -472,7 +465,7 @@ fn check_options(detail: &JobDetail, given: &HashMap<String, String>) -> Rundeck
         .collect();
     unknown.sort_unstable();
     if !unknown.is_empty() {
-        return Err(RundeckError::Unclear(format!(
+        return Err(RundeckError::BadArg(format!(
             "{} has no option {}; its options are {}",
             path_of(detail),
             unknown.join(", "),
@@ -495,7 +488,7 @@ fn check_options(detail: &JobDetail, given: &HashMap<String, String>) -> Rundeck
         .map(|option| option.name.as_str())
         .collect();
     if !missing.is_empty() {
-        return Err(RundeckError::Unclear(format!(
+        return Err(RundeckError::BadArg(format!(
             "{} needs {}",
             path_of(detail),
             missing.join(", ")
@@ -508,7 +501,7 @@ pub async fn run(session: &Session, ask: RunAsk, prod_envs: &[String]) -> Rundec
     let deadline = Instant::now() + WAIT_LIMIT;
     let detail = resolve(session, &ask.job, ask.project.as_deref()).await?;
     if is_production(&detail, prod_envs) && !ask.production {
-        return Err(RundeckError::Unclear(format!(
+        return Err(RundeckError::BadArg(format!(
             "{} runs in production. Ask the person first, and call again with production: true once they agree.",
             path_of(&detail)
         )));
@@ -665,7 +658,11 @@ pub async fn plan(
                 .await
                 .map_err(|error| RundeckError::Api(error.to_string()))??
         }
-        None => return Err(RundeckError::BadArg("name a branch or a local checkout")),
+        None => {
+            return Err(RundeckError::BadArg(
+                "name a branch or a local checkout".into(),
+            ))
+        }
     };
     let names: Vec<String> = detail
         .options

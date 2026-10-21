@@ -3,7 +3,7 @@ import { openSurface } from "../../plugin-api/host";
 import { definePaneViews } from "../../plugin-api/paneViews";
 import { definePluginSettings } from "../../plugin-api/settings";
 import type { Filter, Scope, TraceOrder } from "./api";
-import { SIGNOZ_EXPLORE, SIGNOZ_PLUGIN_ID } from "./kinds";
+import { SIGNOZ_EXPLORE, SIGNOZ_PLUGIN } from "./kinds";
 
 export const WINDOWS = [5, 15, 60, 360, 1440] as const;
 export const SEVERITIES = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"] as const;
@@ -51,7 +51,7 @@ function decodeSettings(saved: unknown): SignozSettings {
     };
 }
 
-export const signozSettings = definePluginSettings(SIGNOZ_PLUGIN_ID, decodeSettings);
+export const signozSettings = definePluginSettings(SIGNOZ_PLUGIN.id, decodeSettings);
 
 export function updateSettings(patch: Partial<SignozSettings>): void {
     signozSettings.update((settings) => ({ ...settings, ...patch }));

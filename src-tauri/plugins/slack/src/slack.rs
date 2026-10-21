@@ -8,6 +8,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
 use crate::client::Session;
 use crate::config;
@@ -57,17 +58,16 @@ impl UserRow {
 static NAMES: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 
 fn known(key: &str) -> Option<String> {
-    NAMES.lock().ok()?.as_ref()?.get(key).cloned()
+    NAMES.locked().as_ref()?.get(key).cloned()
 }
 
 fn remember(key: String, name: String) {
-    if let Ok(mut names) = NAMES.lock() {
-        let names = names.get_or_insert_with(HashMap::new);
-        if names.len() > 5000 {
-            names.clear();
-        }
-        names.insert(key, name);
+    let mut names = NAMES.locked();
+    let names = names.get_or_insert_with(HashMap::new);
+    if names.len() > 5000 {
+        names.clear();
     }
+    names.insert(key, name);
 }
 
 async fn user_row(session: &Session, id: &str) -> SlackResult<UserRow> {
@@ -358,7 +358,7 @@ fn resolve(data_dir: &Path, input: &ThreadRef) -> SlackResult<(Option<String>, S
             ts,
             thread_ts,
         } = text::parse_link(link)?;
-        let workspace = config::load(data_dir)
+        let workspace = config::load(data_dir)?
             .by_domain(&domain)
             .map(|workspace| workspace.id.clone())
             .ok_or_else(|| {
@@ -696,6 +696,7 @@ pub async fn people(data_dir: &Path, input: PersonQuery) -> SlackResult<Vec<Pers
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sikemux_plugin_api::store::Accounts;
 
     #[test]
     fn a_timestamp_reads_as_a_time() {
@@ -771,7 +772,7 @@ mod tests {
             user_id: "U1".into(),
             user: "ankit".into(),
         });
-        config::save(&dir, &saved).expect("saves");
+        sikemux_plugin_api::store::save(&dir, &saved).expect("saves");
         let by_link = ThreadRef {
             workspace: None,
             link: Some(

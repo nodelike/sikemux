@@ -4,6 +4,7 @@
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Manager, Webview};
 
 use super::viewport::Viewport;
@@ -1622,7 +1623,7 @@ pub(super) async fn eval(view: &Webview, script: &str) -> Result<String, String>
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let sender = std::sync::Mutex::new(Some(sender));
     view.eval_with_callback(script, move |result| {
-        if let Some(sender) = sender.lock().ok().and_then(|mut slot| slot.take()) {
+        if let Some(sender) = sender.locked().take() {
             let _ = sender.send(result);
         }
     })
@@ -1652,7 +1653,7 @@ async fn screenshot(
         let sender = std::sync::Mutex::new(Some(sender));
         view.with_webview(move |platform| {
             let done: Box<dyn FnOnce(Result<Vec<u8>, String>) + Send> = Box::new(move |result| {
-                if let Some(sender) = sender.lock().ok().and_then(|mut slot| slot.take()) {
+                if let Some(sender) = sender.locked().take() {
                     let _ = sender.send(result);
                 }
             });
@@ -1684,7 +1685,8 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 impl BrowserManager {
     pub fn page(&self, agent_id: &str, tab_id: &str) -> Option<super::TabPage> {
-        self.lock()
+        self.agents
+            .locked()
             .get(agent_id)
             .and_then(|agent| agent.strip.pages.get(tab_id).cloned())
     }

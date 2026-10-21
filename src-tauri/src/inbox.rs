@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 use sikemux_core::client::CoreClient;
 use sikemux_core::protocol::{DeviceView, Request};
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Emitter};
 
 use crate::pty::core_error;
@@ -47,9 +48,7 @@ impl LastView {
 }
 
 fn emit_changed(app: &AppHandle, last: &Mutex<Value>, event: &str, value: Value) {
-    let Ok(mut last) = last.lock() else {
-        return;
-    };
+    let mut last = last.locked();
     if *last != value && app.emit_to("main", event, &value).is_ok() {
         *last = value;
     }

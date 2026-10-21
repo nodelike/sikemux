@@ -1,5 +1,5 @@
 import type { Divider, FocusDir, LayoutNode, PaneKind, PaneNode, Rect, SplitDir, SplitNode } from "./types";
-import { defaultWorkbenchItemTitle } from "../workbench/registry";
+import { defaultWorkbenchItemTitle } from "../workbench/itemStates";
 
 const MIN_FRAC = 0.05; // a pane can't shrink below 5% of its split axis
 

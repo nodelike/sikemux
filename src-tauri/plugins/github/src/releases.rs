@@ -2,7 +2,8 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use sikemux_plugin_api::codehost::{Release, ReleaseAsset};
 use sikemux_plugin_api::{PluginResult, StreamSink};
 
 use crate::artifacts;
@@ -35,32 +36,6 @@ struct ReleaseRow {
     assets: Vec<AssetRow>,
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Asset {
-    pub id: u64,
-    pub name: String,
-    pub size_bytes: u64,
-    pub downloads: u64,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Release {
-    pub id: u64,
-    pub tag: String,
-    pub name: String,
-    pub body: String,
-    pub draft: bool,
-    pub prerelease: bool,
-    /// A draft has never been published, so it has only a creation time.
-    pub published_at: Option<String>,
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    pub assets: Vec<Asset>,
-    pub url: String,
-}
-
 impl From<ReleaseRow> for Release {
     fn from(row: ReleaseRow) -> Self {
         Self {
@@ -79,7 +54,7 @@ impl From<ReleaseRow> for Release {
             assets: row
                 .assets
                 .into_iter()
-                .map(|asset| Asset {
+                .map(|asset| ReleaseAsset {
                     id: asset.id,
                     name: asset.name,
                     size_bytes: asset.size,

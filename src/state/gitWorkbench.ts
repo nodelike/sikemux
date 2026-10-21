@@ -4,7 +4,7 @@ import { git } from "../api/git";
 import { runGitCmd } from "./git";
 import { errorText } from "../lib/format";
 import { DEFAULT_AI_PROVIDER, defaultAiModel } from "../git/gitPaneConstants";
-import type { GitAiProvider } from "../git/gitPaneTypes";
+import type { CommitMessageAgentType } from "../agents/catalog";
 
 interface Operation {
     label: string;
@@ -16,7 +16,7 @@ interface Operation {
 interface GitWorkbenchState {
     drafts: Record<string, string>;
     operations: Record<string, Operation>;
-    provider: GitAiProvider;
+    provider: CommitMessageAgentType;
     model: string;
 }
 

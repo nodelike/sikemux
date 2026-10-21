@@ -114,7 +114,7 @@ let dated = try! NSRegularExpression(pattern: #"AGO\((\d+)\)"#).matches(in: sour
     }
 let decoded = try! JSONDecoder().decode(DeviceView.self, from: Data(dated.utf8))
 let buddies = arguments.contains("--buddies")
-    ? PublishedBuddies(pack: "all", shape: "mixed", motion: true, agents: [:], boxes: [:])
+    ? PublishedBuddies(on: true, pack: "all", shape: "mixed", motion: true, agents: [:], boxes: [:])
     : decoded.inbox.buddies
 let full = DeviceView(
     workspace: decoded.workspace, sessions: decoded.sessions, chats: decoded.chats, attentions: decoded.attentions,

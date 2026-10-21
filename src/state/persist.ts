@@ -1,5 +1,4 @@
 import { normaliseNotchSettings } from "../notch/notchSettings";
-import { toAgentBuddy } from "../buddies/agentBuddy";
 import { invokeCommand as invoke } from "../api/invoke";
 import { fixedSessionName } from "./sessionNames";
 import { sshStartup } from "../terminal/sshStartup";
@@ -9,15 +8,16 @@ import { clampEditorTextScale } from "../editor/textScale";
 import { isTheme } from "../themes";
 import { parseReleaseCredits } from "../api/releases";
 import type { AgentAccountBook } from "../api/agents";
-import type { ProjectInfo, Workspace, WorkspaceAgent } from "../api/generated/wire";
+import type { ProjectInfo, Workspace } from "../api/generated/wire";
 import { normaliseKeybindingOverrides } from "../commands/keybindings";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { registerCustomThemes } from "../themes/bus";
-import { effectiveMode, normalizePermissionMode } from "../agents/agentLaunch";
-import { ACCOUNT_AGENT_TYPES, AGENT_TYPES, hasAccounts, isAgentType } from "../agents/catalog";
+import { ACCOUNT_AGENT_TYPES, AGENT_TYPES, hasAccounts, isAgentType, type AccountAgentType } from "../agents/catalog";
 import { clampRailWidth } from "../lib/railWidths";
-import { clampPaneStrength, mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
-import { agentInWindow, agentPaneId } from "./selectors";
+import { mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
+import { clampPaneStrength } from "./commands/settings";
+import { agentFromCore, sharedFromCore } from "./coreWorkspace";
+import { agentInWindow, agentPaneId, chatKey } from "./selectors";
 import { collectPanes, newId, removePane } from "./layout";
 import { BROWSER_ACTIVE, deskEditorId, deskView, fileKey, simulatorKey } from "./desks";
 import { agentExecutablePath } from "./commands/agentLaunchCommand";
@@ -25,58 +25,30 @@ import { agentWindow } from "./agentWindow";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { notify } from "./toast";
 import { errorText } from "../lib/format";
-import { isCoreSessionId, isSessionKind, validatePersistedLayout } from "./persistValidation";
-import { isPluginId, isPluginKind } from "../plugins/kinds";
-import { isSpaceIcon, spaceName } from "./projectSpaces";
-import { createWorkbenchItemRef, workbenchItemRegistry, workbenchItemRefFromPane, type BuiltinWorkbenchItemState } from "../workbench/registry";
+import { isSessionKind, validatePersistedLayout } from "./persistValidation";
+import { isRecord } from "../lib/guards";
+import { restoredHostChoice, savedHostChoice, type HostChoice } from "../hosts/hosts";
+import { isWindowRole } from "./windowRoles";
+import { isPluginId } from "../plugins/kinds";
+import { decodeItemState, encodeItemState, type PersistedWorkbenchItemEnvelope } from "../workbench/itemStates";
 import type {
     Agent,
-    AgentPermissionMode,
-    AgentWorktree,
-    AgentProvider,
-    AgentType,
-    CorePaneKind,
     Desk,
     DeskView,
     EditorPaneView,
     LayoutNode,
-    PersistedAgent,
-    PersistedPrefs,
-    PersistedSession,
-    PersistedSnapshot,
-    PinnedChat,
-    ProjectSpace,
     ProviderProfile,
     ProviderProfileSelection,
     RecentEntry,
     Session,
     Window,
-    WindowRole,
 } from "./types";
 
-function isPinnedChat(value: unknown): value is PinnedChat {
-    return (
-        isRecord(value) &&
-        isAgentType(value.agent) &&
-        typeof value.id === "string" &&
-        value.id.length > 0 &&
-        typeof value.title === "string" &&
-        typeof value.project === "string" &&
-        value.project.length > 0
-    );
-}
-
-function deriveRole(w: Window): WindowRole {
-    if (WINDOW_ROLES.has(w.role) || isPluginKind(w.role)) return w.role;
-    if (w.name === "files") return "files";
-    if (w.name === "git") return "git";
-    if (w.name === "term" || /^\d+$/.test(w.name)) return "term";
-    return "named";
-}
-
 export const VERSION = 21;
-const MIN_SUPPORTED_VERSION = 3;
+const MIN_SUPPORTED_VERSION = 4;
 const ONBOARDING_MIGRATION_VERSION = 6;
+const ITEM_STATES_MIGRATION_VERSION = 7;
+const SELF_INDEXED_ROOTS_MIGRATION_VERSION = 9;
 const PLUGIN_KIND_MIGRATION_VERSION = 10;
 const PLUGIN_SETTINGS_MIGRATION_VERSION = 11;
 const ONE_BRUNO_SESSION_MIGRATION_VERSION = 12;
@@ -86,6 +58,7 @@ const RUNDECK_GROUPS_MIGRATION_VERSION = 15;
 const DESK_MIGRATION_VERSION = 16;
 const GITHUB_IN_GIT_PANE_MIGRATION_VERSION = 17;
 const CORE_SESSION_MIGRATION_VERSION = 18;
+const SSH_LOOP_MIGRATION_VERSION = 18;
 const PANE_TITLE_MIGRATION_VERSION = 20;
 const TAB_RAIL_MIGRATION_VERSION = 21;
 const RETRY_MS = 1500;
@@ -97,6 +70,104 @@ let retryTimer: number | undefined;
 let persistTimer: number | undefined;
 let persistenceReady = false;
 
+type Read<T> = (saved: unknown, current: T) => T;
+
+const flag: Read<boolean> = (saved, current) => (typeof saved === "boolean" ? saved : current);
+const text: Read<string> = (saved, current) => (typeof saved === "string" ? saved : current);
+const shortName: Read<string> = (saved, current) => boundedOptionalString(saved, 40) ?? current;
+const finite =
+    (clamp: (value: number) => number = (value) => value): Read<number> =>
+    (saved, current) =>
+        typeof saved === "number" && Number.isFinite(saved) ? clamp(saved) : current;
+const oneOf =
+    <T extends string | number>(...values: readonly T[]): Read<T> =>
+    (saved, current) =>
+        values.includes(saved as T) ? (saved as T) : current;
+
+function booleansByPath(value: unknown): Record<string, boolean> {
+    if (!isRecord(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+}
+
+function stringsByPath(value: unknown): Record<string, string> {
+    if (!isRecord(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
+function normalisePluginSettings(value: unknown): Record<string, unknown> {
+    if (!isRecord(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter(([id]) => isPluginId(id)));
+}
+
+function readReleaseNotes(saved: unknown): StoreState["lastReleaseNotes"] {
+    if (!isRecord(saved) || typeof saved.version !== "string") return null;
+    return {
+        version: saved.version,
+        notes: typeof saved.notes === "string" ? saved.notes : null,
+        date: typeof saved.date === "string" ? saved.date : null,
+        credits: parseReleaseCredits(saved.credits),
+    };
+}
+
+/** Each setting this window saves, and how a saved value reads back: one it cannot read keeps the store's default. */
+const PREFS = {
+    projectRoots: (saved, current) => (Array.isArray(saved) ? normaliseProjectRoots(saved) : current),
+    themeId: text,
+    customThemes: (saved, current) => (Array.isArray(saved) ? saved.filter(isTheme) : current),
+    uiTextScale: oneOf<number>(1, 1.1, 1.25),
+    paneShader: flag,
+    buddies: flag,
+    buddyPack: shortName,
+    buddyShape: shortName,
+    buddyMotion: flag,
+    paneImage: (saved, current) => (typeof saved === "string" || saved === null ? saved : current),
+    paneStrength: finite(clampPaneStrength),
+    terminalFontSize: finite(clampTerminalFontSize),
+    chatTextScale: finite(clampChatTextScale),
+    editorTextScale: finite(clampEditorTextScale),
+    windowOpacity: finite(),
+    windowBlur: finite(),
+    cloudBrowser: text,
+    cloudBrowserShortcut: text,
+    keybindingOverrides: (saved) => normaliseKeybindingOverrides(saved),
+    sideRailOpen: flag,
+    tabRailOpen: flag,
+    sideRailWidth: finite((width) => clampRailWidth("start", width)),
+    tabRailWidth: finite((width) => clampRailWidth("end", width)),
+    pluginSettings: (saved) => normalisePluginSettings(saved),
+    restoreAgentTabs: flag,
+    activeSpaceId: (saved, current) => (typeof saved === "string" ? saved : current),
+    agentNotifications: flag,
+    notch: (saved) => normaliseNotchSettings(saved),
+    voiceDictation: flag,
+    iosSimulator: flag,
+    simulatorFrame: flag,
+    notificationsIntroduced: flag,
+    keptRunningNoticeShown: flag,
+    signInCardDismissed: flag,
+    railDensity: oneOf("comfortable", "compact"),
+    midTurnSend: oneOf("steer", "queue"),
+    tabRailAllAgents: flag,
+    tabRailScope: oneOf("project", "all"),
+    tabRailPage: oneOf("agents", "terminals", "files"),
+    onboardingComplete: flag,
+    lastSeenVersion: text,
+    customCommands: (saved) => normaliseCustomCommands(saved),
+    updateChannel: oneOf("stable", "nightly"),
+    shareUsageData: flag,
+    lastReleaseNotes: (saved) => readReleaseNotes(saved),
+    recentCommandKeys: (saved, current) =>
+        Array.isArray(saved) ? saved.filter((value): value is string => typeof value === "string").slice(0, 20) : current,
+    lastAgentType: (saved, current) => (isAgentType(saved) ? saved : current),
+    languageServerTrust: (saved) => booleansByPath(saved),
+    agentWorktreeDefaults: (saved) => booleansByPath(saved),
+    defaultGitRepos: (saved) => stringsByPath(saved),
+} satisfies { [K in keyof StoreState]?: Read<StoreState[K]> };
+
+type PrefKey = keyof typeof PREFS;
+type PersistedPrefs = { [K in PrefKey]: StoreState[K] };
+const PREF_KEYS = Object.keys(PREFS) as PrefKey[];
+
 const PERSISTED_KEYS = [
     "sessions",
     "windows",
@@ -104,156 +175,50 @@ const PERSISTED_KEYS = [
     "sessionOrder",
     "windowsBySession",
     "activeSessionId",
+    "chosenHost",
     "recent",
     "editorViews",
     "deskPanes",
     "browserStrips",
     "deskRestores",
-    "projectRoots",
-    "themeId",
-    "customThemes",
-    "uiTextScale",
-    "paneShader",
-    "buddies",
-    "buddyPack",
-    "buddyShape",
-    "buddyMotion",
-    "paneImage",
-    "paneStrength",
-    "terminalFontSize",
-    "chatTextScale",
-    "editorTextScale",
-    "windowOpacity",
-    "windowBlur",
-    "cloudBrowser",
-    "cloudBrowserShortcut",
-    "keybindingOverrides",
-    "sideRailOpen",
-    "tabRailOpen",
-    "sideRailWidth",
-    "tabRailWidth",
-    "pluginSettings",
-    "restoreAgentTabs",
-    "activeSpaceId",
-    "agentNotifications",
-    "notch",
-    "voiceDictation",
-    "iosSimulator",
-    "simulatorFrame",
-    "notificationsIntroduced",
-    "keptRunningNoticeShown",
-    "signInCardDismissed",
-    "railDensity",
-    "midTurnSend",
-    "tabRailAllAgents",
-    "tabRailScope",
-    "tabRailPage",
-    "onboardingComplete",
-    "lastSeenVersion",
-    "customCommands",
-    "updateChannel",
-    "shareUsageData",
-    "lastReleaseNotes",
-    "recentCommandKeys",
-    "lastAgentType",
-    "languageServerTrust",
-    "agentWorktreeDefaults",
-    "defaultGitRepos",
-] as const satisfies readonly (keyof StoreState)[];
-type PersistedKey = (typeof PERSISTED_KEYS)[number];
-type SliceShot = { [K in PersistedKey]: StoreState[K] };
+    ...PREF_KEYS,
+] satisfies readonly (keyof StoreState)[];
+type SliceShot = Partial<Record<keyof StoreState, unknown>>;
 let lastSlices: SliceShot | null = null;
 
 function takeSlices(s: StoreState): SliceShot {
-    const out = {} as SliceShot;
-    for (const k of PERSISTED_KEYS) (out as Record<string, unknown>)[k] = s[k];
-    return out;
+    return Object.fromEntries(PERSISTED_KEYS.map((key) => [key, s[key]]));
 }
 
-function slicesEqual(a: SliceShot, b: SliceShot): boolean {
-    for (const k of PERSISTED_KEYS) if (a[k] !== b[k]) return false;
-    return true;
+function slicesEqual(a: SliceShot | StoreState, b: SliceShot | StoreState): boolean {
+    return PERSISTED_KEYS.every((key) => a[key] === b[key]);
 }
 
 function packPrefs(s: StoreState): PersistedPrefs {
-    return {
-        projectRoots: s.projectRoots,
-        themeId: s.themeId,
-        customThemes: s.customThemes,
-        uiTextScale: s.uiTextScale,
-        paneShader: s.paneShader,
-        buddies: s.buddies,
-        buddyPack: s.buddyPack,
-        buddyShape: s.buddyShape,
-        buddyMotion: s.buddyMotion,
-        paneImage: s.paneImage,
-        paneStrength: s.paneStrength,
-        terminalFontSize: s.terminalFontSize,
-        chatTextScale: s.chatTextScale,
-        editorTextScale: s.editorTextScale,
-        windowOpacity: s.windowOpacity,
-        windowBlur: s.windowBlur,
-        cloudBrowser: s.cloudBrowser,
-        cloudBrowserShortcut: s.cloudBrowserShortcut,
-        keybindingOverrides: s.keybindingOverrides,
-        sideRailOpen: s.sideRailOpen,
-        tabRailOpen: s.tabRailOpen,
-        sideRailWidth: s.sideRailWidth,
-        tabRailWidth: s.tabRailWidth,
-        pluginSettings: s.pluginSettings,
-        restoreAgentTabs: s.restoreAgentTabs,
-        activeSpaceId: s.activeSpaceId,
-        agentNotifications: s.agentNotifications,
-        notch: s.notch,
-        voiceDictation: s.voiceDictation,
-        iosSimulator: s.iosSimulator,
-        simulatorFrame: s.simulatorFrame,
-        notificationsIntroduced: s.notificationsIntroduced,
-        keptRunningNoticeShown: s.keptRunningNoticeShown,
-        signInCardDismissed: s.signInCardDismissed,
-        railDensity: s.railDensity,
-        midTurnSend: s.midTurnSend,
-        tabRailAllAgents: s.tabRailAllAgents,
-        tabRailScope: s.tabRailScope,
-        tabRailPage: s.tabRailPage,
-        onboardingComplete: s.onboardingComplete,
-        lastSeenVersion: s.lastSeenVersion,
-        customCommands: s.customCommands,
-        updateChannel: s.updateChannel,
-        shareUsageData: s.shareUsageData,
-        lastReleaseNotes: s.lastReleaseNotes,
-        recentCommandKeys: s.recentCommandKeys,
-        lastAgentType: s.lastAgentType,
-        languageServerTrust: s.languageServerTrust,
-        agentWorktreeDefaults: s.agentWorktreeDefaults,
-        defaultGitRepos: s.defaultGitRepos,
-    };
+    return Object.fromEntries(PREF_KEYS.map((key) => [key, s[key]])) as PersistedPrefs;
 }
 
-const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "diff", "search", "ssh-config", "named", "agent", "shared", "board"]);
-
-function normaliseSpaces(value: unknown): ProjectSpace[] {
-    if (!Array.isArray(value)) return [];
-    const spaces: ProjectSpace[] = [];
-    for (const row of value) {
-        if (!isRecord(row) || typeof row.id !== "string" || !row.id || typeof row.name !== "string") continue;
-        const name = spaceName(row.name);
-        if (!name || spaces.some((space) => space.id === row.id)) continue;
-        spaces.push({ id: row.id, name, icon: isSpaceIcon(row.icon) ? row.icon : "" });
-    }
-    return spaces;
+function readPrefs(saved: Record<string, unknown>, current: StoreState): PersistedPrefs {
+    return Object.fromEntries(PREF_KEYS.map((key) => [key, (PREFS[key] as Read<unknown>)(saved[key], current[key])])) as PersistedPrefs;
 }
 
-function normaliseProjectSpaces(value: unknown, spaces: readonly ProjectSpace[]): Record<string, string> {
-    if (!isRecord(value)) return {};
-    const known = new Set(spaces.map((space) => space.id));
-    const projectSpaces: Record<string, string> = {};
-    for (const [cwd, id] of Object.entries(value)) if (typeof id === "string" && known.has(id)) projectSpaces[cwd] = id;
-    return projectSpaces;
-}
+/** A project's name and folder are the core's, so a window keeps only which of its tabs is in front. */
+type PersistedSession = Session | Pick<Session, "id" | "kind" | "activeWindowId">;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return !!value && typeof value === "object" && !Array.isArray(value);
+export interface PersistedSnapshot {
+    version: number;
+    sessions: PersistedSession[];
+    windowsBySession: Record<string, Window[]>;
+    sessionOrder: string[];
+    activeSessionId: string;
+    /** The host chosen in the side rail over the active session, when one was. */
+    chosenHost?: HostChoice;
+    recent: RecentEntry[];
+    prefs: Partial<PersistedPrefs>;
+    /** Versioned item-owned state. Live processes, buffers, and credentials are excluded. */
+    itemStates: Record<string, PersistedWorkbenchItemEnvelope>;
+    /** The chats open here that run on other hosts, which this host's core does not keep. */
+    hostAgents?: Agent[];
 }
 
 const COMMAND_PLACEMENTS = new Set<CustomCommandPlacement>(["background", "terminal", "split", "popup", "replace"]);
@@ -291,6 +256,7 @@ function isWindow(value: unknown): value is Window {
         typeof value.id === "string" &&
         typeof value.name === "string" &&
         typeof value.activePaneId === "string" &&
+        isWindowRole(value.role) &&
         isLayout(value.root)
     );
 }
@@ -305,16 +271,6 @@ function layoutIds(root: Window["root"]): { all: string[]; panes: string[] } {
     };
     walk(root);
     return { all, panes };
-}
-
-/** Upgrade saved SSH startups, including the briefly shipped multiline form. */
-function upgradeSshStartup(root: Window["root"], alias: string): Window["root"] {
-    if (root.type === "pane") {
-        const needsUpgrade = root.startup === `ssh ${alias}` || root.startup?.includes("sikemux_ssh_retries");
-        return root.kind === "terminal" && needsUpgrade ? { ...root, startup: sshStartup(alias) } : root;
-    }
-    const children = root.children.map((child) => upgradeSshStartup(child, alias));
-    return children.some((child, i) => child !== root.children[i]) ? { ...root, children } : root;
 }
 
 function toSession(value: unknown): Session | null {
@@ -337,18 +293,29 @@ function toSession(value: unknown): Session | null {
         pinned: value.pinned,
         activeWindowId: value.activeWindowId,
     };
+    if (typeof value.host === "string") session.host = value.host;
     return session;
+}
+
+/** A chat on another host as this window kept it, which takes it up there again when shown. */
+function hostAgent(value: unknown): Agent | null {
+    if (!isRecord(value) || typeof value.id !== "string" || typeof value.host !== "string" || !isAgentType(value.type)) return null;
+    if (typeof value.title !== "string" || typeof value.cwd !== "string") return null;
+    return {
+        id: value.id,
+        type: value.type,
+        title: value.title,
+        name: typeof value.name === "string" ? value.name : undefined,
+        cwd: value.cwd,
+        host: value.host,
+        createdAt: typeof value.createdAt === "number" ? value.createdAt : Date.now(),
+        permissionMode: value.permissionMode === "bypass" ? "bypass" : "workspace-write",
+        launchState: "live",
+    };
 }
 
 function isRecent(value: unknown): value is RecentEntry {
     return isRecord(value) && isSessionKind(value.kind) && typeof value.name === "string" && typeof value.cwd === "string";
-}
-
-const AGENT_PROVIDERS = new Set<AgentProvider>(["claude", "codex", "gemini"]);
-const AGENT_PERMISSION_MODES = new Set<AgentPermissionMode>(["read-only", "workspace-write", "full-access", "bypass"]);
-
-function isAgentPermissionMode(value: unknown): value is AgentPermissionMode {
-    return AGENT_PERMISSION_MODES.has(value as AgentPermissionMode);
 }
 
 function normaliseProviderProfiles(value: unknown, fallback: ProviderProfile[]): ProviderProfile[] {
@@ -357,14 +324,14 @@ function normaliseProviderProfiles(value: unknown, fallback: ProviderProfile[]):
     const seen = new Set<string>();
     for (const row of value) {
         if (!isRecord(row) || typeof row.id !== "string" || !row.id.trim() || seen.has(row.id)) continue;
-        if (typeof row.name !== "string" || !row.name.trim() || !AGENT_PROVIDERS.has(row.provider as AgentProvider)) continue;
+        if (typeof row.name !== "string" || !row.name.trim() || !hasAccounts(row.provider as string)) continue;
         if (typeof row.accent !== "string" || !/^#[\da-f]{6}$/i.test(row.accent)) continue;
         const id = row.id.trim().slice(0, 100);
         if (seen.has(id)) continue;
         const profile: ProviderProfile = {
             id,
             name: row.name.trim().slice(0, 100),
-            provider: row.provider as AgentProvider,
+            provider: row.provider as AccountAgentType,
             accent: row.accent.toLowerCase(),
         };
         const executablePath = boundedOptionalString(row.executablePath, 4096);
@@ -415,93 +382,9 @@ function boundedOptionalString(value: unknown, max: number): string | undefined 
     return typeof value === "string" && value.trim() && !/[\0\r\n]/.test(value) ? value.slice(0, max) : undefined;
 }
 
-function toAgentWorktree(value: unknown): AgentWorktree | undefined {
-    if (!isRecord(value)) return undefined;
-    const repo = boundedOptionalString(value.repo, 4096);
-    const path = boundedOptionalString(value.path, 4096);
-    const branch = boundedOptionalString(value.branch, 255);
-    const startSha = boundedOptionalString(value.startSha, 64);
-    if (!repo || !path || !branch || !startSha) return undefined;
-    return { repo, path, branch, base: boundedOptionalString(value.base, 255) ?? null, startSha };
-}
-
-const AGENT_EFFORTS = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
-function toPersistedAgent(value: unknown): PersistedAgent | null {
-    if (!isRecord(value) || typeof value.id !== "string" || !value.id || !isAgentType(value.type)) return null;
-    if (typeof value.title !== "string" || !value.title.trim()) return null;
-    const resumeId = typeof value.resumeId === "string" && value.resumeId.trim() ? value.resumeId : undefined;
-    const ptyId = isCoreSessionId(value.ptyId) ? value.ptyId : undefined;
-    const agent: PersistedAgent = { id: value.id, type: value.type as AgentType, title: value.title.slice(0, 200) };
-    if (resumeId) agent.resumeId = resumeId;
-    if (ptyId !== undefined) agent.ptyId = ptyId;
-    const name = boundedOptionalString(value.name, 64);
-    if (name) agent.name = name;
-    const lead = boundedOptionalString(value.lead, 200);
-    if (lead) agent.lead = lead;
-    const requestedPermissionMode = isAgentPermissionMode(value.permissionMode)
-        ? value.permissionMode
-        : value.skipPermissions === true
-          ? "bypass"
-          : value.skipPermissions === false
-            ? "workspace-write"
-            : undefined;
-    const permissionMode = requestedPermissionMode ? normalizePermissionMode(value.type as AgentType, requestedPermissionMode) : undefined;
-    if (permissionMode) agent.permissionMode = permissionMode;
-    if (permissionMode === "bypass") agent.skipPermissions = true;
-    const profileId = boundedOptionalString(value.profileId, 100);
-    const executablePath = boundedOptionalString(value.executablePath, 4096);
-    const cwd = boundedOptionalString(value.cwd, 4096);
-    const model = boundedOptionalString(value.model, 200);
-    if (profileId) agent.profileId = profileId;
-    if (executablePath) agent.executablePath = executablePath;
-    if (cwd) agent.cwd = cwd;
-    if (model) agent.model = model;
-    const modelProvider = boundedOptionalString(value.modelProvider, 100);
-    if (modelProvider) agent.modelProvider = modelProvider;
-    if (typeof value.effort === "string" && AGENT_EFFORTS.has(value.effort)) agent.effort = value.effort as PersistedAgent["effort"];
-    if (value.keepAlive === true) agent.keepAlive = true;
-    if (value.renamed === true) agent.renamed = true;
-    const worktree = toAgentWorktree(value.worktree);
-    if (worktree) agent.worktree = worktree;
-    const buddy = toAgentBuddy(value.buddy);
-    if (buddy) agent.buddy = buddy;
-    return agent;
-}
-
-/** An agent the core keeps, as the store holds it. */
-export function agentFromCore(record: WorkspaceAgent): PersistedAgent | null {
-    return toPersistedAgent({ ...record, type: record.provider });
-}
-
 /** A project's name and folder are the core's; this window keeps only which of its tabs is in front. */
 function persistedSession(sess: Session): PersistedSession {
-    return sess.kind === "project" ? { id: sess.id, kind: sess.kind, activeWindowId: sess.activeWindowId } : sess;
-}
-
-/** The fields of an agent the core keeps. Startup commands are rebuilt from the type and resume id, never saved. */
-export function persistedAgent(agent: Agent): PersistedAgent {
-    const permissionMode = agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write");
-    return {
-        id: agent.id,
-        type: agent.type,
-        ...(agent.name ? { name: agent.name } : {}),
-        ...(agent.lead ? { lead: agent.lead } : {}),
-        title: agent.title,
-        resumeId: agent.resumeId,
-        permissionMode,
-        ...(permissionMode === "bypass" ? { skipPermissions: true } : {}),
-        ...(agent.profileId ? { profileId: agent.profileId } : {}),
-        ...(agent.executablePath ? { executablePath: agent.executablePath } : {}),
-        ...(agent.cwd ? { cwd: agent.cwd } : {}),
-        ...(agent.model ? { model: agent.model } : {}),
-        ...(agent.modelProvider ? { modelProvider: agent.modelProvider } : {}),
-        ...(agent.effort ? { effort: agent.effort } : {}),
-        ...(agent.keepAlive ? { keepAlive: true } : {}),
-        ...(agent.renamed ? { renamed: true } : {}),
-        ...(agent.worktree ? { worktree: agent.worktree } : {}),
-        ...(agent.ptyId !== undefined ? { ptyId: agent.ptyId } : {}),
-        ...(agent.buddy ? { buddy: agent.buddy } : {}),
-    };
+    return sess.kind === "project" && !sess.host ? { id: sess.id, kind: sess.kind, activeWindowId: sess.activeWindowId } : sess;
 }
 
 /**
@@ -530,21 +413,16 @@ function durableWindow(s: StoreState, id: string): Window | null {
     const window = s.windows[id];
     if (!window || window.transient) return null;
     if (window.role === "agent" && !agentInWindow(s.agents, window)) return null;
-    return withoutEmptyDesks(window);
+    const kept = withoutEmptyDesks(window);
+    return kept && { ...kept, root: withoutTaskBinding(kept.root) };
 }
 
-/** One malformed item must not cost every other item, or the layout, its save. */
-function encodeItemState<Kind extends CorePaneKind>(
-    itemStates: NonNullable<PersistedSnapshot["itemStates"]>,
-    itemId: string,
-    kind: Kind,
-    state: BuiltinWorkbenchItemState[Kind],
-): void {
-    try {
-        itemStates[itemId] = workbenchItemRegistry.encodePersisted(createWorkbenchItemRef(itemId, kind), state);
-    } catch {
-        return;
-    }
+/** A task's terminal moved into a saved tab comes back as a plain terminal: the task process it showed is gone by then. */
+function withoutTaskBinding(node: LayoutNode): LayoutNode {
+    if (node.type === "split") return { ...node, children: node.children.map(withoutTaskBinding) };
+    if (!node.externalPty && node.taskTerminalKey === undefined) return node;
+    const { externalPty: _external, taskTerminalKey: _key, ...pane } = node;
+    return pane;
 }
 
 function snapshot(): string {
@@ -573,10 +451,10 @@ function snapshot(): string {
                     continue;
                 }
                 if (node.kind === "editor")
-                    encodeItemState(itemStates, node.id, "editor", s.editorViews[node.id] ?? { openTabs: [], activePath: null });
+                    itemStates[node.id] = encodeItemState(node.id, "editor", s.editorViews[node.id] ?? { openTabs: [], activePath: null });
                 if (node.kind === "desk") {
                     const view = deskView(node.id);
-                    if (view) encodeItemState(itemStates, node.id, "desk", view);
+                    if (view) itemStates[node.id] = encodeItemState(node.id, "desk", view);
                 }
             }
         }
@@ -587,15 +465,13 @@ function snapshot(): string {
         windowsBySession,
         sessionOrder: sessions.map((s) => s.id),
         activeSessionId: s.activeSessionId,
+        chosenHost: savedHostChoice(s),
         recent: s.recent,
         prefs: packPrefs(s),
         itemStates,
+        hostAgents: Object.values(s.agents).filter((agent) => agent.host),
     };
-    // Defense in depth: these runtime-only fields must never reach disk, even if
-    // a malformed record introduced them outside the typed shapes above.
-    return JSON.stringify(snap, (key, value) =>
-        key === "secretVars" || key === "drafts" || key === "transient" || key === "externalPty" || key === "taskTerminalKey" ? undefined : value,
-    );
+    return JSON.stringify(snap);
 }
 
 function scheduleRetry(): void {
@@ -659,6 +535,58 @@ export function flushPersist(): Promise<boolean> {
     return startSaveLoop();
 }
 
+function eachSavedPane(decoded: Record<string, unknown>, visit: (pane: Record<string, unknown>, session: string) => void): void {
+    const windowsBySession = isRecord(decoded.windowsBySession) ? decoded.windowsBySession : {};
+    for (const [session, rows] of Object.entries(windowsBySession)) {
+        for (const row of Array.isArray(rows) ? rows : []) {
+            const pending: unknown[] = isRecord(row) ? [row.root] : [];
+            for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+                if (!isRecord(node)) continue;
+                if (node.type === "pane") visit(node, session);
+                else if (Array.isArray(node.children)) pending.push(...node.children);
+            }
+        }
+    }
+}
+
+/** Before v6 there was no welcome screen, so anyone with saved state had already started. */
+function skipOnboarding(decoded: Record<string, unknown>): void {
+    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
+    if (typeof prefs.onboardingComplete !== "boolean") decoded.prefs = { ...prefs, onboardingComplete: true };
+}
+
+/** Before v7 an editor's open files sat in their own map instead of in the item states. */
+function moveEditorViewsIntoItemStates(decoded: Record<string, unknown>): void {
+    const editorViews = isRecord(decoded.editorViews) ? decoded.editorViews : {};
+    const itemStates: Record<string, unknown> = {};
+    for (const [itemId, state] of Object.entries(editorViews)) {
+        itemStates[itemId] = encodeItemState(itemId, "editor", state as EditorPaneView);
+    }
+    decoded.itemStates = itemStates;
+    delete decoded.editorViews;
+}
+
+/** Before v9 pinned projects were a list of their own; each is a root indexed as itself now. */
+function foldPinnedProjectsIntoRoots(decoded: Record<string, unknown>): void {
+    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
+    const roots = Array.isArray(prefs.projectRoots) ? normaliseProjectRoots(prefs.projectRoots) : [];
+    const { pinnedProjects, ...rest } = prefs;
+    decoded.prefs = { ...rest, projectRoots: mergePinnedIntoRoots(roots, pinnedProjects) };
+}
+
+/** Before v18 an SSH tab ran `ssh` itself, or a reconnect loop in the login shell; it runs the loop under /bin/sh now. */
+function upgradeSshStartups(decoded: Record<string, unknown>): void {
+    const sessions = Array.isArray(decoded.sessions) ? decoded.sessions : [];
+    const aliases = new Map(
+        sessions.flatMap((row) => (isRecord(row) && row.kind === "ssh" && typeof row.name === "string" ? [[row.id, row.name]] : [])),
+    );
+    eachSavedPane(decoded, (pane, session) => {
+        const alias = aliases.get(session);
+        if (alias === undefined || pane.kind !== "terminal" || typeof pane.startup !== "string") return;
+        if (pane.startup === `ssh ${alias}` || pane.startup.includes("sikemux_ssh_retries")) pane.startup = sshStartup(alias);
+    });
+}
+
 /** Before v18 terminals died with the app, so a saved session id names nothing that could still run. */
 function forgetCoreSessions(decoded: Record<string, unknown>): void {
     const windowsBySession = isRecord(decoded.windowsBySession) ? decoded.windowsBySession : {};
@@ -674,8 +602,6 @@ function forgetCoreSessions(decoded: Record<string, unknown>): void {
     }
 }
 
-/** Before v16 an agent's side pane held only its browser, as a "browser" pane whose saved state had no files. */
-/** Before v17 GitHub had a session of its own. It lives in each project's git pane now, so that session has nothing left to show. */
 const PANE_TITLE_RENAMES: Record<string, string> = {
     shell: "Terminal",
     editor: "Files",
@@ -711,6 +637,7 @@ function renameAgentRailPrefs(decoded: Record<string, unknown>): void {
     }
 }
 
+/** Before v17 GitHub had a session of its own. It lives in each project's git pane now, so that session has nothing left to show. */
 function closeGithubSessions(decoded: Record<string, unknown>): void {
     const sessions = Array.isArray(decoded.sessions) ? decoded.sessions : [];
     const closed = new Set(sessions.flatMap((row) => (isRecord(row) && row.kind === "sikemux.github:hub" ? [row.id] : [])));
@@ -720,6 +647,7 @@ function closeGithubSessions(decoded: Record<string, unknown>): void {
     if (isRecord(decoded.windowsBySession)) for (const id of closed) if (typeof id === "string") delete decoded.windowsBySession[id];
 }
 
+/** Before v16 an agent's side pane held only its browser, as a "browser" pane whose saved state had no files. */
 function moveBrowserPanesOntoDesks(decoded: Record<string, unknown>): void {
     const windowsBySession = isRecord(decoded.windowsBySession) ? decoded.windowsBySession : {};
     for (const rows of Object.values(windowsBySession)) {
@@ -890,21 +818,6 @@ function mergeBrunoSessions(decoded: Record<string, unknown>): void {
     if (closed.has(decoded.activeSessionId)) decoded.activeSessionId = kept.id;
 }
 
-function booleansByPath(value: unknown): Record<string, boolean> {
-    if (!isRecord(value)) return {};
-    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
-}
-
-function stringsByPath(value: unknown): Record<string, string> {
-    if (!isRecord(value)) return {};
-    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-}
-
-function normalisePluginSettings(value: unknown): Record<string, unknown> {
-    if (!isRecord(value)) return {};
-    return Object.fromEntries(Object.entries(value).filter(([id]) => isPluginId(id)));
-}
-
 export type HydrationResult = "empty" | "applied" | "invalid" | "unsupported-future";
 
 export function hydrationAllowsPersistence(result: HydrationResult): boolean {
@@ -942,6 +855,9 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null, wo
     if (decoded.version > VERSION) return "unsupported-future";
     if (decoded.version < MIN_SUPPORTED_VERSION) return "invalid";
     if (!Array.isArray(decoded.sessions)) return "invalid";
+    if (decoded.version < ONBOARDING_MIGRATION_VERSION) skipOnboarding(decoded);
+    if (decoded.version < ITEM_STATES_MIGRATION_VERSION) moveEditorViewsIntoItemStates(decoded);
+    if (decoded.version < SELF_INDEXED_ROOTS_MIGRATION_VERSION) foldPinnedProjectsIntoRoots(decoded);
     if (decoded.version < PLUGIN_KIND_MIGRATION_VERSION) renameLegacyPluginKinds(decoded);
     if (decoded.version < PLUGIN_SETTINGS_MIGRATION_VERSION) moveRundeckSettings(decoded);
     if (decoded.version < ONE_BRUNO_SESSION_MIGRATION_VERSION) mergeBrunoSessions(decoded);
@@ -951,13 +867,14 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null, wo
     if (decoded.version < DESK_MIGRATION_VERSION) moveBrowserPanesOntoDesks(decoded);
     if (decoded.version < GITHUB_IN_GIT_PANE_MIGRATION_VERSION) closeGithubSessions(decoded);
     if (decoded.version < CORE_SESSION_MIGRATION_VERSION) forgetCoreSessions(decoded);
+    if (decoded.version < SSH_LOOP_MIGRATION_VERSION) upgradeSshStartups(decoded);
     if (decoded.version < PANE_TITLE_MIGRATION_VERSION) capitalisePaneTitles(decoded);
     if (decoded.version < TAB_RAIL_MIGRATION_VERSION) renameAgentRailPrefs(decoded);
 
     const projects = new Map((workspace?.projects ?? []).map((project) => [project.id, project]));
     const sessions: Record<string, Session> = {};
     for (const row of decoded.sessions) {
-        if (isRecord(row) && row.kind === "project") {
+        if (isRecord(row) && row.kind === "project" && typeof row.host !== "string") {
             const project = typeof row.id === "string" ? projects.get(row.id) : undefined;
             if (project) sessions[project.id] ??= projectSession(project, typeof row.activeWindowId === "string" ? row.activeWindowId : "");
             continue;
@@ -981,52 +898,43 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null, wo
             const ids = layoutIds(row.root);
             if (new Set(ids.all).size !== ids.all.length || ids.all.some((id) => usedLayoutIds.has(id))) continue;
             ids.all.forEach((id) => usedLayoutIds.add(id));
-            const restored: Window = {
-                ...row,
-                root: sessions[sid].kind === "ssh" ? upgradeSshStartup(row.root, sessions[sid].name) : row.root,
-                role: deriveRole(row),
-                activePaneId: ids.panes.includes(row.activePaneId) ? row.activePaneId : ids.panes[0],
-            };
+            const restored: Window = { ...row, activePaneId: ids.panes.includes(row.activePaneId) ? row.activePaneId : ids.panes[0] };
             if (sessions[sid].kind === "project") delete restored.fixed;
             if (sessions[sid].kind === "project" && restored.role === "term") restored.name = "Terminal";
             windows[row.id] = restored;
             windowsBySession[sid].push(row.id);
         }
     }
-    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
     const cur = getState();
+    const prefs = readPrefs(isRecord(decoded.prefs) ? decoded.prefs : {}, cur);
     const providerProfiles = cur.providerProfiles;
-    const restoreAgentTabs = typeof prefs.restoreAgentTabs === "boolean" ? prefs.restoreAgentTabs : true;
-    const spaces = normaliseSpaces(workspace?.spaces);
+    const shared = workspace ? sharedFromCore(workspace) : null;
     const placed = new Set(Object.values(windows).flatMap((win) => (win.role === "agent" ? (agentPaneId(win) ?? []) : [])));
     const claimedResumeIds = new Set<string>();
-    if (restoreAgentTabs) {
+    if (prefs.restoreAgentTabs) {
         for (const record of workspace?.agents ?? []) {
             const saved = agentFromCore(record);
             if (!saved || agents[saved.id] || sessions[record.project]?.kind !== "project") continue;
             if (saved.resumeId) {
-                const claim = `${saved.type}\0${saved.resumeId}`;
+                const claim = chatKey(saved.type, saved.resumeId);
                 if (claimedResumeIds.has(claim)) continue;
                 claimedResumeIds.add(claim);
             }
-            const permissionMode = normalizePermissionMode(saved.type, effectiveMode(saved));
             const executablePath = agentExecutablePath({ providerProfiles }, saved);
             if (saved.profileId && !providerProfiles.some((profile) => profile.id === saved.profileId && profile.provider === saved.type)) {
                 delete saved.profileId;
             }
-            agents[saved.id] = {
-                ...saved,
-                permissionMode,
-                executablePath,
-                createdAt: record.createdAt,
-                launchState: "dormant",
-            };
+            agents[saved.id] = { ...saved, executablePath, launchState: "dormant" };
             if (!placed.has(saved.id)) {
                 const win = agentWindow(agents[saved.id], record.cwd);
                 windows[win.id] = win;
                 windowsBySession[record.project].push(win.id);
             }
         }
+    }
+    for (const row of Array.isArray(decoded.hostAgents) ? decoded.hostAgents : []) {
+        const agent = hostAgent(row);
+        if (agent && !agents[agent.id]) agents[agent.id] = agent;
     }
     // An agent window whose record did not come back has nothing to show.
     for (const sid of Object.keys(sessions)) {
@@ -1042,56 +950,34 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null, wo
         sessions[sid] = { ...session, activeWindowId: windowIds.includes(session.activeWindowId) ? session.activeWindowId : (windowIds[0] ?? "") };
     }
 
-    const panesById = new Map<string, ReturnType<typeof workbenchItemRefFromPane>>();
-    for (const w of Object.values(windows)) {
-        const walk = (n: Window["root"]): void => {
-            if (n.type === "pane") panesById.set(n.id, workbenchItemRefFromPane(n));
-            else n.children.forEach(walk);
-        };
-        walk(w.root);
-    }
     const editorViews: Record<string, EditorPaneView> = {};
     const deskPanes: Record<string, string> = {};
     const deskRestores: Record<string, DeskView> = {};
     const desks: Record<string, Desk> = {};
-    if (decoded.version >= 7) {
-        const rawItemStates = isRecord(decoded.itemStates) ? decoded.itemStates : {};
-        for (const [itemId, ref] of panesById) {
-            const result = workbenchItemRegistry.decodePersisted(ref, rawItemStates[itemId]);
-            if (!result.ok) continue;
-            if (result.ref.kind === "editor") editorViews[itemId] = result.state as EditorPaneView;
-            if (result.ref.kind === "desk") {
-                const view = result.state as DeskView;
-                // Without its agent the pane has nothing to be, and the pane
-                // itself takes the empty leaf back out of the layout.
-                if (!agents[view.agentId]) continue;
-                deskPanes[itemId] = view.agentId;
-                deskRestores[itemId] = view;
-                editorViews[deskEditorId(view.agentId)] = { openTabs: view.files, activePath: view.files[0] ?? null };
-                const simulators = view.simulator
-                    ? [{ id: newId("desk-simulator"), udid: view.simulator.udid, deviceName: view.simulator.name }]
-                    : [];
-                const simulatorKeys = simulators.map((simulator) => simulatorKey(simulator.id));
-                desks[view.agentId] = {
-                    order: [...view.files.map(fileKey), ...simulatorKeys],
-                    active: view.tabs.length > 0 ? BROWSER_ACTIVE : view.files[0] ? fileKey(view.files[0]) : (simulatorKeys[0] ?? null),
-                    terminals: [],
-                    simulators,
-                    reveal: null,
-                };
-            }
+    const rawItemStates = isRecord(decoded.itemStates) ? decoded.itemStates : {};
+    for (const pane of Object.values(windows).flatMap((window) => collectPanes(window.root))) {
+        const itemId = pane.id;
+        if (pane.kind === "editor") {
+            const view = decodeItemState({ id: itemId, kind: "editor" }, rawItemStates[itemId]);
+            if (view) editorViews[itemId] = view;
         }
-    } else {
-        const rawEditorViews = isRecord(decoded.editorViews) ? decoded.editorViews : {};
-        for (const [itemId, ref] of panesById) {
-            if (ref.kind !== "editor" || !(itemId in rawEditorViews)) continue;
-            const result = workbenchItemRegistry.decodePersisted(ref, {
-                itemId,
-                kind: "editor",
-                version: workbenchItemRegistry.get("editor").persisted.version,
-                state: rawEditorViews[itemId],
-            });
-            if (result.ok) editorViews[itemId] = result.state as EditorPaneView;
+        if (pane.kind === "desk") {
+            const view = decodeItemState({ id: itemId, kind: "desk" }, rawItemStates[itemId]);
+            // Without its agent the pane has nothing to be, and the pane
+            // itself takes the empty leaf back out of the layout.
+            if (!view || !agents[view.agentId]) continue;
+            deskPanes[itemId] = view.agentId;
+            deskRestores[itemId] = view;
+            editorViews[deskEditorId(view.agentId)] = { openTabs: view.files, activePath: view.files[0] ?? null };
+            const simulators = view.simulator ? [{ id: newId("desk-simulator"), udid: view.simulator.udid, deviceName: view.simulator.name }] : [];
+            const simulatorKeys = simulators.map((simulator) => simulatorKey(simulator.id));
+            desks[view.agentId] = {
+                order: [...view.files.map(fileKey), ...simulatorKeys],
+                active: view.tabs.length > 0 ? BROWSER_ACTIVE : view.files[0] ? fileKey(view.files[0]) : (simulatorKeys[0] ?? null),
+                terminals: [],
+                simulators,
+                reveal: null,
+            };
         }
     }
 
@@ -1109,107 +995,21 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null, wo
         windowsBySession,
         agentStatus: {},
         activeSessionId,
+        chosenHost: restoredHostChoice(decoded.chosenHost, sessions, activeSessionId),
         recent: Array.isArray(decoded.recent) ? decoded.recent.filter(isRecent) : [],
         editorViews,
         deskPanes,
         deskRestores,
         desks,
         browserStrips: {},
-        // Pinned projects used to be their own list; they are self-indexed
-        // roots now, folded in here so existing setups carry over untouched.
-        projectRoots: mergePinnedIntoRoots(
-            Array.isArray(prefs.projectRoots) ? normaliseProjectRoots(prefs.projectRoots) : cur.projectRoots,
-            prefs.pinnedProjects,
-        ),
-        themeId: typeof prefs.themeId === "string" ? prefs.themeId : cur.themeId,
-        customThemes: Array.isArray(prefs.customThemes) ? prefs.customThemes.filter(isTheme) : cur.customThemes,
-        uiTextScale: typeof prefs.uiTextScale === "number" && [1, 1.1, 1.25].includes(prefs.uiTextScale) ? prefs.uiTextScale : cur.uiTextScale,
-        paneShader: typeof prefs.paneShader === "boolean" ? prefs.paneShader : cur.paneShader,
-        buddies: typeof prefs.buddies === "boolean" ? prefs.buddies : cur.buddies,
-        buddyPack: boundedOptionalString(prefs.buddyPack, 40) ?? cur.buddyPack,
-        buddyShape: boundedOptionalString(prefs.buddyShape, 40) ?? cur.buddyShape,
-        buddyMotion: typeof prefs.buddyMotion === "boolean" ? prefs.buddyMotion : cur.buddyMotion,
-        paneImage: typeof prefs.paneImage === "string" || prefs.paneImage === null ? prefs.paneImage : cur.paneImage,
-        paneStrength: typeof prefs.paneStrength === "number" ? clampPaneStrength(prefs.paneStrength) : cur.paneStrength,
-        terminalFontSize: typeof prefs.terminalFontSize === "number" ? clampTerminalFontSize(prefs.terminalFontSize) : cur.terminalFontSize,
-        chatTextScale: typeof prefs.chatTextScale === "number" ? clampChatTextScale(prefs.chatTextScale) : cur.chatTextScale,
-        editorTextScale: typeof prefs.editorTextScale === "number" ? clampEditorTextScale(prefs.editorTextScale) : cur.editorTextScale,
-        windowOpacity: typeof prefs.windowOpacity === "number" && Number.isFinite(prefs.windowOpacity) ? prefs.windowOpacity : cur.windowOpacity,
-        windowBlur: typeof prefs.windowBlur === "number" && Number.isFinite(prefs.windowBlur) ? prefs.windowBlur : cur.windowBlur,
-        cloudBrowser: typeof prefs.cloudBrowser === "string" ? prefs.cloudBrowser : cur.cloudBrowser,
-        cloudBrowserShortcut: typeof prefs.cloudBrowserShortcut === "string" ? prefs.cloudBrowserShortcut : cur.cloudBrowserShortcut,
-        keybindingOverrides: normaliseKeybindingOverrides(prefs.keybindingOverrides),
-        sideRailOpen: typeof prefs.sideRailOpen === "boolean" ? prefs.sideRailOpen : cur.sideRailOpen,
-        tabRailOpen: typeof prefs.tabRailOpen === "boolean" ? prefs.tabRailOpen : cur.tabRailOpen,
-        sideRailWidth:
-            typeof prefs.sideRailWidth === "number" && Number.isFinite(prefs.sideRailWidth)
-                ? clampRailWidth("start", prefs.sideRailWidth)
-                : cur.sideRailWidth,
-        tabRailWidth:
-            typeof prefs.tabRailWidth === "number" && Number.isFinite(prefs.tabRailWidth)
-                ? clampRailWidth("end", prefs.tabRailWidth)
-                : cur.tabRailWidth,
-        pluginSettings: normalisePluginSettings(prefs.pluginSettings),
+        ...prefs,
+        ...shared,
+        activeSpaceId: shared?.spaces.some((space) => space.id === prefs.activeSpaceId) ? prefs.activeSpaceId : null,
         disabledPlugins: [...new Set((workspace?.disabledPlugins ?? []).filter(isPluginId))],
-        restoreAgentTabs,
-        spaces,
-        projectSpaces: normaliseProjectSpaces(
-            Object.fromEntries((workspace?.projects ?? []).flatMap((project) => (project.space ? [[project.path, project.space]] : []))),
-            spaces,
-        ),
-        activeSpaceId: spaces.some((space) => space.id === prefs.activeSpaceId) ? (prefs.activeSpaceId as string) : null,
-        agentNotifications: typeof prefs.agentNotifications === "boolean" ? prefs.agentNotifications : cur.agentNotifications,
-        notch: normaliseNotchSettings(prefs.notch),
-        voiceDictation: prefs.voiceDictation === true,
-        iosSimulator: typeof prefs.iosSimulator === "boolean" ? prefs.iosSimulator : cur.iosSimulator,
-        simulatorFrame: typeof prefs.simulatorFrame === "boolean" ? prefs.simulatorFrame : cur.simulatorFrame,
-        notificationsIntroduced: prefs.notificationsIntroduced === true,
-        keptRunningNoticeShown: prefs.keptRunningNoticeShown === true,
-        signInCardDismissed: prefs.signInCardDismissed === true,
-        railDensity: prefs.railDensity === "compact" || prefs.railDensity === "comfortable" ? prefs.railDensity : cur.railDensity,
-        midTurnSend: prefs.midTurnSend === "queue" ? "queue" : "steer",
-        tabRailAllAgents: prefs.tabRailAllAgents === true,
-        tabRailScope: prefs.tabRailScope === "all" ? "all" : "project",
-        tabRailPage: prefs.tabRailPage === "terminals" || prefs.tabRailPage === "files" ? prefs.tabRailPage : "agents",
-        pinnedChats: (workspace?.pinned ?? [])
-            .map((chat) => ({ agent: chat.provider, id: chat.sessionId, title: chat.title, project: chat.project }))
-            .filter(isPinnedChat),
-        onboardingComplete:
-            typeof prefs.onboardingComplete === "boolean"
-                ? prefs.onboardingComplete
-                : decoded.version < ONBOARDING_MIGRATION_VERSION
-                  ? true
-                  : cur.onboardingComplete,
-        lastSeenVersion: typeof prefs.lastSeenVersion === "string" ? prefs.lastSeenVersion : cur.lastSeenVersion,
-        customCommands: normaliseCustomCommands(prefs.customCommands),
-        updateChannel: prefs.updateChannel === "nightly" || prefs.updateChannel === "stable" ? prefs.updateChannel : cur.updateChannel,
-        shareUsageData: typeof prefs.shareUsageData === "boolean" ? prefs.shareUsageData : cur.shareUsageData,
-        lastReleaseNotes:
-            isRecord(prefs.lastReleaseNotes) && typeof prefs.lastReleaseNotes.version === "string"
-                ? {
-                      version: prefs.lastReleaseNotes.version,
-                      notes: typeof prefs.lastReleaseNotes.notes === "string" ? prefs.lastReleaseNotes.notes : null,
-                      date: typeof prefs.lastReleaseNotes.date === "string" ? prefs.lastReleaseNotes.date : null,
-                      credits: parseReleaseCredits(prefs.lastReleaseNotes.credits),
-                  }
-                : null,
-        recentCommandKeys: Array.isArray(prefs.recentCommandKeys)
-            ? prefs.recentCommandKeys.filter((value): value is string => typeof value === "string").slice(0, 20)
-            : [],
-        defaultAgentPermissionMode: !workspace
-            ? cur.defaultAgentPermissionMode
-            : workspace.permissionMode === "bypass"
-              ? "bypass"
-              : "workspace-write",
-        lastAgentType: isAgentType(prefs.lastAgentType) ? prefs.lastAgentType : null,
-        languageServerTrust: booleansByPath(prefs.languageServerTrust),
-        agentWorktreeDefaults: booleansByPath(prefs.agentWorktreeDefaults),
-        defaultGitRepos: stringsByPath(prefs.defaultGitRepos),
     });
     pruneOnDemandWindows();
     registerCustomThemes(getState().customThemes);
-    // Preserve the actual disk payload as the saved marker. The subscription
-    // rewrites migrations and sanitized legacy credentials in canonical v8 form.
+    // The disk still holds `raw`, so the first save after a migration rewrites it in the current form.
     lastSaved = raw;
     lastSlices = takeSlices(getState());
     return "applied";

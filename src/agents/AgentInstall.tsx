@@ -10,7 +10,7 @@ import { TerminalPane } from "../terminal/TerminalPane";
 import { selectedAgentRuntimeProfiles } from "./agentProfiles";
 import { agentStatusLabel } from "./agentStatus";
 import { agentLabel, installCommand, loginArgs, type AgentType } from "./catalog";
-import { expandHome } from "../lib/paths";
+import { basename, dirname, expandHome } from "../lib/paths";
 import type { PtyDirectCommand } from "../state/types";
 
 /** A sign-in the agent offered itself, in place of the catalog's. */
@@ -58,8 +58,7 @@ const CONFIG_FILES = new Set(["config.toml", "config.yml", "settings.json", "set
 /** The folder an account keeps its sign-in in: the path itself, or the folder of the config file it names. */
 function accountDir(configPath: string, home: string): string {
     const path = expandHome(configPath.trim(), home);
-    const slash = path.lastIndexOf("/");
-    return slash > 0 && CONFIG_FILES.has(path.slice(slash + 1)) ? path.slice(0, slash) : path;
+    return CONFIG_FILES.has(basename(path)) ? dirname(path) : path;
 }
 
 /** What the sheet runs, and the words it shows for it. */

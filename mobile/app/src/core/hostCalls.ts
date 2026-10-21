@@ -1,15 +1,29 @@
-import { compareVersions } from '@/network/versions';
+import { useEffect, useState } from 'react';
+import type { ConnectionLike } from '@sikemux/native';
 
-/** The first Sikemux release whose host answers each call the phone makes that older hosts do not know. */
-const FIRST_HOST_WITH = {
-  questions: '0.5.3-nightly.2',
-  answerQuestion: '0.5.3-nightly.2',
-} as const;
+import { problem } from '@/core/problem';
 
-export type NewerCall = keyof typeof FIRST_HOST_WITH;
+/** What the host last answered a call with, and why the latest read failed if it did. */
+export type HostRead<T> = { data?: T; problem?: string };
 
-/** A host whose version does not read as a release, such as a local build, is taken to know every call. */
-export function hostKnows(version: string, call: NewerCall): boolean {
-  const order = compareVersions(version, FIRST_HOST_WITH[call]);
-  return order === null || order >= 0;
+/** What the host answers `method` with, read again whenever `seen` changes. */
+export function useHostCall<T>(connection: ConnectionLike | undefined, method: string, params: unknown, seen: string): HostRead<T> {
+  const [read, setRead] = useState<HostRead<T>>({});
+  const asked = JSON.stringify(params);
+  useEffect(() => {
+    if (!connection) return;
+    let current = true;
+    connection.call(method, asked).then(
+      (text) => {
+        if (current) setRead({ data: JSON.parse(text) as T });
+      },
+      (error: unknown) => {
+        if (current) setRead((last) => ({ data: last.data, problem: problem(error) }));
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [connection, method, asked, seen]);
+  return read;
 }

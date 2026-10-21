@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconSearch, SkeletonRows, StaleNotice, rankBy } from "../../../plugin-api/ui";
-import { failureMessage } from "../api";
+import { errorText } from "../../../plugin-api/format";
 import { signozDashboardsR } from "../resources";
 import { openDashboard } from "../state";
 
@@ -33,7 +33,7 @@ export function DashboardList({ paneId, active }: { paneId: string; active: bool
                 {dashboards.data && <span className="sgz-muted">{shown.length} dashboards</span>}
             </div>
             <StaleNotice handle={dashboards} />
-            {dashboards.error && !dashboards.data && <EmptyState tone="error" message={failureMessage(dashboards.error)} />}
+            {dashboards.error && !dashboards.data && <EmptyState tone="error" message={errorText(dashboards.error)} />}
             {!dashboards.data && !dashboards.error && <SkeletonRows rows={6} label="Reading dashboards" />}
             {dashboards.data && shown.length === 0 && <EmptyState message={query ? "No dashboard matches." : "No dashboards yet."} />}
             {shown.length > 0 && (

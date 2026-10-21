@@ -49,6 +49,10 @@ pub enum ClientError {
     Encode(#[from] serde_json::Error),
     #[error("the Sikemux core did not start within {0:?}")]
     StartTimeout(Duration),
+    #[error("this host did not answer in time")]
+    TimedOut,
+    #[error("this device went off the network")]
+    Offline,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -356,7 +360,7 @@ impl CoreClient {
         self.queue_with(request_id, frame, on_reply)
     }
 
-    async fn request(&self, request: Request) -> Result<Response, ClientError> {
+    pub async fn request(&self, request: Request) -> Result<Response, ClientError> {
         match self.submit(request, |reply| reply)?.await?? {
             Reply::Response(response) => Ok(response),
             Reply::Attached(_) => Err(ClientError::UnexpectedReply),

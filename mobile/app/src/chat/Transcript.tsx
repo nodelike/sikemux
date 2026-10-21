@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { messageLetters } from '@mac/chat/agentLetters';
@@ -6,8 +6,9 @@ import { EARLIER_LOST } from '@mac/chat/earlier';
 import { durationLabel } from '@mac/chat/durationLabel';
 import { basename } from '@mac/lib/paths';
 import { rateLabel, sentLabel, type RowMeta } from '@mac/chat/messageMeta';
-import { cutLongText, showRestLabel } from '@mac/chat/longText';
-import { contextChip, type SentContext } from '@mac/chat/promptContext';
+import { cutLongBlocks, showRestLabel } from '@mac/chat/longText';
+import { revealBlocks, visibleText } from '@mac/markdown/visible';
+import { contextChip, type ContextChip, type SentContext } from '@mac/chat/promptContext';
 import {
   attachmentName,
   groupParts,
@@ -21,23 +22,34 @@ import {
 } from '@mac/chat/transcript';
 import { callsLabel, workedLabel } from '@mac/chat/toolView';
 import type { PageRef } from '@mac/api/pages';
-import type { AccountMove, AcpContentBlock, AcpSubagent, AcpTaskNotice, AgentNotice, ChatMessage, ChatPart } from '@mac/chat/types';
+import type {
+  AccountMove,
+  AcpContentBlock,
+  AcpSubagent,
+  AcpTaskNotice,
+  AgentNotice,
+  ChatMessage,
+  ChatPart,
+  PartTree,
+} from '@mac/chat/types';
 import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
 import { AgentFace } from '@/ui/Buddy';
 import { AgentIcon, Icon } from '@/ui/Icon';
+import type { IconName } from '@/ui/icons.generated';
 import { Working } from '@/ui/status';
 import { fonts, italic, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 import { useAnimating } from '@/ui/motion';
 import { Shimmer } from '@/ui/Shimmer';
 import { FoldsContext, useFold } from './folds';
-import { Markdown } from './Markdown';
+import { Markdown, plainBlocks } from './Markdown';
 import { useStreamedText } from './reveal';
 import { SentAttachments } from './Attachments';
 import { hostImagePath } from './FileRef';
 import { useHostFile } from './hostFiles';
 import { ImageViewer } from './ImageViewer';
-import type { Attachment, Held, Unsent } from './session';
+import type { Held, Unsent } from './session';
+import type { Attachment } from './uploads';
 import { ToolGroup } from './Tools';
 import { AnsweredQuestion } from './Question';
 
@@ -53,16 +65,19 @@ export const SubagentsContext = createContext<ReadonlyMap<string, AcpSubagent>>(
  * A message too long to draw at once shows its start and the rest on a tap, unless the person
  * watched it stream in.
  */
-function LongText({ id, text, live, style }: { id: string; text: string; live: boolean; style: object }) {
+function LongText({ id, text, md, live, style }: { id: string; text: string; md?: PartTree; live: boolean; style: object }) {
   const styles = useStyles(makeStyles);
   const folds = useContext(FoldsContext);
   const [whole, setWhole] = useFold(`whole/${id}`, false);
-  const streamed = useStreamedText(id, text, live);
+  const blocks = useMemo(() => md?.blocks ?? plainBlocks(text), [md, text]);
+  const plain = useMemo(() => visibleText(blocks), [blocks]);
+  const streamed = useStreamedText(id, plain, live);
   if (live) folds.streamed.add(id);
-  const cut = whole || folds.streamed.has(id) ? null : cutLongText(text);
+  const cut = whole || folds.streamed.has(id) ? null : cutLongBlocks(blocks);
+  const shown = streamed.text.length < plain.length ? revealBlocks(blocks, streamed.text.length) : blocks;
   return (
     <>
-      {cut ? <Markdown text={cut.head} style={style} /> : <Markdown text={streamed.text} fading={streamed.fading} style={style} />}
+      {cut ? <Markdown blocks={cut.blocks} style={style} /> : <Markdown blocks={shown} fading={streamed.fading} style={style} />}
       {cut ? (
         <Pressable onPress={() => setWhole(true)} hitSlop={6} style={styles.showRest} accessibilityRole="button">
           <Text style={styles.showRestText}>{showRestLabel(cut.hidden)}</Text>
@@ -225,6 +240,12 @@ function PageCard({ page }: { page: PageRef }) {
   );
 }
 
+const CHIP_LOOKS: Record<NonNullable<ContextChip['kind']> | 'other', { label: string; icon: IconName }> = {
+  issue: { label: 'Issue', icon: 'IconIssue' },
+  pull: { label: 'Pull request', icon: 'IconPullRequest' },
+  other: { label: 'Context', icon: 'IconFile' },
+};
+
 /** An issue, pull request or other item handed over with a message, by its number and title rather than its whole text. */
 function ContextChips({ items }: { items: SentContext[] }) {
   const colors = useColors();
@@ -233,17 +254,14 @@ function ContextChips({ items }: { items: SentContext[] }) {
     <View style={styles.contextChips}>
       {items.map((item) => {
         const chip = contextChip(item);
+        const { label, icon } = CHIP_LOOKS[chip.kind ?? 'other'];
         return (
           <View
             key={item.uri}
             style={styles.contextChip}
             accessible
-            accessibilityLabel={`${chip.kind === 'issue' ? 'Issue' : chip.kind === 'pull' ? 'Pull request' : 'Context'} ${chip.number ? `#${chip.number} ` : ''}${chip.title}`}>
-            <Icon
-              name={chip.kind === 'issue' ? 'IconIssue' : chip.kind === 'pull' ? 'IconPullRequest' : 'IconFile'}
-              size={14}
-              color={chip.kind ? colors.live : colors.inkFaint}
-            />
+            accessibilityLabel={`${label} ${chip.number ? `#${chip.number} ` : ''}${chip.title}`}>
+            <Icon name={icon} size={14} color={chip.kind ? colors.live : colors.inkFaint} />
             {chip.number ? <Text style={styles.contextNumber}>#{chip.number}</Text> : null}
             <Text style={styles.contextTitle} numberOfLines={1}>
               {chip.title}
@@ -268,11 +286,13 @@ function Parts({ id, parts, untimed, live }: { id: string; parts: ChatPart[]; un
         const run = group.part;
         switch (run.kind) {
           case 'text':
-            return run.text.trim() ? <LongText key={run.id} id={run.id} text={run.text} live={last} style={styles.prose} /> : null;
+            return run.text.trim() ? (
+              <LongText key={run.id} id={run.id} text={run.text} md={run.md} live={last} style={styles.prose} />
+            ) : null;
           case 'thought':
             return run.text.trim() ? (
               <View key={run.id} style={styles.thought}>
-                <LongText id={run.id} text={run.text.trim()} live={last} style={styles.thoughtText} />
+                <LongText id={run.id} text={run.text.trim()} md={run.md} live={last} style={styles.thoughtText} />
               </View>
             ) : null;
           case 'subagent':
@@ -331,7 +351,7 @@ function HostPicture({ path, name }: { path: string; name: string }) {
 /** An image or file the agent put in its answer. */
 function Content({ block }: { block: AcpContentBlock }) {
   const styles = useStyles(makeStyles);
-  if (block.type === 'text' && block.text?.trim()) return <Markdown text={block.text} style={styles.prose} />;
+  if (block.type === 'text' && block.text?.trim()) return <Markdown blocks={plainBlocks(block.text)} style={styles.prose} />;
   if (block.type === 'image' && block.data && block.mimeType?.startsWith('image/')) {
     return <Picture uri={`data:${block.mimeType};base64,${block.data}`} name={attachmentName(block.mimeType)} />;
   }
@@ -413,7 +433,7 @@ export function Message({
             <View key={index}>
               <View style={styles.letterFrom}>
                 <View style={styles.letterRule} />
-                <AgentFace agentId={letter.agentId} provider={letter.cli} size={13} />
+                <AgentFace agentId={letter.agentId} provider={letter.cli} named={!!letter.name} size={13} />
                 <Text style={styles.letterLabel}>
                   Message from <Text style={styles.letterName}>{letter.name}</Text>
                 </Text>

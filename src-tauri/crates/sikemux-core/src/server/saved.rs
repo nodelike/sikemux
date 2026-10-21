@@ -9,10 +9,10 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::acp::account::directory_variable;
 use crate::agent_accounts::folders::{sessions_root, sessions_shared};
 use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::HarnessRequest;
+use crate::launch::{account_variable, named_account};
 use crate::protocol::ChatLaunch;
 use crate::sessions::recent::RecentProvider;
 use crate::sessions::search::{self, Scope, SearchRequest, SearchResult, SessionMatch, MAX_LIMIT};
@@ -260,10 +260,10 @@ pub(crate) fn same_account(
     launch: &ChatLaunch,
     saved: &Saved,
 ) -> Result<(), String> {
-    let Some(variable) = directory_variable(provider) else {
+    if account_variable(provider).is_none() {
         return Ok(());
-    };
-    let folder = launch.env.get(variable).map(String::as_str);
+    }
+    let folder = named_account(provider, &launch.env);
     if sessions_shared(provider, folder, saved.config_path.as_deref()) {
         return Ok(());
     }

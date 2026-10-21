@@ -6,14 +6,17 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::TOOLS_OFFER_ENV;
+use crate::launch::homes;
 use crate::launch::terminal::{self, TerminalRun};
 use crate::launch::tools::Tools;
-use crate::launch::AgentSpec;
+use crate::launch::{AgentSpec, PermissionMode};
 use crate::protocol::{
-    ChatAccount, ChatLaunch, Continuation, Event, LaunchIdentity, RequestId, Response, SessionId,
-    SpawnTarget, TerminalSpawn, WAKE_WAIT,
+    ChatAccount, ChatLaunch, Continuation, Event, RequestId, Response, SessionId, SpawnTarget,
+    TerminalSpawn, WAKE_WAIT,
 };
+use sikemux_process::vars;
 use sikemux_pty::launch::{PtyAgentProfile, PtyContext, PtyDirectCommand};
 
 use super::chat;
@@ -76,9 +79,33 @@ pub(crate) async fn terminal_agent(core: &Arc<Core>, spawn: &mut TerminalSpawn) 
 
 /// Starts a terminal agent as its record says, on its saved session and the
 /// account it runs on, below the screen of `continues` when it carries one on,
-/// and answers its terminal. Every terminal agent, however it starts, starts
-/// here.
+/// and answers its terminal. An agent whose terminal runs already, or that
+/// another caller is starting, answers that terminal instead. Every terminal
+/// agent, however it starts, starts here.
 pub(crate) async fn start_terminal(
+    core: &Arc<Core>,
+    agent_id: &str,
+    size: (u16, u16),
+    continues: Option<Continuation>,
+) -> CoreResult<SessionId> {
+    lifecycle::start_once(
+        core,
+        agent_id,
+        || running_terminal(core, agent_id),
+        || launch_terminal(core, agent_id, size, continues),
+    )
+    .await
+}
+
+/// The agent's terminal, unless it ended or is being stopped.
+fn running_terminal(core: &Core, agent_id: &str) -> Option<SessionId> {
+    let pty = core.workspaces.agent(agent_id)?.pty_id?;
+    core.session(pty)
+        .filter(|session| session.is_running() && !session.is_killed())
+        .map(|_| pty)
+}
+
+async fn launch_terminal(
     core: &Arc<Core>,
     agent_id: &str,
     (cols, rows): (u16, u16),
@@ -96,7 +123,7 @@ pub(crate) async fn start_terminal(
     let profile = agent.profile_id.as_deref().and_then(|id| book.profile(id));
     let run = TerminalRun {
         resume_id: agent.resume_id.as_deref(),
-        permission_mode: &agent.permission_mode,
+        permission_mode: PermissionMode::parse(&agent.permission_mode)?,
         model: agent.model.as_deref(),
         effort: agent.effort.as_deref(),
     };
@@ -131,19 +158,14 @@ pub(crate) async fn start_terminal(
         env: Default::default(),
         continues,
     };
-    let config = core.listening.get().map(|listening| &listening.config);
-    let launch = LaunchIdentity {
-        version: core.build.version.clone(),
-        cli_executable: std::env::current_exe().ok(),
-        cli_endpoint: config.and_then(|config| config.cli_endpoint.clone()),
-    };
     let target = Box::new(SpawnTarget::Terminal(spawn));
-    let pending = super::connection::spawn(core.clone(), launch, target, None).await?;
+    let pending =
+        super::connection::spawn(core.clone(), core.launch_identity(), target, None).await?;
     let id = pending.id();
     pending.start(core);
     let patch = serde_json::Map::from_iter([("ptyId".to_owned(), serde_json::Value::from(id))]);
     core.workspaces.update_agent(agent_id, patch)?;
-    core.publish_device_view();
+    core.view_changed();
     Ok(id)
 }
 
@@ -152,7 +174,7 @@ pub(crate) async fn start_terminal(
 pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
     launch
         .env
-        .insert("SIKEMUX_AGENT_ID".into(), launch.agent_id.clone());
+        .insert(vars::AGENT_ID.into(), launch.agent_id.clone());
     let Some(tools) = tools(core) else {
         return;
     };
@@ -168,10 +190,8 @@ pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
 /// Gives a Hermes or Grok chat its own home with the skills library, unless
 /// it has one. Answers whether the launch changed.
 pub(crate) async fn own_home(core: &Core, launch: &mut ChatLaunch) -> bool {
-    let has_home = ["HERMES_HOME", "GROK_HOME"]
-        .iter()
-        .any(|home| launch.env.contains_key(*home));
-    if has_home || !matches!(launch.provider.as_str(), "hermes" | "grok") {
+    let private = AgentKind::from_name(&launch.provider).and_then(homes::private);
+    if private.is_none_or(|(home, _)| launch.env.contains_key(home.variable)) {
         return false;
     }
     let Some(tools) = tools(core) else {

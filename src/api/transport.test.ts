@@ -95,21 +95,17 @@ describe("production IPC transport", () => {
         expect(invoke).toHaveBeenCalledOnce();
     });
 
-    it("cleans up a late subscription after abort and contains unsubscribe rejection", async () => {
+    it("cleans up a late subscription after abort", async () => {
         const pending = deferred<() => Promise<void>>();
         let nativeListener: IpcEventListener<number> | null = null;
         const subscribe = vi.fn((_event, listener) => {
             nativeListener = listener as IpcEventListener<number>;
             return pending.promise;
         });
-        const unsubscribeError = new Error("late cleanup failed");
         const rawUnsubscribe = vi.fn(async () => {
-            throw unsubscribeError;
+            throw new Error("late cleanup failed");
         });
-        const unsubscribeErrors: unknown[] = [];
-        const transport = createIpcTransport(bindings({ subscribe }), {
-            onUnsubscribeError: (_event, error) => unsubscribeErrors.push(error),
-        });
+        const transport = createIpcTransport(bindings({ subscribe }));
         const controller = new AbortController();
         const reason = new Error("cancel subscribe");
         const listener = vi.fn();
@@ -119,13 +115,12 @@ describe("production IPC transport", () => {
         await expect(subscribing).rejects.toBe(reason);
         pending.resolve(rawUnsubscribe);
         await vi.waitFor(() => expect(rawUnsubscribe).toHaveBeenCalledOnce());
-        await vi.waitFor(() => expect(unsubscribeErrors).toEqual([unsubscribeError]));
 
         expect(() => nativeListener?.({ event: "git_changed", id: 1, payload: 7 })).not.toThrow();
         expect(listener).not.toHaveBeenCalled();
     });
 
-    it("contains listener failures and abort-disposes an active typed subscription once", async () => {
+    it("abort-disposes an active typed subscription once", async () => {
         let nativeListener: IpcEventListener<{ readonly value: number }> | null = null;
         const rawUnsubscribe = vi.fn();
         const nativeOptions = Object.freeze({ target: "main" });
@@ -134,27 +129,20 @@ describe("production IPC transport", () => {
             expect(receivedOptions).toBe(nativeOptions);
             return Promise.resolve(rawUnsubscribe);
         });
-        const listenerError = new Error("listener failed");
-        const listenerErrors: unknown[] = [];
-        const transport = createIpcTransport(
-            {
-                invoke: async () => undefined as never,
-                subscribe: productionBindingSubscribe,
-            },
-            { onListenerError: (_event, error) => listenerErrors.push(error) },
-        );
+        const transport = createIpcTransport({
+            invoke: async () => undefined as never,
+            subscribe: productionBindingSubscribe,
+        });
         const controller = new AbortController();
-        const unlisten = await transport.subscribe<{ readonly value: number }>(
-            "lsp_diagnostics",
-            () => {
-                throw listenerError;
-            },
-            { signal: controller.signal, native: nativeOptions },
-        );
+        const listener = vi.fn();
+        const unlisten = await transport.subscribe<{ readonly value: number }>("lsp_diagnostics", listener, {
+            signal: controller.signal,
+            native: nativeOptions,
+        });
 
         const event = Object.freeze({ event: "lsp_diagnostics", id: 9, payload: Object.freeze({ value: 3 }) });
         expect(() => nativeListener?.(event)).not.toThrow();
-        expect(listenerErrors).toEqual([listenerError]);
+        expect(listener).toHaveBeenCalledWith(event);
 
         controller.abort();
         unlisten();

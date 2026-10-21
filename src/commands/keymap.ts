@@ -6,10 +6,10 @@ import { activeAgentId } from "../state/selectors";
 import { getState, type StoreState } from "../state/store";
 import type { KeyModifier } from "../state/types";
 import { runMeasuredAction } from "../lib/instrumentation";
-import { applicationActionContext, executeApplicationAction, matchApplicationActionKeybinding } from "../actions/bridge";
-import { reportError } from "../state/toast";
+import { runProjectActionForKey } from "../projects/projectActions";
 import { pluginOverlayOpen } from "../plugins/overlays";
 import { frontendPlugin, pluginSurface } from "../plugins/registry";
+import { swallow } from "../state/toast";
 
 const TEXT_SCALE_STEP = 0.1;
 
@@ -385,15 +385,9 @@ export function useKeymap(): void {
 
             // A built-in that does not apply here leaves its key to the project's own actions.
             if (typingTarget(target) && !event.metaKey && !event.ctrlKey && !event.altKey) return;
-            const context = applicationActionContext(st, event.target);
-            const contributed = matchApplicationActionKeybinding(event, context);
-            if (!contributed) return;
-            runMeasuredAction(contributed.commandId, "keymap", () => {
-                cmd.noteRecentCommand(`standalone:${contributed.commandId}`);
-                void executeApplicationAction(contributed.actionId, context).catch(reportError(`run action ${contributed.commandId}`));
-                return true;
-            });
-            consume(event);
+            const session = st.sessions[st.activeSessionId];
+            if (session?.kind !== "project" || !session.cwd) return;
+            if (runProjectActionForKey(event, session.cwd)) consume(event);
         };
 
         const keyup = (event: KeyboardEvent): void => {
@@ -426,7 +420,7 @@ export function useKeymap(): void {
                     }),
                 );
             }, pageChords.signal)
-            .catch(() => {});
+            .catch(swallow("follow page shortcuts"));
 
         window.addEventListener("keydown", keydown, { capture: true });
         window.addEventListener("keyup", keyup, { capture: true });

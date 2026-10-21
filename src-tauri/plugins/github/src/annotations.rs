@@ -4,7 +4,8 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use sikemux_plugin_api::codehost::{Annotation, JobSummary};
 
 use crate::client;
 use crate::common::LIST_PAGES;
@@ -20,21 +21,6 @@ struct AnnotationRow {
     title: Option<String>,
     message: Option<String>,
     raw_details: Option<String>,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Annotation {
-    /// The file it points at, relative to the repository root. `.github` when
-    /// the failure belongs to the workflow itself rather than to code.
-    pub path: Option<String>,
-    pub start_line: Option<u64>,
-    pub end_line: Option<u64>,
-    /// `failure`, `warning` or `notice`.
-    pub level: String,
-    pub title: Option<String>,
-    pub message: String,
-    pub details: Option<String>,
 }
 
 impl From<AnnotationRow> for Annotation {
@@ -57,6 +43,7 @@ impl From<AnnotationRow> for Annotation {
 pub struct Request {
     #[serde(flatten)]
     pub repo: RepoRef,
+    #[serde(deserialize_with = "sikemux_plugin_api::codehost::numeric_id")]
     pub check_run_id: u64,
 }
 
@@ -83,15 +70,7 @@ struct CheckRunRow {
 
 /// What a job wrote to `$GITHUB_STEP_SUMMARY`: the test report, the coverage
 /// table, whatever it wanted read rather than dug out of the log.
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Summary {
-    pub title: String,
-    /// Markdown, and usually the whole of it.
-    pub body: String,
-}
-
-pub async fn summary(data_dir: &Path, input: Request) -> GithubResult<Option<Summary>> {
+pub async fn summary(data_dir: &Path, input: Request) -> GithubResult<Option<JobSummary>> {
     let path = input
         .repo
         .path(&format!("/check-runs/{}", input.check_run_id))?;
@@ -112,7 +91,7 @@ pub async fn summary(data_dir: &Path, input: Request) -> GithubResult<Option<Sum
     if body.is_empty() {
         return Ok(None);
     }
-    Ok(Some(Summary {
+    Ok(Some(JobSummary {
         title: output.title.unwrap_or_default(),
         body,
     }))

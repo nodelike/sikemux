@@ -13,12 +13,16 @@ const check = process.argv.includes("--check");
 
 const WIRE = "src-tauri/crates/sikemux-wire/src";
 const CORE = "src-tauri/crates/sikemux-core/src";
+const PLUGIN_API = "src-tauri/crates/sikemux-plugin-api/src";
 const SOURCES = [
   `${WIRE}/protocol.rs`,
   `${WIRE}/pty/shell_protocol.rs`,
   `${WIRE}/pty/task.rs`,
   `${WIRE}/accounts/protocol.rs`,
   `${CORE}/server/inbox.rs`,
+  `${CORE}/server/changed.rs`,
+  `${CORE}/server/board.rs`,
+  `${CORE}/server/board/auto.rs`,
   `${CORE}/server/workspace.rs`,
   `${CORE}/server/remote.rs`,
   `${CORE}/server/hosts/mod.rs`,
@@ -33,6 +37,8 @@ const SOURCES = [
     "blame",
     "diff",
   ].map((file) => `${CORE}/git/${file}.rs`),
+  `${PLUGIN_API}/codehost.rs`,
+  `${PLUGIN_API}/ratelimit.rs`,
 ];
 
 /** Names the clients know a type by where the Rust one would clash or say too little. */
@@ -49,11 +55,27 @@ const RENAMES = {
     Shown: "AgentShown",
   },
   [`${CORE}/server/workspace.rs`]: { Buddies: "PublishedBuddies" },
+  [`${CORE}/server/changed.rs`]: { Topic: "CoreChangeTopic" },
+  [`${CORE}/server/board.rs`]: {
+    Status: "CardStatus",
+    Ticket: "CardTicket",
+    CardView: "BoardCard",
+    BoardView: "ProjectBoard",
+  },
+  [`${CORE}/server/board/auto.rs`]: {
+    Stage: "RunStage",
+    Settings: "BoardSettings",
+    RunView: "CardRun",
+    PullView: "CardPull",
+    Run: "AutoRun",
+    Pull: "AutoPull",
+  },
   [`${CORE}/server/remote.rs`]: {
     Pairing: "RemotePairing",
     LinkedHost: "StoredLink",
   },
   [`${CORE}/server/hosts/mod.rs`]: { LinkView: "LinkedHost" },
+  [`${PLUGIN_API}/ratelimit.rs`]: { Budget: "RateLimit" },
 };
 
 /** Fields the Rust keeps as JSON so phones read changes over the air, and the type that JSON has. */
@@ -63,6 +85,8 @@ const JSON_FIELDS = {
 
 const TS_ROOTS = [
   "DeviceView",
+  "CoreChangeTopic",
+  "ProjectBoard",
   "HostInfo",
   "RemoteStatus",
   "AllowedDevice",
@@ -78,6 +102,36 @@ const TS_ROOTS = [
   "GitWorktree",
   "GitBlame",
   "DiffHunk",
+];
+
+/** What the code-host plugins hand the Git pane. */
+const CODEHOST_ROOTS = [
+  "RateLimit",
+  "Resolved",
+  "RepoListing",
+  "Workflow",
+  "RunPage",
+  "RunDetail",
+  "RunTiming",
+  "JobLog",
+  "LogExcerpt",
+  "Annotation",
+  "JobSummary",
+  "WorkflowFile",
+  "Artifact",
+  "SavedArtifact",
+  "PendingApproval",
+  "Comment",
+  "Pull",
+  "PullCounts",
+  "TimelineItem",
+  "CommitAuthor",
+  "PullCommit",
+  "ChangedFile",
+  "Review",
+  "IssuePage",
+  "Release",
+  "Notification",
 ];
 
 /** The fields the notch reads of each type. Swift's decoder ignores the rest. */
@@ -97,15 +151,22 @@ const SWIFT_FIELDS = {
   InboxItem:
     "id tier kind agentId name cli project title what detail at session card requestId questionId url",
   InboxCard: "title",
-  PublishedBuddies: "pack shape motion agents boxes",
+  PublishedBuddies: "on pack shape motion agents boxes",
   BuddyLook: "pack shape color",
   RemoteStatus: "pending",
   PendingDevice: "id name platform expiresAt",
 };
 const SWIFT_ROOTS = ["DeviceView", "RemoteStatus", "DeviceAccess"];
 
+/** Limits the clients check before they send, read from where the core enforces them. */
+const LIMITS = [
+  [`${WIRE}/protocol.rs`, "MAX_ATTACHMENT_BYTES"],
+  [`${CORE}/acp/mod.rs`, "MAX_ATTACHMENTS"],
+];
+
 const OUTPUTS = {
   mac: "src/api/generated/wire.ts",
+  codehost: "src/codehost/types.generated.ts",
   phone: "mobile/app/src/core/wire.generated.ts",
   notch: "src-tauri/notch/Sources/NotchKit/Wire.generated.swift",
 };
@@ -193,7 +254,7 @@ function serde(attrs, where) {
 }
 
 const KNOWN = {
-  container: ["rename_all"],
+  container: ["rename_all", "default"],
   field: ["rename", "default", "skip_serializing_if", "skip", "alias"],
   variant: ["rename", "other", "alias"],
 };
@@ -257,6 +318,26 @@ const sources = await Promise.all(
     items(file, await readFile(resolve(root, file), "utf8")),
   ),
 );
+
+const limits = (
+  await Promise.all(
+    LIMITS.map(async ([file, name]) => {
+      const text = await readFile(resolve(root, file), "utf8");
+      const value = new RegExp(
+        `^(?:pub )?const ${name}: usize = ([\\d_ *]+);$`,
+        "m",
+      ).exec(text)?.[1];
+      if (!value) fail(`${file} has no usize constant ${name}`);
+      const product = value
+        .split("*")
+        .reduce(
+          (total, part) => total * Number(part.trim().replaceAll("_", "")),
+          1,
+        );
+      return `export const ${name} = ${product};`;
+    }),
+  )
+).join("\n");
 
 /** The client name of the type `name` used in `file`. */
 function clientName(file, name) {
@@ -469,7 +550,7 @@ function tsDocs(lines, indent = "") {
  * The phone also hears hosts from older releases, which leave out what serde
  * fills in by default.
  */
-function typescript(phone) {
+function typescript(phone, roots, preamble) {
   const tsType = (type) => {
     switch (type.kind) {
       case "string":
@@ -506,7 +587,7 @@ function typescript(phone) {
           .filter((v) => !v.other)
           .map((v) => JSON.stringify(v.name))
           .join(" | ")};`;
-  return `// Generated by scripts/generate-wire-types.mjs from the core's Rust. Do not edit by hand.\n\n${closure(TS_ROOTS).map(declare).join("\n\n")}\n`;
+  return `// Generated by scripts/generate-wire-types.mjs from the core's Rust. Do not edit by hand.\n\n${preamble}${closure(roots).map(declare).join("\n\n")}\n`;
 }
 
 const swiftCase = (name) => renameAll(name.replaceAll("-", "_"), "camelCase");
@@ -600,6 +681,7 @@ async function emit(path, contents) {
   await writeFile(full, contents);
 }
 
-await emit(OUTPUTS.mac, typescript(false));
-await emit(OUTPUTS.phone, typescript(true));
+await emit(OUTPUTS.mac, typescript(false, TS_ROOTS, `${limits}\n\n`));
+await emit(OUTPUTS.codehost, typescript(false, CODEHOST_ROOTS, ""));
+await emit(OUTPUTS.phone, typescript(true, TS_ROOTS, `${limits}\n\n`));
 await emit(OUTPUTS.notch, swift());

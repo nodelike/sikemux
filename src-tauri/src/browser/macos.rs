@@ -37,6 +37,7 @@ use objc2_web_kit::{
     WKPDFConfiguration, WKPermissionDecision, WKSecurityOrigin, WKSnapshotConfiguration,
     WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
 };
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Emitter};
 
 use super::burst::Burst;
@@ -830,7 +831,7 @@ pub fn snapshot_jpeg(
     }
     let done = std::sync::Mutex::new(Some(done));
     let block = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
-        let Some(done) = done.lock().ok().and_then(|mut slot| slot.take()) else {
+        let Some(done) = done.locked().take() else {
             return;
         };
         // SAFETY: WebKit passes a live image or nil; `retain` takes our own reference.
@@ -870,7 +871,7 @@ pub fn still_jpeg(pointer: *mut c_void, done: Box<dyn FnOnce(Option<Vec<u8>>) + 
     let configuration = unsafe { WKSnapshotConfiguration::new(mtm) };
     let done = std::sync::Mutex::new(Some(done));
     let block = RcBlock::new(move |image: *mut NSImage, _error: *mut NSError| {
-        let Some(done) = done.lock().ok().and_then(|mut slot| slot.take()) else {
+        let Some(done) = done.locked().take() else {
             return;
         };
         // SAFETY: WebKit passes a live image or nil; `retain` takes our own reference.
@@ -932,7 +933,7 @@ pub fn call_async(
     };
     let done = std::sync::Mutex::new(Some(done));
     let block = RcBlock::new(move |value: *mut AnyObject, error: *mut NSError| {
-        let Some(done) = done.lock().ok().and_then(|mut slot| slot.take()) else {
+        let Some(done) = done.locked().take() else {
             return;
         };
         // SAFETY: WebKit passes a live error or nil; `retain` takes our own reference.
@@ -1008,7 +1009,7 @@ pub fn full_page_jpeg(
     }
     let done = std::sync::Mutex::new(Some(done));
     let block = RcBlock::new(move |data: *mut NSData, error: *mut NSError| {
-        let Some(done) = done.lock().ok().and_then(|mut slot| slot.take()) else {
+        let Some(done) = done.locked().take() else {
             return;
         };
         // SAFETY: WebKit passes live data or nil; `retain` takes our own reference.

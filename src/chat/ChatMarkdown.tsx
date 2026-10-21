@@ -5,7 +5,7 @@ import { useStore } from "../state/store";
 import { CopyButton } from "../ui/CopyButton";
 import { FileIcon } from "../ui/FileIcon";
 import { hasPrimaryModifier } from "../lib/platform";
-import { Markdown, type MarkdownComponents } from "../markdown/Markdown";
+import { Markdown, MarkdownBlocks, type MarkdownComponents } from "../markdown/Markdown";
 import { warmMarkdown } from "../markdown/useMarkdownBlocks";
 import { tableSource } from "../markdown/tableSource";
 import type { MarkdownOptions, MdElement } from "../markdown/types";
@@ -15,7 +15,7 @@ import { localImagePath } from "../lib/imagePaths";
 import { useImagePreview } from "./imagePreview";
 import { ChatFileRef, useFileRef } from "./FileRef";
 import { pathComponents, type PathGuess } from "./markdownPaths";
-import { cutLongText, showRestLabel, useLongTextFold } from "./longText";
+import { cutLongBlocks, cutLongText, showRestLabel, useLongTextFold } from "./longText";
 import { ChatAgentContext, openLink } from "./chatAgent";
 import { ChatImage } from "./ChatImage";
 import { DiffText } from "./DiffView";
@@ -156,8 +156,38 @@ function LiveMarkdown({ text, live, typed = false }: { text: string; live: boole
     return <Markdown text={text} options={typed ? TYPED_MARKDOWN : AGENT_MARKDOWN} live={live} components={markdownComponents} />;
 }
 
-export function FoldedMarkdown({ id, text, live, typed = false }: { id: string; text: string; live: boolean; typed?: boolean }) {
-    const { cut, expand } = useLongTextFold(id, text, live);
+/** The core's tree of an answer, folded as its text would be. */
+function TreeMarkdown({ id, tree, live }: { id: string; tree: MdElement[]; live: boolean }) {
+    const { folds, expand } = useLongTextFold(id, "", live);
+    const cut = useMemo(() => (folds ? cutLongBlocks(tree) : null), [folds, tree]);
+    return (
+        <>
+            <MarkdownBlocks blocks={cut?.blocks ?? tree} components={markdownComponents} />
+            {cut && (
+                <button type="button" className="chat-show-rest" onClick={expand}>
+                    {showRestLabel(cut.hidden)}
+                </button>
+            )}
+        </>
+    );
+}
+
+export function FoldedMarkdown({
+    id,
+    text,
+    live,
+    typed = false,
+    tree,
+}: {
+    id: string;
+    text: string;
+    live: boolean;
+    typed?: boolean;
+    /** The core's tree of the text, which nothing here needs to read again. */
+    tree?: MdElement[];
+}) {
+    const { cut, expand } = useLongTextFold(id, tree ? "" : text, live);
+    if (tree) return <TreeMarkdown id={id} tree={tree} live={live} />;
     if (!cut) return <LiveMarkdown text={text} live={live} typed={typed} />;
     return (
         <>

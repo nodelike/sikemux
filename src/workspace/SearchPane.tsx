@@ -10,7 +10,7 @@ import { searchApi, type SearchFile, type SearchHit, type SearchResults, type Re
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { DEFAULT_GLOBAL_SEARCH_VIEW } from "../state/types";
-import { notify } from "../state/toast";
+import { notify, swallow } from "../state/toast";
 import { errorText } from "../lib/format";
 import { FileIcon } from "../ui/FileIcon";
 import { IconSearch } from "../ui/Icons";
@@ -134,7 +134,7 @@ export function SearchPane({
             setSummary(null);
             setStatus("idle");
             setError(null);
-            void searchApi.cancel(cwd).catch(() => {});
+            void searchApi.cancel(cwd).catch(swallow("cancel the search"));
             return;
         }
         setStatus("searching");
@@ -147,7 +147,7 @@ export function SearchPane({
         return () => {
             window.clearTimeout(handle);
             requestId.current++;
-            if (started) void searchApi.cancel(cwd).catch(() => {});
+            if (started) void searchApi.cancel(cwd).catch(swallow("cancel the search"));
         };
     }, [cwd, visible, view.query, view.options, startSearch]);
 

@@ -8,6 +8,7 @@ import { elapsedMs, jobsSummary, outcomeOf } from "../runStatus";
 import { StatusMark } from "./ActionsIcon";
 import { coarse } from "./hooks";
 import { formatDuration } from "../../lib/format";
+import { basename } from "../../lib/paths";
 
 interface Props {
     repo: RepoRef;
@@ -26,11 +27,6 @@ interface Shared {
     now: number;
     openJob: string | null;
     onOpen: (jobId: string) => void;
-}
-
-function fileName(path: string | null): string | null {
-    if (!path) return null;
-    return path.split("/").pop() ?? path;
 }
 
 function JobRow({ entry, shared }: { entry: GraphJob; shared: Shared }) {
@@ -186,7 +182,7 @@ export const JobGraph = memo(function JobGraph({ repo, run, jobs, now, active, o
     const graph = useMemo(() => graphOf(jobs, files.data ?? null, run.path), [jobs, files.data, run.path]);
     const [canvas, setCanvas] = useState<HTMLDivElement | null>(null);
     const shared = useMemo(() => ({ now, openJob, onOpen }), [now, openJob, onOpen]);
-    const name = fileName(run.path);
+    const name = run.path ? basename(run.path) : null;
     const summary = jobsSummary(jobs);
 
     return (

@@ -18,8 +18,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), databaseApi: api }));
 
-import { invalidate } from "../../../plugin-api/resources";
 import { DatabasePane } from "./DatabasePane";
+import { database } from "../resources";
 
 const shop: DatabaseProfile = {
     id: "p1",
@@ -50,7 +50,7 @@ const renderPane = () => render(<DatabasePane paneId={`pane-${++pane}`} active /
 
 afterEach(() => {
     cleanup();
-    invalidate((kind) => kind.startsWith("database."));
+    database.refresh();
 });
 
 beforeEach(() => {

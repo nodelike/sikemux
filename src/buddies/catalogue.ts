@@ -13,9 +13,6 @@ export type { BuddyPack, BuddyShape, BuddyState } from "./shared";
 
 export const BUDDY_PACKS: readonly BuddyPack[] = [buddies, glow, googly, soot, peekers, cyclops, matrix, screens, japan, chibiPack, personas];
 
-/** Every pack has at least this many colours, so an agent's colour number means the same slot in any of them. */
-export const BUDDY_COLOR_SLOTS = 8;
-
 export interface ResolvedBuddy {
     pack: BuddyPack;
     shape: BuddyShape;
@@ -52,17 +49,6 @@ export function resolveBuddy(agent: Pick<Agent, "id" | "buddy">, style: BuddySty
     }
     const colorIndex = (own?.color ?? h) % pack.colors.length;
     return { pack, shape, color: pack.colors[colorIndex], colorIndex };
-}
-
-/** The colour fewest agents in the same folder wear, then fewest overall, so agents side by side rarely match. */
-export function leastUsedColor(agents: Iterable<Pick<Agent, "buddy" | "cwd">>, cwd?: string): number {
-    const scores = new Array<number>(BUDDY_COLOR_SLOTS).fill(0);
-    for (const agent of agents) {
-        const color = agent.buddy?.color;
-        if (color === undefined || color >= BUDDY_COLOR_SLOTS) continue;
-        scores[color] += cwd !== undefined && agent.cwd === cwd ? 1000 : 1;
-    }
-    return scores.indexOf(Math.min(...scores));
 }
 
 export function buddyStateOfGroup(group: AgentGroup | undefined): BuddyState {

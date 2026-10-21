@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sikemux_process::sync::Locked;
 
 use crate::adf;
 use crate::auth;
@@ -341,11 +342,11 @@ impl CustomFields {
 /// Asked once per site.
 pub(crate) async fn custom_fields(site: &Site, credentials: &Credentials) -> CustomFields {
     static FIELDS: Mutex<Option<HashMap<String, CustomFields>>> = Mutex::new(None);
-    if let Some(known) = FIELDS.lock().ok().and_then(|fields| {
-        fields
-            .as_ref()
-            .and_then(|fields| fields.get(&site.host).cloned())
-    }) {
+    if let Some(known) = FIELDS
+        .locked()
+        .as_ref()
+        .and_then(|fields| fields.get(&site.host).cloned())
+    {
         return known;
     }
     let Ok(fields) = client::send(credentials, Method::GET, "/rest/api/3/field", &[], None).await
@@ -353,11 +354,10 @@ pub(crate) async fn custom_fields(site: &Site, credentials: &Credentials) -> Cus
         return CustomFields::default();
     };
     let found = CustomFields::from_fields(&fields);
-    if let Ok(mut known) = FIELDS.lock() {
-        known
-            .get_or_insert_with(HashMap::new)
-            .insert(site.host.clone(), found.clone());
-    }
+    FIELDS
+        .locked()
+        .get_or_insert_with(HashMap::new)
+        .insert(site.host.clone(), found.clone());
     found
 }
 

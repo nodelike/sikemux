@@ -14,15 +14,6 @@
     gap: var(--space-4);
     min-height: 0;
     overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
-}
-.settings-nav::-webkit-scrollbar {
-    width: 6px;
-}
-.settings-nav::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: var(--radius-full);
 }
 .settings-nav-group {
     display: flex;

@@ -7,9 +7,5 @@ function subscribe(listener: () => void): () => void {
 
 /** Whether this page is the one on screen, for work that is only worth doing then. */
 export function usePageVisible(): boolean {
-    return useSyncExternalStore(
-        subscribe,
-        () => !document.hidden,
-        () => true,
-    );
+    return useSyncExternalStore(subscribe, () => !document.hidden);
 }

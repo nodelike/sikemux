@@ -2,8 +2,10 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::Duration;
+
+use sikemux_process::sync::Locked;
 
 use rusqlite::{ffi::ErrorCode, params, Connection, OpenFlags, OptionalExtension, Transaction};
 use serde_json::{Map, Value};
@@ -59,21 +61,19 @@ struct WriteDelta {
     removed_item_ids: Vec<String>,
 }
 
-/// Legacy JSON location retained as a one-way migration and recovery source.
-/// Debug and release remain isolated so development cannot overwrite installed
-/// application state.
-pub fn state_path() -> Option<PathBuf> {
+/// Where releases before the SQLite store kept the whole state, read once to
+/// fill a new database.
+fn legacy_state_path() -> Option<PathBuf> {
     sikemux_process::paths::config_file("state", "json")
 }
 
 fn database_path() -> Option<PathBuf> {
-    let legacy = state_path()?;
     let filename = if cfg!(debug_assertions) {
         "state.dev.sqlite3"
     } else {
         "state.sqlite3"
     };
-    Some(legacy.with_file_name(filename))
+    Some(legacy_state_path()?.with_file_name(filename))
 }
 
 fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
@@ -82,42 +82,26 @@ fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn migration_marker_path(database: &Path) -> PathBuf {
-    sidecar_path(database, ".legacy-migrated")
-}
-
-fn write_migration_marker(database: &Path) -> AppResult<()> {
-    let marker = migration_marker_path(database);
-    fs::write(&marker, b"1\n")?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(marker, fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
-}
-
-fn quarantine_database(path: &Path) -> AppResult<PathBuf> {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+/// Moves a corrupt database aside so the next save starts a new one. The
+/// legacy file goes first, or the next launch would load it in its place.
+fn quarantine_database(path: &Path, legacy: &Path) -> AppResult<()> {
+    close_database();
+    discard_legacy(legacy)?;
+    let stamp = sikemux_process::clock::epoch_ms();
     let quarantine = sidecar_path(path, &format!(".corrupt-{stamp}"));
     fs::rename(path, &quarantine)?;
     for suffix in ["-wal", "-shm"] {
         let source = sidecar_path(path, suffix);
         if source.exists() {
-            let target = sidecar_path(&quarantine, suffix);
-            fs::rename(source, target)?;
+            fs::rename(source, sidecar_path(&quarantine, suffix))?;
         }
     }
-    Ok(quarantine)
+    Ok(())
 }
 
 /// Load the transactional SQLite snapshot, repairing it from the previous-good
-/// recovery snapshot when necessary. Legacy JSON is considered only when no
-/// authoritative database snapshot exists and migration has not been marked.
-/// Perform the complete state load on a blocking thread.
+/// recovery snapshot when necessary, or filling a new database from the legacy
+/// file.
 ///
 /// SQLite recovery can wait for its bounded busy timeout and can also perform
 /// migration, quarantine, and repair I/O. Keep this synchronous helper out of
@@ -131,107 +115,56 @@ pub(crate) fn state_load_sync() -> String {
         None,
         Default::default(),
     );
-    let loaded = if let (Some(database), Some(legacy)) = (database_path(), state_path()) {
-        state_load_from_paths(&database, &legacy)
-    } else {
-        String::new()
+    let loaded = match (database_path(), legacy_state_path()) {
+        (Some(database), Some(legacy)) => state_load_from_paths(&database, &legacy),
+        _ => String::new(),
     };
-    let _ = observer.increment_counter("state.sqlite_loads", 1);
+    observer.increment_counter("state.sqlite_loads", 1);
     observer.set_gauge("state.sqlite.last_loaded_bytes", loaded.len() as f64);
     timer.finish(SpanOutcome::Success);
     loaded
 }
 
 fn state_load_from_paths(database: &Path, legacy: &Path) -> String {
-    if database.exists() {
-        match database_user_version(database) {
-            Ok(version) if version > DATABASE_SCHEMA_VERSION => return String::new(),
-            Ok(_) => match load_database(database) {
-                Ok(DatabaseLoad::Snapshot(snapshot)) => {
-                    // A successful database load makes every surviving legacy
-                    // file stale. Marker failures are retried by state_save and
-                    // before any future quarantine.
-                    let _ = mark_legacy_if_present(database, legacy);
-                    return snapshot;
-                }
-                Ok(DatabaseLoad::Empty) => {}
-                Ok(DatabaseLoad::Invalid) => {
-                    if quarantine_authoritative_database(database, legacy).is_err() {
-                        return String::new();
-                    }
-                    return String::new();
-                }
-                Err(_) => {
-                    if !database_has_physical_corruption(database)
-                        || quarantine_authoritative_database(database, legacy).is_err()
-                    {
-                        return String::new();
-                    }
-                    return String::new();
-                }
-            },
-            Err(error) => {
-                if !sqlite_error_is_corruption(&error)
-                    && !database_has_physical_corruption(database)
-                {
-                    return String::new();
-                }
-                if quarantine_authoritative_database(database, legacy).is_err() {
-                    return String::new();
-                }
-                return String::new();
-            }
+    if !database.exists() {
+        return migrate_legacy_snapshot(database, legacy);
+    }
+    let corrupt = match database_user_version(database) {
+        Ok(version) if version > DATABASE_SCHEMA_VERSION => return String::new(),
+        Ok(_) => match load_database(database) {
+            Ok(DatabaseLoad::Snapshot(snapshot)) => return snapshot,
+            Ok(DatabaseLoad::Empty) => return migrate_legacy_snapshot(database, legacy),
+            Ok(DatabaseLoad::Invalid) => true,
+            Err(_) => database_has_physical_corruption(database),
+        },
+        Err(error) => {
+            sqlite_error_is_corruption(&error) || database_has_physical_corruption(database)
         }
+    };
+    if corrupt {
+        let _ = quarantine_database(database, legacy);
     }
-    migrate_legacy_snapshot(database, legacy)
-}
-
-fn legacy_snapshot_exists(legacy: &Path) -> bool {
-    legacy.exists() || backup_path(legacy).exists()
-}
-
-fn mark_legacy_if_present(database: &Path, legacy: &Path) -> AppResult<()> {
-    if legacy_snapshot_exists(legacy) && !migration_marker_path(database).is_file() {
-        write_migration_marker(database)?;
-    }
-    Ok(())
-}
-
-fn quarantine_authoritative_database(database: &Path, legacy: &Path) -> AppResult<PathBuf> {
-    close_database();
-    // Establish the tombstone before moving an authoritative database. If the
-    // marker cannot be persisted, leave the database in place so stale JSON
-    // can never silently become authoritative on the next launch.
-    mark_legacy_if_present(database, legacy)?;
-    quarantine_database(database)
+    String::new()
 }
 
 fn migrate_legacy_snapshot(database: &Path, legacy: &Path) -> String {
-    // Once migration succeeded, stale JSON is retained only for manual
-    // recovery and must never silently replace a newer corrupt database.
-    if migration_marker_path(database).is_file() {
+    let Some(snapshot) = read_valid_json(legacy) else {
         return String::new();
+    };
+    if save_database(database, &snapshot).is_ok() {
+        let _ = discard_legacy(legacy);
     }
-    let recovered = read_valid_json(legacy)
-        .or_else(|| read_valid_json(&backup_path(legacy)))
-        .unwrap_or_default();
-    if !recovered.is_empty() {
-        let observer = global_observability();
-        match save_database(database, &recovered) {
-            Ok(()) => {
-                if write_migration_marker(database).is_err() {
-                    let _ = observer.increment_counter("state.legacy_marker_failures", 1);
-                }
-            }
-            Err(_) => {
-                // The recovered payload is still the safest boot state. The
-                // regular persistence retry can establish SQLite and its
-                // migration marker without replacing the UI with defaults.
-                let _ = observer.increment_counter("state.legacy_migration_failures", 1);
-            }
+    snapshot
+}
+
+fn discard_legacy(legacy: &Path) -> AppResult<()> {
+    for path in [legacy.to_path_buf(), sidecar_path(legacy, ".bak")] {
+        match fs::remove_file(path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
         }
     }
-    recovered
+    Ok(())
 }
 
 #[tauri::command]
@@ -243,15 +176,7 @@ pub async fn state_save(data: String) -> AppResult<()> {
 
 fn state_save_sync(data: String) -> AppResult<()> {
     let path = database_path().ok_or_else(|| AppError::State("no home directory".into()))?;
-    if let Some(legacy) = state_path() {
-        return save_database_and_mark_legacy(&path, &legacy, &data);
-    }
     save_database(&path, &data)
-}
-
-fn save_database_and_mark_legacy(path: &Path, legacy: &Path, data: &str) -> AppResult<()> {
-    save_database(path, data)?;
-    mark_legacy_if_present(path, legacy)
 }
 
 fn state_error(error: impl std::fmt::Display) -> AppError {
@@ -290,22 +215,13 @@ fn secure_database_files(path: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn database_cache() -> &'static Mutex<Option<CachedDatabase>> {
-    static CACHE: OnceLock<Mutex<Option<CachedDatabase>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(None))
-}
-
-fn lock_database_cache() -> std::sync::MutexGuard<'static, Option<CachedDatabase>> {
-    database_cache()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
+static DATABASE: Mutex<Option<CachedDatabase>> = Mutex::new(None);
 
 /// Drop the open handle. Anything that moves or replaces the database file has
 /// to call this first: a handle kept across a rename goes on writing to a file
 /// nobody will read again.
 fn close_database() {
-    *lock_database_cache() = None;
+    *DATABASE.locked() = None;
 }
 
 struct CachedDatabase {
@@ -325,7 +241,7 @@ fn with_database<T>(
     path: &Path,
     work: impl FnOnce(&mut Connection) -> AppResult<T>,
 ) -> AppResult<T> {
-    let mut cache = lock_database_cache();
+    let mut cache = DATABASE.locked();
     if cache.as_ref().is_none_or(|cached| cached.path != path) {
         *cache = Some(CachedDatabase {
             path: path.to_path_buf(),
@@ -607,12 +523,12 @@ fn save_database(path: &Path, data: &str) -> AppResult<()> {
         transaction.commit().map_err(state_error)?;
         Ok(delta)
     })?;
-    let _ = observer.increment_counter("state.sqlite_saves", 1);
-    let _ = observer.increment_counter(
+    observer.increment_counter("state.sqlite_saves", 1);
+    observer.increment_counter(
         "state.sqlite.changed_items",
         delta.changed_items.len() as u64,
     );
-    let _ = observer.increment_counter(
+    observer.increment_counter(
         "state.sqlite.removed_items",
         delta.removed_item_ids.len() as u64,
     );
@@ -657,14 +573,6 @@ fn ensure_existing_state_is_compatible(transaction: &Transaction<'_>) -> AppResu
     Ok(())
 }
 
-fn unix_time_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .min(i64::MAX as u128) as i64
-}
-
 fn advance_recovery_generation(transaction: &Transaction<'_>) -> AppResult<()> {
     if !pending_generation_is_valid(transaction)? {
         return Err(AppError::State(
@@ -680,7 +588,7 @@ fn advance_recovery_generation(transaction: &Transaction<'_>) -> AppResult<()> {
                  schema_version = excluded.schema_version,
                  core_json = excluded.core_json,
                  saved_at_ms = excluded.saved_at_ms",
-            params![BACKUP_SLOT, unix_time_millis()],
+            params![BACKUP_SLOT, sikemux_process::clock::epoch_ms() as i64],
         )
         .map_err(state_error)?;
     transaction
@@ -732,7 +640,7 @@ fn write_current_snapshot(
                 CURRENT_SLOT,
                 snapshot.schema_version,
                 snapshot.core_json,
-                unix_time_millis()
+                sikemux_process::clock::epoch_ms() as i64
             ],
         )
         .map_err(state_error)?
@@ -1005,7 +913,7 @@ fn replace_slot_snapshot(
                 slot,
                 snapshot.schema_version,
                 snapshot.core_json,
-                unix_time_millis()
+                sikemux_process::clock::epoch_ms() as i64
             ],
         )
         .map_err(state_error)?;
@@ -1160,12 +1068,6 @@ fn load_slot(connection: &Connection, slot: i64) -> AppResult<SlotLoad> {
         return Ok(SlotLoad::Invalid);
     }
     Ok(SlotLoad::Snapshot(snapshot))
-}
-
-fn backup_path(path: &Path) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(".bak");
-    PathBuf::from(name)
 }
 
 fn read_valid_json(path: &Path) -> Option<String> {
@@ -1396,16 +1298,15 @@ mod tests {
     }
 
     #[test]
-    fn legacy_migration_is_marked_and_stale_json_cannot_resurrect() {
+    fn migrated_legacy_json_cannot_resurrect_after_a_corrupt_database() {
         let directory = tempfile::tempdir().unwrap();
         let database = directory.path().join("state.sqlite3");
         let legacy = directory.path().join("state.json");
         let legacy_snapshot = snapshot("legacy", "{}");
         fs::write(&legacy, &legacy_snapshot).unwrap();
 
-        assert_eq!(migrate_legacy_snapshot(&database, &legacy), legacy_snapshot);
-        assert!(database.exists());
-        assert!(migration_marker_path(&database).exists());
+        assert_eq!(state_load_from_paths(&database, &legacy), legacy_snapshot);
+        assert!(!legacy.exists());
         assert_eq!(
             database_user_version(&database).unwrap(),
             DATABASE_SCHEMA_VERSION
@@ -1416,7 +1317,6 @@ mod tests {
         fs::write(&database, b"not a database").unwrap();
         assert!(state_load_from_paths(&database, &legacy).is_empty());
         assert!(!database.exists());
-        assert!(migration_marker_path(&database).is_file());
         assert!(state_load_from_paths(&database, &legacy).is_empty());
     }
 
@@ -1715,53 +1615,5 @@ mod tests {
             .count();
         assert_eq!(quarantines, 0);
         lock.execute_batch("ROLLBACK").unwrap();
-    }
-
-    #[test]
-    fn marker_failures_are_reported_and_retried_after_database_commit() {
-        let directory = tempfile::tempdir().unwrap();
-        let database = directory.path().join("state.sqlite3");
-        let legacy = directory.path().join("state.json");
-        fs::write(&legacy, snapshot("legacy", "{}")).unwrap();
-        let marker = migration_marker_path(&database);
-        fs::create_dir(&marker).unwrap();
-
-        assert!(
-            save_database_and_mark_legacy(&database, &legacy, &snapshot("current", "{}")).is_err()
-        );
-        assert_eq!(
-            theme(&expect_snapshot(load_database(&database).unwrap())),
-            "current"
-        );
-
-        fs::remove_dir(&marker).unwrap();
-        save_database_and_mark_legacy(&database, &legacy, &snapshot("current", "{}")).unwrap();
-        assert!(marker.is_file());
-    }
-
-    #[test]
-    fn migration_returns_recovered_state_when_the_marker_is_unavailable() {
-        let directory = tempfile::tempdir().unwrap();
-        let database = directory.path().join("state.sqlite3");
-        let legacy = directory.path().join("state.json");
-        let recovered = snapshot("recovered", "{}");
-        fs::write(&legacy, &recovered).unwrap();
-        fs::create_dir(migration_marker_path(&database)).unwrap();
-
-        assert_eq!(migrate_legacy_snapshot(&database, &legacy), recovered);
-        assert_eq!(
-            theme(&expect_snapshot(load_database(&database).unwrap())),
-            "recovered"
-        );
-    }
-
-    #[test]
-    fn invalid_legacy_primary_can_fall_back_to_json_backup() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("state.json");
-        fs::write(&path, "{").unwrap();
-        fs::write(backup_path(&path), snapshot("backup", "{}")).unwrap();
-        assert!(read_valid_json(&path).is_none());
-        assert!(read_valid_json(&backup_path(&path)).is_some());
     }
 }

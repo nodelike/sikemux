@@ -5,18 +5,19 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use sikemux_core::cli::protocol::{CliServerResponse, MAX_CLI_RESPONSE_BYTES};
 use sikemux_core::server::plugins::{Failure, Outcome, StreamEvent};
 use sikemux_plugin_api::PluginError;
+use sikemux_process::sync::Locked;
 use tauri::ipc::Channel;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::task::AbortHandle;
 
 use crate::error::{AppError, AppResult};
-use crate::pty::PtyManager;
+use crate::pty::{core_error, PtyManager};
 
 /// The streams the page has open, each a connection to the core that ends
 /// the stream there when it closes.
@@ -26,25 +27,22 @@ pub struct PluginStreams {
     open: Arc<Mutex<HashMap<u32, AbortHandle>>>,
 }
 
-fn lock_open(open: &Mutex<HashMap<u32, AbortHandle>>) -> MutexGuard<'_, HashMap<u32, AbortHandle>> {
-    open.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 impl PluginStreams {
     pub fn count(&self) -> usize {
-        lock_open(&self.open).len()
+        self.open.locked().len()
     }
 
     pub fn stop(&self, stream_id: u32) {
-        let stream = lock_open(&self.open).remove(&stream_id);
+        let stream = self.open.locked().remove(&stream_id);
         if let Some(stream) = stream {
             stream.abort();
         }
     }
 
     pub fn drain(&self) {
-        let streams: Vec<AbortHandle> = lock_open(&self.open)
+        let streams: Vec<AbortHandle> = self
+            .open
+            .locked()
             .drain()
             .map(|(_, stream)| stream)
             .collect();
@@ -67,7 +65,7 @@ fn plugin_error(failure: Failure) -> AppError {
 
 async fn forward(manager: &PtyManager, method: &str, params: Value) -> AppResult<Value> {
     let client = manager.client().await?;
-    crate::core_call::call(&client, method.to_owned(), params).await
+    client.call(method, params).await.map_err(core_error)
 }
 
 #[tauri::command]
@@ -127,9 +125,12 @@ pub async fn plugin_stream_start(
             let last = relay(connection, &on_event, &plugin).await;
             let _ = on_event.send(last);
         }
-        lock_open(&open).remove(&stream_id);
+        open.locked().remove(&stream_id);
     });
-    lock_open(&streams.open).insert(stream_id, task.inner().abort_handle());
+    streams
+        .open
+        .locked()
+        .insert(stream_id, task.inner().abort_handle());
     let _ = registered.send(());
     Ok(stream_id)
 }

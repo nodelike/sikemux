@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import type { Session } from "../state/types";
 import * as cmd from "../state/commands";
 import { profileOf } from "../state/commands/agentLaunchCommand";
@@ -6,28 +6,18 @@ import { useStore } from "../state/store";
 
 const AgentSurface = lazy(() => import("../chat/AgentSurface").then((module) => ({ default: module.AgentSurface })));
 
-/** An agent's pane. The pane's id is the agent's id, so the record is looked up by it. */
+/** An agent's pane. The pane's id is the agent's id, so the record is looked up by it. A sleeping agent wakes once its pane is on screen. */
 export function AgentPane({ paneId, session, visible }: { paneId: string; session: Session; visible: boolean }) {
     const agent = useStore((state) => state.agents[paneId]);
     const profile = useStore((state) => (agent ? profileOf(state, agent) : undefined));
-    if (!agent) return null;
+    const asleep = agent?.launchState === "dormant";
+    useEffect(() => {
+        if (asleep && visible) cmd.resumeAgent(paneId);
+    }, [asleep, visible, paneId]);
+    if (!agent || asleep) return null;
     return (
-        <>
-            {agent.launchState === "dormant" ? (
-                <div className="agent-dormant" role="group" aria-label={`${agent.title} is ready to resume`}>
-                    <span className={`agent-dormant-notch ${agent.type}`} aria-hidden="true" />
-                    <span className="agent-dormant-kicker">sleeping</span>
-                    <strong>{agent.title}</strong>
-                    <span>This resumable agent is using no live terminal process.</span>
-                    <button type="button" onClick={() => cmd.resumeAgent(agent.id)}>
-                        Resume {agent.type}
-                    </button>
-                </div>
-            ) : (
-                <Suspense fallback={<div className="agent-transport-switching">Opening agent session…</div>}>
-                    <AgentSurface agent={agent} session={session} profile={profile} visible={visible} />
-                </Suspense>
-            )}
-        </>
+        <Suspense fallback={null}>
+            <AgentSurface agent={agent} session={session} profile={profile} visible={visible} />
+        </Suspense>
     );
 }

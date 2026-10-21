@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ pathKinds: vi.fn() }));
 
-vi.mock("../api/fs", () => ({ fsapi: { pathKinds: mocks.pathKinds } }));
+vi.mock("../api/fs", () => {
+    const fsapi = { pathKinds: mocks.pathKinds };
+    return { fsapi, filesOn: () => fsapi };
+});
 
 const { forgetPathState, usePathState } = await import("./pathExistence");
 

@@ -7,23 +7,18 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use base64::Engine;
 use futures::future::join_all;
-use futures::StreamExt;
-use reqwest::Client;
 use semver::Version;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
+use crate::http_client::{client, data_url, fetch_image};
 
 const REPO_API: &str = "https://api.github.com/repos/nodelike/sikemux";
 const REPO_WEB: &str = "https://github.com/nodelike/sikemux";
 const AVATAR_ORIGIN: &str = "https://avatars.githubusercontent.com/";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
-/// GitHub serves from several addresses and a network can silently drop one.
-/// Without this the request waits on that address until FETCH_TIMEOUT instead of trying the next.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// GitHub lists at most this many commits in one page of a comparison.
 const COMMITS_PER_PAGE: usize = 100;
 const MAX_COMMIT_PAGES: usize = 20;
@@ -234,8 +229,9 @@ fn tally(commits: Vec<ComparedCommit>) -> Vec<Contributor> {
 }
 
 async fn get_json<T: DeserializeOwned>(url: &str) -> AppResult<T> {
-    let response = client()
+    let response = client()?
         .get(url)
+        .timeout(FETCH_TIMEOUT)
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
         .send()
         .await?;
@@ -317,56 +313,9 @@ fn sized(url: &str) -> String {
 }
 
 async fn fetch_avatar(url: &str) -> Option<String> {
-    let response = client().get(sized(url)).send().await.ok()?;
-    if !response.status().is_success()
-        || response
-            .content_length()
-            .is_some_and(|length| length > MAX_AVATAR_BYTES as u64)
-    {
-        return None;
-    }
-    let mut body = Vec::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.ok()?;
-        if body.len() + chunk.len() > MAX_AVATAR_BYTES {
-            return None;
-        }
-        body.extend_from_slice(&chunk);
-    }
-    let mime = image_type(&body)?;
-    Some(format!(
-        "data:{mime};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(&body)
-    ))
-}
-
-pub(crate) fn image_type(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Some("image/png");
-    }
-    if bytes.starts_with(b"\xff\xd8\xff") {
-        return Some("image/jpeg");
-    }
-    if bytes.starts_with(b"GIF8") {
-        return Some("image/gif");
-    }
-    if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
-        return Some("image/webp");
-    }
-    None
-}
-
-fn client() -> &'static Client {
-    static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        Client::builder()
-            .timeout(FETCH_TIMEOUT)
-            .connect_timeout(CONNECT_TIMEOUT)
-            .user_agent(concat!("sikemux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .unwrap_or_default()
-    })
+    let request = client().ok()?.get(sized(url)).timeout(FETCH_TIMEOUT);
+    let (bytes, mime) = fetch_image(request, MAX_AVATAR_BYTES).await?;
+    Some(data_url(mime, &bytes))
 }
 
 #[cfg(test)]
@@ -488,13 +437,6 @@ mod tests {
             sized("https://avatars.githubusercontent.com/u/1"),
             "https://avatars.githubusercontent.com/u/1?s=64"
         );
-    }
-
-    #[test]
-    fn only_image_bytes_become_data_urls() {
-        assert_eq!(image_type(b"\x89PNG\r\n\x1a\nrest"), Some("image/png"));
-        assert_eq!(image_type(b"\xff\xd8\xff\xe0"), Some("image/jpeg"));
-        assert_eq!(image_type(b"<html>not found</html>"), None);
     }
 
     #[test]

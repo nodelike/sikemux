@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use portable_pty::CommandBuilder;
+use sikemux_process::vars;
 pub use sikemux_wire::pty::launch::{PtyAgentProfile, PtyContext, PtyDirectCommand};
 
 use crate::error::{PtyError, PtyResult};
@@ -100,15 +101,6 @@ fn quote_shell_word(value: &str, kind: Option<ShellKind>) -> String {
     }
 }
 
-/// The variable each agent reads its account folder from.
-pub fn account_variable(agent: &str) -> Option<&'static str> {
-    match agent {
-        "claude" => Some("CLAUDE_CONFIG_DIR"),
-        "codex" => Some("CODEX_HOME"),
-        _ => None,
-    }
-}
-
 /// The account folder a profile's config path names: the path itself, or the
 /// folder of the config file it points at.
 pub fn account_dir(config_path: &str) -> PathBuf {
@@ -123,36 +115,29 @@ pub fn account_dir(config_path: &str) -> PathBuf {
     }
 }
 
+/// Removed from every terminal before its own are set, so none inherits the
+/// identity of the terminal the app was started from.
 pub const OPTIONAL_PTY_ENV: &[&str] = &[
-    "SIKEMUX_SHELL",
-    "SIKEMUX_SESSION_ID",
-    "SIKEMUX_SESSION_NAME",
-    "SIKEMUX_SESSION_KIND",
-    "SIKEMUX_PROJECT",
-    "SIKEMUX_WINDOW_ID",
-    "SIKEMUX_PANE_ID",
-    "SIKEMUX_AGENT_ID",
-    "SIKEMUX_AGENT_TYPE",
-    "SIKEMUX_BIN_PATH",
-    "SIKEMUX_CLI_ENDPOINT",
-    "SIKEMUX_CLI_ENDPOINT_PUBLISH",
-    "SIKEMUX_SHELL_INTEGRATION",
-    "SIKEMUX_ORIGINAL_ZDOTDIR",
-    "SIKEMUX_ORIGINAL_ZDOTDIR_SET",
-    "SIKEMUX_TEMP_ZDOTDIR",
-    "SIKEMUX_ORIGINAL_XDG_CONFIG_HOME",
-    "SIKEMUX_ORIGINAL_FISH_CONFIG",
-    "SIKEMUX_TASK_EXECUTION_ID",
-    "SIKEMUX_TASK_TERMINAL_KEY",
-    "SIKEMUX_TASK_ID",
-    "SIKEMUX_TASK_SOURCE",
-    "SIKEMUX_BROWSER_STATE_DIR",
-    "SIKEMUX_BROWSER_CDP_URL",
-    "SIKEMUX_BROWSER_BROKER_URL",
-    "SIKEMUX_BROWSER_BROKER_TOKEN",
-    "SIKEMUX_TOOLS_MCP_COMMAND",
-    "SIKEMUX_TOOLS_MCP_ARGS",
-    "SIKEMUX_TOOLS_AGENT_ID",
+    vars::SHELL,
+    vars::SESSION_ID,
+    vars::SESSION_NAME,
+    vars::SESSION_KIND,
+    vars::PROJECT,
+    vars::WINDOW_ID,
+    vars::PANE_ID,
+    vars::AGENT_ID,
+    vars::AGENT_TYPE,
+    vars::BIN_PATH,
+    vars::CLI_ENDPOINT,
+    vars::CLI_ENDPOINT_PUBLISH,
+    vars::SHELL_INTEGRATION,
+    vars::TASK_EXECUTION_ID,
+    vars::TASK_TERMINAL_KEY,
+    vars::TASK_ID,
+    vars::TASK_SOURCE,
+    vars::TOOLS_MCP_COMMAND,
+    vars::TOOLS_MCP_ARGS,
+    vars::TOOLS_AGENT_ID,
 ];
 
 fn non_empty(value: &Option<String>) -> Option<&str> {
@@ -207,31 +192,31 @@ pub fn configure_pty_environment(
     cmd.env("TERM_PROGRAM", "Sikemux");
     cmd.env("TERM_PROGRAM_VERSION", version);
     cmd.env("SIKEMUX", "1");
-    cmd.env("SIKEMUX_VERSION", version);
+    cmd.env(vars::VERSION, version);
 
     if let Some(context) = context {
-        cmd.env("SIKEMUX_SESSION_ID", &context.session_id);
-        cmd.env("SIKEMUX_SESSION_NAME", &context.session_name);
-        cmd.env("SIKEMUX_SESSION_KIND", &context.session_kind);
+        cmd.env(vars::SESSION_ID, &context.session_id);
+        cmd.env(vars::SESSION_NAME, &context.session_name);
+        cmd.env(vars::SESSION_KIND, &context.session_kind);
         if let Some(project) = non_empty(&context.project) {
-            cmd.env("SIKEMUX_PROJECT", project);
+            cmd.env(vars::PROJECT, project);
         }
         if let Some(window_id) = non_empty(&context.window_id) {
-            cmd.env("SIKEMUX_WINDOW_ID", window_id);
+            cmd.env(vars::WINDOW_ID, window_id);
         }
         if let Some(pane_id) = non_empty(&context.pane_id) {
-            cmd.env("SIKEMUX_PANE_ID", pane_id);
+            cmd.env(vars::PANE_ID, pane_id);
         }
         if let Some(agent_id) = non_empty(&context.agent_id) {
-            cmd.env("SIKEMUX_AGENT_ID", agent_id);
+            cmd.env(vars::AGENT_ID, agent_id);
         }
         if let Some(agent_type) = non_empty(&context.agent_type) {
-            cmd.env("SIKEMUX_AGENT_TYPE", agent_type);
+            cmd.env(vars::AGENT_TYPE, agent_type);
         }
     }
 
     if let Some(path) = cli_executable {
-        cmd.env("SIKEMUX_BIN_PATH", path);
+        cmd.env(vars::BIN_PATH, path);
         if cmd.get_env("EDITOR").is_none() && cmd.get_env("VISUAL").is_none() {
             let editor = editor_command(path);
             cmd.env("EDITOR", &editor);
@@ -239,7 +224,7 @@ pub fn configure_pty_environment(
         }
     }
     if let Some(path) = cli_endpoint {
-        cmd.env("SIKEMUX_CLI_ENDPOINT", path);
+        cmd.env(vars::CLI_ENDPOINT, path);
     }
 }
 

@@ -12,6 +12,7 @@ use sikemux_core::cli::protocol::{
     CliOpenResult, CliOpenTarget, CliTargetKind, MAX_CLI_TARGETS,
 };
 use sikemux_core::protocol::CallId;
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Emitter, Manager};
 
 const CLI_EVENT: &str = "cli-open-available";
@@ -43,7 +44,7 @@ impl CliOpens {
     fn enqueue(&self, request: CliOpenRequest) -> Result<Receivers, String> {
         let (accepted_tx, accepted_rx) = mpsc::channel();
         let (closed_tx, closed_rx) = mpsc::channel();
-        let mut requests = self.requests.lock().map_err(|_| "CLI open lock poisoned")?;
+        let mut requests = self.requests.locked();
         if requests.contains_key(&request.id) {
             return Err("duplicate CLI request id".into());
         }
@@ -71,9 +72,7 @@ impl CliOpens {
     }
 
     fn claim(&self, reset: bool) -> Vec<CliFrontendRequest> {
-        let Ok(mut requests) = self.requests.lock() else {
-            return Vec::new();
-        };
+        let mut requests = self.requests.locked();
         if reset {
             for entry in requests.values_mut() {
                 if !entry.pending_targets.is_empty() {
@@ -98,9 +97,7 @@ impl CliOpens {
     }
 
     fn mark_result(&self, result: CliOpenResult) {
-        let Ok(mut requests) = self.requests.lock() else {
-            return;
-        };
+        let mut requests = self.requests.locked();
         let mut remove = false;
         let Some(entry) = requests.get_mut(&result.request_id) else {
             return;
@@ -167,9 +164,7 @@ impl CliOpens {
 
     fn tabs_closed(&self, pane_id: &str, paths: &[String]) {
         let closed: HashSet<&str> = paths.iter().map(String::as_str).collect();
-        let Ok(mut requests) = self.requests.lock() else {
-            return;
-        };
+        let mut requests = self.requests.locked();
         let mut completed = Vec::new();
         for (request_id, entry) in requests.iter_mut() {
             for target in &entry.request.targets {
@@ -198,35 +193,32 @@ impl CliOpens {
     }
 
     fn cancel(&self, request_id: &str) {
-        if let Ok(mut requests) = self.requests.lock() {
-            requests.remove(request_id);
-        }
+        self.requests.locked().remove(request_id);
     }
 
     /// The app is leaving: whoever waits on a request hears so.
     pub fn shutdown(&self) {
-        if let Ok(mut requests) = self.requests.lock() {
-            for entry in requests.values_mut() {
-                if let Some(sender) = entry.accepted.take() {
-                    let failed = entry
-                        .pending_targets
-                        .iter()
-                        .map(|target_id| CliOpenFailure {
-                            target_id: target_id.clone(),
-                            message: "Sikemux exited before opening this target".into(),
-                        })
-                        .collect();
-                    let _ = sender.send(CliOpenOutcome {
-                        opened: entry.opened_targets.clone(),
-                        failed,
-                    });
-                }
-                if let Some(sender) = entry.closed.take() {
-                    let _ = sender.send(CliCloseReason::AppExit);
-                }
+        let mut requests = self.requests.locked();
+        for entry in requests.values_mut() {
+            if let Some(sender) = entry.accepted.take() {
+                let failed = entry
+                    .pending_targets
+                    .iter()
+                    .map(|target_id| CliOpenFailure {
+                        target_id: target_id.clone(),
+                        message: "Sikemux exited before opening this target".into(),
+                    })
+                    .collect();
+                let _ = sender.send(CliOpenOutcome {
+                    opened: entry.opened_targets.clone(),
+                    failed,
+                });
             }
-            requests.clear();
+            if let Some(sender) = entry.closed.take() {
+                let _ = sender.send(CliCloseReason::AppExit);
+            }
         }
+        requests.clear();
     }
 }
 

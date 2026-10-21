@@ -3,10 +3,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::log::relative_time;
-use super::{
-    git_command, git_walk_permit, open_repo, run_blocking, run_command_with_timeout, run_git,
-    GIT_COMMAND_TIMEOUT,
-};
+use super::{git_walk_permit, open_repo, run_blocking, run_git, Git};
 
 #[derive(Serialize, Clone)]
 pub struct BlameCommit {
@@ -280,8 +277,7 @@ pub async fn git_blame(
         }
         let out = match contents {
             Some(text) => {
-                let mut command = git_command(&repo);
-                command.args([
+                let o = Git::at(&repo).input(text.as_bytes()).output(&[
                     "blame",
                     "--no-textconv",
                     "--porcelain",
@@ -289,12 +285,7 @@ pub async fn git_blame(
                     "-",
                     "--",
                     &path,
-                ]);
-                let o = run_command_with_timeout(
-                    &mut command,
-                    Some(text.as_bytes()),
-                    GIT_COMMAND_TIMEOUT,
-                )?;
+                ])?;
                 if !o.status.success() {
                     return Ok(GitBlame::default());
                 }

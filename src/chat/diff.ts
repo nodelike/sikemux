@@ -1,4 +1,4 @@
-import { recordOf } from "./acpEvents";
+import { recordOf } from "../lib/guards";
 import type { AcpToolCall } from "./types";
 
 export interface DiffLine {

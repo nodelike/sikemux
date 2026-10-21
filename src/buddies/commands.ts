@@ -1,26 +1,12 @@
 import { create } from "zustand";
 import { toAgentBuddy } from "./agentBuddy";
-import { getState, mutate } from "../state/store";
-import { leastUsedColor } from "./catalogue";
-
-/** Gives every agent that has no colour yet the one its neighbours wear least, oldest first. */
-export function assignBuddyColors(): void {
-    const waiting = Object.values(getState().agents)
-        .filter((agent) => !agent.buddy)
-        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-    if (waiting.length === 0) return;
-    mutate((d) => {
-        for (const { id } of waiting) {
-            const agent = d.agents[id];
-            if (agent && !agent.buddy) agent.buddy = { color: leastUsedColor(Object.values(d.agents), agent.cwd) };
-        }
-    });
-}
+import { mutate } from "../state/store";
+import { resolveBuddy } from "./catalogue";
 
 export function setAgentBuddyShape(id: string, pack: string, shape: string): void {
     mutate((d) => {
         const agent = d.agents[id];
-        if (agent) agent.buddy = { color: agent.buddy?.color ?? leastUsedColor(Object.values(d.agents), agent.cwd), pack, shape };
+        if (agent) agent.buddy = { color: agent.buddy?.color ?? resolveBuddy(agent, { pack, shape }).colorIndex, pack, shape };
     });
 }
 

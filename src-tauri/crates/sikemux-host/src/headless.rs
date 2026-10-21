@@ -1,34 +1,29 @@
 //! The commands that run this host from a terminal: `status`, `login`,
-//! `logout`, `pair`, `start`, `stop`, `restart`, `enable` and `disable`. They
-//! are all a host with no window needs to join an account, let devices in and
-//! keep its core running.
+//! `logout`, `start`, `stop`, `restart`, `enable` and `disable`. They are all
+//! a host with no window needs to join an account and keep its core running.
 
-use std::collections::HashSet;
-use std::io::{BufRead, Write};
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::json;
 use sikemux_core::cli::protocol::CliServerResponse;
-use sikemux_core::client::{
-    ensure_running, probe, ClientError, ClientEvent, CoreClient, ProbeError,
-};
-use sikemux_core::protocol::{AccountLinkState, DeviceAccess, Event, PendingDevice, RemoteStatus};
+use sikemux_core::client::{probe, wait_for_core, ClientError, CoreClient, ProbeError};
+use sikemux_core::protocol::{AccountLinkState, RemoteStatus};
 use sikemux_core::server::plugins::{Failure, StreamEvent};
-use tokio::sync::mpsc::UnboundedReceiver;
+use sikemux_core::waiting;
 
 use crate::login_item::{self, CoreLaunch, IDENTIFIER};
 use crate::style;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const SETTLE_TIMEOUT: Duration = Duration::from_secs(10);
-const SETTLE_POLL: Duration = Duration::from_millis(200);
 /// What `status` exits with while the core is not running, as `systemctl status` does.
 const NOT_RUNNING: i32 = 3;
 
 pub const COMMANDS: &[&str] = &[
-    "status", "login", "logout", "pair", "start", "stop", "restart", "enable", "disable", "plugins",
+    "status", "login", "logout", "start", "stop", "restart", "enable", "disable", "plugins",
 ];
 
 /// Runs `command` with the arguments after it.
@@ -38,7 +33,6 @@ pub fn run(command: &str, args: &[String]) -> i32 {
         "status" => return status(args.iter().any(|arg| arg == "--json")),
         "login" => with_core(Work::Login),
         "logout" => with_core(Work::Logout),
-        "pair" => with_core(Work::Pair),
         "start" => start().map(|_| ()),
         "stop" => stop(),
         "restart" => restart(),
@@ -59,7 +53,6 @@ pub fn run(command: &str, args: &[String]) -> i32 {
 enum Work {
     Login,
     Logout,
-    Pair,
 }
 
 fn launch() -> Result<CoreLaunch, String> {
@@ -81,15 +74,13 @@ fn running_pid(socket: &Path) -> Option<u32> {
     probe(socket, PROBE_TIMEOUT).ok().map(|hello| hello.pid)
 }
 
-fn wait_until(socket: &Path, running: bool) -> bool {
+/// Whether the core at `socket` stopped within the time a core takes to settle.
+fn stopped(socket: &Path) -> bool {
     let deadline = Instant::now() + SETTLE_TIMEOUT;
-    while running_pid(socket).is_some() != running {
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(SETTLE_POLL);
-    }
-    true
+    waiting::wait_until(socket, deadline, || {
+        running_pid(socket).is_none().then_some(())
+    })
+    .is_ok_and(|stopped| stopped.is_some())
 }
 
 /// Starts the core, through the service that starts it at boot when there is
@@ -100,15 +91,10 @@ fn start() -> Result<PathBuf, String> {
         style::done("The core is already running", &format!("pid {pid}"));
         return Ok(launch.socket);
     }
-    if starts_at_boot().is_some() {
-        login_item::start(IDENTIFIER);
-        wait_until(&launch.socket, true);
-    }
     if let Some(logs) = launch.log.parent() {
         std::fs::create_dir_all(logs).map_err(|error| error.to_string())?;
     }
-    let hello = ensure_running(&launch.socket, &launch.binary, &launch.log, &launch.args)
-        .map_err(|error| error.to_string())?;
+    let hello = login_item::start_core(IDENTIFIER, &launch).map_err(|error| error.to_string())?;
     style::done("Started the core", &format!("pid {}", hello.pid));
     Ok(launch.socket)
 }
@@ -140,7 +126,7 @@ fn stop() -> Result<(), String> {
         Err(ClientError::VersionMismatch { pid, .. }) => return terminate(pid, &socket),
         Err(error) => return Err(error.to_string()),
     }
-    if !wait_until(&socket, false) {
+    if !stopped(&socket) {
         return Err(format!("the core, pid {pid}, is still running"));
     }
     style::done(
@@ -161,7 +147,7 @@ fn terminate(pid: u32, socket: &Path) -> Result<(), String> {
     if unsafe { libc::kill(id, libc::SIGTERM) } != 0 {
         return Err(std::io::Error::last_os_error().to_string());
     }
-    if !wait_until(socket, false) {
+    if !stopped(socket) {
         return Err(format!("the core, pid {pid}, is still running"));
     }
     style::done("Stopped the core", &format!("pid {pid}"));
@@ -181,7 +167,7 @@ fn enable() -> Result<(), String> {
     match running_pid(&launch.socket) {
         None => {
             login_item::start(IDENTIFIER);
-            wait_until(&launch.socket, true);
+            wait_for_core(&launch.socket, SETTLE_TIMEOUT).map_err(|error| error.to_string())?;
         }
         Some(pid) if starts_by_service(pid) => {}
         Some(pid) => style::note(&format!(
@@ -218,11 +204,11 @@ fn disable() -> Result<(), String> {
 fn with_core(work: Work) -> Result<(), String> {
     let socket = running()?;
     runtime()?.block_on(async {
-        let (core, mut events) = CoreClient::connect(&socket)
+        let (core, _events) = CoreClient::connect(&socket)
             .await
             .map_err(|error| error.to_string())?;
         match work {
-            Work::Login => login(&core, &mut events).await,
+            Work::Login => login(&core).await,
             Work::Logout => {
                 let status = core
                     .remote_status()
@@ -238,15 +224,11 @@ fn with_core(work: Work) -> Result<(), String> {
                 style::done("Signed out", "devices already paired stay paired");
                 Ok(())
             }
-            Work::Pair => pair(&core, &mut events).await,
         }
     })
 }
 
-async fn login(
-    core: &CoreClient,
-    events: &mut UnboundedReceiver<ClientEvent>,
-) -> Result<(), String> {
+async fn login(core: &CoreClient) -> Result<(), String> {
     let owner = core
         .remote_status()
         .await
@@ -267,92 +249,10 @@ async fn login(
     })
     .await?;
     style::done("Signed in", &account);
-    println!();
-    pair(core, events).await
-}
-
-/// Asks here about every device that wants to join, until the person stops it.
-async fn pair(
-    core: &CoreClient,
-    events: &mut UnboundedReceiver<ClientEvent>,
-) -> Result<(), String> {
-    let mut status = core
-        .remote_status()
-        .await
-        .map_err(|error| error.to_string())?;
-    if status.owner.is_none() {
-        return Err("this host is not signed in; run `sikemux login` first".into());
-    }
-    println!(
-        "  Join this host from Sikemux on your phone, or link it from your Mac in\n  {}. Each device asks here first.\n",
-        style::bold("Settings → Devices → Computers")
+    style::note(
+        "Your devices and hosts on this account reach it now: it shows in Sikemux on each of them.",
     );
-    style::note("Waiting for devices. Press Ctrl-C to stop; `sikemux pair` waits again later.");
-    let mut asked = HashSet::new();
-    loop {
-        asked.retain(|id| status.pending.iter().any(|request| &request.id == id));
-        let fresh: Vec<PendingDevice> = status
-            .pending
-            .iter()
-            .filter(|request| !asked.contains(&request.id))
-            .cloned()
-            .collect();
-        for request in fresh {
-            asked.insert(request.id.clone());
-            let access = ask(request.clone()).await?;
-            if let Err(error) = core
-                .answer_pairing(
-                    request.id,
-                    access.is_some(),
-                    access.unwrap_or(DeviceAccess::Watch),
-                )
-                .await
-            {
-                eprintln!(
-                    "  {} {} could not be answered: {error}",
-                    style::red("✗"),
-                    request.name
-                );
-            }
-        }
-        status = next_status(events).await?;
-    }
-}
-
-async fn next_status(events: &mut UnboundedReceiver<ClientEvent>) -> Result<RemoteStatus, String> {
-    loop {
-        match events.recv().await {
-            Some(ClientEvent::Event(Event::Remote { status })) => return Ok(status),
-            Some(_) => {}
-            None => return Err("the core went away".into()),
-        }
-    }
-}
-
-async fn ask(request: PendingDevice) -> Result<Option<DeviceAccess>, String> {
-    tokio::task::spawn_blocking(move || {
-        let mut stdout = std::io::stdout();
-        let _ = write!(
-            stdout,
-            "\n  {} {} {} asks to join. Allow [f]ull control, [w]atch only, or [N]o? ",
-            style::accent("›"),
-            style::bold(&request.name),
-            style::dim(&format!("({})", request.platform))
-        );
-        let _ = stdout.flush();
-        let mut line = String::new();
-        std::io::stdin()
-            .lock()
-            .read_line(&mut line)
-            .map_err(|error| error.to_string())?;
-        Ok(match line.trim().to_ascii_lowercase().as_str() {
-            "f" | "full" => Some(DeviceAccess::Full),
-            "w" | "watch" => Some(DeviceAccess::Watch),
-            _ => None,
-        })
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    Ok(())
 }
 
 #[derive(Serialize)]

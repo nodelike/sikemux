@@ -3,6 +3,8 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { config } from "./config.ts";
 
 export const DELETE_ACCOUNT = "/delete-account";
+export const CONSENT = "/oauth-consent";
+export const HOST = "/host";
 
 const RETURN_KEY = "sikemux.returnTo";
 
@@ -26,8 +28,7 @@ export function appReturn(search = location.search): string | null {
       url.protocol === "https:" &&
       url.host === CLERK_HOST &&
       url.pathname.startsWith("/oauth/authorize");
-    const consent =
-      url.origin === location.origin && url.pathname === "/oauth-consent";
+    const consent = url.origin === location.origin && url.pathname === CONSENT;
     return clerk || consent ? url.href : null;
   } catch {
     return null;
@@ -61,7 +62,7 @@ export function takeReturn(): string {
   if (isSharePath(saved)) return saved;
   const [path = "/", query = ""] = saved.split("?", 2);
   if (path === "/" && appReturn(`?${query}`)) return saved;
-  if (path === "/oauth-consent" || path === "/host") return saved;
+  if (path === CONSENT || path === HOST) return saved;
   return path === DELETE_ACCOUNT ? path : "/";
 }
 

@@ -63,13 +63,6 @@ describe("agent launch commands", () => {
         expect(agent.profileId).toBeUndefined();
     });
 
-    it("normalizes legacy modes to Normal", () => {
-        addAgent("pi", undefined, undefined, { permissionMode: "read-only" });
-
-        const agent = getState().agents[agentIdsOf(getState(), "project")[0]];
-        expect(agent.permissionMode).toBe("workspace-write");
-    });
-
     it("pins an asynchronous launch to its originating project", () => {
         const other = { ...getState().sessions.project, id: "other", cwd: "/code/other", name: "other" };
         setState((state) => ({
@@ -107,10 +100,10 @@ describe("agent launch commands", () => {
         const id = agentIdsOf(getState(), "project")[0];
 
         setAgentPermissionMode(id, "bypass");
-        expect(getState().agents[id]).toMatchObject({ permissionMode: "bypass", skipPermissions: true });
+        expect(getState().agents[id]).toMatchObject({ permissionMode: "bypass" });
 
         setAgentPermissionMode(id, "workspace-write");
-        expect(getState().agents[id]).toMatchObject({ permissionMode: "workspace-write", skipPermissions: false });
+        expect(getState().agents[id]).toMatchObject({ permissionMode: "workspace-write" });
     });
 
     it("relaunches a fresh CLI when its live PTY mode changes", () => {
@@ -121,7 +114,6 @@ describe("agent launch commands", () => {
 
         expect(getState().agents[id]).toMatchObject({
             permissionMode: "bypass",
-            skipPermissions: true,
         });
     });
 });

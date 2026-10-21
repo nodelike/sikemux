@@ -1,0 +1,66 @@
+name: Uptime
+
+# Checks citadel from outside, since its own watch cannot report that the machine is down. Posts to
+# Discord's #alerts when a check starts failing and when it recovers.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Restore the last result
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: uptime-state
+          key: uptime-state-${{ github.run_id }}
+          restore-keys: uptime-state-
+
+      - name: Check and post
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_ALERTS_WEBHOOK }}
+        run: |
+          set -uo pipefail
+          check() {
+            local name="$1" url="$2" code
+            for _ in 1 2 3; do
+              code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$url" 2>/dev/null)"
+              [ "$code" = 200 ] && return 0
+              sleep 10
+            done
+            echo "$name ($url answered ${code:-nothing})"
+          }
+          down="$(
+            check api https://api.sikemux.com/v1/health
+            check app https://app.sikemux.com/
+            check relay https://relay.sikemux.com/ping
+          )"
+          before="$(cat uptime-state/down 2>/dev/null || true)"
+          post() {
+            jq -n --arg content "$1" '{content: $content, allowed_mentions: {parse: []}}' |
+              curl -fsS --max-time 10 -H 'content-type: application/json' -d @- "$WEBHOOK_URL" >/dev/null
+          }
+          if [ -n "$down" ] && [ "$down" != "$before" ]; then
+            post "**citadel is unreachable from outside:** $(echo "$down" | paste -sd ';' - | sed 's/;/; /g')"
+          elif [ -z "$down" ] && [ -n "$before" ]; then
+            post "**citadel is reachable again** from outside"
+          fi
+          mkdir -p uptime-state
+          printf '%s' "$down" >uptime-state/down
+
+      - name: Save the result
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: uptime-state
+          key: uptime-state-${{ github.run_id }}

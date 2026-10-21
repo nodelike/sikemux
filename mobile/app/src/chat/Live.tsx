@@ -12,16 +12,20 @@ import {
 import type { AcpWorkflowAgent } from '@mac/chat/types';
 import { queuedLabel } from '@mac/chat/queuedMessages';
 import { AgentIcon, Icon } from '@/ui/Icon';
+import type { IconName } from '@/ui/icons.generated';
 import { SectionLabel } from '@/ui/list';
 import { useStill } from '@/ui/motion';
 import { Sheet } from '@/ui/Sheet';
 import { Shimmer } from '@/ui/Shimmer';
 import { Dot, Working } from '@/ui/status';
 import { fonts, mixed, type Palette, useColors, useStyles } from '@/ui/theme';
-import { counted, liveStrip, type LiveWork, type PlanEntry, type StripPiece } from './liveWork';
+import { counted } from '@/devices/words';
+import { liveStrip, type LiveWork, type PlanEntry, type StripPiece } from './liveWork';
+
+const TASK_ICONS: Readonly<Record<string, IconName>> = { shell: 'IconCommand', workflow: 'IconWorkflow' };
 
 function TaskIcon({ kind, color, size = 12 }: { kind: string; color: string; size?: number }) {
-  return <Icon name={kind === 'shell' ? 'IconCommand' : kind === 'workflow' ? 'IconWorkflow' : 'IconTimer'} size={size} color={color} />;
+  return <Icon name={TASK_ICONS[kind] ?? 'IconTimer'} size={size} color={color} />;
 }
 
 /** Past this many kinds the strip drops the words and keeps the counts. */
@@ -295,7 +299,7 @@ export function LiveSheet({
                   key={held.id}
                   mark={<Icon name="IconClock" size={15} color={colors.inkDim} />}
                   title={label}
-                  detail={held.text && files ? `${files} ${files === 1 ? 'file' : 'files'}` : undefined}
+                  detail={held.text && files ? `${files} ${counted('file', files)}` : undefined}
                   end={
                     <>
                       {steerable ? (

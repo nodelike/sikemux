@@ -42,6 +42,8 @@ export function hasUsage(type: string | null | undefined): type is UsageAgentTyp
     return !!type && BY_TYPE.get(type)?.usage === true;
 }
 
+export const USAGE_AGENT_TYPES = AGENT_TYPES.filter(hasUsage);
+
 /** Whether the app can delete a saved chat from the agent's own history. */
 export function canDeleteChats(type: AgentType): boolean {
     return BY_TYPE.get(type)?.deletableChats === true;
@@ -65,4 +67,33 @@ export function installCommand(type: string): string | null {
 /** The arguments that start the agent's own sign-in. Null when it has none. */
 export function loginArgs(type: string): readonly string[] | null {
     return BY_TYPE.get(type)?.login ?? null;
+}
+
+export type ChatAgentType = Exclude<Entry, { chat: null }>["type"];
+/** The agents the core can ask for a commit message. */
+export type CommitMessageAgentType = Extract<Entry, { commitMessages: true }>["type"];
+
+/** Whether the built-in chat can drive the agent. */
+export function agentSupportsChat(type: string): type is ChatAgentType {
+    return BY_TYPE.get(type)?.chat != null;
+}
+
+export const CHAT_AGENT_TYPES = AGENT_TYPES.filter(agentSupportsChat);
+
+/** Which of the core's chat drivers runs the agent; null when it has no chat. */
+export function chatDriver(type: AgentType): Entry["chat"] {
+    return BY_TYPE.get(type)?.chat ?? null;
+}
+
+/** The agents offered first, before anything else is installed. */
+export const FEATURED_AGENT_TYPES: readonly AgentType[] = AGENT_CATALOG.filter((agent) => agent.featured).map((agent) => agent.type);
+
+/** Whether the agent can also name a saved session by its transcript's path. */
+export function resumesByPath(type: AgentType): boolean {
+    return BY_TYPE.get(type)?.resumesByPath === true;
+}
+
+/** Whether the agent's saved sessions can follow its chat into another folder. */
+export function hasRelocatableSessions(type: AgentType): boolean {
+    return BY_TYPE.get(type)?.relocatableSessions === true;
 }

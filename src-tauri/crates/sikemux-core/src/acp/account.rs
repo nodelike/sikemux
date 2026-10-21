@@ -11,26 +11,12 @@ use std::path::PathBuf;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-pub use sikemux_pty::launch::account_variable as directory_variable;
+use crate::agent_catalog::AgentKind;
+use crate::launch::account_variable;
+use crate::sessions::roots::{account_root, environment_path};
 
 fn home() -> PathBuf {
     sikemux_process::paths::home().unwrap_or_default()
-}
-
-/// The directory the provider keeps its account in under `env`, which wins
-/// over the core's own environment.
-pub fn directory(provider: &str, env: &BTreeMap<String, String>) -> Option<PathBuf> {
-    let variable = directory_variable(provider)?;
-    let named = env
-        .get(variable)
-        .cloned()
-        .or_else(|| std::env::var(variable).ok())
-        .filter(|value| !value.trim().is_empty());
-    Some(match (named, provider) {
-        (Some(path), _) => PathBuf::from(path),
-        (None, "claude") => home().join(".claude"),
-        (None, _) => home().join(".codex"),
-    })
 }
 
 /// Who the provider is signed in as: an account id, or `SignedOut`. `None`
@@ -43,12 +29,13 @@ pub enum SignIn {
 }
 
 pub fn signed_in(provider: &str, env: &BTreeMap<String, String>) -> Option<SignIn> {
-    let directory = directory(provider, env)?;
-    match provider {
-        "claude" => {
+    let kind = AgentKind::from_name(provider)?;
+    let variable = account_variable(provider)?;
+    let directory = account_root(kind, None, env)?;
+    match kind {
+        AgentKind::Claude => {
             // The default account keeps this file beside its directory, not in it.
-            let named = env.contains_key("CLAUDE_CONFIG_DIR")
-                || std::env::var_os("CLAUDE_CONFIG_DIR").is_some_and(|value| !value.is_empty());
+            let named = env.contains_key(variable) || environment_path(variable).is_some();
             let file = if named {
                 directory.join(".claude.json")
             } else {
@@ -56,7 +43,7 @@ pub fn signed_in(provider: &str, env: &BTreeMap<String, String>) -> Option<SignI
             };
             claude_sign_in(&read_json(&file)?)
         }
-        "codex" => codex_sign_in(&read_json(&directory.join("auth.json"))?),
+        AgentKind::Codex => codex_sign_in(&read_json(&directory.join("auth.json"))?),
         _ => None,
     }
 }

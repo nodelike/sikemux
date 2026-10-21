@@ -6,6 +6,7 @@ import { setGitView } from "../state/commands";
 import { getState, setState } from "../state/store";
 import { swallow } from "../state/toast";
 import type { RepoRef } from "./types";
+import { isRecord } from "../lib/guards";
 
 export const STATUS_FILTERS = ["all", "in_progress", "queued", "success", "failure", "cancelled"] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -23,7 +24,6 @@ export interface HostSettings {
     followBranch: boolean;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const isSlug = (value: unknown): value is string => typeof value === "string" && /^[\w.-]+\/[\w.-]+$/u.test(value);
 
 function decodeSettings(saved: unknown): HostSettings {

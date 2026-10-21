@@ -17,8 +17,10 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
+
+use sikemux_process::sync::Locked;
 
 /// Processes that made calls lately, looked at first: an agent's tool server
 /// makes every call it sends from the one process.
@@ -56,7 +58,7 @@ struct Known {
 static KNOWN: LazyLock<Mutex<Known>> = LazyLock::new(Mutex::default);
 
 fn known() -> std::sync::MutexGuard<'static, Known> {
-    KNOWN.lock().unwrap_or_else(PoisonError::into_inner)
+    KNOWN.locked()
 }
 
 /// Records `pid`, a child of this process not yet collected, as `agent_id`'s.

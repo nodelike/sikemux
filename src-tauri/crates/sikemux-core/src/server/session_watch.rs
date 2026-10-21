@@ -10,13 +10,12 @@ use std::time::Duration;
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{Map, Value};
+use sikemux_process::sync::Locked;
 use tokio::sync::mpsc;
 
 use crate::agent_catalog::AgentKind;
 use crate::protocol::WorkspaceAgent;
-use crate::sessions::roots::{
-    agent_config_root, grok_root, hermes_root, muse_data_root, omp_session_dirs,
-};
+use crate::sessions::roots::{agent_config_root, muse_data_root, omp_session_dirs};
 use crate::sessions::{self, claude_project_dir, opencode_data_dirs, pi_session_dir, AgentSession};
 
 use super::connection::blocking;
@@ -83,9 +82,7 @@ pub(crate) fn follow(core: &Arc<Core>) {
         .iter()
         .filter_map(|agent| group_of(core, agent))
         .collect();
-    let Ok(mut groups) = core.session_watch.groups.lock() else {
-        return;
-    };
+    let mut groups = core.session_watch.groups.locked();
     groups.retain(|group, _| wanted.contains(group));
     for group in wanted {
         if groups.contains_key(&group) {
@@ -213,7 +210,7 @@ fn folders(group: &Group) -> Vec<(PathBuf, RecursiveMode)> {
             }
         }
         AgentKind::Hermes => {
-            if let Some(root) = hermes_root() {
+            if let Some(root) = AgentKind::Hermes.home_root() {
                 add(root, RecursiveMode::NonRecursive);
             }
         }
@@ -233,7 +230,7 @@ fn folders(group: &Group) -> Vec<(PathBuf, RecursiveMode)> {
             }
         }
         AgentKind::Grok => {
-            if let Some(root) = grok_root() {
+            if let Some(root) = AgentKind::Grok.home_root() {
                 add(root.join("sessions"), RecursiveMode::Recursive);
             }
         }
@@ -253,10 +250,11 @@ pub(crate) async fn note_launch(core: &Arc<Core>, agent: &WorkspaceAgent) {
         return;
     };
     let listed = listed(group).await;
-    if let Ok(mut baselines) = core.session_watch.baselines.lock() {
-        let ids = listed.into_iter().map(|session| session.id).collect();
-        baselines.insert(agent.id.clone(), ids);
-    }
+    let ids = listed.into_iter().map(|session| session.id).collect();
+    core.session_watch
+        .baselines
+        .locked()
+        .insert(agent.id.clone(), ids);
 }
 
 async fn listed(group: Group) -> Vec<AgentSession> {
@@ -327,9 +325,9 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
         let baseline = core
             .session_watch
             .baselines
-            .lock()
-            .ok()
-            .and_then(|baselines| baselines.get(&agent.id).cloned());
+            .locked()
+            .get(&agent.id)
+            .cloned();
         let launched = agent.created_at / 1000;
         let found = candidates.iter().position(|row| match &baseline {
             Some(baseline) => !baseline.contains(&row.id),
@@ -343,15 +341,13 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
         if core.workspaces.update_agent(&agent.id, patch).is_err() {
             continue;
         }
-        if let Ok(mut baselines) = core.session_watch.baselines.lock() {
-            baselines.remove(&agent.id);
-        }
+        core.session_watch.baselines.locked().remove(&agent.id);
         if agent.renamed {
             names.push((row.id.clone(), agent.title.clone()));
         } else {
             super::workspace::retitle(core, &agent.id, usable_title(row), false);
         }
-        core.publish_device_view();
+        core.view_changed();
     }
     for (session_id, name) in names {
         name_session(core, group, session_id, name).await;
@@ -361,11 +357,7 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
 /// Writes a name the person gave an agent into its CLI's own session, once.
 async fn name_session(core: &Core, group: &Group, session_id: String, name: String) {
     let key = (session_id.clone(), name.clone());
-    let first = core
-        .session_watch
-        .named
-        .lock()
-        .is_ok_and(|mut named| named.insert(key));
+    let first = core.session_watch.named.locked().insert(key);
     if !first {
         return;
     }

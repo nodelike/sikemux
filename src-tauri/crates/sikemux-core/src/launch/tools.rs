@@ -13,15 +13,18 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use sikemux_process::vars;
 
 use crate::acp::schema::v1::{EnvVariable, McpServer, McpServerStdio};
 use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::{is_tool_agent_id, TOOLS_OFFER_ENV};
 use crate::launch::{homes, skills};
-use crate::sessions::roots::{grok_root, hermes_root};
 
 const CONFIG_TIMEOUT: Duration = Duration::from_secs(5);
 const TOOLS_MCP_FLAG: &str = "--tools-mcp";
+/// The tools' server name, and the one for agents whose config keys take no hyphen.
+pub(crate) const TOOLS_SERVER: &str = "sikemux-tools";
+const TOOLS_KEY: &str = "sikemux_tools";
 
 /// Where an agent's Sikemux tools run from, and where Sikemux keeps what it
 /// gives each agent.
@@ -89,66 +92,76 @@ impl Tools {
         agent_type: &str,
         agent_program: &str,
     ) -> Result<TerminalTools, String> {
-        if AgentKind::from_name(agent_type).is_none() {
+        let Some(kind) = AgentKind::from_name(agent_type) else {
             return Ok(TerminalTools::default());
-        }
+        };
         valid_agent_id(agent_id)?;
         let launch = self.mcp();
         let mut environment = self.base_environment(agent_id);
         let data_dir = self.skills_dir();
-        let args_prefix = match agent_type {
-            "claude" => {
+        let library = data_dir.map(crate::skills::library);
+        let args_prefix = match kind {
+            AgentKind::Claude => {
                 let mut args = self.claude_args(&launch)?;
                 args.extend(skills::skill_args(data_dir, skills::claude_args));
                 args
             }
-            "codex" => codex_args(&launch)?,
-            "pi" | "omp" => {
-                environment.push(("SIKEMUX_TOOLS_MCP_COMMAND".into(), launch.command.clone()));
+            AgentKind::Codex => codex_args(&launch)?,
+            AgentKind::Pi | AgentKind::Omp => {
+                environment.push((vars::TOOLS_MCP_COMMAND.into(), launch.command.clone()));
                 environment.push((
-                    "SIKEMUX_TOOLS_MCP_ARGS".into(),
+                    vars::TOOLS_MCP_ARGS.into(),
                     serde_json::to_string(&launch.args).map_err(|error| error.to_string())?,
                 ));
                 let mut args = vec![
                     "--extension".into(),
                     self.pi_extension()?.to_string_lossy().into_owned(),
                 ];
-                args.extend(if agent_type == "pi" {
+                args.extend(if kind == AgentKind::Pi {
                     skills::skill_args(data_dir, |dir| Ok(skills::pi_args(dir)))
                 } else {
                     skills::skill_args(data_dir, skills::omp_args)
                 });
                 args
             }
-            "hermes" => {
+            AgentKind::Hermes => {
                 let home = self
-                    .hermes_home(agent_id, agent_program, &launch, data_dir)
+                    .hermes_home(
+                        "hermes",
+                        agent_id,
+                        agent_program,
+                        Some(&launch),
+                        library.as_deref(),
+                    )
                     .await?;
-                environment.push(("HERMES_HOME".into(), home.to_string_lossy().into_owned()));
+                environment.push(home);
                 Vec::new()
             }
-            "grok" => {
+            AgentKind::Grok => {
                 let home = self
-                    .grok_home(agent_id, agent_program, &launch, data_dir)
+                    .grok_home(
+                        "grok",
+                        agent_id,
+                        agent_program,
+                        Some(&launch),
+                        library.as_deref(),
+                    )
                     .await?;
-                environment.push(("GROK_HOME".into(), home.to_string_lossy().into_owned()));
+                environment.push(home);
                 Vec::new()
             }
-            "muse" => muse_args(&launch, &environment)?,
-            "opencode" => {
+            AgentKind::Muse => muse_args(&launch, &environment)?,
+            AgentKind::Opencode => {
                 environment.push((
                     "OPENCODE_CONFIG_CONTENT".into(),
                     opencode_config(
                         skills::inherited_opencode_config().as_deref(),
                         &launch,
-                        data_dir.map(|dir| {
-                            (skills::opencode_user_paths(), crate::skills::library(dir))
-                        }),
+                        library.map(|library| (skills::opencode_user_paths(), library)),
                     )?,
                 ));
                 Vec::new()
             }
-            _ => Vec::new(),
         };
         Ok(TerminalTools {
             args_prefix,
@@ -160,7 +173,7 @@ impl Tools {
     /// tools only `offer` names.
     pub fn chat_server(&self, agent_id: &str, offer: Option<&str>) -> Result<Value, String> {
         valid_agent_id(agent_id)?;
-        let mut server = McpServerStdio::new("sikemux-tools", absolute_command(&self.executable)?);
+        let mut server = McpServerStdio::new(TOOLS_SERVER, absolute_command(&self.executable)?);
         server.args = vec![TOOLS_MCP_FLAG.into()];
         server.env = self
             .base_environment(agent_id)
@@ -180,75 +193,38 @@ impl Tools {
         program: &Path,
         env: &mut BTreeMap<String, String>,
     ) {
-        let Some(data_dir) = self.skills_dir() else {
+        let Some(library) = self.skills_dir().map(crate::skills::library) else {
             return;
         };
-        let library = crate::skills::library(data_dir);
-        match provider {
-            "hermes" => {
-                match self
-                    .chat_hermes_home(agent_id, &program.to_string_lossy(), &library)
+        let program = program.to_string_lossy();
+        let home = match AgentKind::from_name(provider) {
+            Some(AgentKind::Hermes) => {
+                self.hermes_home("hermes-chat", agent_id, &program, None, Some(&library))
                     .await
-                {
-                    Ok(home) => {
-                        env.insert("HERMES_HOME".into(), home.to_string_lossy().into_owned());
-                    }
-                    Err(error) => {
-                        eprintln!("Sikemux skills are unavailable to this Hermes chat: {error}")
-                    }
-                }
             }
-            "grok" => match self.chat_grok_home(agent_id, &library) {
-                Ok(home) => {
-                    env.insert("GROK_HOME".into(), home.to_string_lossy().into_owned());
-                }
-                Err(error) => {
-                    eprintln!("Sikemux skills are unavailable to this Grok chat: {error}")
-                }
-            },
-            _ => {}
+            Some(AgentKind::Grok) => {
+                self.grok_home("grok-chat", agent_id, &program, None, Some(&library))
+                    .await
+            }
+            _ => return,
+        };
+        match home {
+            Ok((variable, home)) => {
+                env.insert(variable, home);
+            }
+            Err(error) => {
+                eprintln!("Sikemux skills are unavailable to this {provider} chat: {error}")
+            }
         }
-    }
-
-    async fn chat_hermes_home(
-        &self,
-        agent_id: &str,
-        program: &str,
-        library: &Path,
-    ) -> Result<PathBuf, String> {
-        let real = hermes_root().ok_or("the home folder is unavailable")?;
-        homes::share_session_store(&real, "state.db", false).map_err(|error| error.to_string())?;
-        let home = self.private_home("hermes-chat", agent_id, &real, "config.yaml", "{}\n")?;
-        let config = std::fs::read_to_string(home.join("config.yaml")).unwrap_or_default();
-        let dirs = hermes_external_dirs(&config, library);
-        run_config_command(
-            program,
-            &["config", "set", "skills.external_dirs", &dirs, "--force"],
-            ("HERMES_HOME", &home),
-            "Hermes",
-        )
-        .await?;
-        Ok(home)
-    }
-
-    fn chat_grok_home(&self, agent_id: &str, library: &Path) -> Result<PathBuf, String> {
-        let real = grok_root().ok_or("the home folder is unavailable")?;
-        homes::share_session_store(&real, "sessions", true).map_err(|error| error.to_string())?;
-        let home = self.private_home("grok-chat", agent_id, &real, "config.toml", "")?;
-        let path = home.join("config.toml");
-        let config = std::fs::read_to_string(&path).unwrap_or_default();
-        let merged = grok_config(&config, library)?;
-        std::fs::write(&path, merged).map_err(|error| error.to_string())?;
-        Ok(home)
     }
 
     /// What the MCP server reads once the agent starts it. It inherits this
     /// through the agent's process, so it never appears in a config file.
     fn base_environment(&self, agent_id: &str) -> Vec<(String, String)> {
         vec![
-            ("SIKEMUX_TOOLS_AGENT_ID".into(), agent_id.to_owned()),
+            (vars::TOOLS_AGENT_ID.into(), agent_id.to_owned()),
             (
-                "SIKEMUX_CLI_ENDPOINT".into(),
+                vars::CLI_ENDPOINT.into(),
                 self.endpoint.to_string_lossy().into_owned(),
             ),
         ]
@@ -262,7 +238,7 @@ impl Tools {
         let directory = self.state_dir()?;
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
         let path = directory.join("claude-mcp.json");
-        let document = json!({ "mcpServers": { "sikemux-tools": mcp_server_document(launch) } });
+        let document = json!({ "mcpServers": { TOOLS_SERVER: mcp_server_document(launch) } });
         let bytes = serde_json::to_vec_pretty(&document).map_err(|error| error.to_string())?;
         sikemux_process::files::write_atomic(&path, &bytes, false)
             .map_err(|error| error.to_string())?;
@@ -290,88 +266,81 @@ impl Tools {
             .ok_or_else(|| "the Pi tools extension is missing".to_owned())
     }
 
+    /// A private Hermes home for `agent_id`, kept under `host`, given the tools
+    /// when `tools` names them and the skills `library`.
     async fn hermes_home(
         &self,
+        host: &str,
         agent_id: &str,
-        agent_program: &str,
-        launch: &McpLaunch,
-        data_dir: Option<&Path>,
-    ) -> Result<PathBuf, String> {
-        let real = hermes_root().ok_or("the home folder is unavailable")?;
-        let home = self.private_home("hermes", agent_id, &real, "config.yaml", "{}\n")?;
-        let server = json!({
-            "command": launch.command,
-            "args": launch.args,
-            "enabled": true,
-        })
-        .to_string();
-        run_config_command(
-            agent_program,
-            &[
-                "config",
-                "set",
-                "mcp_servers.sikemux_tools",
-                &server,
-                "--force",
-            ],
-            ("HERMES_HOME", &home),
-            "Hermes",
-        )
-        .await?;
-        if let Some(data_dir) = data_dir {
-            let config = std::fs::read_to_string(home.join("config.yaml")).unwrap_or_default();
-            let dirs = hermes_external_dirs(&config, &crate::skills::library(data_dir));
-            if let Err(error) = run_config_command(
-                agent_program,
-                &["config", "set", "skills.external_dirs", &dirs, "--force"],
-                ("HERMES_HOME", &home),
-                "Hermes",
-            )
-            .await
-            {
+        program: &str,
+        tools: Option<&McpLaunch>,
+        library: Option<&Path>,
+    ) -> Result<(String, String), String> {
+        let (variable, home) = self.private_home(AgentKind::Hermes, host, agent_id)?;
+        let set = |key: &str, value: &str| {
+            let args = ["config", "set", key, value, "--force"].map(str::to_owned);
+            run_config_command(program, args.to_vec(), (variable, home.clone()), "Hermes")
+        };
+        if let Some(launch) = tools {
+            let server = json!({
+                "command": launch.command,
+                "args": launch.args,
+                "enabled": true,
+            })
+            .to_string();
+            set(&format!("mcp_servers.{TOOLS_KEY}"), &server).await?;
+        }
+        if let Some(library) = library {
+            let yaml = std::fs::read_to_string(home.join("config.yaml")).unwrap_or_default();
+            let dirs = hermes_external_dirs(&yaml, library);
+            if let Err(error) = set("skills.external_dirs", &dirs).await {
                 eprintln!("Sikemux skills are unavailable to Hermes: {error}");
             }
         }
-        Ok(home)
+        Ok((variable.to_owned(), home.to_string_lossy().into_owned()))
     }
 
+    /// A private Grok home for `agent_id`, kept under `host`, given the tools
+    /// when `tools` names them and the skills `library`.
     async fn grok_home(
         &self,
+        host: &str,
         agent_id: &str,
-        agent_program: &str,
-        launch: &McpLaunch,
-        data_dir: Option<&Path>,
-    ) -> Result<PathBuf, String> {
-        let real = grok_root().ok_or("the home folder is unavailable")?;
-        let home = self.private_home("grok", agent_id, &real, "config.toml", "")?;
-        let mut args = vec!["mcp", "add", "sikemux_tools", "--", launch.command.as_str()];
-        args.extend(launch.args.iter().map(String::as_str));
-        run_config_command(agent_program, &args, ("GROK_HOME", &home), "Grok").await?;
-        if let Some(data_dir) = data_dir {
+        program: &str,
+        tools: Option<&McpLaunch>,
+        library: Option<&Path>,
+    ) -> Result<(String, String), String> {
+        let (variable, home) = self.private_home(AgentKind::Grok, host, agent_id)?;
+        if let Some(launch) = tools {
+            let mut args = ["mcp", "add", TOOLS_KEY, "--"].map(str::to_owned).to_vec();
+            args.push(launch.command.clone());
+            args.extend(launch.args.iter().cloned());
+            run_config_command(program, args, (variable, home.clone()), "Grok").await?;
+        }
+        if let Some(library) = library {
             let path = home.join("config.toml");
             let config = std::fs::read_to_string(&path).unwrap_or_default();
-            match grok_config(&config, &crate::skills::library(data_dir)) {
+            match grok_config(&config, library) {
                 Ok(config) => std::fs::write(&path, config).map_err(|error| error.to_string())?,
                 Err(error) => eprintln!("Sikemux skills are unavailable to Grok: {error}"),
             }
         }
-        Ok(home)
+        Ok((variable.to_owned(), home.to_string_lossy().into_owned()))
     }
 
-    /// A private copy of the agent's home for `agent_id`, which Sikemux can
-    /// add a server to without touching the person's own config.
+    /// A private copy of `kind`'s home for `agent_id`, which Sikemux can add a
+    /// server to without touching the person's own config, and the variable
+    /// that names it.
     fn private_home(
         &self,
+        kind: AgentKind,
         host: &str,
         agent_id: &str,
-        source: &Path,
-        config_name: &str,
-        empty_config: &str,
-    ) -> Result<PathBuf, String> {
+    ) -> Result<(&'static str, PathBuf), String> {
+        let (home, _) = homes::private(kind).ok_or("the agent keeps no private home")?;
         let destination = self.state_dir()?.join(host).join(agent_id);
-        homes::private_home(&destination, source, config_name, empty_config)
-            .map_err(|error| error.to_string())?;
-        Ok(destination)
+        homes::private_home(kind, &destination, None)?;
+        Ok((home.variable, destination))
     }
 }
 
@@ -407,9 +376,9 @@ fn codex_args(launch: &McpLaunch) -> Result<Vec<String>, String> {
     let args = serde_json::to_string(&launch.args).map_err(|error| error.to_string())?;
     Ok(vec![
         "-c".into(),
-        format!("mcp_servers.sikemux_tools.command={command}"),
+        format!("mcp_servers.{TOOLS_KEY}.command={command}"),
         "-c".into(),
-        format!("mcp_servers.sikemux_tools.args={args}"),
+        format!("mcp_servers.{TOOLS_KEY}.args={args}"),
     ])
 }
 
@@ -430,7 +399,7 @@ fn muse_args(launch: &McpLaunch, environment: &[(String, String)]) -> Result<Vec
     let server = serde_json::to_string(&server).map_err(|error| error.to_string())?;
     Ok(vec![
         "-c".into(),
-        format!("mcpServers.sikemux-tools={server}"),
+        format!("mcpServers.{TOOLS_SERVER}={server}"),
     ])
 }
 
@@ -455,7 +424,7 @@ fn opencode_config(
     let mut command = vec![launch.command.clone()];
     command.extend(launch.args.iter().cloned());
     mcp.insert(
-        "sikemux_tools".into(),
+        TOOLS_KEY.into(),
         json!({ "type": "local", "command": command, "enabled": true }),
     );
     if let Some((own_paths, library)) = skills {
@@ -466,8 +435,8 @@ fn opencode_config(
 
 async fn run_config_command(
     program: &str,
-    args: &[&str],
-    home: (&str, &Path),
+    args: Vec<String>,
+    home: (&str, PathBuf),
     label: &str,
 ) -> Result<(), String> {
     let output = tokio::time::timeout(

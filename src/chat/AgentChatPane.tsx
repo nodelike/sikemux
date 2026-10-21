@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { errorText } from "../lib/format";
 import { acpApi } from "../api/acp";
 import { effortConfig, sessionConfigs, type SessionConfig } from "./sessionConfig";
@@ -32,6 +32,7 @@ import { mentionContext, useMates } from "./agentMentions";
 import { deliverToAgent } from "../agents/agentInbox";
 import type { AgentQuestion } from "../agents/agentQuestions";
 import type { OutgoingMessage } from "./queuedMessages";
+import { answerText } from "./answerText";
 import { useChatQuestions } from "./useChatQuestions";
 import { ResumeActions } from "./ResumeActions";
 import { ChatFailureActions, NetworkFailureActions, type SignInMethod } from "./ChatFailureActions";
@@ -71,22 +72,12 @@ function heldTranscript(shown: ChatState, next: ChatState): ChatState {
     return { ...next, messages: shown.messages, revision: shown.revision };
 }
 
-/** What the person sent as the answer to a question, with what they attached named in it. */
-function answerText({ text, paths, context }: OutgoingMessage): string {
-    return [
-        text,
-        ...(paths.length > 0 ? [`Attached:\n${paths.map((path) => `- ${path}`).join("\n")}`] : []),
-        ...context.map((item) => `${item.title}:\n${item.text}`),
-    ]
-        .filter(Boolean)
-        .join("\n\n");
-}
-
 const ChatFind = lazy(() => import("./ChatFind"));
 const WorktreeNote = lazy(() => import("./ChatWorktree").then(({ WorktreeNote }) => ({ default: WorktreeNote })));
 const ProjectStrip = lazy(() => import("./ProjectStrip").then(({ ProjectStrip }) => ({ default: ProjectStrip })));
 
-export function AgentChatPane({
+/* Memoised so switching tabs, which renders every window of the project again, leaves each chat as it was. */
+export const AgentChatPane = memo(function AgentChatPane({
     agent,
     profile,
     cwd,
@@ -108,6 +99,7 @@ export function AgentChatPane({
     const { agentRef, sessionIdRef, recovery, retry, replaying, changingPermissions, appliedPermissionMode, permissionMode, earlier, loadEarlier } =
         useAcpSession({
             active,
+            visible,
             agent,
             profile,
             cwd,
@@ -232,7 +224,7 @@ export function AgentChatPane({
     const sendMessage = (message: OutgoingMessage, steerNow: boolean): boolean => {
         const question = questions.composing;
         if (!question) return worktree.sendMessage(message, steerNow);
-        const text = answerText(message);
+        const text = answerText(message.text, message.paths, message.context);
         if (!text) return false;
         if (!questions.writing) {
             questions.pick(question, { answer: { answer: text }, shown: text });
@@ -293,7 +285,7 @@ export function AgentChatPane({
             dispatch({ type: "config", options: response.configOptions });
             const options = sessionConfigs({ configOptions: response.configOptions });
             const model = options.find((option) => option.id === "model")?.currentValue ?? agent.model;
-            const effort = effortConfig(options, agent.type)?.currentValue ?? agent.effort;
+            const effort = effortConfig(options)?.currentValue ?? agent.effort;
             cmd.setAgentModelPreferences(agent.id, model, knownEffort(effort));
         } catch (error) {
             if (sessionIdRef.current === sessionId) setComposerError(errorText(error));
@@ -326,7 +318,7 @@ export function AgentChatPane({
     const failureDetail = failure?.detail && <span className="chat-recovery-detail">{failure.detail}</span>;
 
     return (
-        <PathRootsProvider cwd={cwd} home={home} agentId={chatAgent.id}>
+        <PathRootsProvider cwd={cwd} home={home} agentId={chatAgent.id} host={agent.host}>
             <ChatAgentContext.Provider value={chatAgent}>
                 <ChatSubagentsContext.Provider value={subagentCards}>
                     <ReaderScrollContext.Provider value={scrollByReader}>
@@ -506,4 +498,4 @@ export function AgentChatPane({
             </ChatAgentContext.Provider>
         </PathRootsProvider>
     );
-}
+});

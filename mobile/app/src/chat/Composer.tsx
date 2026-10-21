@@ -12,6 +12,7 @@ import { toolKind, toolLabel, toolPath } from '@mac/chat/toolLabels';
 import type { AcpAvailableCommand, AcpPermissionRequest, AcpToolCall, ChatState, ContextUsage } from '@mac/chat/types';
 import { canSwitchMode, isYolo } from '@mac/agents/agentLaunch';
 import { agentLabel } from '@mac/agents/catalog';
+import { problem } from '@/core/problem';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Track } from '@/ui/controls';
@@ -21,7 +22,9 @@ import { brand, fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { ComposerAttachments } from './Attachments';
 import { ComposerInput } from './ComposerInput';
 import { AttachSheet } from './AttachSheet';
-import { MAX_ATTACHMENTS, type Attachment, type ChatSession } from './session';
+import { MAX_ATTACHMENTS } from '@/core/wire.generated';
+import type { ChatSession } from './session';
+import type { Attachment } from './uploads';
 import { useDraft } from './useChat';
 import { matchingCommands } from './commands';
 
@@ -110,7 +113,7 @@ function PermissionDock({
           </View>
         ) : null}
       </View>
-      <ScrollView style={styles.dockCmd} contentContainerStyle={styles.dockCmdPad} nestedScrollEnabled>
+      <ScrollView style={styles.dockCmd} contentContainerStyle={styles.dockCmdPad} nestedScrollEnabled showsVerticalScrollIndicator={false}>
         <Text style={styles.dockCmdText} selectable>
           {run ? <Text style={{ color: colors.toolRun }}>$ </Text> : null}
           {asked(request.toolCall)}
@@ -509,9 +512,7 @@ export const Composer = memo(function Composer({
   };
 
   const attach = (picking: Promise<Attachment[]>) => {
-    picking
-      .then(session.attach)
-      .catch((error: unknown) => session.report(`could not pick: ${error instanceof Error ? error.message : String(error)}`));
+    picking.then(session.attach).catch((error: unknown) => session.report(`could not pick: ${problem(error)}`));
   };
 
   return (

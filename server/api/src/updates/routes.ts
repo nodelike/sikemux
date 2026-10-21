@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { sql } from "kysely";
 
 import type { Database } from "../db.ts";
-import { ApiFailure, type Env } from "../http.ts";
+import { badRequest, type Env } from "../http.ts";
 import { clientAddress, limit, type RateLimiter } from "../limits.ts";
 import {
   CHANNELS,
@@ -33,29 +33,13 @@ export function updateRoutes({ db }: Database, limiter: RateLimiter) {
       const runtimeVersion = c.req.header("expo-runtime-version");
       const channel = c.req.header("expo-channel-name");
       if (protocolVersion !== "1")
-        throw new ApiFailure(
-          400,
-          "bad_request",
-          "expo-protocol-version must be 1.",
-        );
+        throw badRequest("expo-protocol-version must be 1.");
       if (!isPlatform(platform))
-        throw new ApiFailure(
-          400,
-          "bad_request",
-          `expo-platform is one of ${PLATFORMS.join(", ")}.`,
-        );
+        throw badRequest(`expo-platform is one of ${PLATFORMS.join(", ")}.`);
       if (!runtimeVersion || !RUNTIME_VERSION.test(runtimeVersion))
-        throw new ApiFailure(
-          400,
-          "bad_request",
-          "expo-runtime-version is missing or malformed.",
-        );
+        throw badRequest("expo-runtime-version is missing or malformed.");
       if (!isChannel(channel))
-        throw new ApiFailure(
-          400,
-          "bad_request",
-          `expo-channel-name is one of ${CHANNELS.join(", ")}.`,
-        );
+        throw badRequest(`expo-channel-name is one of ${CHANNELS.join(", ")}.`);
 
       const part = await db
         .selectFrom("update_rollbacks")

@@ -9,14 +9,14 @@ use std::time::Duration;
 
 use serde_json::Value;
 pub use sikemux_core::cli::protocol::HarnessRequest;
-use sikemux_core::cli::protocol::{is_browser_method, is_sim_method};
+use sikemux_core::cli::protocol::{is_browser_method, is_sim_method, PAGE_REPLY_TIMEOUT};
 use sikemux_core::protocol::{CallId, WindowAnswer, WindowCall};
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::pty::PtyManager;
 
 pub const MAX_PENDING: usize = 64;
-const REPLY_TIMEOUT: Duration = Duration::from_secs(65);
 /// A launch may wait on the person trusting `sikemux.json`.
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
@@ -37,7 +37,7 @@ impl HarnessBroker {
         &self,
         request: HarnessRequest,
     ) -> Result<mpsc::Receiver<Result<Value, String>>, String> {
-        let mut pending = self.pending.lock().map_err(|_| "harness lock poisoned")?;
+        let mut pending = self.pending.locked();
         if pending.len() >= MAX_PENDING || pending.contains_key(&request.id) {
             return Err("harness request capacity reached or duplicate request ID".into());
         }
@@ -54,9 +54,7 @@ impl HarnessBroker {
     }
 
     fn claim(&self) -> Vec<HarnessRequest> {
-        let Ok(mut pending) = self.pending.lock() else {
-            return vec![];
-        };
+        let mut pending = self.pending.locked();
         pending
             .values_mut()
             .filter_map(|entry| {
@@ -70,25 +68,19 @@ impl HarnessBroker {
     }
 
     pub fn remove(&self, id: &str) {
-        if let Ok(mut pending) = self.pending.lock() {
-            pending.remove(id);
-        }
+        self.pending.locked().remove(id);
     }
 
     fn reply(&self, id: &str, result: Result<Value, String>) {
-        if let Ok(mut pending) = self.pending.lock() {
-            if let Some(entry) = pending.remove(id) {
-                let _ = entry.reply.send(result);
-            }
+        if let Some(entry) = self.pending.locked().remove(id) {
+            let _ = entry.reply.send(result);
         }
     }
 
     /// The page that would have answered is gone.
     pub fn fail_all(&self, message: &str) {
-        if let Ok(mut pending) = self.pending.lock() {
-            for (_, entry) in pending.drain() {
-                let _ = entry.reply.send(Err(message.into()));
-            }
+        for (_, entry) in self.pending.locked().drain() {
+            let _ = entry.reply.send(Err(message.into()));
         }
     }
 }
@@ -148,7 +140,7 @@ fn run(app: &AppHandle, request: HarnessRequest) -> Result<Value, String> {
     let limit = if method == "task.start" {
         LAUNCH_TIMEOUT
     } else {
-        REPLY_TIMEOUT
+        PAGE_REPLY_TIMEOUT
     };
     let result = receiver
         .recv_timeout(limit)
@@ -209,7 +201,7 @@ fn timeout_message(method: &str) -> String {
     } else {
         format!(
             "{tool} got no answer from Sikemux within {} s. Check that the Sikemux window is open and responsive, then retry.",
-            REPLY_TIMEOUT.as_secs()
+            PAGE_REPLY_TIMEOUT.as_secs()
         )
     }
 }

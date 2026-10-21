@@ -1,4 +1,5 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext, useState } from "react";
+import { useNow } from "../hooks/useNow";
 import { AgentMark } from "../agents/AgentMark";
 import type { Agent } from "../state/types";
 import { ChatAgentContext } from "./chatAgent";
@@ -9,12 +10,8 @@ import { Shimmer } from "./Shimmer";
    whole transcript. */
 export function ChatActivity({ label, agentType }: { label: string; agentType: Agent["type"] }) {
     const agentId = useContext(ChatAgentContext).id;
-    const [seconds, setSeconds] = useState(0);
-    useEffect(() => {
-        const started = Date.now();
-        const timer = window.setInterval(() => setSeconds(Math.round((Date.now() - started) / 1000)), 1000);
-        return () => window.clearInterval(timer);
-    }, []);
+    const [started] = useState(Date.now);
+    const seconds = Math.max(0, Math.round((useNow() - started) / 1000));
     return (
         <div className="chat-activity" role="status">
             <span className={`chat-activity-mark agent-glyph ${agentType}`} aria-hidden="true">

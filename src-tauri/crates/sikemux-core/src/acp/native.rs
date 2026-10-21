@@ -6,16 +6,17 @@ use agent_client_protocol::schema::v1::Meta;
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::agent_catalog::{self, ChatDriver};
 use crate::git_guard::shim;
 
-/// The arguments that put each agent's own binary into ACP mode.
-///
-/// Grok shares one background process between its clients unless told not to,
-/// and a chat's approval choices must not reach the other clients.
+use super::pickers::{self, config_option};
+
+/// The arguments that put the agent's own binary into ACP mode, when it has
+/// one. Grok's `--no-leader` keeps a chat's approval choices off the
+/// background process its other clients share.
 pub fn arguments(provider: &str) -> Option<&'static [&'static str]> {
-    match provider {
-        "opencode" | "omp" | "hermes" => Some(&["acp"]),
-        "grok" => Some(&["agent", "--no-leader", "stdio"]),
+    match agent_catalog::agent(provider)?.chat {
+        Some(ChatDriver::Acp { args, .. }) => Some(args),
         _ => None,
     }
 }
@@ -53,26 +54,16 @@ pub fn models_outside_config(setup: &Value) -> bool {
 /// sends, so the chat's model picker reads it the same way.
 pub fn model_config(setup: &Value, current: &str) -> Option<Value> {
     let models = setup.pointer("/models/availableModels")?.as_array()?;
-    let options = models
+    let choices = models
         .iter()
         .filter_map(|model| {
             let value = model.get("modelId")?.as_str()?;
             let name = model.get("name").and_then(Value::as_str).unwrap_or(value);
-            let mut option = json!({ "value": value, "name": name });
-            if let Some(description) = model.get("description").and_then(Value::as_str) {
-                option["description"] = json!(description);
-            }
-            Some(option)
+            let description = model.get("description").and_then(Value::as_str);
+            Some(pickers::choice(value, name, description))
         })
-        .collect::<Vec<_>>();
-    Some(json!({
-        "id": "model",
-        "name": "Model",
-        "category": "model",
-        "type": "select",
-        "currentValue": current,
-        "options": options,
-    }))
+        .collect();
+    Some(pickers::model_select(None, current, choices))
 }
 
 /// Folds the model list into the config options, so the setup reads the same
@@ -94,14 +85,6 @@ pub fn with_model_config(mut setup: Value) -> Value {
         None => setup["configOptions"] = json!([model]),
     }
     setup
-}
-
-fn config_option(setup: &Value, matches: impl Fn(&Value) -> bool) -> Option<&Value> {
-    setup
-        .get("configOptions")?
-        .as_array()?
-        .iter()
-        .find(|option| matches(option))
 }
 
 /// The id of the option that sets how hard the model thinks. Agents name it

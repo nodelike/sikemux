@@ -82,6 +82,7 @@ mod paths {
     use std::sync::{Arc, Mutex};
 
     use block2::RcBlock;
+    use sikemux_process::sync::Locked;
     use tokio::sync::mpsc;
 
     use super::{classify, NetworkEvent, NetworkPath};
@@ -117,9 +118,7 @@ mod paths {
             if let Some(name) = NonNull::new(name.cast_mut()) {
                 // SAFETY: Network.framework hands back a NUL-terminated C string.
                 let name = unsafe { CStr::from_ptr(name.as_ptr()) };
-                if let Ok(mut found) = found.lock() {
-                    found.push(name.to_string_lossy().into_owned());
-                }
+                found.locked().push(name.to_string_lossy().into_owned());
             }
             1
         });
@@ -128,7 +127,7 @@ mod paths {
             nw_path_enumerate_interfaces(path, &each);
             nw_path_get_status(path) == SATISFIED
         };
-        let mut interfaces = names.lock().map(|names| names.clone()).unwrap_or_default();
+        let mut interfaces = names.locked().clone();
         interfaces.sort();
         interfaces.dedup();
         NetworkPath { online, interfaces }
@@ -138,9 +137,7 @@ mod paths {
         let last: Mutex<Option<NetworkPath>> = Mutex::new(None);
         let handler = RcBlock::new(move |path: Object| {
             let next = read(path);
-            let Ok(mut last) = last.lock() else {
-                return;
-            };
+            let mut last = last.locked();
             if let Some(event) = classify(last.as_ref(), &next) {
                 let _ = events.send(event);
             }

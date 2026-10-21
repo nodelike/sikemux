@@ -6,10 +6,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use super::providers;
 
@@ -45,17 +47,17 @@ pub struct Model {
     #[serde(default)]
     pub release_date: String,
     /// `alpha`, `beta` or `deprecated`; none for a model in general use.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(default)]
     pub limit: Limit,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cost: Option<Cost>,
     #[serde(default, skip_serializing_if = "Experimental::is_empty")]
     experimental: Experimental,
     #[serde(default, skip_serializing)]
     modalities: Modalities,
-    #[serde(default, skip_serializing)]
+    #[serde(skip_serializing)]
     family: Option<String>,
 }
 
@@ -68,13 +70,11 @@ pub struct Limit {
 /// USD per million tokens.
 #[derive(Serialize, Deserialize, Default, Clone, Copy)]
 pub struct Cost {
-    #[serde(default)]
     pub input: Option<f64>,
-    #[serde(default)]
     pub output: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_read: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_write: Option<f64>,
 }
 
@@ -92,7 +92,6 @@ impl Experimental {
 
 #[derive(Serialize, Deserialize, Default)]
 struct Mode {
-    #[serde(default)]
     cost: Option<Cost>,
 }
 
@@ -195,12 +194,6 @@ fn embedded() -> Snapshot {
     Snapshot::parse(include_bytes!("../../models-dev.json")).unwrap_or_default()
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis() as i64)
-}
-
 #[derive(Default)]
 struct Held {
     snapshot: Option<Arc<Snapshot>>,
@@ -210,10 +203,6 @@ struct Held {
 pub struct Feed {
     path: PathBuf,
     held: Arc<Mutex<Held>>,
-}
-
-fn lock(held: &Mutex<Held>) -> MutexGuard<'_, Held> {
-    held.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 impl Feed {
@@ -231,8 +220,8 @@ impl Feed {
     /// What is known now. A copy a day old is replaced in the background, so
     /// this never waits on the network; it reads the disk, so it blocks.
     pub fn current(&self) -> Arc<Snapshot> {
-        let now = now_ms();
-        let mut held = lock(&self.held);
+        let now = epoch_ms() as i64;
+        let mut held = self.held.locked();
         let snapshot = match &held.snapshot {
             Some(snapshot) => snapshot.clone(),
             None => {
@@ -269,7 +258,7 @@ async fn refresh(path: PathBuf, held: Arc<Mutex<Held>>) {
         return;
     };
     let trimmed = tokio::task::spawn_blocking(move || {
-        let snapshot = Snapshot::trim(&feed, now_ms())?;
+        let snapshot = Snapshot::trim(&feed, epoch_ms() as i64)?;
         if let Ok(bytes) = serde_json::to_vec(&snapshot) {
             let _ = sikemux_process::files::write_atomic(&path, &bytes, false);
         }
@@ -277,7 +266,7 @@ async fn refresh(path: PathBuf, held: Arc<Mutex<Held>>) {
     })
     .await;
     if let Ok(Some(snapshot)) = trimmed {
-        lock(&held).snapshot = Some(Arc::new(snapshot));
+        held.locked().snapshot = Some(Arc::new(snapshot));
     }
 }
 

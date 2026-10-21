@@ -5,11 +5,7 @@ import type {
 } from "@sikemux/protocol";
 
 import { isPort, settingsFrom } from "../env.ts";
-
-const CHANNELS = [
-  "nightly",
-  "stable",
-] as const satisfies readonly (keyof ChannelVersions)[];
+import { CHANNELS } from "../updates/update.ts";
 
 const APP_VERSION =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;

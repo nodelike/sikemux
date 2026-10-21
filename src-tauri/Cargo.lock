@@ -5167,9 +5167,9 @@ checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -5677,12 +5677,11 @@ dependencies = [
 
 [[package]]
 name = "sikemux"
-version = "0.5.4-nightly.1"
+version = "0.5.4-nightly.4"
 dependencies = [
  "base64 0.23.1",
  "block2",
  "futures",
- "getrandom 0.3.4",
  "globset",
  "grep-matcher",
  "grep-regex",
@@ -5710,7 +5709,6 @@ dependencies = [
  "reqwest",
  "rfd",
  "rusqlite",
- "rustix",
  "rustls",
  "semver",
  "serde",
@@ -5719,6 +5717,7 @@ dependencies = [
  "sikemux-core",
  "sikemux-host",
  "sikemux-keychain",
+ "sikemux-loopback",
  "sikemux-markdown",
  "sikemux-plugin-api",
  "sikemux-process",
@@ -5733,7 +5732,6 @@ dependencies = [
  "time",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
- "trash",
  "url",
  "uuid",
  "workspace-hack",
@@ -5787,6 +5785,7 @@ dependencies = [
  "sha2 0.11.0",
  "sikemux-client",
  "sikemux-keychain",
+ "sikemux-markdown",
  "sikemux-process",
  "sikemux-pty",
  "sikemux-wire",
@@ -5797,6 +5796,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-websockets",
  "toml 1.1.6+spec-1.1.0",
+ "trash",
  "url",
  "uuid",
  "vt100",
@@ -5806,7 +5806,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-host"
-version = "0.5.4-nightly.1"
+version = "0.5.4-nightly.4"
 dependencies = [
  "hex",
  "libc",
@@ -5911,12 +5911,17 @@ dependencies = [
 name = "sikemux-plugin-api"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "reqwest",
  "rustls",
  "semver",
  "serde",
  "serde_json",
+ "sikemux-keychain",
+ "sikemux-loopback",
+ "sikemux-process",
  "tokio",
+ "url",
  "workspace-hack",
 ]
 
@@ -5938,7 +5943,6 @@ dependencies = [
 name = "sikemux-plugin-bitbucket"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
  "futures",
  "reqwest",
  "rustls",
@@ -5983,6 +5987,7 @@ dependencies = [
  "serde_json",
  "sikemux-keychain",
  "sikemux-plugin-api",
+ "sikemux-process",
  "tokio",
  "tokio-postgres",
  "tokio-rustls",
@@ -5994,9 +5999,7 @@ dependencies = [
 name = "sikemux-plugin-github"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
  "futures",
- "http",
  "reqwest",
  "rustls",
  "serde",
@@ -6013,7 +6016,6 @@ dependencies = [
 name = "sikemux-plugin-gitlab"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
  "futures",
  "reqwest",
  "rustls",
@@ -6021,6 +6023,7 @@ dependencies = [
  "serde_json",
  "sikemux-keychain",
  "sikemux-plugin-api",
+ "sikemux-process",
  "tokio",
  "workspace-hack",
 ]
@@ -6029,13 +6032,10 @@ dependencies = [
 name = "sikemux-plugin-jira"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
- "futures",
  "reqwest",
  "serde",
  "serde_json",
  "sikemux-keychain",
- "sikemux-loopback",
  "sikemux-plugin-api",
  "sikemux-process",
  "tokio",
@@ -6047,13 +6047,11 @@ dependencies = [
 name = "sikemux-plugin-linear"
 version = "0.1.0"
 dependencies = [
- "futures",
  "reqwest",
  "rustls",
  "serde",
  "serde_json",
  "sikemux-keychain",
- "sikemux-loopback",
  "sikemux-plugin-api",
  "tokio",
  "url",
@@ -6082,7 +6080,6 @@ dependencies = [
 name = "sikemux-plugin-signoz"
 version = "0.1.0"
 dependencies = [
- "futures",
  "reqwest",
  "serde",
  "serde_json",
@@ -6106,6 +6103,7 @@ dependencies = [
  "serde_json",
  "sikemux-keychain",
  "sikemux-plugin-api",
+ "sikemux-process",
  "time",
  "tokio",
  "workspace-hack",
@@ -6120,10 +6118,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-keychain",
- "sikemux-loopback",
  "sikemux-plugin-api",
  "tokio",
- "url",
  "workspace-hack",
 ]
 
@@ -7875,18 +7871,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]

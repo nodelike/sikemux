@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { failureMessage, SignInCancelled, type BrowserSignIn } from "./backend";
+import { errorText } from "../lib/format";
+import { SignInCancelled, type BrowserSignIn } from "./backend";
 import { ScreenField } from "../ui/ShaderField";
 import "./signin.css";
 
@@ -45,7 +46,7 @@ export function useSignInAttempt(status?: SignInStatus | null): SignInAttempt {
             void attempt()
                 .then(
                     (refused) => refused && setError(refused),
-                    (failure: unknown) => setError(failureMessage(failure)),
+                    (failure: unknown) => setError(errorText(failure)),
                 )
                 .finally(() => {
                     running.current = false;
@@ -70,7 +71,7 @@ export function useSignInAttempt(status?: SignInStatus | null): SignInAttempt {
                     if (refused) setError(refused);
                 },
                 (failure: unknown) => {
-                    if (settle() && !(failure instanceof SignInCancelled)) setError(failureMessage(failure));
+                    if (settle() && !(failure instanceof SignInCancelled)) setError(errorText(failure));
                 },
             );
         },

@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use sikemux_core::accounts::protocol::JoinTicket;
 use sikemux_core::client::{probe, ClientEvent, CoreClient};
-use sikemux_core::protocol::{ChatEventKind, DeviceAccess, Event, RemoteStatus};
+use sikemux_core::protocol::{ChatEventKind, Event, RemoteStatus};
 use sikemux_core::remote::SecretKey;
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -268,34 +268,6 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
             .await
         }
     });
-    let deadline = Instant::now() + WAIT;
-    let request = loop {
-        let pairing = studio_app
-            .call("pairing", Value::Null)
-            .await
-            .expect("pairing");
-        if let Some(request) = pairing["pendingLinks"]
-            .as_array()
-            .and_then(|links| links.first())
-        {
-            break request["id"].as_str().expect("request id").to_owned();
-        }
-        assert!(Instant::now() < deadline, "the studio was never asked");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
-    assert!(
-        studio_app
-            .remote_status()
-            .await
-            .expect("status")
-            .pending
-            .is_empty(),
-        "a host asking to link is not a phone asking to join"
-    );
-    studio_app
-        .answer_pairing(request, true, DeviceAccess::Full)
-        .await
-        .expect("the studio allows the link");
     let linked = linking
         .await
         .expect("linking")

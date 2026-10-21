@@ -6,8 +6,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_plugin_api::codehost::{ChangedFile, Label, Pull, PullCommit, Review};
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};
@@ -64,55 +65,13 @@ pub struct MergeRequestRow {
     web_url: String,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
-pub struct Label {
-    pub name: String,
-    pub color: String,
-}
-
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Pull {
-    pub number: u64,
-    pub title: String,
-    pub body: String,
-    /// `open`, `merged`, or `closed`.
-    pub state: &'static str,
-    pub draft: bool,
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    pub author_association: Option<String>,
-    pub head: Option<String>,
-    /// `group:branch` when the branch lives in a fork.
-    pub head_label: Option<String>,
-    pub base: Option<String>,
-    pub head_sha: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub comments: Option<u64>,
-    pub additions: Option<u64>,
-    pub deletions: Option<u64>,
-    pub changed_files: Option<u64>,
-    pub mergeable: Option<bool>,
-    pub merge_state: Option<String>,
-    pub labels: Vec<Label>,
-    pub reviewers: Vec<String>,
-    pub assignees: Vec<String>,
-    pub milestone: Option<String>,
-    pub commits: Option<u64>,
-    pub merged_at: Option<String>,
-    pub merged_by: Option<String>,
-    pub merge_commit_sha: Option<String>,
-    pub avatars: BTreeMap<String, String>,
-    pub url: String,
-}
-
-fn state_of(raw: &str) -> &'static str {
+fn state_of(raw: &str) -> String {
     match raw {
         "opened" | "locked" => "open",
         "merged" => "merged",
         _ => "closed",
     }
+    .into()
 }
 
 /// GitLab's reasons a merge request can or cannot merge, in GitHub's merge-state words.
@@ -151,67 +110,65 @@ pub fn label_of(row: LabelRow) -> Label {
     }
 }
 
-impl Pull {
-    pub fn from_row(row: MergeRequestRow) -> Self {
-        let mut avatars = BTreeMap::new();
-        let mut people = |users: &[User]| -> Vec<String> {
-            users
-                .iter()
-                .filter_map(|user| {
-                    let login = login_of(Some(user))?;
-                    if let Some(avatar) = avatar_of(Some(user)) {
-                        avatars.insert(login.clone(), avatar);
-                    }
-                    Some(login)
-                })
-                .collect()
-        };
-        let reviewers = people(&row.reviewers);
-        let assignees = people(&row.assignees);
-        let fork = match (row.source_project_id, row.target_project_id) {
-            (Some(source), Some(target)) if source != target => Some(source),
+pub fn pull_of(row: MergeRequestRow) -> Pull {
+    let mut avatars = BTreeMap::new();
+    let mut people = |users: &[User]| -> Vec<String> {
+        users
+            .iter()
+            .filter_map(|user| {
+                let login = login_of(Some(user))?;
+                if let Some(avatar) = avatar_of(Some(user)) {
+                    avatars.insert(login.clone(), avatar);
+                }
+                Some(login)
+            })
+            .collect()
+    };
+    let reviewers = people(&row.reviewers);
+    let assignees = people(&row.assignees);
+    let fork = match (row.source_project_id, row.target_project_id) {
+        (Some(source), Some(target)) if source != target => Some(source),
+        _ => None,
+    };
+    let (mergeable, merge_state) =
+        merge_state_of(row.detailed_merge_status.as_deref(), row.has_conflicts);
+    let merger = row.merge_user.as_ref().or(row.merged_by.as_ref());
+    Pull {
+        number: row.iid,
+        title: row.title,
+        body: row.description.unwrap_or_default(),
+        state: state_of(&row.state),
+        draft: row.draft,
+        author: login_of(row.author.as_ref()),
+        avatar_url: avatar_of(row.author.as_ref()),
+        author_association: None,
+        head_label: match (fork, &row.source_branch) {
+            (Some(source), Some(branch)) => Some(format!("project {source}:{branch}")),
             _ => None,
-        };
-        let (mergeable, merge_state) =
-            merge_state_of(row.detailed_merge_status.as_deref(), row.has_conflicts);
-        let merger = row.merge_user.as_ref().or(row.merged_by.as_ref());
-        Pull {
-            number: row.iid,
-            title: row.title,
-            body: row.description.unwrap_or_default(),
-            state: state_of(&row.state),
-            draft: row.draft,
-            author: login_of(row.author.as_ref()),
-            avatar_url: avatar_of(row.author.as_ref()),
-            author_association: None,
-            head_label: match (fork, &row.source_branch) {
-                (Some(source), Some(branch)) => Some(format!("project {source}:{branch}")),
-                _ => None,
-            },
-            head: row.source_branch,
-            base: row.target_branch,
-            head_sha: row.sha,
-            updated_at: row.updated_at.unwrap_or_else(|| row.created_at.clone()),
-            created_at: row.created_at,
-            comments: row.user_notes_count,
-            additions: None,
-            deletions: None,
-            changed_files: row
-                .changes_count
-                .and_then(|count| count.trim_end_matches('+').parse().ok()),
-            mergeable,
-            merge_state,
-            labels: row.labels.into_iter().map(label_of).collect(),
-            reviewers,
-            assignees,
-            milestone: row.milestone.and_then(|milestone| milestone.title),
-            commits: None,
-            merged_at: row.merged_at,
-            merged_by: login_of(merger),
-            merge_commit_sha: row.merge_commit_sha.or(row.squash_commit_sha),
-            avatars,
-            url: row.web_url,
-        }
+        },
+        head: row.source_branch,
+        base: row.target_branch,
+        head_sha: row.sha,
+        updated_at: row.updated_at.unwrap_or_else(|| row.created_at.clone()),
+        created_at: row.created_at,
+        comments: row.user_notes_count,
+        additions: None,
+        deletions: None,
+        changed_files: row
+            .changes_count
+            .and_then(|count| count.trim_end_matches('+').parse().ok()),
+        mergeable,
+        merge_state,
+        labels: row.labels.into_iter().map(label_of).collect(),
+        reviewers,
+        assignees,
+        milestone: row.milestone.and_then(|milestone| milestone.title),
+        commits: None,
+        merged_at: row.merged_at,
+        merged_by: login_of(merger),
+        merge_commit_sha: row.merge_commit_sha.or(row.squash_commit_sha),
+        avatars,
+        url: row.web_url,
     }
 }
 
@@ -246,7 +203,7 @@ pub async fn list(data_dir: &Path, input: ListQuery) -> GitlabResult<Vec<Pull>> 
         2,
     )
     .await?;
-    Ok(rows.into_iter().map(Pull::from_row).collect())
+    Ok(rows.into_iter().map(pull_of).collect())
 }
 
 fn pull_thread(repo: RepoRef, number: u64) -> Thread {
@@ -255,6 +212,31 @@ fn pull_thread(repo: RepoRef, number: u64) -> Thread {
         number,
         of: ThreadOf::Pull,
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitRef {
+    #[serde(flatten)]
+    pub repo: RepoRef,
+    pub sha: String,
+}
+
+/// The merge requests that hold the commit `sha`, the merged one first.
+pub async fn of_commit(data_dir: &Path, input: CommitRef) -> GitlabResult<Vec<Pull>> {
+    if input.sha.len() < 7 || !input.sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(GitlabError::BadArg(format!(
+            "`{}` is not a commit hash",
+            input.sha
+        )));
+    }
+    let path = input
+        .repo
+        .path(&format!("/repository/commits/{}/merge_requests", input.sha))?;
+    let rows: Vec<MergeRequestRow> = client::get_all(data_dir, &path, &[], 1).await?;
+    let mut pulls: Vec<Pull> = rows.into_iter().map(pull_of).collect();
+    pulls.sort_by_key(|pull| pull.state != "merged");
+    Ok(pulls)
 }
 
 #[derive(Deserialize, Clone)]
@@ -266,7 +248,7 @@ pub struct PullRef {
 }
 
 impl PullRef {
-    fn path(&self, rest: &str) -> GitlabResult<String> {
+    pub fn path(&self, rest: &str) -> GitlabResult<String> {
         pull_thread(self.repo.clone(), self.number).path(rest)
     }
 }
@@ -278,23 +260,7 @@ pub async fn get(data_dir: &Path, input: PullRef) -> GitlabResult<Pull> {
         &[("with_labels_details", "true".into())],
     )
     .await?;
-    Ok(Pull::from_row(row))
-}
-
-#[derive(Serialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ChangedFile {
-    pub path: String,
-    pub status: String,
-    pub additions: u64,
-    pub deletions: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub patch: Option<String>,
-    /// Says which part of the patch this is and how to read the rest.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
+    Ok(pull_of(row))
 }
 
 #[derive(Deserialize)]
@@ -485,16 +451,6 @@ struct CommitRow {
     authored_date: Option<String>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PullCommit {
-    pub sha: String,
-    pub message: String,
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    pub date: Option<String>,
-}
-
 pub async fn commits(data_dir: &Path, input: PullRef) -> GitlabResult<Vec<PullCommit>> {
     let rows: Vec<CommitRow> = client::get_all(data_dir, &input.path("/commits")?, &[], 5).await?;
     let mut commits: Vec<PullCommit> = rows
@@ -520,16 +476,6 @@ struct Approver {
 struct Approvals {
     #[serde(default)]
     approved_by: Vec<Approver>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Review {
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    pub state: String,
-    pub body: String,
-    pub submitted_at: Option<String>,
 }
 
 pub async fn reviews(data_dir: &Path, input: PullRef) -> GitlabResult<Vec<Review>> {
@@ -562,7 +508,7 @@ pub fn merge_body(method: &str, sha: Option<&str>) -> GitlabResult<Value> {
         "squash" => true,
         "merge" => false,
         other => {
-            return Err(GitlabError::BadArg(format!(
+            return Err(GitlabError::MergeMethod(format!(
                 "GitLab cannot merge by {other}"
             )))
         }
@@ -626,7 +572,7 @@ pub async fn create(data_dir: &Path, input: NewPull) -> GitlabResult<Pull> {
         &body,
     )
     .await?;
-    Ok(Pull::from_row(row))
+    Ok(pull_of(row))
 }
 
 #[derive(Deserialize)]
@@ -700,7 +646,7 @@ mod tests {
 
     #[test]
     fn a_merge_request_reads_as_a_pull_request() {
-        let pull = Pull::from_row(row(json!({
+        let pull = pull_of(row(json!({
             "iid": 42, "title": "Fix the VAT rounding", "description": "Rounds per line.", "state": "opened", "draft": false,
             "author": { "username": "ankit", "avatar_url": "https://a/a.png" },
             "source_branch": "fix/vat", "target_branch": "main", "sha": "9c41e2a0",
@@ -716,7 +662,7 @@ mod tests {
         assert_eq!(
             (
                 pull.number,
-                pull.state,
+                pull.state.as_str(),
                 pull.head.as_deref(),
                 pull.base.as_deref()
             ),
@@ -744,7 +690,7 @@ mod tests {
 
     #[test]
     fn a_merged_one_from_a_fork_says_who_merged_it_and_where_its_branch_lives() {
-        let pull = Pull::from_row(row(json!({
+        let pull = pull_of(row(json!({
             "iid": 7, "title": "x", "state": "merged", "created_at": "t1", "source_branch": "patch-1",
             "source_project_id": 8, "target_project_id": 7, "references": { "full": "acme/api!7" },
             "merge_user": { "username": "irwan" }, "squash_commit_sha": "abc", "changes_count": "1000+",

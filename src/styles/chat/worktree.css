@@ -19,20 +19,42 @@
 
 /* Lines up with the text in a message, like the activity line below it. */
 .chat-worktree-note {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
-    gap: 8px;
+    column-gap: 10px;
+    row-gap: 2px;
     width: min(calc(100% - 44px), 756px);
     min-width: 0;
     margin-inline: auto;
-    padding-top: 10px;
+    padding-top: 12px;
     color: var(--ink-faint);
     font-size: var(--text-2xs);
 }
 
-.chat-worktree-note code {
-    color: var(--ink-dim);
+/* The branch mark in its own tinted tile, spanning both lines. */
+.chat-worktree-note > .chat-worktree-mark {
+    grid-row: span 2;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-2);
+    color: var(--acc);
+    background: color-mix(in oklab, var(--acc) 16%, transparent);
+}
+
+.chat-worktree-branch {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-worktree-branch code {
+    color: var(--ink);
     font-family: var(--mono);
+    font-weight: 500;
 }
 
 .chat-worktree-path {

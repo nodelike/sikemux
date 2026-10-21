@@ -4,22 +4,26 @@
 //! in `boards/` in the data folder, one file per project, so a board outlives
 //! a window reload, a restart and an update.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
+use super::changed::Topic;
 use crate::cli::protocol::HarnessRequest;
 use crate::launch::providers::{self, ROUTED_ENV};
+use crate::text::clipped;
 
 use super::connection::blocking;
 use super::inbox::Recording;
+use super::kept::Kept;
 use super::messages;
 use super::names::project_of;
-use super::remote::unix_ms;
 use super::wake::{sooner, Wake};
 use super::Core;
 
@@ -31,6 +35,7 @@ pub(crate) mod git;
 mod review;
 mod tickets;
 
+use auto::RunView;
 pub(crate) use auto::Settings;
 use auto::{Run, Stage};
 pub(crate) use finish::{ci_moved, waiting_on_ci};
@@ -80,23 +85,31 @@ impl Status {
     }
 }
 
+/// Where a card's ticket lives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Tracker {
+    Jira,
+    Linear,
+}
+
 /// The Jira or Linear ticket the person put a card on the board for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Ticket {
     pub key: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// What the ticket is in its tracker, such as Epic, Story or Bug.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    pub provider: String,
+    pub provider: Tracker,
     /// The status last put on the ticket in its tracker, so each change goes
     /// there once.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub synced: Option<Status>,
     /// Why the last change did not reach the ticket.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_note: Option<String>,
 }
 
@@ -119,32 +132,24 @@ struct Card {
     acceptance: String,
     status: Status,
     /// The agent working it, or that did.
-    #[serde(default)]
     owner: Option<String>,
     /// What the owner was called and which CLI it ran when it claimed the
     /// card, for after it has gone.
-    #[serde(default)]
     owner_name: Option<String>,
-    #[serde(default)]
     owner_cli: Option<String>,
-    #[serde(default)]
     parent: Option<u64>,
     #[serde(default)]
     depends_on: Vec<u64>,
     /// The agent that added it, or none when the person did.
-    #[serde(default)]
     created_by: Option<String>,
-    #[serde(default)]
     created_by_name: Option<String>,
     /// The team it was last seen in, for after the team's agents close.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     team: Option<Team>,
-    #[serde(default)]
     result: Option<String>,
-    #[serde(default)]
     ticket: Option<Ticket>,
     /// The run Auto gave the card, in a worktree of its own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     auto: Option<Run>,
     /// Browser recordings its owner made while on it, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -284,18 +289,62 @@ struct State {
     /// Agents whose turn the board started to offer them cards, and that have
     /// done nothing on the board since.
     woken: HashSet<String>,
-    /// Cards Auto is busy with, by project and card.
-    jobs: HashSet<(String, u64)>,
-    /// Cards whose work is to ship again once the step under way ends.
-    reship: HashSet<(String, u64)>,
+    /// What is kept about each card while Auto or the ticket sync works on
+    /// it, by project and card.
+    work: HashMap<(String, u64), CardWork>,
     /// Runs Auto no longer holds, whose agents and worktrees are to go.
     dropped: Vec<finish::Dropped>,
     /// Reviewers whose review ended, whose agents and checkouts are to go.
     dismissed: Vec<blind::Reviewer>,
-    /// Cards whose ticket is being updated.
-    syncing: HashSet<(String, u64)>,
-    /// When each card's pull request or ticket was last asked about.
-    polled: BTreeMap<(String, u64, &'static str), u64>,
+}
+
+/// What the core keeps about a card only while it runs, never saved. It goes
+/// with the card, and once nothing is left in it.
+#[derive(Default, PartialEq)]
+pub(super) struct CardWork {
+    /// A step of Auto's is under way on the card.
+    pub job: bool,
+    /// Its work is to ship again once the step under way ends.
+    pub reship: bool,
+    /// Its ticket is being updated.
+    pub syncing: bool,
+    /// When Auto last looked at its pull request.
+    pub looked: Option<u64>,
+    /// When reading its checks last failed.
+    pub checks_unread: Option<u64>,
+    /// The looks in a row at its pull request that found nothing new.
+    pub quiet: u64,
+    /// Since when the agent its run waits on has been missing.
+    pub missing_since: Option<u64>,
+    /// When its ticket was last looked at in its tracker.
+    pub ticket_looked: Option<u64>,
+    /// The status its ticket last failed to move to, and when.
+    pub ticket_failed: Option<(Status, u64)>,
+}
+
+impl State {
+    fn work(&mut self, project: &str, id: u64) -> &mut CardWork {
+        self.work.entry((project.to_owned(), id)).or_default()
+    }
+
+    fn work_of(&self, project: &str, id: u64) -> Option<&CardWork> {
+        self.work.get(&(project.to_owned(), id))
+    }
+
+    /// Whether a step of Auto's is under way on the card.
+    fn busy(&self, project: &str, id: u64) -> bool {
+        self.work_of(project, id).is_some_and(|work| work.job)
+    }
+
+    /// Changes what is kept about the card, forgetting it once nothing is left.
+    fn change_work(&mut self, project: &str, id: u64, change: impl FnOnce(&mut CardWork)) {
+        let key = (project.to_owned(), id);
+        let work = self.work.entry(key.clone()).or_default();
+        change(work);
+        if *work == CardWork::default() {
+            self.work.remove(&key);
+        }
+    }
 }
 
 pub(crate) struct Boards {
@@ -338,19 +387,10 @@ impl Boards {
                 if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
                     continue;
                 }
-                match std::fs::read(&path)
-                    .map_err(|error| error.to_string())
-                    .and_then(|bytes| {
-                        serde_json::from_slice::<Board>(&bytes).map_err(|error| error.to_string())
-                    }) {
-                    Ok(board) => {
-                        state.dirty.insert(board.project.clone());
-                        state.boards.insert(board.project.clone(), board);
-                    }
-                    Err(error) => eprintln!(
-                        "sikemux core: the board in {} could not be read: {error}",
-                        path.display()
-                    ),
+                let kept = Kept::new(path.parent(), &entry.file_name().to_string_lossy());
+                if let Some(board) = kept.load::<Option<Board>>() {
+                    state.dirty.insert(board.project.clone());
+                    state.boards.insert(board.project.clone(), board);
                 }
             }
         }
@@ -361,47 +401,30 @@ impl Boards {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     fn save(&self, state: &mut State, project: &str) {
         state.dirty.insert(project.to_owned());
         self.wake.now();
         let (Some(folder), Some(board)) = (&self.folder, state.boards.get(project)) else {
             return;
         };
-        let written = std::fs::create_dir_all(folder)
-            .and_then(|()| serde_json::to_vec(board).map_err(std::io::Error::from))
-            .and_then(|bytes| {
-                sikemux_process::files::write_atomic(&folder.join(file_name(project)), &bytes, true)
-            });
-        if let Err(error) = written {
+        if let Err(error) = std::fs::create_dir_all(folder) {
             eprintln!("sikemux core: the board was not saved: {error}");
+            return;
         }
+        Kept::new(Some(folder), &file_name(project)).save(board);
     }
 
     /// A step Auto took on the card is over.
-    fn end_job(&self, key: &(String, u64)) {
-        self.lock().jobs.remove(key);
+    fn end_job(&self, project: &str, id: u64) {
+        self.state
+            .locked()
+            .change_work(project, id, |work| work.job = false);
         self.wake.now();
     }
 }
 
 fn chars(text: &str) -> usize {
     text.chars().count()
-}
-
-fn clipped(text: &str, max: usize) -> String {
-    let text = text.trim();
-    if chars(text) <= max {
-        return text.to_owned();
-    }
-    let mut clipped: String = text.chars().take(max.saturating_sub(1)).collect();
-    clipped.push('…');
-    clipped
 }
 
 fn title_of(value: &str) -> Result<String, String> {
@@ -568,10 +591,11 @@ fn ticket_of(value: &Value) -> Result<Option<Ticket>, String> {
     {
         return Err("a ticket's url must be a web address".into());
     }
-    let provider = field("provider", 20)?.unwrap_or_else(|| "jira".to_owned());
-    if !matches!(provider.as_str(), "jira" | "linear") {
-        return Err("a ticket comes from jira or linear".into());
-    }
+    let provider = match value.get("provider") {
+        None | Some(Value::Null) => Tracker::Jira,
+        Some(provider) => Tracker::deserialize(provider)
+            .map_err(|_| "a ticket comes from jira or linear".to_owned())?,
+    };
     Ok(Some(Ticket {
         key,
         url,
@@ -701,43 +725,95 @@ fn remember_team(core: &Core, board: &mut Board, id: u64) {
     }
 }
 
-/// The card as the app draws it.
-fn app_view(core: &Core, board: &Board, card: &Card) -> Value {
-    let team = team_of(core, board, card);
-    json!({
-        "id": card.id,
-        "title": card.title,
-        "details": card.details,
-        "acceptance": card.acceptance,
-        "status": card.status,
-        "owner": card.owner,
-        "ownerName": card.owner_name(core),
-        "ownerCli": card.owner.as_deref().and_then(|owner| cli_of(core, owner)).or_else(|| card.owner_cli.clone()),
-        "paidBy": card.owner.as_deref().and_then(|owner| paid_by(core, owner)),
-        "team": team.as_ref().map(|team| &team.lead),
-        "teamName": team.as_ref().map(|team| &team.name),
-        "parent": card.parent,
-        "dependsOn": card.depends_on,
-        "waitsOn": board.waits_on(card),
-        "createdBy": card.created_by,
-        "createdByName": card.creator_name(core),
-        "result": card.result,
-        "ticket": card.ticket,
-        "auto": card.auto.as_ref().map(Run::view),
-        "recordings": card.recordings,
-        "at": card.at,
-        "updatedAt": card.updated_at,
-    })
+/// A card as the app and devices read it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CardView {
+    id: u64,
+    title: String,
+    details: String,
+    acceptance: String,
+    status: Status,
+    owner: Option<String>,
+    owner_name: Option<String>,
+    owner_cli: Option<String>,
+    /// The model provider paying for the owner's turns, when not its own account.
+    paid_by: Option<&'static str>,
+    team: Option<String>,
+    team_name: Option<String>,
+    parent: Option<u64>,
+    depends_on: Vec<u64>,
+    waits_on: Vec<u64>,
+    created_by: Option<String>,
+    created_by_name: String,
+    result: Option<String>,
+    ticket: Option<Ticket>,
+    auto: Option<RunView>,
+    recordings: Vec<Recording>,
+    at: u64,
+    updated_at: u64,
 }
 
-fn board_view(core: &Core, board: &Board) -> Value {
-    json!({
-        "project": board.project,
-        "cards": board.cards.iter().map(|card| app_view(core, board, card)).collect::<Vec<_>>(),
-        "settings": board.settings,
-        "running": auto::running(core, board),
-        "autoNote": board.auto_note,
-    })
+/// A board as the app and devices read it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BoardView {
+    project: String,
+    cards: Vec<CardView>,
+    settings: Settings,
+    /// How many of its cards have an agent of Auto's at work.
+    running: usize,
+    auto_note: Option<String>,
+    /// What could not be done of what the person asked, a line each.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    problems: Vec<String>,
+}
+
+fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
+    let team = team_of(core, board, card);
+    CardView {
+        id: card.id,
+        title: card.title.clone(),
+        details: card.details.clone(),
+        acceptance: card.acceptance.clone(),
+        status: card.status,
+        owner: card.owner.clone(),
+        owner_name: card.owner_name(core),
+        owner_cli: card
+            .owner
+            .as_deref()
+            .and_then(|owner| cli_of(core, owner))
+            .or_else(|| card.owner_cli.clone()),
+        paid_by: card.owner.as_deref().and_then(|owner| paid_by(core, owner)),
+        team: team.as_ref().map(|team| team.lead.clone()),
+        team_name: team.map(|team| team.name),
+        parent: card.parent,
+        depends_on: card.depends_on.clone(),
+        waits_on: board.waits_on(card),
+        created_by: card.created_by.clone(),
+        created_by_name: card.creator_name(core),
+        result: card.result.clone(),
+        ticket: card.ticket.clone(),
+        auto: card.auto.as_ref().map(Run::view),
+        recordings: card.recordings.clone(),
+        at: card.at,
+        updated_at: card.updated_at,
+    }
+}
+
+fn board_view(core: &Core, board: &Board) -> BoardView {
+    BoardView {
+        project: board.project.clone(),
+        cards: board
+            .cards
+            .iter()
+            .map(|card| card_view(core, board, card))
+            .collect(),
+        settings: board.settings.clone(),
+        running: auto::running(core, board),
+        auto_note: board.auto_note.clone(),
+        problems: Vec::new(),
+    }
 }
 
 /// The card as `board_list` tells an agent of it.
@@ -818,7 +894,7 @@ fn add_card(
     claim: bool,
 ) -> Result<Value, String> {
     let boards = &core.boards;
-    let mut state = boards.lock();
+    let mut state = boards.state.locked();
     let board = state
         .boards
         .entry(project.to_owned())
@@ -846,7 +922,7 @@ fn add_card(
     }
     board.check_parent(None, adding.parent)?;
     board.check_depends(None, &adding.depends_on)?;
-    let now = unix_ms();
+    let now = epoch_ms();
     let id = board.next.max(1);
     board.next = id + 1;
     let maker = match by {
@@ -902,12 +978,12 @@ fn take(core: &Core, card: &mut Card, agent: &str) {
     card.owner_name = Some(name_of(core, agent));
     card.owner_cli = cli_of(core, agent);
     card.status = Status::Progress;
-    card.updated_at = unix_ms();
+    card.updated_at = epoch_ms();
 }
 
 fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value, String> {
     let boards = &core.boards;
-    let mut state = boards.lock();
+    let mut state = boards.state.locked();
     let board = state
         .boards
         .get_mut(project)
@@ -959,7 +1035,7 @@ fn change_card(
         return Err(ONLY_PERSON_ACCEPTS.into());
     }
     let boards = &core.boards;
-    let mut state = boards.lock();
+    let mut state = boards.state.locked();
     let board = state
         .boards
         .get_mut(project)
@@ -1034,7 +1110,7 @@ fn change_card(
         Some(Status::Progress) => card.status = Status::Progress,
         None => {}
     }
-    card.updated_at = unix_ms();
+    card.updated_at = epoch_ms();
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
     let mut notices = Vec::new();
@@ -1095,7 +1171,7 @@ fn change_card(
 
 fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, String> {
     let boards = &core.boards;
-    let mut state = boards.lock();
+    let mut state = boards.state.locked();
     let board = state
         .boards
         .get_mut(project)
@@ -1110,6 +1186,7 @@ fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, Strin
         }
     }
     let mut notices = unblocked(board, &blocked_before, &By::Person);
+    state.work.remove(&(project.to_owned(), id));
     let run = removed.auto.clone().filter(|run| !run.stage.is_over());
     let dropping = run.is_some();
     if let Some(run) = run {
@@ -1235,7 +1312,7 @@ pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result
         blocking(move || {
             let project = caller_project(&core, &request);
             let own_run = {
-                let state = core.boards.lock();
+                let state = core.boards.state.locked();
                 state
                     .boards
                     .get(&project)
@@ -1249,7 +1326,7 @@ pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result
             if shipping {
                 changes.status = None;
                 if changes.is_empty() {
-                    let state = core.boards.lock();
+                    let state = core.boards.state.locked();
                     let board = state.boards.get(&project).ok_or("the board is gone")?;
                     return Ok((
                         agent_view(&core, board, board.card(id)?, true),
@@ -1283,7 +1360,7 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     let (core, request) = (core.clone(), request.clone());
     blocking(move || {
         let project = caller_project(&core, &request);
-        let state = core.boards.lock();
+        let state = core.boards.state.locked();
         let Some(board) = state.boards.get(&project) else {
             if let Some(id) = one {
                 return Err(format!("There is no card #{id} on this project's board").into());
@@ -1361,7 +1438,7 @@ fn held_card<'a>(state: &'a mut State, agent_id: &str) -> Option<(&'a String, &'
 /// A line naming the agent's card, for the report its lead gets when its
 /// turn ends.
 pub(crate) fn card_line(core: &Core, agent_id: &str) -> Option<String> {
-    let mut state = core.boards.lock();
+    let mut state = core.boards.state.locked();
     let (_, card) = held_card(&mut state, agent_id)?;
     Some(format!(
         "Its card on the board: {}, {}.",
@@ -1372,7 +1449,7 @@ pub(crate) fn card_line(core: &Core, agent_id: &str) -> Option<String> {
 
 /// The ticket of the card an agent holds, or of the card it sits under.
 pub(crate) fn ticket_of_agent(core: &Core, agent_id: &str) -> Option<String> {
-    let state = core.boards.lock();
+    let state = core.boards.state.locked();
     state.boards.values().find_map(|board| {
         let card = board
             .cards
@@ -1445,7 +1522,7 @@ impl Card {
 
 /// The card the agent works, or the one it reviews for Auto.
 pub(crate) fn agent_card(core: &Core, agent_id: &str) -> Option<Summary> {
-    let mut state = core.boards.lock();
+    let mut state = core.boards.state.locked();
     if let Some((project, card)) = held_card(&mut state, agent_id) {
         return Some(card.summary(core, project));
     }
@@ -1466,7 +1543,7 @@ pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Resul
 /// The cards Auto handed back to the person, and those done since
 /// `done_since`.
 pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summary> {
-    let state = core.boards.lock();
+    let state = core.boards.state.locked();
     state
         .boards
         .iter()
@@ -1484,7 +1561,7 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
 
 /// Keeps a browser recording on the card the agent works.
 pub(crate) fn attach_recording(core: &Core, agent_id: &str, recording: Recording) {
-    let mut state = core.boards.lock();
+    let mut state = core.boards.state.locked();
     let Some((project, card)) = held_card(&mut state, agent_id) else {
         return;
     };
@@ -1497,8 +1574,8 @@ pub(crate) fn attach_recording(core: &Core, agent_id: &str, recording: Recording
 }
 
 /// Every project's board, as the app draws them.
-pub(crate) fn boards(core: &Core) -> Vec<Value> {
-    let state = core.boards.lock();
+pub(crate) fn boards(core: &Core) -> Vec<BoardView> {
+    let state = core.boards.state.locked();
     state
         .boards
         .values()
@@ -1506,8 +1583,8 @@ pub(crate) fn boards(core: &Core) -> Vec<Value> {
         .collect()
 }
 
-fn project_view(core: &Core, project: &str) -> Value {
-    let state = core.boards.lock();
+fn project_view(core: &Core, project: &str) -> BoardView {
+    let state = core.boards.state.locked();
     match state.boards.get(project) {
         Some(board) => board_view(core, board),
         None => board_view(core, &Board::empty(project)),
@@ -1524,7 +1601,7 @@ fn project_param(core: &Core, params: &Value) -> Result<String, String> {
 }
 
 /// One project's board, empty when it has no cards yet.
-pub(crate) async fn board(core: &Arc<Core>, params: Value) -> Result<Value, String> {
+pub(crate) async fn board(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_param(&core, &params)?;
@@ -1535,7 +1612,7 @@ pub(crate) async fn board(core: &Arc<Core>, params: Value) -> Result<Value, Stri
 }
 
 /// The person adds a card, which may carry a ticket. Answers with the board.
-pub(crate) async fn person_add(core: &Arc<Core>, params: Value) -> Result<Value, String> {
+pub(crate) async fn person_add(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_param(&core, &params)?;
@@ -1575,7 +1652,7 @@ fn ticket_card(value: &Value) -> Result<Adding, String> {
 /// The card on `project`'s board for ticket `key`: its id, parent and what
 /// it waits on.
 fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<(u64, Option<u64>, Vec<u64>)> {
-    let state = core.boards.lock();
+    let state = core.boards.state.locked();
     let card = state.boards.get(project)?.cards.iter().find(|card| {
         card.ticket
             .as_ref()
@@ -1588,7 +1665,10 @@ fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<(u64, Option<
 /// on the tickets that block it and the ones it blocks wait on it, when those
 /// are on the board too. Answers with the board, and what could not be done
 /// besides adding the ticket.
-pub(crate) async fn person_add_ticket(core: &Arc<Core>, params: Value) -> Result<Value, String> {
+pub(crate) async fn person_add_ticket(
+    core: &Arc<Core>,
+    params: Value,
+) -> Result<BoardView, String> {
     let (view, notices) = {
         let core = core.clone();
         blocking(move || {
@@ -1669,9 +1749,7 @@ pub(crate) async fn person_add_ticket(core: &Arc<Core>, params: Value) -> Result
                 }
             }
             let mut view = project_view(&core, &project);
-            if let (Some(object), false) = (view.as_object_mut(), problems.is_empty()) {
-                object.insert("problems".into(), problems.into());
-            }
+            view.problems = problems;
             Ok((view, notices))
         })
         .await
@@ -1682,7 +1760,7 @@ pub(crate) async fn person_add_ticket(core: &Arc<Core>, params: Value) -> Result
 }
 
 /// The person changes or moves a card. Answers with the board.
-pub(crate) async fn person_update(core: &Arc<Core>, params: Value) -> Result<Value, String> {
+pub(crate) async fn person_update(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
     let (view, notices) = {
         let core = core.clone();
         blocking(move || {
@@ -1701,12 +1779,12 @@ pub(crate) async fn person_update(core: &Arc<Core>, params: Value) -> Result<Val
 
 /// The person changes how the project's board runs on its own. Answers
 /// with the board.
-pub(crate) async fn person_settings(core: &Arc<Core>, params: Value) -> Result<Value, String> {
+pub(crate) async fn person_settings(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_param(&core, &params)?;
         let current = {
-            let state = core.boards.lock();
+            let state = core.boards.state.locked();
             state
                 .boards
                 .get(&project)
@@ -1721,7 +1799,7 @@ pub(crate) async fn person_settings(core: &Arc<Core>, params: Value) -> Result<V
             }
         }
         {
-            let mut state = core.boards.lock();
+            let mut state = core.boards.state.locked();
             let board = state
                 .boards
                 .entry(project.clone())
@@ -1735,14 +1813,17 @@ pub(crate) async fn person_settings(core: &Arc<Core>, params: Value) -> Result<V
     .map_err(|error| error.to_string())
 }
 
-/// The command that proves a change sound in `project`, when the person set
-/// one in the board's settings.
+/// The command that proves a change sound in `project`: the `check` its
+/// `sikemux.json` names, once the person trusts that file.
 pub(crate) fn check_command(core: &Core, project: &str) -> Option<String> {
-    core.boards
-        .lock()
-        .boards
-        .get(project)
-        .and_then(|board| board.settings.check.clone())
+    let load = crate::tasks::config::load(Path::new(project));
+    let crate::tasks::config::ConfigLoad::Valid { config, .. } = &load else {
+        return None;
+    };
+    let command = config.check.clone()?;
+    crate::server::tasks::config_needs(core, &load)
+        .is_none()
+        .then_some(command)
 }
 
 /// Runs the project's check command in `dir`: whether it passed, and the end
@@ -1753,7 +1834,7 @@ pub(crate) fn run_check(dir: &Path, command: &str) -> Result<(bool, String), Str
 
 /// The person has Auto try a card it gave back to them again. Answers with
 /// the board.
-pub(crate) async fn person_retry(core: &Arc<Core>, params: Value) -> Result<Value, String> {
+pub(crate) async fn person_retry(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
     let (project, id) = {
         let core = core.clone();
         blocking(move || {
@@ -1769,7 +1850,7 @@ pub(crate) async fn person_retry(core: &Arc<Core>, params: Value) -> Result<Valu
 }
 
 /// The person takes a card off the board. Answers with the board.
-pub(crate) async fn person_remove(core: &Arc<Core>, params: Value) -> Result<Value, String> {
+pub(crate) async fn person_remove(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
     let (view, notices) = {
         let core = core.clone();
         blocking(move || {
@@ -1813,7 +1894,7 @@ fn idle_from(core: &Core, agent_id: &str) -> Option<u64> {
 /// cards will have been idle long enough.
 fn offer(core: &Arc<Core>) -> Option<u64> {
     forget_stale_offers(core);
-    let now = unix_ms();
+    let now = epoch_ms();
     let running = core.running_agents();
     let workers: Vec<(String, String)> = running
         .iter()
@@ -1831,7 +1912,7 @@ fn offer(core: &Arc<Core>) -> Option<u64> {
     let mut next = None;
     let mut offers: Vec<(String, Vec<String>, String)> = Vec::new();
     {
-        let mut state = core.boards.lock();
+        let mut state = core.boards.state.locked();
         let State {
             boards,
             offered,
@@ -1900,7 +1981,7 @@ fn offer(core: &Arc<Core>) -> Option<u64> {
             let sent = messages::from_board(&core, agent.clone(), text, note).await;
             let new_turn = sent.is_ok_and(|sent| sent["delivery"] == "newTurn");
             if !new_turn {
-                core.boards.lock().woken.remove(&agent);
+                core.boards.state.locked().woken.remove(&agent);
             }
         });
     }
@@ -1910,7 +1991,7 @@ fn offer(core: &Arc<Core>) -> Option<u64> {
 /// Forgets offers of cards no longer open, or gone, and offers to agents
 /// since closed.
 fn forget_stale_offers(core: &Core) {
-    let mut state = core.boards.lock();
+    let mut state = core.boards.state.locked();
     if state.offered.is_empty() {
         return;
     }
@@ -1940,13 +2021,13 @@ fn forget_stale_offers(core: &Core) {
 /// Whether the agent's turn was one the board started to offer it cards, in
 /// which it took none and changed nothing on the board. Ends that turn's mark.
 pub(crate) fn offer_turn_ignored(core: &Core, agent_id: &str) -> bool {
-    core.boards.lock().woken.remove(agent_id)
+    core.boards.state.locked().woken.remove(agent_id)
 }
 
 /// Something besides the board's offer reached the agent in the turn the
 /// offer started, so that turn's end is worth reporting.
 pub(crate) fn reached_by_more_than_offer(core: &Core, agent_id: &str) {
-    core.boards.lock().woken.remove(agent_id);
+    core.boards.state.locked().woken.remove(agent_id);
 }
 
 /// Offers idle workers their team's free cards, moves Auto's runs and the
@@ -1961,7 +2042,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     if let Some(next) = next {
         core.boards.wake.at(next);
     }
-    if !core.boards.lock().dirty.is_empty() {
+    if !core.boards.state.locked().dirty.is_empty() {
         core.harness.questions.boards_changed();
     }
     tell_clients(core);
@@ -1969,8 +2050,8 @@ pub(crate) fn settle(core: &Arc<Core>) {
 
 /// Tells every client which boards changed, so each reads them again.
 fn tell_clients(core: &Core) {
-    let dirty = std::mem::take(&mut core.boards.lock().dirty);
+    let dirty = std::mem::take(&mut core.boards.state.locked().dirty);
     for project in dirty {
-        core.changes.changed("boards", Some(&project), None);
+        core.changes.changed(Topic::Boards, Some(&project), None);
     }
 }

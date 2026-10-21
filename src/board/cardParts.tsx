@@ -5,7 +5,7 @@ import { agentDisplay } from "../state/agentStatus";
 import { useStore } from "../state/store";
 
 /** An agent as a card names it: its mark, its name and what it is doing now. */
-export function Owner({ id, name, cli, paidBy }: { id: string; name: string | null; cli: string | null; paidBy?: string }) {
+export function Owner({ id, name, cli, paidBy }: { id: string; name: string | null; cli: string | null; paidBy: string | null }) {
     const agent = useStore((s) => s.agents[id]);
     const shown = useStore((s) => s.agentStatus[id]);
     const display = agent && agent.launchState !== "dormant" ? agentDisplay(shown) : null;

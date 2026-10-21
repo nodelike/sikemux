@@ -1,7 +1,5 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DiagnosticsController } from "../workbench/diagnosticsController";
-import type { ProjectDiagnosticsLease } from "../workbench/projectDiagnostics";
 import { useLspBridge } from "./useLspBridge";
 
 const mocks = vi.hoisted(() => ({
@@ -39,24 +37,10 @@ vi.mock("../api/lsp", async (importOriginal) => {
     };
 });
 
-vi.mock("../workbench/projectDiagnostics", () => ({
-    projectDiagnosticsRuntime: {
-        acquire: mocks.acquire,
-        noteServerStarted: mocks.noteServerStarted,
-    },
+vi.mock("../editor/projectProblems", () => ({
+    acquireProjectProblems: mocks.acquire,
+    noteServerStarted: mocks.noteServerStarted,
 }));
-
-function diagnosticsLease(project: string, controller: DiagnosticsController): ProjectDiagnosticsLease {
-    return {
-        project,
-        controller,
-        ready: Promise.resolve(),
-        released: false,
-        getSnapshot: vi.fn(),
-        subscribe: vi.fn(),
-        release: mocks.release,
-    } as unknown as ProjectDiagnosticsLease;
-}
 
 function deferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -77,8 +61,7 @@ describe("useLspBridge diagnostics lifecycle", () => {
         mocks.save.mockResolvedValue(undefined);
         mocks.close.mockResolvedValue(undefined);
         mocks.install.mockResolvedValue("");
-        mocks.noteServerStarted.mockReturnValue(1);
-        mocks.acquire.mockImplementation((project: string) => diagnosticsLease(project, { project } as unknown as DiagnosticsController));
+        mocks.acquire.mockImplementation((project: string) => ({ problems: { project }, release: mocks.release }));
     });
 
     afterEach(cleanup);

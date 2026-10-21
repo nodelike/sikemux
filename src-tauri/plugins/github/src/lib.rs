@@ -18,7 +18,6 @@
 //   common    — the shapes every part of the API repeats
 //   images    — avatars and pictures, handed to the window as data: addresses
 //   watch     — following a run while it is going
-//   ratelimit — holding requests back once a rate limit is spent
 
 mod annotations;
 mod approvals;
@@ -33,7 +32,6 @@ mod inbox;
 mod issues;
 mod logs;
 mod pulls;
-mod ratelimit;
 mod releases;
 mod repo;
 mod review;
@@ -43,10 +41,13 @@ mod workflows;
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
+use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::codehost::Resolved;
+use sikemux_plugin_api::store::Accounts;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
 use crate::error::GithubResult;
@@ -61,18 +62,6 @@ struct Github {
     manifest: Manifest,
 }
 
-fn answer<'a, I, T, F>(
-    input: Value,
-    work: impl FnOnce(I) -> F + Send + 'a,
-) -> PluginFuture<'a, Value>
-where
-    I: serde::de::DeserializeOwned + Send + 'a,
-    T: Serialize,
-    F: std::future::Future<Output = GithubResult<T>> + Send + 'a,
-{
-    Box::pin(async move { reply(work(params(input)?).await?) })
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RemoteQuery {
@@ -82,20 +71,12 @@ struct RemoteQuery {
 /// What a git remote points at, and whether it is the GitHub this is signed in
 /// to. A repository on another host is still described, so the view can say so
 /// rather than showing nothing.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Resolved {
-    repo: Option<repo::Repo>,
-    slug: Option<String>,
-    same_host: bool,
-}
-
 fn resolve(data_dir: &std::path::Path, query: RemoteQuery) -> Resolved {
-    let config = config::load(data_dir);
+    let config = config::load(data_dir).unwrap_or_default();
     let found = repo::from_remote(&query.url);
     Resolved {
         same_host: found.as_ref().is_some_and(|repo| config.serves(&repo.host)),
-        slug: found.as_ref().map(repo::Repo::slug),
+        slug: found.as_ref().map(repo::slug),
         repo: found,
     }
 }
@@ -117,7 +98,7 @@ async fn signed_in(
     outcome: GithubResult<String>,
 ) -> Result<Value, PluginError> {
     let id = outcome?;
-    reply(client::as_account(Some(id), auth::status(data_dir)).await)
+    reply(as_account(Some(id), auth::status(data_dir)).await)
 }
 
 /// Which account a call is for; with none named, the default one.
@@ -141,7 +122,7 @@ impl Plugin for Github {
         input: Value,
     ) -> PluginFuture<'a, Value> {
         let account = account_of(&input);
-        Box::pin(client::as_account(account, dispatch(ctx, method, input)))
+        Box::pin(as_account(account, dispatch(ctx, method, input)))
     }
 
     fn stream<'a>(
@@ -152,120 +133,115 @@ impl Plugin for Github {
         sink: StreamSink,
     ) -> PluginFuture<'a, ()> {
         let account = account_of(&input);
-        Box::pin(client::as_account(
+        Box::pin(as_account(
             account,
             dispatch_stream(ctx, method, input, sink),
         ))
     }
 }
 
-fn dispatch<'a>(ctx: &'a PluginContext, method: &'a str, input: Value) -> PluginFuture<'a, Value> {
+async fn dispatch(ctx: &PluginContext, method: &str, input: Value) -> Result<Value, PluginError> {
     let data_dir = ctx.data_dir();
-    // Each method is its own boxed future. Folded into one, every method's
-    // state lived in a single machine several times the size of all of them.
     match method {
-        "status" => Box::pin(async move { reply(auth::status(data_dir).await) }),
-        "accounts" => Box::pin(async move { reply(auth::accounts(data_dir)) }),
-        "setDefaultAccount" => answer(input, move |q| auth::set_default(data_dir, q)),
-        "accountFor" => answer(input, move |q| auth::account_for(data_dir, q)),
-        "rateLimit" => Box::pin(async move {
-            let id = config::load(data_dir)
-                .account(client::chosen().as_deref())
+        "status" => reply(auth::status(data_dir).await),
+        "accounts" => reply(auth::accounts(data_dir)?),
+        "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
+        "accountFor" => answer(auth::account_for(data_dir, params(input)?)).await,
+        "rateLimit" => {
+            let id = config::load(data_dir)?
+                .account(chosen().as_deref())
                 .map(|account| account.id.clone())
                 .unwrap_or_default();
-            reply(ratelimit::budget(&id))
-        }),
-        "signIn" => Box::pin(async move {
-            signed_in(data_dir, auth::sign_in(data_dir, params(input)?).await).await
-        }),
-        "signOut" => Box::pin(async move { reply(auth::sign_out(data_dir).await?) }),
+            reply(client::LIMITS.budget(&id))
+        }
+        "signIn" => signed_in(data_dir, auth::sign_in(data_dir, params(input)?).await).await,
+        "signOut" => answer(auth::sign_out(data_dir)).await,
 
-        "resolveRemote" => Box::pin(async move { reply(resolve(data_dir, params(input)?)) }),
-        "myRepos" => answer(input, move |query: MineQuery| {
-            repo::mine(data_dir, query.limit)
-        }),
-        "workflows" => answer(input, move |q| workflows::list(data_dir, q)),
-        "branches" => answer(input, move |q| workflows::branches(data_dir, q)),
-        "dispatch" => answer(input, move |q| workflows::dispatch(data_dir, q)),
+        "resolveRemote" => reply(resolve(data_dir, params(input)?)),
+        "myRepos" => {
+            let query: MineQuery = params(input)?;
+            answer(repo::mine(data_dir, query.limit)).await
+        }
+        "workflows" => answer(workflows::list(data_dir, params(input)?)).await,
+        "branches" => answer(workflows::branches(data_dir, params(input)?)).await,
+        "dispatch" => answer(workflows::dispatch(data_dir, params(input)?)).await,
 
-        "runs" => answer(input, move |q| runs::list(data_dir, q)),
-        "run" => answer(input, move |q| runs::detail(data_dir, q)),
-        "rerun" => answer(input, move |q| runs::rerun(data_dir, q)),
-        "rerunJob" => answer(input, move |q| runs::rerun_job(data_dir, q)),
-        "cancel" => answer(input, move |q| runs::cancel(data_dir, q)),
-        "deleteRunLogs" => answer(input, move |q| runs::delete_logs(data_dir, q)),
-        "deleteRun" => answer(input, move |q| runs::delete(data_dir, q)),
-        "runAttempt" => answer(input, move |q| runs::attempt(data_dir, q)),
+        "runs" => answer(runs::list(data_dir, params(input)?)).await,
+        "run" => answer(runs::detail(data_dir, params(input)?)).await,
+        "rerun" => answer(runs::rerun(data_dir, params(input)?)).await,
+        "rerunJob" => answer(runs::rerun_job(data_dir, params(input)?)).await,
+        "cancel" => answer(runs::cancel(data_dir, params(input)?)).await,
+        "deleteRunLogs" => answer(runs::delete_logs(data_dir, params(input)?)).await,
+        "deleteRun" => answer(runs::delete(data_dir, params(input)?)).await,
+        "runAttempt" => answer(runs::attempt(data_dir, params(input)?)).await,
 
-        "jobLog" => answer(input, move |q| logs::job(data_dir, q)),
-        "jobLogExcerpt" => answer(input, move |q| logs::excerpt(data_dir, q)),
-        "annotations" => answer(input, move |q| annotations::list(data_dir, q)),
-        "jobSummary" => answer(input, move |q| annotations::summary(data_dir, q)),
-        "runTiming" => answer(input, move |q| runs::timing(data_dir, q)),
-        "workflowFile" => answer(input, move |q| workflows::file(data_dir, q)),
-        "workflowFileAt" => answer(input, move |q| workflows::file_at(data_dir, q)),
+        "jobLog" => answer(logs::job(data_dir, params(input)?)).await,
+        "jobLogExcerpt" => answer(logs::excerpt(data_dir, params(input)?)).await,
+        "annotations" => answer(annotations::list(data_dir, params(input)?)).await,
+        "jobSummary" => answer(annotations::summary(data_dir, params(input)?)).await,
+        "runTiming" => answer(runs::timing(data_dir, params(input)?)).await,
+        "workflowFile" => answer(workflows::file(data_dir, params(input)?)).await,
+        "workflowFileAt" => answer(workflows::file_at(data_dir, params(input)?)).await,
 
-        "artifacts" => answer(input, move |q| artifacts::list(data_dir, q)),
+        "artifacts" => answer(artifacts::list(data_dir, params(input)?)).await,
 
-        "pendingApprovals" => answer(input, move |q| approvals::pending(data_dir, q)),
-        "reviewDeployment" => answer(input, move |q| approvals::review(data_dir, q)),
+        "pendingApprovals" => answer(approvals::pending(data_dir, params(input)?)).await,
+        "reviewDeployment" => answer(approvals::review(data_dir, params(input)?)).await,
 
-        "pulls" => answer(input, move |q| pulls::list(data_dir, q)),
-        "pullCounts" => answer(input, move |q| pulls::counts(data_dir, q)),
-        "issueCounts" => answer(input, move |q| pulls::issue_counts(data_dir, q)),
-        "pull" => answer(input, move |q| pulls::get(data_dir, q)),
-        "pullFiles" => answer(input, move |q| pulls::files(data_dir, q)),
-        "pullCommits" => answer(input, move |q| pulls::commits(data_dir, q)),
-        "commitPulls" => answer(input, move |q| pulls::of_commit(data_dir, q)),
-        "commitAuthors" => answer(input, move |q| pulls::commit_authors(data_dir, q)),
-        "pullReviews" => answer(input, move |q| pulls::reviews(data_dir, q)),
-        "mergePull" => answer(input, move |q| pulls::merge(data_dir, q)),
-        "createPull" => answer(input, move |q| pulls::create(data_dir, q)),
-        "setPullState" => answer(input, move |q| pulls::set_state(data_dir, q)),
-        "reviewPull" => answer(input, move |q| pulls::review(data_dir, q)),
-        "reviewFeedback" => answer(input, move |q| review::feedback(data_dir, q)),
-        "answerReview" => answer(input, move |q| review::answer(data_dir, q)),
+        "pulls" => answer(pulls::list(data_dir, params(input)?)).await,
+        "pullCounts" => answer(pulls::counts(data_dir, params(input)?)).await,
+        "issueCounts" => answer(pulls::issue_counts(data_dir, params(input)?)).await,
+        "pull" => answer(pulls::get(data_dir, params(input)?)).await,
+        "pullFiles" => answer(pulls::files(data_dir, params(input)?)).await,
+        "pullCommits" => answer(pulls::commits(data_dir, params(input)?)).await,
+        "commitPulls" => answer(pulls::of_commit(data_dir, params(input)?)).await,
+        "commitAuthors" => answer(pulls::commit_authors(data_dir, params(input)?)).await,
+        "pullReviews" => answer(pulls::reviews(data_dir, params(input)?)).await,
+        "mergePull" => answer(pulls::merge(data_dir, params(input)?)).await,
+        "createPull" => answer(pulls::create(data_dir, params(input)?)).await,
+        "setPullState" => answer(pulls::set_state(data_dir, params(input)?)).await,
+        "reviewPull" => answer(pulls::review(data_dir, params(input)?)).await,
+        "reviewFeedback" => answer(review::feedback(data_dir, params(input)?)).await,
+        "answerReview" => answer(review::answer(data_dir, params(input)?)).await,
 
-        "issues" => answer(input, move |q| issues::list(data_dir, q)),
-        "issue" => answer(input, move |q| issues::get(data_dir, q)),
-        "setIssueState" => answer(input, move |q| issues::set_state(data_dir, q)),
-        "createIssue" => answer(input, move |q| issues::create(data_dir, q)),
+        "issues" => answer(issues::list(data_dir, params(input)?)).await,
+        "issue" => answer(issues::get(data_dir, params(input)?)).await,
+        "setIssueState" => answer(issues::set_state(data_dir, params(input)?)).await,
+        "createIssue" => answer(issues::create(data_dir, params(input)?)).await,
 
-        "addComment" => answer(input, move |q| common::add_comment(data_dir, q)),
+        "addComment" => answer(common::add_comment(data_dir, params(input)?)).await,
 
-        "releases" => answer(input, move |q| releases::list(data_dir, q)),
+        "releases" => answer(releases::list(data_dir, params(input)?)).await,
 
-        "inbox" => answer(input, move |q| inbox::list(data_dir, q)),
-        "markRead" => answer(input, move |q| inbox::mark_read(data_dir, q)),
-        "comments" => answer(input, move |thread: common::Thread| async move {
-            common::comments(data_dir, &thread.repo, thread.number).await
-        }),
-        "timeline" => answer(input, move |thread: common::Thread| async move {
-            common::timeline(data_dir, &thread.repo, thread.number).await
-        }),
-        "image" => answer(input, move |q| images::image(data_dir, q)),
-        "markAllRead" => Box::pin(async move { reply(inbox::mark_all_read(data_dir).await?) }),
+        "inbox" => answer(inbox::list(data_dir, params(input)?)).await,
+        "markRead" => answer(inbox::mark_read(data_dir, params(input)?)).await,
+        "comments" => {
+            let thread: common::Thread = params(input)?;
+            answer(common::comments(data_dir, &thread.repo, thread.number)).await
+        }
+        "timeline" => {
+            let thread: common::Thread = params(input)?;
+            answer(common::timeline(data_dir, &thread.repo, thread.number)).await
+        }
+        "image" => answer(images::image(data_dir, params(input)?)).await,
+        "markAllRead" => answer(inbox::mark_all_read(data_dir)).await,
 
-        _ => Box::pin(async move { Err(PluginError::unknown_method(method)) }),
+        _ => Err(PluginError::unknown_method(method)),
     }
 }
 
-fn dispatch_stream<'a>(
-    ctx: &'a PluginContext,
-    method: &'a str,
+async fn dispatch_stream(
+    ctx: &PluginContext,
+    method: &str,
     input: Value,
     sink: StreamSink,
-) -> PluginFuture<'a, ()> {
+) -> Result<(), PluginError> {
     let data_dir = ctx.data_dir();
     match method {
-        "watchRun" => Box::pin(async move { watch::run(data_dir, params(input)?, sink).await }),
-        "downloadArtifact" => {
-            Box::pin(async move { artifacts::download(data_dir, params(input)?, &sink).await })
-        }
-        "downloadAsset" => {
-            Box::pin(async move { releases::download(data_dir, params(input)?, &sink).await })
-        }
-        _ => Box::pin(async move { Err(PluginError::unknown_method(method)) }),
+        "watchRun" => watch::run(data_dir, params(input)?, sink).await,
+        "downloadArtifact" => artifacts::download(data_dir, params(input)?, &sink).await,
+        "downloadAsset" => releases::download(data_dir, params(input)?, &sink).await,
+        _ => Err(PluginError::unknown_method(method)),
     }
 }
 
@@ -365,9 +341,10 @@ mod live {
             .expect("runs");
         let rows = page["runs"].as_array().expect("run rows");
         assert!(rows.len() <= 5);
-        let Some(run_id) = rows.first().and_then(|row| row["id"].as_u64()) else {
+        let Some(run_id) = rows.first().and_then(|row| row["id"].as_str()) else {
             return;
         };
+        let run_id: u64 = run_id.parse().expect("a run id is a number");
 
         let detail = plugin
             .call(
@@ -377,12 +354,13 @@ mod live {
             )
             .await
             .expect("run detail");
-        assert_eq!(detail["run"]["id"], run_id);
+        assert_eq!(detail["run"]["id"], run_id.to_string());
 
         if let Some(job_id) = detail["jobs"]
             .as_array()
             .and_then(|jobs| jobs.first())
-            .and_then(|job| job["id"].as_u64())
+            .and_then(|job| job["id"].as_str())
+            .and_then(|id| id.parse::<u64>().ok())
         {
             let log = plugin
                 .call(

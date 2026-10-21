@@ -1,22 +1,21 @@
 //! One tool call, one connection to the app's CLI broker.
 
-use std::env;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use sikemux_core::cli::client::{attempt, Failure};
+pub use sikemux_core::cli::protocol::TOOLS_REPLY_TIMEOUT;
+use sikemux_host::cli_client::current_project;
+use sikemux_host::cli_paths::handed_endpoint;
 
-/// The app answers a browser call only once the page settles, which it gives
-/// itself a minute to do.
-pub const REPLY_TIMEOUT: Duration = Duration::from_secs(70);
 /// How long a call waits for Sikemux to come back while it restarts, such as
 /// after an update.
 pub const RESTART_WAIT: Duration = Duration::from_secs(15);
 const RETRY_GAP: Duration = Duration::from_millis(250);
 
 pub fn call(agent_id: &str, method: &str, params: &Value) -> Result<Value, String> {
-    call_within(agent_id, method, params, REPLY_TIMEOUT, RESTART_WAIT)
+    call_within(agent_id, method, params, TOOLS_REPLY_TIMEOUT, RESTART_WAIT)
 }
 
 /// As [`call`], giving up on an answer after `timeout`, and on reaching
@@ -28,32 +27,28 @@ pub fn call_within(
     timeout: Duration,
     patience: Duration,
 ) -> Result<Value, String> {
-    let endpoint = endpoint_path()?;
-    let project = env::var("SIKEMUX_PROJECT")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            env::current_dir()
-                .ok()
-                .map(|path| path.to_string_lossy().into_owned())
-        })
-        .ok_or("the current directory is unavailable")?;
     relay(
-        &endpoint, &project, agent_id, method, params, timeout, patience,
+        &endpoint()?,
+        &current_project()?,
+        agent_id,
+        method,
+        params,
+        timeout,
+        patience,
     )
 }
 
-fn endpoint_path() -> Result<PathBuf, String> {
-    env::var_os("SIKEMUX_CLI_ENDPOINT")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
+/// Only the endpoint Sikemux handed over, so a tools server it did not start
+/// never reaches whichever Sikemux happens to be running.
+fn endpoint() -> Result<PathBuf, String> {
+    handed_endpoint()
         .ok_or_else(|| "Missing SIKEMUX_CLI_ENDPOINT; launch this MCP from Sikemux".into())
 }
 
 /// What the endpoint file says now. It changes when another Sikemux, or a
 /// newer one, takes over the endpoint.
 pub fn instance() -> Option<Vec<u8>> {
-    std::fs::read(endpoint_path().ok()?).ok()
+    std::fs::read(endpoint().ok()?).ok()
 }
 
 /// Tries again, re-reading the endpoint file, while Sikemux cannot be reached

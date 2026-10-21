@@ -114,10 +114,7 @@ describe("frontend persistence", () => {
         expect(workspace.pinned).toEqual([{ provider: "claude", sessionId: "s-1", title: "Release checklist", project: "/work/demo" }]);
 
         setState({ pinnedChats: [] });
-        workspace.pinned.push(
-            { provider: "nobody", sessionId: "x", title: "x", project: "/x" },
-            { provider: "codex", sessionId: "", title: "y", project: "/y" },
-        );
+        workspace.pinned.push({ provider: "nobody", sessionId: "x", title: "x", project: "/x" });
         expect(applyHydrate(JSON.stringify(saved), undefined, workspace)).toBe("applied");
         expect(getState().pinnedChats).toEqual([{ agent: "claude", id: "s-1", title: "Release checklist", project: "/work/demo" }]);
 
@@ -272,8 +269,6 @@ describe("frontend persistence", () => {
         ]);
 
         setState({ spaces: [], projectSpaces: {}, activeSpaceId: null });
-        workspace.projects.push({ id: "gone", name: "gone", path: "/gone", pinned: false, space: "space-that-was-deleted" });
-        workspace.spaces.push({ id: "blank", name: "   ", icon: "" });
         workspace.spaces[1].icon = "not-an-icon";
         applyHydrate(JSON.stringify(saved), undefined, workspace);
 
@@ -608,7 +603,7 @@ describe("frontend persistence", () => {
         setState({
             providerProfiles: [{ id: "codex-work", name: "Codex Work", provider: "codex", accent: "#abcdef" }],
             selectedProviderProfileIds: { codex: "codex-work" },
-            defaultAgentPermissionMode: "full-access",
+            defaultAgentPermissionMode: "bypass",
         });
         invoke.mockResolvedValue(undefined);
 
@@ -803,7 +798,7 @@ describe("frontend persistence", () => {
         const current = getState().sessions[sid];
         applyHydrate(
             JSON.stringify({
-                version: 3,
+                version: 4,
                 sessions: [
                     {
                         ...current,

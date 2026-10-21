@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Share
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Directory, File, Paths } from 'expo-file-system';
 
+import { problem as problemOf } from '@/core/problem';
 import { LockCover } from '@/lock/LockScreen';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
@@ -62,7 +63,7 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
         if (done) haptics.success();
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = problemOf(error);
         if (!/cancel/i.test(message)) setProblem(`Could not save it: ${message}`);
       })
       .finally(() => setSaving(false));

@@ -1,4 +1,4 @@
-export { agentExecutablePath, profileOf, shellQuote } from "./agentLaunchCommand";
+export { agentExecutablePath, profileOf } from "./agentLaunchCommand";
 export { mergePinnedIntoRoots, normaliseProjectRoots } from "./settingsLogic";
 export * from "./agents";
 export * from "./appearance";

@@ -8,87 +8,19 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::chat::claude_transcript;
 use super::chat::feed::Said;
+use crate::agent_catalog::AgentKind;
 
 /// How much of a file's end is read when no cursor says where to start.
 const TAIL_BYTES: u64 = 2 * 1024 * 1024;
 /// How much one read takes from a cursor on.
 const MAX_READ_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_SESSION_ID_CHARS: usize = 200;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Cli {
-    Claude,
-    Codex,
-}
-
-impl Cli {
-    pub(crate) fn of(cli: &str) -> Option<Self> {
-        match cli {
-            "claude" => Some(Cli::Claude),
-            "codex" => Some(Cli::Codex),
-            _ => None,
-        }
-    }
-
-    fn default_home(self) -> Option<PathBuf> {
-        let (variable, folder) = match self {
-            Cli::Claude => ("CLAUDE_CONFIG_DIR", ".claude"),
-            Cli::Codex => ("CODEX_HOME", ".codex"),
-        };
-        std::env::var_os(variable)
-            .filter(|home| !home.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| sikemux_process::paths::home().map(|home| home.join(folder)))
-    }
-}
 
 /// The session file of `session`, under the agent's account folder or the
 /// CLI's own.
-pub(crate) fn locate(cli: Cli, home: Option<&Path>, session: &str) -> Option<PathBuf> {
-    let plain = session
-        .chars()
-        .all(|char| char.is_ascii_alphanumeric() || char == '-');
-    if !plain || session.is_empty() || session.len() > MAX_SESSION_ID_CHARS {
-        return None;
-    }
-    let home = home.map(Path::to_path_buf).or_else(|| cli.default_home())?;
-    match cli {
-        Cli::Claude => claude_transcript(&home, session),
-        Cli::Codex => codex_rollout(&home.join("sessions"), session),
-    }
-}
-
-fn newest_first(dir: &Path) -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .collect();
-    found.sort_unstable_by(|a, b| b.cmp(a));
-    found
-}
-
-/// Codex keeps each session in `YYYY/MM/DD/rollout-<time>-<session>.jsonl`.
-fn codex_rollout(sessions: &Path, session: &str) -> Option<PathBuf> {
-    let suffix = format!("-{session}.jsonl");
-    for year in newest_first(sessions) {
-        for month in newest_first(&year) {
-            for day in newest_first(&month) {
-                let found = newest_first(&day).into_iter().find(|path| {
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(&suffix))
-                });
-                if found.is_some() {
-                    return found;
-                }
-            }
-        }
-    }
-    None
+pub(crate) fn locate(kind: AgentKind, home: Option<&Path>, session: &str) -> Option<PathBuf> {
+    let home = home.map(Path::to_path_buf).or_else(|| kind.home_root())?;
+    crate::sessions::transcript::find(kind, &home, None, session)
 }
 
 /// What a session file said from one offset on.
@@ -106,7 +38,7 @@ pub(crate) struct Excerpt {
 
 /// What the file said from `from` on, or over its last `turns` turns.
 pub(crate) fn read(
-    cli: Cli,
+    cli: AgentKind,
     path: &Path,
     from: Option<u64>,
     turns: usize,
@@ -139,8 +71,9 @@ pub(crate) fn read(
         if let Ok(value) = serde_json::from_slice::<Value>(line) {
             let mut items = Vec::new();
             match cli {
-                Cli::Claude => claude(&value, &mut items),
-                Cli::Codex => codex(&value, &mut items),
+                AgentKind::Claude => claude(&value, &mut items),
+                AgentKind::Codex => codex(&value, &mut items),
+                _ => {}
             }
             for (starts, item) in items {
                 push(&mut said, cli, offset, starts, item);
@@ -175,7 +108,13 @@ pub(crate) fn read(
 /// Adds `item`, unless it repeats the one before it: a Codex rollout can
 /// carry the same message both as an event and as a finished item. Claude
 /// writes nothing where a turn ends, so its next prompt ends the one before.
-fn push(said: &mut Vec<(u64, bool, Said)>, cli: Cli, offset: u64, mut starts: bool, item: Said) {
+fn push(
+    said: &mut Vec<(u64, bool, Said)>,
+    cli: AgentKind,
+    offset: u64,
+    mut starts: bool,
+    item: Said,
+) {
     if let Some((_, _, last)) = said.last() {
         let repeat = match (last, &item) {
             (Said::Asked(last), Said::Asked(text)) | (Said::Message(last), Said::Message(text)) => {
@@ -190,7 +129,7 @@ fn push(said: &mut Vec<(u64, bool, Said)>, cli: Cli, offset: u64, mut starts: bo
             starts = false;
         }
         let open = !matches!(last, Said::TurnEnded { .. } | Said::Failed(_));
-        if cli == Cli::Claude && starts && open {
+        if cli == AgentKind::Claude && starts && open {
             said.push((offset, false, Said::TurnEnded { cancelled: false }));
         }
     }

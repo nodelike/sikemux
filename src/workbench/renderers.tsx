@@ -23,6 +23,7 @@ const GitPane = lazy(() => import("../git/GitPane").then((module) => ({ default:
 const DiffPane = lazy(() => import("../git/DiffPane").then((module) => ({ default: module.DiffPane })));
 const SearchPane = lazy(() => import("../workspace/SearchPane").then((module) => ({ default: module.SearchPane })));
 const SharedChatPane = lazy(() => import("../share/SharedChatPane").then((module) => ({ default: module.SharedChatPane })));
+const ProjectSettingsPane = lazy(() => import("../settings/ProjectSettingsPane").then((module) => ({ default: module.ProjectSettingsPane })));
 const BoardPane = lazy(() => import("../board/BoardPane").then((module) => ({ default: module.BoardPane })));
 
 const paneCwd = (pane: PaneNode, session: Session) => pane.cwd || session.cwd;
@@ -37,6 +38,7 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
             <EditorPane
                 paneId={pane.id}
                 cwd={paneCwd(pane, session)}
+                host={pane.host}
                 active={active}
                 visible={visible}
                 showInsights={win.role !== "ssh-config"}
@@ -71,6 +73,11 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
             <BoardPane folder={paneCwd(pane, session)} visible={visible} />
         </Suspense>
     ),
+    "project-settings": ({ pane, session, visible }) => (
+        <Suspense fallback={<ItemFallback />}>
+            <ProjectSettingsPane project={paneCwd(pane, session)} name={session.name} visible={visible} />
+        </Suspense>
+    ),
     desk: ({ pane, session, win, active, visible, painted }) => (
         <DeskHost
             paneId={pane.id}
@@ -89,11 +96,12 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
             reconnect={session.kind === "ssh" ? pane.startup : undefined}
             active={active}
             visible={visible}
-            context={terminalContext(session, win.id, pane.id)}
+            context={pane.host ? { ...terminalContext(session, win.id, pane.id), project: pane.cwd } : terminalContext(session, win.id, pane.id)}
             taskTerminalKey={pane.externalPty ? pane.taskTerminalKey : undefined}
             retainPtyOnUnmount
             resumePtyId={pane.ptyId}
             onPtySession={(id) => cmd.setPanePty(pane.id, id)}
+            host={pane.host}
         />
     ),
 };

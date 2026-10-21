@@ -35,3 +35,14 @@
     min-height: 0;
     overflow: hidden;
 }
+
+/* In a project's tab rather than over the stage: it fills the pane, whose edge it already has. */
+.settings-pane.in-tab {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}

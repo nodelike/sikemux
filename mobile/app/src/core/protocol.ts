@@ -33,13 +33,17 @@ function readCore<T>(json: string): T {
   return JSON.parse(json, (_key, value) => (value === null ? undefined : value)) as T;
 }
 
-/** Hosts from before recent chats or the inbox send none, which reads as an empty one. */
+/** The view as the phone's client passes it on, which always fills in `recent`. */
+type SentView = Omit<Snapshot, 'inbox'> & { inbox?: Omit<Inbox, 'agents'> & Partial<Pick<Inbox, 'agents'>> };
+
+/** Hosts before 0.5.3-nightly.2 send no inbox, and before 0.5.4-nightly.1 no `agents` in it; each reads as empty. */
 export function readView(json: string): Snapshot {
-  const view = readCore<DeviceView>(json);
+  const { inbox, ...view } = readCore<SentView>(json);
   return {
     ...view,
-    recent: view.recent ?? [],
-    inbox: view.inbox ?? { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [] },
+    inbox: inbox
+      ? { ...inbox, agents: inbox.agents ?? [] }
+      : { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [] },
   };
 }
 
@@ -79,13 +83,12 @@ export function keepUnchanged(previous: Snapshot | undefined, next: Snapshot): S
   };
 }
 
-/** Hosts from before remote workers or the core's agent order leave those lists out. */
 function keepInbox(previous: Inbox, next: Inbox): Inbox {
   const kept: Inbox = {
     ...next,
     items: keepItems(previous.items, next.items, (item) => item.id),
-    remoteAgents: keepItems(previous.remoteAgents ?? [], next.remoteAgents ?? [], (agent) => agent.agentId),
-    agents: keepItems(previous.agents ?? [], next.agents ?? [], (agent) => agent.agentId),
+    remoteAgents: keepItems(previous.remoteAgents, next.remoteAgents, (agent) => agent.agentId),
+    agents: keepItems(previous.agents, next.agents, (agent) => agent.agentId),
     agentMessages: same(previous.agentMessages, next.agentMessages) ? previous.agentMessages : next.agentMessages,
     buddies: same(previous.buddies, next.buddies) ? previous.buddies : next.buddies,
   };

@@ -22,9 +22,9 @@ Spring Boot tasks appear only when the build uses Spring Boot. A project's own `
 
 ## Your own tasks
 
-When a project starts with its own script, such as `bash tool/run.sh`, add it from the run button's menu with **Add a task**: a name, the command and the folder it runs in. **For the team** saves it in `sikemux.json`, which you commit; **Only me** keeps it in a `.sikemux` folder that Git ignores, and it comes along into agent worktrees. Either way it comes first in the menu, and agents see it in `workspace_inspect`. A task in `.sikemux` that you did not add here, such as one a cloned project brought with it, shows its command and asks before it runs, as `sikemux.json` does.
+When a project starts with its own script, such as `bash tool/run.sh`, add it from the run button's menu with **Add a task**: a name, the command and the folder it runs in. **For the team** saves it in `sikemux.json`, which you commit; **Only me** keeps it in a `.sikemux` folder that Git ignores, and it comes along into agent worktrees. Either way it comes first in the menu, and agents see it in `workspace_inspect`. Change or remove it in [project settings](/getting-started/projects/#project-settings). A task in `.sikemux` that you did not add here, such as one a cloned project brought with it, shows its command and asks before it runs, as `sikemux.json` does.
 
-**Find this project's tasks with an agent** asks an agent to read the README, AGENTS.md and the project's scripts and add the commands people really use to `sikemux.json`. The request lands in the agent's input; press Return to send it.
+**Find tasks with an agent** asks an agent to read the README, AGENTS.md and the project's scripts and add the commands people really use to `sikemux.json`. The request lands in the agent's input; press Return to send it.
 
 ## Checked before it runs
 
@@ -56,7 +56,7 @@ An agent can start a teammate in a worktree of its own, so each builds and tests
 
 ## A check on every commit
 
-When the board has a check command, Sikemux runs it on each commit as committed, in a checkout of its own beside the project, so the work agents have not committed yet never decides the result. The agents whose commits it failed after hear at once; you hear if the project stays broken for 15 minutes. Files a project builds from its other files and commits, such as generated types, go in `sikemux.json` under `generate`, with the command that makes them and the files it writes: after each commit Sikemux runs it there and commits what changed, so agents never commit them by hand.
+When `sikemux.json` names a `check` command, which you can set under **Check** on the project settings' Tasks page, Sikemux runs it on each commit as committed, in a checkout of its own beside the project, so the work agents have not committed yet never decides the result. The agents whose commits it failed after hear at once; you hear if the project stays broken for 15 minutes. Files a project builds from its other files and commits, such as generated types, go in `sikemux.json` under `generate`, with the command that makes them and the files it writes: after each commit Sikemux runs it there and commits what changed, so agents never commit them by hand.
 
 ## Review an agent's work
 

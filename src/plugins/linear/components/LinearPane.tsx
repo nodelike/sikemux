@@ -1,24 +1,20 @@
 import { useState } from "react";
 import { copyWithNotice, notify, openUrl, reportError, swallow } from "../../../plugin-api/host";
-import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
-import { Dropdown, EmptyState, Markdown, SendToAgentMenu, SkeletonRows, StaleNotice } from "../../../plugin-api/ui";
-import { failureMessage, linearApi, refreshLinear, type LinearChange, type LinearIssue, type LinearStatus } from "../api";
-import { linearIssueR, linearIssuesR, linearStatusR } from "../resources";
+import { errorText, formatStamp } from "../../../plugin-api/format";
+import { useResourceEnabled } from "../../../plugin-api/resources";
+import { Dropdown, EmptyState, Loaded, Markdown, Pending, SendToAgentMenu, SignedIn, StaleNotice } from "../../../plugin-api/ui";
+import { linearApi, type LinearChange, type LinearIssue, type LinearStatus } from "../api";
+import { linear, linearIssueR, linearIssuesR } from "../resources";
 import { issueForAgent, updateLinearView, useLinearView } from "../state";
 import { LinearSignIn } from "./LinearSignIn";
 import "../linear.css";
 
 export function LinearPane({ paneId, active }: { paneId: string; active: boolean }) {
-    const status = useResourceEnabled(active, linearStatusR);
-    if (status.data === undefined && status.status !== "error") return <SkeletonRows rows={5} label="Connecting to Linear" />;
-    if (!status.data?.configured || status.data.authFailed) return <LinearSignIn status={status.data} onSignedIn={() => refreshLinear()} />;
-    return <LinearWorkspace paneId={paneId} active={active} status={status.data} />;
-}
-
-function when(at: string): string {
-    const time = Date.parse(at);
-    if (Number.isNaN(time)) return "";
-    return new Date(time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    return (
+        <SignedIn service={linear} active={active} signIn={(status) => <LinearSignIn status={status} onSignedIn={() => linear.refresh()} />}>
+            {(status) => <LinearWorkspace paneId={paneId} active={active} status={status} />}
+        </SignedIn>
+    );
 }
 
 function StateDot({ color }: { color: string }) {
@@ -60,12 +56,12 @@ function LinearWorkspace({ paneId, active, status }: { paneId: string; active: b
                     ) : (
                         <span className="linear-workspace">{workspace.name}</span>
                     )}
-                    <button type="button" className="linear-chip" onClick={() => void issues.refresh()}>
+                    <button type="button" className="plugin-chip" onClick={() => void issues.refresh()}>
                         Refresh
                     </button>
                 </div>
                 <input
-                    className="linear-input"
+                    className="plugin-input"
                     value={words}
                     onChange={(event) => setWords(event.target.value)}
                     onKeyDown={(event) => {
@@ -79,21 +75,23 @@ function LinearWorkspace({ paneId, active, status }: { paneId: string; active: b
                     aria-label="Search Linear issues"
                     spellCheck={false}
                 />
-                <div className="linear-heading">{view.query ? `Matching “${view.query}”` : "My open issues"}</div>
+                <div className="plugin-heading">{view.query ? `Matching “${view.query}”` : "My open issues"}</div>
                 <StaleNotice handle={issues} />
-                {issues.status === "error" && !issues.data ? (
-                    <p className="linear-note">{issues.error}</p>
-                ) : !issues.data ? (
-                    <SkeletonRows rows={6} label="Loading issues" />
-                ) : issues.data.length === 0 ? (
-                    <EmptyState message={view.query ? "No issue matches." : "Nothing assigned to you is open."} />
-                ) : (
-                    <div className="linear-rows">{issues.data.map(row)}</div>
-                )}
+                <Loaded
+                    handle={issues}
+                    loading="Loading issues"
+                    empty={(found) => (found.length > 0 ? null : view.query ? "No issue matches." : "Nothing assigned to you is open.")}>
+                    {(found) => <div className="linear-rows">{found.map(row)}</div>}
+                </Loaded>
                 <button
                     type="button"
-                    className="linear-signout"
-                    onClick={() => void linearApi.signOut(workspace.id).then(refreshLinear).catch(reportError("sign out of Linear"))}>
+                    className="plugin-signout"
+                    onClick={() =>
+                        void linearApi
+                            .signOut(workspace.id)
+                            .then(() => linear.refresh())
+                            .catch(reportError("sign out of Linear"))
+                    }>
                     Sign out of {workspace.name}
                 </button>
             </nav>
@@ -115,7 +113,7 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const issue = found.data;
 
-    const changed = () => invalidate((kind) => kind === "linear.issues" || kind === "linear.issue");
+    const changed = () => linear.refresh(linearIssuesR, linearIssueR);
     const change = (what: LinearChange, done: string) => {
         setBusy(true);
         void linearApi
@@ -124,7 +122,7 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
                 notify("success", done);
                 changed();
             })
-            .catch((error: unknown) => notify("error", `Change ${id}: ${failureMessage(error)}`))
+            .catch((error: unknown) => notify("error", `Change ${id}: ${errorText(error)}`))
             .finally(() => setBusy(false));
     };
     const comment = () => {
@@ -141,17 +139,10 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
             .finally(() => setBusy(false));
     };
 
-    if (found.status === "error" && !issue) {
-        return (
-            <section className="linear-detail">
-                <EmptyState message={found.error ?? `Linear could not open ${id}.`} tone="error" />
-            </section>
-        );
-    }
     if (!issue) {
         return (
             <section className="linear-detail">
-                <SkeletonRows rows={6} label={`Loading ${id}`} />
+                <Pending handle={found} loading={`Loading ${id}`} />
             </section>
         );
     }
@@ -163,16 +154,16 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
             <header className="linear-detail-head">
                 <span className="linear-row-id">{issue.identifier}</span>
                 <span className="linear-detail-actions">
-                    <button type="button" className="linear-chip" onClick={() => void openUrl(issue.url).catch(swallow("open the issue"))}>
+                    <button type="button" className="plugin-chip" onClick={() => void openUrl(issue.url).catch(swallow("open the issue"))}>
                         Open in Linear
                     </button>
-                    <button type="button" className="linear-chip" onClick={() => copyWithNotice(issue.branchName, "the branch name")}>
+                    <button type="button" className="plugin-chip" onClick={() => copyWithNotice(issue.branchName, "the branch name")}>
                         Copy branch
                     </button>
-                    <button type="button" className="linear-chip" onClick={(event) => setMenu({ x: event.clientX, y: event.clientY })}>
+                    <button type="button" className="plugin-chip" onClick={(event) => setMenu({ x: event.clientX, y: event.clientY })}>
                         Send to agent
                     </button>
-                    <button type="button" className="linear-chip" aria-label="Close the issue" onClick={onClose}>
+                    <button type="button" className="plugin-chip" aria-label="Close the issue" onClick={onClose}>
                         ✕
                     </button>
                 </span>
@@ -192,7 +183,7 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
                 {!issue.assignee && (
                     <button
                         type="button"
-                        className="linear-chip"
+                        className="plugin-chip"
                         disabled={busy}
                         onClick={() => change({ assignee: "me" }, `${issue.identifier} is yours`)}>
                         Assign to me
@@ -210,15 +201,15 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
                 {issue.description?.trim() ? (
                     <Markdown className="prose linear-description">{issue.description}</Markdown>
                 ) : (
-                    <p className="linear-note">No description.</p>
+                    <p className="plugin-note">No description.</p>
                 )}
-                <h3 className="linear-heading">Comments</h3>
-                {issue.comments.length === 0 && <p className="linear-note">No comments yet.</p>}
+                <h3 className="plugin-heading">Comments</h3>
+                {issue.comments.length === 0 && <p className="plugin-note">No comments yet.</p>}
                 {issue.comments.map((each) => (
                     <article key={each.id} className="linear-comment">
                         <header>
                             <b>{each.user?.displayName || each.user?.name || "Someone"}</b>
-                            <span>{when(each.createdAt)}</span>
+                            <span>{formatStamp(each.createdAt)}</span>
                         </header>
                         <Markdown className="prose">{each.body}</Markdown>
                     </article>
@@ -234,7 +225,7 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
                     placeholder="Comment (⌘↵ to send)"
                     aria-label={`Comment on ${issue.identifier}`}
                 />
-                <button type="button" className="linear-chip primary" disabled={!draft.trim() || busy} onClick={comment}>
+                <button type="button" className="plugin-chip primary" disabled={!draft.trim() || busy} onClick={comment}>
                     {busy ? "Saving…" : "Comment"}
                 </button>
             </div>

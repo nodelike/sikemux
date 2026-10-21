@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde_json::Value;
+use sikemux_process::sync::Locked;
 use tauri::Emitter;
 
 use super::limits::{MAX_LSP_LANGUAGE_BYTES, MAX_LSP_PATH_BYTES};
@@ -96,10 +97,7 @@ fn publish_diagnostics(server: &Server, params: &Value) {
     let Some(payload) = parse_diagnostics_payload(&server.project, &server.language, params) else {
         return;
     };
-    let mut tracked = match server.diagnostic_paths.lock() {
-        Ok(tracked) => tracked,
-        Err(poisoned) => poisoned.into_inner(),
-    };
+    let mut tracked = server.diagnostic_paths.locked();
     if server.shutdown.load(std::sync::atomic::Ordering::Acquire)
         || !track_diagnostic_publish(
             &mut tracked,
@@ -119,10 +117,7 @@ fn publish_diagnostics(server: &Server, params: &Value) {
 
 pub(super) fn clear_server_diagnostics(server: &Server) {
     let tracked = {
-        let mut tracked = match server.diagnostic_paths.lock() {
-            Ok(tracked) => tracked,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut tracked = server.diagnostic_paths.locked();
         tracked.drain().collect::<Vec<_>>()
     };
     for (path, version) in tracked {

@@ -3,7 +3,7 @@
 //! standard input and output. Their session updates already have the shape
 //! the chat reads, so they pass through as they come.
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
@@ -15,14 +15,18 @@ use agent_client_protocol::schema::v1::{
 use agent_client_protocol::schema::ProtocolVersion;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
 use crate::acp::account::{self, Failure};
 use crate::acp::{air, native, permission_mode_id, prompt_blocks};
+use crate::launch::PermissionMode;
 use crate::protocol::ChatLaunch;
 
 use super::super::Respond;
+use super::pending::{Answered, Purpose};
 use super::process::{Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
+use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, TurnEnd};
 
 /// The error code an agent turns a prompt down with when it needs a sign-in.
@@ -36,15 +40,6 @@ fn describe(error: &Value) -> String {
 
 fn params(message: impl Serialize) -> Result<Value, String> {
     serde_json::to_value(message).map_err(|error| error.to_string())
-}
-
-/// Why starting failed, with the last thing the agent printed when it stopped.
-fn start_error(process: &Process, error: String) -> String {
-    let stderr = process.stderr();
-    match stderr.lines().rev().find(|line| !line.trim().is_empty()) {
-        Some(line) => format!("{error}: {}", line.trim()),
-        None => error,
-    }
 }
 
 /// The turn last prompted, the last one asked to stop while it ran, and
@@ -65,10 +60,6 @@ struct Driver {
 }
 
 impl Driver {
-    fn lock(&self) -> MutexGuard<'_, Turns> {
-        self.turns.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     /// Sends a request and waits on its answer, for at most `wait`.
     async fn call(
         &self,
@@ -96,12 +87,12 @@ impl Driver {
             },
             // Hermes can crash out of a stopped turn and leave its session
             // refusing every prompt after.
-            Err(_) if self.lock().cancelled == turn => TurnEnd::Broken(
+            Err(_) if self.turns.locked().cancelled == turn => TurnEnd::Broken(
                 "The agent failed while stopping, so its session was restarted".into(),
             ),
             // The agent is gone, and the chat says why once its process has
             // exited.
-            Err(_) if self.lock().gone => return,
+            Err(_) if self.turns.locked().gone => return,
             Err(error) if error["code"] == AUTH_REQUIRED => TurnEnd::Failed {
                 failure: Failure::sign_in(error_text(&error)),
                 response: None,
@@ -130,26 +121,27 @@ impl Driver {
             }
             None => RequestPermissionOutcome::Cancelled,
         };
-        let response = serde_json::to_value(RequestPermissionResponse::new(outcome))
-            .unwrap_or_else(|_| json!({}));
-        self.rpc.respond(reply["id"].clone(), response);
+        self.rpc.respond(
+            reply["id"].clone(),
+            json!(RequestPermissionResponse::new(outcome)),
+        );
     }
 
     /// The answer to a request sent with `purpose`.
-    fn purpose_answered(&self, purpose: Value, result: Result<Value, Value>) {
-        if let Some(turn) = purpose["prompt"].as_u64() {
-            self.answered(turn, result);
-        } else if let Some(steer) = purpose.get("steer") {
-            if result.is_ok_and(|answer| answer["outcome"] == "injected") {
-                let paths: Vec<String> =
-                    serde_json::from_value(steer["paths"].clone()).unwrap_or_default();
-                self.sink
-                    .prompted(steer["text"].as_str().unwrap_or_default(), &paths);
+    fn purpose_answered(&self, purpose: Purpose, result: Answered) {
+        match purpose {
+            Purpose::Prompt(turn) => self.answered(turn, result),
+            Purpose::Steer { text, paths } => {
+                if result.is_ok_and(|answer| answer["outcome"] == "injected") {
+                    self.sink.prompted(&text, &paths);
+                }
             }
-        } else if purpose.get("stopTask").is_some() {
-            if let Err(error) = result {
-                self.sink.error(describe(&error));
+            Purpose::StopTask(_) => {
+                if let Err(error) = result {
+                    self.sink.error(describe(&error));
+                }
             }
+            _ => {}
         }
     }
 }
@@ -183,49 +175,16 @@ impl Reads for Driver {
     }
 
     fn closed(&mut self) {
-        self.lock().gone = true;
+        self.turns.locked().gone = true;
         self.rpc.close();
     }
 }
 
-/// What an ACP chat hands a core that takes it over.
+/// What an ACP chat knows of its session, as it hands it to a core that
+/// takes it over.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AcpState {
-    rpc: RpcState,
-    turns: Turns,
-    provider: String,
-    session_id: String,
-    setup: Value,
-    steering: bool,
-    embedded_context: bool,
-    can_load: bool,
-    model_outside_config: bool,
-}
-
-/// The tool servers the chat hands its agent, skipping any it cannot read.
-fn tool_servers(launch: &ChatLaunch) -> Vec<McpServer> {
-    launch
-        .mcp_servers
-        .iter()
-        .filter_map(|server| match serde_json::from_value(server.clone()) {
-            Ok(server) => Some(server),
-            Err(error) => {
-                eprintln!(
-                    "sikemux core: chat {} skips a tool server it cannot read: {error}",
-                    launch.agent_id
-                );
-                None
-            }
-        })
-        .collect()
-}
-
-pub(crate) struct Acp {
-    process: Process,
-    driver: Driver,
-    reading: Reading<Driver>,
-    provider: String,
+struct Kept {
     session_id: String,
     setup: Value,
     steering: bool,
@@ -234,6 +193,23 @@ pub(crate) struct Acp {
     /// Whether the session's models are picked through `session/set_model`
     /// rather than as a config option.
     model_outside_config: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpState {
+    rpc: RpcState,
+    turns: Turns,
+    #[serde(flatten)]
+    kept: Kept,
+}
+
+pub(crate) struct Acp {
+    process: Process,
+    driver: Driver,
+    reading: Reading<Driver>,
+    provider: String,
+    kept: Kept,
 }
 
 impl Acp {
@@ -266,7 +242,7 @@ impl Acp {
         launch: &ChatLaunch,
         can_load: bool,
     ) -> Result<(String, Value), String> {
-        let servers = tool_servers(launch);
+        let servers = servers::tool_servers(launch);
         let Some(existing) = launch.resume_id.clone() else {
             return Self::open_new(driver, launch, servers).await;
         };
@@ -298,13 +274,13 @@ impl Acp {
             .call(
                 native::SetSessionModel::METHOD,
                 native::SetSessionModel {
-                    session_id: self.session_id.clone(),
+                    session_id: self.kept.session_id.clone(),
                     model_id: model.to_owned(),
                 },
                 Some(ANSWER_WAIT),
             )
             .await?;
-        native::select_model(&mut self.setup, model);
+        native::select_model(&mut self.kept.setup, model);
         Ok(())
     }
 
@@ -314,7 +290,7 @@ impl Acp {
             .call(
                 AGENT_METHOD_NAMES.session_set_config_option,
                 SetSessionConfigOptionRequest::new(
-                    self.session_id.clone(),
+                    self.kept.session_id.clone(),
                     config_id.to_owned(),
                     value,
                 ),
@@ -322,7 +298,7 @@ impl Acp {
             )
             .await?;
         if let Some(options) = answer.get("configOptions") {
-            self.setup["configOptions"] = options.clone();
+            self.kept.setup["configOptions"] = options.clone();
         }
         Ok(())
     }
@@ -331,8 +307,9 @@ impl Acp {
     /// the agent no longer offers is skipped, since model lists change between
     /// launches and a stale one should not stop the chat from starting.
     async fn apply_saved_choices(&mut self, model: Option<&str>, effort: Option<&str>) {
-        if let Some(model) = model.filter(|model| native::offers(&self.setup, "model", model)) {
-            let applied = if self.model_outside_config {
+        if let Some(model) = model.filter(|model| native::offers(&self.kept.setup, "model", model))
+        {
+            let applied = if self.kept.model_outside_config {
                 self.set_model(model).await
             } else {
                 self.set_option("model", model).await
@@ -344,8 +321,8 @@ impl Acp {
         let Some(effort) = effort else {
             return;
         };
-        let Some(config_id) = native::effort_config_id(&self.setup)
-            .filter(|id| native::offers(&self.setup, id, effort))
+        let Some(config_id) = native::effort_config_id(&self.kept.setup)
+            .filter(|id| native::offers(&self.kept.setup, id, effort))
             .map(str::to_owned)
         else {
             return;
@@ -358,17 +335,20 @@ impl Acp {
     /// Writes a steer to the agent now, so a stop sent after it reaches the
     /// agent after it too.
     fn send_steer(&self, prompt: Prompt) -> Result<Sent, String> {
-        if !self.steering {
+        if !self.kept.steering {
             return Err("this agent cannot take a message mid-turn".to_owned());
         }
-        let purpose = json!({ "steer": { "text": prompt.text, "paths": prompt.paths } });
+        let purpose = Purpose::Steer {
+            text: prompt.text.clone(),
+            paths: prompt.paths.clone(),
+        };
         let blocks = prompt_blocks(
             prompt.text,
             prompt.paths,
             prompt.context,
-            self.embedded_context,
+            self.kept.embedded_context,
         )?;
-        let steer = air::Steer::new(self.session_id.clone(), blocks);
+        let steer = air::Steer::new(self.kept.session_id.clone(), blocks);
         self.driver
             .rpc
             .start_for(air::Steer::METHOD, params(steer)?, Some(purpose))
@@ -379,7 +359,7 @@ impl Acp {
         self.driver
             .call(
                 AGENT_METHOD_NAMES.session_set_mode,
-                SetSessionModeRequest::new(self.session_id.clone(), mode_id.to_owned()),
+                SetSessionModeRequest::new(self.kept.session_id.clone(), mode_id.to_owned()),
                 Some(ANSWER_WAIT),
             )
             .await
@@ -392,12 +372,12 @@ impl Backend for Acp {
         let (process, writer, lines) =
             Process::spawn(launch, Vec::<String>::new(), Vec::<(String, String)>::new())?;
         let driver = Driver {
-            rpc: Rpc::versioned(writer),
+            rpc: Rpc::new(writer, true),
             sink,
             turns: Arc::default(),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
-        let failed = |error: String| start_error(&process, error);
+        let failed = |error: String| process.start_error(error);
 
         let initialize = InitializeRequest::new(ProtocolVersion::V1)
             .client_capabilities(air::client_capabilities())
@@ -430,22 +410,31 @@ impl Backend for Acp {
             driver,
             reading,
             provider: launch.provider.clone(),
-            session_id,
-            model_outside_config: native::models_outside_config(&setup),
-            setup: native::with_model_config(setup),
-            steering,
-            embedded_context: initialized
-                .agent_capabilities
-                .prompt_capabilities
-                .embedded_context,
-            can_load,
+            kept: Kept {
+                session_id,
+                model_outside_config: native::models_outside_config(&setup),
+                setup: native::with_model_config(setup),
+                steering,
+                embedded_context: initialized
+                    .agent_capabilities
+                    .prompt_capabilities
+                    .embedded_context,
+                can_load,
+            },
         };
 
-        if let Some(mode_id) =
-            permission_mode_id(&acp.provider, &launch.permission_mode, &acp.setup)?
-        {
+        if let Some(mode_id) = permission_mode_id(
+            &acp.provider,
+            PermissionMode::parse(&launch.permission_mode)?,
+            &acp.kept.setup,
+        )? {
             acp.set_mode(mode_id).await?;
-            if let Some(modes) = acp.setup.get_mut("modes").and_then(Value::as_object_mut) {
+            if let Some(modes) = acp
+                .kept
+                .setup
+                .get_mut("modes")
+                .and_then(Value::as_object_mut)
+            {
                 modes.insert("currentModeId".into(), json!(mode_id));
             }
         }
@@ -453,9 +442,9 @@ impl Backend for Acp {
             .await;
 
         let opened = Opened {
-            session_id: acp.session_id.clone(),
+            session_id: acp.kept.session_id.clone(),
             capabilities,
-            setup: acp.setup.clone(),
+            setup: acp.kept.setup.clone(),
         };
         Ok((acp, opened))
     }
@@ -465,14 +454,14 @@ impl Backend for Acp {
             prompt.text,
             prompt.paths,
             prompt.context,
-            self.embedded_context,
+            self.kept.embedded_context,
         )?;
-        let request = PromptRequest::new(self.session_id.clone(), blocks);
-        self.driver.lock().prompted = turn;
+        let request = PromptRequest::new(self.kept.session_id.clone(), blocks);
+        self.driver.turns.locked().prompted = turn;
         self.driver.rpc.send_for(
             AGENT_METHOD_NAMES.session_prompt,
             params(request)?,
-            json!({ "prompt": turn }),
+            Purpose::Prompt(turn),
         )
     }
 
@@ -490,29 +479,29 @@ impl Backend for Acp {
     async fn cancel(&mut self) -> Result<(), String> {
         let sent = self.driver.rpc.notify(
             AGENT_METHOD_NAMES.session_cancel,
-            params(CancelNotification::new(self.session_id.clone()))?,
+            params(CancelNotification::new(self.kept.session_id.clone()))?,
         );
         if self.driver.sink.running() {
-            let mut turns = self.driver.lock();
+            let mut turns = self.driver.turns.locked();
             turns.cancelled = turns.prompted;
         }
         sent
     }
 
-    async fn set_permission_mode(&mut self, mode: &str) -> Result<(), String> {
-        match permission_mode_id(&self.provider, mode, &self.setup)? {
+    async fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
+        match permission_mode_id(&self.provider, mode, &self.kept.setup)? {
             Some(mode_id) => self.set_mode(mode_id).await,
             None => Ok(()),
         }
     }
 
     async fn set_config(&mut self, config_id: &str, value: &str) -> Result<Value, String> {
-        if config_id == "model" && self.model_outside_config {
+        if config_id == "model" && self.kept.model_outside_config {
             self.set_model(value).await?;
         } else {
             self.set_option(config_id, value).await?;
         }
-        Ok(self.setup["configOptions"].clone())
+        Ok(self.kept.setup["configOptions"].clone())
     }
 
     /// A background task outlives the turn that started it, so stopping one
@@ -530,13 +519,13 @@ impl Backend for Acp {
 
     async fn stop_task(&mut self, task_id: &str) -> Result<(), String> {
         let stop = air::StopAsyncTask {
-            session_id: self.session_id.clone(),
+            session_id: self.kept.session_id.clone(),
             async_task_id: task_id.to_owned(),
         };
         self.driver.rpc.send_for(
             air::StopAsyncTask::METHOD,
             params(stop)?,
-            json!({ "stopTask": task_id }),
+            Purpose::StopTask(task_id.to_owned()),
         )
     }
 
@@ -553,7 +542,7 @@ impl Backend for Acp {
     }
 
     fn reloadable(&self) -> bool {
-        self.can_load
+        self.kept.can_load
     }
 
     async fn release(self) -> Result<(Value, Released), String> {
@@ -561,27 +550,16 @@ impl Backend for Acp {
             process,
             driver,
             reading,
-            provider,
-            session_id,
-            setup,
-            steering,
-            embedded_context,
-            can_load,
-            model_outside_config,
+            provider: _,
+            kept,
         } = self;
         let (driver_back, lines) = reading.stop().await.ok_or("The agent stopped")?;
         drop(driver_back);
-        let turns = std::mem::take(&mut *driver.lock());
+        let turns = std::mem::take(&mut *driver.turns.locked());
         let state = AcpState {
             rpc: driver.rpc.state(),
             turns,
-            provider,
-            session_id,
-            setup,
-            steering,
-            embedded_context,
-            can_load,
-            model_outside_config,
+            kept,
         };
         let state = serde_json::to_value(state).map_err(|error| error.to_string())?;
         let released = process.release(lines).await?;
@@ -589,14 +567,14 @@ impl Backend for Acp {
     }
 
     fn adopt(
-        _launch: &ChatLaunch,
+        launch: &ChatLaunch,
         sink: Sink,
         state: Value,
         (process, writer, lines): (Process, Writer, Lines),
     ) -> Result<Self, String> {
         let state: AcpState = serde_json::from_value(state).map_err(|error| error.to_string())?;
         let driver = Driver {
-            rpc: Rpc::restored(writer, true, state.rpc),
+            rpc: Rpc::restored(writer, state.rpc),
             sink,
             turns: Arc::new(Mutex::new(state.turns)),
         };
@@ -605,13 +583,8 @@ impl Backend for Acp {
             process,
             driver,
             reading,
-            provider: state.provider,
-            session_id: state.session_id,
-            setup: state.setup,
-            steering: state.steering,
-            embedded_context: state.embedded_context,
-            can_load: state.can_load,
-            model_outside_config: state.model_outside_config,
+            provider: launch.provider.clone(),
+            kept: state.kept,
         })
     }
 

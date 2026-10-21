@@ -3,6 +3,7 @@
 
 mod config;
 mod control;
+mod failure;
 mod permission;
 mod reader;
 mod replay;
@@ -12,20 +13,28 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use agent_client_protocol::schema::v1::McpServer;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::agent_catalog::AgentKind;
 use crate::launch::providers::ROUTED_ENV;
+use crate::launch::PermissionMode;
 use crate::protocol::ChatLaunch;
+use crate::sessions::{self, roots::account_root};
 
 use super::super::Respond;
+use super::file_link;
+use super::parts::{context_text, parts, Part};
+use super::pending::Purpose;
 use super::process::{Lines, Process, Reading, Released, Writer};
+use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink};
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
-pub(crate) use replay::transcript_path;
 
 /// Where a session starts: a new one under a chosen id, or a saved one.
 enum Start<'a> {
@@ -46,21 +55,18 @@ struct Running {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ClaudeState {
-    control: Vec<(String, Value)>,
+    control: Vec<(String, Purpose)>,
     shared: Shared,
     reader: ReaderState,
-    launch: ChatLaunch,
-    session_id: String,
-    models: Vec<Value>,
-    model: String,
-    effort: String,
-    aliases: HashMap<String, String>,
+    #[serde(flatten)]
+    kept: Kept,
 }
 
-pub(crate) struct Claude {
-    launch: ChatLaunch,
-    running: Running,
-    shared: Arc<Mutex<Shared>>,
+/// What a Claude chat knows of its session, as it hands it to a core that
+/// takes it over.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Kept {
     session_id: String,
     models: Vec<Value>,
     model: String,
@@ -70,84 +76,65 @@ pub(crate) struct Claude {
     aliases: HashMap<String, String>,
 }
 
-fn config_dir(launch: &ChatLaunch) -> PathBuf {
-    crate::acp::account::directory("claude", &launch.env)
-        .unwrap_or_else(|| PathBuf::from(".claude"))
+pub(crate) struct Claude {
+    launch: ChatLaunch,
+    running: Running,
+    shared: Arc<Mutex<Shared>>,
+    kept: Kept,
 }
 
-/// The ACP tool server list as Claude Code's `--mcp-config` file.
-fn mcp_config(servers: &[Value]) -> Option<String> {
-    let pairs = |list: Option<&Value>| -> serde_json::Map<String, Value> {
-        list.and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|pair| {
-                Some((
-                    pair.get("name")?.as_str()?.to_owned(),
-                    pair.get("value")?.clone(),
-                ))
-            })
-            .collect()
-    };
-    let servers: serde_json::Map<String, Value> = servers
+/// The transcript Claude keeps of `session_id` for the account `launch` runs on.
+fn transcript(launch: &ChatLaunch, session_id: &str) -> Option<PathBuf> {
+    let root = account_root(AgentKind::Claude, None, &launch.env)?;
+    let cwd = launch.cwd.to_string_lossy();
+    sessions::transcript::find(AgentKind::Claude, &root, Some(&cwd), session_id)
+}
+
+/// The chat's tool servers as Claude Code's `--mcp-config` file.
+fn mcp_config(tools: &[McpServer]) -> Option<String> {
+    let tools: serde_json::Map<String, Value> = tools
         .iter()
         .filter_map(|server| {
-            let name = server.get("name")?.as_str()?.to_owned();
-            let config = match server.get("type").and_then(Value::as_str) {
-                Some(kind @ ("http" | "sse")) => json!({
-                    "type": kind,
-                    "url": server.get("url")?,
-                    "headers": pairs(server.get("headers")),
-                }),
-                _ => json!({
-                    "type": "stdio",
-                    "command": server.get("command")?,
-                    "args": server.get("args").cloned().unwrap_or_else(|| json!([])),
-                    "env": pairs(server.get("env")),
-                }),
+            let (name, config) = match server {
+                McpServer::Http(http) => (
+                    &http.name,
+                    json!({ "type": "http", "url": http.url, "headers": servers::headers(&http.headers) }),
+                ),
+                McpServer::Sse(sse) => (
+                    &sse.name,
+                    json!({ "type": "sse", "url": sse.url, "headers": servers::headers(&sse.headers) }),
+                ),
+                McpServer::Stdio(stdio) => (
+                    &stdio.name,
+                    json!({
+                        "type": "stdio",
+                        "command": stdio.command,
+                        "args": stdio.args,
+                        "env": servers::variables(&stdio.env),
+                    }),
+                ),
+                _ => return None,
             };
-            Some((name, config))
+            Some((name.clone(), config))
         })
         .collect();
-    (!servers.is_empty()).then(|| json!({ "mcpServers": servers }).to_string())
+    (!tools.is_empty()).then(|| json!({ "mcpServers": tools }).to_string())
 }
 
 /// What the person wrote, as the content of a Claude user message. Files go
 /// as links Claude reads itself, and handed-over text follows the message.
 fn content(prompt: &Prompt) -> Result<Vec<Value>, String> {
-    let blocks = crate::acp::prompt_blocks(
-        prompt.text.clone(),
-        prompt.paths.clone(),
-        prompt.context.clone(),
-        true,
-    )?;
-    let link = |uri: &str| super::file_link(None, uri);
+    let text = |text: String| json!({ "type": "text", "text": text });
     let mut content = Vec::new();
     let mut handed = Vec::new();
-    for block in blocks {
-        let block = serde_json::to_value(block).map_err(|error| error.to_string())?;
-        match block.get("type").and_then(Value::as_str) {
-            Some("text") => content.push(json!({ "type": "text", "text": block["text"] })),
-            Some("resource_link") => {
-                let uri = block["uri"].as_str().unwrap_or_default();
-                content.push(json!({ "type": "text", "text": link(uri) }));
+    for part in parts(prompt)? {
+        match part {
+            Part::Text(said) => content.push(text(said)),
+            Part::File { name, uri } => content.push(text(file_link(Some(&name), &uri))),
+            Part::Context { uri, text: body } => {
+                content.push(text(file_link(None, &uri)));
+                handed.push(text(format!("\n{}", context_text(&uri, &body))));
             }
-            Some("resource") => {
-                let uri = block.pointer("/resource/uri").and_then(Value::as_str).unwrap_or_default();
-                let text = block.pointer("/resource/text").and_then(Value::as_str);
-                content.push(json!({ "type": "text", "text": link(uri) }));
-                if let Some(text) = text {
-                    handed.push(json!({
-                        "type": "text",
-                        "text": format!("\n<context ref=\"{uri}\">\n{text}\n</context>"),
-                    }));
-                }
-            }
-            Some("image") => content.push(json!({
-                "type": "image",
-                "source": { "type": "base64", "data": block["data"], "media_type": block["mimeType"] },
-            })),
-            _ => {}
         }
     }
     content.extend(handed);
@@ -201,7 +188,7 @@ impl Claude {
         if let Some(model) = model.filter(|model| *model != config::DEFAULT) {
             args.extend(["--model".to_owned(), model.to_owned()]);
         }
-        if let Some(config) = mcp_config(&launch.mcp_servers) {
+        if let Some(config) = mcp_config(&servers::tool_servers(launch)) {
             args.extend(["--mcp-config".to_owned(), config]);
         }
         match start {
@@ -245,14 +232,10 @@ impl Claude {
         };
         match initialized {
             Ok(response) => Ok((running, response)),
-            Err(error) => {
-                let said = running.process.stderr();
-                Err(if said.is_empty() {
-                    format!("Claude did not start: {error}")
-                } else {
-                    format!("Claude did not start: {said}")
-                })
-            }
+            Err(error) => Err(format!(
+                "Claude did not start: {}",
+                running.process.start_error(error)
+            )),
         }
     }
 
@@ -269,19 +252,19 @@ impl Claude {
         }
         let _ = self.running.control.send_for(
             json!({ "subtype": "generate_session_title", "description": description, "persist": true }),
-            json!({ "title": true }),
+            Purpose::Title,
         );
     }
 
     fn options(&self) -> Value {
-        config::options(&self.models, &self.model, &self.effort)
+        config::options(&self.kept.models, &self.kept.model, &self.kept.effort)
     }
 
     async fn apply_effort(&self) -> Result<(), String> {
-        let level = if self.effort == config::DEFAULT {
+        let level = if self.kept.effort == config::DEFAULT {
             Value::Null
         } else {
-            json!(self.effort)
+            json!(self.kept.effort)
         };
         self.running
             .control
@@ -298,18 +281,16 @@ impl Claude {
         let Some(message_id) = message_id else {
             return Uuid::new_v4().to_string();
         };
-        let used = self.aliases.contains_key(message_id)
-            || self
-                .shared
-                .lock()
-                .map(|shared| shared.sent.contains(message_id))
-                .unwrap_or(true);
+        let used = self.kept.aliases.contains_key(message_id)
+            || self.shared.locked().sent.contains(message_id);
         let uuid = if used || Uuid::parse_str(message_id).is_err() {
             Uuid::new_v4().to_string()
         } else {
             message_id.to_owned()
         };
-        self.aliases.insert(message_id.to_owned(), uuid.clone());
+        self.kept
+            .aliases
+            .insert(message_id.to_owned(), uuid.clone());
         uuid
     }
 
@@ -318,9 +299,7 @@ impl Claude {
 
         let uuid = Uuid::new_v4().to_string();
         {
-            let Ok(mut shared) = self.shared.lock() else {
-                return Err("The chat's state is unavailable".into());
-            };
+            let mut shared = self.shared.locked();
             if shared.turn.is_none() {
                 return Ok("promptRequired".into());
             }
@@ -342,7 +321,7 @@ impl Claude {
 
 impl Backend for Claude {
     async fn start(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
-        let mode = config::permission_mode(&launch.permission_mode)?;
+        let mode = config::permission_mode(PermissionMode::parse(&launch.permission_mode)?);
         let shared = Arc::new(Mutex::new(Shared {
             mode: mode.to_owned(),
             untitled: launch.resume_id.is_none().then(String::new),
@@ -355,8 +334,8 @@ impl Backend for Claude {
         // Claude takes a moment to start, so the saved chat is read and
         // replayed while it does.
         let replaying = launch.resume_id.is_some().then(|| {
-            let (dir, id, cwd, sink, shared) = (
-                config_dir(launch),
+            let (path, id, cwd, sink, shared) = (
+                transcript(launch, &session_id),
                 session_id.clone(),
                 launch.cwd.clone(),
                 sink.clone(),
@@ -364,16 +343,17 @@ impl Backend for Claude {
             );
             tokio::task::spawn_blocking(move || -> Result<Option<String>, String> {
                 let loaded = || sink.update(&id, json!({ "sessionUpdate": "history_loaded" }));
-                let Some(path) = replay::transcript_path(&dir, &id) else {
+                let Some(path) = path else {
                     loaded();
                     return Ok(None);
                 };
                 let records = replay::with_subagents(&path, replay::read_history(&path)?);
                 // Claude Code drops a message under an id its transcript already
                 // has, so a prompt sent again after a restart needs a new one.
-                if let Ok(mut shared) = shared.lock() {
-                    shared.sent.extend(replay::user_message_ids(&records));
-                }
+                shared
+                    .locked()
+                    .sent
+                    .extend(replay::user_message_ids(&records));
                 for (session, update) in replay::replay(&records, &id, &cwd) {
                     sink.update(&session, update);
                 }
@@ -456,11 +436,13 @@ impl Backend for Claude {
             launch: launch.clone(),
             running,
             shared,
-            session_id: session_id.clone(),
-            models,
-            model,
-            effort,
-            aliases: HashMap::new(),
+            kept: Kept {
+                session_id: session_id.clone(),
+                models,
+                model,
+                effort,
+                aliases: HashMap::new(),
+            },
         };
         if let Some(model) = switch_to {
             claude
@@ -498,9 +480,8 @@ impl Backend for Claude {
     async fn prompt(&mut self, turn: u64, prompt: Prompt) -> Result<(), String> {
         let content = content(&prompt)?;
         let uuid = self.uuid_for(prompt.message_id.as_deref());
-        let mut first = false;
-        if let Ok(mut shared) = self.shared.lock() {
-            first = shared.untitled.take().is_some();
+        let first = {
+            let mut shared = self.shared.locked();
             shared.sent.insert(uuid.clone());
             shared.turn = Some(Turn {
                 number: turn,
@@ -510,12 +491,11 @@ impl Backend for Claude {
                 cancelled: false,
                 failure: None,
             });
-        }
+            shared.untitled.take().is_some()
+        };
         let sent = self.writer().send(&user_message(&uuid, content, None));
         if sent.is_err() {
-            if let Ok(mut shared) = self.shared.lock() {
-                shared.turn = None;
-            }
+            self.shared.locked().turn = None;
         } else if first {
             self.name_chat(&prompt.text);
         }
@@ -530,15 +510,12 @@ impl Backend for Claude {
     }
 
     async fn cancel(&mut self) -> Result<(), String> {
-        let running = match self.shared.lock() {
-            Ok(mut shared) => match shared.turn.as_mut() {
-                Some(turn) => {
-                    turn.cancelled = true;
-                    true
-                }
-                None => false,
-            },
-            Err(_) => false,
+        let running = match self.shared.locked().turn.as_mut() {
+            Some(turn) => {
+                turn.cancelled = true;
+                true
+            }
+            None => false,
         };
         if !running {
             return Ok(());
@@ -550,15 +527,13 @@ impl Backend for Claude {
             .map(drop)
     }
 
-    async fn set_permission_mode(&mut self, mode: &str) -> Result<(), String> {
-        let mode = config::permission_mode(mode)?;
+    async fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
+        let mode = config::permission_mode(mode);
         self.running
             .control
             .request(json!({ "subtype": "set_permission_mode", "mode": mode }))
             .await?;
-        if let Ok(mut shared) = self.shared.lock() {
-            shared.mode = mode.to_owned();
-        }
+        self.shared.locked().mode = mode.to_owned();
         Ok(())
     }
 
@@ -566,28 +541,28 @@ impl Backend for Claude {
         match config_id {
             "model" => {
                 if self.launch.env.contains_key(ROUTED_ENV) {
-                    config::provider_model(&mut self.models, value);
+                    config::provider_model(&mut self.kept.models, value);
                 }
-                if !config::offers_model(&self.models, value) {
+                if !config::offers_model(&self.kept.models, value) {
                     return Err(format!("Invalid value for config option model: {value}"));
                 }
                 self.running
                     .control
                     .request(json!({ "subtype": "set_model", "model": value }))
                     .await?;
-                self.model = value.to_owned();
-                let levels = config::effort_levels(&self.models, value);
-                if self.effort != config::DEFAULT && !levels.contains(&self.effort) {
-                    self.effort = config::DEFAULT.to_owned();
+                self.kept.model = value.to_owned();
+                let levels = config::effort_levels(&self.kept.models, value);
+                if self.kept.effort != config::DEFAULT && !levels.contains(&self.kept.effort) {
+                    self.kept.effort = config::DEFAULT.to_owned();
                     self.apply_effort().await?;
                 }
             }
             "effort" => {
-                let levels = config::effort_levels(&self.models, &self.model);
+                let levels = config::effort_levels(&self.kept.models, &self.kept.model);
                 if value != config::DEFAULT && !levels.iter().any(|level| level == value) {
                     return Err(format!("Invalid value for config option effort: {value}"));
                 }
-                self.effort = value.to_owned();
+                self.kept.effort = value.to_owned();
                 self.apply_effort().await?;
             }
             _ => return Err(format!("Unknown config option: {config_id}")),
@@ -606,11 +581,12 @@ impl Backend for Claude {
 
     async fn rewind(&mut self, message_id: &str) -> Result<Option<String>, String> {
         let uuid = self
+            .kept
             .aliases
             .get(message_id)
             .cloned()
             .unwrap_or_else(|| message_id.to_owned());
-        let path = replay::transcript_path(&config_dir(&self.launch), &self.session_id)
+        let path = transcript(&self.launch, &self.kept.session_id)
             .ok_or("Claude has not saved this chat yet")?;
         // Claude Code refuses to drop turns it thinks the person has not seen.
         let newest = replay::read_chain(&path)?
@@ -657,14 +633,10 @@ impl Backend for Claude {
 
     async fn release(self) -> Result<(Value, Released), String> {
         let Self {
-            launch,
+            launch: _,
             running,
             shared: _,
-            session_id,
-            models,
-            model,
-            effort,
-            aliases,
+            kept,
         } = self;
         let Running {
             process,
@@ -675,18 +647,12 @@ impl Backend for Claude {
         } = running;
         let (reader, lines) = reading.stop().await.ok_or("Claude stopped")?;
         let (reader, shared) = reader.into_state();
-        let shared =
-            std::mem::take(&mut *shared.lock().map_err(|_| "Claude's state is unavailable")?);
+        let shared = std::mem::take(&mut *shared.locked());
         let state = ClaudeState {
             control: control.state(),
             shared,
             reader,
-            launch,
-            session_id,
-            models,
-            model,
-            effort,
-            aliases,
+            kept,
         };
         let state = serde_json::to_value(state).map_err(|error| error.to_string())?;
         let released = process.release(lines).await?;
@@ -694,7 +660,7 @@ impl Backend for Claude {
     }
 
     fn adopt(
-        _launch: &ChatLaunch,
+        launch: &ChatLaunch,
         sink: Sink,
         state: Value,
         (process, writer, lines): (Process, Writer, Lines),
@@ -707,7 +673,7 @@ impl Backend for Claude {
         let asking = reader.asking();
         let (reading, task_stops) = Reading::start(reader, lines);
         Ok(Self {
-            launch: state.launch,
+            launch: launch.clone(),
             running: Running {
                 process,
                 control,
@@ -716,11 +682,7 @@ impl Backend for Claude {
                 task_stops,
             },
             shared,
-            session_id: state.session_id,
-            models: state.models,
-            model: state.model,
-            effort: state.effort,
-            aliases: state.aliases,
+            kept: state.kept,
         })
     }
 
@@ -736,8 +698,8 @@ mod tests {
     #[test]
     fn tool_servers_become_claudes_mcp_config() {
         let config = mcp_config(&[
-            json!({ "name": "sikemux-tools", "command": "/bin/tools", "args": ["--x"], "env": [{ "name": "K", "value": "v" }] }),
-            json!({ "type": "http", "name": "web", "url": "https://x", "headers": [] }),
+            serde_json::from_value(json!({ "name": "sikemux-tools", "command": "/bin/tools", "args": ["--x"], "env": [{ "name": "K", "value": "v" }] })).unwrap(),
+            serde_json::from_value(json!({ "type": "http", "name": "web", "url": "https://x", "headers": [] })).unwrap(),
         ])
         .unwrap();
         let config: Value = serde_json::from_str(&config).unwrap();

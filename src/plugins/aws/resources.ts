@@ -1,91 +1,41 @@
-import { resource } from "../../plugin-api/resources";
-import {
-    awsApi,
-    type AgentProfilePicks,
-    type AwsIdentity,
-    type AwsProfile,
-    type AwsSetup,
-    type BillingMonth,
-    type Ec2Instance,
-    type EcsCluster,
-    type EcsService,
-    type EcsServiceLog,
-    type EcsTask,
-    type LambdaFn,
-    type S3Bucket,
-    type SqsQueue,
-} from "./api";
+import { pluginResources } from "../../plugin-api/service";
+import { awsApi } from "./api";
+import { AWS_PLUGIN } from "./kinds";
 
-export const awsProfilesR = resource({
-    kind: "aws.profiles",
-    fetch: (): Promise<AwsProfile[]> => awsApi.profiles(),
-});
+export const aws = pluginResources(AWS_PLUGIN);
 
-export const awsAgentProfileR = resource({
-    kind: "aws.agentProfile",
-    fetch: (project: string | null): Promise<AgentProfilePicks> => awsApi.agentProfilePicks(project),
-});
+export const awsProfilesR = aws.resource("profiles", () => awsApi.profiles());
 
-export const awsSetupR = resource({
-    kind: "aws.setup",
-    fetch: (): Promise<AwsSetup> => awsApi.setup(),
-});
+export const awsAgentProfileR = aws.resource("agentProfile", (project: string | null) => awsApi.agentProfilePicks(project));
 
-export const awsIdentityR = resource({
-    kind: "aws.identity",
-    fetch: (profile: string, force: boolean): Promise<AwsIdentity> => awsApi.identity(profile, force),
-    staleAfterMs: 60_000,
-});
+export const awsSetupR = aws.resource("setup", () => awsApi.setup());
 
-export const ecsClustersR = resource({
-    kind: "aws.ecs.clusters",
-    fetch: (profile: string): Promise<EcsCluster[]> => awsApi.ecsClusters(profile),
-    staleAfterMs: 30_000,
-});
+export const awsIdentityR = aws.resource("status", (profile: string, force: boolean) => awsApi.identity(profile, force), 60_000);
 
-export const ecsServicesR = resource({
-    kind: "aws.ecs.services",
-    fetch: (profile: string, cluster: string): Promise<EcsService[]> => awsApi.ecsServices(profile, cluster),
-    staleAfterMs: 30_000,
-});
+export const ecsClustersR = aws.resource("ecs.clusters", (profile: string) => awsApi.ecsClusters(profile), 30_000);
 
-export const ecsTasksR = resource({
-    kind: "aws.ecs.tasks",
-    fetch: (profile: string, cluster: string, service: string): Promise<EcsTask[]> => awsApi.ecsTasks(profile, cluster, service),
-    staleAfterMs: 15_000,
-});
+export const ecsServicesR = aws.resource("ecs.services", (profile: string, cluster: string) => awsApi.ecsServices(profile, cluster), 30_000);
 
-export const ecsServiceLogConfigR = resource({
-    kind: "aws.ecs.serviceLogConfig",
-    fetch: (profile: string, cluster: string, service: string): Promise<EcsServiceLog> => awsApi.ecsServiceLogConfig(profile, cluster, service),
-});
+export const ecsTasksR = aws.resource(
+    "ecs.tasks",
+    (profile: string, cluster: string, service: string) => awsApi.ecsTasks(profile, cluster, service),
+    15_000,
+);
 
-export const ec2InstancesR = resource({
-    kind: "aws.ec2.instances",
-    fetch: (profile: string): Promise<Ec2Instance[]> => awsApi.ec2Instances(profile),
-    staleAfterMs: 60_000,
-});
+export const ecsServiceLogConfigR = aws.resource("ecs.serviceLogConfig", (profile: string, cluster: string, service: string) =>
+    awsApi.ecsServiceLogConfig(profile, cluster, service),
+);
 
-export const lambdaFnsR = resource({
-    kind: "aws.lambda.functions",
-    fetch: (profile: string): Promise<LambdaFn[]> => awsApi.lambdaFunctions(profile),
-    staleAfterMs: 60_000,
-});
+export const ec2InstancesR = aws.resource("ec2.instances", (profile: string) => awsApi.ec2Instances(profile), 60_000);
 
-export const sqsQueuesR = resource({
-    kind: "aws.sqs.queues",
-    fetch: (profile: string): Promise<SqsQueue[]> => awsApi.sqsQueues(profile),
-    staleAfterMs: 60_000,
-});
+export const lambdaFnsR = aws.resource("lambda.functions", (profile: string) => awsApi.lambdaFunctions(profile), 60_000);
 
-export const billingMonthsR = resource({
-    kind: "aws.billing.months",
-    fetch: (profile: string, monthsBack: number): Promise<BillingMonth[]> => awsApi.billingMonths(profile, monthsBack),
-    staleAfterMs: 5 * 60_000,
-});
+export const sqsQueuesR = aws.resource("sqs.queues", (profile: string) => awsApi.sqsQueues(profile), 60_000);
 
-export const s3BucketsR = resource({
-    kind: "aws.s3.buckets",
-    fetch: (profile: string): Promise<S3Bucket[]> => awsApi.s3Buckets(profile),
-    staleAfterMs: 5 * 60_000,
-});
+export const billingMonthsR = aws.resource(
+    "billing.months",
+    (profile: string, monthsBack: number) => awsApi.billingMonths(profile, monthsBack),
+    5 * 60_000,
+);
+
+export const s3BucketsR = aws.resource("s3.buckets", (profile: string) => awsApi.s3Buckets(profile), 5 * 60_000);

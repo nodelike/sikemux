@@ -3,7 +3,6 @@
 // watch.rs / logs.rs.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures::future::join_all;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -11,7 +10,7 @@ use serde_json::Value;
 
 use crate::error::{RundeckError, RundeckResult};
 
-use crate::client::{get_json, limited, post_empty_json, post_json, seg, Session};
+use crate::client::{get_json, post_empty_json, post_json, seg, Session, HTTP};
 
 #[derive(Serialize, Clone, Deserialize)]
 pub struct Execution {
@@ -336,13 +335,14 @@ pub async fn latest_and_deployed(
     job_id: &str,
     branch_options: &[String],
 ) -> RundeckResult<(Option<ExecSummary>, Option<ExecSummary>)> {
-    let latest = limited(job_executions(session, job_id, 1, None))
+    let latest = HTTP
+        .limited(job_executions(session, job_id, 1, None))
         .await?
         .into_iter()
         .next();
     let deployed = match &latest {
         Some(execution) if is_succeeded(execution) => latest.clone(),
-        _ => limited(newest_succeeded(session, job_id)).await?,
+        _ => HTTP.limited(newest_succeeded(session, job_id)).await?,
     };
     Ok((
         latest.map(|execution| summarize(execution, branch_options)),
@@ -377,13 +377,6 @@ pub struct RunRequest {
 
 const RECOVERY_WINDOW_MS: i64 = 10_000;
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or_default()
-}
-
 /// The execution a lost run request most likely started: the newest one by
 /// `user` that began no earlier than shortly before the request was sent.
 fn recovered_execution(
@@ -407,7 +400,7 @@ pub async fn run(
     request: RunRequest,
 ) -> RundeckResult<RunResult> {
     let path = format!("/job/{}/run", seg(&job_id)?);
-    let requested_at_ms = now_ms();
+    let requested_at_ms = sikemux_process::clock::epoch_ms() as i64;
     let error = match post_json::<_, Execution>(session, &path, &request).await {
         Ok(execution) => {
             return Ok(RunResult {

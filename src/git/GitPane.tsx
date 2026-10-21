@@ -11,7 +11,6 @@ import {
     type GitRemoteBranch,
     type GitStash,
 } from "../api/git";
-import { portsApi } from "../api/ports";
 import * as cmd from "../state/commands";
 import { openGitCheatsheet, openGitConfirm, openGitMenu, openGitPrompt, toggleGitCmdLog } from "../state/git";
 import { invalidate, useCachedResourceEnabled } from "../state/resources";
@@ -19,7 +18,7 @@ import { gitDiscoveredReposR, gitOverviewR, gitRemoteBranchesR, gitRemotesR, git
 import { useStore } from "../state/store";
 import { commitGitDraft, generateGitDraft, runRepositoryGit, useGitWorkbench } from "../state/gitWorkbench";
 import { whenStageStill } from "../state/nativeViews";
-import { notify } from "../state/toast";
+import { notify, swallow } from "../state/toast";
 import { errorText } from "../lib/format";
 import { DEFAULT_GIT_VIEW, type GitPanel } from "../state/types";
 import { copyText } from "../lib/clipboard";
@@ -84,10 +83,11 @@ import { ShellAccount } from "../codehost/components/Bits";
 import type { Notification } from "../codehost/api";
 import { SkeletonRows } from "../ui/Skeleton";
 import { EmptyState } from "../ui/Panel";
-import { AI_MODELS, AI_PROVIDER_LABEL, GIT_HELP, GIT_PANEL_BY_KEY, defaultAiModel } from "./gitPaneConstants";
+import { AI_MODELS, GIT_HELP, GIT_PANEL_BY_KEY, defaultAiModel } from "./gitPaneConstants";
+import { agentLabel, type CommitMessageAgentType } from "../agents/catalog";
 import { filterByQuery, isInRange } from "./gitPaneLogic";
-import type { GitAiProvider } from "./gitPaneTypes";
 import { basename as basenameOf, dirname, joinPath } from "../lib/paths";
+import { openUrl } from "../api/system";
 
 const CommitReview = lazy(() => import("./CommitReview").then((module) => ({ default: memo(module.CommitReview) })));
 const MergeReview = lazy(() => import("./MergeReview").then((module) => ({ default: memo(module.MergeReview) })));
@@ -300,16 +300,16 @@ function GitWorkbench({
             errorTimerRef.current = window.setTimeout(() => setBusy(null), 3500);
             return undefined;
         } finally {
-            void overview.refresh().catch(() => {});
-            void stashesRes.refresh().catch(() => {});
+            void overview.refresh().catch(swallow("refresh the git overview"));
+            void stashesRes.refresh().catch(swallow("refresh the stashes"));
         }
     }
 
     const refreshRepoState = () => {
-        void overview.refresh().catch(() => {});
-        void stashesRes.refresh().catch(() => {});
-        void remotesRes.refresh().catch(() => {});
-        if (openRemote) void remoteBranchesRes.refresh().catch(() => {});
+        void overview.refresh().catch(swallow("refresh the git overview"));
+        void stashesRes.refresh().catch(swallow("refresh the stashes"));
+        void remotesRes.refresh().catch(swallow("refresh the remotes"));
+        if (openRemote) void remoteBranchesRes.refresh().catch(swallow("refresh the remote branches"));
     };
 
     // Menus open from their button's nearer edge, so one at the pane's right edge stays over the pane.
@@ -333,7 +333,7 @@ function GitWorkbench({
         const turn = moveQueue.current.then(() => run(label, fn));
         moveQueue.current = turn;
         await turn;
-        await overview.refresh().catch(() => {});
+        await overview.refresh().catch(swallow("refresh the git overview"));
         const settled = paths.filter((path) => latestMove.current.get(path) === move);
         for (const path of settled) latestMove.current.delete(path);
         setPendingSides((sides) => {
@@ -469,16 +469,16 @@ function GitWorkbench({
         ]);
     };
 
-    const doCommit = () => void commitGitDraft(repo).then(() => overview.refresh().catch(() => {}));
+    const doCommit = () => void commitGitDraft(repo).then(() => overview.refresh().catch(swallow("refresh the git overview")));
     const generateCommitMessage = () => void generateGitDraft(repo);
 
     const openAgentMenu = (anchor: HTMLElement) =>
         openMenuAt(
             anchor,
-            (Object.keys(AI_MODELS) as GitAiProvider[]).flatMap((provider, i) => [
+            (Object.keys(AI_MODELS) as CommitMessageAgentType[]).flatMap((provider, i) => [
                 ...(i > 0 ? [{ sep: true }] : []),
                 ...AI_MODELS[provider].map((model) => ({
-                    label: `${AI_PROVIDER_LABEL[provider]} · ${model}`,
+                    label: `${agentLabel(provider)} · ${model}`,
                     icon: <AgentIcon type={provider} size={13} className={`agent-glyph ${provider}`} />,
                     hint: provider === aiProvider && model === aiModel ? "✓" : undefined,
                     run: () => useGitWorkbench.setState({ provider, model }),
@@ -863,7 +863,7 @@ function GitWorkbench({
         }
         void run("opening PR…", async () => {
             const url = await git.pullRequestUrl(repo);
-            await portsApi.openExternal(url);
+            await openUrl(url);
             return `Opened the pull request page · ${url}`;
         });
     };
@@ -1552,7 +1552,7 @@ function GitWorkbench({
                 busy={!!busy}
                 generating={generating}
                 stagedCount={files.filter(isStaged).length}
-                agentLabel={`${AI_PROVIDER_LABEL[aiProvider]} · ${(aiModel || defaultAiModel(aiProvider)).replace(/^[^/]+\//, "")}`}
+                agentLabel={`${agentLabel(aiProvider)} · ${(aiModel || defaultAiModel(aiProvider)).replace(/^[^/]+\//, "")}`}
                 messageRef={messageRef}
                 onCommit={doCommit}
                 onGenerate={generateCommitMessage}

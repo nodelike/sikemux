@@ -2,13 +2,14 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import type { AgentInfo } from "../api/agents";
 import { usePageVisible } from "../hooks/usePageVisible";
 import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agents/agentProfiles";
-import { hasUsage, type UsageAgentType } from "../agents/catalog";
+import { hasUsage, USAGE_AGENT_TYPES, type UsageAgentType } from "../agents/catalog";
 import * as cmd from "../state/commands";
 import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
-import { useResource, useResourceEnabled } from "../state/resources";
+import { useResource, useResourceEnabled, type ResourceHandle } from "../state/resources";
 import { agentCatalogR, agentUsageR } from "../state/resources.defs";
+import type { AgentUsage } from "../api/agents";
 import { useStore } from "../state/store";
-import { activeAgentId, agentDisplayOf, agentIdsOf } from "../state/selectors";
+import { activeAgentId, agentDisplayOf, agentIdsOf, chatKey, hasChat } from "../state/selectors";
 import { type Agent, type AgentType, type PinnedChat } from "../state/types";
 import { AgentIcon, IconAgent, IconGlobe, IconInbox, IconPin, IconPlus, IconSearch, IconTerminal } from "../ui/Icons";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
@@ -27,7 +28,7 @@ import { AGENT_SETUP_SECTION } from "../settings/AgentSetupSection";
 import { usagePeak } from "./usageFormat";
 import { AllProjectsAgents, OpenAgentRow } from "./AllProjectsAgents";
 import { RecentChatList } from "./RecentChatList";
-import { ScopeTabs } from "./ScopeTabs";
+import { HostScopeTabs, ScopeTabs } from "./ScopeTabs";
 import { NewRow } from "./RailNewRow";
 import { RailPages } from "./RailPages";
 import { FilesPage, TerminalsPage } from "./ProjectPages";
@@ -35,6 +36,9 @@ import { drawTeamLines } from "./teams";
 import { useRecentChats } from "./useRecentChats";
 import { inCoreOrder, itemSessionId, useInbox } from "./useInbox";
 import { isRemoteWorker, RemoteAgentRow, withRemoteWorkers } from "./RemoteAgentRow";
+import { NewOnHost, remoteChatRows, useRemoteCopies } from "./RemoteRows";
+import { chosenHostOf } from "../hosts/hosts";
+import { HostChats } from "./HostLists";
 import { LEAVES_SETTINGS } from "../settings/leaveSettings";
 
 const USAGE_REFRESH_MS = 5 * 60_000;
@@ -95,10 +99,12 @@ export const TabRail = memo(function TabRail() {
 export function TabRailBody() {
     const pageVisible = usePageVisible();
     const session = useStore((s) => s.sessions[s.activeSessionId]);
+    const host = useStore(chosenHostOf);
     const agentStatus = useStore((s) => s.agentStatus);
     const windowsBySession = useStore((s) => s.windowsBySession);
     const windowsById = useStore((s) => s.windows);
     const agentsById = useStore((s) => s.agents);
+    const copies = useRemoteCopies(session?.kind === "project" ? session : undefined);
     const pinnedChats = useStore((s) => s.pinnedChats);
     const profiles = useStore((s) => s.providerProfiles);
     const profileSelections = useStore((s) => s.selectedProviderProfileIds);
@@ -109,15 +115,10 @@ export function TabRailBody() {
     if (catalog.data && catalog.data !== lastCatalog) setLastCatalog(catalog.data);
     const catalogAgents = catalog.data ?? lastCatalog;
     const availableAgents = useMemo(() => catalogAgents.filter((agent) => agent.available !== false), [catalogAgents]);
-    const availableTypes = useMemo(() => new Set(availableAgents.map((a) => a.type)), [availableAgents]);
-    const claudeDetected = availableTypes.has("claude");
-    const codexDetected = availableTypes.has("codex");
-    const claudeProvider = availableAgents.find((agent) => agent.type === "claude");
-    const codexProvider = availableAgents.find((agent) => agent.type === "codex");
-    const claudeUsage = useResourceEnabled(claudeDetected, agentUsageR, "claude", claudeProvider?.configPath ?? undefined);
-    const codexUsage = useResourceEnabled(codexDetected, agentUsageR, "codex", codexProvider?.configPath ?? undefined);
-    const usageRefreshRef = useRef({ claude: claudeUsage.refresh, codex: codexUsage.refresh });
-    usageRefreshRef.current = { claude: claudeUsage.refresh, codex: codexUsage.refresh };
+    const usages = useAgentUsages(availableAgents);
+    const usageRefreshRef = useRef(usages);
+    usageRefreshRef.current = usages;
+    const usageDetected = USAGE_AGENT_TYPES.some((usageType) => usages[usageType].detected);
 
     const [type, setType] = useState<AgentType | null>(null);
     const allAgents = useStore((s) => s.tabRailAllAgents);
@@ -151,24 +152,19 @@ export function TabRailBody() {
      * it only runs while someone can see the answer.
      */
     useEffect(() => {
-        if (!pageVisible) return;
-        if (!claudeDetected && !codexDetected) return;
+        if (!pageVisible || !usageDetected) return;
         const timer = window.setInterval(() => {
-            if (claudeDetected) void usageRefreshRef.current.claude();
-            if (codexDetected) void usageRefreshRef.current.codex();
+            for (const usage of Object.values(usageRefreshRef.current)) if (usage.detected) void usage.handle.refresh();
         }, USAGE_REFRESH_MS);
         return () => window.clearInterval(timer);
-    }, [claudeDetected, codexDetected, pageVisible]);
+    }, [usageDetected, pageVisible]);
 
     const isProject = session?.kind === "project";
     const cwd = session?.cwd ?? "";
 
     const selectedProvider = availableAgents.find((agent) => agent.type === selectedType);
-    const selectedUsage = selectedType === "claude" ? claudeUsage : selectedType === "codex" ? codexUsage : null;
-    const usagePeaks = {
-        claude: usagePeak(claudeUsage.data),
-        codex: usagePeak(codexUsage.data),
-    };
+    const selectedUsage = hasUsage(selectedType) ? usages[selectedType].handle : null;
+    const usagePeaks = Object.fromEntries(USAGE_AGENT_TYPES.map((usageType) => [usageType, usagePeak(usages[usageType].handle.data)]));
 
     const projectCwds = useMemo(
         () =>
@@ -189,7 +185,7 @@ export function TabRailBody() {
     const recentProjects = useMemo(() => (scope === "all" ? projectCwds : cwd ? [cwd] : []), [scope, projectCwds, cwd]);
     const needle = query.trim().toLowerCase();
     const recent = useRecentChats({
-        enabled: isProject && recentProviders.length > 0 && recentProjects.length > 0,
+        enabled: isProject && !host && recentProviders.length > 0 && recentProjects.length > 0,
         providers: recentProviders,
         projects: recentProjects,
         open: openChats,
@@ -266,15 +262,70 @@ export function TabRailBody() {
         seen.current = { session: session?.id, active, ids, view, stagger: last.stagger };
     });
 
+    const toggleSearch = () => {
+        setQuery("");
+        setSearchOpen((open) => !open);
+    };
+
+    const header = (
+        <AgentHeader
+            agents={availableAgents}
+            type={selectedType}
+            setType={setType}
+            searchOpen={isProject && !host && searchOpen}
+            onToggleSearch={toggleSearch}
+            usagePeaks={usagePeaks}
+            canOpenPalette={catalogAgents.length > 0}
+            allAgents={allAgents}
+        />
+    );
+    // The rail's footer: plan limits sit under the agents they apply to, out of the way of the list you came here to use.
+    const accounts = !allAgents && hasUsage(selectedType) && selectedUsage && <AgentAccountsPanel provider={selectedType} usage={selectedUsage} />;
+    const actions = (
+        <div className="agent-actions">
+            <NewOnHost />
+            {selectedType && (
+                <NewRow
+                    icon={<IconPlus size={15} />}
+                    title="New chat"
+                    shortcut="agent.new"
+                    onClick={() =>
+                        allAgents || scope === "all"
+                            ? void cmd.startAgent()
+                            : cmd.addAgent(selectedType, undefined, undefined, {
+                                  profileId: selectedProviderProfile(selectedType, profiles, profileSelections)?.id,
+                                  detectedExecutablePath: selectedProvider?.command,
+                              })
+                    }
+                />
+            )}
+            <NewRow icon={<IconTerminal size={15} />} title="New terminal" shortcut="terminal.new" onClick={cmd.newTerminal} />
+            <NewRow icon={<IconGlobe size={15} />} title="New browser" shortcut="browser.tabNew" onClick={cmd.newDeskBrowserTab} />
+        </div>
+    );
+
+    if (host) {
+        return (
+            <>
+                {header}
+                <div className="tab-rail-top">
+                    {actions}
+                    <HostScopeTabs host={host} />
+                </div>
+                <div className="rail-scroll">{scope === "all" ? <AllProjectsAgents showEmpty /> : <HostChats choice={host} />}</div>
+                {accounts}
+            </>
+        );
+    }
+
     if (!session) return null;
 
     const sessionAgents = agentIdsOf({ windowsBySession, windows: windowsById }, session.id)
         .map((id) => agentsById[id])
         .filter(Boolean) as Agent[];
-    const isPin = (a: Agent, pin: PinnedChat) => a.type === pin.agent && a.resumeId === pin.id;
-    const pins = pinnedChats.filter((pin) => pin.project === session.cwd).map((pin) => ({ pin, agent: sessionAgents.find((a) => isPin(a, pin)) }));
+    const pins = pinnedChats.filter((pin) => pin.project === session.cwd).map((pin) => ({ pin, agent: sessionAgents.find((a) => hasChat(a, pin)) }));
     const opens = inCoreOrder(
-        sessionAgents.filter((a) => !pins.some(({ pin }) => isPin(a, pin))),
+        sessionAgents.filter((a) => !pins.some(({ pin }) => hasChat(a, pin))),
         inbox.agents,
     );
 
@@ -317,26 +368,6 @@ export function TabRailBody() {
         (item) => item.tier === "needs" && itemSessionId({ sessionOrder, sessions, windows: windowsById, windowsBySession }, item) !== session.id,
     ).length;
 
-    const toggleSearch = () => {
-        setQuery("");
-        setSearchOpen((open) => !open);
-    };
-
-    const header = (
-        <AgentHeader
-            agents={availableAgents}
-            type={selectedType}
-            setType={setType}
-            searchOpen={isProject && searchOpen}
-            onToggleSearch={toggleSearch}
-            usagePeaks={usagePeaks}
-            canOpenPalette={catalogAgents.length > 0}
-            allAgents={allAgents}
-        />
-    );
-    // The rail's footer: plan limits sit under the agents they apply to, out of the way of the list you came here to use.
-    const accounts = !allAgents && hasUsage(selectedType) && selectedUsage && <AgentAccountsPanel provider={selectedType} usage={selectedUsage} />;
-
     if (!isProject) {
         return (
             <>
@@ -347,8 +378,9 @@ export function TabRailBody() {
         );
     }
 
+    const remoteChats = remoteChatRows({ sessionId: session.id, copies, open: new Set(Object.keys(agentsById)) });
     const noRecents = recent.chats.length === 0 && recent.status !== "loading";
-    const noContent = pins.length === 0 && opens.length === 0 && noRecents;
+    const noContent = pins.length === 0 && opens.length === 0 && remoteChats.length === 0 && noRecents;
 
     return (
         <>
@@ -371,26 +403,8 @@ export function TabRailBody() {
                 </div>
             )}
             <div className="tab-rail-top">
-                <div className="agent-actions">
-                    {selectedType && (
-                        <NewRow
-                            icon={<IconPlus size={15} />}
-                            title="New chat"
-                            shortcut="agent.new"
-                            onClick={() =>
-                                allAgents || scope === "all"
-                                    ? void cmd.startAgent()
-                                    : cmd.addAgent(selectedType, undefined, undefined, {
-                                          profileId: selectedProviderProfile(selectedType, profiles, profileSelections)?.id,
-                                          detectedExecutablePath: selectedProvider?.command,
-                                      })
-                            }
-                        />
-                    )}
-                    <NewRow icon={<IconTerminal size={15} />} title="New terminal" shortcut="terminal.new" onClick={cmd.newTerminal} />
-                    <NewRow icon={<IconGlobe size={15} />} title="New browser" shortcut="browser.tabNew" onClick={cmd.newDeskBrowserTab} />
-                </div>
-                <ScopeTabs scope={scope} projectName={session.name} waitingElsewhere={waitingElsewhere} onChange={cmd.setTabRailScope} />
+                {actions}
+                <ScopeTabs scope={scope} name={session.name} waitingElsewhere={waitingElsewhere} onChange={cmd.setTabRailScope} />
             </div>
             <div className="rail-scroll" ref={scrollRef} onScroll={onRailScroll}>
                 {scope === "all" && <AllProjectsAgents showEmpty={noRecents} />}
@@ -410,11 +424,12 @@ export function TabRailBody() {
                     />
                 )}
 
-                {scope === "project" && opens.length > 0 && (
+                {scope === "project" && (opens.length > 0 || remoteChats.length > 0) && (
                     <Panel variant="group" className="agent-group">
                         {inTeams(withRemoteWorkers(opens, inbox.remoteAgents)).map(({ agent: a, link }) =>
                             isRemoteWorker(a) ? <RemoteAgentRow key={a.id} agent={a.remote} link={link} /> : openRow(a, link),
                         )}
+                        {remoteChats}
                     </Panel>
                 )}
 
@@ -425,7 +440,7 @@ export function TabRailBody() {
                             a ? (
                                 openRow(a)
                             ) : (
-                                <div key={`${pin.agent}:${pin.id}`} className="agent-recent">
+                                <div key={chatKey(pin.agent, pin.id)} className="agent-recent">
                                     <button
                                         className="agent-row recent"
                                         onClick={() =>
@@ -478,6 +493,19 @@ export function TabRailBody() {
             {accounts}
         </>
     );
+}
+
+/** How much of each plan is used, for the agents found on this machine. */
+function useAgentUsages(available: readonly AgentInfo[]): Record<UsageAgentType, { detected: boolean; handle: ResourceHandle<AgentUsage> }> {
+    return Object.fromEntries(
+        USAGE_AGENT_TYPES.map((type) => {
+            const provider = available.find((agent) => agent.type === type);
+            // USAGE_AGENT_TYPES is a module constant, so these hooks run in the same order every render.
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const handle = useResourceEnabled(!!provider, agentUsageR, type, provider?.configPath ?? undefined);
+            return [type, { detected: !!provider, handle }];
+        }),
+    ) as Record<UsageAgentType, { detected: boolean; handle: ResourceHandle<AgentUsage> }>;
 }
 
 function AgentHeader({

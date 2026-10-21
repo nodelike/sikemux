@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
 use tauri::AppHandle;
 
 use super::{validate_agent_id, viewport::Viewport, AgentBrowser, BrowserManager, TabPage};
@@ -61,7 +62,8 @@ fn plain_tab_id(tab_id: &str) -> bool {
 
 impl BrowserManager {
     pub fn saved_strips(&self) -> Vec<SavedStrip> {
-        self.lock()
+        self.agents
+            .locked()
             .iter()
             .filter(|(_, agent)| !agent.strip.order.is_empty())
             .map(|(agent_id, agent)| SavedStrip {
@@ -95,7 +97,7 @@ impl BrowserManager {
     pub fn reopen(&self, app: &AppHandle, strips: Vec<SavedStrip>) -> Vec<String> {
         self.adopt_app(app);
         let mut reopened = Vec::new();
-        let mut agents = self.lock();
+        let mut agents = self.agents.locked();
         for saved in strips {
             if validate_agent_id(&saved.agent_id).is_err() || agents.contains_key(&saved.agent_id) {
                 continue;

@@ -40,14 +40,14 @@
     .buddy:not(.still) .bd-dart {
         animation: bd-dart 0.8s steps(2) infinite;
     }
-    .buddy:not(.still) .bd-bob {
-        animation: bd-bob 0.7s ease-in-out infinite alternate;
+    .buddy:not(.still)[data-motion="bd-bob"] > svg {
+        animation: bd-body-bob 0.7s ease-in-out infinite alternate;
     }
-    .buddy:not(.still) .bd-hop {
-        animation: bd-hop 1.2s cubic-bezier(0.3, 0, 0.3, 1) infinite;
+    .buddy:not(.still)[data-motion="bd-hop"] > svg {
+        animation: bd-body-hop 1.2s cubic-bezier(0.3, 0, 0.3, 1) infinite;
     }
-    .buddy:not(.still) .bd-shake {
-        animation: bd-shake 0.5s steps(1) infinite;
+    .buddy:not(.still)[data-motion="bd-shake"] > svg {
+        animation: bd-body-shake 0.5s steps(1) infinite;
     }
     .buddy:not(.still) .bd-flash {
         animation: bd-flash 0.9s steps(1) infinite;
@@ -128,33 +128,36 @@
         transform: translateX(1px);
     }
 }
-@keyframes bd-bob {
+/* Whole-body motions run on the svg box rather than the drawing inside it, so
+   the compositor takes them. A step in the drawing's own units is that share of
+   the box, which is --bd-side units across. */
+@keyframes bd-body-bob {
     from {
         transform: translateY(0);
     }
     to {
-        transform: translateY(-0.8px);
+        transform: translateY(calc(-0.8 * 100% / var(--bd-side)));
     }
 }
-@keyframes bd-hop {
+@keyframes bd-body-hop {
     0%,
     55%,
     100% {
         transform: translateY(0);
     }
     25% {
-        transform: translateY(-1.8px);
+        transform: translateY(calc(-1.8 * 100% / var(--bd-side)));
     }
 }
-@keyframes bd-shake {
+@keyframes bd-body-shake {
     25% {
-        transform: translateX(0.5px);
+        transform: translateX(calc(0.5 * 100% / var(--bd-side)));
     }
     50% {
-        transform: translateX(-0.5px);
+        transform: translateX(calc(-0.5 * 100% / var(--bd-side)));
     }
     75% {
-        transform: translateX(0.3px);
+        transform: translateX(calc(0.3 * 100% / var(--bd-side)));
     }
 }
 @keyframes bd-flash {

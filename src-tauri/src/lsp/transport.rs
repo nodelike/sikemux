@@ -5,11 +5,12 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use super::limits::{insert_pending_request, take_pending_request, PENDING_REQUEST_COUNT};
+use super::limits::insert_pending_request;
 use super::lsp;
 use super::server::{lsp_tick, ServerHandle};
 use crate::error::{AppError, AppResult};
 use crate::observability::{global_observability, Metadata, ScalarValue, SpanOutcome};
+use sikemux_process::sync::Locked;
 
 const MAX_LSP_FRAME_BYTES: usize = 8 * 1024 * 1024;
 const MAX_LSP_HEADER_BYTES: usize = 8 * 1024;
@@ -36,7 +37,7 @@ pub(super) fn send(server: &ServerHandle, msg: &Value) -> AppResult<()> {
     server
         .last_used
         .store(lsp_tick(), std::sync::atomic::Ordering::Relaxed);
-    let mut guard = server.stdin.lock().map_err(lsp)?;
+    let mut guard = server.stdin.locked();
     let stdin = guard
         .as_mut()
         .ok_or_else(|| AppError::Lsp("stdin gone".into()))?;
@@ -86,10 +87,7 @@ pub(super) fn read_message<R: BufRead>(reader: &mut R) -> AppResult<Option<Value
 }
 
 pub(super) fn next_id(server: &ServerHandle) -> AppResult<i64> {
-    // If the mutex is poisoned a request thread crashed mid-allocate.
-    // Recover the inner counter instead of crashing the whole LSP layer —
-    // request IDs remain unique even after recovery.
-    let mut id = server.next_id.lock().unwrap_or_else(|p| p.into_inner());
+    let mut id = server.next_id.locked();
     let v = *id;
     *id = id
         .checked_add(1)
@@ -123,19 +121,19 @@ fn request_with_timeout_inner(
 ) -> AppResult<Value> {
     let id = next_id(server)?;
     let (tx, rx) = mpsc::channel();
-    insert_pending_request(&server.pending, &PENDING_REQUEST_COUNT, id, tx)?;
+    insert_pending_request(&server.pending, id, tx)?;
     let req = json!({
         "jsonrpc": "2.0", "id": id,
         "method": method, "params": params
     });
     if let Err(e) = send(server, &req) {
-        take_pending_request(&server.pending, &PENDING_REQUEST_COUNT, id);
+        server.pending.locked().remove(&id);
         return Err(e);
     }
     match rx.recv_timeout(timeout) {
         Ok(v) => Ok(v),
         Err(e) => {
-            take_pending_request(&server.pending, &PENDING_REQUEST_COUNT, id);
+            server.pending.locked().remove(&id);
             Err(AppError::Lsp(match e {
                 mpsc::RecvTimeoutError::Timeout => format!("{method} timed out"),
                 mpsc::RecvTimeoutError::Disconnected => {

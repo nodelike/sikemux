@@ -1,16 +1,9 @@
+import type { SocketOptions } from "../sockets/socket.ts";
+
 /** Every limit and timer of the live connection, so tests can shorten them. */
-export interface LiveOptions {
-  /** How long the challenge in the first message stays valid. */
-  challengeMs: number;
-  /** How long a new connection may stay silent before its hello. */
-  helloTimeoutMs: number;
-  heartbeatMs: number;
-  /** How long without any message before a connection counts as dead. */
-  silenceMs: number;
+export interface LiveOptions extends SocketOptions {
   /** Every connection is closed after this, so each proof is fresh at least this often. */
   maxAgeMs: number;
-  /** How long a web connection may outlive its token's expiry before it is closed. */
-  authGraceMs: number;
   /** Notifications for one account within this window wake its connections once. */
   coalesceMs: number;
   /** How often every connected account is checked for events a lost notification hid. */
@@ -19,8 +12,6 @@ export interface LiveOptions {
   cursorFlushMs: number;
   maxSockets: number;
   socketsPerUser: number;
-  upgradesPerMinute: number;
-  failedHellosPerMinute: number;
   messagesPerSecond: number;
   maxPayloadBytes: number;
   /** Above this many unsent bytes a connection gets no more backlog until it drains. */

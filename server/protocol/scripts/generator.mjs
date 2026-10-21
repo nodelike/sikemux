@@ -546,7 +546,7 @@ export function rust(definitions, { include = () => true, imports = "" } = {}) {
         if (required.has(property)) {
           out += `    pub ${rustField(property)}: ${rustType(type)},\n`;
         } else {
-          out += `    #[serde(default, skip_serializing_if = "Option::is_none")]\n`;
+          out += `    #[serde(skip_serializing_if = "Option::is_none")]\n`;
           out += `    pub ${rustField(property)}: Option<${rustType(type)}>,\n`;
         }
       }
@@ -756,4 +756,62 @@ export function openapi(definitions, routes) {
       },
     },
   };
+}
+
+/** The routes apps call, each as a typed function over one `send`; WebSockets and webhooks are left out. */
+export function client(routes) {
+  const types = new Set();
+  const calls = [];
+  for (const route of routes.routes) {
+    if (route.upgrade || route.auth === "webhook") continue;
+    const params = [...route.path.matchAll(/\{([a-z][A-Za-z]*)\}/g)].map(
+      ([, param]) => param,
+    );
+    const args = params.map((param) => `${param}: string`);
+    if (route.request) {
+      types.add(route.request);
+      args.push(`body${route.requestOptional ? "?" : ""}: ${route.request}`);
+    }
+    const query = Object.entries(route.query ?? {});
+    for (const [, type] of query) types.add(type);
+    if (query.length)
+      args.push(
+        `query: { ${query.map(([name, type]) => `${name}?: ${type}`).join("; ")} } = {}`,
+      );
+    const bodies = [
+      ...new Set(
+        Object.entries(route.responses)
+          .filter(
+            ([status, response]) => status.startsWith("2") && response.body,
+          )
+          .map(([, response]) => response.body),
+      ),
+    ];
+    for (const body of bodies) types.add(body);
+    const answer = bodies.length ? bodies.join(" | ") : "void";
+    const path =
+      "`" +
+      route.path.replace(/\{([a-z][A-Za-z]*)\}/g, "${encodeURIComponent($1)}") +
+      (query.length ? "${search(query)}" : "") +
+      "`";
+    calls.push(
+      `  /** ${route.summary}. */\n` +
+        `  ${route.operationId}: (${args.join(", ")}) =>\n` +
+        `    send<${answer}>("${route.method.toUpperCase()}", ${path}${route.request ? ", body" : ""}),`,
+    );
+  }
+  return (
+    HEADER +
+    `import type { ${[...types].sort().join(", ")} } from "./types.ts";\n\n` +
+    `export type Method = "GET" | "POST" | "PUT" | "DELETE";\n\n` +
+    `/** Makes one request and answers its JSON body, or nothing for a route that answers none. */\n` +
+    `export type Send = <Answer>(method: Method, path: string, body?: unknown) => Promise<Answer>;\n\n` +
+    `function search(query: Record<string, string | undefined>): string {\n` +
+    `  const pairs = Object.entries(query).filter((pair): pair is [string, string] => pair[1] !== undefined);\n` +
+    `  return pairs.length ? \`?\${new URLSearchParams(pairs).toString()}\` : "";\n` +
+    `}\n\n` +
+    `/** Every route in routes.json that apps call. */\n` +
+    `export function apiClient(send: Send) {\n  return {\n${calls.join("\n")}\n  };\n}\n\n` +
+    `export type ApiClient = ReturnType<typeof apiClient>;\n`
+  );
 }

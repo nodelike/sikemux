@@ -18,6 +18,7 @@ on:
       - mobile/app/certs/updates-certificate.pem
       - .github/workflows/server.yml
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "server/**"
       - "src-tauri/crates/sikemux-core/src/accounts/**"
@@ -40,6 +41,7 @@ permissions:
 jobs:
   check:
     name: Server checks
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:

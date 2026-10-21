@@ -1,16 +1,10 @@
+import type { SocketOptions } from "../sockets/socket.ts";
+
 export const SHARE_PATH = "/v1/share";
 
 /** Every limit and timer of share connections, so tests can shorten them. */
-export interface ShareOptions {
-  challengeMs: number;
-  helloTimeoutMs: number;
-  heartbeatMs: number;
-  silenceMs: number;
-  /** How long a viewer's connection may outlive its token's expiry before it is closed. */
-  authGraceMs: number;
+export interface ShareOptions extends SocketOptions {
   maxSockets: number;
-  upgradesPerMinute: number;
-  failedHellosPerMinute: number;
   hostMessagesPerSecond: number;
   viewerMessagesPerSecond: number;
   /** The largest message a host may send; a frame holds a whole snapshot of a chat's end. */

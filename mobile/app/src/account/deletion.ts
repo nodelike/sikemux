@@ -1,3 +1,5 @@
+import { confirmsDeletion } from '@protocol/account';
+
 export type DeletionPhase = { name: 'confirm' } | { name: 'deleting' } | { name: 'done' };
 
 export type DeletionState = { typed: string; problem?: string; phase: DeletionPhase };
@@ -5,13 +7,10 @@ export type DeletionState = { typed: string; problem?: string; phase: DeletionPh
 export type DeletionAction =
   { type: 'typed'; text: string } | { type: 'delete' } | { type: 'cancelled' } | { type: 'failed'; problem: string } | { type: 'deleted' };
 
-/** The word typed to confirm, the same as at app.sikemux.com/delete-account. */
-export const CONFIRM_WORD = 'delete';
-
 export const START: DeletionState = { typed: '', phase: { name: 'confirm' } };
 
 export function confirmed(state: Pick<DeletionState, 'typed'>): boolean {
-  return state.typed.trim().toLowerCase() === CONFIRM_WORD;
+  return confirmsDeletion(state.typed);
 }
 
 /** Steps through deleting: confirm by typing the word, delete, done. */

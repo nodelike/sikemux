@@ -9,10 +9,12 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::Value;
+use sikemux_process::sync::Locked;
 use sikemux_pty::user_shell::login_shell_environment;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use super::{cli, key};
+use crate::agent_catalog::AgentKind;
 use crate::launch::discovery::error_detail;
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -84,15 +86,12 @@ fn usage_cache() -> &'static Mutex<HashMap<String, Kept>> {
 /// One lookup at a time per account, so callers that ask together share it.
 fn in_flight(key: &str) -> Arc<tokio::sync::Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
-    let mut locks = LOCKS
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new())).locked();
     locks.entry(key.to_owned()).or_default().clone()
 }
 
 fn remembered(key: &str) -> Option<Lookup> {
-    let mut cache = usage_cache().lock().ok()?;
+    let mut cache = usage_cache().locked();
     cache.retain(|_, (stored, ttl, _)| stored.elapsed() < *ttl);
     cache.get(key).map(|(_, _, lookup)| lookup.clone())
 }
@@ -117,9 +116,9 @@ pub async fn usage(
     if let Some(lookup) = remembered(&key) {
         return lookup;
     }
-    let lookup = match provider {
-        "claude" => claude_usage(program, config_path).await,
-        "codex" => codex_usage(program, config_path).await,
+    let lookup = match AgentKind::from_name(provider) {
+        Some(AgentKind::Claude) => claude_usage(program, config_path).await,
+        Some(AgentKind::Codex) => codex_usage(program, config_path).await,
         _ => Err(format!("{provider} does not expose structured plan usage")),
     };
     let ttl = match &lookup {
@@ -127,17 +126,15 @@ pub async fn usage(
         Err(error) if refused(error) => REFUSED_TTL,
         Err(_) => FAILED_TTL,
     };
-    if let Ok(mut cache) = usage_cache().lock() {
-        cache.insert(key, (Instant::now(), ttl, lookup.clone()));
-    }
+    usage_cache()
+        .locked()
+        .insert(key, (Instant::now(), ttl, lookup.clone()));
     lookup
 }
 
 /// Drops the usage remembered for one account, whose sign-in just changed.
 pub(crate) fn forget(provider: &str, config_path: Option<&str>) {
-    if let Ok(mut cache) = usage_cache().lock() {
-        cache.remove(&key(provider, config_path));
-    }
+    usage_cache().locked().remove(&key(provider, config_path));
 }
 
 fn clean(value: &str) -> Option<String> {

@@ -79,6 +79,8 @@ export interface HostCapabilities {
         rerunJob: boolean;
         debugLogs: boolean;
         deleteRuns: boolean;
+        /** Whether a run's logs can be deleted while the run stays. */
+        deleteLogs: boolean;
     };
     pulls: {
         draft: boolean;

@@ -1112,7 +1112,7 @@ async fn a_forced_update_restarts_a_starting_chat_and_says_so() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_core_takes_over_from_a_format_one_hand_over() {
+async fn a_core_takes_over_from_the_oldest_hand_over_a_stable_release_wrote() {
     let core = CoreProcess::start("first");
     let (client, mut stream) = connect(&core).await;
     let shell = spawn_shell(&client).await;
@@ -1126,7 +1126,7 @@ async fn a_core_takes_over_from_a_format_one_hand_over() {
     let older = core.binary(
         "older",
         "second",
-        "sed -e 's/\"format\":6/\"format\":1/' -e 's/,\"chats\":\\[[^]]*\\]//' -e 's/,\"liveChats\":\\[[^]]*\\]//' \"$3/state.json\" > \"$3/older.json\" && mv \"$3/older.json\" \"$3/state.json\" && grep -q '\"format\":1' \"$3/state.json\"",
+        "sed -e 's/\"format\":[0-9]*/\"format\":4/' -e 's/,\"liveChats\":\\[[^]]*\\]//' \"$3/state.json\" > \"$3/older.json\" && mv \"$3/older.json\" \"$3/state.json\" && grep -q '\"format\":4' \"$3/state.json\"",
     );
     assert_eq!(core.upgrade(&older, "first").await.commit, "second");
     assert!(!core.log().contains("DAMAGED"), "{}", core.log());

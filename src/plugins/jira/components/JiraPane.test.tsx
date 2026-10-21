@@ -19,7 +19,7 @@ const api = vi.hoisted(() => ({
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), jiraApi: api }));
 
 import { JiraPane } from "./JiraPane";
-import { invalidate } from "../../../plugin-api/resources";
+import { jira } from "../resources";
 
 const signedIn: JiraStatus = {
     configured: true,
@@ -63,7 +63,7 @@ const detail: JiraIssue = {
 
 afterEach(() => {
     cleanup();
-    invalidate((kind) => kind.startsWith("jira."));
+    jira.refresh();
 });
 
 beforeEach(() => {

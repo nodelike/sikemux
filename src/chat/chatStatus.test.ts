@@ -10,11 +10,7 @@ const message: ChatMessage = { id: "m1", role: "user", parts: [] };
 
 describe("permissionModeOf", () => {
     it("keeps the mode the agent chose", () => {
-        expect(permissionModeOf(agent({ permissionMode: "read-only", skipPermissions: true }))).toBe("read-only");
-    });
-
-    it("reads the old skip flag when no mode was chosen", () => {
-        expect(permissionModeOf(agent({ skipPermissions: true }))).toBe("bypass");
+        expect(permissionModeOf(agent({ permissionMode: "bypass" }))).toBe("bypass");
         expect(permissionModeOf(agent({}))).toBe("workspace-write");
     });
 });

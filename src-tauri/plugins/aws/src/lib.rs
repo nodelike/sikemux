@@ -27,11 +27,10 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Value;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
 use crate::common::Target;
-use crate::error::AwsResult;
 
 pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
     Ok(Arc::new(Aws {
@@ -109,12 +108,6 @@ struct TailParams {
     log_group: String,
     log_stream: Option<String>,
     since: Option<String>,
-}
-
-async fn answer<T: serde::Serialize>(
-    result: impl std::future::Future<Output = AwsResult<T>>,
-) -> Result<Value, PluginError> {
-    reply(result.await?)
 }
 
 impl Plugin for Aws {

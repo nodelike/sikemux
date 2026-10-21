@@ -31,10 +31,8 @@ const VERSION: &str = env!("SIKEMUX_VERSION");
 fn channel(debug: bool, version: &str) -> BuildChannel {
     if debug {
         BuildChannel::Dev
-    } else if version.contains("-nightly") {
-        BuildChannel::Nightly
     } else {
-        BuildChannel::Stable
+        BuildChannel::of_release(version)
     }
 }
 

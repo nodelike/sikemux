@@ -1,6 +1,8 @@
 //! What the `sikemux` CLI and the agents' tool server send to Sikemux's tool
 //! endpoint: one JSON object per line over a loopback TCP connection.
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 use super::methods::{BROWSER_METHODS, HARNESS_METHODS, SIM_METHODS};
@@ -12,6 +14,13 @@ pub const MAX_CLI_FRAME_BYTES: u64 = 512 * 1024;
 /// than a request frame.
 pub const MAX_CLI_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
 pub const MAX_CLI_TARGETS: usize = 64;
+
+/// How long the page has to answer a tool call that needs the window. Each
+/// layer between it and the agent waits a little longer, so the page's own
+/// timeout, which names the tool, is the one an agent sees.
+pub const PAGE_REPLY_TIMEOUT: Duration = Duration::from_secs(65);
+pub const CORE_REPLY_TIMEOUT: Duration = Duration::from_secs(PAGE_REPLY_TIMEOUT.as_secs() + 1);
+pub const TOOLS_REPLY_TIMEOUT: Duration = Duration::from_secs(CORE_REPLY_TIMEOUT.as_secs() + 4);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

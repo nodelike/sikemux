@@ -17,7 +17,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../api/agents", () => ({
     agentApi: { available: async () => [], account: async () => ({ signedIn: true, sessions: null }) },
 }));
-vi.mock("../api/fs", () => ({ fsapi: { pathKinds: async (paths: string[]) => paths.map(() => null) } }));
+vi.mock("../api/fs", () => {
+    const fsapi = { pathKinds: async (paths: string[]) => paths.map(() => null) };
+    return { fsapi, filesOn: () => fsapi };
+});
 vi.mock("../api/git", () => ({ git: { worktrees: async () => [], overview: async () => ({ status: { branch: "main" } }) } }));
 vi.mock("../api/acp", () => ({
     acpApi: {

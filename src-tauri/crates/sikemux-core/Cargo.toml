@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 sikemux-process = { path = "../sikemux-process" }
+sikemux-markdown = { path = "../sikemux-markdown" }
 agent-client-protocol = { version = "2.0.0", features = ["unstable_session_notices"] }
 hex = "0.4"
 quick-xml = "0.42"
@@ -37,10 +38,12 @@ reqwest = { version = "0.13", default-features = false, features = ["gzip", "jso
 ring = "0.17"
 rusqlite = { version = "0.40", features = ["bundled"] }
 rustix = { version = "1", features = ["fs"] }
+tempfile = "3"
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring"] }
 tokio-websockets = { version = "0.13", default-features = false, features = ["client", "getrandom", "rand", "ring", "rustls-bring-your-own-connector", "server", "sha1_smol"] }
 toml = "1"
+trash = "5"
 webpki-roots = "1"
 
 [dev-dependencies]

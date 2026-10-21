@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { useActiveProjectCwd } from "../../../plugin-api/host";
-import { useEvery, useNow } from "../../../plugin-api/hooks";
+import { useNow, useRefreshEvery } from "../../../plugin-api/hooks";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconWarning, Seg, SkeletonRows } from "../../../plugin-api/ui";
 import type { RundeckExecution } from "../api";
-import { rndProjectExecutionsR, rndStatusR, useBranchOptions } from "../resources";
+import { rndProjectExecutionsR, rundeck, useBranchOptions } from "../resources";
 import * as cmd from "../state";
 import { branchOf, isLiveStatus } from "../shape";
 import { statusKind } from "./branchStyle";
@@ -23,13 +23,13 @@ export function RundeckActivity({ paneId, project, active }: { paneId: string; p
     const activeCwd = useActiveProjectCwd();
     const [max, setMax] = useState(PAGE);
     const [filter, setFilter] = useState<ActivityFilter>("all");
-    const status = useResourceEnabled(active, rndStatusR);
+    const status = useResourceEnabled(active, rundeck.statusR);
     const res = useResourceEnabled(active, rndProjectExecutionsR, project, max);
 
     const runs = useMemo(() => newestExecutions(res.data?.executions ?? []), [res.data]);
     const anyLive = runs.some((ex) => isLiveStatus(ex.status));
     const now = useNow(active && anyLive, 5_000);
-    useEvery(active, anyLive ? 5_000 : 30_000, () => void res.refresh().catch(() => {}));
+    useRefreshEvery(res, !active ? null : anyLive ? 5_000 : 30_000);
 
     const usualByJob = useMemo(() => {
         const byJob = new Map<string, RundeckExecution[]>();

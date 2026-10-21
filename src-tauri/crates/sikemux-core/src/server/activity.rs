@@ -98,6 +98,12 @@ impl Core {
         self.harness.mailbox.wake.now();
         self.harness.questions.wake.now();
         self.boards.wake.now();
+        self.view_changed();
+    }
+
+    /// Something a device's view of this host shows changed; the view goes
+    /// out again shortly, once with any changes that follow it.
+    pub(crate) fn view_changed(&self) {
         self.view_stale.notify_one();
     }
 

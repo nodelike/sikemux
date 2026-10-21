@@ -108,11 +108,7 @@ describe("composer pickers", () => {
                 { id: "thinking", category: "thought_level", type: "select", currentValue: "auto", options: [{ value: "auto", name: "Auto" }] },
             ],
         });
-        expect(effortConfig(configs, "omp")?.id).toBe("thinking");
-        expect(effortConfig(configs, "claude")?.id).toBe("thinking");
-        expect(
-            effortConfig(sessionConfigs({ configOptions: [{ id: "effort", type: "select", currentValue: "high", options: [] }] }), "claude")?.id,
-        ).toBe("effort");
+        expect(effortConfig(configs)?.id).toBe("thinking");
     });
 
     it("offers no effort picker to an agent whose model has none", () => {
@@ -141,7 +137,7 @@ describe("composer pickers", () => {
         );
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         const agents = screen.getByRole("group", { name: "Agent" }).querySelectorAll("button");
-        expect(Array.from(agents, (button) => button.textContent)).toEqual(["Codex", "Claude"]);
+        expect(Array.from(agents, (button) => button.textContent)).toEqual(["Claude", "Codex"]);
         expect(screen.getByRole("button", { name: /Codex/ })).toHaveAttribute("aria-pressed", "true");
     });
 
@@ -156,7 +152,13 @@ describe("composer pickers", () => {
                 setup={{
                     configOptions: [
                         { id: "model", type: "select", currentValue: "model", options: [{ value: "model", name: "My model" }] },
-                        { id: "reasoning_effort", type: "select", currentValue: "high", options: [{ value: "high", name: "High" }] },
+                        {
+                            id: "reasoning_effort",
+                            category: "thought_level",
+                            type: "select",
+                            currentValue: "high",
+                            options: [{ value: "high", name: "High" }],
+                        },
                     ],
                 }}
             />,
@@ -267,8 +269,7 @@ describe("composer pickers", () => {
     it("finds no effort option for an agent that does not chat unless one is tagged", () => {
         const configs = sessionConfigs({ configOptions: [{ id: "effort", type: "select", currentValue: "high", options: [] }] });
 
-        expect(effortConfig(configs, "pi")).toBeUndefined();
-        expect(effortConfig(configs, "codex")).toBeUndefined();
+        expect(effortConfig(configs)).toBeUndefined();
     });
 
     it("moves through models with the arrow keys, wrapping at each end, and picks one with Enter", () => {

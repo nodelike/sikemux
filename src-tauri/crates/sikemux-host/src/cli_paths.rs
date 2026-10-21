@@ -10,6 +10,21 @@ pub fn cli_endpoint_path() -> Option<PathBuf> {
     sikemux_core::cli::endpoint::default_endpoint_path()
 }
 
+/// The endpoint file Sikemux handed to the terminal or agent it started.
+pub fn handed_endpoint() -> Option<PathBuf> {
+    std::env::var_os(sikemux_process::vars::CLI_ENDPOINT)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The endpoint file a command the person runs reads: the one Sikemux handed
+/// it, else the one this build of Sikemux publishes.
+pub fn endpoint_to_read() -> Result<PathBuf, String> {
+    handed_endpoint()
+        .or_else(|| sikemux_process::paths::config_file("cli", "json"))
+        .ok_or_else(|| "home directory is unavailable".into())
+}
+
 /// The core this app ships: inside a macOS release bundle, or beside the app's
 /// executable. `SIKEMUX_BIN_PATH` is not read here: every Sikemux terminal sets
 /// it, so an app started from one would run another build's sidecar. Tests
@@ -99,6 +114,7 @@ fn link_cli(executable: &Path, directory: &Path) -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sikemux_process::sync::Locked;
 
     #[cfg(unix)]
     #[test]
@@ -120,7 +136,7 @@ mod tests {
 
     #[test]
     fn a_second_app_started_from_our_terminal_keeps_its_own_endpoint() {
-        let _guard = ENV_GUARD.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = ENV_GUARD.locked();
         // What a terminal we spawned carries, so a Sikemux launched there
         // inherits it. Publishing to it would steal our agents' endpoint.
         std::env::set_var("SIKEMUX_CLI_ENDPOINT", "/tmp/sikemux-other-instance.json");
@@ -134,7 +150,7 @@ mod tests {
 
     #[test]
     fn the_publish_override_is_honoured() {
-        let _guard = ENV_GUARD.lock().unwrap_or_else(|error| error.into_inner());
+        let _guard = ENV_GUARD.locked();
         std::env::set_var(
             "SIKEMUX_CLI_ENDPOINT_PUBLISH",
             "/tmp/sikemux-published-here.json",

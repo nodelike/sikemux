@@ -4,12 +4,13 @@
 //! team does is told to the hosts its teammates run on, which journal it for
 //! `agent_wait` and show it.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
 
 use crate::protocol::AgentStatus;
 
@@ -17,7 +18,6 @@ use super::super::connection::blocking;
 use super::super::follow::{self, Happened};
 use super::super::messages::{self, Carried, Kind, Reach};
 use super::super::names::Worker;
-use super::super::remote::unix_ms;
 use super::super::{questions, Core, CoreResult};
 use super::team::{Foreign, Role};
 use super::{ask, goes_now, name_of, post, Failed, Sending};
@@ -164,7 +164,7 @@ pub(super) fn happened_here(core: &Core, host: &str, params: Value) -> CoreResul
     let happened = Happened::of(&params.kind);
     core.hosts.team.update(&foreign.agent_id, |foreign| {
         foreign.status = params.status;
-        foreign.active_at = Some(unix_ms());
+        foreign.active_at = Some(epoch_ms());
     });
     if let Some(happened) = happened {
         core.harness
@@ -468,8 +468,6 @@ pub(super) async fn deliver_here(
     } else {
         None
     };
-    core.names
-        .reached_from(&carried.to, BTreeSet::from([host.to_owned()]));
     let host = teammate.then(|| name_of(core, host));
     messages::from_host(core, host.as_deref(), carried, landed).await
 }
@@ -505,7 +503,6 @@ pub(crate) async fn read(
 struct ReadParams {
     caller: String,
     agent_id: String,
-    #[serde(default)]
     cursor: Option<String>,
 }
 
@@ -581,7 +578,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: Value) -> CoreResult<Va
             session: None,
             reports: params.reports,
         },
-        core.running_agents(),
+        core.open_agents(),
     )?;
     core.hosts.team.add(Foreign {
         agent_id: params.agent_id,
@@ -592,7 +589,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: Value) -> CoreResult<Va
         parent: Some(params.lead),
         role: Role::Worker,
         status: AgentStatus::Starting,
-        active_at: Some(unix_ms()),
+        active_at: Some(epoch_ms()),
         repo: lead.repo,
         landed: None,
     });

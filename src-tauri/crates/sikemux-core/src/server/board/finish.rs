@@ -7,12 +7,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
+
 use super::auto::{Finish, Pull, Run, Settings, Stage};
 use super::codehost::{self, Checks, Feedback};
 use super::review::{self, MAX_ROUNDS};
 use super::{blind, change_card, git, send_notices, By, Card, Changes, Status};
 use crate::server::connection::blocking;
-use crate::server::remote::unix_ms;
 use crate::server::wake::sooner;
 use crate::server::{ci, messages, Core};
 
@@ -21,12 +23,10 @@ use crate::server::{ci, messages, Core};
 const CI_START_WAIT_MS: u64 = 3 * 60 * 1000;
 /// How long a run whose checks could not be read waits before it reads them again.
 const CHECKS_RETRY_MS: u64 = 60_000;
-const CHECKS_FAILED_READ: &str = "unread";
 const REVIEW_EVERY_MS: u64 = 60_000;
 /// How many times the wait between looks at a pull request doubles while
 /// nothing on it changes.
 const MAX_QUIET_DOUBLINGS: u64 = 3;
-const QUIET: &str = "quiet";
 /// How long a run's agent may be missing before Auto takes it that the agent
 /// is gone, such as after Sikemux's background process restarted without it.
 const GONE_AFTER_MS: u64 = 60_000;
@@ -40,7 +40,7 @@ pub(super) fn change_run(
     agent: &str,
     change: impl FnOnce(&mut Card, &mut Run),
 ) -> bool {
-    let mut state = core.boards.lock();
+    let mut state = core.boards.state.locked();
     let Some(card) = state
         .boards
         .get_mut(project)
@@ -57,7 +57,7 @@ pub(super) fn change_run(
     };
     change(card, &mut run);
     card.auto = Some(run);
-    card.updated_at = unix_ms();
+    card.updated_at = epoch_ms();
     core.boards.save(&mut state, project);
     true
 }
@@ -107,26 +107,26 @@ pub(super) struct Dropped {
 pub(super) fn clear_dropped(core: &Arc<Core>) {
     blind::clear_dismissed(core);
     let ready: Vec<Dropped> = {
-        let mut state = core.boards.lock();
+        let mut state = core.boards.state.locked();
         if state.dropped.is_empty() {
             return;
         }
         let dropped = std::mem::take(&mut state.dropped);
         let (ready, waiting): (Vec<Dropped>, Vec<Dropped>) = dropped
             .into_iter()
-            .partition(|dropped| !state.jobs.contains(&(dropped.project.clone(), dropped.id)));
+            .partition(|dropped| !state.busy(&dropped.project, dropped.id));
         state.dropped = waiting;
         for dropped in &ready {
-            state.jobs.insert((dropped.project.clone(), dropped.id));
+            state.work(&dropped.project, dropped.id).job = true;
         }
         ready
     };
     for dropped in ready {
         let core = core.clone();
         tokio::spawn(async move {
-            let key = (dropped.project.clone(), dropped.id);
+            let (project, id) = (dropped.project.clone(), dropped.id);
             clear(&core, dropped).await;
-            core.boards.end_job(&key);
+            core.boards.end_job(&project, id);
         });
     }
 }
@@ -215,11 +215,10 @@ where
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
     let step = {
-        let mut state = core.boards.lock();
-        let key = (project.clone(), id);
-        if state.jobs.contains(&key) {
+        let mut state = core.boards.state.locked();
+        if state.busy(&project, id) {
             if stage == Some(Stage::Shipping) {
-                state.reship.insert(key);
+                state.work(&project, id).reship = true;
             }
             return;
         }
@@ -243,7 +242,7 @@ where
             card: card.clone(),
             settings,
         };
-        state.jobs.insert(key);
+        state.work(&project, id).job = true;
         if stage.is_some() {
             core.boards.save(&mut state, &project);
         }
@@ -251,12 +250,18 @@ where
     };
     let core = core.clone();
     tokio::spawn(async move {
-        let key = (step.project.clone(), step.id);
+        let (project, id) = (step.project.clone(), step.id);
         work(core.clone(), step).await;
-        let again = core.boards.lock().reship.remove(&key);
-        core.boards.end_job(&key);
+        let mut again = false;
+        core.boards
+            .state
+            .locked()
+            .change_work(&project, id, |work| {
+                again = std::mem::take(&mut work.reship)
+            });
+        core.boards.end_job(&project, id);
         if again {
-            ship(&core, key.0, key.1);
+            ship(&core, project, id);
         }
     });
 }
@@ -265,7 +270,7 @@ where
 /// never got a worktree, else by shipping its work afresh.
 pub(super) fn retry(core: &Arc<Core>, project: &str, id: u64) -> Result<(), String> {
     let ships = {
-        let mut state = core.boards.lock();
+        let mut state = core.boards.state.locked();
         let card = state
             .boards
             .get_mut(project)
@@ -284,7 +289,7 @@ pub(super) fn retry(core: &Arc<Core>, project: &str, id: u64) -> Result<(), Stri
         } else {
             card.auto = None;
         }
-        card.updated_at = unix_ms();
+        card.updated_at = epoch_ms();
         core.boards.save(&mut state, project);
         ships
     };
@@ -345,7 +350,7 @@ fn pull_body(core: &Core, step: &Step) -> String {
 }
 
 fn current_result(core: &Core, step: &Step) -> Option<String> {
-    let state = core.boards.lock();
+    let state = core.boards.state.locked();
     state
         .boards
         .get(&step.project)?
@@ -440,7 +445,7 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
     } else {
         unanswered(core, step)
     };
-    let now = unix_ms();
+    let now = epoch_ms();
     change_run(core, &step.project, step.id, step.agent(), |_, run| {
         run.pull = Some(pull);
         run.head = Some(head);
@@ -467,7 +472,7 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
 /// The pull request of each run waiting on its checks, as the code-host
 /// repository the core's CI check watches for it.
 pub(crate) fn waiting_on_ci(core: &Core) -> Vec<ci::Shown> {
-    let state = core.boards.lock();
+    let state = core.boards.state.locked();
     state
         .boards
         .values()
@@ -492,7 +497,7 @@ pub(crate) fn waiting_on_ci(core: &Core) -> Vec<ci::Shown> {
 /// The runs on `repo` moved, so the runs waiting on their checks there look
 /// again now rather than at their next fallback.
 pub(crate) fn ci_moved(core: &Core, repo: &ci::Shown) {
-    let mut state = core.boards.lock();
+    let mut state = core.boards.state.locked();
     let waiting: Vec<(String, u64)> = state
         .boards
         .iter()
@@ -510,7 +515,7 @@ pub(crate) fn ci_moved(core: &Core, repo: &ci::Shown) {
         .map(|(project, card)| (project.clone(), card.id))
         .collect();
     for (project, id) in &waiting {
-        state.polled.remove(&(project.clone(), *id, "pull"));
+        state.change_work(project, *id, |work| work.looked = None);
     }
     drop(state);
     if !waiting.is_empty() {
@@ -522,32 +527,32 @@ pub(crate) fn ci_moved(core: &Core, repo: &ci::Shown) {
 /// the person, and takes up steps a restart cut short. Answers when a run is
 /// next due a look.
 pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
-    let now = unix_ms();
+    let now = epoch_ms();
     let running = core.running_agents();
     let mut next = None;
     let mut checking_any = false;
     let due: Vec<(String, u64, Stage)> = {
-        let mut state = core.boards.lock();
+        let mut state = core.boards.state.locked();
         let mut due = Vec::new();
         let mut present = Vec::new();
         let mut missing = Vec::new();
         for (project, board) in &state.boards {
             for card in &board.cards {
                 let Some(run) = &card.auto else { continue };
-                if state.jobs.contains(&(project.clone(), card.id)) {
+                let work = state.work_of(project, card.id);
+                if work.is_some_and(|work| work.job) {
                     continue;
                 }
                 let every = match run.stage {
                     Stage::Checking => {
                         checking_any = true;
-                        let looked = state.polled.get(&(project.clone(), card.id, "pull"));
-                        let unread = state
-                            .polled
-                            .get(&(project.clone(), card.id, CHECKS_FAILED_READ))
+                        let looked = work.and_then(|work| work.looked);
+                        let unread = work
+                            .and_then(|work| work.checks_unread)
                             .map(|at| at + CHECKS_RETRY_MS);
                         let start_deadline = run.checks_since.unwrap_or(0) + CI_START_WAIT_MS;
                         let at_deadline = looked
-                            .is_some_and(|looked| *looked < start_deadline)
+                            .is_some_and(|looked| looked < start_deadline)
                             .then_some(start_deadline);
                         let again = match looked {
                             None => Some(now),
@@ -562,13 +567,13 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                         continue;
                     }
                     Stage::Review => {
-                        let quiet = state.polled.get(&(project.clone(), card.id, QUIET));
-                        REVIEW_EVERY_MS << quiet.copied().unwrap_or(0).min(MAX_QUIET_DOUBLINGS)
+                        let quiet = work.map_or(0, |work| work.quiet);
+                        REVIEW_EVERY_MS << quiet.min(MAX_QUIET_DOUBLINGS)
                     }
                     Stage::Shipping | Stage::Merging | Stage::Starting => 0,
                     Stage::Reviewing if run.verdict.is_some() || run.reviewer.is_none() => 0,
                     Stage::Working | Stage::Fixing | Stage::Reviewing => {
-                        let key = (project.clone(), card.id, "gone");
+                        let key = (project.clone(), card.id);
                         let watched = match (&run.reviewer, run.stage) {
                             (Some(reviewer), Stage::Reviewing) => &reviewer.agent,
                             _ => &run.agent,
@@ -582,11 +587,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                     }
                     _ => continue,
                 };
-                let last = state
-                    .polled
-                    .get(&(project.clone(), card.id, "pull"))
-                    .copied()
-                    .unwrap_or(0);
+                let last = work.and_then(|work| work.looked).unwrap_or(0);
                 if every > 0 && now.saturating_sub(last) < every {
                     next = sooner(next, Some(last + every));
                     continue;
@@ -595,19 +596,18 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             }
         }
         for (project, id, _) in &due {
-            state.polled.insert((project.clone(), *id, "pull"), now);
-            state
-                .polled
-                .remove(&(project.clone(), *id, CHECKS_FAILED_READ));
+            let work = state.work(project, *id);
+            work.looked = Some(now);
+            work.checks_unread = None;
         }
-        for key in present {
-            state.polled.remove(&key);
+        for (project, id) in present {
+            state.change_work(&project, id, |work| work.missing_since = None);
         }
-        for (key, stage) in missing {
-            let since = *state.polled.entry(key.clone()).or_insert(now);
+        for ((project, id), stage) in missing {
+            let since = *state.work(&project, id).missing_since.get_or_insert(now);
             if now.saturating_sub(since) >= GONE_AFTER_MS {
-                state.polled.remove(&key);
-                due.push((key.0, key.1, stage));
+                state.change_work(&project, id, |work| work.missing_since = None);
+                due.push((project, id, stage));
             } else {
                 next = sooner(next, Some(since + GONE_AFTER_MS));
             }
@@ -665,10 +665,11 @@ async fn checking(core: &Arc<Core>, step: Step) {
     let checks = match codehost::checks(&pull, &step.run.branch, &head).await {
         Ok(checks) => checks,
         Err(error) => {
-            core.boards.lock().polled.insert(
-                (step.project.clone(), step.id, CHECKS_FAILED_READ),
-                unix_ms(),
-            );
+            core.boards
+                .state
+                .locked()
+                .work(&step.project, step.id)
+                .checks_unread = Some(epoch_ms());
             step.note(
                 core,
                 Stage::Checking,
@@ -677,7 +678,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
             return;
         }
     };
-    let waited = unix_ms().saturating_sub(step.run.checks_since.unwrap_or(0));
+    let waited = epoch_ms().saturating_sub(step.run.checks_since.unwrap_or(0));
     match checks {
         Checks::Running => step.note(core, Stage::Checking, "Its checks are running"),
         Checks::Passed => passed(core, &step, &pull, &head).await,
@@ -685,8 +686,11 @@ async fn checking(core: &Arc<Core>, step: Step) {
         Checks::None if waited < CI_START_WAIT_MS => {
             step.note(core, Stage::Checking, "Waiting for its checks to start");
         }
-        Checks::None => match step.settings.check.clone() {
-            Some(command) => {
+        Checks::None => {
+            let (owner, project) = (core.clone(), step.project.clone());
+            let command = blocking(move || Ok(super::check_command(&owner, &project))).await;
+            match command {
+            Ok(Some(command)) => {
                 step.note(core, Stage::Checking, &format!("Running {command}"));
                 let cwd = step.tree();
                 let checked = blocking(move || git::check(&cwd, &command).map_err(Into::into)).await;
@@ -698,12 +702,14 @@ async fn checking(core: &Arc<Core>, step: Step) {
                     Err(error) => step.hold(core, format!("The check command did not run: {error}")),
                 }
             }
-            None => step.note(
+            Ok(None) => step.note(
                 core,
                 Stage::Review,
                 "No CI ran on its pull request and this project has no check command, so it waits for you",
             ),
-        },
+            Err(error) => step.hold(core, format!("The check command could not be read: {error}")),
+            }
+        }
     }
 }
 
@@ -817,7 +823,7 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &Pull, head: &str
     .await;
     match rebased {
         Ok(Some(head)) => {
-            let now = unix_ms();
+            let now = epoch_ms();
             change_run(core, &step.project, step.id, step.agent(), |_, run| {
                 run.rebased = true;
                 run.head = Some(head);
@@ -951,13 +957,12 @@ async fn reviewing(core: &Arc<Core>, step: Step) {
 
 /// Counts the looks in a row at the card's pull request that found nothing new.
 fn quiet(core: &Core, step: &Step, nothing_new: bool) {
-    let mut state = core.boards.lock();
-    let key = (step.project.clone(), step.id, QUIET);
-    if nothing_new {
-        *state.polled.entry(key).or_insert(0) += 1;
-    } else {
-        state.polled.remove(&key);
-    }
+    core.boards
+        .state
+        .locked()
+        .change_work(&step.project, step.id, |work| {
+            work.quiet = if nothing_new { work.quiet + 1 } else { 0 };
+        });
 }
 
 async fn hand_review(core: &Arc<Core>, step: &Step, mut seen: review::Review, new: Vec<Feedback>) {

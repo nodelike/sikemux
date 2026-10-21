@@ -39,6 +39,9 @@ export const openVercel = (): string | null => openSurface(VERCEL_PROJECTS);
 /** Still on its way, so its state and log are worth asking for again. */
 export const isUnderway = (state: string) => state === "BUILDING" || state === "QUEUED" || state === "INITIALIZING";
 
+/** How often a deployment still on its way is read again, so its state and log keep up. */
+export const UNDERWAY_REFRESH_MS = 4_000;
+
 const LOG_LINES_FOR_AGENT = 120;
 
 /** A deployment as an agent reads it: what it is, where it came from, and the end of its build log. */

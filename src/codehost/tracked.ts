@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { PromptContext } from "../api/acp";
 import { useResourceEnabled } from "../plugin-api/resources";
-import { failureMessage } from "./api";
+import { errorText } from "../lib/format";
 import { pullState, useHostRepo } from "./project";
 import { codeHost, hostApi } from "./registry";
 import { hostStatusR, issuesR, pullsR } from "./resources";
@@ -62,10 +62,10 @@ export function useTrackedItems(cwd: string, enabled: boolean): TrackedList {
         if (!cwd) return { state: "unavailable", message: "Open a project to pick its issues" };
         if (found.loading) return { state: "loading" };
         if (!repo || !host) return { state: "unavailable", message: "This project has no remote on a code host" };
-        if (!status.data) return status.error ? { state: "unavailable", message: failureMessage(status.error) } : { state: "loading" };
+        if (!status.data) return status.error ? { state: "unavailable", message: errorText(status.error) } : { state: "loading" };
         if (!signedIn) return { state: "unavailable", message: `Sign in to ${host.name} in the Git pane to pick from its issues` };
         if (pulls.data && (!withIssues || issues.data)) return { state: "ready", repo, items: trackedItems(issues.data?.issues ?? [], pulls.data) };
-        if (error) return { state: "unavailable", message: failureMessage(error) };
+        if (error) return { state: "unavailable", message: errorText(error) };
         return { state: "loading" };
     }, [cwd, found.loading, repo, host, status.data, status.error, signedIn, error, pulls.data, withIssues, issues.data]);
 }

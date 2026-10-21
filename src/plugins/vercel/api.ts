@@ -1,10 +1,7 @@
 import { browserSignIn, createPluginBackend } from "../../plugin-api/backend";
-import { invalidate } from "../../plugin-api/resources";
-import { VERCEL_PLUGIN_ID } from "./kinds";
+import { VERCEL_PLUGIN } from "./kinds";
 
-export { failureMessage } from "../../plugin-api/backend";
-
-const backend = createPluginBackend(VERCEL_PLUGIN_ID, { signInStatus: (kind) => kind === "vercel.status" });
+const backend = createPluginBackend(VERCEL_PLUGIN.id);
 
 export interface VercelAccount {
     id: string;
@@ -103,8 +100,6 @@ export interface VercelVariable {
     gitBranch: string | null;
     updatedAt: number | null;
 }
-
-export const refreshVercel = () => invalidate((kind) => kind.startsWith("vercel."));
 
 /** Every call names its team, so the pane never acts on another team than the one it shows. */
 export const vercelApi = {

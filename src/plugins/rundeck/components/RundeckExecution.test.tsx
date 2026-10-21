@@ -13,7 +13,7 @@ vi.mock("../api", () => ({
         executions: () => new Promise(() => {}),
         lists: async () => ({ branchOptions: ["BRANCH"], prodEnvs: ["prod"] }),
     },
-    failureMessage: (e: unknown) => String(e),
+    errorText: (e: unknown) => String(e),
 }));
 vi.mock("../../../plugin-api/ui", async (importOriginal) => ({ ...(await importOriginal<object>()), VirtualLogList: () => null }));
 

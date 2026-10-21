@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MAX_ATTACHMENTS, entryName, mergePaths, projectEntries, rankEntries, removeToken, tokenAt } from "./composerInput";
+import { MAX_ATTACHMENTS } from "../api/generated/wire";
+import { entryName, mergePaths, projectEntries, rankEntries, removeToken, tokenAt } from "./composerInput";
 
 describe("mergePaths", () => {
     it("adds new paths after the ones already attached", () => {

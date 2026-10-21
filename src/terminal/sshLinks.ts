@@ -1,5 +1,5 @@
-import { useSyncExternalStore } from "react";
 import { coreSessionsApi } from "../api/coreSessions";
+import { externalValue, useExternalValue } from "../lib/externalValue";
 import type { SshLink } from "../api/generated/wire";
 import { getIpcTransport } from "../api/transport";
 import { collectPanes } from "../state/layout";
@@ -10,8 +10,7 @@ import type { StatusTone } from "../ui/StatusDot";
 type LinkState = Exclude<SshLink, "disconnected"> | "failed";
 
 /** Only terminals whose SSH is up, on its way, or gave up; any other terminal counts as not connected. */
-const live = new Map<number, LinkState>();
-const listeners = new Set<() => void>();
+const links = externalValue<ReadonlyMap<number, LinkState>>(new Map());
 
 /* The loop says "disconnected" both after a logout and after giving up. A logout follows "connected";
    giving up follows a "connecting" that never got through. */
@@ -21,15 +20,20 @@ function next(previous: LinkState | undefined, link: SshLink): LinkState | undef
 }
 
 function note(ptyId: number, link: SshLink): void {
+    const live = links.get();
     const state = next(live.get(ptyId), link);
     if (live.get(ptyId) === state) return;
-    if (state === undefined) live.delete(ptyId);
-    else live.set(ptyId, state);
-    for (const listener of [...listeners]) listener();
+    const updated = new Map(live);
+    if (state === undefined) updated.delete(ptyId);
+    else updated.set(ptyId, state);
+    links.set(updated);
 }
 
 function forget(ptyId: number): void {
-    if (live.delete(ptyId)) for (const listener of [...listeners]) listener();
+    if (!links.get().has(ptyId)) return;
+    const updated = new Map(links.get());
+    updated.delete(ptyId);
+    links.set(updated);
 }
 
 /** Follows every SSH terminal for as long as the page runs, shown or not. */
@@ -48,15 +52,10 @@ export function watchSshLinks(): () => void {
         .list()
         .then((sessions) => {
             for (const session of sessions)
-                if (session.ssh && session.running && !live.has(session.id) && !signal.aborted) note(session.id, session.ssh);
+                if (session.ssh && session.running && !links.get().has(session.id) && !signal.aborted) note(session.id, session.ssh);
         })
         .catch(fail);
     return () => controller.abort();
-}
-
-function subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
 }
 
 /** The session's terminals, as one string so a store selector over it stays equal while they do. */
@@ -69,7 +68,7 @@ function sessionPtyIds(state: StoreState, sessionId: string): string {
     return ids.join(",");
 }
 
-function toneOf(ptyIds: string): StatusTone {
+function toneOf(live: ReadonlyMap<number, LinkState>, ptyIds: string): StatusTone {
     const links = ptyIds ? ptyIds.split(",").map((id) => live.get(Number(id))) : [];
     if (links.includes("connected")) return "ok";
     if (links.includes("connecting")) return "pending";
@@ -79,5 +78,5 @@ function toneOf(ptyIds: string): StatusTone {
 
 export function useSshTone(sessionId: string): StatusTone {
     const ptyIds = useStore((state) => sessionPtyIds(state, sessionId));
-    return useSyncExternalStore(subscribe, () => toneOf(ptyIds));
+    return useExternalValue(links, (live) => toneOf(live, ptyIds));
 }

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -6,7 +7,7 @@ use tokio::task::spawn_blocking;
 use super::codex::delete_codex_session;
 use super::context::session_transcript_path;
 use super::rename::agent_executable;
-use super::roots::agent_config_root;
+use super::roots::account_root;
 use crate::agent_catalog::AgentKind;
 
 // ---- delete a saved session ----------------------------------------------
@@ -45,12 +46,14 @@ pub(super) fn saved_transcript(
     session_id: &str,
     config_path: Option<&str>,
 ) -> Result<(PathBuf, PathBuf), String> {
-    let (kind, folder) = match agent {
-        AgentKind::Claude => ("claude", "projects"),
-        AgentKind::Codex => ("codex", "sessions"),
-        _ => return Err(format!("{} chats cannot be deleted", agent.as_str())),
-    };
-    let root = agent_config_root(kind, config_path).ok_or("session not found")?;
+    let entry = agent.entry();
+    let folder = entry
+        .home
+        .as_ref()
+        .and_then(|home| home.sessions)
+        .filter(|_| entry.deletable_chats)
+        .ok_or_else(|| format!("{} chats cannot be deleted", entry.label))?;
+    let root = account_root(agent, config_path, &BTreeMap::new()).ok_or("session not found")?;
     let transcript = session_transcript_path(agent, cwd, session_id, config_path)
         .and_then(|path| fs::canonicalize(path).ok())
         .filter(|path| path.is_file())

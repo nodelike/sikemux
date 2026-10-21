@@ -5,7 +5,7 @@ import { QUIT_AND_STOP_SHORTCUT } from "../commands/keybindings";
 import * as cmd from "../state/commands";
 import { claimedSessionIds, runningTerminalAgents, unclaimedTerminals } from "../state/coreSessionClaims";
 import { getState, setState } from "../state/store";
-import { notify } from "../state/toast";
+import { notify, swallow } from "../state/toast";
 import { offerResumableSessions, spawnedThisPage } from "../terminal/sessionResume";
 
 /** Long enough for every pane of a restored layout to have taken its terminal back. */
@@ -68,6 +68,6 @@ export async function restoreCoreSessions(deps: CoreSessionRestoreDeps = default
     if (candidates.length === 0) return;
     deps.schedule(() => {
         const stillClaimed = claimedSessionIds(getState());
-        for (const id of candidates) if (!stillClaimed.has(id)) void deps.kill(id).catch(() => {});
+        for (const id of candidates) if (!stillClaimed.has(id)) void deps.kill(id).catch(swallow("kill an unclaimed session"));
     }, UNCLAIMED_GRACE_MS);
 }

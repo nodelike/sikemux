@@ -17,7 +17,8 @@ import {
     IconRefresh,
     type ContextMenuItem,
 } from "../../../plugin-api/ui";
-import { failureMessage, type Connected, type DatabaseProfile, type DatabaseTable } from "../api";
+import { errorText } from "../../../plugin-api/format";
+import { type Connected, type DatabaseProfile, type DatabaseTable } from "../api";
 import { addressOf, defaultSchema, engineLabel } from "../profileForm";
 import { databaseSchemasR, databaseTableR, databaseTablesR } from "../resources";
 import { DatabaseMark } from "./DatabaseMark";
@@ -153,7 +154,7 @@ function ConnectionNode({ profile, connected, tree }: { profile: DatabaseProfile
             await tree.actions.connect(profile);
             tree.onExpand([key, ...(usual ? [schemaKey(profile.id, usual), groupKey(profile.id, usual, "tables")] : [])]);
         } catch (failure) {
-            setError(failureMessage(failure));
+            setError(errorText(failure));
         } finally {
             setConnecting(false);
         }

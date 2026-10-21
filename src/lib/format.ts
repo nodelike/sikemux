@@ -44,6 +44,32 @@ export function formatDuration(ms: number | null | undefined): string {
     return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
 }
 
+/** A countdown in words: `5 min`, `1 hour`, `3 hours`, `2 days`. */
+export function formatTimeLeft(until: number, now: number): string {
+    const minutes = Math.max(1, Math.round((until - now) / 60_000));
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return hours === 1 ? "1 hour" : `${hours} hours`;
+    return `${Math.round(hours / 24)} days`;
+}
+
+/** Seconds as a clock: `1:52`, `1:02:05`. */
+export function formatClock(seconds: number): string {
+    const whole = Math.round(seconds);
+    const h = Math.floor(whole / 3600);
+    const m = Math.floor((whole % 3600) / 60);
+    const s = String(whole % 60).padStart(2, "0");
+    return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+/** `0.4.0-nightly.10` as the release `0.4.0` and the channel `nightly 10`. */
+export function splitVersion(version: string): { release: string; channel: string | null } {
+    const match = /^(\d+\.\d+\.\d+)-([a-z]+)(?:\.(\d+))?$/i.exec(version);
+    if (!match) return { release: version, channel: null };
+    const [, release, name, build] = match;
+    return { release, channel: build ? `${name} ${build}` : name };
+}
+
 const BYTE_UNITS = ["KB", "MB", "GB", "TB"];
 
 /** A size: `512 B`, `2.0 KB`, `15 MB`. */

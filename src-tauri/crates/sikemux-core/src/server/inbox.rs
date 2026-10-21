@@ -4,18 +4,20 @@
 //! core already keeps; only how each agent's latest turn went is kept here.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use crate::protocol::{
     AgentGroup, AgentStatus, ChatInfo, PermissionChoices, SessionId, SessionInfo,
 };
+use crate::text::{clipped, clipped_line};
 
 use super::board::{self, Summary, Waits};
-use super::notify::{clip, provider_name};
-use super::remote::unix_ms;
+use super::notify::provider_name;
 use super::Core;
 
 /// Agents whose latest turn is kept; the longest-finished go first.
@@ -87,9 +89,7 @@ pub(crate) struct Recording {
     pub seconds: f64,
     pub at: u64,
     /// The chat run and turn it was made in.
-    #[serde(default)]
     pub feed: Option<String>,
-    #[serde(default)]
     pub turn: Option<u64>,
 }
 
@@ -165,7 +165,7 @@ pub(crate) struct View {
     pub remote_agents: Vec<RemoteAgent>,
     /// Every open agent here as devices show it, in the order they list them.
     pub agents: Vec<Shown>,
-    /// The characters the app draws for its agents, while buddies are on.
+    /// The characters the app draws for its agents.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub buddies: Option<super::workspace::Buddies>,
 }
@@ -269,43 +269,39 @@ fn turn<'a>(turns: &'a mut HashMap<String, Turn>, agent_id: &str) -> &'a mut Tur
 }
 
 impl Inbox {
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, Turn>> {
-        self.turns
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     pub(crate) fn started(&self, agent_id: &str) {
-        *turn(&mut self.lock(), agent_id) = Turn {
-            started_at: unix_ms(),
+        *turn(&mut self.turns.locked(), agent_id) = Turn {
+            started_at: epoch_ms(),
             ..Turn::default()
         };
     }
 
     /// The turn ended by itself; `problem` says what went wrong, if anything.
     pub(crate) fn ended(&self, agent_id: &str, problem: Option<&str>) {
-        let mut turns = self.lock();
+        let mut turns = self.turns.locked();
         let turn = turn(&mut turns, agent_id);
-        turn.ended_at = Some(unix_ms());
+        turn.ended_at = Some(epoch_ms());
         if let Some(problem) = problem {
             turn.problem = Some(problem.to_owned());
         }
     }
 
     pub(crate) fn stopped(&self, agent_id: &str) {
-        if let Some(turn) = self.lock().get_mut(agent_id) {
+        if let Some(turn) = self.turns.locked().get_mut(agent_id) {
             turn.ended_at = None;
         }
     }
 
     fn snapshot(&self, agent_id: &str) -> Option<(Option<u64>, Option<String>, Vec<Recording>)> {
-        self.lock()
+        self.turns
+            .locked()
             .get(agent_id)
             .map(|turn| (turn.ended_at, turn.problem.clone(), turn.recordings.clone()))
     }
 
     fn ended_since(&self, since: u64) -> Vec<String> {
-        self.lock()
+        self.turns
+            .locked()
             .iter()
             .filter(|(_, turn)| turn.ended_at.is_some_and(|at| at >= since))
             .map(|(agent_id, _)| agent_id.clone())
@@ -325,12 +321,12 @@ pub(crate) fn recorded(core: &Core, agent_id: &str, answer: &Value) {
     let recording = Recording {
         path: path.to_owned(),
         seconds,
-        at: unix_ms(),
+        at: epoch_ms(),
         feed: chat.as_ref().map(|chat| chat.feed.id().to_owned()),
         turn: chat.as_ref().and_then(|chat| chat.feed.turn_start()),
     };
     {
-        let mut turns = core.inbox.lock();
+        let mut turns = core.inbox.turns.locked();
         let turn = turn(&mut turns, agent_id);
         if turn.recordings.len() >= MAX_TURN_RECORDINGS {
             turn.recordings.remove(0);
@@ -344,7 +340,8 @@ pub(crate) fn recorded(core: &Core, agent_id: &str, answer: &Value) {
 fn handoff(core: &Core, agent_id: &str) -> Handoff {
     if let Some(handoff) = core
         .inbox
-        .lock()
+        .turns
+        .locked()
         .get(agent_id)
         .and_then(|turn| turn.handoff.clone())
     {
@@ -355,7 +352,7 @@ fn handoff(core: &Core, agent_id: &str) -> Handoff {
         handoff.answer = chat
             .feed
             .last_answer()
-            .map(|answer| clip_text(&answer, MAX_ANSWER_CHARS));
+            .map(|answer| clipped(&answer, MAX_ANSWER_CHARS));
         let project = core.names.get(agent_id).map(|named| named.project);
         let filter = serde_json::from_value(json!({
             "project": project.clone().unwrap_or_default(),
@@ -373,19 +370,8 @@ fn handoff(core: &Core, agent_id: &str) -> Handoff {
             handoff.edited = seen.len();
         }
     }
-    turn(&mut core.inbox.lock(), agent_id).handoff = Some(handoff.clone());
+    turn(&mut core.inbox.turns.locked(), agent_id).handoff = Some(handoff.clone());
     handoff
-}
-
-/// Keeps whole lines up to `limit` characters, unlike [`clip`]'s first line.
-fn clip_text(text: &str, limit: usize) -> String {
-    let text = text.trim();
-    if text.chars().count() <= limit {
-        return text.to_owned();
-    }
-    let mut clipped: String = text.chars().take(limit.saturating_sub(1)).collect();
-    clipped.push('…');
-    clipped
 }
 
 /// An agent as the inbox names it.
@@ -597,7 +583,7 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> Item {
             what.into(),
             ended_at.unwrap_or(agent.at),
         );
-        item.detail = problem.map(|problem| clip(&problem, MAX_LINE_CHARS));
+        item.detail = problem.map(|problem| clipped_line(&problem, MAX_LINE_CHARS));
         item.handoff = Some(handoff);
         item
     };
@@ -626,7 +612,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<Item> {
             .command
             .clone()
             .or_else(|| attention.choices.title.clone())
-            .map(|text| clip(&text, MAX_LINE_CHARS));
+            .map(|text| clipped_line(&text, MAX_LINE_CHARS));
         item.request_id = Some(attention.id);
         item.choices = Some(attention.choices);
         items.push(item);
@@ -636,13 +622,16 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<Item> {
         let (kind, what) = match (&question.assumption, question.blocked) {
             (Some(assumption), false) => (
                 Kind::Assumption,
-                format!("Went on assuming {}", clip(assumption, MAX_LINE_CHARS)),
+                format!(
+                    "Went on assuming {}",
+                    clipped_line(assumption, MAX_LINE_CHARS)
+                ),
             ),
             _ => (Kind::Question, "Asks you".to_owned()),
         };
         let mut item = Item::new(format!("question:{}", question.id), kind, what, question.at)
             .by(&question.agent_id, find(&question.agent_id));
-        item.detail = Some(clip(&question.text, MAX_LINE_CHARS));
+        item.detail = Some(clipped_line(&question.text, MAX_LINE_CHARS));
         item.question_id = Some(question.id.clone());
         items.push(item);
     }
@@ -701,7 +690,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<Item> {
             .lines()
             .rev()
             .find(|line| !line.trim().is_empty())
-            .map(|line| clip(line, MAX_LINE_CHARS));
+            .map(|line| clipped_line(line, MAX_LINE_CHARS));
         items.push(item);
     }
     for session in sessions {

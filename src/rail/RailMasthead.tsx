@@ -4,6 +4,7 @@ import { swallow } from "../state/toast";
 import { Logo } from "../ui/Icons";
 import { RailToggle } from "./RailToggle";
 import { Tooltip } from "../ui/Tooltip";
+import { splitVersion } from "../lib/format";
 
 function useAppVersion(): string | null {
     const [version, setVersion] = useState<string | null>(null);
@@ -11,13 +12,6 @@ function useAppVersion(): string | null {
         getVersion().then(setVersion).catch(swallow("getVersion"));
     }, []);
     return version;
-}
-
-function splitVersion(version: string): { release: string; channel: string | null } {
-    const match = /^(\d+\.\d+\.\d+)-([a-z]+)(?:\.(\d+))?$/i.exec(version);
-    if (!match) return { release: version, channel: null };
-    const [, release, name, build] = match;
-    return { release, channel: build ? `${name} ${build}` : name };
 }
 
 function VersionLabel({ version }: { version: string }) {

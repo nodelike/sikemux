@@ -18,6 +18,9 @@ impl Kept {
         }
     }
 
+    /// What the file holds, or the default when there is none yet. A file
+    /// that cannot be read is moved aside first, so the next save does not
+    /// overwrite what it held.
     pub(crate) fn load<T: DeserializeOwned + Default>(&self) -> T {
         let Some(path) = &self.path else {
             return T::default();
@@ -28,12 +31,30 @@ impl Kept {
         };
         read.and_then(|bytes| serde_json::from_slice(&bytes).map_err(|error| error.to_string()))
             .unwrap_or_else(|error| {
-                eprintln!(
-                    "sikemux core: {} could not be read: {error}",
-                    path.display()
-                );
+                self.set_aside(&error);
                 T::default()
             })
+    }
+
+    /// Moves a file that cannot be used to `<file>.unreadable-<when>`.
+    pub(crate) fn set_aside(&self, why: &str) {
+        let Some(path) = &self.path else {
+            return;
+        };
+        let mut aside = path.clone().into_os_string();
+        aside.push(format!(
+            ".unreadable-{}",
+            sikemux_process::clock::epoch_ms()
+        ));
+        let moved = std::fs::rename(path, &aside);
+        eprintln!(
+            "sikemux core: {} could not be read ({why}); {}",
+            path.display(),
+            match moved {
+                Ok(()) => format!("it was kept as {}", Path::new(&aside).display()),
+                Err(error) => format!("it could not be moved aside either: {error}"),
+            }
+        );
     }
 
     pub(crate) fn save<T: Serialize>(&self, value: &T) {

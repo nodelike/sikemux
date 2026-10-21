@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import { openPortExternally, revealPortOwner } from "../ports/portActions";
 import { taskTerminalReveal } from "../ports/projectPorts";
 import { useProjectPorts } from "../ports/useProjectPorts";
@@ -8,27 +8,15 @@ import { reportError } from "../state/toast";
 import { IconAgent, IconCheck, IconChevron, IconClose, IconExternal, IconPlus, IconRefresh, IconRun, IconStop, IconTerminal } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { tasksApi, useProjectTasks, useTaskRuns, type ProjectTask, type TaskRun } from "./coreTasks";
-import {
-    dismissPendingCheck,
-    getPendingCheck,
-    personRuns,
-    runProjectTask,
-    stopTaskRun,
-    subscribePendingCheck,
-    type PendingCheck,
-} from "./projectTaskActions";
-import { AddTaskForm } from "./AddTaskForm";
+import { dismissPendingCheck, personRuns, runProjectTask, stopTaskRun, usePendingCheck, type PendingCheck } from "./projectTaskActions";
+import { AddTaskDialog } from "./AddTaskDialog";
 import { failureFixRequest, findTasksRequest, testFixRequest } from "./agentRequests";
 import { FailureCard, TestResultsCard, type FinishedTestRun } from "./TestResultsCard";
+import { useNow } from "../hooks/useNow";
+import { basename } from "../lib/paths";
 
 function useSecondsSince(startedAt: number | null): number {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        if (startedAt === null) return;
-        setNow(Date.now());
-        const timer = setInterval(() => setNow(Date.now()), 1000);
-        return () => clearInterval(timer);
-    }, [startedAt]);
+    const now = useNow(startedAt !== null);
     return startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 1000));
 }
 
@@ -62,7 +50,7 @@ function taskGroups(tasks: readonly ProjectTask[], project: string): TaskGroup[]
     for (const task of tasks.filter((candidate) => candidate.source === "detected" || candidate.source === "rerun"))
         byFolder.set(task.cwd, [...(byFolder.get(task.cwd) ?? []), task]);
     for (const [cwd, folderTasks] of byFolder) {
-        const folder = cwd === "." ? (project.split("/").pop() ?? project) : cwd;
+        const folder = cwd === "." ? basename(project) : cwd;
         const tool = BUILD_TOOL_LABELS[folderTasks[0].command.split(" ")[0]];
         const java = folderTasks[0].java;
         const javaText = java ? (java.runsOn !== null ? `Java ${java.runsOn}` : `needs Java ${java.required}`) : null;
@@ -130,7 +118,7 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
     const ports = useProjectPorts(sessionId);
     const [picked, setPicked] = useState<Readonly<Record<string, string>>>({});
     const [open, setOpen] = useState(false);
-    const pendingCheck = useSyncExternalStore(subscribePendingCheck, getPendingCheck);
+    const pendingCheck = usePendingCheck();
     const [dismissedTests, setDismissedTests] = useState<string | null>(null);
     const [failureShown, setFailureShown] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
@@ -393,31 +381,36 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                             <div className="tb-run-menu-head">
                                 <span>Your own tasks</span>
                             </div>
-                            {adding ? (
-                                <AddTaskForm
-                                    project={project}
-                                    onDone={(id) => {
-                                        setAdding(false);
-                                        if (id) setPicked((current) => ({ ...current, [project]: id }));
-                                    }}
-                                />
-                            ) : (
-                                <button className="env-dd-item" role="menuitem" onClick={() => setAdding(true)}>
-                                    <IconPlus size={12} />
-                                    <span>Add a task…</span>
-                                </button>
-                            )}
+                            <button
+                                className="env-dd-item"
+                                role="menuitem"
+                                onClick={() => {
+                                    setOpen(false);
+                                    setAdding(true);
+                                }}>
+                                <IconPlus size={12} />
+                                <span>Add a task…</span>
+                            </button>
                             <button
                                 className="env-dd-item"
                                 role="menuitem"
                                 onClick={(event) => pickAgent(event.currentTarget, findTasksRequest(project))}>
                                 <IconAgent size={12} />
-                                <span>Find this project's tasks with an agent…</span>
+                                <span>Find tasks with an agent…</span>
                             </button>
                         </div>
                     </>
                 )}
             </span>
+            {adding && (
+                <AddTaskDialog
+                    project={project}
+                    onDone={(id) => {
+                        setAdding(false);
+                        if (id) setPicked((current) => ({ ...current, [project]: id }));
+                    }}
+                />
+            )}
             <span className="tb-sep" />
         </>
     );

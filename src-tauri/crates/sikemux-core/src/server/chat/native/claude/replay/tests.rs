@@ -7,6 +7,10 @@ use super::*;
 
 const SESSION: &str = "0b9cc1a6-6d0b-4c1e-9d55-0d2f6c5e7a10";
 
+fn transcript_path(root: &Path, id: &str) -> Option<std::path::PathBuf> {
+    crate::sessions::transcript::find(crate::agent_catalog::AgentKind::Claude, root, None, id)
+}
+
 fn user(uuid: &str, parent: Option<&str>, content: Value) -> Value {
     json!({ "type": "user", "uuid": uuid, "parentUuid": parent, "message": { "role": "user", "content": content } })
 }

@@ -49,6 +49,7 @@ function status(pending: PendingDevice[] = []): RemoteStatus {
         account: null,
         updateRequired: null,
         notifications: [],
+        requireApproval: false,
     };
 }
 
@@ -79,7 +80,7 @@ const takeover = (name: string) => screen.queryByRole("alertdialog", { name });
 
 describe("PairingPrompt", () => {
     it("stays out of the way while no phone is waiting", async () => {
-        transport.register("remote_status", () => status());
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status() }));
         render(<PairingPrompt hasFocus={() => true} />);
         await settle();
         expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
@@ -87,7 +88,7 @@ describe("PairingPrompt", () => {
 
     it("takes over the window wherever the person is, Settings › Devices too, and goes once the request ends", async () => {
         setState({ settingsOpen: true, settingsPage: "devices" });
-        transport.register("remote_status", () => status());
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status() }));
         const { container } = render(
             <>
                 <button type="button">Behind</button>
@@ -110,24 +111,24 @@ describe("PairingPrompt", () => {
 
     it("allows the phone with the access the person chose", async () => {
         const user = userEvent.setup();
-        transport.register("remote_status", () => status([PIXEL]));
-        const answer = vi.fn(() => status());
-        transport.register("remote_answer_pairing", answer);
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status([PIXEL]) }));
+        const answer = vi.fn(() => ({ status: status() }));
+        transport.registerCoreRequest("answerPairing", answer);
         render(<PairingPrompt hasFocus={() => true} />);
 
         await screen.findByRole("alertdialog", { name: PIXEL_ASKS });
         await user.click(screen.getByRole("radio", { name: /Watch only/ }));
         await user.click(screen.getByRole("button", { name: "Allow" }));
 
-        expect(answer).toHaveBeenCalledWith({ id: "join-1", allow: true, access: "watch" }, expect.anything());
+        expect(answer).toHaveBeenCalledWith({ op: "answerPairing", id: "join-1", allow: true, access: "watch" }, expect.anything());
         await waitFor(() => expect(takeover(PIXEL_ASKS)).not.toBeInTheDocument());
     });
 
     it("answers from the keyboard, and nothing behind it hears the keys", async () => {
         const user = userEvent.setup();
-        transport.register("remote_status", () => status([PIXEL]));
-        const answer = vi.fn(() => status());
-        transport.register("remote_answer_pairing", answer);
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status([PIXEL]) }));
+        const answer = vi.fn(() => ({ status: status() }));
+        transport.registerCoreRequest("answerPairing", answer);
         const behind = vi.fn();
         window.addEventListener("keydown", behind);
         render(<PairingPrompt hasFocus={() => true} />);
@@ -137,7 +138,7 @@ describe("PairingPrompt", () => {
         expect(screen.getByRole("radio", { name: /Watch only/ })).toHaveAttribute("aria-checked", "true");
         await user.keyboard("{ArrowUp}{Enter}");
 
-        expect(answer).toHaveBeenCalledWith({ id: "join-1", allow: true, access: "full" }, expect.anything());
+        expect(answer).toHaveBeenCalledWith({ op: "answerPairing", id: "join-1", allow: true, access: "full" }, expect.anything());
         expect(behind).not.toHaveBeenCalled();
         window.removeEventListener("keydown", behind);
     });
@@ -145,25 +146,25 @@ describe("PairingPrompt", () => {
     it("declines with Escape, then asks about the next phone waiting", async () => {
         const user = userEvent.setup();
         let pending = [IPHONE, PIXEL];
-        transport.register("remote_status", () => status(pending));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status(pending) }));
         const answer = vi.fn(() => {
             pending = [IPHONE];
-            return status(pending);
+            return { status: status(pending) };
         });
-        transport.register("remote_answer_pairing", answer);
+        transport.registerCoreRequest("answerPairing", answer);
         render(<PairingPrompt hasFocus={() => true} />);
 
         await screen.findByRole("alertdialog", { name: PIXEL_ASKS });
         await user.keyboard("{Escape}");
 
-        expect(answer).toHaveBeenCalledWith({ id: "join-1", allow: false, access: "full" }, expect.anything());
+        expect(answer).toHaveBeenCalledWith({ op: "answerPairing", id: "join-1", allow: false, access: "full" }, expect.anything());
         expect(await screen.findByRole("alertdialog", { name: IPHONE_ASKS })).toBeInTheDocument();
         expect(screen.getByRole("radio", { name: /Full control/ })).toHaveAttribute("aria-checked", "true");
     });
 
     it("notifies once per request while Sikemux is in the background, and not while it is in front", async () => {
         let focused = true;
-        transport.register("remote_status", () => status());
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status() }));
         render(<PairingPrompt hasFocus={() => focused} />);
         await settle();
 
@@ -184,9 +185,9 @@ describe("PairingPrompt", () => {
 
     it("right after signing in, lets in every phone on the account at once with the access chosen", async () => {
         const user = userEvent.setup();
-        transport.register("remote_status", () => status());
-        const allow = vi.fn(() => status());
-        transport.register("remote_allow_devices", allow);
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status() }));
+        const allow = vi.fn(() => ({ status: status() }));
+        transport.registerCoreRequest("allowDevices", allow);
         useAccount.setState({ phonesToAllow: [ACCOUNT_PIXEL, ACCOUNT_IPHONE] });
         render(<PairingPrompt hasFocus={() => true} />);
 
@@ -198,6 +199,7 @@ describe("PairingPrompt", () => {
 
         expect(allow).toHaveBeenCalledWith(
             {
+                op: "allowDevices",
                 devices: [
                     { id: PHONE, name: "Pixel 8", platform: "android", access: "watch" },
                     { id: OTHER_PHONE, name: "Kishore's phone", platform: "ios", access: "watch" },
@@ -212,12 +214,12 @@ describe("PairingPrompt", () => {
     it("asks about a phone on the account once, though it is already waiting to join", async () => {
         const user = userEvent.setup();
         let pending: PendingDevice[] = [PIXEL];
-        transport.register("remote_status", () => status(pending));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status(pending) }));
         const decline = vi.fn(() => {
             pending = [];
-            return status(pending);
+            return { status: status(pending) };
         });
-        transport.register("remote_answer_pairing", decline);
+        transport.registerCoreRequest("answerPairing", decline);
         useAccount.setState({ phonesToAllow: [ACCOUNT_PIXEL] });
         render(<PairingPrompt hasFocus={() => true} />);
 
@@ -225,7 +227,7 @@ describe("PairingPrompt", () => {
         expect(takeover(PIXEL_ASKS)).not.toBeInTheDocument();
         await user.click(screen.getByRole("button", { name: "Not now" }));
 
-        expect(decline).toHaveBeenCalledWith({ id: "join-1", allow: false, access: "full" }, expect.anything());
+        expect(decline).toHaveBeenCalledWith({ op: "answerPairing", id: "join-1", allow: false, access: "full" }, expect.anything());
         await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     });
 

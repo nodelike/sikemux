@@ -1,11 +1,14 @@
 use std::sync::Mutex;
 
+use futures_util::StreamExt;
 use iroh::SecretKey;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
-use tokio_websockets::{CloseCode, ServerBuilder};
+use tokio::net::TcpStream;
+use tokio_websockets::{CloseCode, Message, ServerBuilder, WebSocketStream};
 
 use super::*;
+use crate::accounts::socket::OVER_LIMIT_WAIT;
 
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -223,14 +226,6 @@ fn urls_follow_the_api_scheme() {
     assert_eq!(url("http://127.0.0.1:4000/"), "ws://127.0.0.1:4000/v1/live");
 }
 
-#[test]
-fn backoff_never_passes_its_cap() {
-    for failures in [1, 2, 10, 40, u32::MAX] {
-        assert!(backoff(failures) <= BACKOFF_CAP);
-    }
-    assert!(backoff(1) <= BACKOFF_BASE);
-}
-
 #[tokio::test]
 async fn a_host_proves_its_key_applies_each_event_once_and_acknowledges_it() {
     let server = Server::new().await;
@@ -417,7 +412,7 @@ fn push(to: &str, card: &str, expires_at: u64) -> Push {
 }
 
 fn later() -> u64 {
-    now_ms() + 60_000
+    epoch_ms() + 60_000
 }
 
 #[test]
@@ -461,7 +456,7 @@ fn a_newer_alert_for_the_same_card_replaces_one_still_waiting() {
         blob: "BBBB".into(),
         ..push("phone", "a", later())
     });
-    outbox.post(push("phone", "c", now_ms() - 1));
+    outbox.post(push("phone", "c", epoch_ms() - 1));
     let waiting = outbox.waiting();
     assert_eq!(waiting.len(), 3);
     assert_eq!(waiting[0].collapse_id, "b".repeat(32));

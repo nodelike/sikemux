@@ -1,2 +1,5 @@
-export const RUNDECK_PLUGIN_ID = "sikemux.rundeck";
-export const RUNDECK_DEPLOY = "sikemux.rundeck:deploy";
+import { id, name } from "../../../src-tauri/plugins/rundeck/manifest.json";
+import { surfaceKind } from "../../plugin-api/identity";
+
+export const RUNDECK_PLUGIN = { id, name };
+export const RUNDECK_DEPLOY = surfaceKind(RUNDECK_PLUGIN, "deploy");

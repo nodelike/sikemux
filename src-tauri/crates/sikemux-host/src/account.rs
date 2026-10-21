@@ -11,9 +11,8 @@ use sikemux_core::accounts::host::{
     HostSignIn, HostSignInFinish, HostSignInPoll, HostSignInStart, HostSignInState,
     HostSignInStatus,
 };
-use sikemux_core::accounts::protocol::{ApiError, Channel, Device};
+use sikemux_core::accounts::protocol::{ApiError, Device};
 use sikemux_core::client::CoreClient;
-use sikemux_core::protocol::BuildChannel;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -31,7 +30,7 @@ pub fn http() -> &'static Client {
             .timeout(REQUEST_TIMEOUT)
             .user_agent(concat!("sikemux/", env!("CARGO_PKG_VERSION")))
             .build()
-            .unwrap_or_default()
+            .expect("build the account server's HTTP client")
     })
 }
 
@@ -41,14 +40,6 @@ pub async fn refusal(response: Response) -> String {
     match response.json::<ApiError>().await {
         Ok(body) => format!("the account server refused: {}", body.error.message),
         Err(_) => format!("the account server answered {status}"),
-    }
-}
-
-pub fn channel(build: BuildChannel) -> Channel {
-    match build {
-        BuildChannel::Dev => Channel::Dev,
-        BuildChannel::Nightly => Channel::Nightly,
-        BuildChannel::Stable => Channel::Stable,
     }
 }
 
@@ -71,7 +62,7 @@ pub async fn sign_in_by_code(
         key,
         name: host.name.chars().take(64).collect(),
         platform: sikemux_core::server::HOST_PLATFORM,
-        channel: channel(host.channel),
+        channel: host.channel.into(),
     };
     let signing: HostSignIn = post("/v1/host-sign-ins", &start).await?;
     show(&signing);

@@ -2,9 +2,10 @@
 // them only says where each database is and how to reach it.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
 
 use crate::error::{DatabaseError, DatabaseResult};
 
@@ -284,7 +285,7 @@ pub fn save(data_dir: &Path, request: SaveRequest) -> DatabaseResult<Profile> {
     }
     let target = profile.target.trimmed();
     target.check()?;
-    let _turn = WRITING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _turn = WRITING.locked();
     let mut profiles = load(data_dir)?;
     let existing = profile
         .id
@@ -328,7 +329,7 @@ pub fn save(data_dir: &Path, request: SaveRequest) -> DatabaseResult<Profile> {
 }
 
 pub fn remove(data_dir: &Path, id: &str) -> DatabaseResult<()> {
-    let _turn = WRITING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _turn = WRITING.locked();
     let mut profiles = load(data_dir)?;
     if let Some(removed) = profiles.remove(id) {
         store(data_dir, &profiles)?;

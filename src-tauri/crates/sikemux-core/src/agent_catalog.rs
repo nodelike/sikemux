@@ -14,17 +14,102 @@ pub enum AgentKind {
     Muse,
 }
 
+/// How the CLI is told which session to resume.
+#[derive(Debug)]
+pub enum Resume {
+    /// `<flag> <session>` after its other arguments.
+    Flag(&'static str),
+    /// `<subcommand>` before its other arguments and the session after them.
+    Subcommand(&'static str),
+}
+
+/// The CLI's flags in a terminal.
+pub struct Terminal {
+    /// Sikemux's Normal mode.
+    pub normal: &'static [&'static str],
+    /// YOLO, when the CLI has one.
+    pub bypass: Option<&'static [&'static str]>,
+    /// The flag taking a reasoning effort, and its value with `{}` for the effort.
+    pub effort: Option<[&'static str; 2]>,
+    pub resume: Resume,
+    /// What the CLI needs once a model or effort is chosen.
+    pub with_choices: &'static [&'static str],
+}
+
+/// The session modes an ACP agent's permission modes are.
+pub struct AcpModes {
+    pub normal: &'static str,
+    pub bypass: &'static str,
+}
+
+/// How the core drives the agent in a chat.
+pub enum ChatDriver {
+    Claude,
+    Codex,
+    Muse,
+    /// The agent's own ACP mode, started with `args`.
+    Acp {
+        args: &'static [&'static str],
+        modes: Option<AcpModes>,
+    },
+}
+
+/// The folder the CLI keeps its settings and sessions in: `variable`, else
+/// `dir` under the home folder, then `within` either.
+pub struct Home {
+    pub variable: &'static str,
+    pub dir: &'static str,
+    pub within: Option<&'static str>,
+    /// The folder its saved sessions sit in.
+    pub sessions: Option<&'static str>,
+    /// A private copy Sikemux gives each of the agent's launches.
+    pub private: Option<PrivateHome>,
+}
+
+/// A private copy of the agent's home Sikemux can change without touching the person's.
+pub struct PrivateHome {
+    pub config: &'static str,
+    /// What the config holds when the person has none.
+    pub empty_config: &'static str,
+    /// The agent's saved sessions, shared with the person's own home.
+    pub session_store: &'static str,
+    pub session_store_is_folder: bool,
+}
+
+/// How the agent reaches a connected model provider.
+pub enum ProviderUse {
+    /// Sikemux points it at one in place of its maker's account.
+    Routed,
+    /// It reads every connected provider's key from its environment.
+    Reads,
+}
+
 pub struct AgentEntry {
     pub kind: &'static str,
     pub label: &'static str,
     pub command: &'static str,
     pub brand: &'static str,
+    pub featured: bool,
     pub accounts: bool,
     pub usage: bool,
     pub deletable_chats: bool,
+    pub resumes_by_path: bool,
+    pub relocatable_sessions: bool,
     pub bypass: bool,
+    /// The model it writes commit messages with, when it can.
+    pub commit_model: Option<&'static str>,
     /// The reasoning efforts the CLI's own flag takes.
     pub efforts: &'static [&'static str],
+    /// Arguments that answer whether the CLI runs, without side effects.
+    pub probe: &'static [&'static str],
+    /// Where its installers put the CLI off PATH.
+    pub install_paths: &'static [&'static str],
+    /// What makes the commands it runs find Sikemux's git ahead of the system's.
+    pub git_shim_args: &'static [&'static str],
+    pub home: Option<Home>,
+    pub terminal: Terminal,
+    pub chat: Option<ChatDriver>,
+    pub providers: Option<ProviderUse>,
 }
 
 pub const AGENTS: &[AgentEntry] = &[
@@ -33,88 +118,287 @@ pub const AGENTS: &[AgentEntry] = &[
         label: "Claude",
         command: "claude",
         brand: "#d97757",
+        featured: true,
         accounts: true,
         usage: true,
         deletable_chats: true,
+        resumes_by_path: false,
+        relocatable_sessions: true,
         bypass: true,
+        commit_model: Some("sonnet"),
         efforts: &["low", "medium", "high", "xhigh", "max"],
+        probe: &["--version"],
+        install_paths: &["~/.claude/local/claude", "~/.claude/bin/claude"],
+        git_shim_args: &[],
+        home: Some(Home {
+            variable: "CLAUDE_CONFIG_DIR",
+            dir: ".claude",
+            within: None,
+            sessions: Some("projects"),
+            private: None,
+        }),
+        terminal: Terminal {
+            normal: &["--permission-mode", "acceptEdits"],
+            bypass: Some(&["--dangerously-skip-permissions"]),
+            effort: Some(["--effort", "{}"]),
+            resume: Resume::Flag("--resume"),
+            with_choices: &[],
+        },
+        chat: Some(ChatDriver::Claude),
+        providers: Some(ProviderUse::Routed),
     },
     AgentEntry {
         kind: "codex",
         label: "Codex",
         command: "codex",
         brand: "#7a9dff",
+        featured: true,
         accounts: true,
         usage: true,
         deletable_chats: true,
+        resumes_by_path: false,
+        relocatable_sessions: true,
         bypass: true,
+        commit_model: Some("gpt-5.5"),
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max"],
+        probe: &["--version"],
+        install_paths: &["/Applications/ChatGPT.app/Contents/Resources/codex"],
+        git_shim_args: &["-c", "allow_login_shell=false"],
+        home: Some(Home {
+            variable: "CODEX_HOME",
+            dir: ".codex",
+            within: None,
+            sessions: Some("sessions"),
+            private: None,
+        }),
+        terminal: Terminal {
+            normal: &["--sandbox", "workspace-write"],
+            bypass: Some(&["--dangerously-bypass-approvals-and-sandbox"]),
+            effort: Some(["--config", "model_reasoning_effort=\"{}\""]),
+            resume: Resume::Subcommand("resume"),
+            with_choices: &[],
+        },
+        chat: Some(ChatDriver::Codex),
+        providers: Some(ProviderUse::Routed),
     },
     AgentEntry {
         kind: "hermes",
         label: "Hermes",
         command: "hermes",
         brand: "#e0a050",
+        featured: false,
         accounts: false,
         usage: false,
         deletable_chats: false,
+        resumes_by_path: false,
+        relocatable_sessions: false,
         bypass: true,
-        efforts: &["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+        commit_model: Some("openai/gpt-5.5"),
+        efforts: &[
+            "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+        ],
+        probe: &["--help"],
+        install_paths: &[],
+        git_shim_args: &[],
+        home: Some(Home {
+            variable: "HERMES_HOME",
+            dir: ".hermes",
+            within: None,
+            sessions: None,
+            private: Some(PrivateHome {
+                config: "config.yaml",
+                empty_config: "{}\n",
+                session_store: "state.db",
+                session_store_is_folder: false,
+            }),
+        }),
+        terminal: Terminal {
+            normal: &[],
+            bypass: Some(&["--yolo"]),
+            effort: Some(["--reasoning", "{}"]),
+            resume: Resume::Flag("--resume"),
+            with_choices: &["--tui"],
+        },
+        chat: Some(ChatDriver::Acp {
+            args: &["acp"],
+            modes: Some(AcpModes {
+                normal: "accept_edits",
+                bypass: "dont_ask",
+            }),
+        }),
+        providers: None,
     },
     AgentEntry {
         kind: "pi",
         label: "Pi",
         command: "pi",
         brand: "#7dd3fc",
+        featured: false,
         accounts: false,
         usage: false,
         deletable_chats: false,
+        resumes_by_path: true,
+        relocatable_sessions: false,
         bypass: false,
+        commit_model: None,
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+        probe: &["--version"],
+        install_paths: &[],
+        git_shim_args: &[],
+        home: Some(Home {
+            variable: "PI_CODING_AGENT_DIR",
+            dir: ".pi/agent",
+            within: None,
+            sessions: None,
+            private: None,
+        }),
+        terminal: Terminal {
+            normal: &[],
+            bypass: None,
+            effort: Some(["--thinking", "{}"]),
+            resume: Resume::Flag("--session"),
+            with_choices: &[],
+        },
+        chat: None,
+        providers: Some(ProviderUse::Reads),
     },
     AgentEntry {
         kind: "opencode",
         label: "OpenCode",
         command: "opencode",
         brand: "#a78bfa",
+        featured: false,
         accounts: false,
         usage: false,
         deletable_chats: false,
+        resumes_by_path: false,
+        relocatable_sessions: false,
         bypass: false,
+        commit_model: None,
         efforts: &[],
+        probe: &["--version"],
+        install_paths: &["~/.opencode/bin/opencode"],
+        git_shim_args: &[],
+        home: None,
+        terminal: Terminal {
+            normal: &[],
+            bypass: None,
+            effort: None,
+            resume: Resume::Flag("--session"),
+            with_choices: &[],
+        },
+        chat: Some(ChatDriver::Acp {
+            args: &["acp"],
+            modes: None,
+        }),
+        providers: Some(ProviderUse::Reads),
     },
     AgentEntry {
         kind: "omp",
         label: "OMP",
         command: "omp",
         brand: "#f97316",
+        featured: false,
         accounts: false,
         usage: false,
         deletable_chats: false,
+        resumes_by_path: true,
+        relocatable_sessions: false,
         bypass: true,
+        commit_model: None,
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+        probe: &["--version"],
+        install_paths: &[],
+        git_shim_args: &[],
+        home: None,
+        terminal: Terminal {
+            normal: &[],
+            bypass: Some(&["--approval-mode", "yolo"]),
+            effort: Some(["--thinking", "{}"]),
+            resume: Resume::Flag("--resume"),
+            with_choices: &[],
+        },
+        chat: Some(ChatDriver::Acp {
+            args: &["acp"],
+            modes: None,
+        }),
+        providers: Some(ProviderUse::Reads),
     },
     AgentEntry {
         kind: "grok",
         label: "Grok",
         command: "grok",
         brand: "#fcfcfc",
+        featured: false,
         accounts: false,
         usage: false,
         deletable_chats: false,
+        resumes_by_path: false,
+        relocatable_sessions: false,
         bypass: true,
+        commit_model: None,
         efforts: &["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        probe: &["--version"],
+        install_paths: &["~/.grok/bin/grok"],
+        git_shim_args: &[],
+        home: Some(Home {
+            variable: "GROK_HOME",
+            dir: ".grok",
+            within: None,
+            sessions: None,
+            private: Some(PrivateHome {
+                config: "config.toml",
+                empty_config: "",
+                session_store: "sessions",
+                session_store_is_folder: true,
+            }),
+        }),
+        terminal: Terminal {
+            normal: &[],
+            bypass: Some(&["--permission-mode", "bypassPermissions"]),
+            effort: Some(["--reasoning-effort", "{}"]),
+            resume: Resume::Flag("--resume"),
+            with_choices: &[],
+        },
+        chat: Some(ChatDriver::Acp {
+            args: &["agent", "--no-leader", "stdio"],
+            modes: None,
+        }),
+        providers: None,
     },
     AgentEntry {
         kind: "muse",
         label: "Muse",
         command: "muse",
         brand: "#0081fb",
+        featured: false,
         accounts: false,
         usage: false,
         deletable_chats: false,
+        resumes_by_path: false,
+        relocatable_sessions: false,
         bypass: true,
+        commit_model: None,
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+        probe: &["--version"],
+        install_paths: &[],
+        git_shim_args: &[],
+        home: Some(Home {
+            variable: "XDG_CONFIG_HOME",
+            dir: ".config",
+            within: Some("muse"),
+            sessions: None,
+            private: None,
+        }),
+        terminal: Terminal {
+            normal: &[],
+            bypass: Some(&["--yolo"]),
+            effort: Some(["--reasoning-effort", "{}"]),
+            resume: Resume::Flag("resume"),
+            with_choices: &[],
+        },
+        chat: Some(ChatDriver::Muse),
+        providers: None,
     },
 ];
 

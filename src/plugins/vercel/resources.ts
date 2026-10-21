@@ -1,46 +1,15 @@
-import { resource } from "../../plugin-api/resources";
-import {
-    vercelApi,
-    type VercelDeployment,
-    type VercelDomain,
-    type VercelLog,
-    type VercelProject,
-    type VercelStatus,
-    type VercelVariable,
-} from "./api";
+import { defineService } from "../../plugin-api/service";
+import { vercelApi } from "./api";
+import { VERCEL_PLUGIN } from "./kinds";
 
-export const vercelStatusR = resource({
-    kind: "vercel.status",
-    fetch: (): Promise<VercelStatus> => vercelApi.status(),
-    staleAfterMs: 60_000,
-});
+export const vercel = defineService(VERCEL_PLUGIN, vercelApi.status);
 
-export const vercelProjectsR = resource({
-    kind: "vercel.projects",
-    fetch: (team: string): Promise<VercelProject[]> => vercelApi.projects(team),
-    staleAfterMs: 30_000,
-});
+export const vercelProjectsR = vercel.resource("projects", (team: string) => vercelApi.projects(team), 30_000);
 
-export const vercelDeploymentsR = resource({
-    kind: "vercel.deployments",
-    fetch: (team: string, project: string): Promise<VercelDeployment[]> => vercelApi.deployments(team, project),
-    staleAfterMs: 15_000,
-});
+export const vercelDeploymentsR = vercel.resource("deployments", (team: string, project: string) => vercelApi.deployments(team, project), 15_000);
 
-export const vercelLogR = resource({
-    kind: "vercel.log",
-    fetch: (team: string, id: string): Promise<VercelLog> => vercelApi.logs(team, id),
-    staleAfterMs: 10_000,
-});
+export const vercelLogR = vercel.resource("log", (team: string, id: string) => vercelApi.logs(team, id), 10_000);
 
-export const vercelDomainsR = resource({
-    kind: "vercel.domains",
-    fetch: (team: string, project: string): Promise<VercelDomain[]> => vercelApi.domains(team, project),
-    staleAfterMs: 60_000,
-});
+export const vercelDomainsR = vercel.resource("domains", (team: string, project: string) => vercelApi.domains(team, project), 60_000);
 
-export const vercelEnvR = resource({
-    kind: "vercel.env",
-    fetch: (team: string, project: string): Promise<VercelVariable[]> => vercelApi.env(team, project),
-    staleAfterMs: 60_000,
-});
+export const vercelEnvR = vercel.resource("env", (team: string, project: string) => vercelApi.env(team, project), 60_000);

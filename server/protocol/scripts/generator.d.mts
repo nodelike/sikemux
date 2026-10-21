@@ -30,3 +30,4 @@ export function openapi(
   definitions: Definitions,
   routes: { routes: unknown[] },
 ): any;
+export function client(routes: { routes: unknown[] }): string;

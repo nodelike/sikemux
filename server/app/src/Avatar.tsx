@@ -1,4 +1,5 @@
 import { useUser } from "@clerk/react";
+import { initials } from "@mac/lib/initials";
 import { useState } from "react";
 
 /** The account's picture, or its initials on a neutral circle when it has none. */
@@ -6,11 +7,9 @@ export function Avatar({ size = 26 }: { size?: number }) {
   const { user } = useUser();
   const [failed, setFailed] = useState<string>();
   const picture = user?.hasImage ? user.imageUrl : undefined;
-  const initials =
-    [user?.firstName, user?.lastName]
-      .map((name) => name?.charAt(0) ?? "")
-      .join("") ||
-    (user?.primaryEmailAddress?.emailAddress.charAt(0) ?? "");
+  const letters = user
+    ? initials(user.fullName, user.primaryEmailAddress?.emailAddress)
+    : "";
   return (
     <span
       className="avatar"
@@ -26,7 +25,7 @@ export function Avatar({ size = 26 }: { size?: number }) {
           onError={() => setFailed(picture)}
         />
       ) : (
-        initials.toUpperCase()
+        letters
       )}
     </span>
   );

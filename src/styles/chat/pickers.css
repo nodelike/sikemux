@@ -247,3 +247,43 @@
     border-color: var(--border-strong);
     color: var(--ink);
 }
+
+/* Outside the composer the picker is a form field: full width, the shape of a dropdown, opening downward. */
+.chat-picker.field {
+    flex: 1 1 auto;
+}
+
+.chat-picker.field .chat-picker-trigger {
+    width: 100%;
+    max-width: none;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--surface-raised) calc(var(--window-opacity, 1) * 92%), transparent);
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+}
+
+.chat-picker.field .chat-picker-trigger > span {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-picker.field .chat-picker-trigger:hover,
+.chat-picker.field .chat-picker-trigger[aria-expanded="true"] {
+    border-color: var(--border-strong);
+}
+
+.chat-picker.field .chat-picker-menu {
+    top: calc(100% + 4px);
+    bottom: auto;
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+}

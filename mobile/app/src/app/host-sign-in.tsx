@@ -5,7 +5,8 @@ import type { PendingHost } from '@protocol';
 
 import { formatAgo } from '@mac/lib/format';
 import { platformName } from '@mac/remote/access';
-import { approveHost, pendingHost, refuseHost } from '@/account/api';
+import { problem as problemOf } from '@/core/problem';
+import { api } from '@/account/api';
 import { ConfirmItsYou, ReverifyCancelled, useRecentSignIn } from '@/account/ConfirmItsYou';
 import { retryHosts } from '@/account/session';
 import { haptics } from '@/ui/haptics';
@@ -53,12 +54,12 @@ export default function HostSignIn() {
     } catch (error) {
       if (error instanceof ReverifyCancelled) return;
       haptics.failure();
-      setProblem(error instanceof Error ? error.message : String(error));
+      setProblem(problemOf(error));
     } finally {
       setBusy(undefined);
     }
   };
-  const look = (code: string) => run('look', async () => ({ kind: 'check', code, host: await pendingHost(token, code) }));
+  const look = (code: string) => run('look', async () => ({ kind: 'check', code, host: await api(token).getPendingHost(code) }));
 
   if (step.kind === 'done')
     return (
@@ -92,7 +93,7 @@ export default function HostSignIn() {
     return (
       <Screen>
         <Nav back="Back" onBack={() => setStep({ kind: 'enter' })} />
-        <ScrollView contentContainerStyle={{ paddingBottom: bottom }}>
+        <ScrollView contentContainerStyle={{ paddingBottom: bottom }} showsVerticalScrollIndicator={false}>
           <Prompt
             icon={host.platform === 'linux' ? 'desktop' : 'laptop'}
             title={`Add ${host.name} to your account?`}
@@ -121,7 +122,7 @@ export default function HostSignIn() {
               disabled={busy !== undefined}
               onPress={() =>
                 void run('add', async () => {
-                  await recent.run(() => approveHost(() => getToken({ skipCache: true }), code));
+                  await recent.run(() => api(() => getToken({ skipCache: true })).approveHostSignIn(code));
                   retryHosts();
                   return { kind: 'done', name: host.name, added: true };
                 })
@@ -134,7 +135,7 @@ export default function HostSignIn() {
               disabled={busy !== undefined}
               onPress={() =>
                 void run('refuse', async () => {
-                  await refuseHost(token, code);
+                  await api(token).refuseHostSignIn(code);
                   return { kind: 'done', name: host.name, added: false };
                 })
               }
@@ -149,7 +150,10 @@ export default function HostSignIn() {
   return (
     <Screen>
       <Nav back="Devices" />
-      <ScrollView contentContainerStyle={{ paddingBottom: bottom }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: bottom }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
         <Prompt
           icon="IconServer"
           title="Add a host with a code"

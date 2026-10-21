@@ -3,7 +3,7 @@ import type { ErrorBoundaryProps } from 'expo-router';
 
 import { goHome } from '@/ui/navigate';
 import { Button } from '@/ui/controls';
-import { PromptScreen } from '@/ui/prompt';
+import { alertFailure, PromptScreen } from '@/ui/prompt';
 import { type Palette, typeFor, useStyles } from '@/ui/theme';
 
 /** What a screen shows in place of itself when drawing it threw. */
@@ -15,7 +15,7 @@ export function Crashed({ error, retry }: ErrorBoundaryProps) {
       title="Something went wrong"
       actions={
         <>
-          <Button kind="primary" title="Try again" onPress={() => retry().catch(() => {})} />
+          <Button kind="primary" title="Try again" onPress={() => retry().catch(alertFailure("Couldn't try again"))} />
           <Button kind="text" title="Go to Devices" onPress={goHome} />
         </>
       }>

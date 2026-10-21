@@ -7,7 +7,7 @@ import { rankBy } from "../lib/fuzzy";
 import * as cmd from "../state/commands";
 import { fetchResource, peekResource, useResource } from "../state/resources";
 import { agentCatalogR, agentSessionsR } from "../state/resources.defs";
-import { agentDisplayOf, agentIdsOf } from "../state/selectors";
+import { agentDisplayOf, agentForChat, agentIdsOf, chatKey, hasChat } from "../state/selectors";
 import { useStore } from "../state/store";
 import type { Agent, AgentPermissionMode, AgentType, PinnedChat } from "../state/types";
 import { AgentFace } from "../buddies/Buddy";
@@ -20,6 +20,7 @@ import { agentAbout, agentLabel, canBypassPermissions, installCommand, loginArgs
 import { installAgent, signInAgent } from "./AgentInstall";
 import { withMissingAgents } from "./setupList";
 import { leavingOverlay } from "../lib/motion";
+import { swallow } from "../state/toast";
 
 type Row = AgentSession & { type: AgentType };
 /** A new chat, or with `signIn`, the agent's own sign-in for one that reads as signed out. */
@@ -42,26 +43,25 @@ function sortRows(rows: Row[]): Row[] {
 
 /** The project's chats as its rail lists them: open agents in the core's order, then pinned chats, then the rest newest first. */
 function railOrder(rows: Row[], open: Agent[], pins: PinnedChat[]): ResumeAgentItem[] {
-    const key = (type: string, id: string) => `${type}\0${id}`;
-    const saved = new Map(rows.map((row) => [key(row.type, row.id), row]));
+    const saved = new Map(rows.map((row) => [chatKey(row.type, row.id), row]));
     const used = new Set<string>();
     const take = (type: AgentType, id: string) => {
-        used.add(key(type, id));
-        return saved.get(key(type, id));
+        used.add(chatKey(type, id));
+        return saved.get(chatKey(type, id));
     };
-    const isPinned = (agent: Agent) => pins.some((pin) => pin.agent === agent.type && pin.id === agent.resumeId);
+    const isPinned = (agent: Agent) => pins.some((pin) => hasChat(agent, pin));
     const opened = (agent: Agent): ResumeAgentItem => {
         const id = agent.resumeId ?? agent.id;
         return { kind: "resume", row: take(agent.type, id) ?? { id, title: agent.title, mtime: 0, type: agent.type }, agent };
     };
     const live = open.filter((agent) => !isPinned(agent)).map(opened);
     const pinned = pins.flatMap((pin): ResumeAgentItem[] => {
-        const agent = open.find((candidate) => candidate.type === pin.agent && candidate.resumeId === pin.id);
+        const agent = agentForChat(open, pin);
         if (agent) return [opened(agent)];
         const row = take(pin.agent, pin.id);
         return row ? [{ kind: "resume", row }] : [];
     });
-    const rest = rows.filter((row) => !used.has(key(row.type, row.id))).map((row): ResumeAgentItem => ({ kind: "resume", row }));
+    const rest = rows.filter((row) => !used.has(chatKey(row.type, row.id))).map((row): ResumeAgentItem => ({ kind: "resume", row }));
     return [...live, ...pinned, ...rest];
 }
 
@@ -329,7 +329,7 @@ export function AgentPalette() {
                         <div className="picker-empty" role="status">
                             {emptyMessage}
                             {catalog.status === "error" && (
-                                <button type="button" onClick={() => void catalog.refresh().catch(() => {})}>
+                                <button type="button" onClick={() => void catalog.refresh().catch(swallow("refresh the agent catalog"))}>
                                     try again
                                 </button>
                             )}

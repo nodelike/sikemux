@@ -8,7 +8,8 @@ import { agentLabel } from '@mac/agents/catalog';
 import { formatAge } from '@mac/lib/format';
 import type { ChatInfo, ProjectInfo, RecentInfo, SessionInfo, Snapshot } from '@/core/protocol';
 import type { AgentShown } from '@/core/wire.generated';
-import { problem as problemOf, reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
+import { problem as problemOf } from '@/core/problem';
+import { connectionOf, reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
 import { deviceKind, deviceName, type PairedDevice, updateDevice } from '@/devices/paired';
 import { Board } from '@/devices/Board';
 import { ForgetSheet, useForget } from '@/devices/ForgetSheet';
@@ -16,7 +17,7 @@ import { ProjectSheet } from '@/devices/ProjectSheet';
 import { WorkerRow, workersOf } from '@/devices/RemoteWorker';
 import { summary } from '@/devices/status';
 import { agentDisplay } from '@mac/state/agentStatus';
-import { folder, inProject, itemIn } from '@/devices/words';
+import { agentIn, itemIn, projectName, projectOf } from '@/devices/words';
 import { haptics } from '@/ui/haptics';
 import { useMinute, useScrollPause } from '@/ui/motion';
 import { AgentFace } from '@/ui/Buddy';
@@ -35,19 +36,14 @@ const NEW_CHAT_HEIGHT = 52;
 /** Recent chats shown before Show more. */
 const RECENT_SHOWN = 10;
 
-/** The name of the project with this id or folder. */
-function projectName(snapshot: Snapshot, where: string): string {
-  return snapshot.workspace.projects.find((project) => project.id === where || project.path === where)?.name ?? folder(where);
-}
-
 /** What runs in a project, as its row in the project sheet shows it. */
 function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: ProjectInfo }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
-  const chats = snapshot.chats.filter((chat) => inProject(project, chat.cwd));
+  const chats = snapshot.chats.filter((chat) => agentIn(snapshot, project, chat.agentId, chat.cwd));
   const terminals = snapshot.sessions.filter((session) => session.project === project.id && session.running).length;
-  const waiting = snapshot.inbox.items.some((item) => item.tier === 'needs' && itemIn(item, project));
+  const waiting = snapshot.inbox.items.some((item) => item.tier === 'needs' && itemIn(snapshot, item, project));
   if (!chats.length && !terminals) return null;
   return (
     <View style={styles.tail}>
@@ -56,7 +52,7 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
         <View style={styles.faces}>
           {chats.slice(0, 3).map((chat, index) => (
             <View key={chat.agentId} style={[styles.face, index > 0 && { marginLeft: -4 }]}>
-              <AgentFace agentId={chat.agentId} provider={chat.provider} group={chat.group} size={16} />
+              <AgentFace agentId={chat.agentId} provider={chat.provider} named={!!chat.name} group={chat.group} size={16} />
             </View>
           ))}
         </View>
@@ -96,8 +92,6 @@ function Recent({
     (chat) => (!scope || chat.project === scope.id) && (provider === 'all' || chat.provider === provider),
   );
   const shown = all ? chats : chats.slice(0, RECENT_SHOWN);
-  const projectOf = (chat: RecentInfo) =>
-    snapshot.workspace.projects.find((project) => project.id === chat.project)?.name ?? folder(chat.cwd);
 
   const resume = async (chat: RecentInfo) => {
     if (resuming) return;
@@ -141,7 +135,7 @@ function Recent({
           <RecentRow
             key={chat.id}
             chat={chat}
-            place={scope ? undefined : projectOf(chat)}
+            place={scope ? undefined : projectName(snapshot, chat.project, chat.cwd)}
             resuming={resuming === chat.id}
             minute={minute}
             onResume={onResume}
@@ -172,7 +166,7 @@ function openAgents(snapshot: Snapshot, scope: ProjectInfo | undefined, provider
   return snapshot.inbox.agents.flatMap((shown): OpenAgent[] => {
     const chat = snapshot.chats.find((candidate) => candidate.agentId === shown.agentId);
     if (chat) {
-      const listed = (!scope || inProject(scope, chat.cwd)) && (provider === 'all' || chat.provider === provider);
+      const listed = (!scope || agentIn(snapshot, scope, chat.agentId, chat.cwd)) && (provider === 'all' || chat.provider === provider);
       return listed ? [{ kind: 'chat', chat, shown }] : [];
     }
     const session = snapshot.sessions.find((candidate) => candidate.agentId === shown.agentId);
@@ -201,7 +195,7 @@ function Agents({
 }) {
   const styles = useStyles(makeStyles);
   const open = openAgents(snapshot, scope, provider);
-  const workers = snapshot.inbox.remoteAgents ?? [];
+  const workers = snapshot.inbox.remoteAgents;
   const leads = new Set(open.map((agent) => (agent.kind === 'chat' ? agent.chat.agentId : agent.session.agentId)));
   const strays = scope
     ? []
@@ -215,7 +209,12 @@ function Agents({
           {open.map((agent) =>
             agent.kind === 'chat' ? (
               <Fragment key={agent.chat.agentId}>
-                <ChatRow core={core} chat={agent.chat} shown={agent.shown} place={placeOf(agent.chat.cwd)} />
+                <ChatRow
+                  core={core}
+                  chat={agent.chat}
+                  shown={agent.shown}
+                  place={placeOf(projectOf(snapshot, agent.chat.agentId) ?? agent.chat.cwd)}
+                />
                 {workersOf(workers, agent.chat.agentId).map((worker) => (
                   <WorkerRow key={worker.agentId} worker={worker} nested />
                 ))}
@@ -266,7 +265,7 @@ const ChatRow = memo(function ChatRow({ core, chat, shown, place }: { core: stri
   const display = agentDisplay(shown);
   return (
     <Row
-      mark={<AgentFace agentId={chat.agentId} provider={chat.provider} group={display.group} size={20} />}
+      mark={<AgentFace agentId={chat.agentId} provider={chat.provider} named={!!chat.name} group={display.group} size={20} />}
       name={chat.name}
       title={shown.title}
       place={place}
@@ -297,7 +296,9 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
   const { group } = agentDisplay(shown);
   return (
     <Row
-      mark={<AgentFace agentId={session.agentId} provider={session.agentType ?? 'agent'} group={group} size={20} />}
+      mark={
+        <AgentFace agentId={session.agentId} provider={session.agentType ?? 'agent'} named={!!session.agentName} group={group} size={20} />
+      }
       name={session.agentName}
       title={shown.title}
       place={place}
@@ -501,11 +502,11 @@ export default function Device() {
   const starts = device?.access === 'full' && status.online && tab === 'agents';
   const bottom = useBottomGap();
   const scope = snapshot?.workspace.projects.find((project) => project.id === device?.project);
-  const asking = snapshot?.inbox.items.filter((item) => item.tier === 'needs' && (!scope || itemIn(item, scope))).length ?? 0;
+  const asking = snapshot?.inbox.items.filter((item) => item.tier === 'needs' && (!scope || itemIn(snapshot, item, scope))).length ?? 0;
   const [filter, setFilter] = useState('all');
   const providers = [
     ...new Set([
-      ...(snapshot?.chats.filter((chat) => !scope || inProject(scope, chat.cwd)).map((chat) => chat.provider) ?? []),
+      ...(snapshot?.chats.filter((chat) => !scope || agentIn(snapshot, scope, chat.agentId, chat.cwd)).map((chat) => chat.provider) ?? []),
       ...(snapshot?.recent.filter((chat) => !scope || chat.project === scope.id).map((chat) => chat.provider) ?? []),
     ]),
   ];
@@ -589,6 +590,7 @@ export default function Device() {
               maskElement={<UnderBar height={barHeight} open={unpinned} bottom={bottom + NEW_CHAT_HEIGHT + 24} />}>
               <Animated.ScrollView
                 {...scrollPause}
+                showsVerticalScrollIndicator={false}
                 onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrolled } } }], { useNativeDriver: true })}
                 scrollEventThrottle={16}
                 style={status.online ? undefined : styles.stale}
@@ -613,13 +615,7 @@ export default function Device() {
                     ) : tab === 'terminals' ? (
                       <Terminals snapshot={snapshot} scope={scope} />
                     ) : (
-                      <Board
-                        core={core}
-                        connection={live.status === 'open' ? live.connection : undefined}
-                        snapshot={snapshot}
-                        scope={scope}
-                        onScope={scopeTo}
-                      />
+                      <Board core={core} connection={connectionOf(live)} snapshot={snapshot} scope={scope} onScope={scopeTo} />
                     )
                   ) : null}
                 </View>

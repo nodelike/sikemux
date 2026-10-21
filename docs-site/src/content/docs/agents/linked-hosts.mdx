@@ -1,18 +1,12 @@
 ---
 title: Linked hosts
-description: "Agents that start workers on your other hosts, and the sign-ins they may use there."
+description: "Agents that start workers on your other hosts, and the sign-ins they use there."
 ---
 
-Hosts signed in to the same account can link, so an agent on one starts workers on another. In **Settings → Devices**, under **Hosts**, choose **Link** beside a host on your account. Someone at that host allows it once, in the app or from a phone with full control. Either host can remove the link.
+Every host signed in to your account links with every other on its own, so an agent on one starts workers on another. A host that turned on **Require approval for new devices** asks you first. Removing a host from your account unlinks it everywhere.
 
 A worker on another host runs there on that host's own sign-in for its CLI, in a checkout of its own. Its commits come back to a branch in the lead's checkout each time its turn ends.
 
 ## Sign-ins
 
-An agent that a linked host's agent started or messaged can't use this host's sign-ins: no plugin tools such as Jira, GitHub, AWS or Slack, no database logins, and no browser tabs, which hold this host's site sign-ins. Neither can any agent it starts or messages in turn. A lead whose worker runs on another host hears from it, so the same applies to the lead. When such an agent tries, it's told that you haven't allowed agents from that host.
-
-To allow it, turn on **Let agents from … use sign-ins here** under that host in **Settings → Devices**, or **Let its agents use sign-ins here** in the host's sheet on your phone. It is off for every new link and only you can change it; agents can't.
-
-### What the switch doesn't cover
-
-With the switch off, agents from that host get no plugin tools, no browser tabs and none of the plugin settings an agent is started with. They still have a shell on this host, like any agent, so they can read the sign-in files command-line tools keep there, such as `~/.aws`, `~/.ssh` and `gh`'s. Sikemux can't close that until each agent runs in a sandbox of its own. Until then, link only hosts whose agents you would trust with those files.
+An agent uses the sign-ins of the host it runs on, whichever host started or messaged it: that host's plugin tools such as Jira, GitHub, AWS or Slack, its database logins and its browser tabs. A worker on another host gets that host's sign-ins, never this one's. Sign-ins never leave the host they were made on.

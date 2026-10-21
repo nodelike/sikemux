@@ -2,113 +2,52 @@
 // single answer may be, and GitHub's error shapes turned into ours. Nothing
 // here signs in again on its own; a refused token is reported as such.
 
-use std::future::Future;
 use std::path::Path;
 use std::sync::OnceLock;
-use std::time::Duration;
 
-use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Method, RequestBuilder, Response, StatusCode, Url};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tokio::sync::Semaphore;
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::http::{self, Deadline, Http, Redirects};
+use sikemux_plugin_api::ratelimit::{LimitHeaders, RateLimits};
+use sikemux_plugin_api::store;
 
 use crate::config::{self, Account};
-use crate::error::{GithubError, GithubResult};
-use crate::ratelimit;
+use crate::error::{Github, GithubError, GithubResult};
 
 pub const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_REQUESTS_IN_FLIGHT: usize = 8;
-const MAX_REDIRECTS: usize = 5;
-/// Split across a host's addresses, so one that never answers, as happens on
-/// some networks for one of GitHub's CDN addresses, costs a second before the
-/// next is tried rather than the whole request.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 const API_VERSION: &str = "2022-11-28";
 const JSON: &str = "application/vnd.github+json";
-
-/// Runs `work` once one of the plugin-wide request slots is free, so a screen
-/// that fans out over many jobs shares one bound with every other screen.
-pub async fn limited<T>(work: impl Future<Output = T>) -> T {
-    static PERMITS: OnceLock<Semaphore> = OnceLock::new();
-    let _permit = PERMITS
-        .get_or_init(|| Semaphore::new(MAX_REQUESTS_IN_FLIGHT))
-        .acquire()
-        .await
-        .ok();
-    work.await
-}
 
 /// GitHub answers for a renamed or moved repository with a redirect on its
 /// own host, which keeps the token. A redirect anywhere else is storage, which
 /// is left for the caller to ask without it.
-fn same_host(next: &Url, first: &Url) -> bool {
-    next.scheme() == "https"
-        && next.host_str() == first.host_str()
-        && next.port_or_known_default() == first.port_or_known_default()
-}
+pub static HTTP: Http<Github> = Http::new(
+    Redirects::SameHost,
+    Deadline::WholeAnswer,
+    MAX_REQUESTS_IN_FLIGHT,
+);
+pub static LIMITS: RateLimits = RateLimits::new(LimitHeaders {
+    limit: "x-ratelimit-limit",
+    remaining: Some("x-ratelimit-remaining"),
+    reset: Some("x-ratelimit-reset"),
+    near: None,
+});
 
-/// Files can be large and slow, so a transfer has no overall deadline, only
-/// one on connecting and one on going quiet.
-fn build(transfer: bool) -> Option<Client> {
-    let redirects = reqwest::redirect::Policy::custom(|attempt| {
-        let follow = attempt.previous().len() <= MAX_REDIRECTS
-            && attempt
-                .previous()
-                .first()
-                .is_some_and(|first| same_host(attempt.url(), first));
-        if follow {
-            attempt.follow()
-        } else {
-            attempt.stop()
-        }
-    });
-    let builder = Client::builder()
-        .pool_idle_timeout(Duration::from_secs(25))
-        .redirect(redirects)
-        .user_agent("sikemux-github/0.1");
-    let builder = builder.connect_timeout(CONNECT_TIMEOUT);
-    let builder = if transfer {
-        builder.read_timeout(Duration::from_secs(60))
-    } else {
-        builder.timeout(Duration::from_secs(30))
-    };
-    builder.build().ok()
-}
-
-fn no_client() -> GithubError {
-    GithubError::Transport("could not start the HTTP client".into())
-}
-
+/// Logs, artifacts and release files, which share `HTTP`'s request slots.
 fn transfers() -> GithubResult<&'static Client> {
     static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
     CLIENT
-        .get_or_init(|| build(true))
+        .get_or_init(|| {
+            http::builder::<Github>(Redirects::SameHost, Deadline::QuietTransfer)
+                .build()
+                .ok()
+        })
         .as_ref()
-        .ok_or_else(no_client)
-}
-
-pub fn http() -> GithubResult<&'static Client> {
-    static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| build(false))
-        .as_ref()
-        .ok_or_else(no_client)
-}
-
-tokio::task_local! {
-    /// The account a call named, held for everything the call does.
-    static CHOSEN: Option<String>;
-}
-
-/// Runs a call as the account it named, or with none named, as the default one.
-pub fn as_account<F: Future>(account: Option<String>, work: F) -> impl Future<Output = F::Output> {
-    CHOSEN.scope(account, work)
-}
-
-pub fn chosen() -> Option<String> {
-    CHOSEN.try_with(Clone::clone).ok().flatten()
+        .ok_or_else(|| GithubError::Transport("could not start the HTTP client".into()))
 }
 
 pub struct Session {
@@ -122,51 +61,14 @@ impl Session {
     pub async fn current(data_dir: &Path) -> GithubResult<Session> {
         let data_dir = data_dir.to_path_buf();
         let chosen = chosen();
-        config::blocking(Box::new(move || {
-            let config = config::load(&data_dir);
+        store::blocking(move || {
+            let config = config::load(&data_dir)?;
             let (account, token) =
                 config::resolve(&config, chosen.as_deref())?.ok_or(GithubError::Unconfigured)?;
             Ok(Session { account, token })
-        }))
+        })
         .await
     }
-}
-
-/// Reads an answer of up to `limit` bytes. Past that the read fails, unless
-/// `keep_tail` is set: then the start is dropped, and the second value says so.
-pub async fn read_body(
-    response: Response,
-    limit: usize,
-    keep_tail: bool,
-) -> GithubResult<(Vec<u8>, bool)> {
-    let too_big = || GithubError::Response(format!("more than {} MiB came back", limit >> 20));
-    if !keep_tail
-        && response
-            .content_length()
-            .is_some_and(|size| size > limit as u64)
-    {
-        return Err(too_big());
-    }
-    let mut stream = response.bytes_stream();
-    let mut bytes = Vec::new();
-    let mut cut = false;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        if bytes.len() + chunk.len() > limit {
-            if !keep_tail {
-                return Err(too_big());
-            }
-            cut = true;
-        }
-        bytes.extend_from_slice(&chunk);
-        if bytes.len() > 2 * limit {
-            bytes.drain(..bytes.len() - limit);
-        }
-    }
-    if bytes.len() > limit {
-        bytes.drain(..bytes.len() - limit);
-    }
-    Ok((bytes, cut))
 }
 
 fn error_message(bytes: &[u8]) -> Option<String> {
@@ -188,7 +90,12 @@ fn error_message(bytes: &[u8]) -> Option<String> {
     })
 }
 
-pub fn classify(status: StatusCode, headers: &HeaderMap, bytes: &[u8]) -> GithubError {
+pub fn classify(
+    account: &str,
+    status: StatusCode,
+    headers: &HeaderMap,
+    bytes: &[u8],
+) -> GithubError {
     let message = error_message(bytes).unwrap_or_else(|| {
         status
             .canonical_reason()
@@ -197,8 +104,10 @@ pub fn classify(status: StatusCode, headers: &HeaderMap, bytes: &[u8]) -> Github
     });
     match status.as_u16() {
         401 => GithubError::Auth(message),
-        403 | 429 => match ratelimit::wait_for(status, headers, bytes) {
-            Some(resets_in_secs) => GithubError::RateLimited { resets_in_secs },
+        403 | 429 => match LIMITS.wait_for(account, status, headers, bytes) {
+            Some(resets_in_secs) => GithubError::RateLimited {
+                resets_in_secs: Some(resets_in_secs),
+            },
             None => GithubError::Forbidden(message),
         },
         404 => GithubError::NotFound(message),
@@ -231,24 +140,28 @@ async fn exchange(
     request: RequestBuilder,
 ) -> GithubResult<(StatusCode, HeaderMap, Vec<u8>)> {
     let mut request = request;
+    let mut waited = false;
     loop {
-        ratelimit::check(account)?;
+        LIMITS.check(account)?;
         let again = request.try_clone();
-        let response = limited(request.send()).await?;
+        let response = HTTP.send(request).await?;
         let status = response.status();
         let headers = response.headers().clone();
-        let (bytes, _) = read_body(response, MAX_RESPONSE_BYTES, false).await?;
+        let bytes = http::read_body(response, MAX_RESPONSE_BYTES).await?;
         if status == StatusCode::UNAUTHORIZED {
             config::forget_token(Some(account));
         }
-        let wait = ratelimit::wait_for(status, &headers, &bytes);
-        match (wait, again) {
-            (Some(secs), Some(retry)) if secs <= ratelimit::SHORT_WAIT_SECS => {
-                tokio::time::sleep(Duration::from_secs(secs.max(1))).await;
+        let pause = LIMITS
+            .short_wait(account, status, &headers, &bytes)
+            .filter(|_| !waited);
+        match (pause, again) {
+            (Some(pause), Some(retry)) => {
+                waited = true;
+                tokio::time::sleep(pause).await;
                 request = retry;
             }
             _ => {
-                ratelimit::observe(account, status, &headers, &bytes);
+                LIMITS.observe(account, status, &headers, &bytes);
                 return Ok((status, headers, bytes));
             }
         }
@@ -262,7 +175,7 @@ pub async fn send(
     query: &[(&str, String)],
     body: Option<&Value>,
 ) -> GithubResult<(StatusCode, HeaderMap, Vec<u8>)> {
-    let mut request = api_request(http()?, session, method, path, JSON);
+    let mut request = api_request(HTTP.client()?, session, method, path, JSON);
     if !query.is_empty() {
         request = request.query(query);
     }
@@ -284,7 +197,7 @@ async fn body_of(
 ) -> GithubResult<Vec<u8>> {
     let (status, headers, bytes) = send(session, method, path, query, body).await?;
     if !status.is_success() {
-        return Err(classify(status, &headers, &bytes));
+        return Err(classify(&session.account.id, status, &headers, &bytes));
     }
     Ok(bytes)
 }
@@ -336,19 +249,18 @@ pub async fn get_all<P: DeserializeOwned, T>(
     items: impl Fn(P) -> Vec<T>,
 ) -> GithubResult<Vec<T>> {
     const PAGE: usize = 100;
-    let mut all = Vec::new();
-    for page in 1..=max_pages.max(1) {
+    let items = &items;
+    http::collect_pages(1, max_pages, |page: u32| {
         let mut paged = query.to_vec();
         paged.push(("per_page", PAGE.to_string()));
         paged.push(("page", page.to_string()));
-        let batch = items(get::<P>(data_dir, path, &paged).await?);
-        let short = batch.len() < PAGE;
-        all.extend(batch);
-        if short {
-            break;
+        async move {
+            let batch = items(get::<P>(data_dir, path, &paged).await?);
+            let next = (batch.len() >= PAGE).then_some(page + 1);
+            Ok((batch, next))
         }
-    }
-    Ok(all)
+    })
+    .await
 }
 
 /// An answer to a conditional read. GitHub does not count a "nothing changed"
@@ -382,7 +294,7 @@ async fn fetch_if_changed(
     etag: Option<&str>,
 ) -> GithubResult<(Option<Vec<u8>>, Option<String>, Option<u64>)> {
     let session = Session::current(data_dir).await?;
-    let mut request = api_request(http()?, &session, Method::GET, path, JSON).query(query);
+    let mut request = api_request(HTTP.client()?, &session, Method::GET, path, JSON).query(query);
     if let Some(etag) = etag {
         request = request.header("If-None-Match", etag);
     }
@@ -393,7 +305,7 @@ async fn fetch_if_changed(
         return Ok((None, etag.map(str::to_string), remaining));
     }
     if !status.is_success() {
-        return Err(classify(status, &headers, &bytes));
+        return Err(classify(&session.account.id, status, &headers, &bytes));
     }
     Ok((Some(bytes), header("etag").map(str::to_string), remaining))
 }
@@ -409,10 +321,11 @@ pub async fn open_download(data_dir: &Path, path: &str, accept: &str) -> GithubR
     let session = Session::current(data_dir).await?;
     let client = transfers()?;
     let account = session.account.id.as_str();
-    ratelimit::check(account)?;
-    let mut response =
-        limited(api_request(client, &session, Method::GET, path, accept).send()).await?;
-    ratelimit::observe(account, response.status(), response.headers(), b"");
+    LIMITS.check(account)?;
+    let mut response = HTTP
+        .limited(api_request(client, &session, Method::GET, path, accept).send())
+        .await?;
+    LIMITS.observe(account, response.status(), response.headers(), b"");
     if response.status().is_redirection() {
         let location = response
             .headers()
@@ -420,7 +333,9 @@ pub async fn open_download(data_dir: &Path, path: &str, accept: &str) -> GithubR
             .and_then(|value| value.to_str().ok())
             .ok_or_else(|| GithubError::Response("the download redirect had no address".into()))?
             .to_string();
-        response = limited(client.execute(from_storage(&location)?)).await?;
+        response = HTTP
+            .limited(client.execute(from_storage(&location)?))
+            .await?;
     }
     if !response.status().is_success() {
         return Err(failure(account, response).await);
@@ -431,15 +346,14 @@ pub async fn open_download(data_dir: &Path, path: &str, accept: &str) -> GithubR
 pub async fn failure(account: &str, response: Response) -> GithubError {
     let status = response.status();
     let headers = response.headers().clone();
-    let bytes = read_body(response, MAX_RESPONSE_BYTES, false)
+    let bytes = http::read_body(response, MAX_RESPONSE_BYTES)
         .await
-        .map(|(bytes, _)| bytes)
         .unwrap_or_default();
     if status == StatusCode::UNAUTHORIZED {
         config::forget_token(Some(account));
     }
-    ratelimit::observe(account, status, &headers, &bytes);
-    classify(status, &headers, &bytes)
+    LIMITS.observe(account, status, &headers, &bytes);
+    classify(account, status, &headers, &bytes)
 }
 
 /// A file GitHub hands over whole, such as a log or a workflow's YAML.
@@ -450,7 +364,11 @@ pub async fn download_as(
     keep_tail: bool,
 ) -> GithubResult<(Vec<u8>, bool)> {
     let response = open_download(data_dir, path, accept).await?;
-    read_body(response, MAX_RESPONSE_BYTES, keep_tail).await
+    Ok(if keep_tail {
+        http::read_tail(response, MAX_RESPONSE_BYTES).await?
+    } else {
+        (http::read_body(response, MAX_RESPONSE_BYTES).await?, false)
+    })
 }
 
 /// Storage answers 400 to any `Authorization` header, an empty one included.
@@ -477,7 +395,7 @@ pub async fn act(
     if status.is_success() {
         return Ok(());
     }
-    Err(classify(status, &headers, &bytes))
+    Err(classify(&session.account.id, status, &headers, &bytes))
 }
 
 #[cfg(test)]
@@ -497,7 +415,8 @@ mod tests {
 
     fn category(status: u16, headers: &HeaderMap, body: &str) -> String {
         let status = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
-        sikemux_plugin_api::PluginError::from(classify(status, headers, body.as_bytes())).category
+        sikemux_plugin_api::PluginError::from(classify("test", status, headers, body.as_bytes()))
+            .category
     }
 
     #[test]
@@ -540,45 +459,5 @@ mod tests {
     fn storage_is_only_reached_over_https() {
         assert!(from_storage("http://storage.example/log?sig=abc").is_err());
         assert!(from_storage("not an address").is_err());
-    }
-
-    #[test]
-    fn only_a_redirect_on_the_same_host_is_followed_with_the_token() {
-        let url = |raw: &str| Url::parse(raw).expect("parses");
-        let api = url("https://api.github.com/repos/a/b/actions/runs");
-        assert!(same_host(
-            &url("https://api.github.com/repositories/9/actions/runs"),
-            &api
-        ));
-        assert!(same_host(&url("https://api.github.com:443/x"), &api));
-        assert!(!same_host(&url("http://api.github.com/x"), &api));
-        assert!(!same_host(&url("https://api.github.com:8443/x"), &api));
-        assert!(!same_host(
-            &url("https://pipelines.actions.githubusercontent.com/x"),
-            &api
-        ));
-        let company = url("https://ghe.corp:8443/api/v3/repos/a/b");
-        assert!(same_host(
-            &url("https://ghe.corp:8443/api/v3/repositories/9"),
-            &company
-        ));
-        assert!(!same_host(
-            &url("https://ghe.corp/api/v3/repositories/9"),
-            &company
-        ));
-    }
-
-    #[tokio::test]
-    async fn a_long_answer_keeps_its_end_when_asked() {
-        let body = |text: &'static str| Response::from(http_body(text));
-        let (bytes, cut) = read_body(body("0123456789"), 4, true).await.expect("reads");
-        assert_eq!((bytes.as_slice(), cut), (&b"6789"[..], true));
-        let (bytes, cut) = read_body(body("0123"), 4, true).await.expect("reads");
-        assert_eq!((bytes.as_slice(), cut), (&b"0123"[..], false));
-        assert!(read_body(body("0123456789"), 4, false).await.is_err());
-    }
-
-    fn http_body(text: &'static str) -> http::Response<&'static str> {
-        http::Response::new(text)
     }
 }

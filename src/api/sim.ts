@@ -1,6 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import { invokeCommand as invoke } from "./invoke";
 import { getIpcTransport, type IpcUnsubscribe } from "./transport";
+import { swallow } from "../state/toast";
 
 export interface SimStatus {
     supported: boolean;
@@ -129,7 +130,7 @@ export const simApi = {
         let id: number | null = null;
         let frames = 0;
         const reportRead = () => {
-            if (id != null) void invoke<void>("sim_watch_read", { id, frames }).catch(() => {});
+            if (id != null) void invoke<void>("sim_watch_read", { id, frames }).catch(swallow("report simulator frames read"));
         };
         channel.onmessage = (frame) => {
             onFrame(frame);

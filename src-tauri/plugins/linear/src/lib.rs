@@ -16,13 +16,10 @@ mod oauth;
 
 use std::sync::Arc;
 
-use serde::Serialize;
 use serde_json::Value;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
-
-use crate::error::LinearResult;
 
 pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
     Ok(Arc::new(Linear {
@@ -32,12 +29,6 @@ pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
 
 struct Linear {
     manifest: Manifest,
-}
-
-async fn answer<T: Serialize>(
-    result: impl std::future::Future<Output = LinearResult<T>>,
-) -> Result<Value, PluginError> {
-    reply(result.await?)
 }
 
 impl Plugin for Linear {
@@ -97,7 +88,7 @@ impl Plugin for Linear {
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(!config::load(ctx.data_dir()).workspaces.is_empty()) })
+        Box::pin(async move { Ok(!config::load(ctx.data_dir())?.workspaces.is_empty()) })
     }
 }
 
@@ -110,27 +101,6 @@ mod tests {
         PluginContext::new(
             std::env::temp_dir().join(format!("sikemux-linear-{name}-{}", std::process::id())),
         )
-    }
-
-    #[test]
-    fn its_manifest_parses_with_the_five_tools() {
-        let plugin = plugin().expect("manifest parses");
-        let names: Vec<&str> = plugin
-            .manifest()
-            .tools
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect();
-        assert_eq!(
-            names,
-            [
-                "linear_search",
-                "linear_issue",
-                "linear_comment",
-                "linear_update",
-                "linear_create"
-            ]
-        );
     }
 
     #[tokio::test]

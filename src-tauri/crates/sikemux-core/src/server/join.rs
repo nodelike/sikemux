@@ -7,7 +7,7 @@ use iroh::endpoint::{Connection, SendStream};
 use tokio::sync::Semaphore;
 
 use crate::join::{self, JoinHello, JoinReply, Refusal, APPROVAL_TIMEOUT};
-use crate::protocol::PendingDevice;
+use crate::protocol::{DeviceAccess, PendingDevice};
 
 use super::notify::Signal;
 use super::remote;
@@ -85,30 +85,44 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         }
         Ok(None) => {}
     }
+    let request = PendingDevice {
+        id: uuid::Uuid::new_v4().to_string(),
+        device_id: phone,
+        name: clean(&join::joiner_name(&hello), NAME_LIMIT),
+        platform: clean(&hello.platform, PLATFORM_LIMIT),
+        from_account: true,
+        expires_at: sikemux_process::clock::epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
+    };
+    if !core.remote.requires_approval() {
+        let reply = match core.remote.admit(&request, hello.ticket.account.clone()) {
+            Ok(()) => JoinReply::Allowed {
+                access: DeviceAccess::Full,
+            },
+            Err(error) => JoinReply::Refused {
+                reason: error.to_string(),
+            },
+        };
+        remote::announce(&core);
+        finish(&mut writer, &connection, &reply).await;
+        return;
+    }
     let Ok(_waiting) = WAITING.try_acquire() else {
         connection.close(0u32.into(), b"busy");
         return;
     };
-    core.remote.forget_device_requests(&phone);
-    let request = PendingDevice {
-        id: uuid::Uuid::new_v4().to_string(),
-        device_id: phone,
-        name: clean(&hello.name, NAME_LIMIT),
-        platform: clean(&hello.platform, PLATFORM_LIMIT),
-        from_account: true,
-        expires_at: remote::unix_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
-    };
+    core.remote.forget_device_requests(&request.device_id);
     let answered = core
         .remote
         .ask(request.clone(), hello.ticket.account.clone(), None);
     remote::announce(&core);
     core.notify.send(Signal::Pairing(request.clone()));
-    let access = tokio::select! {
-        answer = tokio::time::timeout(APPROVAL_TIMEOUT, answered) => {
-            answer.ok().and_then(Result::ok).flatten()
-        }
-        _ = connection.closed() => None,
-    };
+    // The person may answer after the device gave up waiting; it is let in
+    // the next time it comes.
+    let access = tokio::time::timeout(APPROVAL_TIMEOUT, answered)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten();
     core.remote.forget_pending(&request.id);
     remote::announce(&core);
     core.notify.send(Signal::PairingSettled { id: request.id });
@@ -155,6 +169,15 @@ mod tests {
         Host { core, _turn: turn }
     }
 
+    /// A host whose person asked to approve each new device.
+    async fn locked_host(vector: &Vector) -> Host {
+        let host = host(vector).await;
+        let setting =
+            serde_json::from_value(serde_json::json!({ "requireApproval": true })).unwrap();
+        remote::set_require_approval(&host.core, setting).unwrap();
+        host
+    }
+
     impl Host {
         fn status(&self) -> RemoteStatus {
             self.core.remote.status()
@@ -194,7 +217,7 @@ mod tests {
     }
 
     fn now() -> i64 {
-        (remote::unix_ms() / 1000) as i64
+        sikemux_process::clock::epoch_secs() as i64
     }
 
     fn ticket(vector: &Vector, host: &Host, phone: &SecretKey) -> JoinTicket {
@@ -227,7 +250,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_phone_with_a_ticket_joins_once_the_person_allows_it() {
         let vector = vector();
-        let host = host(&vector).await;
+        let host = locked_host(&vector).await;
         let key = SecretKey::generate();
         let endpoint = phone(&key).await;
         let hello = hello(ticket(&vector, &host, &key));
@@ -241,8 +264,10 @@ mod tests {
         assert_eq!(request.name, "Pixel 8");
         assert_eq!(request.platform, "android");
         assert_eq!(request.device_id, key.public().to_string());
-        let waits = request.expires_at.saturating_sub(remote::unix_ms());
-        assert!(waits > 100_000 && waits <= 120_000, "{waits}");
+        let waits = request
+            .expires_at
+            .saturating_sub(sikemux_process::clock::epoch_ms());
+        assert!(waits > 580_000 && waits <= 600_000, "{waits}");
         host.core
             .remote
             .answer(&request.id, Some(DeviceAccess::Watch))
@@ -301,15 +326,11 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_phone_allowed_at_sign_in_joins_without_asking() {
+    async fn a_phone_with_a_ticket_from_the_account_joins_at_full_access_without_asking() {
         let vector = vector();
         let host = host(&vector).await;
         let key = SecretKey::generate();
         let endpoint = phone(&key).await;
-        host.core
-            .remote
-            .allow(vec![allowed(&key, DeviceAccess::Full)])
-            .unwrap();
 
         let hello = hello(ticket(&vector, &host, &key));
         let reply = join::join(&endpoint, host.addr(), &hello).await.unwrap();
@@ -319,14 +340,17 @@ mod tests {
                 access: DeviceAccess::Full
             }
         );
-        assert!(host.status().pending.is_empty());
+        let status = host.status();
+        assert!(status.pending.is_empty());
+        assert_eq!(status.devices.len(), 1);
+        assert_eq!(status.devices[0].access, DeviceAccess::Full);
         remote::stop(&host.core).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn allowing_a_phone_at_sign_in_answers_it_if_it_is_already_waiting() {
         let vector = vector();
-        let host = host(&vector).await;
+        let host = locked_host(&vector).await;
         let key = SecretKey::generate();
         let endpoint = phone(&key).await;
         let hello = hello(ticket(&vector, &host, &key));
@@ -365,7 +389,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_phone_the_person_denies_is_not_paired() {
         let vector = vector();
-        let host = host(&vector).await;
+        let host = locked_host(&vector).await;
         let key = SecretKey::generate();
         let endpoint = phone(&key).await;
         let hello = hello(ticket(&vector, &host, &key));

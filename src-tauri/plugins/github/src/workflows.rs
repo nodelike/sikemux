@@ -2,8 +2,9 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use sikemux_plugin_api::codehost::{Workflow, WorkflowFile};
 
 use crate::client;
 use crate::common::LIST_PAGES;
@@ -22,18 +23,6 @@ struct WorkflowRow {
 #[derive(Deserialize)]
 struct WorkflowList {
     workflows: Vec<WorkflowRow>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Workflow {
-    pub id: u64,
-    pub name: String,
-    pub path: String,
-    /// `active`, or one of the several ways GitHub says a workflow is switched off.
-    pub state: String,
-    pub active: bool,
-    pub url: String,
 }
 
 #[derive(Deserialize)]
@@ -77,7 +66,7 @@ pub async fn list(data_dir: &Path, repo: RepoRef) -> GithubResult<Vec<Workflow>>
         .into_iter()
         .map(|row| Workflow {
             active: row.state == "active",
-            id: row.id,
+            id: row.id.to_string(),
             name: row.name,
             path: row.path,
             state: row.state,
@@ -91,6 +80,7 @@ pub async fn list(data_dir: &Path, repo: RepoRef) -> GithubResult<Vec<Workflow>>
 pub struct Dispatch {
     #[serde(flatten)]
     pub repo: RepoRef,
+    #[serde(deserialize_with = "sikemux_plugin_api::codehost::numeric_id")]
     pub workflow_id: u64,
     /// The branch or tag to run on.
     pub git_ref: String,
@@ -146,14 +136,8 @@ pub async fn dispatch(data_dir: &Path, input: Dispatch) -> GithubResult<()> {
 pub struct FileRef {
     #[serde(flatten)]
     pub repo: RepoRef,
+    #[serde(deserialize_with = "sikemux_plugin_api::codehost::numeric_id")]
     pub workflow_id: u64,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowFile {
-    pub path: String,
-    pub text: String,
 }
 
 /// A workflow somebody wrote lives under `.github`. GitHub's own, such as code

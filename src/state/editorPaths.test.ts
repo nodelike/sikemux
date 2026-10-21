@@ -4,7 +4,10 @@ import { DocumentIO } from "../editor/documentIO";
 import { subscribe } from "./bus";
 import { renameEditorPath } from "./editorPaths";
 import { getState, setState } from "./store";
-vi.mock("../api/fs", () => ({ fsapi: { rename: vi.fn(), readFileVersioned: vi.fn(), writeFileVersioned: vi.fn() } }));
+vi.mock("../api/fs", () => {
+    const fsapi = { rename: vi.fn(), readFileVersioned: vi.fn(), writeFileVersioned: vi.fn() };
+    return { fsapi, filesOn: () => fsapi };
+});
 beforeEach(() => {
     vi.clearAllMocks();
     setState({

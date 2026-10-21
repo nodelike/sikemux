@@ -3,10 +3,12 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_plugin_api::http;
 
 use crate::auth;
 use crate::client::{self, Credentials};
@@ -307,33 +309,34 @@ async fn issues_from(
     fields: &str,
     jql: Option<&str>,
 ) -> JiraResult<(Vec<Value>, bool)> {
-    let mut found = Vec::new();
-    loop {
-        let mut query = vec![
-            ("fields", fields.to_string()),
-            ("maxResults", PAGE.to_string()),
-            ("startAt", found.len().to_string()),
-        ];
-        if let Some(jql) = jql {
-            query.push(("jql", jql.to_string()));
+    let more_left = AtomicBool::new(false);
+    let mut found = http::collect_pages(0, BOARD_ISSUES_MAX as u32, |start: usize| {
+        let more_left = &more_left;
+        async move {
+            let mut query = vec![
+                ("fields", fields.to_string()),
+                ("maxResults", PAGE.to_string()),
+                ("startAt", start.to_string()),
+            ];
+            if let Some(jql) = jql {
+                query.push(("jql", jql.to_string()));
+            }
+            let page = client::send(credentials, Method::GET, path, &query, None).await?;
+            let issues = page
+                .get("issues")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let total = page.get("total").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let next = start + issues.len();
+            let more = !issues.is_empty() && next < total;
+            more_left.store(more, Ordering::Relaxed);
+            Ok::<_, JiraError>((issues, (more && next < BOARD_ISSUES_MAX).then_some(next)))
         }
-        let page = client::send(credentials, Method::GET, path, &query, None).await?;
-        let issues = page
-            .get("issues")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let total = page.get("total").and_then(Value::as_u64).unwrap_or(0) as usize;
-        let empty = issues.is_empty();
-        found.extend(issues);
-        if empty || found.len() >= total {
-            return Ok((found, false));
-        }
-        if found.len() >= BOARD_ISSUES_MAX {
-            found.truncate(BOARD_ISSUES_MAX);
-            return Ok((found, true));
-        }
-    }
+    })
+    .await?;
+    found.truncate(BOARD_ISSUES_MAX);
+    Ok((found, more_left.into_inner()))
 }
 
 pub async fn board(data_dir: &Path, request: BoardRequest) -> JiraResult<BoardView> {

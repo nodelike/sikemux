@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useResource } from "../../../plugin-api/resources";
 import { EmptyState, IconChevron, SkeletonRows, StaleNotice } from "../../../plugin-api/ui";
-import { failureMessage } from "../api";
+import { errorText, formatDuration } from "../../../plugin-api/format";
 import { signozTraceLogsR, signozTraceR } from "../resources";
 import { LogRow } from "./LogRow";
-import { formatDuration } from "../../../plugin-api/format";
 
 const MAX_INDENT = 16;
 const TRACE_LOG_LOOKBACK_MINUTES = 24 * 60;
@@ -51,7 +50,7 @@ export function TraceView({ traceId, onBack }: { traceId: string; onBack: () => 
                 <section className="sgz-waterfall" aria-label="Spans">
                     {trace.status === "loading" && !data && <SkeletonRows rows={8} label="Loading spans" />}
                     <StaleNotice handle={trace} />
-                    {trace.error && !trace.data && <EmptyState tone="error" message={failureMessage(trace.error)} />}
+                    {trace.error && !trace.data && <EmptyState tone="error" message={errorText(trace.error)} />}
                     {data && data.spans.length === 0 && <EmptyState message="No spans for this trace. The service may send logs but not traces." />}
                     {data?.spans.map((span) => (
                         <div key={span.spanId} className={`sgz-span${span.error ? " error" : ""}`} title={span.status ?? undefined}>
@@ -75,7 +74,7 @@ export function TraceView({ traceId, onBack }: { traceId: string; onBack: () => 
                     <h3 className="sgz-section-label">Log lines in this trace</h3>
                     {logs.status === "loading" && !logs.data && <SkeletonRows rows={4} label="Loading log lines" />}
                     <StaleNotice handle={logs} />
-                    {logs.error && !logs.data && <EmptyState tone="error" message={failureMessage(logs.error)} />}
+                    {logs.error && !logs.data && <EmptyState tone="error" message={errorText(logs.error)} />}
                     {logs.data && traceLines.length === 0 && <EmptyState message="No log lines carry this trace id." />}
                     {traceLines.map((line) => (
                         <LogRow key={line.id} line={line} expanded={expanded.has(line.id)} onToggle={() => toggle(line.id)} />

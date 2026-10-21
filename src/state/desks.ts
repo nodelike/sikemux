@@ -1,5 +1,5 @@
 import { BLANK_URL, type BrowserSnapshot, type BrowserTab } from "../api/browser";
-import { DESK_PERSISTENCE_LIMITS } from "../workbench/registry";
+import { DESK_PERSISTENCE_LIMITS } from "../workbench/itemStates";
 import type { Desk, DeskSimulator, DeskTerminal, DeskView } from "./types";
 import { getState, setState, type StoreState } from "./store";
 

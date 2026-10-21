@@ -6,19 +6,15 @@
 //! A chat's events cross as JSON, since the phone reads them with the host
 //! app's chat code. Terminal bytes cross as bytes.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use base64::Engine;
-use iroh::endpoint::presets;
-use iroh::{Endpoint, EndpointAddr, RelayMode, RelayUrl, SecretKey};
-use sikemux_client::accounts::network;
+use iroh::{EndpointAddr, PublicKey, SecretKey};
 use sikemux_client::client::{ClientError, CoreClient, EventSink, Reply};
 use sikemux_client::join::{JoinHello, JoinReply};
-use sikemux_client::remote;
 use sikemux_wire::accounts::protocol::{JoinTicket, Relay};
 use sikemux_wire::protocol::{
     CallId, Event, NotifyPrefs, Request, Response, SessionId, WindowCall, MAX_ATTACHMENT_BYTES,
@@ -35,12 +31,6 @@ mod android;
 
 uniffi::setup_scaffolding!();
 
-/// Long enough to find a host through a relay on a slow network; past it the
-/// app shows the host as unreachable and tries again.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-/// A host this endpoint reached before answers again within this, unless the
-/// endpoint has gone stale; past it the phone dials again from a fresh one.
-const REDIAL_TIMEOUT: Duration = Duration::from_secs(6);
 /// Long enough for a long chat's replay over a relay. A host that has not
 /// answered by then has most likely gone, though the connection has not
 /// noticed yet.
@@ -143,65 +133,26 @@ pub struct RelaySetting {
     pub quic_port: Option<u16>,
 }
 
-/// The relays to use, or the built-in one when none of `settings` is usable.
-/// Never iroh's public relays: no host listens there.
 fn relays_from(settings: Vec<RelaySetting>) -> Vec<Relay> {
-    let relays: Vec<Relay> = settings
+    settings
         .into_iter()
-        .filter(|setting| setting.url.parse::<RelayUrl>().is_ok())
         .map(|setting| Relay {
             url: setting.url,
             region: String::new(),
             quic_port: setting.quic_port.map(i64::from),
         })
-        .collect();
-    if relays.is_empty() {
-        network::default_relays()
-    } else {
-        relays
-    }
-}
-
-/// The endpoint and the hosts it has reached.
-struct Online {
-    endpoint: Endpoint,
-    generation: u64,
-    reached: HashSet<String>,
-    /// The app took the phone off the network; it comes back as a new device.
-    closed: bool,
+        .collect()
 }
 
 /// This phone on the network, known by its key.
 #[derive(uniffi::Object)]
 pub struct Device {
-    key: SecretKey,
+    online: Arc<sikemux_client::device::Device>,
     relays: Vec<Relay>,
-    online: Mutex<Online>,
-    renewing: tokio::sync::Mutex<()>,
-}
-
-/// The phone finds a host through the relay the host listens on and never
-/// publishes its own addresses: no host dials a phone.
-async fn bind(key: SecretKey, relays: &[Relay]) -> Result<Endpoint, MobileError> {
-    let relays = network::relay_map(relays);
-    on_runtime(async move {
-        Endpoint::builder(presets::Minimal)
-            .relay_mode(RelayMode::Custom(relays))
-            .secret_key(key)
-            .bind()
-            .await
-    })
-    .await?
-    .map_err(|error| MobileError::Connection {
-        message: error.to_string(),
-    })
 }
 
 fn sign_registration(key: &SecretKey, nonce: &str, user_id: &str) -> Result<String, MobileError> {
-    sikemux_client::accounts::check_registration(nonce, user_id).map_err(invalid)?;
-    let message =
-        sikemux_client::accounts::registration_message(nonce, user_id, &key.public().to_string());
-    Ok(hex::encode(key.sign(message.as_bytes()).to_bytes()))
+    sikemux_client::device::sign_registration(key, nonce, user_id).map_err(invalid)
 }
 
 fn sign_live(key: &SecretKey, nonce: &str) -> Result<String, MobileError> {
@@ -226,13 +177,8 @@ fn notify_prefs(json: &str) -> Result<NotifyPrefs, MobileError> {
     })
 }
 
-/// A host listens on one of the relays, so the phone offers iroh all of them.
-fn core_addr(core: &str, relays: &[Relay]) -> Result<EndpointAddr, MobileError> {
-    let addr = EndpointAddr::new(core.parse().map_err(invalid)?);
-    Ok(relays
-        .iter()
-        .filter_map(|relay| relay.url.parse::<RelayUrl>().ok())
-        .fold(addr, EndpointAddr::with_relay_url))
+fn host_key(core: &str) -> Result<PublicKey, MobileError> {
+    core.parse().map_err(invalid)
 }
 
 /// This phone's key, which proves who it is to the accounts server without
@@ -292,24 +238,20 @@ impl Device {
         #[cfg(target_os = "android")]
         android::ensure_context().map_err(|message| MobileError::Connection { message })?;
         let key = identity.key.clone();
-        let relays = relays_from(relays);
-        let endpoint = bind(key.clone(), &relays).await?;
+        let relays = sikemux_client::device::usable(relays_from(relays));
+        let bound = relays.clone();
+        let online =
+            on_runtime(async move { sikemux_client::device::Device::bind(key, bound).await })
+                .await??;
         Ok(Arc::new(Self {
-            key,
+            online: Arc::new(online),
             relays,
-            online: Mutex::new(Online {
-                endpoint,
-                generation: 0,
-                reached: HashSet::new(),
-                closed: false,
-            }),
-            renewing: tokio::sync::Mutex::new(()),
         }))
     }
 
     /// The key hosts know this phone by.
     pub fn id(&self) -> String {
-        self.key.public().to_string()
+        self.online.id()
     }
 
     /// Hands the host whose key is `core` the `ticket` the accounts server
@@ -323,16 +265,14 @@ impl Device {
         platform: String,
     ) -> Result<JoinAnswer, MobileError> {
         let ticket = read_ticket(&ticket, &self.id(), &core)?;
-        let addr = core_addr(&core, &self.relays)?;
-        let (endpoint, _) = self.endpoint()?;
+        let addr = sikemux_client::device::host_addr(host_key(&core)?, &self.relays);
         let hello = JoinHello {
             ticket,
             name,
             platform,
         };
-        join_with(endpoint, addr, hello).await
+        self.join_at(addr, hello).await
     }
-
     /// Opens a session with a host this phone paired with. Everything the core
     /// sends unasked arrives on `listener`, in order, off the network's threads.
     pub async fn connect(
@@ -340,19 +280,56 @@ impl Device {
         core: String,
         listener: Arc<dyn CoreListener>,
     ) -> Result<Arc<Connection>, MobileError> {
-        let addr = core_addr(&core, &self.relays)?;
-        self.connect_to(core, addr, listener).await
+        let addr = sikemux_client::device::host_addr(host_key(&core)?, &self.relays);
+        self.connect_to(addr, listener).await
     }
 
     /// Takes the phone off the network until the app makes a new device. Open
     /// connections end with it.
     pub async fn close(&self) {
-        let endpoint = {
-            let mut online = self.lock();
-            online.closed = true;
-            online.endpoint.clone()
-        };
-        let _ = on_runtime(async move { endpoint.close().await }).await;
+        let online = self.online.clone();
+        let _ = on_runtime(async move { online.close().await }).await;
+    }
+}
+
+impl Device {
+    async fn join_at(
+        &self,
+        addr: EndpointAddr,
+        hello: JoinHello,
+    ) -> Result<JoinAnswer, MobileError> {
+        let online = self.online.clone();
+        let reply = on_runtime(async move { online.join_at(addr, &hello).await })
+            .await?
+            .map_err(|error| MobileError::Connection {
+                message: error.to_string(),
+            })?;
+        Ok(match reply {
+            JoinReply::Allowed { access } => JoinAnswer::Allowed {
+                access: access_name(access)?,
+            },
+            JoinReply::Denied => JoinAnswer::Denied,
+            JoinReply::Refused { reason } => JoinAnswer::Refused { reason },
+        })
+    }
+
+    async fn connect_to(
+        &self,
+        addr: EndpointAddr,
+        listener: Arc<dyn CoreListener>,
+    ) -> Result<Arc<Connection>, MobileError> {
+        let open = Arc::new(AtomicBool::new(true));
+        let (deliveries, queue) = mpsc::unbounded_channel();
+        deliver(listener, queue, open.clone());
+        let sink = Arc::new(ListenerSink(deliveries));
+        let online = self.online.clone();
+        let (client, link) =
+            on_runtime(async move { online.connect_to(addr, sink).await }).await??;
+        Ok(Arc::new(Connection {
+            client: Mutex::new(Some(Arc::new(client))),
+            link,
+            open,
+        }))
     }
 }
 
@@ -377,26 +354,6 @@ fn access_name(access: sikemux_wire::protocol::DeviceAccess) -> Result<String, M
         .ok_or_else(|| invalid("the host gave an access this app does not know"))
 }
 
-async fn join_with(
-    endpoint: Endpoint,
-    addr: EndpointAddr,
-    hello: JoinHello,
-) -> Result<JoinAnswer, MobileError> {
-    let reply =
-        on_runtime(async move { sikemux_client::join::join(&endpoint, addr, &hello).await })
-            .await?
-            .map_err(|error| MobileError::Connection {
-                message: error.to_string(),
-            })?;
-    Ok(match reply {
-        JoinReply::Allowed { access } => JoinAnswer::Allowed {
-            access: access_name(access)?,
-        },
-        JoinReply::Denied => JoinAnswer::Denied,
-        JoinReply::Refused { reason } => JoinAnswer::Refused { reason },
-    })
-}
-
 /// The ticket the accounts server gave, checked to be for this phone and the
 /// host it is about to dial, so a mix-up shows here and not as the host's
 /// refusal.
@@ -410,145 +367,6 @@ fn read_ticket(json: &str, phone: &str, host: &str) -> Result<JoinTicket, Mobile
         return Err(invalid("the join ticket is for another host"));
     }
     Ok(ticket)
-}
-
-/// Why a dial failed: `Stalled` means a fresh endpoint may reach the host.
-enum Dial {
-    Final(MobileError),
-    Stalled(MobileError),
-}
-
-impl Dial {
-    fn error(self) -> MobileError {
-        match self {
-            Dial::Final(error) | Dial::Stalled(error) => error,
-        }
-    }
-}
-
-impl Device {
-    /// A host this endpoint reached before is dialled with a short wait, and
-    /// again from a fresh endpoint if that one has gone stale, so a dropped
-    /// connection comes back in seconds rather than after a full timeout.
-    async fn connect_to(
-        &self,
-        core: String,
-        addr: EndpointAddr,
-        listener: Arc<dyn CoreListener>,
-    ) -> Result<Arc<Connection>, MobileError> {
-        let (endpoint, generation) = self.endpoint()?;
-        let redial = self.lock().reached.contains(&core);
-        let wait = if redial {
-            REDIAL_TIMEOUT
-        } else {
-            CONNECT_TIMEOUT
-        };
-        let first = self
-            .dial(&core, endpoint, addr.clone(), listener.clone(), wait)
-            .await;
-        let stalled = match first {
-            Ok(connection) => return Ok(connection),
-            Err(Dial::Final(error)) => return Err(error),
-            Err(Dial::Stalled(error)) => error,
-        };
-        self.renew_after_failing(&core, generation).await;
-        let (endpoint, now) = self.endpoint()?;
-        if !redial || now == generation {
-            return Err(stalled);
-        }
-        self.dial(&core, endpoint, addr, listener, CONNECT_TIMEOUT)
-            .await
-            .map_err(Dial::error)
-    }
-
-    async fn dial(
-        &self,
-        core: &str,
-        endpoint: Endpoint,
-        addr: EndpointAddr,
-        listener: Arc<dyn CoreListener>,
-        wait: Duration,
-    ) -> Result<Arc<Connection>, Dial> {
-        let open = Arc::new(AtomicBool::new(true));
-        let (deliveries, queue) = mpsc::unbounded_channel();
-        deliver(listener, queue, open.clone());
-        let sink = Arc::new(ListenerSink(deliveries));
-        let attempt = on_runtime(async move {
-            tokio::time::timeout(wait, remote::open_with(&endpoint, addr, sink)).await
-        })
-        .await
-        .map_err(Dial::Final)?;
-        let (client, link) = match attempt {
-            Ok(Ok(opened)) => opened,
-            Ok(Err(
-                error @ (ClientError::Core(_)
-                | ClientError::VersionMismatch { .. }
-                | ClientError::NotPaired),
-            )) => return Err(Dial::Final(error.into())),
-            Ok(Err(error)) => return Err(Dial::Stalled(error.into())),
-            Err(_) => {
-                return Err(Dial::Stalled(MobileError::Connection {
-                    message: "this host did not answer in time".into(),
-                }))
-            }
-        };
-        self.lock().reached.insert(core.to_owned());
-        Ok(Arc::new(Connection {
-            client: Mutex::new(Some(Arc::new(client))),
-            link,
-            open,
-        }))
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, Online> {
-        self.online
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    fn endpoint(&self) -> Result<(Endpoint, u64), MobileError> {
-        let online = self.lock();
-        if online.closed {
-            return Err(MobileError::Connection {
-                message: "this phone went off the network".into(),
-            });
-        }
-        Ok((online.endpoint.clone(), online.generation))
-    }
-
-    /// Once a connection to a host closes, iroh 1.3 can leave the endpoint
-    /// unable to reach that host again, while a new endpoint with the same key
-    /// reaches it at once. A host this endpoint never reached is most likely
-    /// just away, so it keeps the endpoint.
-    ///
-    /// The relay sends this key's traffic to its newest endpoint only, so the
-    /// old one closes along with every connection on it, and the app connects
-    /// to those hosts again.
-    async fn renew_after_failing(&self, core: &str, generation: u64) {
-        let _renewing = self.renewing.lock().await;
-        {
-            let online = self.lock();
-            if online.closed || online.generation != generation || !online.reached.contains(core) {
-                return;
-            }
-        }
-        let Ok(fresh) = bind(self.key.clone(), &self.relays).await else {
-            return;
-        };
-        let retired = {
-            let mut online = self.lock();
-            if online.closed {
-                fresh
-            } else {
-                online.generation += 1;
-                online.reached.clear();
-                std::mem::replace(&mut online.endpoint, fresh)
-            }
-        };
-        if let Ok(runtime) = RUNTIME.as_ref() {
-            runtime.spawn(async move { retired.close().await });
-        }
-    }
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -1185,36 +1003,6 @@ mod tests {
         assert_eq!(prefs.when, sikemux_wire::protocol::NotifyWhen::Away);
         assert_eq!(prefs.muted[0].agent_id, "chat-7f3a");
         assert!(notify_prefs(r#"{"when":"sometimes"}"#).is_err());
-    }
-
-    #[test]
-    fn hosts_are_dialled_through_every_usable_relay_and_never_none() {
-        let setting = |url: &str, quic_port| RelaySetting {
-            url: url.into(),
-            quic_port,
-        };
-        let relays = relays_from(vec![
-            setting("not a relay", None),
-            setting("https://relay.example/", Some(7842)),
-            setting("https://second.relay.example/", None),
-        ]);
-        assert_eq!(relays.len(), 2);
-        assert_eq!(relays[0].quic_port, Some(7842));
-        let core = SecretKey::generate().public().to_string();
-        let addr = core_addr(&core, &relays).expect("an address");
-        let mut dialled: Vec<String> = addr.relay_urls().map(ToString::to_string).collect();
-        dialled.sort();
-        assert_eq!(
-            dialled,
-            ["https://relay.example/", "https://second.relay.example/"]
-        );
-
-        let fallback = relays_from(Vec::new());
-        assert_eq!(fallback[0].url, network::DEFAULT_RELAY);
-        assert_eq!(
-            fallback[0].quic_port,
-            Some(i64::from(network::DEFAULT_QUIC_PORT))
-        );
     }
 
     #[test]

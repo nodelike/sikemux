@@ -1,29 +1,38 @@
 import { coreCall } from "../api/core";
 import type { PinnedChat as CorePinnedChat, ProjectInfo, SpaceInfo, Workspace, WorkspaceAgent } from "../api/generated/wire";
 import { getIpcTransport } from "../api/transport";
-import { agentSupportsChat } from "../agents/agentLaunch";
-import { isAgentType } from "../agents/catalog";
+import { AGENT_PERMISSION_MODES, effectiveMode, normalizePermissionMode } from "../agents/agentLaunch";
+import { isAgentType, agentSupportsChat } from "../agents/catalog";
+import { toAgentBuddy } from "../buddies/agentBuddy";
+import { isRecord } from "../lib/guards";
 import { isPluginId } from "../plugins/kinds";
 import { dropAgents, dropSession } from "./commands";
 import { makeWindow } from "./commands/shared";
 import { agentExecutablePath } from "./commands/agentLaunchCommand";
 import { agentWindow } from "./agentWindow";
-import { agentFromCore, persistedAgent } from "./persist";
 import { isSpaceIcon } from "./projectSpaces";
 import { agentIdsOf, agentWindowId, ownerSessionId } from "./selectors";
 import { getState, mutate, useStore, type StoreState } from "./store";
 import { swallow } from "./toast";
 import { allSent, changeOnItsWay } from "./workspaceSent";
-import type { Agent, PinnedChat, ProjectSpace, Session } from "./types";
+import {
+    AGENT_EFFORTS,
+    type Agent,
+    type AgentEffort,
+    type AgentPermissionMode,
+    type AgentWorktree,
+    type PinnedChat,
+    type ProjectSpace,
+    type Session,
+} from "./types";
 
 export const WORKSPACE_CHANGED_EVENT = "workspace_changed";
 
 /** Long enough that one gesture moving several things sends them together. */
 const SEND_DELAY_MS = 50;
 
-/** The fields of an agent this window changes; whether it sleeps and when it began are the core's. */
-const AGENT_FIELDS = [
-    "project",
+/** The fields of an agent the core keeps, named the same here and there. Whether it sleeps and when it began are the core's. */
+const DURABLE_AGENT_FIELDS = [
     "cwd",
     "title",
     "renamed",
@@ -38,28 +47,12 @@ const AGENT_FIELDS = [
     "worktree",
     "buddy",
     "ptyId",
-] as const satisfies readonly (keyof WorkspaceAgent)[];
+] as const satisfies readonly (keyof WorkspaceAgent & keyof Agent)[];
+
+/** The fields of an agent this window changes. */
+const AGENT_FIELDS = ["project", ...DURABLE_AGENT_FIELDS] as const satisfies readonly (keyof WorkspaceAgent)[];
 
 const PROJECT_FIELDS = ["name", "pinned", "space"] as const satisfies readonly (keyof ProjectInfo)[];
-
-/** The agent fields kept in the core, as the store names them. */
-const DURABLE_AGENT_KEYS = [
-    "title",
-    "lead",
-    "resumeId",
-    "permissionMode",
-    "skipPermissions",
-    "profileId",
-    "cwd",
-    "model",
-    "modelProvider",
-    "effort",
-    "keepAlive",
-    "renamed",
-    "worktree",
-    "ptyId",
-    "buddy",
-] as const satisfies readonly (keyof Agent)[];
 
 type Shared = Pick<Workspace, "projects" | "spaces" | "agents" | "pinned" | "permissionMode" | "disabledPlugins">;
 
@@ -84,28 +77,67 @@ function defined<T extends object>(value: T): T {
 }
 
 export function coreAgentOf(agent: Agent, session: Session, was?: WorkspaceAgent): WorkspaceAgent {
-    const saved = persistedAgent(agent);
     return defined({
         id: agent.id,
         provider: agent.type,
         project: session.id,
         cwd: agent.cwd ?? session.cwd,
-        title: saved.title,
-        renamed: saved.renamed === true,
-        lead: saved.lead,
-        resumeId: saved.resumeId,
-        permissionMode: saved.permissionMode ?? "workspace-write",
-        profileId: saved.profileId,
-        model: saved.model,
-        modelProvider: saved.modelProvider,
-        effort: saved.effort,
-        keepAlive: saved.keepAlive === true,
+        title: agent.title,
+        renamed: agent.renamed === true,
+        lead: agent.lead,
+        resumeId: agent.resumeId,
+        permissionMode: effectiveMode(agent),
+        profileId: agent.profileId,
+        model: agent.model,
+        modelProvider: agent.modelProvider,
+        effort: agent.effort,
+        keepAlive: agent.keepAlive === true,
         asleep: was?.asleep ?? false,
-        worktree: saved.worktree,
-        buddy: saved.buddy,
-        ptyId: saved.ptyId,
+        worktree: agent.worktree,
+        buddy: agent.buddy,
+        ptyId: agent.ptyId,
         createdAt: agent.createdAt ?? was?.createdAt ?? 0,
     });
+}
+
+const isPermissionMode = (value: string): value is AgentPermissionMode => (AGENT_PERMISSION_MODES as readonly string[]).includes(value);
+const isEffort = (value: string | undefined): value is AgentEffort => (AGENT_EFFORTS as readonly (string | undefined)[]).includes(value);
+
+function worktreeOf(value: unknown): AgentWorktree | undefined {
+    if (!isRecord(value)) return undefined;
+    const { repo, path, branch, base, startSha } = value;
+    if (typeof repo !== "string" || typeof path !== "string" || typeof branch !== "string" || typeof startSha !== "string") return undefined;
+    return { repo, path, branch, base: typeof base === "string" ? base : null, startSha };
+}
+
+/** An agent the core keeps, as the store holds it; null for a CLI this app does not know. */
+export function agentFromCore(record: WorkspaceAgent): Agent | null {
+    if (!isAgentType(record.provider)) return null;
+    const type = record.provider;
+    return defined({
+        id: record.id,
+        type,
+        cwd: record.cwd,
+        title: record.title,
+        renamed: record.renamed || undefined,
+        lead: record.lead,
+        resumeId: record.resumeId || undefined,
+        permissionMode: normalizePermissionMode(type, isPermissionMode(record.permissionMode) ? record.permissionMode : "workspace-write"),
+        profileId: record.profileId,
+        model: record.model,
+        modelProvider: record.modelProvider,
+        effort: isEffort(record.effort) ? record.effort : undefined,
+        keepAlive: record.keepAlive || undefined,
+        worktree: worktreeOf(record.worktree),
+        buddy: toAgentBuddy(record.buddy) ?? undefined,
+        ptyId: record.ptyId,
+        createdAt: record.createdAt,
+    });
+}
+
+function copyField<K extends (typeof DURABLE_AGENT_FIELDS)[number]>(target: Agent, source: Agent, key: K): void {
+    if (source[key] === undefined) delete target[key];
+    else target[key] = source[key];
 }
 
 function corePinned(chat: PinnedChat): CorePinnedChat {
@@ -120,9 +152,25 @@ function localSpace(space: SpaceInfo): ProjectSpace {
     return { id: space.id, name: space.name, icon: isSpaceIcon(space.icon) ? space.icon : "" };
 }
 
+/** What the store holds of the workspace's projects, spaces, pins and defaults, as the core sent them. */
+export function sharedFromCore(
+    workspace: Workspace,
+): Pick<StoreState, "spaces" | "projectSpaces" | "codeHosts" | "projectIdentities" | "pinnedChats" | "defaultAgentPermissionMode"> {
+    return {
+        spaces: workspace.spaces.map(localSpace),
+        projectSpaces: Object.fromEntries(workspace.projects.flatMap((project) => (project.space ? [[project.path, project.space]] : []))),
+        codeHosts: Object.fromEntries(workspace.projects.map((project) => [project.path, project.codeHosts ?? {}])),
+        projectIdentities: Object.fromEntries(workspace.projects.flatMap((project) => (project.identity ? [[project.path, project.identity]] : []))),
+        pinnedChats: workspace.pinned.flatMap((chat) => localPinned(chat) ?? []),
+        defaultAgentPermissionMode: workspace.permissionMode === "bypass" ? "bypass" : "workspace-write",
+    };
+}
+
 /** What this window's store holds of the workspace every client shares. */
 export function localWorkspace(state: StoreState): Shared {
-    const projectSessions = state.sessionOrder.map((id) => state.sessions[id]).filter((session) => session?.kind === "project" && session.cwd);
+    const projectSessions = state.sessionOrder
+        .map((id) => state.sessions[id])
+        .filter((session) => session?.kind === "project" && session.cwd && !session.host);
     const knownAgents = new Map(known?.agents.map((agent) => [agent.id, agent]));
     return {
         projects: projectSessions.map((session) => {
@@ -133,7 +181,7 @@ export function localWorkspace(state: StoreState): Shared {
         agents: projectSessions.flatMap((session) =>
             agentIdsOf(state, session.id).flatMap((id) => {
                 const agent = state.agents[id];
-                return agent ? [coreAgentOf(agent, session, knownAgents.get(id))] : [];
+                return agent && !agent.host ? [coreAgentOf(agent, session, knownAgents.get(id))] : [];
             }),
         ),
         pinned: state.pinnedChats.map(corePinned),
@@ -217,11 +265,7 @@ export function applyCoreWorkspace(workspace: Workspace): void {
             d.windows[window.id] = window;
             d.windowsBySession[project.id] = [window.id];
         }
-        d.spaces = workspace.spaces.map(localSpace);
-        d.projectSpaces = Object.fromEntries(workspace.projects.flatMap((project) => (project.space ? [[project.path, project.space]] : [])));
-        d.codeHosts = Object.fromEntries(workspace.projects.map((project) => [project.path, project.codeHosts ?? {}]));
-        d.pinnedChats = workspace.pinned.flatMap((chat) => localPinned(chat) ?? []);
-        d.defaultAgentPermissionMode = workspace.permissionMode === "bypass" ? "bypass" : "workspace-write";
+        Object.assign(d, sharedFromCore(workspace));
         if (!same([...d.disabledPlugins].sort(), workspace.disabledPlugins)) d.disabledPlugins = workspace.disabledPlugins.filter(isPluginId);
         for (const record of workspace.agents) {
             const saved = agentFromCore(record);
@@ -234,11 +278,7 @@ export function applyCoreWorkspace(workspace: Workspace): void {
                 if (agentSupportsChat(current.type) && current.launchState !== launchState) current.launchState = launchState;
                 const owner = d.sessions[ownerSessionId(d, windowId) ?? ""];
                 if (owner && !changed(coreAgentOf(current, owner, record), record, AGENT_FIELDS)) continue;
-                const fields = current as unknown as Record<string, unknown>;
-                for (const key of DURABLE_AGENT_KEYS) {
-                    if (saved[key as keyof typeof saved] === undefined) delete fields[key];
-                    else fields[key] = saved[key as keyof typeof saved];
-                }
+                for (const key of DURABLE_AGENT_FIELDS) copyField(current, saved, key);
                 moveWindow(d, windowId, record.project);
                 continue;
             }

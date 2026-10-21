@@ -1,6 +1,17 @@
 /** `start` opens the first page the project has. */
 export type ProjectSettingsPageId =
-    "start" | "overview" | "environment" | "services" | "tasks" | "done" | "brief" | "guardrails" | "suggestions" | `stack:${string}`;
+    | "start"
+    | "overview"
+    | "environment"
+    | "services"
+    | "tasks"
+    | "done"
+    | "brief"
+    | "guardrails"
+    | "suggestions"
+    | "general"
+    | "git"
+    | `stack:${string}`;
 
 /** A language's page in one folder of the project. */
 export const stackPage = (folder: string, language: string): ProjectSettingsPageId => `stack:${language}:${folder}`;

@@ -8,11 +8,12 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
 use tokio::sync::oneshot;
 
+use super::changed::Topic;
 use crate::agent_accounts::{cli, folders::link_shared};
 use crate::agent_catalog::AgentKind;
 
@@ -23,21 +24,11 @@ const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const SIGN_IN_TAIL: usize = 12;
 const MAX_PATH_CHARS: usize = 4_096;
 
-pub(crate) const METHODS: [&str; 5] = [
-    "agentSignIn",
-    "agentSignIns",
-    "agentSignInCode",
-    "cancelAgentSignIn",
-    "agentSignOut",
-];
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Account {
+pub(super) struct Account {
     agent: AgentKind,
-    #[serde(default)]
     executable_path: Option<String>,
-    #[serde(default)]
     config_path: Option<String>,
 }
 
@@ -77,7 +68,7 @@ impl Account {
 /// The page a running sign-in opened, for a client to open where no browser did.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Page {
+pub(super) struct Page {
     agent: &'static str,
     config_path: Option<String>,
     url: String,
@@ -92,10 +83,7 @@ struct SignIn {
 
 fn sign_ins() -> MutexGuard<'static, HashMap<String, SignIn>> {
     static SIGN_INS: OnceLock<Mutex<HashMap<String, SignIn>>> = OnceLock::new();
-    SIGN_INS
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    SIGN_INS.get_or_init(Mutex::default).locked()
 }
 
 fn first_url(line: &str) -> Option<&str> {
@@ -107,24 +95,8 @@ fn first_url(line: &str) -> Option<&str> {
     Some(rest[..end].trim_end_matches(['.', ',', ')']))
 }
 
-fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
-    serde_json::from_value(params)
-        .map_err(|error| CoreError::from(format!("the call's params do not fit: {error}")))
-}
-
-pub(crate) async fn call(core: &Arc<Core>, method: &str, params: Value) -> CoreResult<Value> {
-    Ok(match method {
-        "agentSignIn" => serde_json::to_value(sign_in(core, parse(params)?).await?)?,
-        "agentSignIns" => serde_json::to_value(pages())?,
-        "agentSignInCode" => serde_json::to_value(sign_in_code(parse(params)?).await?)?,
-        "cancelAgentSignIn" => serde_json::to_value(cancel(parse(params)?))?,
-        "agentSignOut" => serde_json::to_value(sign_out(parse(params)?).await?)?,
-        _ => return Err(format!("this host does not know {method}").into()),
-    })
-}
-
 /// The pages the sign-ins running now opened.
-fn pages() -> Vec<Page> {
+pub(super) fn pages() -> Vec<Page> {
     sign_ins()
         .values()
         .filter_map(|sign_in| sign_in.page.clone())
@@ -132,13 +104,13 @@ fn pages() -> Vec<Page> {
 }
 
 fn pages_changed(core: &Core) {
-    core.changes.changed("agentSignIn", None, None);
+    core.changes.changed(Topic::AgentSignIn, None, None);
 }
 
 /// Runs the agent's own sign-in for one account and answers once it ends.
 /// The CLI opens a browser on the host itself; the page it opens is offered
 /// to every client, for when the person is elsewhere.
-async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()> {
+pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()> {
     account.check()?;
     link_shared(account.agent.as_str(), account.config_path.as_deref());
     let mut command = account.command().await?;
@@ -242,7 +214,7 @@ async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Code {
+pub(super) struct Code {
     #[serde(flatten)]
     account: Account,
     code: String,
@@ -250,7 +222,7 @@ struct Code {
 
 /// Hands a running sign-in the code its page showed, for a CLI that asks
 /// for one when the browser could not call it back.
-async fn sign_in_code(given: Code) -> CoreResult<()> {
+pub(super) async fn sign_in_code(given: Code) -> CoreResult<()> {
     let code = given.code.trim().to_owned();
     if code.is_empty() || code.len() > 4_096 || code.contains(['\n', '\r', '\0']) {
         return Err("That code cannot be right".into());
@@ -271,7 +243,7 @@ async fn sign_in_code(given: Code) -> CoreResult<()> {
     written.map_err(|_| CoreError::from("Could not hand the code to the sign-in"))
 }
 
-fn cancel(account: Account) {
+pub(super) fn cancel(account: Account) {
     let stop = sign_ins()
         .get_mut(&account.key())
         .and_then(|sign_in| sign_in.stop.take());
@@ -280,7 +252,7 @@ fn cancel(account: Account) {
     }
 }
 
-async fn sign_out(account: Account) -> CoreResult<()> {
+pub(super) async fn sign_out(account: Account) -> CoreResult<()> {
     account.check()?;
     let mut command = account.command().await?;
     match account.agent {

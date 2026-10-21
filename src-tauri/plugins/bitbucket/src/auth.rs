@@ -4,37 +4,37 @@
 // account adds it beside the first rather than replacing it.
 
 use std::path::Path;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use sikemux_plugin_api::StreamSink;
+use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::http;
+use sikemux_plugin_api::oauth::Tokens;
+use sikemux_plugin_api::store::{self, Accounts};
+use sikemux_plugin_api::{SignInStatus, StreamSink};
 
 use crate::client::{self, Credential, Session};
-use crate::config::{self, Account, Method};
+use crate::config::{self, Account, BitbucketConfig, Method};
 use crate::error::{BitbucketError, BitbucketResult};
 use crate::oauth;
 use crate::repo::{RepoRef, User};
 
 /// Long enough to sign in to Atlassian from scratch, two-step login included.
-const BROWSER_WAIT: Duration = Duration::from_secs(10 * 60);
 const PIPELINE_WRITE: &str = "pipeline:write";
 
 async fn identify(credential: &Credential) -> BitbucketResult<User> {
-    let request = credential.apply(client::http()?.get(format!("{}/user", client::API)));
-    let response = client::limited(request.send()).await?;
+    let request = credential.apply(client::HTTP.client()?.get(format!("{}/user", client::API)));
+    let response = client::HTTP.send(request).await?;
     let status = response.status();
-    let (bytes, _) = client::read_body(response, 1024 * 1024, false).await?;
+    let bytes = http::read_body(response, 1024 * 1024).await?;
     if !status.is_success() {
         return Err(client::classify(status, &bytes));
     }
     Ok(serde_json::from_slice(&bytes)?)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct Status {
-    pub configured: bool,
+pub struct Signed {
     /// Which account this is about.
     pub account: Option<String>,
     pub method: Option<Method>,
@@ -43,12 +43,11 @@ pub struct Status {
     pub avatar_url: Option<String>,
     /// Whether this sign-in may start and stop pipelines, not only read them.
     pub can_write_ci: bool,
-    pub ok: bool,
-    pub auth_failed: bool,
-    pub message: Option<String>,
     /// A build without the OAuth secret can only take a pasted token.
     pub browser_sign_in: bool,
 }
+
+pub type Status = SignInStatus<Signed>;
 
 /// An OAuth grant says what it allows; a pasted token is taken at its word,
 /// and Bitbucket says no later if it may not.
@@ -60,10 +59,18 @@ fn can_write(session: &Session) -> bool {
 
 /// The account the call named, or the default one.
 pub async fn status(data_dir: &Path) -> Status {
-    let config = config::load(data_dir);
-    let account = config.account(client::chosen().as_deref()).cloned();
-    let base = |ok: bool, auth_failed: bool, message: Option<String>| Status {
-        configured: account.is_some(),
+    let config = match config::load(data_dir) {
+        Ok(config) => config,
+        Err(error) => {
+            let signed = Signed {
+                browser_sign_in: oauth::APP.available(),
+                ..Signed::default()
+            };
+            return Status::checked(false, signed, &Err::<(), _>(error));
+        }
+    };
+    let account = config.account(chosen().as_deref()).cloned();
+    let mut signed = Signed {
         account: account.as_ref().map(|account| account.id.clone()),
         method: account.as_ref().map(|account| account.method),
         login: account
@@ -77,37 +84,30 @@ pub async fn status(data_dir: &Path) -> Status {
             .as_ref()
             .and_then(|account| account.avatar_url.clone()),
         can_write_ci: false,
-        ok,
-        auth_failed,
-        message,
-        browser_sign_in: oauth::available(),
+        browser_sign_in: oauth::APP.available(),
     };
-    let session = match Session::current(data_dir).await {
-        Ok(session) => session,
-        Err(BitbucketError::Unconfigured) => return base(false, false, None),
-        Err(error @ BitbucketError::Auth(_)) => return base(false, true, Some(error.to_string())),
-        Err(error) => return base(false, false, Some(error.to_string())),
-    };
-    match identify(&session.credential).await {
-        Ok(user) => Status {
-            login: user
-                .login()
-                .unwrap_or_else(|| session.account.login.clone()),
-            display_name: user.display_name.clone(),
-            avatar_url: user.avatar(),
-            can_write_ci: can_write(&session),
-            ..base(true, false, None)
-        },
-        // Still signed in; Bitbucket is only asking to wait.
-        Err(error @ BitbucketError::RateLimited { .. }) => Status {
-            can_write_ci: can_write(&session),
-            ..base(true, false, Some(error.to_string()))
-        },
-        Err(error) => {
-            let auth_failed = matches!(error, BitbucketError::Auth(_));
-            base(false, auth_failed, Some(error.to_string()))
+    let check = match Session::current(data_dir).await {
+        Ok(session) => {
+            let identified = identify(&session.credential).await;
+            match &identified {
+                Ok(user) => {
+                    signed.login = user
+                        .login()
+                        .unwrap_or_else(|| session.account.login.clone());
+                    signed.display_name = user.display_name.clone();
+                    signed.avatar_url = user.avatar();
+                    signed.can_write_ci = can_write(&session);
+                }
+                Err(BitbucketError::RateLimited { .. }) => {
+                    signed.can_write_ci = can_write(&session);
+                }
+                Err(_) => {}
+            }
+            identified
         }
-    }
+        Err(error) => Err(error),
+    };
+    Status::checked(account.is_some(), signed, &check)
 }
 
 #[derive(Serialize)]
@@ -121,9 +121,9 @@ pub struct Listed {
 }
 
 /// Every account signed in, the default first, as they were when they signed in.
-pub fn accounts(data_dir: &Path) -> Vec<Listed> {
-    let config = config::load(data_dir);
-    config
+pub fn accounts(data_dir: &Path) -> BitbucketResult<Vec<Listed>> {
+    let config = config::load(data_dir)?;
+    Ok(config
         .in_order()
         .into_iter()
         .map(|account| Listed {
@@ -133,7 +133,7 @@ pub fn accounts(data_dir: &Path) -> Vec<Listed> {
             display_name: account.display_name,
             avatar_url: account.avatar_url,
         })
-        .collect()
+        .collect())
 }
 
 fn new_account(
@@ -143,7 +143,10 @@ fn new_account(
 ) -> BitbucketResult<Account> {
     let id = match user.and_then(|user| user.uuid.as_deref()) {
         Some(uuid) => uuid.trim_matches(['{', '}']).to_string(),
-        None => format!("token-{}", oauth::new_state()?),
+        None => format!(
+            "token-{}",
+            sikemux_loopback::new_state().map_err(|error| BitbucketError::Auth(error.0))?
+        ),
     };
     Ok(Account {
         id,
@@ -198,10 +201,8 @@ async fn save_sign_in(
     account: Account,
     secret: String,
 ) -> BitbucketResult<String> {
-    let data_dir = data_dir.to_path_buf();
     let id = account.id.clone();
-    config::blocking(Box::new(move || {
-        let mut config = config::load(&data_dir);
+    store::update(data_dir, move |config: &mut BitbucketConfig| {
         let replaced = config
             .accounts
             .iter()
@@ -212,8 +213,8 @@ async fn save_sign_in(
             config::keychain_delete(&replaced)?;
         }
         config.upsert(account);
-        config::save(&data_dir, &config)
-    }))
+        Ok(())
+    })
     .await?;
     client::forget(Some(&id)).await;
     Ok(id)
@@ -223,33 +224,18 @@ async fn save_sign_in(
 /// the stream's first item, then waits for the browser to come back. Closing
 /// the stream stops the wait and frees the port. Says which account signed in.
 pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> BitbucketResult<String> {
-    if !oauth::available() {
-        return Err(BitbucketError::Auth(
-            "this build cannot sign in through the browser; use an API token instead".into(),
-        ));
-    }
-    let callback = oauth::listen().await?;
-    let state = oauth::new_state()?;
-    sink.send(json!({ "url": oauth::authorize_url(&state) }))
-        .map_err(|_| BitbucketError::Auth("the sign-in was closed".into()))?;
-    let code = tokio::time::timeout(BROWSER_WAIT, oauth::code(&callback, &state))
-        .await
-        .map_err(|_| BitbucketError::Auth("nobody finished signing in".into()))??;
-    drop(callback);
-    let tokens = oauth::exchange(&code).await?;
+    let tokens: Tokens = oauth::APP.sign_in(&client::HTTP, sink).await?;
     let user = identify(&Credential::Bearer(tokens.access_token.clone())).await?;
     let account = new_account(Some(&user), Method::Oauth, None)?;
     let id = save_sign_in(data_dir, account, tokens.refresh_token.clone()).await?;
-    client::remember_access(&id, &tokens).await;
+    oauth::ACCESS.remember(&id, &tokens).await;
     Ok(id)
 }
 
 /// Signs out the account the call named, or the default one.
 pub async fn sign_out(data_dir: &Path) -> BitbucketResult<()> {
-    let data_dir = data_dir.to_path_buf();
-    let chosen = client::chosen();
-    let removed = config::blocking(Box::new(move || {
-        let mut config = config::load(&data_dir);
+    let chosen = chosen();
+    let removed = store::update(data_dir, move |config: &mut BitbucketConfig| {
         let Some(id) = config
             .account(chosen.as_deref())
             .map(|account| account.id.clone())
@@ -260,9 +246,8 @@ pub async fn sign_out(data_dir: &Path) -> BitbucketResult<()> {
         if let Some(account) = &removed {
             config::keychain_delete(account)?;
         }
-        config::save(&data_dir, &config)?;
         Ok(removed)
-    }))
+    })
     .await?;
     if let Some(account) = removed {
         client::forget(Some(&account.id)).await;
@@ -276,17 +261,9 @@ pub struct DefaultChoice {
 }
 
 pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> BitbucketResult<()> {
-    let data_dir = data_dir.to_path_buf();
-    config::blocking(Box::new(move || {
-        let mut config = config::load(&data_dir);
-        if !config.accounts.iter().any(|account| account.id == input.id) {
-            return Err(BitbucketError::NotFound(
-                "no account signed in by that id".into(),
-            ));
-        }
-        config.default = Some(input.id);
-        config::save(&data_dir, &config)
-    }))
+    store::update(data_dir, move |config: &mut BitbucketConfig| {
+        config.set_default(&input.id)
+    })
     .await
 }
 
@@ -294,10 +271,10 @@ pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> BitbucketResu
 /// project on a work workspace opens as the work account by itself.
 pub async fn account_for(data_dir: &Path, repo: RepoRef) -> BitbucketResult<Option<String>> {
     let path = repo.path("")?;
-    for account in config::load(data_dir).in_order() {
+    for account in config::load(data_dir)?.in_order() {
         let id = account.id.clone();
         let seen: BitbucketResult<serde_json::Value> =
-            client::as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
+            as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
         match seen {
             Ok(_) => return Ok(Some(id)),
             Err(BitbucketError::Unconfigured) => return Ok(None),
@@ -310,6 +287,7 @@ pub async fn account_for(data_dir: &Path, repo: RepoRef) -> BitbucketResult<Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn session(method: Method, scopes: &[&str]) -> Session {
         Session {

@@ -1,6 +1,9 @@
 import { twinkle, type BuddyPack, type BuddyShape, type BuddyState } from "./shared";
 
 const MOTION: Record<BuddyState, string> = { idle: "", working: "bd-bob", waiting: "bd-hop", done: "", error: "bd-shake" };
+
+/** The whole-body motion a state plays; the Mac runs it on the drawing as a whole, where the compositor can take it. */
+export const bodyMotion = (state: BuddyState): string => MOTION[state];
 export const FULL_BOX = "0 0 24 24";
 const PAD = 0.7;
 

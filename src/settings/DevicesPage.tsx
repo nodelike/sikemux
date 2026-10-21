@@ -1,6 +1,5 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { accountApi, type AccountHost, type AccountStatus } from "../api/account";
-import { portsApi } from "../api/ports";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { accountApi, type AccountStatus } from "../api/account";
 import { AccountAvatar } from "../account/AccountAvatar";
 import { loadAccount, signInToAccount, signOutOfAccount, useAccount } from "../account/account";
 import { formatAgo } from "../lib/format";
@@ -17,9 +16,13 @@ import { ACCESS_OPTIONS, platformName } from "../remote/access";
 import { reportError, swallow } from "../state/toast";
 import { Dropdown } from "../ui/Dropdown";
 import { Switch } from "../ui/Controls";
-import { IconGlobe, IconTrash } from "../ui/Icons";
+import { IconGlobe, IconLock, IconMore, IconPencil, IconTrash } from "../ui/Icons";
 import { QrCode } from "./QrCode";
+import { confirmDialog } from "../state/dialog";
+import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
+import { approvalItem } from "../hosts/hosts";
 import { SettingsPage, SettingsRow, SettingsRows } from "./SettingsLayout";
+import { openUrl } from "../api/system";
 
 const DELETE_ACCOUNT_URL = import.meta.env.DEV ? "http://localhost:5173/delete-account" : "https://app.sikemux.com/delete-account";
 export const PHONE_URL = "https://sikemux.com/phone";
@@ -123,7 +126,7 @@ export function DevicesPage() {
                     target="Remote access"
                     mark={<IconGlobe size={18} />}
                     title="Remote access"
-                    desc={signedIn ? "Phones on your account can ask to connect. You allow each one." : "Sign in to use Sikemux on your phone"}
+                    desc={signedIn ? "Your devices and hosts on your account connect here" : "Sign in to use Sikemux on your phone"}
                     asLabel>
                     <Switch
                         checked={status?.enabled ?? false}
@@ -132,6 +135,21 @@ export function DevicesPage() {
                         label="Remote access"
                     />
                 </DevicesRow>
+                {signedIn && (
+                    <DevicesRow
+                        target="Require approval"
+                        mark={<IconLock size={18} />}
+                        title="Require approval for new devices"
+                        desc="Ask before a device or host on your account connects here for the first time"
+                        asLabel>
+                        <Switch
+                            checked={status?.requireApproval ?? false}
+                            disabled={!status}
+                            onChange={(on) => void apply(remoteApi.setRequireApproval(on), "Require approval")}
+                            label="Require approval for new devices"
+                        />
+                    </DevicesRow>
+                )}
             </div>
 
             {!account ? null : !signedIn ? <SignInCall removed={removalNote(link)} /> : status && devices.length === 0 ? <PhonePanel /> : null}
@@ -217,7 +235,7 @@ function AccountRow({ account, link }: { account: AccountStatus; link: AccountLi
                     className="settings-btn"
                     type="button"
                     title="Delete your account at app.sikemux.com"
-                    onClick={() => void portsApi.openExternal(DELETE_ACCOUNT_URL).catch(reportError("Open link"))}>
+                    onClick={() => void openUrl(DELETE_ACCOUNT_URL).catch(reportError("Open link"))}>
                     Delete account…
                 </button>
                 <button className="settings-btn" type="button" disabled={leaving} onClick={() => void signOut()}>
@@ -347,47 +365,23 @@ function useLinkedHosts(): [readonly LinkedHost[] | null, () => void] {
 
 function HostsSection({ now }: { now: number }) {
     const [links, reread] = useLinkedHosts();
-    const [hosts, setHosts] = useState<readonly AccountHost[]>([]);
-    const [linking, setLinking] = useState<AccountHost | null>(null);
-    const linkedKeys = links?.map((link) => link.id).join(" ");
-    useEffect(() => {
-        if (linkedKeys === undefined) return;
-        let current = true;
-        accountApi
-            .hosts()
-            .then((next) => {
-                if (current) setHosts(next);
-            })
-            .catch(swallow("hosts on the account"));
-        return () => {
-            current = false;
-        };
-    }, [linkedKeys]);
-    const link = async (host: AccountHost) => {
-        setLinking(host);
-        try {
-            await accountApi.linkHost(host);
-        } catch (error) {
-            reportError(`Link ${host.name || "host"}`)(error);
-        } finally {
-            setLinking(null);
-            reread();
-        }
-    };
-    const allowSignIns = async (host: LinkedHost, allowed: boolean) => {
-        try {
-            await remoteApi.setLinkSignIns(host.id, allowed);
-        } catch (error) {
-            reportError("Sign-ins for linked host")(error);
-        }
+    const [renaming, setRenaming] = useState<string | null>(null);
+    const [menu, setMenu] = useState<{ host: LinkedHost; x: number; y: number; lock: CtxItem } | null>(null);
+    const rename = async (host: LinkedHost, name: string) => {
+        setRenaming(null);
+        if (!name.trim() || name.trim() === host.name) return;
+        await accountApi.renameDevice(host.id, name.trim()).catch(reportError(`Rename ${host.name}`));
         reread();
     };
-    const unlink = async (host: LinkedHost) => {
-        try {
-            await remoteApi.revokeDevice(host.id);
-        } catch (error) {
-            reportError("Remove host")(error);
-        }
+    const remove = async (host: LinkedHost) => {
+        const confirmed = await confirmDialog({
+            title: `Remove ${host.name || "this host"} from your account?`,
+            body: "Every device and host on your account stops reaching it at once. To add it again, sign it in again.",
+            confirmLabel: "Remove",
+            destructive: true,
+        });
+        if (!confirmed) return;
+        await accountApi.removeDevice(host.id).catch(reportError(`Remove ${host.name || "host"}`));
         reread();
     };
     if (!links) return null;
@@ -395,58 +389,66 @@ function HostsSection({ now }: { now: number }) {
         <section className="devices-hosts" data-settings-target="Hosts">
             <h2 className="devices-label">Hosts</h2>
             <p className="settings-hint">
-                Link another host on your account. Someone there allows it once, then agents here can start agents there, on that host&apos;s own
-                sign-ins.
+                Every host signed in to your account links with this one, so agents here can start agents there, on that host&apos;s own sign-ins.
             </p>
-            <p className="settings-hint">
-                Agents a linked host starts or messages here can&apos;t use this host&apos;s plugin sign-ins, database logins or signed-in browser
-                tabs until you allow that host.
-            </p>
-            {links.length === 0 && hosts.length === 0 ? (
-                <p className="settings-hint">No other hosts on your account. Sign in to Sikemux on one to link it.</p>
+            {links.length === 0 ? (
+                <p className="settings-hint">No other hosts on your account. Sign in to Sikemux on one to add it.</p>
             ) : (
                 <SettingsRows>
                     {links.map((host) => (
-                        <Fragment key={host.id}>
-                            <SettingsRow label={host.name || "Unnamed host"} desc={linkedLine(host, now)}>
-                                <button
-                                    className="settings-btn danger"
-                                    type="button"
-                                    onClick={() => void unlink(host)}
-                                    title="Unlink this host; agents on either side can no longer start agents on the other">
-                                    <IconTrash size={12} /> Remove
-                                </button>
-                            </SettingsRow>
-                            <SettingsRow
-                                label={`Let agents from ${host.name || "it"} use sign-ins here`}
-                                desc="They act as you in every plugin, database and signed-in tab on this host"
-                                asLabel>
-                                <Switch checked={host.signIns} onChange={(allowed) => void allowSignIns(host, allowed)} />
-                            </SettingsRow>
-                        </Fragment>
-                    ))}
-                    {hosts.map((host) => (
                         <SettingsRow
-                            key={host.key}
-                            label={host.name || "Unnamed host"}
-                            desc={
-                                linking?.key === host.key
-                                    ? `Waiting for ${host.name || "it"} to allow…`
-                                    : `${platformName(host.platform)} · on your account, not linked`
-                            }>
-                            <button className="settings-btn" type="button" disabled={linking !== null} onClick={() => void link(host)}>
-                                {linking?.key === host.key ? "Waiting…" : "Link"}
+                            key={host.id}
+                            label={
+                                renaming === host.id ? (
+                                    <input
+                                        className="settings-input"
+                                        defaultValue={host.name}
+                                        aria-label={`Rename ${host.name}`}
+                                        autoFocus
+                                        onBlur={(event) => void rename(host, event.currentTarget.value)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === "Enter") event.currentTarget.blur();
+                                            if (event.key === "Escape") setRenaming(null);
+                                        }}
+                                    />
+                                ) : (
+                                    <span onDoubleClick={() => setRenaming(host.id)}>{host.name || "Unnamed host"}</span>
+                                )
+                            }
+                            desc={linkedLine(host, now)}>
+                            <button
+                                className="settings-btn"
+                                type="button"
+                                aria-label={`More for ${host.name}`}
+                                onClick={(event) => {
+                                    const { clientX: x, clientY: y } = event;
+                                    void approvalItem(host.id).then((lock) =>
+                                        setMenu({ host, x, y, lock: { ...lock, icon: <IconLock size={13} /> } }),
+                                    );
+                                }}>
+                                <IconMore size={12} />
                             </button>
                         </SettingsRow>
                     ))}
                 </SettingsRows>
+            )}
+            {menu && (
+                <TreeContextMenu
+                    x={menu.x}
+                    y={menu.y}
+                    items={[
+                        menu.lock,
+                        { sep: true },
+                        { label: "Rename", icon: <IconPencil size={13} />, run: () => setRenaming(menu.host.id) },
+                        { label: "Remove from account", icon: <IconTrash size={13} />, danger: true, run: () => void remove(menu.host) },
+                    ]}
+                    onClose={() => setMenu(null)}
+                />
             )}
         </section>
     );
 }
 
 function linkedLine(host: LinkedHost, now: number): string {
-    const seen = host.connected ? "connected now" : seenLabel(host.lastSeen, now);
-    const agents = host.agents > 0 ? ` · ${host.agents} ${host.agents === 1 ? "agent works" : "agents work"} across it` : "";
-    return `${platformName(host.platform)} · linked · ${seen}${agents}`;
+    return `${platformName(host.platform)} · ${host.connected ? "connected now" : seenLabel(host.lastSeen, now)}`;
 }

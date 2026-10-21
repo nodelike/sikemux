@@ -11,9 +11,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use super::{tell, State};
-use crate::server::remote::unix_ms;
 use crate::server::Core;
 
 /// Checks running at once, across projects.
@@ -74,7 +75,7 @@ impl Checks {
 
     /// The projects broken long enough that the person should hear of it.
     pub(super) fn failing(&self) -> impl Iterator<Item = &Failing> {
-        let now = unix_ms();
+        let now = epoch_ms();
         self.failing
             .values()
             .filter(move |failing| failing.since + PERSON_AFTER_MS <= now)
@@ -150,7 +151,12 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
             let outcome = match outcome {
                 Ok(Some(outcome)) => Ok(outcome),
                 Ok(None) => {
-                    core.collisions.lock().checks.running.remove(&project);
+                    core.collisions
+                        .state
+                        .locked()
+                        .checks
+                        .running
+                        .remove(&project);
                     core.collisions.wake.now();
                     return;
                 }
@@ -170,7 +176,7 @@ fn ended(
 ) {
     let collisions = &core.collisions;
     let agents: BTreeSet<&String> = commits.iter().flat_map(|commit| &commit.agents).collect();
-    let mut state = collisions.lock();
+    let mut state = collisions.state.locked();
     state.checks.running.remove(project);
     let (passed, output) = match outcome {
         Ok(outcome) => outcome,
@@ -185,7 +191,7 @@ fn ended(
     if passed {
         state.checks.failing.remove(project);
     } else {
-        let now = unix_ms();
+        let now = epoch_ms();
         let failing = state
             .checks
             .failing
@@ -241,7 +247,7 @@ fn ended(
         },
     );
     collisions.wake.now();
-    if let Some(at) = person_at.filter(|at| *at > unix_ms()) {
+    if let Some(at) = person_at.filter(|at| *at > epoch_ms()) {
         collisions.wake.at(at);
     }
 }

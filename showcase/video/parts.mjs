@@ -83,7 +83,7 @@ export async function mapleAnswers(
 /** On the project's board, Maple's card moves to Done, and Otter takes the refunds card it was waiting on. */
 export async function boardMoves(s, { hold = 1000 } = {}) {
   await s.zoomOut({ wait: false });
-  await s.click({ selector: ".side-rail *", text: "Board" });
+  await s.click({ selector: ".side-rail *", text: "Agent board" });
   const otterLane = ".kanban-columns";
   await s.steady(otterLane, { frames: 6 });
   s.zoom(otterLane, { pad: 40, wait: false });

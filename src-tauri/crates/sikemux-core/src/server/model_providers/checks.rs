@@ -10,9 +10,10 @@ use std::time::Duration;
 use reqwest::{RequestBuilder, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use crate::launch::providers::{AnthropicAuth, Provider};
-use crate::server::remote::unix_ms;
 use crate::server::Core;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -28,7 +29,7 @@ pub(crate) struct Check {
     pub works: bool,
     /// When it was checked, in Unix milliseconds.
     pub at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }
 
@@ -39,12 +40,6 @@ pub(crate) struct Checks {
     path: Option<PathBuf>,
     kept: Mutex<Kept>,
     running: Mutex<HashSet<(String, String)>>,
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Claude Code's own suffix for a long context, which the APIs do not take.
@@ -68,11 +63,15 @@ impl Checks {
     }
 
     pub(crate) fn of(&self, provider: &str) -> BTreeMap<String, Check> {
-        lock(&self.kept).get(provider).cloned().unwrap_or_default()
+        self.kept
+            .locked()
+            .get(provider)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn keep(&self, provider: &str, model: &str, check: &Check) {
-        let mut kept = lock(&self.kept);
+        let mut kept = self.kept.locked();
         kept.entry(provider.to_owned())
             .or_default()
             .insert(model.to_owned(), check.clone());
@@ -127,7 +126,7 @@ impl Checks {
         }
         let check = Check {
             works: fails.is_empty(),
-            at: unix_ms(),
+            at: epoch_ms(),
             detail: (!fails.is_empty()).then(|| fails.join("; ")),
         };
         self.keep(&provider.id, model, &check);
@@ -140,7 +139,10 @@ pub(crate) fn first_use(core: &Arc<Core>, provider: &'static Provider, model: &s
     let model = api_model(model).to_owned();
     let checks = &core.workspaces.model_checks;
     if checks.of(&provider.id).contains_key(&model)
-        || !lock(&checks.running).insert((provider.id.clone(), model.clone()))
+        || !checks
+            .running
+            .locked()
+            .insert((provider.id.clone(), model.clone()))
     {
         return;
     }
@@ -159,7 +161,10 @@ pub(crate) fn first_use(core: &Arc<Core>, provider: &'static Provider, model: &s
                 );
             }
         }
-        lock(&checks.running).remove(&(provider.id.clone(), model));
+        checks
+            .running
+            .locked()
+            .remove(&(provider.id.clone(), model));
     });
 }
 

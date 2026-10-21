@@ -4,17 +4,15 @@
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use base64::Engine;
-use futures::StreamExt;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_core::accounts::protocol::AccountProfile;
+use url::Url;
 
-use crate::release_credits::image_type;
+use crate::file_serving::sniff;
+use crate::http_client::{self, fetch_image, names_private_address, public_client};
 
 const PROFILE_FILE: &str = "profile.json";
 const PICTURE_PREFIX: &str = "picture-";
@@ -23,7 +21,6 @@ const MAX_PICTURE_BYTES: usize = 1024 * 1024;
 const MAX_DOWNLOAD_BYTES: usize = 8 * 1024 * 1024;
 const SHRUNK_SIZE: &str = "256";
 const SHRINK_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_REDIRECTS: usize = 5;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 pub const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 
@@ -50,7 +47,7 @@ pub fn from_account(account: AccountProfile, user_id: String, now: u64) -> Profi
             .map(|name| name.trim().to_owned())
             .filter(|name| !name.is_empty()),
         email: account.email,
-        picture: account.image_url.filter(|url| picture_url_allowed(url)),
+        picture: account.image_url.filter(|url| picture_url(url).is_some()),
         checked_at: now,
     }
 }
@@ -62,8 +59,12 @@ pub fn now() -> u64 {
         .unwrap_or_default()
 }
 
-fn picture_url_allowed(url: &str) -> bool {
-    url::Url::parse(url).is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some())
+/// Only a public https address, so an account's picture cannot have this
+/// machine or its network fetched.
+fn picture_url(url: &str) -> Option<Url> {
+    Url::parse(url)
+        .ok()
+        .filter(|url| url.scheme() == "https" && !names_private_address(url))
 }
 
 fn cache_key(url: &str) -> String {
@@ -74,20 +75,15 @@ fn picture_path(dir: &Path, url: &str) -> PathBuf {
     dir.join(format!("{PICTURE_PREFIX}{}", cache_key(url)))
 }
 
-fn content_type_allowed(header: Option<&str>) -> bool {
-    header.is_some_and(|value| value.trim().to_ascii_lowercase().starts_with("image/"))
-}
-
-/// The picture as a `data:` URL, or nothing if it is not a known image or too large.
+/// The picture as a `data:` URL, or nothing if it is too large or not an
+/// image made of pixels; a drawing could carry script.
 fn data_url(bytes: &[u8]) -> Option<String> {
     if bytes.len() > MAX_PICTURE_BYTES {
         return None;
     }
-    let mime = image_type(bytes)?;
-    Some(format!(
-        "data:{mime};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    ))
+    let mime =
+        sniff(bytes).filter(|mime| mime.starts_with("image/") && *mime != "image/svg+xml")?;
+    Some(http_client::data_url(mime, bytes))
 }
 
 pub async fn read(dir: &Path) -> Option<Profile> {
@@ -136,52 +132,11 @@ pub async fn forget(dir: &Path) -> std::io::Result<()> {
     }
 }
 
-fn client() -> &'static Client {
-    static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        let https_only = reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() < MAX_REDIRECTS && attempt.url().scheme() == "https" {
-                attempt.follow()
-            } else {
-                attempt.stop()
-            }
-        });
-        Client::builder()
-            .timeout(FETCH_TIMEOUT)
-            .redirect(https_only)
-            .user_agent(concat!("sikemux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .unwrap_or_default()
-    })
-}
-
 async fn download(url: &str) -> Option<Vec<u8>> {
-    if !picture_url_allowed(url) {
-        return None;
-    }
-    let response = client().get(url).send().await.ok()?;
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok());
-    if !response.status().is_success()
-        || !content_type_allowed(content_type)
-        || response
-            .content_length()
-            .is_some_and(|length| length > MAX_DOWNLOAD_BYTES as u64)
-    {
-        return None;
-    }
-    let mut body = Vec::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.ok()?;
-        if body.len() + chunk.len() > MAX_DOWNLOAD_BYTES {
-            return None;
-        }
-        body.extend_from_slice(&chunk);
-    }
-    image_type(&body).is_some().then_some(body)
+    let url = picture_url(url)?;
+    let request = public_client().ok()?.get(url).timeout(FETCH_TIMEOUT);
+    let (bytes, _) = fetch_image(request, MAX_DOWNLOAD_BYTES).await?;
+    Some(bytes)
 }
 
 /// The picture small enough to hand to the window, shrunk with macOS's `sips` when it is not.
@@ -255,19 +210,11 @@ mod tests {
 
     #[test]
     fn only_https_pictures_are_fetched() {
-        assert!(picture_url_allowed("https://img.clerk.com/abc"));
-        assert!(!picture_url_allowed("http://img.clerk.com/abc"));
-        assert!(!picture_url_allowed("file:///etc/passwd"));
-        assert!(!picture_url_allowed("data:image/png;base64,AAAA"));
-        assert!(!picture_url_allowed("not a url"));
-    }
-
-    #[test]
-    fn only_image_content_types_are_accepted() {
-        assert!(content_type_allowed(Some("image/png")));
-        assert!(content_type_allowed(Some("Image/JPEG; charset=binary")));
-        assert!(!content_type_allowed(Some("text/html")));
-        assert!(!content_type_allowed(None));
+        assert!(picture_url("https://img.clerk.com/abc").is_some());
+        assert!(picture_url("http://img.clerk.com/abc").is_none());
+        assert!(picture_url("file:///etc/passwd").is_none());
+        assert!(picture_url("data:image/png;base64,AAAA").is_none());
+        assert!(picture_url("not a url").is_none());
     }
 
     #[test]

@@ -109,6 +109,10 @@ function inbox() {
       })),
     ],
     working: working.length,
+    away: false,
+    agentMessages: {},
+    remoteAgents: [],
+    agents: [],
   };
 }
 
@@ -172,6 +176,29 @@ function view() {
   };
 }
 
+type Event = { kind: string; payload: Record<string, unknown> };
+
+/** Gives each answer its whole markdown tree, as a host sends it, read by the core's own parser. */
+async function withTrees(events: Event[]): Promise<Event[]> {
+  const answers = events.flatMap((event) => {
+    const update = event.payload.update as
+      { sessionUpdate?: string; content?: { type?: string; text?: string }; _meta?: { sikemux?: object } } | undefined;
+    const text = update?.content?.type === 'text' ? update.content.text : undefined;
+    return update &&
+      text !== undefined &&
+      (update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_thought_chunk')
+      ? [{ update, text }]
+      : [];
+  });
+  const response = await fetch('/showcase/markdown', { method: 'POST', body: JSON.stringify(answers.map(({ text }) => text)) });
+  const trees = (await response.json()) as unknown[][];
+  answers.forEach(({ update, text }, index) => {
+    const md = { n: text.length, o: [{ p: [], at: 0, c: trees[index] }] };
+    update._meta = { ...update._meta, sikemux: { ...update._meta?.sikemux, md } };
+  });
+  return events;
+}
+
 class Connection {
   private open = true;
 
@@ -196,7 +223,7 @@ class Connection {
   async attachChat(agentId: string) {
     const chat = CHATS.find((known) => known.agentId === agentId);
     if (!chat) return ChatAttachment.Missing.new({});
-    const events = chatEvents(chat);
+    const events = await withTrees(chatEvents(chat));
     return ChatAttachment.Live.new({
       sessionId: `session-${chat.agentId}`,
       capabilitiesJson: '{}',

@@ -7,6 +7,7 @@ import * as cmd from "../state/commands";
 import { useCachedResourceEnabled } from "../state/resources";
 import { gitCommitOwnersR } from "../state/resources.defs";
 import { getState } from "../state/store";
+import { agentForChat } from "../state/selectors";
 
 export type CommitOwners = Record<string, CommitOwner[]>;
 
@@ -28,7 +29,7 @@ function openOwner(owner: CommitOwner, repo: string): void {
     const { agents } = getState();
     const shown =
         (owner.open && agents[owner.open] ? owner.open : undefined) ??
-        Object.values(agents).find((agent) => owner.sessionId && agent.resumeId === owner.sessionId)?.id;
+        (owner.sessionId ? agentForChat(Object.values(agents), { agent: owner.cli, id: owner.sessionId }) : undefined)?.id;
     if (shown) return cmd.revealAgent(shown);
     if (!owner.sessionId || !isAgentType(owner.cli)) return;
     cmd.openSavedChat(

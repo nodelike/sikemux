@@ -5,10 +5,11 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use sikemux_process::sync::Locked;
 
 /// The longest repository path a client may name.
 pub const MAX_REPO_PATH_BYTES: usize = 4 * 1024;
@@ -106,9 +107,7 @@ const REMEMBERED_CHANGES: usize = 32;
 
 fn generations() -> MutexGuard<'static, Generations> {
     static G: OnceLock<Mutex<Generations>> = OnceLock::new();
-    G.get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
+    G.get_or_init(Mutex::default).locked()
 }
 
 pub fn scan_generation(repo_key: &str) -> Option<u64> {
@@ -183,7 +182,7 @@ impl Watches {
     /// Watches exactly the folders `projects` names once it holds the watch,
     /// telling `changed` as they move.
     pub fn follow(&self, projects: impl FnOnce() -> Vec<PathBuf>, changed: &Changed) {
-        let mut watched = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut watched = self.0.locked();
         let mut wanted: HashMap<String, BTreeSet<String>> = HashMap::new();
         for project in projects() {
             let Some(path) = project.to_str() else {
@@ -205,7 +204,7 @@ impl Watches {
         for (key, names) in wanted {
             let names: Vec<String> = names.into_iter().collect();
             if let Some(repo) = watched.get(&key) {
-                *repo.projects.lock().unwrap_or_else(PoisonError::into_inner) = names;
+                *repo.projects.locked() = names;
                 continue;
             }
             if watched.len() >= MAX_WATCHED_REPOS {
@@ -315,10 +314,7 @@ async fn debounce(
         // Counted before anyone hears of it, so the read it prompts never
         // gets a walk from before the change.
         bump(&key, paths.as_deref());
-        let names = projects
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
+        let names = projects.locked().clone();
         changed(&names, paths);
         if closed {
             return;

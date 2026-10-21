@@ -72,11 +72,19 @@ describe("RemoteChatBridge", () => {
     });
 
     it("shows the agent the notch asks for, switching project on the way", async () => {
+        let waiting: string | null = null;
+        transport.register("focus_claim", () => {
+            const agentId = waiting;
+            waiting = null;
+            return agentId;
+        });
         const view = render(<RemoteChatBridge />);
         await phoneStartsChat();
         expect(getState().sessions[getState().activeSessionId]?.cwd).not.toBe("/Users/me/site");
-        act(() => {
-            transport.emit(FOCUS_AGENT_EVENT, "agent-from-phone");
+        waiting = "agent-from-phone";
+        await act(async () => {
+            transport.emit(FOCUS_AGENT_EVENT, null);
+            await vi.advanceTimersByTimeAsync(0);
         });
         const state = getState();
         const session = state.sessions[state.activeSessionId];

@@ -82,7 +82,7 @@ impl Carried {
 /// `launch` with `account` in place of the account it names.
 pub(super) fn on_account(provider: &str, launch: &ChatLaunch, account: &ChatAccount) -> ChatLaunch {
     let mut moved = launch.clone();
-    if let Some(variable) = account::directory_variable(provider) {
+    if let Some(variable) = crate::launch::account_variable(provider) {
         moved.env.remove(variable);
     }
     moved.env.extend(account.env.clone());
@@ -104,9 +104,7 @@ pub(super) fn name_accounts(core: &Core, launch: &mut ChatLaunch) {
     let Some(book) = core.workspaces.accounts() else {
         return;
     };
-    let folder = account::directory_variable(&launch.provider)
-        .and_then(|variable| launch.env.get(variable))
-        .map(String::as_str);
+    let folder = crate::launch::named_account(&launch.provider, &launch.env);
     let (current, others) = book.chat_accounts(&launch.provider, folder);
     launch.account = launch.account.take().or(current);
     launch.fallbacks = others;

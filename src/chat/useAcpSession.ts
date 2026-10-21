@@ -14,6 +14,8 @@ import { workspaceSent } from "../state/workspaceSent";
 import type { ChatAction, ChatState } from "./types";
 
 const UPDATE_FLUSH_FALLBACK_MS = 250;
+/* A chat nobody is looking at takes in what streamed this often instead of every frame, and all of it the moment it shows. */
+const HIDDEN_FLUSH_MS = 1000;
 
 /* Where paging back through a chat the core sent only the end of goes next,
    and what subagents said since, which an earlier page's subagents play on into. */
@@ -23,6 +25,7 @@ export type EarlierTurns = "none" | "idle" | "loading" | "failed";
 
 export function useAcpSession({
     active,
+    visible = active,
     agent,
     profile,
     cwd,
@@ -32,6 +35,7 @@ export function useAcpSession({
     onError,
 }: {
     active: boolean;
+    visible?: boolean;
     agent: Agent;
     profile?: ProviderProfile;
     cwd: string;
@@ -46,6 +50,9 @@ export function useAcpSession({
     const queuedUpdatesRef = useRef<[string, Record<string, unknown>][]>([]);
     const updateFrameRef = useRef<number | null>(null);
     const updateTimerRef = useRef<number | null>(null);
+    const flushUpdatesRef = useRef<(() => void) | null>(null);
+    const visibleRef = useRef(visible);
+    visibleRef.current = visible;
     const agentRef = useRef(agent);
     agentRef.current = agent;
     const profileRef = useRef(profile);
@@ -114,16 +121,20 @@ export function useAcpSession({
                 updateTimerRef.current = null;
             }
             const updates = queuedUpdatesRef.current.splice(0);
-            for (const [sessionId, update] of updates) dispatch({ type: "session_update", sessionId, update });
+            for (const [sessionId, update] of updates)
+                dispatch({ type: "session_update", sessionId, update, main: sessionId === sessionIdRef.current });
         };
+        flushUpdatesRef.current = flushUpdates;
 
         /* WebKit stops animation frames for a window that is hidden or behind
            another app, and only the first of those shows in document.hidden.
            A timer keeps the queue draining either way. */
         const queueUpdate = (sessionId: string, update: Record<string, unknown>) => {
             queuedUpdatesRef.current.push([sessionId, update]);
-            if (updateTimerRef.current === null) updateTimerRef.current = window.setTimeout(flushUpdates, UPDATE_FLUSH_FALLBACK_MS);
-            if (!document.hidden && updateFrameRef.current === null) updateFrameRef.current = window.requestAnimationFrame(flushUpdates);
+            const shown = visibleRef.current;
+            if (updateTimerRef.current === null)
+                updateTimerRef.current = window.setTimeout(flushUpdates, shown ? UPDATE_FLUSH_FALLBACK_MS : HIDDEN_FLUSH_MS);
+            if (shown && !document.hidden && updateFrameRef.current === null) updateFrameRef.current = window.requestAnimationFrame(flushUpdates);
         };
 
         const noteEnd = (event: AcpEvent) => {
@@ -170,7 +181,7 @@ export function useAcpSession({
             .catch(() => {})
             .then(async () => {
                 if (!mounted) return;
-                if (relaunch) await acpApi.stop(agent.id).catch(() => {});
+                if (relaunch) await acpApi.stop(agent.id).catch(swallow("stop the chat agent"));
                 await acpApi.subscribe(handleEvent, controller.signal);
                 if (!mounted) return;
                 const current = agentRef.current;
@@ -229,10 +240,15 @@ export function useAcpSession({
             if (updateTimerRef.current !== null) window.clearTimeout(updateTimerRef.current);
             updateTimerRef.current = null;
             queuedUpdatesRef.current = [];
+            flushUpdatesRef.current = null;
             controller.abort();
             lifecycleRef.current = lifecycle;
         };
     }, [active, agent.id, agent.type, agent.modelProvider, cwd, restartKey, foldMemory, dispatch, updateRecovery]);
+
+    useEffect(() => {
+        if (visible) flushUpdatesRef.current?.();
+    }, [visible]);
 
     useEffect(() => {
         const sessionId = sessionIdRef.current;

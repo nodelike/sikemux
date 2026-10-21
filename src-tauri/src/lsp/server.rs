@@ -7,9 +7,7 @@ use serde_json::Value;
 use tauri::AppHandle;
 
 use super::diagnostics::clear_server_diagnostics;
-use super::limits::{
-    clear_pending_requests, release_counter_slots, OPEN_DOCUMENT_COUNT, PENDING_REQUEST_COUNT,
-};
+use sikemux_process::sync::Locked;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct OpenDoc {
@@ -85,10 +83,7 @@ pub(super) fn lsp_tick() -> u64 {
 /// while it owns both document mutexes; terminating the reader side of the
 /// pipe is what lets that writer unwind and release them.
 fn kill_and_reap_child(child: &Mutex<Option<Child>>) {
-    let child = child
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .take();
+    let child = child.locked().take();
     if let Some(mut child) = child {
         let _ = child.kill();
         let _ = child.wait();
@@ -104,28 +99,11 @@ pub(super) fn shutdown_server(server: ServerHandle) {
     // This must remain ahead of stdin/open_docs/last_change acquisition. See
     // `shutdown_kills_before_waiting_for_a_blocked_document_writer`.
     kill_and_reap_child(&server.child);
-    server
-        .stdin
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .take();
+    server.stdin.locked().take();
 
-    clear_pending_requests(&server.pending, &PENDING_REQUEST_COUNT);
-    let released_documents = {
-        let mut documents = server
-            .open_docs
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let count = documents.len();
-        documents.clear();
-        count
-    };
-    release_counter_slots(&OPEN_DOCUMENT_COUNT, released_documents);
-    server
-        .last_change
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clear();
+    server.pending.locked().clear();
+    server.open_docs.locked().clear();
+    server.last_change.locked().clear();
     clear_server_diagnostics(&server);
 }
 

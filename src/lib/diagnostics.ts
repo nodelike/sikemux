@@ -7,7 +7,7 @@ import { busStats } from "../state/bus";
 import { resourceStats } from "../state/resources";
 import { getState } from "../state/store";
 import type { LayoutNode } from "../state/types";
-import { workbenchRuntime } from "../workbench/runtime";
+import { paneResourceCount } from "../terminal/paneResources";
 import { uiActivity, UI_ACTIVITY_LIMITS, type UiActivityRejection } from "./activity";
 import { installInteractionTiming, startEventLoopMonitor, startNativeUiHeartbeat } from "./instrumentation";
 import { joinPath } from "./paths";
@@ -284,7 +284,7 @@ export function browserDiagnostics(): Record<string, unknown> {
         memory: memorySnapshot(),
         dom: domSnapshot(),
         store: storeSnapshot(),
-        workbench: workbenchRuntime.getSnapshot(),
+        heldTerminals: paneResourceCount(),
         resources: resourceStats(),
         bus: busStats(),
         shaderFields: shaderFieldDiagnostics(),

@@ -1,6 +1,45 @@
 use serde::Serialize;
 
-use super::{git_ok, open_repo, run_blocking};
+use super::{default_remote, git_ok, open_repo, run_blocking};
+
+/// A remote's address with its scheme, user and `.git` left out, so the same
+/// repository reads the same however it was cloned.
+pub fn normalized_remote(url: &str) -> String {
+    let url = url.trim().trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let rest = match rest.split_once('@') {
+        Some((user, host)) if !user.contains('/') => host,
+        _ => rest,
+    };
+    let rest = match rest.split_once(':') {
+        Some((host, path)) if !path.starts_with(|c: char| c.is_ascii_digit()) => {
+            format!("{host}/{path}")
+        }
+        _ => rest.to_owned(),
+    };
+    rest.to_lowercase()
+}
+
+/// What a project is known by on every host (ADR 0017): its remote,
+/// normalised, else its repository's first commit, which every copy shares.
+/// A folder outside git has none.
+pub fn project_identity(path: &str) -> Option<String> {
+    let remote = default_remote(path)
+        .and_then(|remote| git_ok(path, &["remote", "get-url", &remote]))
+        .ok()
+        .filter(|url| !url.trim().is_empty());
+    if let Some(url) = remote {
+        return Some(normalized_remote(&url));
+    }
+    git_ok(path, &["rev-list", "--max-parents=0", "HEAD"])
+        .ok()?
+        .lines()
+        .map(str::trim)
+        .filter(|root| !root.is_empty())
+        .min()
+        .map(str::to_owned)
+}
 
 #[derive(Debug, PartialEq)]
 enum PullRequestHost {

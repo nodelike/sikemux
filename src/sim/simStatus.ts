@@ -1,13 +1,13 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
 import { simApi, type SimStatus } from "../api/sim";
+import { externalValue, useExternalValue } from "../lib/externalValue";
+import { swallow } from "../state/toast";
 
-let known: SimStatus | null = null;
+const known = externalValue<SimStatus | null>(null);
 let asking: Promise<SimStatus> | null = null;
-const listeners = new Set<() => void>();
 
 function publish(next: SimStatus): SimStatus {
-    known = next;
-    for (const listener of listeners) listener();
+    known.set(next);
     return next;
 }
 
@@ -24,21 +24,15 @@ export function loadSimStatus(): Promise<SimStatus> {
 export const simUsable = (status: SimStatus | null): boolean => !!status?.supported && !status.reason;
 
 export function markSimInstalled(): void {
-    if (known) publish({ ...known, installed: true });
+    const status = known.get();
+    if (status) publish({ ...status, installed: true });
 }
 
 export function useSimStatus(): SimStatus | null {
-    const status = useSyncExternalStore(
-        (listener) => {
-            listeners.add(listener);
-            return () => listeners.delete(listener);
-        },
-        () => known,
-    );
     useEffect(() => {
-        if (!known) void loadSimStatus().catch(() => {});
+        if (!known.get()) void loadSimStatus().catch(swallow("read the simulator status"));
     }, []);
-    return status;
+    return useExternalValue(known);
 }
 
 let preparing: Promise<void> | null = null;

@@ -7,8 +7,10 @@ import { ACCESS_OPTIONS, platformName } from '@mac/remote/access';
 import { formatAgo } from '@mac/lib/format';
 import { type DeviceAccess, type LinkedHost, type DeviceInfo, type RemotePairing, readPairing } from '@/core/protocol';
 import { useDeviceId } from '@/device/identity';
-import { problem as problemOf, useDevices, useLive } from '@/devices/hub';
+import { problem as problemOf } from '@/core/problem';
+import { connectionOf, useDevices, useLive } from '@/devices/hub';
 import { deviceName } from '@/devices/paired';
+import { counted } from '@/devices/words';
 import { useCardArrivals } from '@/notify/responses';
 import { haptics } from '@/ui/haptics';
 import { DeviceIcon, Icon } from '@/ui/Icon';
@@ -53,7 +55,7 @@ function usePairing(connection: ConnectionLike | undefined) {
     return () => listener.remove();
   }, []);
 
-  const change = async (id: string, method: 'answerPairing' | 'changeDevice' | 'setLinkSignIns', params: object) => {
+  const change = async (id: string, method: 'answerPairing' | 'changeDevice', params: object) => {
     if (!connection || busy) return;
     setBusy(id);
     try {
@@ -76,7 +78,6 @@ function usePairing(connection: ConnectionLike | undefined) {
     reread: () => setReads((count) => count + 1),
     answer: (id: string, access: DeviceAccess | null) => change(id, 'answerPairing', { allow: access !== null, access: access ?? 'watch' }),
     setAccess: (id: string, access: DeviceAccess | null) => change(id, 'changeDevice', { access }),
-    setSignIns: (id: string, allowed: boolean) => change(id, 'setLinkSignIns', { allowed }),
   };
 }
 
@@ -122,70 +123,59 @@ function DeviceSheet({
 
 const hostKind = (platform: string) => (platform === 'linux' ? 'desktop' : 'laptop');
 
-/** A host linked with this one: what the link is, whether its agents may use this host's sign-ins, and ending it. */
-function LinkSheet({
-  link,
-  now,
-  busy,
-  onClose,
-  onSignIns,
-  onRemove,
-}: {
-  link?: LinkedHost;
-  now: number;
-  busy: boolean;
-  onClose: () => void;
-  onSignIns: (id: string, allowed: boolean) => void;
-  onRemove: (id: string) => void;
-}) {
-  const styles = useStyles(makeStyles);
-  const colors = useColors();
-  const type = useType();
-  return (
-    <Sheet visible={!!link} onClose={onClose}>
-      {link ? (
-        <View style={styles.sheet}>
-          <Text style={styles.sheetTitle} numberOfLines={1}>
-            {link.name}
-          </Text>
-          <Text style={type.meta}>
-            {platformName(link.platform)} · linked {formatAgo(link.linkedAt, now)} · {agentCount(link.agents)} across the link
-          </Text>
-          <View style={styles.boxed}>
-            <Icon name="IconLock" size={18} color={colors.secondary} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.boxedTitle}>Let its agents use sign-ins here</Text>
-              <Text style={type.meta}>Plugins, databases and signed-in tabs</Text>
-            </View>
-            <Switch
-              value={link.signIns}
-              disabled={busy}
-              onValueChange={(allowed) => onSignIns(link.id, allowed)}
-              trackColor={{ false: colors.active, true: colors.live }}
-              thumbColor={colors.ink}
-              accessibilityLabel="Let its agents use sign-ins here"
-            />
-          </View>
-          <Button
-            kind="danger"
-            title="Remove link"
-            onPress={() => {
-              onRemove(link.id);
-              onClose();
-            }}
-            style={styles.remove}
-          />
-        </View>
-      ) : null}
-    </Sheet>
-  );
-}
-
-const agentCount = (count: number) => `${count} agent${count === 1 ? '' : 's'}`;
+const agentCount = (count: number) => `${count} ${counted('agent', count)}`;
 
 function linkDetail(link: LinkedHost, now: number): string {
   const reach = link.connected ? 'connected' : link.lastSeen ? `seen ${formatAgo(link.lastSeen, now)}` : 'never connected';
   return [platformName(link.platform), reach, link.agents ? agentCount(link.agents) : null].filter(Boolean).join(' · ');
+}
+
+/** The host's lock (ADR 0018): whether each new device and host on the account waits for the person here. */
+function ApprovalRow({ connection }: { connection: ConnectionLike | undefined }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const type = useType();
+  const [on, setOn] = useState<boolean>();
+  const [problem, setProblem] = useState<string>();
+  useEffect(() => {
+    if (!connection) return;
+    let current = true;
+    connection.call('requireApproval', 'null').then(
+      (text) => current && setOn((JSON.parse(text) as { requireApproval: boolean }).requireApproval),
+      (error: unknown) => current && setProblem(problemOf(error)),
+    );
+    return () => {
+      current = false;
+    };
+  }, [connection]);
+  const flip = async (next: boolean) => {
+    if (!connection) return;
+    setOn(next);
+    try {
+      await connection.call('setRequireApproval', JSON.stringify({ requireApproval: next }));
+      setProblem(undefined);
+    } catch (error) {
+      setOn(!next);
+      setProblem(problemOf(error));
+    }
+  };
+  return (
+    <View style={styles.lock}>
+      <Icon name="IconLock" size={18} color={colors.secondary} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.lockTitle}>Require approval for new devices</Text>
+        <Text style={type.meta}>{problem ?? 'Ask here before a device or host on your account connects'}</Text>
+      </View>
+      <Switch
+        value={on ?? false}
+        disabled={on === undefined}
+        onValueChange={(next) => void flip(next)}
+        trackColor={{ false: colors.active, true: colors.live }}
+        thumbColor={colors.ink}
+        accessibilityLabel="Require approval for new devices"
+      />
+    </View>
+  );
 }
 
 /** Who may connect to a host: the devices asking now, answered here, and those already paired, changed or removed here. */
@@ -198,10 +188,9 @@ export default function HostPairing() {
   const { devices } = useDevices();
   const device = devices.find((known) => known.core === core);
   const live = useLive(core);
-  const connection = live.status === 'open' ? live.connection : undefined;
-  const { pairing, problem, busy, reread, answer, setAccess, setSignIns } = usePairing(connection);
+  const connection = connectionOf(live);
+  const { pairing, problem, busy, reread, answer, setAccess } = usePairing(connection);
   const [editing, setEditing] = useState<string>();
-  const [linkOpen, setLinkOpen] = useState<string>();
   const phone = useDeviceId();
   const hostName = device ? deviceName(device) : 'Host';
   useCardArrivals(core, 'pairing', reread);
@@ -214,8 +203,10 @@ export default function HostPairing() {
     <Screen>
       <Nav back="Back" title="Paired devices" />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.body, { paddingBottom: bottom + 24 }]}
         refreshControl={<RefreshControl refreshing={false} onRefresh={reread} />}>
+        <ApprovalRow connection={connection} />
         {pending.length ? (
           <>
             <SectionLabel>Asking to connect</SectionLabel>
@@ -288,8 +279,6 @@ export default function HostPairing() {
                   mark={<DeviceIcon kind={hostKind(link.platform)} size={18} color={colors.secondary} />}
                   title={link.name}
                   detail={linkDetail(link, now)}
-                  end={<Icon name="IconChevron" size={14} color={colors.rest} />}
-                  onPress={() => setLinkOpen(link.id)}
                 />
               ))}
             </Rows>
@@ -306,14 +295,6 @@ export default function HostPairing() {
         device={pairing?.devices.find((paired) => paired.id === editing)}
         onClose={() => setEditing(undefined)}
         onAccess={(id, access) => void setAccess(id, access)}
-      />
-      <LinkSheet
-        link={links.find((link) => link.id === linkOpen)}
-        now={now}
-        busy={busy === linkOpen}
-        onClose={() => setLinkOpen(undefined)}
-        onSignIns={(id, allowed) => void setSignIns(id, allowed)}
-        onRemove={(id) => void setAccess(id, null)}
       />
     </Screen>
   );
@@ -332,11 +313,12 @@ const makeStyles = (colors: Palette) => {
     sheet: { paddingHorizontal: 4, gap: 12 },
     sheetTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.35, color: colors.ink },
     remove: { marginTop: 8 },
-    boxed: {
+    lock: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
       minHeight: 52,
+      marginTop: 8,
       paddingHorizontal: 10,
       paddingVertical: 6,
       borderRadius: 9,
@@ -344,6 +326,6 @@ const makeStyles = (colors: Palette) => {
       borderColor: colors.border,
       backgroundColor: colors.raised,
     },
-    boxedTitle: { ...type.row, fontSize: 15, color: colors.ink },
+    lockTitle: { ...type.row, fontSize: 15, color: colors.ink },
   });
 };

@@ -15,6 +15,7 @@ import type { Logger } from "./log.ts";
 import { ApnsProvider } from "./push/apns.ts";
 import { FcmProvider } from "./push/fcm.ts";
 import { Pusher } from "./push/send.ts";
+import { RelayAccess } from "./relay/access.ts";
 import { attachShares } from "./share/server.ts";
 
 /** How long a stop waits for requests in flight before closing them anyway. */
@@ -97,12 +98,14 @@ export function startServer(config: Config, log: Logger) {
     log.warn(
       "RELAY_ACCESS_TOKEN is not set: the relay is refused every device it asks about",
     );
+  const relayAccess = new RelayAccess(database.db);
   const app = createApp({
     database,
     log,
     appOrigin: config.appOrigin,
     verifier,
     limiter,
+    relayAccess,
     clerk,
     appleSignIn: apple,
     webhookSecret: config.clerkWebhookSecret,
@@ -133,7 +136,7 @@ export function startServer(config: Config, log: Logger) {
     log,
     appOrigin: config.appOrigin,
     pusher,
-    watchers: [shares],
+    watchers: [shares, relayAccess],
   });
   let sweeping = false;
   const clerkSweep = setInterval(() => {

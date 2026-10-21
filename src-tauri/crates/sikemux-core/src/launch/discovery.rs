@@ -7,6 +7,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use sikemux_process::paths::expand_home;
+use sikemux_process::sync::Locked;
 use sikemux_process::user_environment;
 use sikemux_pty::user_shell::login_shell_environment;
 use tokio::process::Command;
@@ -47,22 +48,8 @@ fn automatic_candidates(def: &AgentEntry) -> Vec<PathBuf> {
     ] {
         push_agent_candidate(&mut candidates, candidate);
     }
-    if def.kind == "claude" {
-        push_agent_candidate(&mut candidates, home.join(".claude/local/claude"));
-        push_agent_candidate(&mut candidates, home.join(".claude/bin/claude"));
-    }
-    if def.kind == "opencode" {
-        push_agent_candidate(&mut candidates, home.join(".opencode/bin/opencode"));
-    }
-    if def.kind == "grok" {
-        push_agent_candidate(&mut candidates, home.join(".grok/bin/grok"));
-    }
-    #[cfg(target_os = "macos")]
-    if def.kind == "codex" {
-        push_agent_candidate(
-            &mut candidates,
-            PathBuf::from("/Applications/ChatGPT.app/Contents/Resources/codex"),
-        );
+    for path in def.install_paths {
+        push_agent_candidate(&mut candidates, expand_home(path));
     }
     candidates
 }
@@ -78,26 +65,16 @@ fn explicit_candidates(value: &str) -> Vec<PathBuf> {
     user_environment::find_executables(value)
 }
 
-/// Arguments that answer "does this CLI run?" without side effects. `--version`
-/// suits most agents, but Hermes bundles a `git fetch` update check into it
-/// (bounded by its own 10s network timeout, cached for six hours), so every
-/// cache miss outran our probe and reported an installed CLI as missing.
-/// `--help` exercises the same interpreter and venv without the network.
-fn agent_probe_args(agent: &str) -> &'static [&'static str] {
-    match agent {
-        "hermes" => &["--help"],
-        _ => &["--version"],
-    }
-}
-
+/// Hermes's `--version` waits on a networked update check, so the catalog
+/// probes it with `--help`.
 async fn probe_agent_executable_with_timeout(
-    agent: &str,
+    def: &AgentEntry,
     executable: &Path,
     timeout: Duration,
 ) -> Result<String, String> {
     let mut command = Command::from(user_environment::command(executable));
     command
-        .args(agent_probe_args(agent))
+        .args(def.probe)
         .envs(login_shell_environment())
         .kill_on_drop(true)
         .stdin(std::process::Stdio::null())
@@ -129,7 +106,7 @@ struct AgentProbe {
     version: String,
 }
 
-async fn probe_agent_executable(agent: &str, executable: &Path) -> Result<String, String> {
+async fn probe_agent_executable(def: &AgentEntry, executable: &Path) -> Result<String, String> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, AgentProbe>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let metadata = fs::metadata(executable).ok();
@@ -137,11 +114,7 @@ async fn probe_agent_executable(agent: &str, executable: &Path) -> Result<String
         .as_ref()
         .and_then(|metadata| metadata.modified().ok());
     let size = metadata.as_ref().map_or(0, |metadata| metadata.len());
-    if let Some(cached) = cache
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(executable).cloned())
-    {
+    if let Some(cached) = cache.locked().get(executable).cloned() {
         if cached.checked_at.elapsed() < Duration::from_secs(60)
             && Some(cached.modified) == modified
             && cached.size == size
@@ -149,9 +122,9 @@ async fn probe_agent_executable(agent: &str, executable: &Path) -> Result<String
             return Ok(cached.version);
         }
     }
-    let version =
-        probe_agent_executable_with_timeout(agent, executable, AGENT_PROBE_TIMEOUT).await?;
-    if let (Some(modified), Ok(mut cache)) = (modified, cache.lock()) {
+    let version = probe_agent_executable_with_timeout(def, executable, AGENT_PROBE_TIMEOUT).await?;
+    if let Some(modified) = modified {
+        let mut cache = cache.locked();
         if cache.len() >= 128 {
             cache.retain(|_, probe| probe.checked_at.elapsed() < Duration::from_secs(60));
         }
@@ -169,36 +142,33 @@ async fn probe_agent_executable(agent: &str, executable: &Path) -> Result<String
 }
 
 pub async fn first_healthy(
-    agent: &str,
+    def: &AgentEntry,
     candidates: Vec<PathBuf>,
 ) -> (Option<PathBuf>, Vec<String>) {
     let mut failures = Vec::new();
-    let cached = healthy_agent_executables()
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(agent).cloned());
+    let cached = healthy_agent_executables().locked().get(def.kind).cloned();
     let mut temporarily_unverified = None;
     for candidate in candidates {
-        match probe_agent_executable(agent, &candidate).await {
+        match probe_agent_executable(def, &candidate).await {
             Ok(_) => {
-                if let Ok(mut cache) = healthy_agent_executables().lock() {
-                    cache.insert(agent.to_string(), candidate.clone());
-                }
+                healthy_agent_executables()
+                    .locked()
+                    .insert(def.kind.to_string(), candidate.clone());
                 return (Some(candidate), failures);
             }
             Err(error) if error == "version check timed out" => {
                 tokio::time::sleep(AGENT_UPDATE_SETTLE_DELAY).await;
                 match probe_agent_executable_with_timeout(
-                    agent,
+                    def,
                     &candidate,
                     AGENT_UPDATE_RETRY_TIMEOUT,
                 )
                 .await
                 {
                     Ok(_) => {
-                        if let Ok(mut cache) = healthy_agent_executables().lock() {
-                            cache.insert(agent.to_string(), candidate.clone());
-                        }
+                        healthy_agent_executables()
+                            .locked()
+                            .insert(def.kind.to_string(), candidate.clone());
                         return (Some(candidate), failures);
                     }
                     Err(retry_error) => {
@@ -234,7 +204,7 @@ pub async fn resolve(agent: &str, explicit: Option<&str>) -> Result<PathBuf, Str
         .find(|def| def.kind == agent)
         .ok_or("Unknown agent provider")?;
     let candidates = candidates(def, explicit);
-    let (resolved, failures) = first_healthy(agent, candidates).await;
+    let (resolved, failures) = first_healthy(def, candidates).await;
     resolved.ok_or_else(|| {
         if failures.is_empty() {
             format!("{} executable was not found", def.label)
@@ -248,38 +218,23 @@ const ERROR_DETAIL_LIMIT: usize = 240;
 
 /// What a CLI printed when it failed, on one line and cut short.
 pub fn error_detail(output: &[u8]) -> Option<String> {
-    let normalized = String::from_utf8_lossy(output)
-        .chars()
-        .map(|character| {
-            if character.is_control() {
-                ' '
-            } else {
-                character
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    if normalized.is_empty() {
-        return None;
-    }
-    let mut characters = normalized.chars();
-    let detail = characters
-        .by_ref()
-        .take(ERROR_DETAIL_LIMIT)
-        .collect::<String>();
-    Some(if characters.next().is_some() {
-        format!("{detail}…")
-    } else {
-        detail
-    })
+    let said = String::from_utf8_lossy(output);
+    let words: Vec<&str> = said
+        .split(|character: char| character.is_whitespace() || character.is_control())
+        .filter(|word| !word.is_empty())
+        .collect();
+    (!words.is_empty()).then(|| crate::text::clipped(&words.join(" "), ERROR_DETAIL_LIMIT))
 }
 
 #[cfg(test)]
 mod tests {
     #[cfg(unix)]
     use super::{first_healthy, probe_agent_executable, probe_agent_executable_with_timeout};
+    use crate::agent_catalog::agent as catalog_agent;
+
+    fn agent(name: &str) -> &'static crate::agent_catalog::AgentEntry {
+        catalog_agent(name).unwrap()
+    }
     #[cfg(unix)]
     use std::io::Write;
 
@@ -306,14 +261,19 @@ mod tests {
         broken.as_file().set_permissions(permissions).unwrap();
         let broken = broken.into_temp_path();
 
-        assert!(probe_agent_executable("codex", &healthy).await.is_ok());
-        assert!(probe_agent_executable("codex", &broken)
+        assert!(probe_agent_executable(agent("codex"), &healthy)
+            .await
+            .is_ok());
+        assert!(probe_agent_executable(agent("codex"), &broken)
             .await
             .unwrap_err()
             .contains("saved launcher missing"));
 
-        let (selected, failures) =
-            first_healthy("codex", vec![broken.to_path_buf(), healthy.to_path_buf()]).await;
+        let (selected, failures) = first_healthy(
+            agent("codex"),
+            vec![broken.to_path_buf(), healthy.to_path_buf()],
+        )
+        .await;
         assert_eq!(selected, Some(healthy.to_path_buf()));
         assert_eq!(failures.len(), 1);
     }
@@ -336,17 +296,23 @@ mod tests {
         .unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(
-            probe_agent_executable("codex", &executable).await.unwrap(),
+            probe_agent_executable(agent("codex"), &executable)
+                .await
+                .unwrap(),
             "version-one"
         );
         assert_eq!(
-            probe_agent_executable("codex", &executable).await.unwrap(),
+            probe_agent_executable(agent("codex"), &executable)
+                .await
+                .unwrap(),
             "version-one"
         );
         assert_eq!(fs::read_to_string(&count).unwrap(), "x\n");
         fs::write(&executable, "#!/bin/sh\necho version-two-changed\n").unwrap();
         assert_eq!(
-            probe_agent_executable("codex", &executable).await.unwrap(),
+            probe_agent_executable(agent("codex"), &executable)
+                .await
+                .unwrap(),
             "version-two-changed"
         );
     }
@@ -365,7 +331,7 @@ mod tests {
 
         assert_eq!(
             probe_agent_executable_with_timeout(
-                "claude",
+                agent("claude"),
                 &busy,
                 std::time::Duration::from_millis(20)
             )
@@ -393,12 +359,14 @@ mod tests {
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
 
         assert_eq!(
-            probe_agent_executable("hermes", &executable).await.unwrap(),
+            probe_agent_executable(agent("hermes"), &executable)
+                .await
+                .unwrap(),
             "usage: hermes"
         );
         assert!(
             probe_agent_executable_with_timeout(
-                "claude",
+                agent("claude"),
                 &executable,
                 std::time::Duration::from_millis(20)
             )

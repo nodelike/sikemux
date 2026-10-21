@@ -9,10 +9,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
-use super::{git, lock, remember, Found};
+use super::{git, remember, Found};
 use crate::protocol::CodeHostChoice;
-use crate::server::board::codehost::{self, Repo};
+use crate::server::board::codehost::{self, Conclusion, Repo};
 
 const ASK_BUDGET: Duration = Duration::from_secs(10);
 const LOG_BUDGET: Duration = Duration::from_secs(20);
@@ -223,6 +224,10 @@ fn conclusion(run: &Value) -> Option<&str> {
         .flatten()
 }
 
+fn ended(run: &Value) -> Option<Conclusion> {
+    conclusion(run).map(Conclusion::of)
+}
+
 fn summary(run: &Value) -> Value {
     json!({ "workflow": run["name"], "url": run["url"], "commit": run["shortSha"] })
 }
@@ -248,8 +253,7 @@ pub(super) async fn find(
                     repo.slug()
                 ));
             }
-            let id =
-                codehost::run_in(&address).unwrap_or_else(|| codehost::run_id(&repo, &address));
+            let id = codehost::run_in(&address).unwrap_or_else(|| address.as_str().into());
             (id, codehost::job_in(&address))
         }
         Asked::Latest { branch, workflow } => {
@@ -314,7 +318,7 @@ fn red(runs: &[Value]) -> Vec<&Value> {
     runs.iter()
         .filter(|run| conclusion(run).is_some())
         .filter(|run| seen.insert(run["workflowId"].to_string()))
-        .filter(|run| conclusion(run).is_some_and(codehost::failed))
+        .filter(|run| ended(run) == Some(Conclusion::Failed))
         .collect()
 }
 
@@ -332,7 +336,7 @@ fn latest_failing<'a>(
     let which = workflow.map_or_else(|| "run".to_owned(), |name| format!("{name} run"));
     let Some(failed) = runs
         .iter()
-        .find(|run| conclusion(run).is_some_and(codehost::failed))
+        .find(|run| ended(run) == Some(Conclusion::Failed))
     else {
         return Err(format!(
             "no {which} on {branch} failed among the latest {}; CI there is passing",
@@ -340,7 +344,7 @@ fn latest_failing<'a>(
         ));
     };
     if let Some(fixed) = runs.iter().find(|run| {
-        run["workflowId"] == failed["workflowId"] && conclusion(run).is_some_and(codehost::passed)
+        run["workflowId"] == failed["workflowId"] && ended(run) == Some(Conclusion::Passed)
     }) {
         notes.push(format!(
             "No workflow on {branch} is failing now. This is its latest failure; {} passed since, at {}.",
@@ -359,9 +363,9 @@ fn streak<'a>(history: &'a [Value], run: &Value) -> (Option<&'a Value>, Option<&
         .iter()
         .filter(|earlier| text(earlier, "createdAt") < text(run, "createdAt"))
     {
-        match conclusion(earlier) {
-            Some("success") => return (Some(earlier), began),
-            Some(found) if codehost::failed(found) => began = Some(earlier),
+        match ended(earlier) {
+            Some(Conclusion::Passed) => return (Some(earlier), began),
+            Some(Conclusion::Failed) => began = Some(earlier),
             _ => {}
         }
     }
@@ -381,7 +385,7 @@ async fn read_run(repo: &Repo, id: &Value, job: Option<Value>) -> Result<(Failin
     let run = &detail["run"];
     match conclusion(run) {
         None => return Err("that run has not finished; ask again once it has".into()),
-        Some(found) if !codehost::failed(found) => {
+        Some(found) if Conclusion::of(found) != Conclusion::Failed => {
             return Err(format!(
                 "that run ended {found}, not failed; name a failing run, or ci for the latest one"
             ))
@@ -396,7 +400,7 @@ async fn read_run(repo: &Repo, id: &Value, job: Option<Value>) -> Result<(Failin
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|found| conclusion(found).is_some_and(codehost::failed))
+        .filter(|found| ended(found) == Some(Conclusion::Failed))
         .collect();
     let read = failed_jobs
         .iter()
@@ -463,7 +467,7 @@ async fn read_run(repo: &Repo, id: &Value, job: Option<Value>) -> Result<(Failin
 }
 
 fn cached(key: &str) -> Option<Arc<Failing>> {
-    lock(runs()).get(key).cloned()
+    runs().locked().get(key).cloned()
 }
 
 fn remember_run(key: &str, failing: &Arc<Failing>) {

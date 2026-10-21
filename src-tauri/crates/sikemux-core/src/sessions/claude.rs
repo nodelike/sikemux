@@ -48,22 +48,6 @@ pub fn claude_project_dir(root: &Path, cwd: &str) -> PathBuf {
         .unwrap_or_else(|| projects.join(prefix))
 }
 
-/// A session's transcript, looked up in its project's folder first and then in every project.
-pub(crate) fn claude_transcript(root: &Path, cwd: &str, session_id: &str) -> PathBuf {
-    let file_name = format!("{session_id}.jsonl");
-    let expected = claude_project_dir(root, cwd).join(&file_name);
-    if expected.is_file() {
-        return expected;
-    }
-    fs::read_dir(root.join("projects"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path().join(&file_name))
-        .find(|path| path.is_file())
-        .unwrap_or(expected)
-}
-
 pub(super) fn claude_sessions(cwd: &str, config_path: Option<&str>) -> Vec<AgentSession> {
     let Some(root) = agent_config_root("claude", config_path) else {
         return Vec::new();

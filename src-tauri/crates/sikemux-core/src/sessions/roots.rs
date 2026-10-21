@@ -1,27 +1,55 @@
 //! Where each agent CLI keeps its settings and saved sessions.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use sikemux_process::paths::home;
+use sikemux_process::user_environment::shell_var;
 use sikemux_pty::launch::account_dir;
-use sikemux_pty::user_shell::user_variable;
+
+use crate::agent_catalog::AgentKind;
 
 pub fn environment_path(key: &str) -> Option<PathBuf> {
-    user_variable(key).map(PathBuf::from)
+    shell_var(key).map(PathBuf::from)
 }
 
-/// Where Hermes keeps its config and sessions.
-pub fn hermes_root() -> Option<PathBuf> {
-    environment_path("HERMES_HOME").or_else(|| Some(home()?.join(".hermes")))
+impl AgentKind {
+    /// The folder the agent keeps its settings and sessions in, where the
+    /// person's shell points it.
+    pub fn home_root(self) -> Option<PathBuf> {
+        account_root(self, None, &BTreeMap::new())
+    }
 }
 
-/// Where Pi keeps its settings and sessions.
-pub fn pi_agent_root() -> Option<PathBuf> {
-    environment_path("PI_CODING_AGENT_DIR").or_else(|| Some(home()?.join(".pi/agent")))
+/// The folder `kind` keeps its settings and sessions in: the account folder
+/// `config_path` names, else the one `env` or the person's shell names, else
+/// the agent's default.
+pub fn account_root(
+    kind: AgentKind,
+    config_path: Option<&str>,
+    env: &BTreeMap<String, String>,
+) -> Option<PathBuf> {
+    if let Some(path) = config_path.map(str::trim).filter(|path| !path.is_empty()) {
+        return Some(account_dir(path));
+    }
+    if kind == AgentKind::Omp {
+        return omp_agent_root();
+    }
+    let folder = kind.entry().home.as_ref()?;
+    let root = env
+        .get(folder.variable)
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| environment_path(folder.variable))
+        .or_else(|| Some(home()?.join(folder.dir)))?;
+    Some(match folder.within {
+        Some(within) => root.join(within),
+        None => root,
+    })
 }
 
 fn omp_profile_name() -> Option<String> {
-    let raw = user_variable("OMP_PROFILE").or_else(|| user_variable("PI_PROFILE"))?;
+    let raw = shell_var("OMP_PROFILE").or_else(|| shell_var("PI_PROFILE"))?;
     let name = raw.trim();
     (!name.is_empty()
         && name != "default"
@@ -34,7 +62,7 @@ fn omp_profile_name() -> Option<String> {
 
 fn omp_config_root() -> Option<PathBuf> {
     let home = home()?;
-    let config = user_variable("PI_CONFIG_DIR").unwrap_or_else(|| ".omp".to_string());
+    let config = shell_var("PI_CONFIG_DIR").unwrap_or_else(|| ".omp".to_string());
     Some(home.join(config.trim_start_matches(['/', '\\'])))
 }
 
@@ -70,13 +98,6 @@ pub fn omp_session_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// Where Muse keeps its settings and sign-in.
-pub fn muse_config_root() -> Option<PathBuf> {
-    environment_path("XDG_CONFIG_HOME")
-        .or_else(|| Some(home()?.join(".config")))
-        .map(|root| root.join("muse"))
-}
-
 /// Where Muse keeps its sessions and their index.
 pub fn muse_data_root() -> Option<PathBuf> {
     environment_path("XDG_DATA_HOME")
@@ -84,23 +105,6 @@ pub fn muse_data_root() -> Option<PathBuf> {
         .map(|root| root.join("muse"))
 }
 
-pub fn grok_root() -> Option<PathBuf> {
-    environment_path("GROK_HOME").or_else(|| Some(home()?.join(".grok")))
-}
-
 pub fn agent_config_root(kind: &str, configured: Option<&str>) -> Option<PathBuf> {
-    if let Some(configured) = configured.map(str::trim).filter(|value| !value.is_empty()) {
-        return Some(account_dir(configured));
-    }
-    let home = home()?;
-    match kind {
-        "claude" => {
-            Some(environment_path("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude")))
-        }
-        "codex" => Some(environment_path("CODEX_HOME").unwrap_or_else(|| home.join(".codex"))),
-        "omp" => omp_agent_root(),
-        "grok" => grok_root(),
-        "muse" => muse_config_root(),
-        _ => Some(home),
-    }
+    account_root(AgentKind::from_name(kind)?, configured, &BTreeMap::new())
 }

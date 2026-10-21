@@ -19,7 +19,7 @@ import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
 import type { Places } from "./places.ts";
 import type { PushSettings } from "./push/settings.ts";
-import { relayAccessRoutes } from "./relay/access.ts";
+import { RelayAccess, relayAccessRoutes } from "./relay/access.ts";
 import { updateRoutes } from "./updates/routes.ts";
 import { clerkWebhookRoutes } from "./webhooks/clerk.ts";
 
@@ -29,6 +29,7 @@ export interface Services {
   appOrigin: string;
   verifier: Verifier;
   limiter?: RateLimiter;
+  relayAccess?: RelayAccess;
   /** Clerk's Backend API, or null when CLERK_SECRET_KEY is not set. */
   clerk: ClerkBackend | null;
   /** Apple's token endpoints, or null when APPLE_SIGNIN_KEY_FILE is not set. */
@@ -52,6 +53,7 @@ export function createApp({
   appOrigin,
   verifier,
   limiter = new RateLimiter(),
+  relayAccess = new RelayAccess(database.db),
   clerk,
   appleSignIn,
   webhookSecret,
@@ -64,7 +66,7 @@ export function createApp({
   const app = new Hono<Env>();
 
   app.use(requestContext(log));
-  app.route("/internal", relayAccessRoutes(database, relayAccessToken));
+  app.route("/internal", relayAccessRoutes(relayAccess, relayAccessToken));
   app.use(limit<Env>(limiter, "address", 600, clientAddress));
   app.use(
     cors({

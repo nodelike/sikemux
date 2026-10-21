@@ -3,25 +3,21 @@
 //! was built, the helper from this version's GitHub release, and each is checked
 //! against the hash recorded then before it is moved into place.
 
+use futures::StreamExt;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
-use std::time::Duration;
-
-use futures::StreamExt;
-use reqwest::Client;
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
+use crate::http_client::client;
 
 const MANIFEST: &str = include_str!("../voice-models.json");
 /// Holds the hash of the manifest the models were last checked against.
 const VERIFIED_MARKER: &str = "models.verified";
 const HELPER_FILE: &str = "sikemux-voice";
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const READ_TIMEOUT: Duration = Duration::from_secs(60);
 const PROGRESS_STEP: f64 = 0.005;
 
 #[derive(Deserialize)]
@@ -274,7 +270,7 @@ async fn write_verified(
     let kept = std::fs::metadata(partial)
         .map(|meta| meta.len())
         .unwrap_or(0);
-    let mut request = client().get(url);
+    let mut request = client()?.get(url);
     if kept > 0 && kept < file.size {
         request = request.header(reqwest::header::RANGE, format!("bytes={kept}-"));
     }
@@ -322,18 +318,6 @@ async fn write_verified(
         )));
     }
     Ok(())
-}
-
-fn client() -> &'static Client {
-    static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .read_timeout(READ_TIMEOUT)
-            .user_agent(concat!("sikemux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .unwrap_or_default()
-    })
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-import { publishedBuddy, type PublishedBuddies } from "./published";
+import { publishedBuddy, wearsBuddy, type PublishedBuddies } from "./published";
 import { buddyMarkup } from "./render";
 import type { BuddyState } from "./shared";
 
@@ -10,8 +10,9 @@ function firstAttributes(markup: string): string {
     });
 }
 
-/** An agent's buddy as a standalone SVG document, for the notch to draw without a page. */
-export function notchBuddy(buddies: PublishedBuddies, agentId: string, state: BuddyState): string {
+/** An agent's buddy as a standalone SVG document, for the notch to draw without a page; null when it shows its agent's logo instead. */
+export function notchBuddy(buddies: PublishedBuddies, agentId: string, named: boolean, state: BuddyState): string | null {
+    if (!wearsBuddy(buddies.on, named)) return null;
     const { pack, shape, color, box } = publishedBuddy(buddies, agentId);
     const markup = buddyMarkup(pack, shape, color, state, "notch", box).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
     return firstAttributes(markup);

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { openUrl, swallow } from "../../../plugin-api/host";
 import { Checkbox, SignInError, SignInScreen, useSignInAttempt } from "../../../plugin-api/ui";
-import { failureMessage, signozApi, type Inspection, type SignozStatus } from "../api";
+import { errorText } from "../../../plugin-api/format";
+import { signozApi, type Inspection, type SignozStatus } from "../api";
 import { SignozIcon } from "./SignozIcon";
 
 type Method = "password" | "apiKey";
@@ -53,7 +54,7 @@ export function SignozSignIn({ status, onSignedIn }: Props) {
             .catch((failure: unknown) => {
                 setInspection(null);
                 setEditingUrl(true);
-                attempt.showError(failureMessage(failure));
+                attempt.showError(errorText(failure));
             });
     };
 

@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 use sikemux_pty::agent_detection::AgentKind;
 
 use crate::cli::protocol::HarnessRequest;
@@ -53,29 +54,24 @@ pub(crate) struct Spawning {
 
 impl Spawning {
     fn one_at_a_time(&self) -> std::sync::MutexGuard<'_, ()> {
-        self.one_at_a_time
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.one_at_a_time.locked()
     }
 
     fn opening(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
-        self.opening
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.opening.locked()
     }
 
     fn reported(&self) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
-        self.reported
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.reported.locked()
     }
 }
 
 /// The agents running here and those the window is opening.
-fn running(core: &Core) -> HashSet<String> {
-    let mut running = core.running_agents();
-    running.extend(core.harness.spawning.opening().iter().cloned());
-    running
+/// The agents that keep their names, with those being opened now.
+fn open(core: &Core) -> HashSet<String> {
+    let mut open = core.open_agents();
+    open.extend(core.harness.spawning.opening().iter().cloned());
+    open
 }
 
 fn text_param<'a>(params: &'a Value, key: &str, max: usize) -> Result<Option<&'a str>, String> {
@@ -172,13 +168,11 @@ pub(crate) fn lead_of(
 /// Names a worker for its lead, one spawn at a time.
 pub(crate) fn hire(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
     let _one_at_a_time = core.harness.spawning.one_at_a_time();
-    core.names.hire(worker, running(core))
+    core.names.hire(worker, open(core))
 }
 
 /// A worker here for a lead on a linked host, as that host named it.
 pub(crate) struct ForHost {
-    /// The linked host whose agent starts it.
-    pub host: String,
     pub agent_id: String,
     pub name: String,
     pub lead_id: String,
@@ -228,9 +222,8 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
             provider: &plan.provider,
             reports: plan.reports,
             depth: 0,
-            from_host: Some(&plan.host),
         },
-        running(core),
+        open(core),
     );
     launch.agent_id = plan.agent_id.clone();
     let model = launch.model.clone();
@@ -239,7 +232,7 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
         error.to_string()
     })?;
     core.broadcast_local(&Event::ChatBegun { chat: chat.info() });
-    core.publish_device_view();
+    core.view_changed();
     let answer = json!({
         "agentId": plan.agent_id,
         "name": named.name,
@@ -334,9 +327,8 @@ fn start(
                     provider: &provider,
                     reports,
                     depth: 0,
-                    from_host: None,
                 },
-                running(core),
+                open(core),
             );
             (hired.agent_id.clone(), named)
         }
@@ -351,7 +343,7 @@ fn start(
                     session: resume.map(|saved| saved.session_id.as_str()),
                     reports,
                 },
-                running(core),
+                open(core),
             )?;
             (agent_id, named)
         }
@@ -374,7 +366,7 @@ fn start(
         }
     }
     core.broadcast_local(&Event::ChatBegun { chat: chat.info() });
-    core.publish_device_view();
+    core.view_changed();
     let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
     Ok(Opened::New(Started {
         agent_id,
@@ -608,7 +600,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
     let _one_at_a_time = core.harness.spawning.one_at_a_time();
     let (lead, _) = lead_of(core, &lead_id, &request.project)?;
     let same = lead.provider == provider;
-    let permission_mode = lead.worker_mode(&provider, "workspace-write");
+    let permission_mode = lead.worker_mode();
     let model = model.or_else(|| {
         lead.launch
             .as_ref()
@@ -625,7 +617,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
             session: None,
             reports,
         },
-        running(core),
+        open(core),
     )?;
     core.harness.spawning.opening().insert(agent_id.clone());
     let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());

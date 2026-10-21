@@ -2,6 +2,7 @@ import { memo, useMemo, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { collapseDiff, type DiffLine, type ToolDiff } from '@mac/chat/diff';
+import { counted } from '@/devices/words';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 import { useFold } from './folds';
@@ -76,7 +77,7 @@ export function DiffBody({ diff, fold }: { diff: ToolDiff; fold: string }) {
           'gap' in row ? (
             <Pressable key={`gap-${index}`} onPress={() => setExpanded(true)} style={styles.gap} accessibilityRole="button">
               <Text style={[styles.mono, styles.gapText]}>
-                {row.gap} unchanged {row.gap === 1 ? 'line' : 'lines'}
+                {row.gap} unchanged {counted('line', row.gap)}
               </Text>
             </Pressable>
           ) : (

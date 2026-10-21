@@ -459,3 +459,149 @@
 .project-guardrail-add .settings-input {
     flex: 1 1 auto;
 }
+
+/* Your own tasks, each run, edited or removed in place; the ones found in the build files, by folder; and what is wrong with sikemux.json. */
+.project-settings-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+}
+.project-settings-heading .settings-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+    font-weight: var(--weight-normal);
+}
+.project-settings-empty {
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-3);
+}
+
+.project-task-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 40px;
+    padding: var(--space-1) var(--space-3);
+    transition: background var(--dur-1);
+}
+.project-task-row + .project-task-row {
+    border-top: 1px solid var(--border);
+}
+.project-task-row:hover {
+    background: var(--surface-hover);
+}
+.project-task-copy {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0);
+    min-width: 0;
+}
+.project-task-label {
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+}
+.project-task-command,
+.project-task-cwd {
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.project-task-command {
+    color: var(--text-secondary);
+}
+.project-task-meta {
+    display: flex;
+    gap: var(--space-2);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+.project-task-actions {
+    display: flex;
+    gap: var(--space-0);
+}
+
+.project-task-folder + .project-task-folder {
+    border-top: 1px solid var(--border);
+}
+.project-task-folder-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1h);
+    width: 100%;
+    height: 30px;
+    padding: 0 var(--space-3);
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    text-align: left;
+    cursor: pointer;
+}
+.project-task-folder-head:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.project-task-chevron {
+    flex: 0 0 auto;
+    color: var(--text-tertiary);
+    transition: transform var(--dur-1);
+}
+.project-task-chevron.open {
+    transform: rotate(90deg);
+}
+.project-task-folder-count {
+    margin-left: auto;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+}
+.project-found-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 0.35fr) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 28px;
+    padding: 0 var(--space-2) 0 calc(var(--space-3) + 17px);
+    transition: background var(--dur-1);
+}
+.project-found-row:hover {
+    background: var(--surface-hover);
+}
+.project-found-label {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.project-found-command {
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.project-config-errors {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    list-style: none;
+}
+.project-config-errors code {
+    color: var(--danger);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+}

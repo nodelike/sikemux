@@ -4,6 +4,11 @@ import type { Tables } from "../db.ts";
 import type { Logger } from "../log.ts";
 import type { LiveOptions } from "./options.ts";
 
+/** What the hub needs of every open connection. */
+export interface Connection {
+  bye(reconnectAfterMs: number): Promise<void>;
+}
+
 /** What the hub needs of a connection that has said who it is. */
 export interface Member {
   readonly userId: string;
@@ -11,7 +16,6 @@ export interface Member {
   readonly deviceKey: string | null;
   wake(): void;
   replaced(): void;
-  bye(reconnectAfterMs: number): Promise<void>;
 }
 
 /** The connections that have said who they are, by account and by device. */
@@ -20,7 +24,7 @@ export class Hub {
   private readonly byDevice = new Map<string, Member>();
   private readonly pending = new Set<string>();
   private readonly lastSwept = new Map<string, number>();
-  private readonly connections = new Set<Member>();
+  private readonly connections = new Set<Connection>();
   private flushTimer: NodeJS.Timeout | undefined;
 
   private readonly options: LiveOptions;
@@ -34,13 +38,12 @@ export class Hub {
     return this.connections.size;
   }
 
-  opened(member: Member) {
-    this.connections.add(member);
+  opened(connection: Connection) {
+    this.connections.add(connection);
   }
 
-  closed(member: Member) {
-    this.connections.delete(member);
-    this.remove(member);
+  closed(connection: Connection) {
+    this.connections.delete(connection);
   }
 
   /** Adds a connection, replacing an older one for the same device. False when its account has too many. */
@@ -113,11 +116,11 @@ export class Hub {
 
   /** Says bye to every connection, each told to wait a different time so they come back spread out. */
   async closeAll(spreadMs: number) {
-    const members = [...this.connections];
+    const connections = [...this.connections];
     const least = Math.min(1_000, spreadMs);
     await Promise.all(
-      members.map((member) =>
-        member.bye(Math.round(least + Math.random() * (spreadMs - least))),
+      connections.map((connection) =>
+        connection.bye(Math.round(least + Math.random() * (spreadMs - least))),
       ),
     );
   }

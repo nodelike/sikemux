@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { openSurface } from "../../plugin-api/host";
 import { definePluginSettings } from "../../plugin-api/settings";
-import { AWS_CONSOLE, AWS_PLUGIN_ID } from "./kinds";
+import { AWS_CONSOLE, AWS_PLUGIN } from "./kinds";
 
 export type AwsService = "ecs" | "ec2" | "lambda" | "sqs" | "billing" | "s3";
 export const AWS_SERVICES: AwsService[] = ["ecs", "ec2", "lambda", "sqs", "billing", "s3"];
@@ -32,7 +32,7 @@ function decodeSettings(saved: unknown): AwsSettings {
     };
 }
 
-export const awsSettings = definePluginSettings(AWS_PLUGIN_ID, decodeSettings);
+export const awsSettings = definePluginSettings(AWS_PLUGIN.id, decodeSettings);
 
 export function setAwsProfile(profile: string | null): void {
     awsSettings.update((settings) => ({ ...settings, profile }));

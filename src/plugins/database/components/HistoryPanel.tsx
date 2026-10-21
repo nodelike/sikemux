@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { confirmDialog, swallow } from "../../../plugin-api/host";
-import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
+import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, SkeletonRows } from "../../../plugin-api/ui";
 import { databaseApi, type DatabaseProfile, type HistoryEntry } from "../api";
-import { databaseHistoryR } from "../resources";
+import { database, databaseHistoryR } from "../resources";
 import { formatAgo, formatDuration } from "../../../plugin-api/format";
 
 export function HistoryPanel({
@@ -30,7 +30,7 @@ export function HistoryPanel({
         });
         if (!confirmed) return;
         await databaseApi.clearHistory(profile.id);
-        invalidate((kind) => kind === "database.history");
+        database.refresh(databaseHistoryR);
     };
 
     return (

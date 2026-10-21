@@ -31,7 +31,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Value;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
 use crate::client::Session;
@@ -152,12 +152,6 @@ struct LogsParams {
 async fn signed_in(ctx: &PluginContext) -> RundeckResult<(Session, Saved)> {
     let saved = config::load(ctx.data_dir()).await?;
     Ok((Session::of(&saved)?, saved))
-}
-
-async fn answer<T: serde::Serialize>(
-    result: impl std::future::Future<Output = RundeckResult<T>>,
-) -> Result<Value, PluginError> {
-    reply(result.await?)
 }
 
 impl Plugin for Rundeck {

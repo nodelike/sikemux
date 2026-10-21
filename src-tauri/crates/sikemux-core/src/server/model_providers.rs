@@ -10,12 +10,9 @@ use std::time::Duration;
 
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::launch::model_feed::Snapshot;
-use crate::launch::providers::{
-    self, Helper, KeySpec, Kind, Provider, Providers, KEY_SERVICE, ROUTED_AGENTS,
-};
+use crate::launch::providers::{self, Helper, KeySpec, Kind, Provider, Providers, KEY_SERVICE};
 use crate::protocol::ChatLaunch;
 
 use super::connection::blocking;
@@ -95,10 +92,9 @@ struct ModelFacts {
 
 fn choices(provider: &Provider, feed: &Snapshot, served: Option<&[String]>) -> Choices {
     let model = provider.coding_model("", feed, served);
-    let defaults: BTreeMap<_, _> = ROUTED_AGENTS
-        .iter()
+    let defaults: BTreeMap<_, _> = providers::routed_agents()
         .filter(|agent| provider.routes(agent))
-        .filter_map(|agent| Some((*agent, provider.coding_model(agent, feed, served)?)))
+        .filter_map(|agent| Some((agent, provider.coding_model(agent, feed, served)?)))
         .collect();
     let listed = provider
         .models_dev
@@ -257,9 +253,7 @@ pub(crate) async fn list(core: &Arc<Core>) -> CoreResult<Vec<ModelProvider>> {
             connected: models.is_some() || saved.contains(&provider.id),
             choices: choices(provider, &feed, models.as_deref()),
             models,
-            agents: ROUTED_AGENTS
-                .iter()
-                .copied()
+            agents: providers::routed_agents()
                 .filter(|agent| provider.routes(agent))
                 .collect(),
             checks: core.workspaces.model_checks.of(&provider.id),
@@ -358,36 +352,6 @@ pub(crate) async fn disconnect(core: &Arc<Core>, params: ProviderParams) -> Core
         store.set_connected(&provider.id, false)
     })
     .await??)
-}
-
-/// Answers a model-provider call by name.
-pub(crate) async fn call(core: &Arc<Core>, method: &str, params: Value) -> CoreResult<Value> {
-    Ok(match method {
-        "modelProviders" => serde_json::to_value(list(core).await?)?,
-        "modelProviderModels" => serde_json::to_value(models(core, from(params)?).await?)?,
-        "modelProviderCheck" => serde_json::to_value(check(core, from(params)?).await?)?,
-        "modelProviderConnect" => serde_json::to_value(connect(core, from(params)?).await?)?,
-        "modelProviderDisconnect" => serde_json::to_value(disconnect(core, from(params)?).await?)?,
-        "modelHelper" => serde_json::to_value(helper(core).await?)?,
-        "setModelHelper" => serde_json::to_value(set_helper(core, from(params)?).await?)?,
-        _ => return Err(format!("this host does not know {method}").into()),
-    })
-}
-
-/// The model-provider calls, which settings on any client make.
-pub(crate) const METHODS: [&str; 7] = [
-    "modelProviders",
-    "modelProviderModels",
-    "modelProviderCheck",
-    "modelProviderConnect",
-    "modelProviderDisconnect",
-    "modelHelper",
-    "setModelHelper",
-];
-
-fn from<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
-    serde_json::from_value(params)
-        .map_err(|error| CoreError::from(format!("the call's params do not fit: {error}")))
 }
 
 #[cfg(test)]

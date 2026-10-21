@@ -3,12 +3,12 @@ import type { AgentInfo, RecentChat } from "../api/agents";
 import { canDeleteChats } from "../agents/catalog";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
 import * as cmd from "../state/commands";
-import { projectSessionId } from "../state/selectors";
+import { chatKey, projectSessionId } from "../state/selectors";
 import { useStore } from "../state/store";
 import { AgentIcon, IconMessage, IconPencil, IconPin, IconTrash } from "../ui/Icons";
 import { Panel, PanelHeader } from "../ui/Panel";
 import { TreeContextMenu } from "./FileTree";
-import { chatKey, type RecentChats } from "./useRecentChats";
+import type { RecentChats } from "./useRecentChats";
 import { formatAge } from "../lib/format";
 import { basename } from "../lib/paths";
 import { AgentRowProject } from "./AgentRowTree";
@@ -65,7 +65,7 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
         <Panel variant="group" className="agent-group">
             <PanelHeader label="Recent" rule />
             {recent.chats.map((chat) => {
-                const key = chatKey(chat);
+                const key = chatKey(chat.agent, chat.id);
                 const glyph = (
                     <span className={`agent-glyph ${chat.agent}`}>
                         <AgentIcon type={chat.agent} size={20} />
@@ -110,7 +110,7 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
                     y={menu.y}
                     items={[
                         { label: "Open", icon: <IconMessage size={13} />, run: () => open(menu.chat) },
-                        { label: "Rename…", icon: <IconPencil size={13} />, run: () => setRenaming(chatKey(menu.chat)) },
+                        { label: "Rename…", icon: <IconPencil size={13} />, run: () => setRenaming(chatKey(menu.chat.agent, menu.chat.id)) },
                         {
                             label: "Pin",
                             icon: <IconPin size={13} />,

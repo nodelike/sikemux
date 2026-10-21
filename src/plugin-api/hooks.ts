@@ -1,17 +1,7 @@
 import { useEffect, useRef, useState, type DependencyList } from "react";
 import type { PluginStream } from "./backend";
 
-/** The current time, read again every `intervalMs` while `ticking`. */
-export function useNow(ticking: boolean, intervalMs = 1_000): number {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        if (!ticking) return;
-        setNow(Date.now());
-        const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
-        return () => window.clearInterval(timer);
-    }, [ticking, intervalMs]);
-    return now;
-}
+export { useNow } from "../hooks/useNow";
 
 /** `value` once it has stopped changing for `delayMs`. */
 export function useDebounced<T>(value: T, delayMs: number): T {
@@ -44,6 +34,11 @@ export function useEvery(enabled: boolean, ms: number, work: () => void): void {
             document.removeEventListener("visibilitychange", tick);
         };
     }, [enabled, ms]);
+}
+
+/** Reads `handle` again every `ms`, timed as useEvery times it, and not at all while `ms` is null. A read that fails shows on the handle. */
+export function useRefreshEvery(handle: { refresh(): Promise<void> }, ms: number | null): void {
+    useEvery(ms !== null, ms ?? 0, () => void handle.refresh().catch(() => undefined));
 }
 
 export interface StreamLife {

@@ -4,33 +4,16 @@ use std::time::Duration;
 use sikemux_plugin_api::watch::{self, Failure, Follow, Reading};
 use sikemux_plugin_api::{PluginResult, StreamSink};
 
-use crate::error::GitlabError;
-use crate::pipelines::{self, Job, Run, RunRef};
-use crate::{client, config, ratelimit};
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::codehost::{Job, Run};
+use sikemux_plugin_api::store::Accounts;
+
+use crate::pipelines::{self, RunRef};
+use crate::{client, config};
 
 struct Gitlab<'a> {
     data_dir: &'a Path,
     reference: RunRef,
-}
-
-/// Signed out, a pipeline that is gone, or a request GitLab cannot take:
-/// asking again will not help.
-fn failure(error: GitlabError) -> Failure {
-    Failure {
-        fatal: matches!(
-            error,
-            GitlabError::Auth(_)
-                | GitlabError::Unconfigured
-                | GitlabError::NotFound(_)
-                | GitlabError::BadArg(_)
-        ),
-        signed_out: matches!(error, GitlabError::Auth(_) | GitlabError::Unconfigured),
-        rate_reset_secs: match error {
-            GitlabError::RateLimited { resets_in_secs } => Some(resets_in_secs),
-            _ => None,
-        },
-        message: error.to_string(),
-    }
 }
 
 /// A pipeline held at a manual step waits on a person, so it is as settled as a finished one.
@@ -47,15 +30,16 @@ impl Follow for Gitlab<'_> {
     async fn read(&mut self) -> Result<Reading<Run, Job>, Failure> {
         let detail = pipelines::detail(self.data_dir, self.reference.clone())
             .await
-            .map_err(failure)?;
+            .map_err(Failure::from)?;
         let account = config::load(self.data_dir)
-            .account(client::chosen().as_deref())
+            .map_err(Failure::from)?
+            .account(chosen().as_deref())
             .map(|account| account.id.clone())
             .unwrap_or_default();
         Ok(Reading {
             run: detail.run,
             jobs: detail.jobs,
-            sparing: ratelimit::budget(&account).near,
+            sparing: client::LIMITS.budget(&account).near,
         })
     }
 

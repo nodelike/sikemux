@@ -1,12 +1,13 @@
-import type {
-  PersistedAgent,
-  PersistedSnapshot,
-} from "../../src/state/types/persisted";
 import type { Workspace } from "../../src/api/generated/wire";
-import type { LayoutNode, Session, Window } from "../../src/state/types";
-import { VERSION } from "../../src/state/persist";
-import { DEFAULT_PROVIDER_PROFILES } from "../../src/state/types/domain";
-import { DEMO_HOME, DEMO_PROJECTS, FRONT, MOODBOARD, SIKEMUX } from "./projects";
+import type { Agent, LayoutNode, Session, Window } from "../../src/state/types";
+import { VERSION, type PersistedSnapshot } from "../../src/state/persist";
+import {
+  DEMO_HOME,
+  DEMO_PROJECTS,
+  FRONT,
+  MOODBOARD,
+  SIKEMUX,
+} from "./projects";
 
 const pane = (
   id: string,
@@ -28,7 +29,7 @@ const terminalWindow = (
   activePaneId: string,
 ): Window => ({ id, name: "Terminal", role: "term", root, activePaneId });
 
-const agentWindow = (agent: PersistedAgent): Window => ({
+const agentWindow = (agent: Agent): Window => ({
   id: `w-${agent.id}`,
   name: agent.title,
   role: "agent",
@@ -117,9 +118,9 @@ export const AGENTS = {
     resumeId: "c41f2b90-incident",
     cwd: `${DEMO_HOME}/work/billing-service`,
   },
-} satisfies Record<string, PersistedAgent>;
+} satisfies Record<string, Agent>;
 
-const agents: PersistedAgent[] = Object.values(AGENTS).map((agent) => ({
+const agents: Agent[] = Object.values(AGENTS).map((agent) => ({
   ...agent,
   permissionMode:
     agent.id === "agent-replay" || agent.id === "agent-hero"
@@ -136,8 +137,16 @@ const MORE_TERMINALS = [
   { id: "s-scratch", name: "scratch" },
 ];
 
-const oneTerminal = (sessionId: string, cwd: string, title: string): Window[] => [
-  terminalWindow(`w-${sessionId}`, pane(`t-${sessionId}`, cwd, "terminal", title), `t-${sessionId}`),
+const oneTerminal = (
+  sessionId: string,
+  cwd: string,
+  title: string,
+): Window[] => [
+  terminalWindow(
+    `w-${sessionId}`,
+    pane(`t-${sessionId}`, cwd, "terminal", title),
+    `t-${sessionId}`,
+  ),
 ];
 
 const PROJECT_SPACES: Record<string, string> = {
@@ -150,7 +159,8 @@ const PROJECT_SPACES: Record<string, string> = {
 /** The workspace the demo's core keeps: its projects, spaces and agents. */
 export function demoWorkspace(): Workspace {
   const projects = baseSnapshot().sessions.filter(
-    (session): session is Session => session.kind === "project" && "cwd" in session,
+    (session): session is Session =>
+      session.kind === "project" && "cwd" in session,
   );
   return {
     projects: projects.map((session) => ({
@@ -167,7 +177,9 @@ export function demoWorkspace(): Workspace {
     agents: agents.map((agent) => ({
       ...agent,
       provider: agent.type,
-      project: projects.find((session) => session.cwd === agent.cwd)?.id ?? "s-sikemux",
+      project:
+        projects.find((session) => session.cwd === agent.cwd)?.id ??
+        "s-sikemux",
       cwd: agent.cwd ?? SIKEMUX,
       renamed: false,
       permissionMode: agent.permissionMode ?? "workspace-write",
@@ -195,7 +207,11 @@ export function demoSnapshot(): PersistedSnapshot {
       pinned: false,
       activeWindowId: `w-${terminal.id}`,
     });
-    snapshot.windowsBySession[terminal.id] = oneTerminal(terminal.id, DEMO_HOME, "zsh");
+    snapshot.windowsBySession[terminal.id] = oneTerminal(
+      terminal.id,
+      DEMO_HOME,
+      "zsh",
+    );
   }
   snapshot.sessionOrder.push(...MORE_TERMINALS.map((terminal) => terminal.id));
   return snapshot;
@@ -341,12 +357,27 @@ function baseSnapshot(): PersistedSnapshot {
           ),
           "t-dev",
         ),
-        terminalWindow("w-sikemux-watch", pane("t-watch", SIKEMUX, "terminal", "vitest --watch"), "t-watch"),
-        terminalWindow("w-sikemux-logs", pane("t-logs", SIKEMUX, "terminal", "tail -f core.log"), "t-logs"),
+        terminalWindow(
+          "w-sikemux-watch",
+          pane("t-watch", SIKEMUX, "terminal", "vitest --watch"),
+          "t-watch",
+        ),
+        terminalWindow(
+          "w-sikemux-logs",
+          pane("t-logs", SIKEMUX, "terminal", "tail -f core.log"),
+          "t-logs",
+        ),
         {
           ...terminalWindow(
             "w-sikemux-gpu",
-            { type: "pane", id: "t-ssh-gpu", cwd: SIKEMUX, kind: "terminal", title: "gpu-box", startup: "ssh gpu-box" },
+            {
+              type: "pane",
+              id: "t-ssh-gpu",
+              cwd: SIKEMUX,
+              kind: "terminal",
+              title: "gpu-box",
+              startup: "ssh gpu-box",
+            },
             "t-ssh-gpu",
           ),
           customName: "ssh gpu-box",
@@ -580,28 +611,6 @@ function baseSnapshot(): PersistedSnapshot {
       lastReleaseNotes: null,
       lastSeenVersion: "0.5.3",
       activeSpaceId: null,
-      providerProfiles: DEFAULT_PROVIDER_PROFILES.flatMap((profile) =>
-        profile.id === "builtin-claude"
-          ? [
-              { ...profile, name: "Work" },
-              {
-                id: "claude-personal",
-                name: "Personal",
-                provider: "claude" as const,
-                accent: "#a277ff",
-                configPath: `${DEMO_HOME}/.claude-personal`,
-              },
-              {
-                id: "claude-client",
-                name: "Client",
-                provider: "claude" as const,
-                accent: "#3fb98a",
-                configPath: `${DEMO_HOME}/.claude-client`,
-              },
-            ]
-          : [{ ...profile }],
-      ),
-      selectedProviderProfileIds: { claude: "builtin-claude" },
       pluginSettings: {
         "sikemux.rundeck": { activeProject: "platform", activeGroup: null },
         "sikemux.signoz": { minutes: 60, environment: "production" },

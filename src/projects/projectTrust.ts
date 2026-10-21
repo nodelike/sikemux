@@ -1,11 +1,11 @@
-import { projectControllerBridge } from "./controllerBridge";
+import { activeProject } from "./projectState";
 import type { ProjectConfigLoadResult } from "./projectConfig";
 import { trustProjectConfig } from "./projectConfigRuntime";
 
 export type ValidProjectConfig = Extract<ProjectConfigLoadResult, { readonly status: "valid" }>;
 
 export function activeProjectConfigMatches(project: string, expected: ValidProjectConfig): boolean {
-    const active = projectControllerBridge.getActiveSnapshot();
+    const active = activeProject();
     const current = active?.config;
     return active?.cwd === project && current?.status === "valid" && current.path === expected.path && current.fingerprint === expected.fingerprint;
 }

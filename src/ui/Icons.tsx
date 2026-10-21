@@ -1,5 +1,8 @@
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import type { AgentType } from "../state/types";
+import type { CoreWindowRole, WindowRole } from "../state/windowRoles";
+import { isPluginKind } from "../plugins/kinds";
+import { pluginSurface } from "../plugins/registry";
 
 const brunoLogo = new URL("../assets/bruno.svg", import.meta.url).href;
 const codexLogo = new URL("../assets/agent-logos/codex.svg", import.meta.url).href;
@@ -625,31 +628,20 @@ export function IconHermes({ size, className }: IconProps) {
     );
 }
 
-export function AgentIcon({ type, size, className }: { type: AgentType; size?: number; className?: string }) {
-    if (type === "codex") return <IconCodex size={size} className={className} />;
-    if (type === "hermes") return <IconHermes size={size} className={className} />;
-    if (type === "pi") return <IconPi size={size} className={className} />;
-    if (type === "opencode") return <IconOpenCode size={size} className={className} />;
-    if (type === "omp") return <IconOmp size={size} className={className} />;
-    if (type === "grok") return <IconGrok size={size} className={className} />;
-    if (type === "muse") return <IconMuse size={size} className={className} />;
-    return <IconClaude size={size} className={className} />;
-}
+const AGENT_ICONS: Record<AgentType, (props: IconProps) => ReactNode> = {
+    claude: IconClaude,
+    codex: IconCodex,
+    hermes: IconHermes,
+    pi: IconPi,
+    opencode: IconOpenCode,
+    omp: IconOmp,
+    grok: IconGrok,
+    muse: IconMuse,
+};
 
-import type { WindowRole } from "../state/types";
-import { pluginSurface } from "../plugins/registry";
-export function WindowIcon({ role, size }: { role: WindowRole; size?: number }) {
-    if (role === "files") return <IconEditor size={size} />;
-    if (role === "term") return <IconTerminal size={size} />;
-    if (role === "git") return <IconGit size={size} />;
-    if (role === "diff") return <IconCommit size={size} />;
-    if (role === "search") return <IconSearch size={size} />;
-    if (role === "agent") return <IconAgent size={size} />;
-    if (role === "shared") return <IconEye size={size} />;
-    if (role === "board") return <IconBoard size={size} />;
-    const surface = pluginSurface(role);
-    if (surface) return surface.icon(size ?? 14);
-    return <IconWindow size={size} />;
+export function AgentIcon({ type, size, className }: { type: AgentType; size?: number; className?: string }) {
+    const Icon = AGENT_ICONS[type];
+    return <Icon size={size} className={className} />;
 }
 
 /** A battery drawn the way macOS draws it: a thin rounded case, a soft cap, and the charge filling it; charging, a bolt breaks out of it top and bottom. */
@@ -917,3 +909,23 @@ export const IconDashboard = makeSvgIcon24(
         <rect x="3" y="15" width="7.5" height="6" rx="1.5" />
     </>,
 );
+
+const WINDOW_ICONS: Record<CoreWindowRole, (props: IconProps) => ReactNode> = {
+    term: IconTerminal,
+    files: IconEditor,
+    git: IconGit,
+    diff: IconCommit,
+    search: IconSearch,
+    "ssh-config": IconWindow,
+    named: IconWindow,
+    agent: IconAgent,
+    shared: IconEye,
+    board: IconBoard,
+    "project-settings": IconSettings,
+};
+
+export function WindowIcon({ role, size }: { role: WindowRole; size?: number }) {
+    if (isPluginKind(role)) return pluginSurface(role)?.icon(size ?? 14) ?? <IconWindow size={size} />;
+    const Icon = WINDOW_ICONS[role];
+    return <Icon size={size} />;
+}

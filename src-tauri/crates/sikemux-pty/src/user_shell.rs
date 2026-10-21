@@ -81,17 +81,6 @@ pub fn login_shell_environment() -> &'static HashMap<String, String> {
     }
 }
 
-/// A variable as the user's shell sets it, else as this process has it. The
-/// shell wins because an app opened from the Dock has none of `.zshrc`'s exports.
-/// An empty value counts as unset.
-pub fn user_variable(key: &str) -> Option<String> {
-    login_shell_environment()
-        .get(key)
-        .filter(|value| !value.is_empty())
-        .cloned()
-        .or_else(|| sikemux_process::user_environment::var(key).filter(|value| !value.is_empty()))
-}
-
 /// The locale variables from `login_shell_environment`, for processes that
 /// otherwise get only the app's own environment, which has no locale.
 pub fn login_shell_locale() -> impl Iterator<Item = (&'static String, &'static String)> {

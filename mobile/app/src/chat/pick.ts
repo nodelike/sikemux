@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Asset } from 'expo-media-library';
 
 import type { LibraryPhoto } from './library';
-import type { Attachment } from './session';
+import type { Attachment } from './uploads';
 
 /** A photo is sent no larger than this on its longest side, which agents read at full detail. */
 const LONGEST_EDGE = 2048;

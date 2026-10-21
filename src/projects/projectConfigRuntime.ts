@@ -1,19 +1,7 @@
-import type { CustomCommand } from "../commands/registry";
 import { coreCall } from "../api/core";
 import { dirname } from "../lib/paths";
-import type { ProjectAction, ProjectConfigLoadResult } from "./projectConfig";
+import type { ProjectConfigLoadResult } from "./projectConfig";
 import { confirmDialog, type ConfirmRequest } from "../state/dialog";
-
-export function projectActionCommand(action: ProjectAction): CustomCommand {
-    return {
-        id: `project.${action.id}`,
-        title: action.label,
-        detail: action.description,
-        command: action.command,
-        contexts: action.contexts,
-        placement: action.placement,
-    };
-}
 
 /**
  * Asks the person to trust the file unless the host already does, and keeps

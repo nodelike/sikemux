@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { confirmDialog, openUrl, swallow } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { IconCheck, IconClock, IconClose, IconExternal, IconFetch, IconGit, IconStop, IconTimer, IconUser } from "../../../plugin-api/ui";
-import { failureMessage, rundeckApi, type RundeckStep } from "../api";
+import { errorText, formatDuration } from "../../../plugin-api/format";
+import { rundeckApi, type RundeckStep } from "../api";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
 import { rndExecutionsR, rndJobDetailR, useBranchOptions } from "../resources";
@@ -11,7 +12,6 @@ import { branchOf, displayStatus, duration, formatTime, isLiveStatus } from "../
 import { executionProgress } from "./executionProgress";
 import { statusKind } from "./branchStyle";
 import { useNow } from "../../../plugin-api/hooks";
-import { formatDuration } from "../../../plugin-api/format";
 import { reusableOptions } from "./options";
 import { RundeckLogView } from "./RundeckLogView";
 import { useExecutionStreams } from "./useExecutionStreams";
@@ -76,7 +76,7 @@ export function RundeckExecution({ paneId, level, active }: Props) {
             const result = await rundeckApi.abort(level.executionId);
             if (result.abort?.status === "failed") setAbortErr(`Rundeck refused to abort: ${result.abort.reason ?? "no reason given"}`);
         } catch (e) {
-            setAbortErr(failureMessage(e));
+            setAbortErr(errorText(e));
         } finally {
             setAborting(false);
         }

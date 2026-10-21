@@ -128,7 +128,7 @@ pub(super) fn server_env(language: &str) -> Vec<(&'static str, PathBuf)> {
 
 pub(super) fn server_command(language: &str) -> Option<(String, Vec<String>)> {
     let env_key = format!("{OVERRIDE_PREFIX}{}", language.to_uppercase());
-    if let Some(spec) = sikemux_pty::user_shell::user_variable(&env_key) {
+    if let Some(spec) = sikemux_process::user_environment::shell_var(&env_key) {
         // Naive split — sufficient for "bin arg1 arg2". Quoted args aren't
         // supported; users that need them can wrap in a shell script.
         let mut parts = spec.split_whitespace();

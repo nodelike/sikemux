@@ -22,6 +22,8 @@ mod frame_rate;
 mod fs;
 mod grammars;
 mod harness;
+mod hosts;
+mod http_client;
 mod inbox;
 mod lsp;
 mod markdown;
@@ -201,6 +203,7 @@ pub fn run() {
             tauri::async_runtime::spawn_blocking(simulator::offered);
             wheel::watch(_app.handle());
             _app.state::<PtyManager>().start(_app.handle());
+            _app.state::<hosts::Hosts>().start(_app.handle());
             // See-through window — same recipe as nackle (NSWindow opaque=NO,
             // CGS background blur via private API). No NSVisualEffectView
             // because its frosted look is heavier than the gaussian CGS blur
@@ -231,14 +234,13 @@ pub fn run() {
         })
         .manage(deep_link::DeepLinks::default())
         .manage(PtyManager::default())
+        .manage(hosts::Hosts::default())
         .manage(account::PendingSignIn::default())
         .manage(harness::HarnessBroker::default())
         .manage(cli_open::CliOpens::default())
         .manage(AcpManager::default())
-        .manage(remote::PublishedOnScreen::default())
-        .manage(remote::PublishedPalette::default())
-        .manage(remote::PublishedBuddies::default())
-        .manage(remote::PublishedBackdrop::default())
+        .manage(remote::Published::default())
+        .manage(agent_notification::WaitingFocus::default())
         .manage(BrowserManager::default())
         .manage(VoiceManager::default())
         .manage(preview::Previews::default())
@@ -247,16 +249,6 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(pages::SCHEME, pages::handle)
         .invoke_handler(tauri::generate_handler![
             acp::acp_attach,
-            acp::acp_history,
-            acp::acp_list,
-            acp::acp_prompt,
-            acp::acp_edit,
-            acp::acp_set_permission_mode,
-            acp::acp_set_config,
-            acp::acp_cancel,
-            acp::acp_steer,
-            acp::acp_stop_task,
-            acp::acp_permission_reply,
             acp::acp_stop,
             acp::acp_switch_account,
             pty::commands::pty_spawn,
@@ -266,31 +258,24 @@ pub fn run() {
             pty::commands::pty_write,
             pty::commands::pty_resize,
             pty::commands::pty_reset_modes,
-            pty::commands::pty_shell_at_prompt,
             pty::commands::pty_kill,
             pty::commands::pty_sessions,
-            remote::remote_status,
-            remote::remote_set_enabled,
-            remote::remote_set_device_access,
-            remote::remote_revoke_device,
+            hosts::hosts_list,
+            hosts::install::host_install,
+            account::account_remove_device,
+            account::account_rename_device,
             account::account_status,
             account::account_refresh_profile,
             account::account_sign_in,
             account::account_cancel_sign_in,
             account::account_phones,
-            account::account_hosts,
-            account::account_link_host,
             account::account_sign_out,
             share::share_access,
             share::share_viewer_hello,
             core_call::core_call,
-            remote::remote_answer_pairing,
-            remote::remote_allow_devices,
-            remote::remote_publish_on_screen,
+            core_call::core_request,
             notch::notch_configure,
-            remote::remote_publish_palette,
-            remote::remote_publish_buddies,
-            remote::remote_publish_backdrop,
+            remote::remote_publish,
             pty::commands::app_quit_and_stop_everything,
             pty::commands::agent_detection_explain,
             pty::commands::agent_detection_manifests,
@@ -323,12 +308,8 @@ pub fn run() {
             grammars::grammar_load,
             state::state_save,
             agents::executable::available_agents,
-            fs::read_dir,
-            fs::read_dirs,
-            fs::path_kinds,
+            fs::files_call,
             fs::keep_dropped_paths,
-            fs::read_file,
-            fs::read_file_versioned,
             fs::read_text_file_limited,
             fs::open_in_default_app,
             preview::preview_file,
@@ -336,19 +317,12 @@ pub fn run() {
             pages::page_shown,
             document_preview::document_preview_show,
             document_preview::document_preview_hide,
-            fs::write_file,
-            fs::write_file_versioned,
-            fs::write_file_new,
-            fs::create_file,
-            fs::create_dir,
             fs::copy_into_dir,
             fs::downloads_dir,
             fs::chat_attachment_dir,
             fs::save_clipboard_image,
             fs::save_base64_into_dir,
-            fs::rename_path,
             fs::reveal_in_finder,
-            fs::delete_path,
             lsp::lsp_languages,
             lsp::lsp_install_server,
             lsp::lsp_start,
@@ -368,6 +342,7 @@ pub fn run() {
             settings::is_directory,
             wallpaper::wallpaper_image,
             agent_notification::post_notification,
+            agent_notification::focus_claim,
             dialogs::pick_paths,
             dialogs::pick_save_path,
             search::project_search,

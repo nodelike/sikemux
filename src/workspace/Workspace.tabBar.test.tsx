@@ -130,7 +130,6 @@ describe("workspace tab bars", () => {
 
         expect(getState().agents["agent-only"]).toMatchObject({
             permissionMode: "bypass",
-            skipPermissions: true,
         });
         expect(await screen.findByRole("button", { name: /yolo/i }, { timeout: LAZY_PANE_MS })).toHaveAttribute("aria-pressed", "true");
         expect(screen.queryByTestId("terminal-agent-only")).not.toBeInTheDocument();

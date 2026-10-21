@@ -4,14 +4,15 @@ import { audit } from "../audit.ts";
 import { allow, isSession, type AuthEnv } from "../auth.ts";
 import type { Database } from "../db.ts";
 import { ownedDevice } from "../devices/owned.ts";
-import { ApiFailure, readBody } from "../http.ts";
+import { notFound, readBody } from "../http.ts";
 import { limit, type RateLimiter } from "../limits.ts";
 import { signTicket, type JoinSigner } from "./signer.ts";
 
 /**
  * POST /v1/devices/{key}/join, mounted under the device routes, which sign the caller in. The
  * phone app asks for a phone to join a host; a host, signing the request itself, asks to link
- * with another, which the ticket names in the phone's place.
+ * with another, which the ticket names in the phone's place, or for the app on it to join one as
+ * a client. A ticket is of use only to the holder of the key it names.
  */
 export function joinRoutes(
   { db }: Database,
@@ -27,33 +28,38 @@ export function joinRoutes(
 
   return new Hono<AuthEnv>().post(
     "/:key/join",
-    allow("session", "host"),
+    allow("session", "host", "mac"),
     perJoiner,
     async (c) => {
       const identity = c.get("identity");
       const { userId } = identity;
       const joiner = c.req.param("key");
       const { host } = await readBody(c, "JoinRequest");
-      const role = isSession(identity) ? "client" : "host";
-      if (joiner === host)
-        throw new ApiFailure(
-          404,
-          "not_found",
-          "None of your hosts has that key.",
-        );
-      if (identity.via === "host" && joiner !== identity.deviceKey)
-        throw new ApiFailure(
-          403,
-          "forbidden",
-          "A host may ask only for itself to link with another.",
-        );
-      await ownedDevice(db, userId, joiner, { role });
+      const role =
+        isSession(identity) ||
+        (identity.via === "host" && joiner !== identity.deviceKey)
+          ? "client"
+          : "host";
+      if (joiner === host) throw notFound("None of your hosts has that key.");
+      const joining = await ownedDevice(db, userId, joiner, { role });
       await ownedDevice(db, userId, host, { role: "host" });
+      if (
+        identity.via === "host" &&
+        role === "client" &&
+        joining.registered_by !== identity.deviceKey
+      )
+        throw notFound("None of your devices has that key.");
+      const via = joining.registered_by
+        ? await ownedDevice(db, userId, joining.registered_by, {
+            role: "host",
+          })
+        : undefined;
 
       const ticket = signTicket(signer, {
         account: userId,
         host,
         phone: joiner,
+        ...(via && { via: { key: via.key, name: via.name } }),
       });
       await audit(db, {
         userId,

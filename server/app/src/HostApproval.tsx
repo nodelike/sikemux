@@ -1,21 +1,12 @@
 import { useAuth } from "@clerk/react";
+import { platformName } from "@mac/remote/access";
 import type { PendingHost } from "@sikemux/protocol";
+import { errorCode, orReverify } from "@sikemux/protocol/account";
 import { useState, type SubmitEvent } from "react";
 
-import {
-  api,
-  formatDay,
-  orReverify,
-  problemText,
-  signedInToken,
-} from "./api.ts";
-import { errorCode } from "./clerkErrors.ts";
+import { api, formatDay, problemText, signedInToken } from "./api.ts";
 import { Panel } from "./Consent.tsx";
 import { useReverified } from "./Reverify.tsx";
-
-export const HOST = "/host";
-
-const PLATFORMS: Record<string, string> = { macos: "macOS", linux: "Linux" };
 
 type Step =
   | { kind: "enter" }
@@ -46,7 +37,7 @@ export function HostApproval() {
     const token = await signedInToken(getToken, "add this host", {
       fresh: true,
     });
-    return orReverify(() => api.approveHost(token, code));
+    return orReverify(() => api(token).approveHostSignIn(code));
   });
 
   const run = async (
@@ -89,7 +80,7 @@ export function HostApproval() {
         <h1>Add {host.name} to your account?</h1>
         <ul className="consent-scopes">
           <li>
-            {PLATFORMS[host.platform] ?? host.platform} · {host.channel}
+            {platformName(host.platform)} · {host.channel}
           </li>
           <li>Asked {ago(host.requestedAt)}</li>
           <li>From {where || "an address the server could not see"}</li>
@@ -126,7 +117,7 @@ export function HostApproval() {
             onClick={() =>
               void run("refuse", async () => {
                 const token = await signedInToken(getToken, "refuse this host");
-                await api.refuseHost(token, code);
+                await api(token).refuseHostSignIn(code);
                 setStep({ kind: "done", name: host.name, approved: false });
               })
             }
@@ -161,7 +152,7 @@ export function HostApproval() {
       setStep({
         kind: "check",
         code,
-        host: await api.pendingHost(token, code),
+        host: await api(token).getPendingHost(code),
       });
     });
   };

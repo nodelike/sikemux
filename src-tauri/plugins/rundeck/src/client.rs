@@ -2,20 +2,18 @@
 // warm across the matrix dashboard's parallel fan-out. A rejected token is
 // reported as an `auth` error; nothing here logs in again on its own.
 
-use std::collections::HashMap;
-use std::future::Future;
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::collections::BTreeMap;
+use std::sync::Mutex;
 
-use futures::StreamExt;
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use reqwest::{Client, Method, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::Semaphore;
+use sikemux_plugin_api::http::{self, Deadline, Http, Redirects};
+use sikemux_process::sync::Locked;
 
-use crate::error::{RundeckError, RundeckResult};
+use crate::error::{Rundeck, RundeckError, RundeckResult};
 
 use crate::config;
 
@@ -29,6 +27,13 @@ const REDIRECTED: &str = "Rundeck redirected the API call — a proxy or SSO log
 const NOT_API_DATA: &str =
     "Rundeck answered with a web page instead of API data — a proxy or SSO login is in front of it";
 
+/// Fan-outs from different screens share one bound on concurrent Rundeck calls.
+pub static HTTP: Http<Rundeck> = Http::new(
+    Redirects::Refuse,
+    Deadline::WholeAnswer,
+    MAX_REQUESTS_IN_FLIGHT,
+);
+
 const PATH_SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')
@@ -38,38 +43,11 @@ const PATH_SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
 /// Percent-encodes one value for use as a single URL path segment.
 pub fn seg(value: &str) -> RundeckResult<String> {
     if matches!(value, "" | "." | "..") {
-        return Err(RundeckError::BadArg("empty or dot-only path segment"));
+        return Err(RundeckError::BadArg(
+            "empty or dot-only path segment".into(),
+        ));
     }
     Ok(utf8_percent_encode(value, PATH_SEGMENT).to_string())
-}
-
-/// Runs `work` once one of the plugin-wide request slots is free, so fan-outs
-/// from different screens share one bound on concurrent Rundeck calls.
-pub async fn limited<T>(work: impl Future<Output = T>) -> T {
-    static PERMITS: OnceLock<Semaphore> = OnceLock::new();
-    let _permit = PERMITS
-        .get_or_init(|| Semaphore::new(MAX_REQUESTS_IN_FLIGHT))
-        .acquire()
-        .await
-        .ok();
-    work.await
-}
-
-fn http() -> RundeckResult<&'static Client> {
-    static C: OnceLock<Option<Client>> = OnceLock::new();
-    C.get_or_init(|| {
-        Client::builder()
-            // Servers behind corporate proxies sometimes drop idle keep-alive
-            // after ~30s. 25s pool idle keeps reuse safe.
-            .pool_idle_timeout(Duration::from_secs(25))
-            .timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent("sikemux-rundeck/0.1")
-            .build()
-            .ok()
-    })
-    .as_ref()
-    .ok_or_else(|| RundeckError::Api("could not start the HTTP client".into()))
 }
 
 /// A warm client per pinned target. Building one per request threw away the
@@ -78,23 +56,19 @@ fn http() -> RundeckResult<&'static Client> {
 /// different DNS answer never reuses the old client.
 fn pinned_http(transport: &config::ValidatedTransport) -> RundeckResult<Client> {
     const MAX_CACHED_CLIENTS: usize = 8;
-    static CACHE: OnceLock<Mutex<HashMap<String, Client>>> = OnceLock::new();
+    static CACHE: Mutex<BTreeMap<String, Client>> = Mutex::new(BTreeMap::new());
 
     let key = transport.pin_key();
-    let mut cache = CACHE
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut cache = CACHE.locked();
     if let Some(client) = cache.get(&key) {
         return Ok(client.clone());
     }
 
     let client = transport
-        .pin_dns(Client::builder())
-        .pool_idle_timeout(Duration::from_secs(25))
-        .timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent("sikemux-rundeck/0.1")
+        .pin_dns(http::builder::<Rundeck>(
+            Redirects::Refuse,
+            Deadline::WholeAnswer,
+        ))
         .build()?;
     if cache.len() >= MAX_CACHED_CLIENTS {
         cache.clear();
@@ -151,7 +125,7 @@ async fn send(
     };
     let client = match private_client.as_ref() {
         Some(client) => client,
-        None => http()?,
+        None => HTTP.client()?,
     };
     let mut req = client
         .request(method, api_url(&session.url, version, endpoint))
@@ -200,7 +174,7 @@ pub async fn post_json<B: Serialize, T: DeserializeOwned>(
     endpoint: &str,
     body: &B,
 ) -> RundeckResult<T> {
-    let val = serde_json::to_value(body).map_err(RundeckError::Json)?;
+    let val = serde_json::to_value(body).map_err(RundeckError::from)?;
     request_as(session, Method::POST, endpoint, Some(&val), &[]).await
 }
 
@@ -213,23 +187,9 @@ pub async fn post_empty_json<T: DeserializeOwned>(
 
 async fn decode<T: DeserializeOwned>(resp: Response) -> RundeckResult<T> {
     let status = resp.status();
-    if resp
-        .content_length()
-        .is_some_and(|size| size > MAX_RESPONSE_BYTES as u64)
-    {
-        return Err(RundeckError::Api("response exceeds 16 MiB limit".into()));
-    }
-    let mut stream = resp.bytes_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
-            return Err(RundeckError::Api("response exceeds 16 MiB limit".into()));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
+    let bytes = http::read_body(resp, MAX_RESPONSE_BYTES).await?;
     let value = classify(status, &bytes)?;
-    serde_json::from_value::<T>(value).map_err(RundeckError::Json)
+    serde_json::from_value::<T>(value).map_err(RundeckError::from)
 }
 
 fn classify(status: StatusCode, bytes: &[u8]) -> RundeckResult<Value> {

@@ -51,9 +51,7 @@ pub struct RecentRequest {
     pub(crate) providers: Vec<RecentProvider>,
     pub(crate) projects: Vec<String>,
     pub(crate) limit: usize,
-    #[serde(default)]
     pub(crate) cursor: Option<RecentCursor>,
-    #[serde(default)]
     pub(crate) query: Option<String>,
     #[serde(default)]
     pub(crate) exclude: Vec<RecentRef>,

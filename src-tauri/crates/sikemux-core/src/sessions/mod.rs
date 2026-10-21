@@ -16,6 +16,7 @@ pub mod relocate;
 pub mod rename;
 pub mod roots;
 pub mod search;
+pub mod transcript;
 
 use std::collections::HashMap;
 use std::fs;
@@ -27,6 +28,8 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sikemux_process::clock::epoch_ms_of;
+use sikemux_process::sync::Locked;
 use tokio::process::Command;
 
 use crate::agent_catalog::AgentKind;
@@ -38,7 +41,6 @@ use muse::muse_sessions;
 use omp::omp_sessions;
 use opencode::opencode_sessions;
 use pi::pi_sessions;
-use roots::agent_config_root;
 use sikemux_pty::user_shell::login_shell_environment;
 
 pub use claude::claude_project_dir;
@@ -85,21 +87,10 @@ pub fn agent_sessions(agent: AgentKind, cwd: &str, config_path: Option<&str>) ->
 
 /// Points a CLI started on one of the person's accounts at that account's folder.
 pub fn apply_process_config(command: &mut Command, agent: &str, config_path: Option<&str>) {
-    let Some(root) = agent_config_root(agent, config_path) else {
+    let (Some(variable), Some(path)) = (crate::launch::account_variable(agent), config_path) else {
         return;
     };
-    if config_path.is_none() {
-        return;
-    }
-    match agent {
-        "codex" => {
-            command.env("CODEX_HOME", root);
-        }
-        "claude" => {
-            command.env("CLAUDE_CONFIG_DIR", root);
-        }
-        _ => {}
-    }
+    command.env(variable, sikemux_pty::launch::account_dir(path));
 }
 
 pub fn apply_login_environment(command: &mut Command) {
@@ -112,9 +103,7 @@ fn mtime_of(path: &Path) -> u64 {
     fs::metadata(path)
         .ok()
         .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |modified| epoch_ms_of(modified) / 1000)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -221,30 +210,27 @@ impl FileCache {
         F: FnOnce() -> Option<String>,
     {
         let cache = self.0.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(mut cache) = cache.lock() {
-            if let Some((cached_stamp, value, access)) = cache.get_mut(path) {
-                if *cached_stamp == stamp {
-                    *access = next_title_cache_access();
-                    return value.clone();
-                }
+        if let Some((cached_stamp, value, access)) = cache.locked().get_mut(path) {
+            if *cached_stamp == stamp {
+                *access = next_title_cache_access();
+                return value.clone();
             }
         }
         let value = compute();
-        if let Ok(mut cache) = cache.lock() {
-            if cache.len() >= MAX_TITLE_CACHE_ENTRIES && !cache.contains_key(path) {
-                if let Some(oldest) = cache
-                    .iter()
-                    .min_by_key(|(_, (_, _, access))| *access)
-                    .map(|(path, _)| path.clone())
-                {
-                    cache.remove(&oldest);
-                }
+        let mut cache = cache.locked();
+        if cache.len() >= MAX_TITLE_CACHE_ENTRIES && !cache.contains_key(path) {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, (_, _, access))| *access)
+                .map(|(path, _)| path.clone())
+            {
+                cache.remove(&oldest);
             }
-            cache.insert(
-                path.to_path_buf(),
-                (stamp, value.clone(), next_title_cache_access()),
-            );
         }
+        cache.insert(
+            path.to_path_buf(),
+            (stamp, value.clone(), next_title_cache_access()),
+        );
         value
     }
 }

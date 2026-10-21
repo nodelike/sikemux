@@ -4,11 +4,12 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
+use sikemux_plugin_api::codehost::{Issue, IssuePage, Label};
 
 use crate::client;
-use crate::common::{avatar_of, login_of, ActorRow, Label, LabelRow, MAX_PER_PAGE};
+use crate::common::{avatar_of, login_of, ActorRow, LabelRow, MAX_PER_PAGE};
 use crate::error::{GithubError, GithubResult};
 use crate::workflows::RepoRef;
 
@@ -32,26 +33,6 @@ struct IssueRow {
     labels: Vec<LabelRow>,
     #[serde(default)]
     assignees: Vec<ActorRow>,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Issue {
-    pub number: u64,
-    pub title: String,
-    pub body: String,
-    pub state: String,
-    /// Why it was closed: `completed`, `not_planned` or `reopened`.
-    pub state_reason: Option<String>,
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub closed_at: Option<String>,
-    pub comments: u64,
-    pub labels: Vec<Label>,
-    pub assignees: Vec<String>,
-    pub url: String,
 }
 
 impl From<IssueRow> for Issue {
@@ -92,14 +73,6 @@ pub struct Query {
 struct SearchPage {
     total_count: u64,
     items: Vec<IssueRow>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IssuePage {
-    pub issues: Vec<Issue>,
-    pub total: u64,
-    pub next_page: Option<u32>,
 }
 
 /// A label or login goes into a search as one quoted term, so nothing in it

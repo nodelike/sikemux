@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { formatAgo, formatDuration } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
-import { ContextMenu, Dropdown, EmptyState, SkeletonRows, StaleNotice } from "../../../plugin-api/ui";
+import { ContextMenu, Dropdown, EmptyState, Pending, StaleNotice } from "../../../plugin-api/ui";
 import type { VercelDeployment, VercelProject } from "../api";
 import { vercelDeploymentsR } from "../resources";
-import { isUnderway, type EnvironmentFilter, type StatusFilter, type VercelView } from "../state";
-import { Avatar, EnvBadge, IconMore, Source, Status, useDeploymentActions, useUnderwayPoll } from "./parts";
+import { useRefreshEvery } from "../../../plugin-api/hooks";
+import { isUnderway, UNDERWAY_REFRESH_MS, type EnvironmentFilter, type StatusFilter, type VercelView } from "../state";
+import { Avatar, EnvBadge, IconMore, Source, Status, useDeploymentActions } from "./parts";
 
 const ENVIRONMENTS: { value: EnvironmentFilter; label: string }[] = [
     { value: "all", label: "All Environments" },
@@ -44,7 +45,7 @@ export function Deployments({
     const deployments = useResourceEnabled(active, vercelDeploymentsR, team, project.name);
     const actions = useDeploymentActions(team);
     const [menu, setMenu] = useState<{ deployment: VercelDeployment; x: number; y: number } | null>(null);
-    useUnderwayPoll(active, deployments.data?.some((each) => isUnderway(each.state)) ?? false, deployments.refresh);
+    useRefreshEvery(deployments, active && deployments.data?.some((each) => isUnderway(each.state)) ? UNDERWAY_REFRESH_MS : null);
 
     const words = find.trim().toLowerCase();
     const shown = (deployments.data ?? []).filter(
@@ -73,10 +74,8 @@ export function Deployments({
                 />
             </div>
             <StaleNotice handle={deployments} />
-            {deployments.status === "error" && !deployments.data ? (
-                <p className="vercel-note">{deployments.error}</p>
-            ) : !deployments.data ? (
-                <SkeletonRows rows={6} label="Loading deployments" />
+            {!deployments.data ? (
+                <Pending handle={deployments} loading="Loading deployments" />
             ) : shown.length === 0 ? (
                 <EmptyState message={deployments.data.length === 0 ? "No deployments yet." : "No deployment matches these filters."} />
             ) : (

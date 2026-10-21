@@ -9,12 +9,14 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sikemux_process::vars;
 
 use super::board::git::{branch_exists, git, git_in, inside, slug, worktrees_folder, SLOW};
 use super::connection::blocking;
 use super::custom_command::{self, CommandParams};
 use super::{launching, tasks, Core, CoreResult};
 use crate::tasks::config::{self, ConfigLoad};
+use crate::tasks::detect::PERSONAL_TASKS;
 
 const BRANCH_PREFIX: &str = "sikemux/";
 const NAME_TRIES: usize = 50;
@@ -27,7 +29,7 @@ const DEFAULT_INCLUDE: [&str; 6] = [
     "*/.env",
     "*/.env.*",
     ".sikemux/.gitignore",
-    ".sikemux/tasks.json",
+    PERSONAL_TASKS,
 ];
 const MAX_INCLUDED: usize = 50;
 
@@ -182,7 +184,6 @@ pub(crate) struct ForAgentParams {
     /// What the agent was asked first, which names the branch.
     message: String,
     /// The repository to use when the agent's folder holds several.
-    #[serde(default)]
     repo: Option<PathBuf>,
 }
 
@@ -316,7 +317,7 @@ pub(crate) async fn for_agent(core: &Arc<Core>, params: ForAgentParams) -> CoreR
         Value::String(tree_cwd.to_string_lossy().into_owned()),
     );
     core.workspaces.update_agent(&params.agent_id, patch)?;
-    core.publish_device_view();
+    core.view_changed();
     if core.chats.stop(&params.agent_id) {
         launching::start_agent(core, None, &params.agent_id).await?;
     }
@@ -442,10 +443,7 @@ pub(crate) async fn set_up(
         let ran = custom_command::run(CommandParams {
             command: hook.command,
             cwd: Some(cwd.to_path_buf()),
-            env: HashMap::from([(
-                "SIKEMUX_PROJECT".to_owned(),
-                cwd.to_string_lossy().into_owned(),
-            )]),
+            env: HashMap::from([(vars::PROJECT.to_owned(), cwd.to_string_lossy().into_owned())]),
         })
         .await;
         let failed = match ran {

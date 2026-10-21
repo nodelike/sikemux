@@ -5,16 +5,16 @@ import type { DatabaseProfile } from "../api";
 const api = vi.hoisted(() => ({ describe: vi.fn(), history: vi.fn() }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), databaseApi: api }));
 
-import { invalidate } from "../../../plugin-api/resources";
 import { historyTab, tableTab, type DatabaseTab } from "../tabs";
 import { TabBody } from "./TabBody";
+import { database } from "../resources";
 
 const shop: DatabaseProfile = { id: "p1", name: "Shop", readOnly: false, agentWrites: false, hasPassword: false, engine: "sqlite", path: "/a.db" };
 const connected = { id: "p1", version: "SQLite 3.46.0" };
 
 afterEach(() => {
     cleanup();
-    invalidate((kind) => kind.startsWith("database."));
+    database.refresh();
 });
 beforeEach(() => {
     Object.values(api).forEach((mock) => mock.mockReset());

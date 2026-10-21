@@ -14,8 +14,33 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sikemux_pty::launch::{account_dir, account_variable};
-use sikemux_pty::user_shell::user_variable;
+use sikemux_process::user_environment::shell_var;
+use sikemux_pty::launch::account_dir;
+
+/// How freely the person lets an agent work: asking before it acts outside
+/// its folder (Normal), or never asking (YOLO).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PermissionMode {
+    WorkspaceWrite,
+    Bypass,
+}
+
+impl PermissionMode {
+    pub fn parse(mode: &str) -> Result<Self, String> {
+        match mode {
+            "workspace-write" => Ok(Self::WorkspaceWrite),
+            "bypass" => Ok(Self::Bypass),
+            _ => Err(format!("Unsupported permission mode: {mode}")),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WorkspaceWrite => "workspace-write",
+            Self::Bypass => "bypass",
+        }
+    }
+}
 
 /// One agent, as the person set it up: which program, which account and which
 /// of their shell's variables it gets.
@@ -23,10 +48,10 @@ use sikemux_pty::user_shell::user_variable;
 #[serde(rename_all = "camelCase")]
 pub struct AgentSpec {
     pub provider: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub executable_path: Option<String>,
     /// The account folder, or a config file in it; the agent's default when absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub config_path: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environment_keys: Vec<String>,
@@ -98,6 +123,18 @@ impl AgentSpec {
     }
 }
 
+/// The variable naming the folder an agent that keeps accounts keeps each
+/// one's sign-in and sessions in.
+pub fn account_variable(provider: &str) -> Option<&'static str> {
+    let agent = crate::agent_catalog::agent(provider).filter(|agent| agent.accounts)?;
+    agent.home.as_ref().map(|home| home.variable)
+}
+
+/// The account folder `env`, a launch's environment, names for `provider`.
+pub fn named_account<'a>(provider: &str, env: &'a BTreeMap<String, String>) -> Option<&'a str> {
+    env.get(account_variable(provider)?).map(String::as_str)
+}
+
 /// The variable naming the account folder an agent keeps its sign-in and
 /// sessions in: the one `config_path` names, or the one the person's shell
 /// points it at.
@@ -105,7 +142,7 @@ pub fn account_environment(provider: &str, config_path: Option<&str>) -> Option<
     let variable = account_variable(provider)?;
     let directory = match config_path.map(str::trim).filter(|path| !path.is_empty()) {
         Some(path) => account_dir(path).to_string_lossy().into_owned(),
-        None => user_variable(variable)?,
+        None => shell_var(variable)?,
     };
     Some((variable.to_owned(), directory))
 }
@@ -116,7 +153,7 @@ fn forwarded_environment(environment_keys: &[String]) -> BTreeMap<String, String
         .iter()
         .take(64)
         .filter(|key| seen.insert(*key) && valid_environment_key(key))
-        .filter_map(|key| Some((key.clone(), user_variable(key)?)))
+        .filter_map(|key| Some((key.clone(), shell_var(key)?)))
         .collect()
 }
 

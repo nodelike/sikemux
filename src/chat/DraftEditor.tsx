@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { AgentFace } from "../buddies/Buddy";
 import type { Agent } from "../state/types";
 import { FileIcon } from "../ui/FileIcon";
+import { IconImage } from "../ui/Icons";
 import { tagStarts } from "./composerInput";
 import { ContextMark } from "./ContextChip";
 
@@ -10,11 +11,11 @@ import { ContextMark } from "./ContextChip";
 export interface DraftChip {
     /** How it is written in the draft, such as `#135`. */
     text: string;
-    kind: "agent" | "issue" | "pull" | "file";
+    kind: "agent" | "issue" | "pull" | "file" | "image";
     /** What follows the name on the chip: an issue's title, or a file's name. */
     label?: string;
     /** The agent a chip names, for its buddy or harness mark. */
-    agent?: Pick<Agent, "id" | "type" | "buddy">;
+    agent?: Pick<Agent, "id" | "type" | "buddy" | "name">;
 }
 
 /** The editor as the composer drives it: the draft as a string, and offsets into that string. */
@@ -180,12 +181,20 @@ function ChipBody({ chip }: { chip: DraftChip }) {
                     )
                 ) : chip.kind === "file" ? (
                     <FileIcon name={chip.label ?? chip.text} size={12} />
+                ) : chip.kind === "image" ? (
+                    <IconImage size={12} />
                 ) : (
                     <ContextMark kind={chip.kind} size={12} />
                 )}
             </span>
-            {chip.kind === "file" ? <span className="chat-chip-name">{chip.label}</span> : <code>{chip.text}</code>}
-            {chip.kind !== "file" && chip.label && <span className="chat-chip-label">{chip.label}</span>}
+            {chip.kind === "file" ? (
+                <span className="chat-chip-name">{chip.label}</span>
+            ) : chip.kind === "image" ? (
+                <span className="chat-chip-name">{chip.text.slice(1, -1)}</span>
+            ) : (
+                <code>{chip.text}</code>
+            )}
+            {chip.kind !== "file" && chip.kind !== "image" && chip.label && <span className="chat-chip-label">{chip.label}</span>}
         </>
     );
 }

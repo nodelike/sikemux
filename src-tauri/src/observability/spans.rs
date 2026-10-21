@@ -1,10 +1,11 @@
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use super::duration_us;
 use super::model::{
     EventKind, Metadata, ScalarValue, SpanContext, SpanId, SpanOutcome, TraceEvent, TraceId,
 };
 use super::store::Observability;
-use super::{duration_us, next_monotonic_id};
 
 impl Observability {
     /// Starts a root span, or a child span when `parent` is supplied.
@@ -31,7 +32,7 @@ impl Observability {
         name: impl Into<String>,
         metadata: Metadata,
     ) -> SpanGuard {
-        let span_id = SpanId(next_monotonic_id(&self.inner.next_span_id));
+        let span_id = SpanId(self.inner.next_span_id.fetch_add(1, Ordering::Relaxed));
         let name = self.sanitize_text(name.into());
         let started_at = Instant::now();
         let context = SpanContext { trace_id, span_id };
@@ -73,7 +74,7 @@ impl Observability {
             .map(|context| context.trace_id)
             .unwrap_or_else(|| self.next_trace_id());
         let parent_span_id = parent.map(|context| context.span_id);
-        let span_id = SpanId(next_monotonic_id(&self.inner.next_span_id));
+        let span_id = SpanId(self.inner.next_span_id.fetch_add(1, Ordering::Relaxed));
 
         SlowOperationGuard {
             observer: self.clone(),

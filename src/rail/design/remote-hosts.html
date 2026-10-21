@@ -1,0 +1,63 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Other hosts in the app</title>
+<!-- View by serving the repo root (python3 -m http.server) and opening /src/rail/design/remote-hosts.html. -->
+<style>
+:root{--surface:#15121d;--ground:#100e16;--ink:#e7e5ef;--text-secondary:#b9b6c4;--text-tertiary:#8b8898;--border:#262130;--acc:#a277ff;--live:#61ffca;
+--surface-hover:color-mix(in oklab,var(--ink) 6%,transparent);--surface-chosen:color-mix(in oklab,var(--ink) 9%,transparent);
+--radius-2:5px;--radius-3:10px;--text-2xs:11px;--text-xs:12px;--space-1:4px;--space-2:8px;--space-3:12px}
+@font-face{font-family:"Figtree";src:url(../../../public/fonts/Figtree-latin-wght-normal.woff2) format("woff2");font-weight:300 900}
+*{box-sizing:border-box}
+body{margin:0;padding:28px;background:var(--ground);color:var(--ink);font:13px "Figtree",-apple-system,sans-serif;display:grid;grid-template-columns:repeat(2,minmax(0,300px));gap:28px 36px}
+header{grid-column:1/-1} header h1{font-size:15px;margin:0 0 6px} header p{color:var(--text-tertiary);font-size:12.5px;line-height:1.55;margin:0;max-width:640px}
+figure{margin:0} figcaption{color:var(--text-tertiary);font-size:var(--text-2xs);margin:0 0 8px}
+.rail{width:252px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-3);padding:6px}
+.row{display:flex;align-items:center;gap:var(--space-2);height:28px;padding:0 var(--space-2);border-radius:var(--radius-2);color:var(--text-secondary)}
+.row:hover{background:var(--surface-hover)} .row.active{background:var(--surface-chosen);color:var(--ink)}
+.glyph{width:18px;height:18px;flex:none;display:grid;place-items:center;font-size:12px;color:var(--text-tertiary)}
+.glyph.claude{color:#d97757} .glyph.term{color:var(--live)}
+.title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+/* The quiet host label: the same dim, small note an agent's name gets. */
+.host{flex:none;margin-left:var(--space-2);color:var(--text-tertiary);font-size:var(--text-2xs);font-weight:400}
+.name{flex:none;color:var(--text-tertiary);font-size:var(--text-2xs)}
+.kbd{flex:none;color:var(--text-tertiary);font-size:var(--text-2xs)}
+.onhost{padding:4px 8px 2px;color:var(--text-tertiary);font-size:var(--text-2xs)}
+.rule{height:1px;background:var(--border);margin:6px 2px}
+.proj{font-weight:600;color:var(--ink)}
+.settings{width:560px;grid-column:1/-1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-3);padding:4px 0}
+.srow{display:flex;align-items:center;gap:var(--space-3);padding:10px 14px;border-top:1px solid var(--border)} .srow:first-child{border-top:0}
+.srow .label{flex:1;min-width:0} .srow .label b{display:block;font-weight:500;color:var(--ink)} .srow .label span{color:var(--text-tertiary);font-size:var(--text-xs)}
+.switch{width:28px;height:16px;border-radius:8px;background:var(--surface-chosen);position:relative;flex:none} .switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--text-tertiary)}
+.switch.on{background:var(--acc)} .switch.on::after{left:14px;background:#fff}
+.btn{flex:none;border:1px solid var(--border);border-radius:var(--radius-2);padding:3px 10px;color:var(--text-secondary);font-size:var(--text-xs)}
+</style></head><body>
+<header>
+<h1>Other hosts in the app</h1>
+<p>The app reaches every host on the account (ADR 0017, 0018). Their chats and terminals sit under the project they belong to, beside this host's, with a quiet <em>on &lt;host&gt;</em> only when they run elsewhere. A project only another host holds gets its own row. The new rows start on the host of the focused chat or terminal and name it when it is not this one; the hosts themselves are one group in the side rail (hosts-group.html).</p>
+</header>
+
+<figure><figcaption>Tab rail, agents page, project <b>sikemux</b>, focused on a chat on test-ec2</figcaption>
+<div class="rail">
+  <div class="onhost">on test-ec2</div>
+  <div class="row"><span class="glyph">+</span><span class="title">New chat</span><span class="kbd">⌘N</span></div>
+  <div class="row"><span class="glyph term">›_</span><span class="title">New terminal</span><span class="kbd">⌘T</span></div>
+  <div class="row"><span class="glyph">◎</span><span class="title">New browser</span></div>
+  <div class="rule"></div>
+  <div class="row active"><span class="glyph claude">✳</span><span class="title">Fix the flaky upload test</span><span class="name">@Otter</span></div>
+  <div class="row"><span class="glyph claude">✳</span><span class="title">Wire the host chip<span class="host">on test-ec2</span></span><span class="name">@Kite</span></div>
+  <div class="row"><span class="glyph claude">✳</span><span class="title">Bump dependencies<span class="host">on test-ec2</span></span><span class="name">@Wren</span></div>
+</div></figure>
+
+<figure><figcaption>Tab rail, terminals page</figcaption>
+<div class="rail">
+  <div class="row"><span class="glyph term">›_</span><span class="title">zsh · ~/proj/pers/sikemux</span></div>
+  <div class="row"><span class="glyph term">›_</span><span class="title">bash · ~/sikemux<span class="host">on test-ec2</span></span></div>
+</div></figure>
+
+<figure><figcaption>Side rail: a project only test-ec2 holds</figcaption>
+<div class="rail">
+  <div class="row active"><span class="glyph">▣</span><span class="title proj">sikemux</span></div>
+  <div class="row"><span class="glyph">▣</span><span class="title proj">infra<span class="host">on test-ec2</span></span></div>
+</div></figure>
+
+<figure></figure>
+
+</body></html>

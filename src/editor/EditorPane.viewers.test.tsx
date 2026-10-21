@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emit } from "../state/bus";
 import { getState, setState } from "../state/store";
 import { EditorPane } from "./EditorPane";
+import { fileRead, wholeFile } from "../test/files";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
@@ -27,9 +28,10 @@ describe("EditorPane viewers", () => {
         invoke.mockReset();
         invoke.mockImplementation(async (command: string, args: { path: string }) => {
             if (command === "preview_file") return files[args.path];
-            if (command === "read_file_versioned") {
-                if (files[args.path]) throw { category: "not-text", message: `${args.path} is not UTF-8 text` };
-                return { content: "text", version: "v1" };
+            const read = fileRead(command, args);
+            if (read) {
+                if (files[read.path]) throw { category: "not-text", message: `${read.path} is not UTF-8 text` };
+                return wholeFile("text", "v1");
             }
             return null;
         });
@@ -54,7 +56,7 @@ describe("EditorPane viewers", () => {
         open("/repo/spec.pdf");
 
         await waitFor(() => expect(invoke).toHaveBeenCalledWith("document_preview_show", expect.objectContaining({ path: "/repo/spec.pdf" })));
-        expect(invoke.mock.calls.some(([command]) => command === "read_file_versioned")).toBe(false);
+        expect(invoke.mock.calls.some(([command, args]) => fileRead(command, args))).toBe(false);
     });
 
     it("falls back to a hex view when a file with an unknown name is not text", async () => {

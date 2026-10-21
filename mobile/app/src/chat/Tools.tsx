@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, type ReactNode } from 'react';
-import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { durationLabel } from '@mac/chat/durationLabel';
 import { toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from '@mac/chat/toolLabels';
@@ -19,6 +19,7 @@ import type { AcpToolCall, ChatPart } from '@mac/chat/types';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
+import { openLink } from '@/ui/prompt';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { Shimmer } from '@/ui/Shimmer';
 import { DiffBody } from './Diff';
@@ -97,25 +98,25 @@ const TOOL_ICONS: Record<ToolIconName, IconName> = {
 /** The marks of the plugins whose tools the phone's icon set already draws; the rest keep the call's own icon. */
 const PLUGIN_MARKS: Readonly<Record<string, IconName>> = { 'sikemux.aws': 'IconAws', 'sikemux.rundeck': 'IconRundeck' };
 
+/** The colour of each kind of call; any other kind is drawn in `inkDim`. */
+const KIND_COLORS: Readonly<Record<string, keyof Palette>> = {
+  read: 'toolRead',
+  search: 'toolRead',
+  fetch: 'toolRead',
+  edit: 'toolEdit',
+  move: 'toolEdit',
+  delete: 'toolDelete',
+  execute: 'toolRun',
+  mcp: 'toolMcp',
+};
+
 /** The icon and colour of a call, as the Mac's tool rows draw them. */
 function look(tool: AcpToolCall, colors: Palette): { icon: IconName; color: string } {
   const plugin = tool.status === 'failed' ? undefined : sikemuxToolRow(tool)?.plugin;
   const icon = (plugin && PLUGIN_MARKS[plugin]) || TOOL_ICONS[toolIconName(tool)];
   if (tool.status === 'failed') return { icon, color: colors.danger };
   const kind = toolRowKind(tool);
-  const color =
-    kind === 'read' || kind === 'search' || kind === 'fetch'
-      ? colors.toolRead
-      : kind === 'edit' || kind === 'move'
-        ? colors.toolEdit
-        : kind === 'delete'
-          ? colors.toolDelete
-          : kind === 'execute'
-            ? colors.toolRun
-            : kind === 'mcp'
-              ? colors.toolMcp
-              : colors.inkDim;
-  return { icon, color };
+  return { icon, color: colors[(kind && KIND_COLORS[kind]) || 'inkDim'] };
 }
 
 /** Counts up in whole seconds on a clock of its own, so the tick redraws this label and nothing around it. */
@@ -180,7 +181,7 @@ function Terminal({ part, command, group }: { part: ToolPart; command: string | 
               <Text style={[styles.mono, styles.outputText]}>{lines.slice(0, OUTPUT_FOLD_LINES).join('\n')}</Text>
             </Sideways>
           ) : (
-            <ScrollView style={styles.whole} nestedScrollEnabled>
+            <ScrollView style={styles.whole} nestedScrollEnabled showsVerticalScrollIndicator={false}>
               <Sideways>
                 <Text style={[styles.mono, styles.outputText]} selectable>
                   {output.text}
@@ -231,7 +232,7 @@ function Target({ tool, target }: { tool: AcpToolCall; target: string }) {
   return (
     <>
       {link.before}
-      <Text style={styles.link} onPress={() => Linking.openURL(link.url).catch(() => {})} accessibilityRole="link">
+      <Text style={styles.link} onPress={() => openLink(link.url)} accessibilityRole="link">
         {link.raw}
       </Text>
       {link.after}

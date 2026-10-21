@@ -1,6 +1,7 @@
+import { isRecord } from "../lib/guards";
 import { performanceTelemetry } from "../lib/performance";
 import { parsePtyShellMetadataSnapshot, type PtyShellMetadataSnapshot, type PtyShellPhase } from "../terminal/ptyController";
-import { invokeCommand as invoke } from "./invoke";
+import { coreRequest } from "./core";
 import { getIpcTransport, type IpcUnsubscribe } from "./transport";
 
 export type PtyShellBoundary = "cwd" | "prompt_start" | "command_start" | "command_executed" | "command_finished";
@@ -15,78 +16,49 @@ export interface PtyShellMetadataEvent {
 }
 
 /** Whether the shell is waiting at its prompt with nothing running in it. */
-export const ptyShellAtPrompt = (ptyId: number): Promise<boolean> => invoke<boolean>("pty_shell_at_prompt", { id: ptyId });
+export const ptyShellAtPrompt = (ptyId: number): Promise<boolean> =>
+    coreRequest<{ atPrompt: boolean }>({ op: "shellAtPrompt", id: ptyId }).then(({ atPrompt }) => atPrompt);
 
 export type PtyShellMetadataListener = (event: PtyShellMetadataEvent) => void;
 
 export const PTY_SHELL_METADATA_EVENT = "pty_shell_metadata";
-export const PTY_SHELL_SUBSCRIPTION_LIMITS = Object.freeze({ maxPtys: 512, maxListenersPerPty: 8 });
-
-const EVENT_KEYS = new Set(["ptyId", "revision", "boundary", "cwd", "phase", "exitCode"]);
 const BOUNDARIES = new Set<PtyShellBoundary>(["cwd", "prompt_start", "command_start", "command_executed", "command_finished"]);
 const listeners = new Map<number, Set<PtyShellMetadataListener>>();
 let nativeUnlisten: IpcUnsubscribe | null = null;
 let nativeListenPromise: Promise<void> | null = null;
 
-function ownDataRecord(value: unknown): Record<string, unknown> | null {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-    try {
-        const descriptors = Object.getOwnPropertyDescriptors(value);
-        const record: Record<string, unknown> = {};
-        for (const key of Reflect.ownKeys(descriptors)) {
-            if (typeof key !== "string" || !EVENT_KEYS.has(key)) return null;
-            const descriptor = descriptors[key];
-            if (!descriptor || !("value" in descriptor)) return null;
-            record[key] = descriptor.value;
-        }
-        return record;
-    } catch {
-        return null;
-    }
-}
-
-function validPtyId(value: unknown): value is number {
-    return Number.isSafeInteger(value) && (value as number) >= 0;
-}
-
-function validExitCode(value: unknown): value is number {
-    return Number.isInteger(value) && (value as number) >= -2_147_483_648 && (value as number) <= 2_147_483_647;
-}
-
 export function parsePtyShellMetadataEvent(value: unknown): PtyShellMetadataEvent | null {
-    const record = ownDataRecord(value);
-    if (!record || !validPtyId(record.ptyId) || typeof record.boundary !== "string" || !BOUNDARIES.has(record.boundary as PtyShellBoundary)) {
+    if (
+        !isRecord(value) ||
+        typeof value.ptyId !== "number" ||
+        typeof value.boundary !== "string" ||
+        !BOUNDARIES.has(value.boundary as PtyShellBoundary)
+    ) {
         return null;
     }
-    const shell = parsePtyShellMetadataSnapshot({
-        revision: record.revision,
-        cwd: record.cwd,
-        phase: record.phase,
-        lastExitCode: null,
-    });
+    const shell = parsePtyShellMetadataSnapshot({ revision: value.revision, cwd: value.cwd, phase: value.phase, lastExitCode: null });
     if (!shell) return null;
-    const exitCode = record.exitCode === undefined ? null : record.exitCode;
-    if (exitCode !== null && !validExitCode(exitCode)) return null;
-    if (record.boundary !== "command_finished" && record.exitCode !== undefined) return null;
-    return Object.freeze({
-        ptyId: record.ptyId,
+    const exitCode = value.exitCode ?? null;
+    if (exitCode !== null && typeof exitCode !== "number") return null;
+    return {
+        ptyId: value.ptyId,
         revision: shell.revision,
-        boundary: record.boundary as PtyShellBoundary,
+        boundary: value.boundary as PtyShellBoundary,
         cwd: shell.cwd,
         phase: shell.phase,
-        exitCode: exitCode as number | null,
-    });
+        exitCode,
+    };
 }
 
 /** Apply only a newer event; shell metadata is never an authorization input. */
 export function applyPtyShellMetadataEvent(current: PtyShellMetadataSnapshot | null, event: PtyShellMetadataEvent): PtyShellMetadataSnapshot {
     if (current && event.revision <= current.revision) return current;
-    return Object.freeze({
+    return {
         revision: event.revision,
         cwd: event.cwd,
         phase: event.phase,
         lastExitCode: event.boundary === "command_finished" ? event.exitCode : (current?.lastExitCode ?? null),
-    });
+    };
 }
 
 function listenerCount(): number {
@@ -103,24 +75,14 @@ function dispatch(payload: unknown): void {
     }
     const group = listeners.get(event.ptyId);
     if (!group) return;
-    for (const listener of Array.from(group)) {
-        try {
-            listener(event);
-        } catch {
-            performanceTelemetry.incrementCounter("terminal.shell-metadata.listener-errors");
-        }
-    }
+    for (const listener of Array.from(group)) listener(event);
 }
 
 function stopNativeListenerIfIdle(): void {
     if (listenerCount() !== 0 || !nativeUnlisten) return;
     const unlisten = nativeUnlisten;
     nativeUnlisten = null;
-    try {
-        unlisten();
-    } catch {
-        performanceTelemetry.incrementCounter("terminal.shell-metadata.unlisten-errors");
-    }
+    unlisten();
 }
 
 function ensureNativeListener(): Promise<void> {
@@ -145,12 +107,7 @@ function ensureNativeListener(): Promise<void> {
 
 /** Shares one native listener across all live PTYs and filters by runtime ID. */
 export async function subscribePtyShellMetadata(ptyId: number, listener: PtyShellMetadataListener): Promise<IpcUnsubscribe> {
-    if (!validPtyId(ptyId)) throw new TypeError("PTY shell subscription requires a valid runtime ID");
-    if (typeof listener !== "function") throw new TypeError("PTY shell subscription requires a listener");
-    let group = listeners.get(ptyId);
-    if (!group && listeners.size >= PTY_SHELL_SUBSCRIPTION_LIMITS.maxPtys) throw new RangeError("PTY shell subscription PTY limit reached");
-    group ??= new Set();
-    if (group.size >= PTY_SHELL_SUBSCRIPTION_LIMITS.maxListenersPerPty) throw new RangeError("PTY shell listener limit reached");
+    const group = listeners.get(ptyId) ?? new Set();
     group.add(listener);
     listeners.set(ptyId, group);
     try {

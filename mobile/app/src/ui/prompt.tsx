@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Alert, Linking, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+
+import { errorText } from '@mac/lib/format';
 
 import { DeviceIcon, Icon, type DeviceKind } from './Icon';
 import type { IconName } from './icons.generated';
@@ -8,6 +10,16 @@ import { type Palette, translucent, typeFor, useColors, useStyles } from './them
 
 export type Glyph = IconName | DeviceKind;
 type Tone = 'neutral' | 'danger';
+
+/** Tells the person an action failed, for a screen with no line of its own to say it on. */
+export function alertFailure(title: string): (error: unknown) => void {
+  return (error) => Alert.alert(title, errorText(error));
+}
+
+/** Opens a link outside the app, saying so when the phone cannot. */
+export function openLink(url: string) {
+  Linking.openURL(url).catch(alertFailure("Couldn't open the link"));
+}
 
 function isDevice(glyph: Glyph): glyph is DeviceKind {
   return glyph === 'laptop' || glyph === 'desktop' || glyph === 'mini';

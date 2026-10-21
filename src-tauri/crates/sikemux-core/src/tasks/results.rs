@@ -606,91 +606,131 @@ fn method_name(name: &str) -> String {
     METHOD_ARGUMENTS.replace(name, "").into_owned()
 }
 
+/// A test runner whose failures a test task's command can be narrowed to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Runner<'a> {
+    Pytest,
+    Go,
+    Cargo,
+    Vitest,
+    Jest,
+    /// With the program the command starts, `mvn` or the project's `./mvnw`.
+    Maven(&'a str),
+    Gradle(&'a str),
+}
+
+/// The file each runner's detected command writes its results to, which
+/// tells the runner from the command.
+const REPORTED: [(Runner<'static>, &str); 5] = [
+    (Runner::Pytest, PYTEST_REPORT),
+    (Runner::Go, GO_TEST_LOG),
+    (Runner::Cargo, CARGO_TEST_LOG),
+    (Runner::Vitest, VITEST_REPORT),
+    (Runner::Jest, JEST_REPORT),
+];
+
+impl<'a> Runner<'a> {
+    /// The runner `command` starts, by the report it writes or else the
+    /// build tool it runs.
+    fn of(command: &'a str) -> Option<Self> {
+        if let Some((runner, _)) = REPORTED.iter().find(|(_, report)| command.contains(report)) {
+            return Some(*runner);
+        }
+        let tool = command.split(' ').next().unwrap_or("");
+        if MAVEN.is_match(tool) {
+            Some(Self::Maven(tool))
+        } else if GRADLE.is_match(tool) {
+            Some(Self::Gradle(tool))
+        } else {
+            None
+        }
+    }
+}
+
 /// The same test command narrowed to the tests that failed, or none for a build tool it does not know.
 pub fn rerun_failed_command(command: &str, failures: &[TestFailure]) -> Option<String> {
-    if command.contains(PYTEST_REPORT) {
-        return Some(format!("{command} --lf"));
-    }
-    // Go and Cargo commands sit inside `sh -c '…'`, where quoting cannot nest, so only plain identifiers go in.
-    if command.contains(GO_TEST_LOG) {
-        let names = unique(
-            failures
-                .iter()
-                .map(|failure| failure.name.split('/').next().unwrap_or("")),
-        );
-        if !names.iter().all(|name| GO_TEST_NAME.is_match(name)) {
-            return None;
-        }
-        return Some(command.replacen(
-            "go test -v ./...",
-            &format!(r#"go test -v -run "^({})\$" ./..."#, names.join("|")),
-            1,
-        ));
-    }
-    if command.contains(CARGO_TEST_LOG) {
-        let names: Vec<String> = failures
-            .iter()
-            .map(|failure| {
-                if failure.class_name.is_empty() {
-                    failure.name.clone()
-                } else {
-                    format!("{}::{}", failure.class_name, failure.name)
-                }
-            })
-            .collect();
-        if !names.iter().all(|name| CARGO_TEST_NAME.is_match(name)) {
-            return None;
-        }
-        return Some(command.replacen(
-            "cargo test",
-            &format!("cargo test -- --exact {}", names.join(" ")),
-            1,
-        ));
-    }
-    if command.contains(VITEST_REPORT) || command.contains(JEST_REPORT) {
-        let files: Vec<String> = unique(failures.iter().map(|failure| failure.class_name.as_str()))
-            .into_iter()
-            .map(shell_quote)
-            .collect();
-        return Some(format!("{command} {}", files.join(" ")));
-    }
-    let tool = command.split(' ').next().unwrap_or("");
-    if MAVEN.is_match(tool) {
-        let mut by_class: Vec<(&str, Vec<String>)> = Vec::new();
-        for failure in failures {
-            let simple = failure.class_name.rsplit('.').next().unwrap_or("");
-            let method = method_name(&failure.name);
-            match by_class.iter_mut().find(|(class, _)| *class == simple) {
-                Some((_, methods)) => methods.push(method),
-                None => by_class.push((simple, vec![method])),
+    match Runner::of(command)? {
+        Runner::Pytest => Some(format!("{command} --lf")),
+        // Go and Cargo commands sit inside `sh -c '…'`, where quoting cannot nest, so only plain identifiers go in.
+        Runner::Go => {
+            let names = unique(
+                failures
+                    .iter()
+                    .map(|failure| failure.name.split('/').next().unwrap_or("")),
+            );
+            if !names.iter().all(|name| GO_TEST_NAME.is_match(name)) {
+                return None;
             }
+            Some(command.replacen(
+                "go test -v ./...",
+                &format!(r#"go test -v -run "^({})\$" ./..."#, names.join("|")),
+                1,
+            ))
         }
-        let selector = by_class
-            .iter()
-            .map(|(class, methods)| format!("{class}#{}", methods.join("+")))
-            .collect::<Vec<_>>()
-            .join(",");
-        return Some(format!(
-            "{tool} test -Dtest={} -Dsurefire.failIfNoSpecifiedTests=false",
-            shell_quote(&selector)
-        ));
+        Runner::Cargo => {
+            let names: Vec<String> = failures
+                .iter()
+                .map(|failure| {
+                    if failure.class_name.is_empty() {
+                        failure.name.clone()
+                    } else {
+                        format!("{}::{}", failure.class_name, failure.name)
+                    }
+                })
+                .collect();
+            if !names.iter().all(|name| CARGO_TEST_NAME.is_match(name)) {
+                return None;
+            }
+            Some(command.replacen(
+                "cargo test",
+                &format!("cargo test -- --exact {}", names.join(" ")),
+                1,
+            ))
+        }
+        Runner::Vitest | Runner::Jest => {
+            let files: Vec<String> =
+                unique(failures.iter().map(|failure| failure.class_name.as_str()))
+                    .into_iter()
+                    .map(shell_quote)
+                    .collect();
+            Some(format!("{command} {}", files.join(" ")))
+        }
+        Runner::Maven(tool) => {
+            let mut by_class: Vec<(&str, Vec<String>)> = Vec::new();
+            for failure in failures {
+                let simple = failure.class_name.rsplit('.').next().unwrap_or("");
+                let method = method_name(&failure.name);
+                match by_class.iter_mut().find(|(class, _)| *class == simple) {
+                    Some((_, methods)) => methods.push(method),
+                    None => by_class.push((simple, vec![method])),
+                }
+            }
+            let selector = by_class
+                .iter()
+                .map(|(class, methods)| format!("{class}#{}", methods.join("+")))
+                .collect::<Vec<_>>()
+                .join(",");
+            Some(format!(
+                "{tool} test -Dtest={} -Dsurefire.failIfNoSpecifiedTests=false",
+                shell_quote(&selector)
+            ))
+        }
+        Runner::Gradle(tool) => {
+            let filters = failures
+                .iter()
+                .map(|failure| {
+                    format!(
+                        "--tests {}",
+                        shell_quote(&format!(
+                            "{}.{}",
+                            failure.class_name,
+                            method_name(&failure.name)
+                        ))
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            Some(format!("{tool} test {filters}"))
+        }
     }
-    if GRADLE.is_match(tool) {
-        let filters = failures
-            .iter()
-            .map(|failure| {
-                format!(
-                    "--tests {}",
-                    shell_quote(&format!(
-                        "{}.{}",
-                        failure.class_name,
-                        method_name(&failure.name)
-                    ))
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-        return Some(format!("{tool} test {filters}"));
-    }
-    None
 }

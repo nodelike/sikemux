@@ -10,23 +10,15 @@ use std::time::Duration;
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sikemux_process::sync::Locked;
 
-use crate::sessions::roots::{
-    agent_config_root, environment_path, grok_root, hermes_root, pi_agent_root,
-};
+use super::changed::Topic;
+use crate::agent_catalog::AgentKind;
+use crate::sessions::roots::{agent_config_root, environment_path};
 use crate::skills::{self, Skill};
 
 use super::connection::blocking;
 use super::{Core, CoreError, CoreResult};
-
-pub(crate) const METHODS: [&str; 6] = [
-    "skillsOverview",
-    "createSkill",
-    "installSkill",
-    "removeSkill",
-    "adoptSkill",
-    "skillsAdded",
-];
 
 /// The most global skills kept as newly added until the person answers.
 const MAX_ADDED: usize = 64;
@@ -60,11 +52,9 @@ struct GlobalSkillAdded {
 }
 
 /// The global skills that appeared since the core started, until moved in.
-fn added() -> std::sync::MutexGuard<'static, Vec<GlobalSkillAdded>> {
+fn newly_added() -> std::sync::MutexGuard<'static, Vec<GlobalSkillAdded>> {
     static ADDED: Mutex<Vec<GlobalSkillAdded>> = Mutex::new(Vec::new());
-    ADDED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    ADDED.locked()
 }
 
 /// Each agent's own global skills folder, with the agents that read it,
@@ -81,9 +71,9 @@ fn global_folders() -> Vec<(&'static str, PathBuf)> {
         ("Codex and other agents", Some(home.join(".agents/skills"))),
         ("OpenCode", Some(config_home.join("opencode/skills"))),
         ("OMP", skills(agent_config_root("omp", None))),
-        ("Grok", skills(grok_root())),
-        ("Hermes", skills(hermes_root())),
-        ("Pi", skills(pi_agent_root())),
+        ("Grok", skills(AgentKind::Grok.home_root())),
+        ("Hermes", skills(AgentKind::Hermes.home_root())),
+        ("Pi", skills(AgentKind::Pi.home_root())),
     ]
     .into_iter()
     .filter_map(|(label, folder)| Some((label, folder?)))
@@ -98,7 +88,7 @@ fn global_folders() -> Vec<(&'static str, PathBuf)> {
     folders
 }
 
-fn overview(data_dir: &Path, folders: Vec<(&'static str, PathBuf)>) -> SkillsOverview {
+fn library_overview(data_dir: &Path, folders: Vec<(&'static str, PathBuf)>) -> SkillsOverview {
     let library = skills::list(data_dir);
     let own: Vec<OwnSkills> = folders
         .into_iter()
@@ -127,7 +117,7 @@ fn overview(data_dir: &Path, folders: Vec<(&'static str, PathBuf)>) -> SkillsOve
 
 /// Moves one of the person's own skills into the library. Only a skill that
 /// sits directly in a known global skills folder can move.
-fn adopt(
+fn adopt_global(
     data_dir: &Path,
     folders: &[(&'static str, PathBuf)],
     path: &Path,
@@ -152,81 +142,93 @@ fn adopt(
 }
 
 #[derive(Deserialize)]
-struct NewSkill {
+pub(super) struct NewSkill {
     name: String,
     description: String,
     body: String,
 }
 
 #[derive(Deserialize)]
-struct Source {
+pub(super) struct Source {
     source: String,
-    #[serde(default)]
     subfolder: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct Named {
+pub(super) struct Named {
     name: String,
 }
 
 #[derive(Deserialize)]
-struct Located {
+pub(super) struct Located {
     path: PathBuf,
 }
 
-fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
-    serde_json::from_value(params)
-        .map_err(|error| CoreError::from(format!("the call's params do not fit: {error}")))
-}
-
-pub(crate) async fn call(core: &Arc<Core>, method: &str, params: Value) -> CoreResult<Value> {
+/// Runs `work` on the library in the data folder, off the async threads.
+async fn on_library<T: Serialize + Send + 'static>(
+    core: &Core,
+    work: impl FnOnce(&Path) -> CoreResult<T> + Send + 'static,
+) -> CoreResult<Value> {
     let data_dir = core
         .workspaces
         .data_dir()
         .ok_or_else(|| CoreError::from("this host keeps no skills"))?
         .to_path_buf();
-    let method = method.to_owned();
-    blocking(move || {
-        Ok(match method.as_str() {
-            "skillsOverview" => serde_json::to_value(overview(&data_dir, global_folders()))?,
-            "createSkill" => {
-                let skill: NewSkill = parse(params)?;
-                serde_json::to_value(skills::create(
-                    &data_dir,
-                    &skill.name,
-                    &skill.description,
-                    &skill.body,
-                )?)?
-            }
-            "installSkill" => {
-                let from: Source = parse(params)?;
-                let source = from.source.trim();
-                let skill = if source.starts_with('/') {
-                    skills::install_folder(&data_dir, Path::new(source))?
-                } else {
-                    let subfolder = from
-                        .subfolder
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|path| !path.is_empty());
-                    skills::install_git(&data_dir, source, subfolder)?
-                };
-                serde_json::to_value(skill)?
-            }
-            "removeSkill" => {
-                let named: Named = parse(params)?;
-                serde_json::to_value(skills::remove(&data_dir, &named.name)?)?
-            }
-            "adoptSkill" => {
-                let located: Located = parse(params)?;
-                let skill = adopt(&data_dir, &global_folders(), &located.path)?;
-                added().retain(|added| added.path != located.path);
-                serde_json::to_value(skill)?
-            }
-            "skillsAdded" => serde_json::to_value(added().clone())?,
-            _ => return Err(format!("this host does not know {method}").into()),
+    blocking(move || Ok(serde_json::to_value(work(&data_dir)?)?)).await
+}
+
+pub(super) async fn overview(core: &Core) -> CoreResult<Value> {
+    on_library(core, |data_dir| {
+        Ok(library_overview(data_dir, global_folders()))
+    })
+    .await
+}
+
+pub(super) async fn added(core: &Core) -> CoreResult<Value> {
+    on_library(core, |_| Ok(newly_added().clone())).await
+}
+
+pub(super) async fn create(core: &Core, skill: NewSkill) -> CoreResult<Value> {
+    on_library(core, move |data_dir| {
+        Ok(skills::create(
+            data_dir,
+            &skill.name,
+            &skill.description,
+            &skill.body,
+        )?)
+    })
+    .await
+}
+
+pub(super) async fn install(core: &Core, from: Source) -> CoreResult<Value> {
+    on_library(core, move |data_dir| {
+        let source = from.source.trim();
+        Ok(if source.starts_with('/') {
+            skills::install_folder(data_dir, Path::new(source))?
+        } else {
+            let subfolder = from
+                .subfolder
+                .as_deref()
+                .map(str::trim)
+                .filter(|path| !path.is_empty());
+            skills::install_git(data_dir, source, subfolder)?
         })
+    })
+    .await
+}
+
+pub(super) async fn remove(core: &Core, named: Named) -> CoreResult<Value> {
+    on_library(core, move |data_dir| {
+        Ok(skills::remove(data_dir, &named.name)?)
+    })
+    .await
+}
+
+pub(super) async fn adopt(core: &Core, located: Located) -> CoreResult<Value> {
+    on_library(core, move |data_dir| {
+        let skill = adopt_global(data_dir, &global_folders(), &located.path)?;
+        newly_added().retain(|added| added.path != located.path);
+        Ok(skill)
     })
     .await
 }
@@ -292,13 +294,13 @@ pub(crate) fn watch_global(core: &Arc<Core>) {
             let Some(core) = core.upgrade() else {
                 return;
             };
-            let mut kept = added();
+            let mut kept = newly_added();
             if kept.len() >= MAX_ADDED {
                 kept.remove(0);
             }
             kept.push(skill);
             drop(kept);
-            core.changes.changed("skills", None, None);
+            core.changes.changed(Topic::Skills, None, None);
         });
     });
 }
@@ -364,7 +366,7 @@ mod tests {
         write_skill(&claude, "deploy");
         write_skill(&claude, "notes");
 
-        let seen = overview(&data, vec![("Claude", claude.clone()), ("Pi", empty)]);
+        let seen = library_overview(&data, vec![("Claude", claude.clone()), ("Pi", empty)]);
         assert_eq!(seen.skills.len(), 2);
         assert_eq!(seen.own.len(), 1);
         assert_eq!(seen.own[0].agent, "Claude");
@@ -455,8 +457,8 @@ mod tests {
         write_skill(&claude, "notes");
         let folders = vec![("Claude", claude.clone())];
 
-        assert!(adopt(&data, &folders, &root.path().join("elsewhere/notes")).is_err());
-        let skill = adopt(&data, &folders, &claude.join("notes")).unwrap();
+        assert!(adopt_global(&data, &folders, &root.path().join("elsewhere/notes")).is_err());
+        let skill = adopt_global(&data, &folders, &claude.join("notes")).unwrap();
         assert_eq!(skill.name, "notes");
         assert!(!claude.join("notes").exists());
         assert_eq!(skills::list(&data).len(), 1);

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatStamp } from "../../../plugin-api/format";
 import { Markdown, Seg } from "../../../plugin-api/ui";
 import type { JiraChange, JiraComment, JiraIssue } from "../api";
 import { Avatar } from "./JiraFace";
@@ -6,8 +7,6 @@ import { Avatar } from "./JiraFace";
 type Shown = "all" | "comments" | "history";
 
 type Entry = { kind: "comment"; at: number; comment: JiraComment } | { kind: "change"; at: number; change: JiraChange };
-
-const whenOf = (stamp: string) => new Date(stamp).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 /** The issue's comments and edits, newest first, with a box for a new comment on top. */
 export function JiraActivity({ issue, busy, onComment }: { issue: JiraIssue; busy: boolean; onComment: (body: string) => Promise<boolean> }) {
@@ -71,7 +70,7 @@ function CommentRow({ comment }: { comment: JiraComment }) {
             <div className="jira-comment-body">
                 <div className="jira-comment-head">
                     <b>{comment.author}</b>
-                    <span className="jira-meta">{whenOf(comment.created)}</span>
+                    <span className="jira-meta">{formatStamp(comment.created)}</span>
                 </div>
                 <Markdown>{comment.body}</Markdown>
             </div>
@@ -86,7 +85,7 @@ function ChangeRow({ change }: { change: JiraChange }) {
             <div className="jira-comment-body">
                 <div className="jira-comment-head">
                     <b>{change.author}</b>
-                    <span className="jira-meta">{whenOf(change.created)}</span>
+                    <span className="jira-meta">{formatStamp(change.created)}</span>
                 </div>
                 {change.fields.map((field, index) => (
                     <div key={index} className="jira-change">

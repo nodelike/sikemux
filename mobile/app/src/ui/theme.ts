@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import { AGENT_BRANDS, type AgentType } from '@mac/agents/catalog';
+import type { PaletteName } from '@mac/remote/palette';
 import { Platform, type TextStyle } from 'react-native';
 
 /** Aura Noir, the Mac app's default theme, with its neutral ramp mixed the same way (DESIGN.md §3). */
@@ -43,9 +44,9 @@ export const defaultPalette = {
   toolMcp: '#6fd6b9',
   /** The pane grain's dots: the raised surface on a dark theme. */
   shaderDot: '#19191e',
-};
+} satisfies Palette;
 
-export type Palette = Record<keyof typeof defaultPalette, string>;
+export type Palette = Record<PaletteName, string>;
 
 /** The palette a host published, over the default for any colour it left out. */
 export function paletteFrom(published: Readonly<Record<string, string>> | undefined): Palette {
@@ -58,21 +59,24 @@ export function paletteFrom(published: Readonly<Record<string, string>> | undefi
   return palette;
 }
 
+/** The red, green and blue of a `#rrggbb` colour, each 0 to 255. */
+function channels(color: string): number[] | undefined {
+  return /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i
+    .exec(color)
+    ?.slice(1)
+    .map((part) => parseInt(part, 16));
+}
+
 /** A palette colour at some opacity, for surfaces that let the backdrop show through. */
 export function translucent(color: string, opacity: number): string {
-  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color);
-  if (!hex) return color;
-  const [red, green, blue] = hex.slice(1).map((part) => parseInt(part, 16));
+  const rgb = channels(color);
+  if (!rgb) return color;
+  const [red, green, blue] = rgb;
   return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
 }
 
 /** Two palette colours mixed, `weight` of the first, as the Mac's stylesheet mixes its inks. */
 export function mixed(first: string, second: string, weight: number): string {
-  const channels = (color: string) =>
-    /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i
-      .exec(color)
-      ?.slice(1)
-      .map((part) => parseInt(part, 16));
   const [a, b] = [channels(first), channels(second)];
   if (!a || !b) return first;
   const [red, green, blue] = a.map((value, index) => Math.round(value * weight + b[index] * (1 - weight)));
@@ -81,9 +85,9 @@ export function mixed(first: string, second: string, weight: number): string {
 
 /** Whether a palette's ground is light, so the status bar's text turns dark on it. */
 export function isLight(palette: Palette): boolean {
-  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(palette.ground);
-  if (!match) return false;
-  const [red, green, blue] = match.slice(1).map((part) => parseInt(part, 16) / 255);
+  const rgb = channels(palette.ground.slice(0, 7));
+  if (!rgb) return false;
+  const [red, green, blue] = rgb.map((value) => value / 255);
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5;
 }
 

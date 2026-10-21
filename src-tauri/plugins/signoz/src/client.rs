@@ -1,54 +1,26 @@
 use std::path::Path;
-use std::sync::OnceLock;
-use std::time::Duration;
 
-use futures::StreamExt;
-use reqwest::{Client, Method, Response};
+use reqwest::{Method, Response};
 use serde_json::Value;
+use sikemux_plugin_api::http::{self, BodyError, Deadline, Http, Redirects};
 
 use crate::auth::{self, Auth, Credentials};
-use crate::error::{SignozError, SignozResult};
+use crate::error::{Signoz, SignozError, SignozResult};
 use crate::query;
 
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
-fn http() -> SignozResult<&'static Client> {
-    static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            Client::builder()
-                .pool_idle_timeout(Duration::from_secs(25))
-                .timeout(Duration::from_secs(30))
-                .redirect(reqwest::redirect::Policy::none())
-                .user_agent("sikemux-signoz/0.1")
-                .build()
-                .ok()
-        })
-        .as_ref()
-        .ok_or_else(|| SignozError::Transport("could not start the HTTP client".into()))
-}
+static HTTP: Http<Signoz> = Http::new(Redirects::Refuse, Deadline::WholeAnswer, 16);
 
 async fn read_limited(response: Response) -> SignozResult<Vec<u8>> {
-    if response
-        .content_length()
-        .is_some_and(|size| size > MAX_RESPONSE_BYTES as u64)
-    {
-        return Err(SignozError::Response(
-            "more than 16 MiB came back; narrow the query".into(),
-        ));
-    }
-    let mut stream = response.bytes_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
-            return Err(SignozError::Response(
-                "more than 16 MiB came back; narrow the query".into(),
-            ));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(bytes)
+    http::read_body(response, MAX_RESPONSE_BYTES)
+        .await
+        .map_err(|error| match error {
+            BodyError::TooBig(_) => {
+                SignozError::Response("more than 16 MiB came back; narrow the query".into())
+            }
+            error => error.into(),
+        })
 }
 
 fn error_message(body: &Value) -> Option<String> {
@@ -67,7 +39,8 @@ pub async fn send(
     path: &str,
     body: Option<&Value>,
 ) -> SignozResult<Value> {
-    let mut request = http()?
+    let mut request = HTTP
+        .client()?
         .request(method, format!("{}{path}", credentials.url))
         .header("Accept", "application/json");
     request = match &credentials.auth {
@@ -78,11 +51,11 @@ pub async fn send(
     if let Some(body) = body {
         request = request.json(body);
     }
-    let response = request.send().await?;
+    let response = HTTP.send(request).await?;
     let status = response.status();
     let bytes = read_limited(response).await?;
-    let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     if !status.is_success() {
+        let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         let message = error_message(&parsed)
             .unwrap_or_else(|| String::from_utf8_lossy(&bytes).chars().take(400).collect());
         if matches!(status.as_u16(), 401 | 403) && matches!(credentials.auth, Auth::ApiKey(_)) {
@@ -96,6 +69,11 @@ pub async fn send(
             message,
         });
     }
+    let parsed: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes)?
+    };
     if parsed
         .get("status")
         .and_then(Value::as_str)

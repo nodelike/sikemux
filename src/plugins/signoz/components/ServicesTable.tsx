@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconSearch, SkeletonRows, StaleNotice, rankBy } from "../../../plugin-api/ui";
-import { failureMessage } from "../api";
+import { errorText } from "../../../plugin-api/format";
 import { SORTERS, mergeByService, perMinute, percent } from "../health";
 import { signozServicesR } from "../resources";
 import { showService, signozSettings, updateSettings, type ServiceSort } from "../state";
@@ -50,7 +50,7 @@ export function ServicesTable({ paneId, active }: { paneId: string; active: bool
                 )}
             </div>
             <StaleNotice handle={health} />
-            {health.error && !health.data && <EmptyState tone="error" message={failureMessage(health.error)} />}
+            {health.error && !health.data && <EmptyState tone="error" message={errorText(health.error)} />}
             {!health.data && !health.error && <SkeletonRows rows={8} label="Reading services" />}
             {health.data && rows.length === 0 && <EmptyState message={query ? "No service matches." : "No traced services in this window."} />}
             {rows.length > 0 && (

@@ -1,7 +1,5 @@
 import type { AgentInfo } from "../api/agents";
-import { AGENT_TYPES, agentLabel, installCommand } from "./catalog";
-
-const FIRST = ["claude", "codex"];
+import { AGENT_TYPES, agentLabel, FEATURED_AGENT_TYPES, installCommand, type AgentType } from "./catalog";
 
 /** Every agent Sikemux can set up: those it found, and those it can install that it did not. */
 export function withMissingAgents(found: readonly AgentInfo[]): AgentInfo[] {
@@ -17,12 +15,12 @@ export function withMissingAgents(found: readonly AgentInfo[]): AgentInfo[] {
     return [...found, ...missing];
 }
 
-/** Ready agents first, then Claude and Codex, then the rest in the catalog's order. */
+/** Ready agents first, then the featured ones, then the rest in the catalog's order. */
 export function setupOrder(agents: readonly AgentInfo[]): AgentInfo[] {
     const rank = (agent: AgentInfo) => {
         const ready = agent.available !== false && agent.status?.state !== "signedOut" ? 0 : 1;
-        const first = FIRST.indexOf(agent.type);
-        return [ready, first === -1 ? FIRST.length : first, AGENT_TYPES.indexOf(agent.type)];
+        const featured = FEATURED_AGENT_TYPES.includes(agent.type as AgentType) ? 0 : 1;
+        return [ready, featured, AGENT_TYPES.indexOf(agent.type as AgentType)];
     };
     return [...agents].sort((a, b) => {
         const [left, right] = [rank(a), rank(b)];

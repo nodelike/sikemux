@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use serde_json::Value;
 
+use crate::agent_catalog::AgentKind;
+
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::now_iso8601;
-use super::roots::grok_root;
 use super::search::{each_line, Prose};
 use super::AgentSession;
 use super::{condense, mtime_of, MAX_AGENT_TRANSCRIPTS_INSPECTED, MAX_AGENT_TRANSCRIPT_PATHS};
@@ -208,7 +209,7 @@ fn grok_found(session_dir: &Path) -> Option<Found> {
 }
 
 pub(super) fn grok_sessions(cwd: &str) -> Vec<AgentSession> {
-    let Some(root) = grok_root() else {
+    let Some(root) = AgentKind::Grok.home_root() else {
         return Vec::new();
     };
     let mut dirs = collect_grok_session_dirs(&root);
@@ -223,7 +224,7 @@ pub(super) fn grok_sessions(cwd: &str) -> Vec<AgentSession> {
 }
 
 pub(super) fn grok_recent(scan: &PageScan<'_>) -> Vec<Hit> {
-    let Some(root) = grok_root() else {
+    let Some(root) = AgentKind::Grok.home_root() else {
         return Vec::new();
     };
     let listed = collect_grok_session_dirs(&root)

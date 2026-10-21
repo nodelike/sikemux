@@ -1,13 +1,11 @@
 import Foundation
 
-/// What the app tells the helper when it starts it. The core command is the
-/// app's own, so a core the helper starts runs exactly as the app's would.
+/// What the app tells the helper when it starts it. The core binary is the
+/// app's own, whose `start` runs the core exactly as the app would.
 struct Options {
     var socket = ""
     var protocolVersion = 0
     var coreBinary: String?
-    var coreLog: String?
-    var coreArgs: [String] = []
     var dev = false
     /// A dev build's app: its island goes away with it, so a stable build's comes back.
     var appPid: pid_t?
@@ -36,8 +34,6 @@ struct Options {
             case "--socket": options.socket = value
             case "--protocol-version": options.protocolVersion = Int(value) ?? 0
             case "--core-binary": options.coreBinary = value
-            case "--core-log": options.coreLog = value
-            case "--core-arg": options.coreArgs.append(value)
             case "--app": options.app = value
             case "--app-pid": options.appPid = pid_t(value)
             case "--fonts": options.fonts = value

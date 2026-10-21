@@ -52,13 +52,3 @@ export async function loadAccount(): Promise<void> {
 export async function watchAccount(signal: AbortSignal): Promise<void> {
     await accountApi.subscribe(setAccount, signal);
 }
-
-export function initials(name: string | null, email: string | null): string {
-    const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
-    if (words.length > 0) {
-        const first = words[0] ?? "";
-        const last = words.length > 1 ? (words[words.length - 1] ?? "") : "";
-        return (Array.from(first)[0] ?? "").concat(Array.from(last)[0] ?? "").toLocaleUpperCase();
-    }
-    return (Array.from((email ?? "").trim())[0] ?? "").toLocaleUpperCase();
-}

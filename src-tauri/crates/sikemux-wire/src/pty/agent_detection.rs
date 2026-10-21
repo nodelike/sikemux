@@ -2,8 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AgentKind {
     Claude,
     Codex,
@@ -41,17 +40,21 @@ impl AgentKind {
     }
 
     pub fn from_label(label: &str) -> Option<Self> {
-        match label.trim().to_ascii_lowercase().as_str() {
-            "claude" | "claude-code" => Some(Self::Claude),
-            "codex" => Some(Self::Codex),
-            "hermes" | "hermes-agent" => Some(Self::Hermes),
-            "pi" => Some(Self::Pi),
-            "opencode" | "open-code" => Some(Self::OpenCode),
-            "omp" | "oh-my-pi" => Some(Self::Omp),
-            "grok" | "grok-build" => Some(Self::Grok),
-            "muse" | "muse-code" => Some(Self::Muse),
-            _ => None,
-        }
+        Self::ALL.into_iter().find(|kind| kind.label() == label)
+    }
+}
+
+impl Serialize for AgentKind {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.label())
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentKind {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let label = String::deserialize(deserializer)?;
+        Self::from_label(&label)
+            .ok_or_else(|| serde::de::Error::custom(format!("no agent is called {label}")))
     }
 }
 

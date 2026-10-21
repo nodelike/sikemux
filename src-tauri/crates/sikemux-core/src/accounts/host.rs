@@ -5,6 +5,14 @@ use serde::{Deserialize, Serialize};
 
 use super::protocol::*;
 
+/// The host a sign-in code belonged to, once approved.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovedHost {
+    pub key: DeviceKey,
+    pub name: String,
+}
+
 /// What the host shows and keeps while its person approves it from a device already signed in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,10 +60,10 @@ pub struct HostSignInStart {
 pub struct HostSignInState {
     pub status: HostSignInStatus,
     /// Only once approved: the Clerk user id of the account that approved.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
     /// Only once approved: a challenge good for two minutes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
 }
 
@@ -89,7 +97,7 @@ pub struct PendingHost {
     /// Where requestedFrom is, as far as the server's IP database knows: the country, then the network's owner, such as `Germany · Hetzner Online`. Null when it does not know.
     pub requested_near: Option<String>,
     /// Only for a host once removed from this account: when it was. It can come back only through a code approved like this.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub removed_at: Option<String>,
 }
 
@@ -98,6 +106,7 @@ pub struct PendingHost {
 pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
     use super::through;
     Some(match name {
+        "ApprovedHost" => through::<ApprovedHost>(json),
         "HostSignIn" => through::<HostSignIn>(json),
         "HostSignInCode" => through::<HostSignInCode>(json),
         "HostSignInFinish" => through::<HostSignInFinish>(json),

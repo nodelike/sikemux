@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use serde_json::Value;
 
+use crate::agent_catalog::AgentKind;
+
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::{append_line, now_iso8601};
 use super::search::Prose;
@@ -14,13 +16,13 @@ use super::{
 };
 
 const PI_TAIL_BYTES: u64 = 128 * 1024;
-use super::roots::{environment_path, pi_agent_root};
+use super::roots::environment_path;
 use super::AgentSession;
 
 // ---- pi — ~/.pi/agent/sessions/**/<session>.jsonl ----------------------
 pub fn pi_session_dir() -> Option<PathBuf> {
     environment_path("PI_CODING_AGENT_SESSION_DIR")
-        .or_else(|| Some(pi_agent_root()?.join("sessions")))
+        .or_else(|| Some(AgentKind::Pi.home_root()?.join("sessions")))
 }
 
 pub(super) fn pi_sessions(cwd: &str) -> Vec<AgentSession> {

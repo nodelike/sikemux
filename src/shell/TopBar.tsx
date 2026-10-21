@@ -3,7 +3,7 @@ import { useProjectRepo } from "../git/projectRepo";
 import { memo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useBattery } from "../hooks/useBattery";
-import { useClock } from "../hooks/useClock";
+import { useNow } from "../hooks/useNow";
 import * as cmd from "../state/commands";
 import { useResource } from "../state/resources";
 import { swallow } from "../state/toast";
@@ -143,7 +143,7 @@ function BatteryChip() {
 }
 
 function ClockChip() {
-    const now = useClock();
+    const now = new Date(useNow(true, 60_000));
     const t = twelveHour(now);
     return (
         <span className="tb-clock">

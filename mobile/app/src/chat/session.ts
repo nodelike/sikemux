@@ -1,40 +1,26 @@
 import { ChatAttachment, MobileError, type ChatMark, type ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
-import { chatActions, recordOf } from '@mac/chat/acpEvents';
+import { chatActions } from '@mac/chat/acpEvents';
+import { recordOf } from '@mac/lib/guards';
 import { earlierMessages, type EarlierPage, PAGE_TURNS, withEarlier } from '@mac/chat/earlier';
 import type { QueuedMessage } from '@mac/chat/queuedMessages';
+import { answerText } from '@mac/chat/answerText';
 import { chatReducer, initialChatState } from '@mac/chat/reducer';
 import type { AcpPermissionRequest, ChatAction, ChatState } from '@mac/chat/types';
 
+import { problem as problemOf } from '@/core/problem';
 import type { ChatInfo, CoreChatEvent } from '@/core/protocol';
 import type { ChatDelivery } from '@/devices/hub';
 import { parsed } from './chatEvents';
 import { Folds } from './folds';
+import type { ChatStore, Kept } from './kept';
+import { fitting, pathsOf, uploadEach, type Attachment } from './uploads';
 
 export type Attached = 'attaching' | 'live' | 'missing';
 
 /** A message this phone wrote that the host has not taken yet. */
 export type Unsent = { state: 'sending' | 'failed'; problem?: string };
-
-/** The host's own limit on a file sent to a chat. */
-export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-export const MAX_ATTACHMENTS = 10;
-
-/** A photo or file picked on this phone for the next message. */
-export type Attachment = {
-  id: string;
-  kind: 'image' | 'file';
-  name: string;
-  mime: string;
-  /** Where it is on this phone. */
-  uri: string;
-  size: number;
-  /** Where the host keeps it, once it is there. */
-  path?: string;
-  upload?: 'sending' | 'failed';
-  problem?: string;
-};
 
 /** A message waiting behind the running turn. */
 /** A message waiting in the host's queue behind the running turn. */
@@ -80,6 +66,22 @@ type Options = {
   now?: () => number;
   /** The contents of a file on this phone. */
   read?: (uri: string) => Promise<ArrayBuffer>;
+  /** Where the chat is kept between launches. */
+  store?: ChatStore;
+  /** Told how long each step of taking the chat up took, to measure it. */
+  timed?: (took: OpenTimes) => void;
+};
+
+/** In milliseconds, from when the phone began taking the chat up. */
+export type OpenTimes = {
+  /** Reading the chat as this phone last kept it, or null when it had not. */
+  restore: number | null;
+  woke: boolean;
+  answered: number;
+  answer: 'live' | 'resumed' | 'missing';
+  bytes: number;
+  applied: number;
+  drawn: number;
 };
 
 type Outgoing = { key: number; messageId: string; text: string; paths: string[] } & Unsent;
@@ -97,11 +99,6 @@ const TOO_LONG = 'This chat is too long for the phone. Open it on the host.';
  * which comes on its own schedule, has caught up with it.
  */
 const PERMISSION_GRACE_MS = 2000;
-
-function reason(error: unknown): string {
-  if (MobileError.Refused.instanceOf(error) || MobileError.Connection.instanceOf(error)) return error.inner.message;
-  return error instanceof Error ? error.message : String(error);
-}
 
 function readFile(uri: string): Promise<ArrayBuffer> {
   return new File(uri).arrayBuffer();
@@ -173,13 +170,50 @@ export class ChatSession {
   private run = 0;
   private stopRun: (() => void) | undefined;
   private snap: ChatSnapshot;
+  private keptAgent: ChatState | undefined;
+  private restoreTook: number | null = null;
 
   constructor(
     readonly agentId: string,
     private readonly options: Options,
   ) {
     this.turnSince = this.now();
+    const reading = performance.now();
+    const kept = options.store?.load();
+    if (kept) {
+      this.restore(kept);
+      this.restoreTook = performance.now() - reading;
+    }
     this.snap = this.build();
+  }
+
+  /** Writes the chat down as drawn, unless it has not changed since it last was. */
+  keep = () => {
+    const store = this.options.store;
+    const mark = this.mark;
+    if (!store || !mark || this.agent === this.keptAgent) return;
+    this.keptAgent = this.agent;
+    store.save({
+      agent: this.agent,
+      replayed: [...this.replayed],
+      mark: { feed: mark.feed, seq: String(mark.seq) },
+      cursor: this.cursor && { feed: this.cursor.feed, before: String(this.cursor.before) },
+      replayStart: this.replayStart === undefined ? null : String(this.replayStart),
+      pages: this.pages,
+    });
+  };
+
+  /** Draws the chat as this phone last kept it; the first attach asks only for what came after. */
+  private restore(kept: Kept) {
+    this.agent = kept.agent;
+    this.keptAgent = kept.agent;
+    this.replayed = new Set(kept.replayed);
+    this.mark = { feed: kept.mark.feed, seq: BigInt(kept.mark.seq) };
+    this.taken = this.mark.seq;
+    this.cursor = kept.cursor && { feed: kept.cursor.feed, before: BigInt(kept.cursor.before) };
+    this.replayStart = kept.replayStart === null ? undefined : BigInt(kept.replayStart);
+    this.pages = kept.pages;
+    this.attached = 'live';
   }
 
   subscribe = (listener: () => void) => {
@@ -240,18 +274,9 @@ export class ChatSession {
 
   /** Adds what was picked for the next message, leaving out what the host would refuse. */
   attach = (picked: Attachment[]) => {
-    const tooBig = picked.filter((attachment) => attachment.size > MAX_ATTACHMENT_BYTES);
-    const fits = picked.filter((attachment) => attachment.size <= MAX_ATTACHMENT_BYTES);
-    const room = Math.max(0, MAX_ATTACHMENTS - this.attachments.length);
-    this.attachments = [...this.attachments, ...fits.slice(0, room)];
-    if (tooBig.length) {
-      const names = tooBig.map((attachment) => attachment.name).join(', ');
-      this.notice = `${names} ${tooBig.length === 1 ? 'is' : 'are'} over 10 MB, too big to send`;
-    } else if (fits.length > room) {
-      this.notice = `a message takes at most ${MAX_ATTACHMENTS} files`;
-    } else {
-      this.notice = null;
-    }
+    const { fits, notice } = fitting(this.attachments.length, picked);
+    this.attachments = [...this.attachments, ...fits];
+    this.notice = notice;
     this.emit();
   };
 
@@ -267,14 +292,10 @@ export class ChatSession {
    */
   send = async (text: string): Promise<boolean> => {
     this.notice = null;
-    let attachments: Attachment[] = [];
-    if (this.attachments.length) {
-      if (this.uploading()) return false;
-      attachments = await this.upload();
-      if (!attachments.length) return false;
-    }
+    const attachments = this.attachments.length ? await this.upload() : [];
+    if (!attachments) return false;
     if (this.busy()) {
-      const paths = attachments.flatMap((attachment) => (attachment.path ? [attachment.path] : []));
+      const paths = pathsOf(attachments);
       void this.ask((connection) => connection.prompt(this.agentId, text, paths), 'Could not send the message');
       return true;
     }
@@ -288,17 +309,9 @@ export class ChatSession {
    */
   answerWith = async (text: string, answer: (text: string) => Promise<boolean>): Promise<boolean> => {
     this.notice = null;
-    let attachments: Attachment[] = [];
-    if (this.attachments.length) {
-      if (this.uploading()) return false;
-      attachments = await this.upload();
-      if (!attachments.length) return false;
-    }
-    const paths = attachments.flatMap((attachment) => (attachment.path ? [attachment.path] : []));
-    const full = [text, ...(paths.length ? [`Attached:\n${paths.map((path) => `- ${path}`).join('\n')}`] : [])]
-      .filter(Boolean)
-      .join('\n\n');
-    if (await answer(full)) return true;
+    const attachments = this.attachments.length ? await this.upload() : [];
+    if (!attachments) return false;
+    if (await answer(answerText(text, pathsOf(attachments)))) return true;
     this.attachments = [...attachments, ...this.attachments];
     this.emit();
     return false;
@@ -387,11 +400,11 @@ export class ChatSession {
     });
   };
 
-  /** Ends the chat's agent on the host. Answers whether it did. */
+  /** Ends the chat's agent on the host and closes it in every app. Answers whether it did. */
   stopChat = async (): Promise<boolean> => {
     let stopped = false;
     await this.ask(
-      (connection) => connection.stopChat(this.agentId),
+      (connection) => connection.call('closeChat', JSON.stringify({ agentId: this.agentId })),
       'Could not stop the chat',
       () => {
         stopped = true;
@@ -526,25 +539,23 @@ export class ChatSession {
     this.emit();
   }
 
-  /** Puts each picked file the host does not have yet on it, one at a time. Answers them all once all got there. */
-  private async upload(): Promise<Attachment[]> {
+  /** Puts the picked files on the host and takes them out of the composer, or answers null when one did not get there. */
+  private async upload(): Promise<Attachment[] | null> {
+    if (this.uploading()) return null;
     const connection = this.connection;
-    const waiting = this.attachments.filter((attachment) => !attachment.path);
-    for (const attachment of waiting) this.patch(attachment.id, { upload: 'sending', problem: undefined });
-    for (const attachment of waiting) {
-      try {
+    const sent = await uploadEach(
+      this.attachments,
+      async (attachment) => {
         if (!connection?.isOpen()) throw new Error('the host is not connected');
         const bytes = await (this.options.read ?? readFile)(attachment.uri);
         const path = await connection.attachFile(this.agentId, attachment.name, attachment.mime, bytes);
         this.sentFiles = new Map([...this.sentFiles, [path, attachment]]);
-        this.patch(attachment.id, { upload: undefined, path });
-      } catch (error) {
-        this.patch(attachment.id, { upload: 'failed', problem: reason(error) });
-      }
-    }
-    if (this.attachments.some((attachment) => !attachment.path)) return [];
-    const sent = this.attachments;
-    this.attachments = [];
+        return path;
+      },
+      (id, change) => this.patch(id, change),
+      problemOf,
+    );
+    if (sent) this.attachments = [];
     return sent;
   }
 
@@ -606,6 +617,7 @@ export class ChatSession {
     this.stopRun?.();
     this.stopRun = undefined;
     if (this.earlier === 'loading') this.earlier = 'idle';
+    this.keep();
   }
 
   private start() {
@@ -632,22 +644,43 @@ export class ChatSession {
       if (connection.isOpen()) connection.detachChat(agentId).catch(() => {});
     };
 
-    // A chat the host put to sleep starts again first; one already running answers at once.
-    connection
-      .wakeChat(agentId)
-      .then(() => connection.attachChat(agentId, this.mark))
+    const began = performance.now();
+    let woke = false;
+    const wakeAndAttach = () => {
+      woke = true;
+      return connection.wakeChat(agentId).then(() => connection.attachChat(agentId, this.mark));
+    };
+    // A chat the host says is up is taken up at once; one asleep, or gone since the host said so, is started first.
+    const attaching = this.hostUp
+      ? connection
+          .attachChat(agentId, this.mark)
+          .then((attachment) => (ChatAttachment.Missing.instanceOf(attachment) ? wakeAndAttach() : attachment))
+      : wakeAndAttach();
+    attaching
       .then((attachment) => {
         if (run !== this.run) return;
+        const answered = performance.now() - began;
+        const timed = (answer: OpenTimes['answer'], bytes: number) => {
+          const report = this.options.timed;
+          if (!report) return;
+          const applied = performance.now() - began;
+          (this.options.frame ?? animationFrame)(() =>
+            report({ restore: this.restoreTook, woke, answered, answer, bytes, applied, drawn: performance.now() - began }),
+          );
+        };
         if (ChatAttachment.Live.instanceOf(attachment)) {
           this.replace(attachment.inner);
+          timed('live', attachment.inner.replayJson.length);
         } else if (ChatAttachment.Resumed.instanceOf(attachment)) {
           this.apply(parsed(attachment.inner.eventsJson));
           this.mark = attachment.inner.mark;
           this.taken = attachment.inner.mark.seq;
+          timed('resumed', attachment.inner.eventsJson.length);
         } else {
           this.problem = ChatAttachment.Restart.instanceOf(attachment) ? TOO_LONG : null;
           this.attached = 'missing';
           this.emit();
+          timed('missing', 0);
           return;
         }
         this.hostUp = true;
@@ -659,7 +692,7 @@ export class ChatSession {
       })
       .catch((error: unknown) => {
         if (run !== this.run) return;
-        this.problem = reason(error);
+        this.problem = problemOf(error);
         this.attached = 'missing';
         this.emit();
       });
@@ -682,7 +715,8 @@ export class ChatSession {
       capabilities: recordOf(JSON.parse(live.capabilitiesJson)) ?? {},
       setup: recordOf(JSON.parse(live.setupJson)) ?? {},
     });
-    if (live.running) agent = chatReducer(agent, { type: 'turn_started' });
+    // A turn the replay already opened goes on: starting it again would cut the answer streaming into it in two.
+    if (live.running && !rebuilt.running) agent = chatReducer(agent, { type: 'turn_started' });
     if (live.running && !wasRunning) this.turnSince = this.now();
 
     // The replay has what the host took; what it did not take is put back after it.
@@ -744,7 +778,7 @@ export class ChatSession {
   }
 
   private deliver(text: string, attachments: Attachment[]) {
-    const paths = attachments.flatMap((attachment) => (attachment.path ? [attachment.path] : []));
+    const paths = pathsOf(attachments);
     this.apply([{ type: 'local_prompt', text, paths }]);
     this.optimistic = true;
     const entry: Outgoing = {
@@ -775,7 +809,7 @@ export class ChatSession {
           this.optimistic = false;
           this.agent = { ...this.agent, running: false };
         }
-        this.update(entry, { state: 'failed', problem: reason(error) });
+        this.update(entry, { state: 'failed', problem: problemOf(error) });
       });
   }
 
@@ -796,7 +830,7 @@ export class ChatSession {
         this.emit();
       })
       .catch((error: unknown) => {
-        this.notice = `${what}: ${reason(error)}`;
+        this.notice = `${what}: ${problemOf(error)}`;
         this.emit();
       });
   }

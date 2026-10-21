@@ -6,8 +6,8 @@ import type { Connected, DatabaseProfile } from "../api";
 const api = vi.hoisted(() => ({ schemas: vi.fn(), tables: vi.fn(), describe: vi.fn() }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), databaseApi: api }));
 
-import { invalidate } from "../../../plugin-api/resources";
 import { Explorer, type ExplorerActions } from "./Explorer";
+import { database } from "../resources";
 
 const shop: DatabaseProfile = {
     id: "p1",
@@ -66,7 +66,7 @@ function Harness({
 
 afterEach(() => {
     cleanup();
-    invalidate((kind) => kind.startsWith("database."));
+    database.refresh();
 });
 beforeEach(() => {
     Object.values(api).forEach((mock) => mock.mockReset());

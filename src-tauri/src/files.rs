@@ -10,11 +10,12 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use ignore::WalkBuilder;
 use serde::Serialize;
+use sikemux_process::sync::Locked;
 
 pub(crate) use sikemux_core::git::watch::{repo_key as canonical_repo_key, should_skip_dir};
 
@@ -60,13 +61,6 @@ impl ProjectCache {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, Option<Entry>> {
-        match self.entry.lock() {
-            Ok(entry) => entry,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-
     fn touch(&self) {
         self.last_used.store(next_cache_access(), Ordering::Release);
     }
@@ -77,12 +71,6 @@ type ProjectCaches = Mutex<HashMap<String, Arc<ProjectCache>>>;
 fn cache() -> &'static ProjectCaches {
     static CACHE: OnceLock<ProjectCaches> = OnceLock::new();
     CACHE.get_or_init(Default::default)
-}
-
-fn lock_caches(caches: &ProjectCaches) -> MutexGuard<'_, HashMap<String, Arc<ProjectCache>>> {
-    caches
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn next_cache_access() -> u64 {
@@ -105,7 +93,7 @@ fn project_cache_from(
     repo: &str,
     capacity: usize,
 ) -> Result<Arc<ProjectCache>, String> {
-    let mut caches = lock_caches(caches);
+    let mut caches = caches.locked();
     if let Some(project) = caches.get(repo) {
         let project = project.clone();
         project.touch();
@@ -313,7 +301,7 @@ fn full_scan_locked_with_limits(
             encoded_path_bytes,
         } => (files, encoded_path_bytes),
         LimitedWalk::LimitExceeded => {
-            let _ = observer.increment_counter("files.full_scan.limit_errors", 1);
+            observer.increment_counter("files.full_scan.limit_errors", 1);
             timer.finish(SpanOutcome::Error);
             return Err(format!(
                 "project file snapshot exceeds its {}-file or {}-byte safety limit",
@@ -321,7 +309,7 @@ fn full_scan_locked_with_limits(
             ));
         }
         LimitedWalk::Unreliable => {
-            let _ = observer.increment_counter("files.full_scan.read_errors", 1);
+            observer.increment_counter("files.full_scan.read_errors", 1);
             timer.finish(SpanOutcome::Error);
             return Err("project file snapshot could not be read reliably".into());
         }
@@ -334,7 +322,7 @@ fn full_scan_locked_with_limits(
     };
     *slot = Some(entry.clone());
 
-    let _ = observer.increment_counter("files.full_scans", 1);
+    observer.increment_counter("files.full_scans", 1);
     observer.set_gauge("files.full_scan.last_file_count", entry.files.len() as f64);
     observer.set_gauge(
         "files.full_scan.last_encoded_path_bytes",
@@ -364,7 +352,7 @@ fn full_scan_locked(
 fn snapshot_for_key_blocking(repo: &str) -> Result<ProjectFilesSnapshot, String> {
     let project = project_cache(repo)?;
     let entry = {
-        let mut slot = project.lock();
+        let mut slot = project.entry.locked();
         if let Some(entry) = slot.as_ref() {
             if entry.full_scan_at.elapsed() < TTL {
                 entry.clone()
@@ -543,12 +531,12 @@ fn fallback_full_scan(
     timer: crate::observability::SlowOperationGuard,
 ) {
     timer.finish(SpanOutcome::Cancelled);
-    let _ = global_observability().increment_counter("files.incremental_fallbacks", 1);
+    global_observability().increment_counter("files.incremental_fallbacks", 1);
     if full_scan_locked(repo, slot, FullScanReason::WatcherFallback).is_err() {
         // Keep the previous bounded snapshot rather than replacing it with an
         // empty or partial view. The next explicit read retries and surfaces
         // the stable limit/read error to the renderer.
-        let _ = global_observability().increment_counter("files.incremental_fallback_errors", 1);
+        global_observability().increment_counter("files.incremental_fallback_errors", 1);
     }
 }
 
@@ -596,14 +584,14 @@ pub(crate) fn apply_moved(repo: &str, moved: Option<&[String]>) {
     let project = match project_cache(repo) {
         Ok(project) => project,
         Err(_) => {
-            let _ = observer.increment_counter("files.incremental_cache_capacity_errors", 1);
+            observer.increment_counter("files.incremental_cache_capacity_errors", 1);
             timer.finish(SpanOutcome::Error);
             return;
         }
     };
-    let mut slot = project.lock();
+    let mut slot = project.entry.locked();
     let Some(current) = slot.as_ref().cloned() else {
-        let _ = observer.increment_counter("files.incremental_cache_misses", 1);
+        observer.increment_counter("files.incremental_cache_misses", 1);
         timer.finish(SpanOutcome::Cancelled);
         return;
     };
@@ -706,7 +694,7 @@ pub(crate) fn apply_moved(repo: &str, moved: Option<&[String]>) {
     };
     *slot = Some(updated.clone());
 
-    let _ = observer.increment_counter("files.incremental_updates", 1);
+    observer.increment_counter("files.incremental_updates", 1);
     observer.set_gauge(
         "files.incremental.last_change_count",
         relevant_changes as f64,
@@ -866,11 +854,11 @@ mod tests {
         // Both cells have active borrowers, so admitting a third cannot split an
         // in-flight scan/invalidation across a replacement lock cell.
         assert!(project_cache_from(&caches, "third", 2).is_err());
-        assert_eq!(lock_caches(&caches).len(), 2);
+        assert_eq!(caches.locked().len(), 2);
 
         drop(first);
         let third = project_cache_from(&caches, "third", 2).unwrap();
-        let held = lock_caches(&caches);
+        let held = caches.locked();
         assert!(!held.contains_key("first"));
         assert!(held.contains_key("second"));
         assert!(held.contains_key("third"));

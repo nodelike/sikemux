@@ -1,6 +1,5 @@
 import { git } from "../api/git";
 import { worktreeHasLiveOwners } from "../git/worktreeLifecycle";
-import { projectControllerBridge } from "../projects/controllerBridge";
 import { isAgentBusy } from "../state/agentStatus";
 import { emit } from "../state/bus";
 import * as cmd from "../state/commands";
@@ -14,7 +13,6 @@ import { cwdOutsideWorktree } from "./worktreePlan";
 
 function refreshWorktrees(repo: string): void {
     invalidate((kind) => kind === "git.worktrees" || kind === "agent.worktreeMerged");
-    void projectControllerBridge.refresh(repo);
     emit({ type: "git-refresh", repo });
 }
 

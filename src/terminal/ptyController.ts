@@ -1,4 +1,7 @@
 import type { PtyDirectCommand } from "../state/types";
+import { errorCategory, errorText } from "../lib/format";
+import { isRecord } from "../lib/guards";
+import { swallow } from "../state/toast";
 
 export type PtyOutputChunk = readonly number[] | Uint8Array;
 export type PtyShellPhase = "unknown" | "prompt" | "input" | "running" | "finished";
@@ -206,10 +209,7 @@ const DEFAULT_MAX_LISTENER_ERRORS = 8;
 const DEFAULT_MAX_STATE_LISTENERS = 32;
 const DEFAULT_MAX_ATTACHMENTS = 16;
 const MAX_SUBSCRIPTION_ID = 0xffff_ffff;
-const MAX_SHELL_CWD_BYTES = 4_096;
-const UTF8_ENCODER = new TextEncoder();
 const SHELL_PHASES = new Set<PtyShellPhase>(["unknown", "prompt", "input", "running", "finished"]);
-const SHELL_SNAPSHOT_KEYS = new Set(["revision", "cwd", "phase", "lastExitCode"]);
 
 const defaultTimer: PtyTimerAdapter = {
     schedule: (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
@@ -267,59 +267,13 @@ function asOutputChunk(value: unknown): PtyOutputChunk | null {
     return null;
 }
 
-function containsControlCharacter(value: string): boolean {
-    for (let index = 0; index < value.length; index += 1) {
-        const code = value.charCodeAt(index);
-        if (code <= 31 || (code >= 127 && code <= 159)) return true;
-    }
-    return false;
-}
-
-function ownDataRecord(value: unknown, allowed: ReadonlySet<string>): Record<string, unknown> | null {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-    try {
-        const descriptors = Object.getOwnPropertyDescriptors(value);
-        const result: Record<string, unknown> = {};
-        for (const key of Reflect.ownKeys(descriptors)) {
-            if (typeof key !== "string" || !allowed.has(key)) return null;
-            const descriptor = descriptors[key];
-            if (!descriptor || !("value" in descriptor)) return null;
-            result[key] = descriptor.value;
-        }
-        return result;
-    } catch {
-        return null;
-    }
-}
-
 export function parsePtyShellMetadataSnapshot(value: unknown): PtyShellMetadataSnapshot | null {
-    const record = ownDataRecord(value, SHELL_SNAPSHOT_KEYS);
-    if (!record) return null;
-    const { revision, cwd, phase, lastExitCode } = record;
-    if (!Number.isSafeInteger(revision) || (revision as number) < 0) return null;
-    if (typeof phase !== "string" || !SHELL_PHASES.has(phase as PtyShellPhase)) return null;
-    if (
-        cwd !== null &&
-        (typeof cwd !== "string" ||
-            cwd.length === 0 ||
-            cwd.length > MAX_SHELL_CWD_BYTES ||
-            containsControlCharacter(cwd) ||
-            UTF8_ENCODER.encode(cwd).byteLength > MAX_SHELL_CWD_BYTES)
-    ) {
-        return null;
-    }
-    if (
-        lastExitCode !== null &&
-        (!Number.isInteger(lastExitCode) || (lastExitCode as number) < -2_147_483_648 || (lastExitCode as number) > 2_147_483_647)
-    ) {
-        return null;
-    }
-    return Object.freeze({
-        revision: revision as number,
-        cwd: cwd as string | null,
-        phase: phase as PtyShellPhase,
-        lastExitCode: lastExitCode as number | null,
-    });
+    if (!isRecord(value)) return null;
+    const { revision, cwd, phase, lastExitCode } = value;
+    if (typeof revision !== "number" || typeof phase !== "string" || !SHELL_PHASES.has(phase as PtyShellPhase)) return null;
+    if (cwd !== null && typeof cwd !== "string") return null;
+    if (lastExitCode !== null && typeof lastExitCode !== "number") return null;
+    return { revision, cwd, phase: phase as PtyShellPhase, lastExitCode };
 }
 
 function validateAttachResult(result: PtyAttachResult, maxSnapshotBytes: number): PtyShellMetadataSnapshot | null {
@@ -334,20 +288,14 @@ function validateAttachResult(result: PtyAttachResult, maxSnapshotBytes: number)
     return shell;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null;
-}
-
 /** Only native errors that explicitly identify a gone PTY end process ownership. */
 function isTerminalAttachFailure(error: unknown): boolean {
     if (error instanceof PtyControllerExitedError) return true;
-    if (!isRecord(error) || typeof error.category !== "string") return false;
-    if (error.category === "not-found" || error.category === "pty-not-found" || error.category === "exited" || error.category === "pty-exited") {
-        return true;
-    }
+    const category = errorCategory(error);
+    if (category === "not-found" || category === "pty-not-found" || category === "exited" || category === "pty-exited") return true;
     // Current native `pty_attach` reports its exact lookup miss as AppError::BadArg.
     // Match the complete typed wire pair so unrelated bad arguments stay retryable.
-    return error.category === "bad-arg" && error.message === "invalid argument: pty not found";
+    return category === "bad-arg" && errorText(error) === "invalid argument: pty not found";
 }
 
 /**
@@ -603,7 +551,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
             this.initialInputStatus = "cancelled";
             this.cancelInitialInput();
         }
-        for (const attachment of Array.from(this.attachments.values())) void this.detachAttachment(attachment).catch(() => {});
+        for (const attachment of Array.from(this.attachments.values())) void this.detachAttachment(attachment).catch(swallow("detach a terminal"));
         this.status = "idle";
         this.failureOperation = null;
         this.emitState();
@@ -727,7 +675,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
 
         const stale = this.isStaleAttachment(state);
         if (state.detached || this.disposeRequested || stale) {
-            await this.detachAttachment(state).catch(() => {});
+            await this.detachAttachment(state).catch(swallow("detach a terminal"));
             if (state.overflowed) throw new PtySubscriptionOverflowError();
             if (stale && !this.disposeRequested) throw new PtyControllerReplacedError();
             throw new PtyControllerDisposedError();
@@ -825,7 +773,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
                 // before this completion callback runs.
                 if (this.pendingResize) this.ensureResizeDrain();
             })
-            .catch(() => {});
+            .catch(swallow("drain terminal resizes"));
     }
 
     private async drainResizeQueue(): Promise<void> {
@@ -988,13 +936,13 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
         const chunk = asOutputChunk(received);
         if (!chunk) {
             this.reportError("attach", new TypeError("PTY channel emitted an invalid output chunk"));
-            void this.detachAttachment(state).catch(() => {});
+            void this.detachAttachment(state).catch(swallow("detach a terminal"));
             return;
         }
         if (chunk.length > this.maxPendingBytes) {
             state.overflowed = true;
             this.reportError("attach", new PtySubscriptionOverflowError());
-            void this.detachAttachment(state).catch(() => {});
+            void this.detachAttachment(state).catch(swallow("detach a terminal"));
             return;
         }
         if (chunk.length === 0) this.markExited("exit");
@@ -1008,7 +956,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
             state.queue = [];
             state.queuedBytes = 0;
             this.reportError("attach", new PtySubscriptionOverflowError());
-            void this.detachAttachment(state).catch(() => {});
+            void this.detachAttachment(state).catch(swallow("detach a terminal"));
             return;
         }
         state.queue.push(chunk);
@@ -1032,7 +980,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
         } catch (error) {
             state.listenerErrors += 1;
             this.reportError("output-listener", error);
-            if (state.listenerErrors >= this.maxListenerErrors) void this.detachAttachment(state).catch(() => {});
+            if (state.listenerErrors >= this.maxListenerErrors) void this.detachAttachment(state).catch(swallow("detach a terminal"));
         } finally {
             state.delivering = false;
         }

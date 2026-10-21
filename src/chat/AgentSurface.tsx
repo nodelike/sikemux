@@ -5,8 +5,8 @@ import { dispatchPaths, resolvePathDropTarget } from "../state/dropRegistry";
 import { insertText, textInsertTargetWithin } from "../state/textInsertRegistry";
 import type { Agent, ProviderProfile, Session } from "../state/types";
 import { acpApi } from "../api/acp";
-import { agentSupportsChat } from "../agents/agentLaunch";
-import { canBypassPermissions } from "../agents/catalog";
+import { effectiveMode } from "../agents/agentLaunch";
+import { canBypassPermissions, agentSupportsChat } from "../agents/catalog";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { putDraft, takeDraft } from "./draftHandoff";
 import { promptDraft } from "../terminal/promptDraft";
@@ -27,6 +27,7 @@ import { YoloToggle } from "./YoloToggle";
 import { ShareButton } from "../share/ShareControls";
 import { agentCwd, agentPtyContext } from "../agents/agentPtyContext";
 import "../styles/chat.css";
+import { swallow } from "../state/toast";
 
 type AgentView = "gui" | "tui";
 
@@ -102,7 +103,7 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
             setSwitching(true);
             setCarried(next === "tui" ? takeDraft(agent.id) : "");
             if (next === "gui" && tuiLayer.current) putDraft(agent.id, promptDraft(screenWithin(tuiLayer.current)));
-            if (view === "gui") await acpApi.stop(agent.id).catch(() => {});
+            if (view === "gui") await acpApi.stop(agent.id).catch(swallow("stop the chat agent"));
             setView(next);
             window.requestAnimationFrame(() => setSwitching(false));
         },
@@ -211,7 +212,7 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
                 {view === "tui" && !switching && (
                     <div className="agent-tui-layer" ref={tuiLayer}>
                         <TerminalPane
-                            key={`${agent.id}:${agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write")}:${terminal.generation}`}
+                            key={`${agent.id}:${effectiveMode(agent)}:${terminal.generation}`}
                             cwd={cwd}
                             initialDraft={carried || undefined}
                             onInitialInputDelivered={() => setCarried("")}

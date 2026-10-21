@@ -1045,6 +1045,8 @@
   </div>
 </section>
 
+<!-- ================================================================ -->
+<section class="flow">
   <h2>The lock</h2>
   <p>Off until the person turns on Lock Sikemux in the account sheet. Then a signed-in phone shows no host, chat or device, and opens no link or notification, until the person passes Face ID, Touch ID or the phone's passcode. Signing in on the phone counts; nothing is asked of a phone that is signed out.</p>
   <div class="phones">
@@ -1395,6 +1397,19 @@
       <figcaption><b>A screen failed</b><div class="note">When drawing a screen fails, that screen says so in its place, with what went wrong in one selectable line, instead of closing the app. Try again draws it once more; Go to Devices leaves it.</div></figcaption>
     </figure>
 
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen" style="opacity:.35">
+        <div class="nav"><span class="back">{{IconChevron:18}}Back</span></div>
+      </div>
+      <div style="position:absolute;left:44px;right:44px;top:300px;background:var(--surface-overlay);border:1px solid var(--border);border-radius:14px;text-align:center;overflow:hidden">
+        <div style="padding:18px 16px 14px"><div style="font-weight:600;font-size:16px;color:var(--text-primary)">New device on your account</div><div style="font-size:13px;color:var(--text-secondary);margin-top:4px">nodelike's MacBook Pro</div></div>
+        <div style="display:flex;border-top:1px solid var(--border)"><span style="flex:1;padding:12px;color:var(--text-primary)">Keep</span><span style="flex:1;padding:12px;border-left:1px solid var(--border);color:var(--danger);font-weight:600">Remove</span></div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>New device on your account</b><div class="note">Signing in is enough for a device or host to reach every host on the account, so every other device hears when one joins: the phone's own system alert, with the name the account gives it, whichever screen is open. Keep does nothing; Remove takes it off the account, which revokes it on every host at once.</div></figcaption>
+    </figure>
+
 
   </div>
 </section>
@@ -1631,7 +1646,17 @@
             <div class="row"><span class="mark">{{IconClock:18}}</span><div class="body"><div class="t">Asked 2m ago</div></div></div>
             <div class="row"><span class="mark">{{IconGlobe:18}}</span><div class="body"><div class="t">From Germany · Hetzner Online</div><div class="s">203.0.113.7</div></div></div>
           </div>
+          <div class="btn primary">Add host</div>
+          <div class="btn danger">Not mine</div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
       <figcaption><b>Check the host</b><div class="note">The host behind the code, as it named itself, with its system and channel, and a one-line warning. Under it, when the host asked and from where: the country and network the server's address book places it in, then its address. When the server knows neither it says "From an unknown place". Add host puts it on the account, after a sign-in from the last ten minutes: when the last is older, Confirm it's you comes first, the same screen as deleting the account, its button reading Add host, and the host is added once it is done. The host finishes signing in on its next ask and shows up in Devices to connect to. Not mine stops its sign-in. Either way the screen says what happened, and Done goes back to Devices.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}Back</span></div>
         <div class="prompt">
           <div class="prompt-glyph">{{IconDesktop:34}}</div>
@@ -1694,6 +1719,9 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}Back</span><span style="flex:1;text-align:center;font-weight:600;color:var(--text-primary)">Paired devices</span><span style="width:60px"></span></div>
         <div class="pad grow">
+          <div class="rows">
+            <div class="row"><span class="mark">{{IconLock:18}}</span><div class="body"><div class="t">Require approval for new devices</div><div class="s">Ask here before a device or host on your account connects</div></div><span class="toggle off"></span></div>
+          </div>
           <div class="glabel">Paired</div>
           <div class="rows">
             <div class="row"><span class="mark">{{IconPhone:18}}</span><div class="body"><div class="t">Kishore's iPhone</div><div class="s">Full control · this phone</div></div></div>
@@ -1705,30 +1733,15 @@
           </div>
           <div class="glabel">Linked hosts</div>
           <div class="rows">
-            <div class="row"><span class="mark">{{IconLaptop:18}}</span><div class="body"><div class="t">studio</div><div class="s">macOS · connected · 2 agents</div></div><span class="chev">{{IconChevron:14}}</span></div>
-            <div class="row"><span class="mark">{{IconDesktop:18}}</span><div class="body"><div class="t">render-01</div><div class="s">Linux · seen 3d ago</div></div><span class="chev">{{IconChevron:14}}</span></div>
+            <div class="row"><span class="mark">{{IconLaptop:18}}</span><div class="body"><div class="t">studio</div><div class="s">macOS · connected · 2 agents</div></div></div>
+            <div class="row"><span class="mark">{{IconDesktop:18}}</span><div class="body"><div class="t">render-01</div><div class="s">Linux · seen 3d ago</div></div></div>
           </div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Linked hosts</b><div class="note">Hosts on the same account can link, so an agent on one starts workers on the other. Below the paired devices, another host asking to link leads, with its name, its system and that it came from your account, and Decline and Allow as chips. A link is asked for once, from the other host, and raises the same notification as a phone asking to connect. Then every linked host: its system, connected or when it was last seen, and how many agents work across the link. Tapping one opens it. Only a phone that may answer pairing requests may answer or remove a link.</div></figcaption>
+      <figcaption><b>Linked hosts</b><div class="note">Hosts on the same account can link, so an agent on one starts workers on the other. Below the paired devices, another host asking to link leads, with its name, its system and that it came from your account, and Decline and Allow as chips. A link is asked for once, from the other host, and raises the same notification as a phone asking to connect. Then every linked host: its system, connected or when it was last seen, and how many agents work across the link. Only a phone that may answer pairing requests may answer a link. At the top, the host's lock: off, every device and host signed in to your account comes straight in; on, each new one waits here, and on every device acting as you, for ten minutes. Only a device acting as you can change it.</div></figcaption>
     </figure>
 
-    <figure><div class="phone"><div class="island"></div>
-      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
-      <div class="screen" style="opacity:.35">
-        <div class="nav"><span class="back">{{IconChevron:18}}Back</span></div>
-      </div>
-      <div class="sheet">
-        <div class="grabber"></div>
-        <h3>studio</h3>
-        <div class="sheet-note">macOS · linked 3d ago · 2 agents across the link</div>
-        <div class="row boxed"><span class="mark">{{IconLock:18}}</span><div class="body"><div class="t" style="font-size:15px">Let its agents use sign-ins here</div><div class="s">Plugins, databases and signed-in tabs</div></div><span class="toggle off"></span></div>
-        <div class="btn danger">Remove link</div>
-      </div>
-      <div class="home-bar"></div></div>
-      <figcaption><b>A linked host</b><div class="note">What the link is and when it was made. Its agents, and any agent one of them starts or messages here, use none of this host's sign-ins: no plugin, no database login, no browser tab with a site sign-in. The switch lets them, for this host alone; it is off for every new link, and only a phone that acts as you can turn it on. Remove link ends it on both hosts: agents on either can no longer start workers on the other, and to link again the other host asks again.</div></figcaption>
-    </figure>
 
   </div>
 </section>
@@ -2566,6 +2579,25 @@ expected 1 write, got 2</div>
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>New Claude chat</b></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="scrim"></div>
+        <div class="sheet picker-sheet">
+          <div class="grabber"></div>
+          <div class="ps-head"><span class="claude">{{IconClaude:20}}</span><b>Claude</b></div>
+          <div class="ps-label">Account</div>
+          <div class="group">
+            <div class="row on"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Work</div></div><span class="check">{{IconCheck:17}}</span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Personal</div></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>New chat settings</b><div class="note">The agent tiles name each agent once, however many accounts it has on the host. The ⋯ in the header opens the chat's settings before the first message: the account the agent runs on, with a check on the chosen one. Switching agent picks the first of its accounts. The ⋯ shows only while the chosen agent has more than one account.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>Birch</b><i>·</i><em>Download size on the hero</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat" style="justify-content:flex-start">
           <div class="msg-user">Show the download size next to the button.</div>
@@ -2933,7 +2965,7 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>The chat's menu</b><div class="note">The ⋮ in the header: Recent prompts, Copy link, which opens this chat on any phone paired with the host, and Stop chat, which asks once more and then ends the agent on the host, with anything it still has running, and goes back. A phone that can only watch has no Stop.</div></figcaption>
+      <figcaption><b>The chat's menu</b><div class="note">The ⋮ in the header: Recent prompts, Copy link, which opens this chat on any phone paired with the host, and Stop chat, which asks once more and then ends the agent on the host, with anything it still has running, closes it there and in every app, and goes back. A phone that can only watch has no Stop.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

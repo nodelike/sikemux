@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { failureMessage } from "../../../plugin-api/backend";
+import { errorText } from "../../../plugin-api/format";
 import { useVisibleStream } from "../../../plugin-api/hooks";
 import { swallow } from "../../../plugin-api/host";
 import { rundeckApi, type LogEntry, type LogTick, type RundeckExecution, type RundeckWorkflowState } from "../api";
@@ -65,7 +65,7 @@ export function useExecutionStreams(executionId: number, active: boolean) {
                           setWatchErr(update.error);
                           if (update.terminal) life.finish();
                       },
-                      onError: (error) => setWatchErr(failureMessage(error)),
+                      onError: (error) => setWatchErr(errorText(error)),
                   })
             : null,
         [executionId],

@@ -4,23 +4,23 @@ import { useResourceEnabled } from "../../plugin-api/resources";
 import { deriveAuthState } from "./auth";
 import { awsIdentityR } from "./resources";
 import { IconAws, IS_MACOS } from "../../plugin-api/ui";
-import { AWS_CONSOLE, AWS_PLUGIN_ID } from "./kinds";
+import { AWS_CONSOLE, AWS_PLUGIN } from "./kinds";
 import { awsSettings, openAwsSession } from "./state";
 
 const AwsPane = lazy(() => import("./components/AwsPane").then((module) => ({ default: module.AwsPane })));
 
 registerFrontendPlugin({
-    id: AWS_PLUGIN_ID,
+    id: AWS_PLUGIN.id,
     surfaces: [
         {
             kind: AWS_CONSOLE,
-            title: "AWS",
+            title: AWS_PLUGIN.name,
             icon: (size) => <IconAws size={size} />,
             render: ({ visible }) => <AwsPane active={visible} />,
         },
     ],
     open: openAwsSession,
-    openTitle: "Open AWS",
+    openTitle: `Open ${AWS_PLUGIN.name}`,
     mark: (size) => <IconAws size={size} />,
     openShortcut: IS_MACOS ? "Meta+Alt+KeyA" : "Ctrl+Alt+KeyA",
     useSignIn: function useAwsSignIn() {

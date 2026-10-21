@@ -53,7 +53,7 @@ const VIEW = {
   chats: [],
   attentions: [],
   recent: [],
-  inbox: { items: [], working: 0 },
+  inbox: { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [] },
 };
 
 let hub: Hub;

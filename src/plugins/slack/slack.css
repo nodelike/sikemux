@@ -24,6 +24,10 @@
     padding: 12px 8px;
     border-right: 1px solid var(--border);
     overflow-y: auto;
+    scrollbar-width: none;
+}
+.slack-sidebar::-webkit-scrollbar {
+    display: none;
 }
 
 .slack-workspace {
@@ -32,33 +36,10 @@
     font-weight: 600;
 }
 
-.slack-input {
-    padding: 5px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-2);
-    background: transparent;
-    color: var(--text-primary);
-    font-size: var(--text-xs);
-}
-
-.slack-input:focus-visible {
-    outline: none;
-    border-color: var(--border-selected);
-}
-
 .slack-channels {
     display: flex;
     flex-direction: column;
     gap: 1px;
-}
-
-.slack-heading {
-    padding: 10px 8px 4px;
-    font-size: var(--text-2xs);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-tertiary);
 }
 
 .slack-channel {
@@ -97,25 +78,6 @@
     white-space: nowrap;
 }
 
-.slack-note {
-    margin: 0;
-    padding: 4px 8px;
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-}
-
-.slack-signout {
-    margin-top: auto;
-    padding: 6px 8px;
-    font-size: var(--text-xs);
-    text-align: left;
-    color: var(--text-tertiary);
-}
-
-.slack-signout:hover {
-    color: var(--text-primary);
-}
-
 .slack-thread {
     border-left: 1px solid var(--border);
 }
@@ -136,37 +98,6 @@
 
 .slack-grow {
     flex: 1;
-}
-
-.slack-chip {
-    padding: 3px 9px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-2);
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-    white-space: nowrap;
-}
-
-.slack-chip:hover:not(:disabled) {
-    color: var(--text-primary);
-    background: var(--surface-hover);
-}
-
-.slack-chip.primary {
-    border-color: var(--acc);
-    background: var(--acc);
-    color: var(--on-accent);
-}
-
-.slack-chip.primary:hover:not(:disabled) {
-    border-color: var(--acc);
-    background: var(--acc);
-    color: var(--on-accent);
-    filter: brightness(1.08);
-}
-
-.slack-chip:disabled {
-    opacity: 0.5;
 }
 
 .slack-messages {

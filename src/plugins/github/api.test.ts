@@ -10,7 +10,8 @@ const fake = vi.hoisted(() => ({
 vi.mock("../../api/plugins", async () => (await import("../../plugin-api/fakeTransport")).fakeTransport(fake));
 vi.mock("../../state/resources", async (importOriginal) => ({ ...(await importOriginal<object>()), invalidate: fake.invalidate }));
 
-import { actionsApi, avatarForEmail, avatarForLogin, failureMessage, githubHostApi, type RunTick } from "./api";
+import { errorText } from "../../plugin-api/format";
+import { actionsApi, avatarForEmail, avatarForLogin, githubHostApi, type RunTick } from "./api";
 
 const repo = { provider: "sikemux.github", owner: "nodelike", name: "sikemux" };
 const refused = { category: "auth", message: "github: sign-in failed: Bad credentials" };
@@ -29,13 +30,13 @@ beforeEach(() => {
 describe("a refused token", () => {
     it("has the sign-in status read again when a write finds out", async () => {
         fake.call.mockRejectedValue(refused);
-        await expect(actionsApi.mergePull(repo, 1, "squash", "a".repeat(40))).rejects.toBe(refused);
+        await expect(githubHostApi.mergePull(repo, 1, "squash", "a".repeat(40))).rejects.toBe(refused);
         expect(recheckedSignIn()).toBe(true);
     });
 
     it("leaves it alone when a write fails for any other reason", async () => {
         fake.call.mockRejectedValue(conflict);
-        await expect(actionsApi.addComment(repo, 1, "hi")).rejects.toBe(conflict);
+        await expect(githubHostApi.addComment(repo, 1, "hi")).rejects.toBe(conflict);
         expect(fake.invalidate).not.toHaveBeenCalled();
     });
 
@@ -43,7 +44,7 @@ describe("a refused token", () => {
         fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) => {
             handlers.onError?.(refused);
         });
-        await expect(actionsApi.downloadArtifact(repo, "3", "build")).rejects.toBe(refused);
+        await expect(githubHostApi.downloadArtifact(repo, "3", "build")).rejects.toBe(refused);
         expect(recheckedSignIn()).toBe(true);
     });
 
@@ -53,29 +54,10 @@ describe("a refused token", () => {
             onTick = handlers.onItem;
         });
         const seen = vi.fn();
-        actionsApi.watch(repo, "7", { onItem: seen });
+        githubHostApi.watch(repo, "7", { onItem: seen });
         onTick({ run: null, jobs: [], error: "github: not signed in", finished: true, fatal: true, signedOut: true });
         expect(seen).toHaveBeenCalledTimes(1);
         expect(recheckedSignIn()).toBe(true);
-    });
-});
-
-describe("ids", () => {
-    it("names GitHub's numbered runs and jobs by text, and asks GitHub by number", async () => {
-        fake.call.mockResolvedValue({
-            run: { id: 7, workflowId: 2 },
-            jobs: [
-                { id: 30, checkRunId: 31 },
-                { id: 40, checkRunId: null },
-            ],
-        });
-        const detail = await actionsApi.run(repo, "7");
-        expect(fake.call).toHaveBeenCalledWith("run", { ...repo, runId: 7 });
-        expect(detail.run).toMatchObject({ id: "7", workflowId: "2" });
-        expect(detail.jobs).toMatchObject([
-            { id: "30", checkRunId: "31" },
-            { id: "40", checkRunId: null },
-        ]);
     });
 });
 
@@ -93,19 +75,19 @@ describe("avatarForEmail", () => {
 describe("failures", () => {
     it("has the sign-in status read again when a read finds the token refused by status", async () => {
         fake.call.mockRejectedValue({ category: "http", message: "github: http 401", status: 401 });
-        await expect(actionsApi.pulls(repo, "open")).rejects.toMatchObject({ status: 401 });
+        await expect(githubHostApi.pulls(repo, "open")).rejects.toMatchObject({ status: 401 });
         expect(recheckedSignIn()).toBe(true);
     });
 
     it("has it read again when the host was never set up", async () => {
         fake.call.mockRejectedValue({ category: "unconfigured", message: "github: not signed in" });
-        await expect(actionsApi.issues(repo, "open", 1)).rejects.toBeTruthy();
+        await expect(githubHostApi.issues(repo, "open", 1)).rejects.toBeTruthy();
         expect(recheckedSignIn()).toBe(true);
     });
 
     it("drops only the remembered rate limit when GitHub says to slow down", async () => {
         fake.call.mockRejectedValue({ category: "rate-limited", message: "github: rate limited" });
-        await expect(actionsApi.releases(repo)).rejects.toBeTruthy();
+        await expect(githubHostApi.releases(repo)).rejects.toBeTruthy();
         expect(fake.invalidate).toHaveBeenCalledTimes(1);
         const [matches] = fake.invalidate.mock.calls[0] as [(kind: string) => boolean];
         expect(matches("host.rateLimit")).toBe(true);
@@ -115,14 +97,14 @@ describe("failures", () => {
     it("passes a plain error through untouched", async () => {
         const broken = new Error("ipc gone");
         fake.call.mockRejectedValue(broken);
-        await expect(actionsApi.branches(repo)).rejects.toBe(broken);
+        await expect(githubHostApi.branches(repo)).rejects.toBe(broken);
         expect(fake.invalidate).not.toHaveBeenCalled();
     });
 
     it("reads the message of a plugin failure and of anything else", () => {
-        expect(failureMessage(refused)).toBe("github: sign-in failed: Bad credentials");
-        expect(failureMessage(new Error("boom"))).toBe("boom");
-        expect(failureMessage("plain")).toBe("plain");
+        expect(errorText(refused)).toBe("github: sign-in failed: Bad credentials");
+        expect(errorText(new Error("boom"))).toBe("boom");
+        expect(errorText("plain")).toBe("plain");
     });
 
     it("leaves the views alone when signing in fails", async () => {
@@ -133,38 +115,21 @@ describe("failures", () => {
 
     it("leaves a 403 alone: the token works, it is just not allowed this", async () => {
         fake.call.mockRejectedValue({ category: "forbidden", message: "github: not allowed: admin only", status: 403 });
-        await expect(actionsApi.deleteRun(repo, "7")).rejects.toBeTruthy();
+        await expect(githubHostApi.deleteRun(repo, "7")).rejects.toBeTruthy();
         expect(fake.invalidate).not.toHaveBeenCalled();
     });
 });
 
 describe("requests", () => {
-    it("asks for runs of one workflow by number, or of every workflow", async () => {
-        fake.call.mockResolvedValue({ runs: [{ id: 9, workflowId: 3 }], total: 1 });
-        const page = await actionsApi.runs({ ...repo, workflowId: "3", page: 1 } as never);
-        expect(fake.call).toHaveBeenLastCalledWith("runs", expect.objectContaining({ workflowId: 3 }));
-        expect(page.runs[0]).toMatchObject({ id: "9", workflowId: "3" });
-
-        await actionsApi.runs({ ...repo, page: 1 } as never);
-        expect((fake.call.mock.calls[1] as [string, { workflowId?: number }])[1].workflowId).toBeUndefined();
-    });
-
-    it("names workflows and artifacts by text", async () => {
-        fake.call.mockResolvedValue([{ id: 12, name: "CI" }]);
-        await expect(actionsApi.workflows(repo)).resolves.toEqual([{ id: "12", name: "CI" }]);
-        await expect(actionsApi.artifacts(repo, "5")).resolves.toEqual([{ id: "12", name: "CI" }]);
-        expect(fake.call).toHaveBeenLastCalledWith("artifacts", { ...repo, runId: 5 });
-    });
-
     it("re-runs without debug logging unless asked", async () => {
         fake.call.mockResolvedValue(undefined);
-        await actionsApi.rerun(repo, "8", true);
-        await actionsApi.rerunJob(repo, "9", true);
-        await actionsApi.reviewDeployment(repo, "8", [1], "approved");
+        await githubHostApi.rerun(repo, "8", true);
+        await githubHostApi.rerunJob(repo, "9", true);
+        await githubHostApi.reviewDeployment(repo, "8", [1], "approved");
         expect(fake.call.mock.calls).toEqual([
-            ["rerun", { ...repo, runId: 8, failedOnly: true, debug: false }],
-            ["rerunJob", { ...repo, jobId: 9, debug: true }],
-            ["reviewDeployment", { ...repo, runId: 8, environmentIds: [1], state: "approved", comment: "" }],
+            ["rerun", { ...repo, runId: "8", failedOnly: true, debug: false }],
+            ["rerunJob", { ...repo, jobId: "9", debug: true }],
+            ["reviewDeployment", { ...repo, runId: "8", environmentIds: [1], state: "approved", comment: "" }],
         ]);
     });
 });
@@ -172,24 +137,24 @@ describe("requests", () => {
 describe("image", () => {
     it("fetches each picture once", async () => {
         fake.call.mockResolvedValue("data:image/png;base64,AA");
-        await actionsApi.image("https://a/once.png");
-        await expect(actionsApi.image("https://a/once.png")).resolves.toBe("data:image/png;base64,AA");
+        await githubHostApi.image("https://a/once.png");
+        await expect(githubHostApi.image("https://a/once.png")).resolves.toBe("data:image/png;base64,AA");
         expect(fake.call).toHaveBeenCalledTimes(1);
     });
 
     it("tries a failed picture again", async () => {
         fake.call.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce("data:ok");
-        await expect(actionsApi.image("https://a/retry.png")).rejects.toThrow("offline");
-        await expect(actionsApi.image("https://a/retry.png")).resolves.toBe("data:ok");
+        await expect(githubHostApi.image("https://a/retry.png")).rejects.toThrow("offline");
+        await expect(githubHostApi.image("https://a/retry.png")).resolves.toBe("data:ok");
         expect(fake.call).toHaveBeenCalledTimes(2);
     });
 
     it("forgets the oldest picture once it holds too many", async () => {
         fake.call.mockResolvedValue("data:x");
-        await actionsApi.image("https://a/first.png");
-        for (let index = 0; index < 400; index += 1) await actionsApi.image(`https://a/fill-${index}.png`);
+        await githubHostApi.image("https://a/first.png");
+        for (let index = 0; index < 400; index += 1) await githubHostApi.image(`https://a/fill-${index}.png`);
         fake.call.mockClear();
-        await actionsApi.image("https://a/first.png");
+        await githubHostApi.image("https://a/first.png");
         expect(fake.call).toHaveBeenCalledWith("image", { url: "https://a/first.png" });
     });
 });
@@ -209,27 +174,34 @@ describe("downloads", () => {
             { received: 2, total: 2, saved: { path: "/tmp/build.zip" } },
         ]);
         const progress = vi.fn();
-        await expect(actionsApi.downloadAsset(repo, 77, "build.zip", progress)).resolves.toEqual({ path: "/tmp/build.zip" });
+        await expect(githubHostApi.downloadAsset(repo, 77, "build.zip", progress)).resolves.toEqual({ path: "/tmp/build.zip" });
         expect(fake.stream).toHaveBeenCalledWith("downloadAsset", { ...repo, assetId: 77, fileName: "build.zip" }, expect.anything());
         expect(progress).toHaveBeenCalledTimes(2);
     });
 
     it("fails when the stream ends without saving anything", async () => {
         streamOf([{ received: 1, total: 2, saved: null }]);
-        await expect(actionsApi.downloadArtifact(repo, "3", "build")).rejects.toThrow("without saving");
+        await expect(githubHostApi.downloadArtifact(repo, "3", "build")).rejects.toThrow("without saving");
     });
 });
 
 describe("watching a run", () => {
-    it("hands over ticks with text ids and keeps the views while signed in", () => {
+    it("hands over ticks and keeps the views while signed in", () => {
         let onTick: (tick: unknown) => void = () => {};
         fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) => {
             onTick = handlers.onItem;
         });
         const seen = vi.fn();
-        actionsApi.watch(repo, "7", { onItem: seen });
-        expect(fake.stream).toHaveBeenCalledWith("watchRun", { ...repo, runId: 7 }, expect.anything());
-        onTick({ run: { id: 7, workflowId: 1 }, jobs: [{ id: 5, checkRunId: 6 }], error: null, finished: false, fatal: false, signedOut: false });
+        githubHostApi.watch(repo, "7", { onItem: seen });
+        expect(fake.stream).toHaveBeenCalledWith("watchRun", { ...repo, runId: "7" }, expect.anything());
+        onTick({
+            run: { id: "7", workflowId: "1" },
+            jobs: [{ id: "5", checkRunId: "6" }],
+            error: null,
+            finished: false,
+            fatal: false,
+            signedOut: false,
+        });
         expect(seen.mock.calls[0][0]).toMatchObject({ run: { id: "7" }, jobs: [{ id: "5", checkRunId: "6" }] });
         expect(fake.invalidate).not.toHaveBeenCalled();
     });
@@ -237,7 +209,7 @@ describe("watching a run", () => {
     it("has the sign-in status read again when the watch fails for a refused token", () => {
         const onError = vi.fn();
         fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) => handlers.onError?.(refused));
-        actionsApi.watch(repo, "7", { onItem: vi.fn(), onError });
+        githubHostApi.watch(repo, "7", { onItem: vi.fn(), onError });
         expect(onError).toHaveBeenCalledWith(refused);
         expect(recheckedSignIn()).toBe(true);
     });

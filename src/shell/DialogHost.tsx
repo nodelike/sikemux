@@ -1,9 +1,7 @@
-import { useModalFocus } from "../hooks/useModalFocus";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { acceptDialog, chooseOther, dismissDialog, useDialogs, type PendingDialog } from "../state/dialog";
-import { useOccludeNativeViews } from "../state/nativeViews";
 import { IconInfo, IconWarning } from "../ui/Icons";
-import { Kbd } from "../ui/Kbd";
+import { Modal } from "../ui/Modal";
 
 /**
  * Renders the app's own confirm/prompt sheet in place of the platform dialogs.
@@ -11,22 +9,19 @@ import { Kbd } from "../ui/Kbd";
  */
 export function DialogHost() {
     const dialog = useDialogs((s) => s.dialog);
-    useOccludeNativeViews(Boolean(dialog));
     if (!dialog) return null;
     // Key on id so the prompt input resets between queued dialogs.
     return <DialogSheet key={dialog.id} dialog={dialog} />;
 }
 
 function DialogSheet({ dialog }: { dialog: PendingDialog }) {
-    const modalRef = useRef<HTMLDivElement>(null);
-    useModalFocus(modalRef);
     const [value, setValue] = useState(dialog.kind === "prompt" ? (dialog.initial ?? "") : "");
     const inputRef = useRef<HTMLInputElement>(null);
     const confirmRef = useRef<HTMLButtonElement>(null);
     const cancelRef = useRef<HTMLButtonElement>(null);
 
     const accept = () => acceptDialog(dialog.id, value);
-    const dismiss = () => dismissDialog(dialog.id);
+    const dismiss = useCallback(() => dismissDialog(dialog.id), [dialog.id]);
     // Destructive confirms focus cancel so a stray Return never deletes anything.
     const destructive = dialog.kind !== "prompt" && !!dialog.destructive;
 
@@ -37,77 +32,16 @@ function DialogSheet({ dialog }: { dialog: PendingDialog }) {
         } else (destructive ? cancelRef : confirmRef).current?.focus();
     }, [dialog.kind, destructive]);
 
-    // Capture Escape before the panes behind the scrim can act on it.
-    useEffect(() => {
-        const onKey = (event: KeyboardEvent) => {
-            if (event.key !== "Escape" || (event.target instanceof Element && event.target.closest(".dd-menu"))) return;
-            event.preventDefault();
-            event.stopPropagation();
-            dismiss();
-        };
-        window.addEventListener("keydown", onKey, true);
-        return () => window.removeEventListener("keydown", onKey, true);
-    });
-
     const paragraphs = (dialog.body ?? "").split("\n").filter((line) => line.trim().length > 0);
 
     return (
-        <div className="dlg-scrim" onMouseDown={dismiss}>
-            <div
-                ref={modalRef}
-                tabIndex={-1}
-                className={`dlg${destructive ? " danger" : ""}`}
-                role="dialog"
-                aria-modal="true"
-                aria-label={dialog.title}
-                onMouseDown={(event) => event.stopPropagation()}>
-                <div className="dlg-head">
-                    <span className="dlg-glyph" aria-hidden="true">
-                        {destructive ? <IconWarning size={15} /> : <IconInfo size={15} />}
-                    </span>
-                    <h2 className="dlg-title">{dialog.title}</h2>
-                </div>
-                {paragraphs.length > 0 && (
-                    <div className="dlg-body">
-                        {paragraphs.map((line, i) => (
-                            <p key={i}>{line}</p>
-                        ))}
-                    </div>
-                )}
-                {dialog.kind !== "prompt" && dialog.commands && dialog.commands.length > 0 && (
-                    <ul className="dlg-commands">
-                        {dialog.commands.map((entry, i) => (
-                            <li key={i}>
-                                <span className="dlg-command-label">{entry.label}</span>
-                                <code className="dlg-command">{entry.command}</code>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-                {dialog.kind === "prompt" && (
-                    <form
-                        className="dlg-field"
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            accept();
-                        }}>
-                        {dialog.label && <label htmlFor={`dlg-input-${dialog.id}`}>{dialog.label}</label>}
-                        <input
-                            id={`dlg-input-${dialog.id}`}
-                            ref={inputRef}
-                            className="dlg-input"
-                            value={value}
-                            placeholder={dialog.placeholder}
-                            spellCheck={false}
-                            autoComplete="off"
-                            onChange={(event) => setValue(event.target.value)}
-                        />
-                    </form>
-                )}
-                <div className="dlg-foot">
-                    <span className="dlg-hint">
-                        <Kbd>esc</Kbd> cancel
-                    </span>
+        <Modal
+            title={dialog.title}
+            glyph={destructive ? <IconWarning size={15} /> : <IconInfo size={15} />}
+            danger={destructive}
+            onClose={dismiss}
+            foot={
+                <>
                     <button ref={cancelRef} type="button" className="dlg-btn" onClick={dismiss}>
                         {dialog.cancelLabel ?? "Cancel"}
                     </button>
@@ -124,8 +58,45 @@ function DialogSheet({ dialog }: { dialog: PendingDialog }) {
                         onClick={accept}>
                         {dialog.confirmLabel ?? (dialog.kind === "prompt" ? "Save" : "Confirm")}
                     </button>
+                </>
+            }>
+            {paragraphs.length > 0 && (
+                <div className="dlg-body">
+                    {paragraphs.map((line, i) => (
+                        <p key={i}>{line}</p>
+                    ))}
                 </div>
-            </div>
-        </div>
+            )}
+            {dialog.kind !== "prompt" && dialog.commands && dialog.commands.length > 0 && (
+                <ul className="dlg-commands">
+                    {dialog.commands.map((entry, i) => (
+                        <li key={i}>
+                            <span className="dlg-command-label">{entry.label}</span>
+                            <code className="dlg-command">{entry.command}</code>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {dialog.kind === "prompt" && (
+                <form
+                    className="dlg-field"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        accept();
+                    }}>
+                    {dialog.label && <label htmlFor={`dlg-input-${dialog.id}`}>{dialog.label}</label>}
+                    <input
+                        id={`dlg-input-${dialog.id}`}
+                        ref={inputRef}
+                        className="dlg-input"
+                        value={value}
+                        placeholder={dialog.placeholder}
+                        spellCheck={false}
+                        autoComplete="off"
+                        onChange={(event) => setValue(event.target.value)}
+                    />
+                </form>
+            )}
+        </Modal>
     );
 }

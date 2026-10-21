@@ -3,7 +3,8 @@ import type { Challenge } from "@sikemux/protocol";
 import { sql, type Kysely } from "kysely";
 
 import type { Tables } from "../db.ts";
-import { ApiFailure } from "../http.ts";
+import { badRequest, forbidden } from "../http.ts";
+import { signedBy } from "./signature.ts";
 
 const CHALLENGE_MS = 2 * 60_000;
 
@@ -36,11 +37,18 @@ export async function consumeChallenge(
     .returning("nonce")
     .executeTakeFirst();
   if (!challenge)
-    throw new ApiFailure(
-      400,
-      "bad_request",
-      "The challenge is unknown, already used, or expired.",
-    );
+    throw badRequest("The challenge is unknown, already used, or expired.");
+}
+
+/** Uses up the account's challenge and checks the device signed `message` with its key. */
+export async function proveKey(
+  db: Kysely<Tables>,
+  userId: string,
+  proof: { nonce: string; key: string; message: string; signature: string },
+): Promise<void> {
+  await consumeChallenge(db, userId, proof.nonce);
+  if (!signedBy(proof.key, proof.message, proof.signature))
+    throw forbidden("The signature does not prove this device holds the key.");
 }
 
 /** Deletes challenges that expired over an hour ago, returning how many. */

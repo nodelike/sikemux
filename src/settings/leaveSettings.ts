@@ -15,23 +15,18 @@ function placeInFront(state: StoreState): string {
 
 /** Settings stands in for the workspace, so going anywhere in the workspace leaves it. */
 export function useLeaveSettingsOnNavigation(): void {
-    useLeaveOnNavigation((state) => state.settingsOpen, cmd.closeSettings);
-}
-
-/** The same for any view that stands in for the workspace while `isOpen` says it is open. */
-export function useLeaveOnNavigation(isOpen: (state: StoreState) => boolean, close: () => void): void {
     useEffect(() => {
         const unsubscribe = useStore.subscribe((state, previous) => {
-            if (isOpen(state) && placeInFront(state) !== placeInFront(previous)) close();
+            if (state.settingsOpen && placeInFront(state) !== placeInFront(previous)) cmd.closeSettings();
         });
         const onClick = (event: MouseEvent) => {
             const target = event.target instanceof Element ? event.target : null;
-            if (target?.closest(NAVIGATES)?.closest("[data-leaves-settings]")) close();
+            if (target?.closest(NAVIGATES)?.closest("[data-leaves-settings]")) cmd.closeSettings();
         };
         document.addEventListener("click", onClick, true);
         return () => {
             unsubscribe();
             document.removeEventListener("click", onClick, true);
         };
-    }, [isOpen, close]);
+    }, []);
 }

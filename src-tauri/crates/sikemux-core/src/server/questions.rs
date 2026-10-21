@@ -6,14 +6,17 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
 use crate::protocol::WindowCall;
+use crate::text::clipped;
 
 use super::activity::Activity;
 use super::connection::ClientId;
@@ -21,7 +24,6 @@ use super::kept::Kept;
 use super::messages;
 use super::names::project_of;
 use super::notify::Signal;
-use super::remote::unix_ms;
 use super::wake::{sooner, Wake};
 use super::Core;
 
@@ -47,7 +49,7 @@ const WINDOW_ANSWER_WAIT: Duration = Duration::from_secs(10);
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Choice {
     pub label: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }
 
@@ -83,7 +85,7 @@ struct Question {
     asked: String,
     /// What the person is asked, which a lead that passes it on may reword.
     text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     header: Option<String>,
     choices: Vec<Choice>,
     /// The person may pick more than one of `choices`.
@@ -99,11 +101,11 @@ struct Question {
     stage: Stage,
     /// The linked host it was put to the person on, where its asker's team
     /// is led from.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     relayed: Option<String>,
     /// The linked host its asker runs on, when it is put to the person here
     /// for an agent there.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     from_host: Option<String>,
 }
 
@@ -212,12 +214,6 @@ struct Asked {
 }
 
 impl Questions {
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// Takes up the questions left open by agents `known` says still exist.
     pub(crate) fn new(data_dir: Option<&Path>, known: impl Fn(&str) -> bool) -> Self {
         let kept = Kept::new(data_dir, FILE);
@@ -283,14 +279,15 @@ impl Questions {
 
     /// Whether the agent waits on the person to answer a question.
     pub(crate) fn blocks_on_person(&self, agent_id: &str) -> bool {
-        self.lock().open.iter().any(|question| {
+        self.state.locked().open.iter().any(|question| {
             question.agent_id == agent_id && question.blocked && question.asks_person()
         })
     }
 
     /// Whether the agent stopped to wait for the answer to a question.
     pub(crate) fn waits_on_answer(&self, agent_id: &str) -> bool {
-        self.lock()
+        self.state
+            .locked()
             .open
             .iter()
             .any(|question| question.agent_id == agent_id && question.blocked)
@@ -299,7 +296,8 @@ impl Questions {
     /// Whether the agent has a question or an assumption the person has not
     /// answered.
     pub(crate) fn has_open(&self, agent_id: &str) -> bool {
-        self.lock()
+        self.state
+            .locked()
             .open
             .iter()
             .any(|question| question.agent_id == agent_id)
@@ -307,7 +305,8 @@ impl Questions {
 
     /// The questions put to the person, oldest first.
     pub(crate) fn for_person(&self) -> Vec<ForPerson> {
-        self.lock()
+        self.state
+            .locked()
             .open
             .iter()
             .filter(|question| question.asks_person())
@@ -324,7 +323,7 @@ impl Questions {
 
     /// The boards changed, which may change the ticket a question names.
     pub(crate) fn boards_changed(&self) {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         if !state.open.is_empty() {
             state.dirty = true;
             self.wake.now();
@@ -334,7 +333,8 @@ impl Questions {
     /// The question `id` that `agent_id` asked and `lead` was handed, in the
     /// asker's own words, while it is open.
     pub(crate) fn asked_of(&self, lead: &str, agent_id: &str, id: &str) -> Option<String> {
-        self.lock()
+        self.state
+            .locked()
             .open
             .iter()
             .find(|question| {
@@ -345,7 +345,7 @@ impl Questions {
 
     /// The lead answered the question `id` its agent asked it.
     pub(crate) fn lead_answered(&self, lead: &str, agent_id: &str, id: &str) {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         let before = state.open.len();
         state.open.retain(|question| {
             !(question.id == id && question.agent_id == agent_id && question.went_to(lead))
@@ -358,7 +358,7 @@ impl Questions {
     /// The person typed into the terminal of an agent that asked them
     /// something, which answers it there.
     pub(crate) fn typed(&self, agent_id: &str) {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         let before = state.open.len();
         state
             .open
@@ -374,7 +374,8 @@ impl Questions {
 pub(crate) fn turn_ended(core: &Core, agent_id: &str) {
     let questions = &core.harness.questions;
     let waiting: Vec<String> = questions
-        .lock()
+        .state
+        .locked()
         .open
         .iter()
         .filter(|question| question.lead_id() == Some(agent_id))
@@ -387,8 +388,8 @@ pub(crate) fn turn_ended(core: &Core, agent_id: &str) {
     if read.is_empty() {
         return;
     }
-    let now = unix_ms();
-    let mut state = questions.lock();
+    let now = epoch_ms();
+    let mut state = questions.state.locked();
     for question in &mut state.open {
         if let Stage::Lead { ended_at, .. } = &mut question.stage {
             if read.contains(&question.id) && ended_at.is_none() {
@@ -411,16 +412,6 @@ fn text_param(params: &Value, key: &str, max: usize) -> Result<Option<String>, S
         )),
         Some(_) => Err(format!("{key} must be nonempty text")),
     }
-}
-
-fn clipped(text: &str, max: usize) -> String {
-    let text = text.trim();
-    if text.chars().count() <= max {
-        return text.to_owned();
-    }
-    let mut clipped: String = text.chars().take(max.saturating_sub(1)).collect();
-    clipped.push('…');
-    clipped
 }
 
 fn choices(value: Option<&Value>) -> Result<Vec<Choice>, String> {
@@ -540,7 +531,7 @@ fn open(
         )
     });
     let cli = cli_of(core, agent_id);
-    let at = unix_ms();
+    let at = epoch_ms();
     let questions: Vec<Question> = asked
         .into_iter()
         .map(|asked| Question {
@@ -570,7 +561,7 @@ fn open(
             from_host: None,
         })
         .collect();
-    let mut state = core.harness.questions.lock();
+    let mut state = core.harness.questions.state.locked();
     let open = state
         .open
         .iter()
@@ -650,7 +641,7 @@ async fn hand_to_lead(core: &Arc<Core>, question: &Question) {
     {
         return;
     }
-    let mut state = core.harness.questions.lock();
+    let mut state = core.harness.questions.state.locked();
     if let Some(open) = state.open.iter_mut().find(|open| open.id == question.id) {
         open.stage = Stage::Person {
             lead: None,
@@ -733,7 +724,8 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let question = core
         .harness
         .questions
-        .lock()
+        .state
+        .locked()
         .open
         .iter()
         .find(|open| open.id == question.id)
@@ -783,7 +775,7 @@ fn pass_on(
         .names
         .name(lead_id)
         .unwrap_or_else(|| lead_id.to_owned());
-    let mut state = core.harness.questions.lock();
+    let mut state = core.harness.questions.state.locked();
     let from = |question: &Question| {
         question.agent_id == wanted || question.name.eq_ignore_ascii_case(wanted)
     };
@@ -887,7 +879,7 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
 
 /// The open questions, for the app, the notch and phones.
 pub(crate) fn views(core: &Core) -> Vec<Value> {
-    let open = core.harness.questions.lock().open.clone();
+    let open = core.harness.questions.state.locked().open.clone();
     with_tickets(core, open)
 }
 
@@ -911,12 +903,10 @@ fn with_tickets(core: &Core, open: Vec<Question>) -> Vec<Value> {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AnswerParams {
     id: String,
-    #[serde(default)]
     answer: Option<String>,
-    #[serde(default)]
     choice: Option<usize>,
     /// The choices picked on a question that takes several.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     choices: Option<Vec<usize>>,
     /// The assumption the agent went on is right.
     #[serde(default)]
@@ -945,7 +935,7 @@ pub(crate) struct AnswersParams {
 /// rest arrive.
 pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Result<Value, String> {
     let taken = {
-        let mut state = core.harness.questions.lock();
+        let mut state = core.harness.questions.state.locked();
         let mut taken = Vec::with_capacity(params.answers.len());
         for given in params.answers {
             let question = state
@@ -963,7 +953,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
         taken
     };
     let reopen = |questions: Vec<Question>| {
-        let mut state = core.harness.questions.lock();
+        let mut state = core.harness.questions.state.locked();
         state.open.extend(questions);
         core.harness.questions.changed(&mut state);
     };
@@ -1127,7 +1117,7 @@ fn answer_text(question: &Question, params: &AnswerParams) -> Result<Option<Stri
 /// agents change, and again when a lead's time to answer runs out.
 pub(crate) fn settle(core: &Arc<Core>) {
     let (askers, leads): (HashSet<String>, HashSet<String>) = {
-        let state = core.harness.questions.lock();
+        let state = core.harness.questions.state.locked();
         if state.dirty {
             core.boards.wake.now();
         }
@@ -1165,7 +1155,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         })
         .collect();
     let unread: HashSet<String> = {
-        let state = core.harness.questions.lock();
+        let state = core.harness.questions.state.locked();
         state
             .open
             .iter()
@@ -1175,12 +1165,12 @@ pub(crate) fn settle(core: &Arc<Core>) {
             })
             .collect()
     };
-    let now = unix_ms();
+    let now = epoch_ms();
     let mut withdrawn = Vec::new();
     let mut next = None;
     let mut closed = Vec::new();
     {
-        let mut state = core.harness.questions.lock();
+        let mut state = core.harness.questions.state.locked();
         let before = state.open.len();
         state.open.retain(|question| {
             let keep = !gone.contains(&question.agent_id);
@@ -1248,7 +1238,8 @@ fn relay(core: &Core) {
     let candidates: Vec<String> = core
         .harness
         .questions
-        .lock()
+        .state
+        .locked()
         .open
         .iter()
         .filter(|question| {
@@ -1273,7 +1264,7 @@ fn relay(core: &Core) {
     }
     let mut relayed = Vec::new();
     {
-        let mut state = core.harness.questions.lock();
+        let mut state = core.harness.questions.state.locked();
         for question in &mut state.open {
             let Some(host) = hosts.get(&question.agent_id) else {
                 continue;
@@ -1322,7 +1313,7 @@ pub(crate) fn relayed_here(core: &Core, host: &str, params: Value) -> Result<Val
             passed: false,
         },
     };
-    let mut state = core.harness.questions.lock();
+    let mut state = core.harness.questions.state.locked();
     state.open.retain(|open| open.id != question.id);
     state.open.push(question);
     core.harness.questions.changed(&mut state);
@@ -1339,7 +1330,8 @@ pub(crate) async fn answer_relayed(
     let relayed_there = core
         .harness
         .questions
-        .lock()
+        .state
+        .locked()
         .open
         .iter()
         .any(|question| question.id == params.id && question.relayed.as_deref() == Some(host));
@@ -1352,7 +1344,7 @@ pub(crate) async fn answer_relayed(
 /// A question an agent on a linked host asked no longer waits on the person.
 pub(crate) fn closed_elsewhere(core: &Core, host: &str, params: Value) -> Result<Value, String> {
     let id = params["id"].as_str().unwrap_or_default();
-    let mut state = core.harness.questions.lock();
+    let mut state = core.harness.questions.state.locked();
     let before = state.open.len();
     state
         .open
@@ -1369,7 +1361,7 @@ pub(crate) fn closed_elsewhere(core: &Core, host: &str, params: Value) -> Result
 /// questions again.
 fn tell_phones(core: &Core) {
     let (asked, cleared, changed) = {
-        let mut state = core.harness.questions.lock();
+        let mut state = core.harness.questions.state.locked();
         let shown: HashMap<String, String> = state
             .open
             .iter()
@@ -1434,9 +1426,12 @@ fn tell_phones(core: &Core) {
 fn tell_window(core: &Arc<Core>) {
     let window = core.window.client_id();
     let open = {
-        let mut state = core.harness.questions.lock();
+        let mut state = core.harness.questions.state.locked();
         if !state.dirty && state.told_window == window {
             return;
+        }
+        if state.dirty {
+            core.view_changed();
         }
         state.dirty = false;
         state.told_window = window;

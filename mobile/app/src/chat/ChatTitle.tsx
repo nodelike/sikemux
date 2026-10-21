@@ -24,7 +24,7 @@ export function ChatTitle({
   const styles = useStyles(makeStyles);
   return (
     <>
-      <AgentFace agentId={agentId} provider={provider} group={group} size={17} />
+      <AgentFace agentId={agentId} provider={provider} named={!!name} group={group} size={17} />
       <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
         {title}
       </Text>

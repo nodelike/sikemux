@@ -1,3 +1,4 @@
+import { externalValue, useExternalValue } from "../lib/externalValue";
 import { notify, reportError } from "../state/toast";
 import { isActive, tasksApi, type Check, type ProjectTask, type TaskRun } from "./coreTasks";
 import { focusWhenShown } from "./taskTerminals";
@@ -9,27 +10,12 @@ export interface PendingCheck {
     readonly checks: readonly Check[];
 }
 
-let pendingCheck: PendingCheck | null = null;
-const checkListeners = new Set<() => void>();
+const pendingCheck = externalValue<PendingCheck | null>(null);
 
-function setPendingCheck(next: PendingCheck | null): void {
-    pendingCheck = next;
-    for (const listener of [...checkListeners]) listener();
-}
-
-export function subscribePendingCheck(listener: () => void): () => void {
-    checkListeners.add(listener);
-    return () => {
-        checkListeners.delete(listener);
-    };
-}
-
-export function getPendingCheck(): PendingCheck | null {
-    return pendingCheck;
-}
+export const usePendingCheck = (): PendingCheck | null => useExternalValue(pendingCheck);
 
 export function dismissPendingCheck(): void {
-    setPendingCheck(null);
+    pendingCheck.set(null);
 }
 
 /**
@@ -42,10 +28,10 @@ export function runProjectTask(project: string, task: ProjectTask, how: { force?
         .start(project, task.id, how)
         .then((answer) => {
             if ("checks" in answer) {
-                setPendingCheck({ project, task, checks: answer.checks });
+                pendingCheck.set({ project, task, checks: answer.checks });
                 return;
             }
-            setPendingCheck(null);
+            pendingCheck.set(null);
             focusWhenShown(answer.executionId);
             notify("success", `Started task: ${task.label}`);
         })

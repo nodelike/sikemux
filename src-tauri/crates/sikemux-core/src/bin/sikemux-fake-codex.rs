@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
 struct Codex {
     out: Mutex<std::io::Stdout>,
@@ -38,10 +39,9 @@ fn uuid() -> String {
 
 impl Codex {
     fn send(&self, message: Value) {
-        if let Ok(mut out) = self.out.lock() {
-            let _ = writeln!(out, "{message}");
-            let _ = out.flush();
-        }
+        let mut out = self.out.locked();
+        let _ = writeln!(out, "{message}");
+        let _ = out.flush();
     }
 
     fn reply(&self, id: &Value, result: Value) {
@@ -82,9 +82,7 @@ impl Codex {
     fn ask(&self, method: &str, params: Value) -> Value {
         let id = self.next_request.fetch_add(1, Ordering::Relaxed) + 1_000;
         let (answer, answered) = channel();
-        if let Ok(mut waiting) = self.waiting.lock() {
-            waiting.insert(id, answer);
-        }
+        self.waiting.locked().insert(id, answer);
         self.send(json!({ "id": id, "method": method, "params": params }));
         answered
             .recv_timeout(Duration::from_secs(30))
@@ -291,15 +289,14 @@ impl Codex {
             }
             "skills/extraRoots/set" => {
                 let roots = params["extraRoots"].as_array().cloned().unwrap_or_default();
-                *self.skill_roots.lock().unwrap() =
+                *self.skill_roots.locked() =
                     roots.iter().filter_map(Value::as_str).map(PathBuf::from).collect();
                 self.reply(id, json!({}));
             }
             "skills/list" => {
                 let skills: Vec<Value> = self
                     .skill_roots
-                    .lock()
-                    .unwrap()
+                    .locked()
                     .iter()
                     .filter_map(|root| std::fs::read_dir(root).ok())
                     .flatten()
@@ -353,7 +350,7 @@ fn main() {
             (Some(id), None) => {
                 let answer = id
                     .as_u64()
-                    .and_then(|id| codex.waiting.lock().ok()?.remove(&id));
+                    .and_then(|id| codex.waiting.locked().remove(&id));
                 if let Some(answer) = answer {
                     let _ = answer.send(message["result"].clone());
                 }

@@ -10,46 +10,57 @@ use serde_json::{json, Value};
 
 use super::access::{Needs, Peer};
 use super::attachments;
+use super::changed::Topic;
 use super::connection::{blocking, ClientConn};
 use super::edits::{self, Edit, Filter, Owners};
 use super::names::{project_of, AgentName, ClosedAgent, Starting};
 use super::workspace;
 use super::{
-    board, inbox, messages, plugins, questions, remote, saved, share, who_wrote, Core, CoreError,
-    CoreResult,
+    agent_accounts, agent_sign_in, board, inbox, messages, model_providers, plugins, questions,
+    remote, saved, saved_sessions, share, skill_library, who_wrote, Core, CoreError, CoreResult,
 };
 
+/// Each method once: what a client must be allowed, `any_program` when any
+/// program on this host may call it rather than only Sikemux's own window or
+/// notch, and what it runs.
+macro_rules! calls {
+    ($core:ident, $client:ident, $params:ident;
+     $($name:literal: $needs:ident $(, $any:ident)? => $run:expr,)*) => {
+        fn rule(method: &str) -> Option<(Needs, bool)> {
+            match method {
+                $($name => Some((Needs::$needs, calls!(@any $($any)?))),)*
+                _ => None,
+            }
+        }
+
+        pub(crate) async fn call(
+            $core: Arc<Core>,
+            $client: &ClientConn,
+            method: &str,
+            $params: Value,
+        ) -> CoreResult<Value> {
+            match method {
+                $($name => $run,)*
+                method if method.starts_with("git.") => {
+                    super::git::call(&$core, &$client.peer, method, $params).await
+                }
+                method if method.starts_with("files.") => files(&$core, method, $params).await,
+                _ => Err(format!("this host does not know {method}").into()),
+            }
+        }
+    };
+    (@any any_program) => { true };
+    (@any) => { false };
+}
+
 pub(crate) fn needs(method: &str) -> Needs {
-    match method {
-        "chatFile" | "questions" | "boards" | "board" | "agentNames" | "edits" | "inbox"
-        | "digest" | "agentMessages" | "workspace" => Needs::Watch,
-        "answerQuestion" | "answerQuestions" | "boardAdd" | "boardUpdate" | "boardRemove"
-        | "boardSettings" | "boardRetry" | "renameAgent" | "shares" | "agentAccounts"
-        | "agentStatus" | "agentAccountStatus" | "agentUsage" | "cancelResume" | "steerQueued"
-        | "dropQueued" => Needs::Full,
-        "boardAddTicket" => Needs::Full,
-        "pairing" | "answerPairing" | "changeDevice" | "linkHost" | "shareChat" | "stopShare"
-        | "commitStaged" | "setAgentAccounts" | "addAgentAccount" | "forgetAgentStatus"
-        | "markAgentSignedOut" | "addProject" | "removeProject" | "updateProject"
-        | "moveProject" | "setSpaces" | "setPinnedChats" | "setAgentDefaults" | "createAgent"
-        | "updateAgent" | "closeAgents" | "plugin" | "pluginManifests" | "pluginSetDisabled"
-        | "pluginStream" | "pluginSignIn" | "signInCallback" => Needs::Person,
-        "changeOwners" | "commitOwners" | "activitySummary" | "showCi" => Needs::Watch,
-        "setActivityPrice" | "setLinkSignIns" => Needs::Person,
-        "createAgentWorktree" => Needs::Person,
-        "agentWorktreeAt" => Needs::Full,
-        "modelProviders" | "modelProviderModels" | "modelHelper" | "agentSignIns" => Needs::Full,
-        "agentSignIn" | "agentSignInCode" | "cancelAgentSignIn" | "agentSignOut" => Needs::Person,
-        "skillsOverview" | "skillsAdded" | "savedSessions" | "recentSessions" => Needs::Full,
-        "renameSession" | "deleteSession" | "relocateSession" => Needs::Person,
-        "createSkill" | "installSkill" | "removeSkill" | "adoptSkill" => Needs::Person,
-        "modelProviderCheck"
-        | "modelProviderConnect"
-        | "modelProviderDisconnect"
-        | "setModelHelper" => Needs::Person,
-        method if method.starts_with("git.") => super::git::needs(method),
-        _ => Needs::Local,
+    if method.starts_with("git.") {
+        return super::git::needs(method);
     }
+    if method.starts_with("files.") {
+        return Needs::Full;
+    }
+    rule(method).map_or(Needs::Local, |(needs, _)| needs)
 }
 
 /// Whether only Sikemux's own window or notch may call `method` from this
@@ -59,266 +70,300 @@ pub(crate) fn for_person(method: &str) -> bool {
     if method.starts_with("git.") {
         return super::git::for_person(method);
     }
-    !matches!(
-        method,
-        "pluginSignIn"
-            | "signInCallback"
-            | "chatFile"
-            | "workspace"
-            | "questions"
-            | "boards"
-            | "board"
-            | "agentNames"
-            | "agentSessions"
-            | "agentMessages"
-            | "edits"
-            | "changeOwners"
-            | "commitOwners"
-            | "showCi"
-            | "inbox"
-            | "digest"
-            | "activitySummary"
-            | "pairing"
-            | "shares"
-            | "agentAccounts"
-            | "agentStatus"
-            | "agentAccountStatus"
-            | "agentUsage"
-            | "modelProviders"
-            | "modelProviderModels"
-            | "modelHelper"
-            | "agentSignIns"
-            | "skillsOverview"
-            | "skillsAdded"
-            | "savedSessions"
-            | "recentSessions"
-    )
+    rule(method).is_none_or(|(_, any_program)| !any_program)
 }
 
-pub(crate) async fn call(
-    core: Arc<Core>,
-    client: &ClientConn,
-    method: &str,
-    params: Value,
-) -> CoreResult<Value> {
-    match method {
-        "chatFile" => answer(chat_file(&core, &client.peer, parse(params)?).await?),
-        "nameAgent" => answer(name_agent(&core, parse(params)?).await?),
-        "renameAgent" => answer(rename_agent(&core, parse(params)?).await?),
-        "closedAgents" => answer(closed_agents(&core, parse(params)?).await?),
-        "publishBuddies" => answer(core.workspaces.publish_buddies(parse(params)?)?),
-        "agentNames" => answer(agent_names(&core).await?),
-        "stopChatIfIdle" => {
-            let params: AgentParams = parse(params)?;
-            answer(json!({ "stopped": super::lifecycle::sleep(&core, &params.agent_id) }))
-        }
-        "sleepIdleChats" => answer(json!({ "slept": super::lifecycle::sleep_idle(&core) })),
-        "startTerminalAgent" => {
-            let params: TerminalParams = parse(params)?;
-            let size = (params.cols, params.rows);
-            let pty = super::launching::start_terminal(&core, &params.agent_id, size, None).await?;
-            answer(json!({ "ptyId": pty }))
-        }
-        "startChat" => {
-            let params: AgentParams = parse(params)?;
-            answer(super::launching::start_saved(&core, &params.agent_id).await?)
-        }
-        "activitySummary" => answer(activity_summary(&core, parse(params)?).await?),
-        "setActivityPrice" => {
-            let params: ActivityPriceParams = parse(params)?;
-            core.activity_log.set_price(&params.model, params.price)?;
-            core.changes.changed("activity", None, None);
-            answer(())
-        }
-        "steerQueued" => {
-            let params: QueuedParams = parse(params)?;
-            answer(
-                super::chat::queue::steer(&core, &params.agent_id, params.ids, params.message)
-                    .await?,
-            )
-        }
-        "dropQueued" => {
-            let params: QueuedParams = parse(params)?;
-            answer(super::chat::queue::remove(
-                &core,
-                &params.agent_id,
-                &params.ids,
-            )?)
-        }
-        "agentSessions" => answer(saved::call(&core, parse(params)?).await?),
-        "workspace" => answer(core.workspaces.view()),
-        "runCommand" => answer(super::custom_command::run(parse(params)?).await?),
-        "addProject" => answer(workspace::add_project(&core, parse(params)?).await?),
-        "removeProject" => answer(workspace::remove_project(&core, parse(params)?)?),
-        "updateProject" => answer(workspace::update_project(&core, parse(params)?)?),
-        "moveProject" => answer(workspace::move_project(&core, parse(params)?)?),
-        "setSpaces" => answer(workspace::set_spaces(&core, parse(params)?)?),
-        "setPinnedChats" => answer(workspace::set_pinned_chats(&core, parse(params)?)?),
-        "setAgentDefaults" => answer(workspace::set_defaults(&core, parse(params)?).await?),
-        "createAgent" => answer(workspace::create_agent(&core, parse(params)?)?),
-        "updateAgent" => answer(workspace::update_agent(&core, parse(params)?)?),
-        "closeAgents" => answer(workspace::close_agents(&core, parse(params)?)?),
-        "createAgentWorktree" => answer(super::sandbox::for_agent(&core, parse(params)?).await?),
-        "agentWorktreeAt" => answer(super::sandbox::at(parse(params)?).await?),
-        method if method.starts_with("git.") => {
-            super::git::call(&core, &client.peer, method, params).await
-        }
-        method if super::saved_sessions::METHODS.contains(&method) => {
-            super::saved_sessions::call(method, params).await
-        }
-        method if super::skill_library::METHODS.contains(&method) => {
-            super::skill_library::call(&core, method, params).await
-        }
-        method if super::agent_sign_in::METHODS.contains(&method) => {
-            super::agent_sign_in::call(&core, method, params).await
-        }
-        method if super::model_providers::METHODS.contains(&method) => {
-            super::model_providers::call(&core, method, params).await
-        }
-        method if crate::agent_accounts::METHODS.contains(&method) => {
-            super::agent_accounts::call(&core, method, params).await
-        }
-        "shareChat" => {
-            let params: ShareChatParams = parse(params)?;
-            answer(share::share_chat(
-                &core,
-                &params.agent_id,
-                params.lifetime_ms,
-                params.title,
-            )?)
-        }
-        "stopShare" => {
-            let params: StopShareParams = parse(params)?;
-            answer(share::stop(&core, &params.id)?)
-        }
-        "shares" => answer(share::list(&core)),
-        "pairing" => answer(remote::pairing(&core)),
-        "linkHost" => answer(super::hosts::link_host(&core, parse(params)?).await?),
-        "signHostRequest" => {
-            let request: crate::accounts::HostRequest = parse(params)?;
-            answer(signed(core.remote.sign_host_request(&request)?))
-        }
-        "signShareViewer" => {
-            let params: NonceParams = parse(params)?;
-            answer(signed(core.remote.sign_share_viewer(&params.nonce)?))
-        }
-        "setLinkSignIns" => answer(super::hosts::sign_ins::set(&core, parse(params)?)?),
-        "answerPairing" => answer(remote::answer_pairing(&core, parse(params)?)?),
-        "changeDevice" => answer(remote::change_device(&core, parse(params)?)?),
-        "questions" => answer(questions::views(&core)),
-        "answerQuestion" => answer(questions::answer(&core, parse(params)?).await?),
-        "answerQuestions" => answer(questions::answer_all(&core, parse(params)?).await?),
-        "agentMessages" => answer(agent_messages(&core, parse(params)?).await?),
-        "boards" => answer(board::boards(&core)),
-        "board" => answer(board::board(&core, params).await?),
-        "boardAdd" => answer(board::person_add(&core, params).await?),
-        "boardAddTicket" => answer(board::person_add_ticket(&core, params).await?),
-        "boardUpdate" => answer(board::person_update(&core, params).await?),
-        "boardRemove" => answer(board::person_remove(&core, params).await?),
-        "boardSettings" => answer(board::person_settings(&core, params).await?),
-        "boardRetry" => answer(board::person_retry(&core, params).await?),
-        "edits" => answer(edits(&core, parse(params)?).await?),
-        "changeOwners" => answer(change_owners(&core, parse(params)?).await?),
-        "commitStaged" => answer(commit_staged(&core, parse(params)?).await?),
-        "personSaved" => {
-            only_window(&core, client)?;
-            let params: PersonSavedParams = parse(params)?;
-            core.edits.saved(params.path);
-            answer(())
-        }
-        "commitOwners" => answer(who_wrote::call(&core, parse(params)?).await?),
-        "inbox" => answer(inbox(&core).await?),
-        "ports" => {
-            let params: PortsParams = parse(params)?;
-            answer(super::ports::project_ports(&core, client.id, params.project).await?)
-        }
-        "testResults" => {
-            let params: ProjectParams = parse(params)?;
-            answer(super::tasks::module_tests(&core, params.project).await?)
-        }
-        "projectConfig" => {
-            let params: ProjectParams = parse(params)?;
-            answer(super::tasks::project_config(&core, params.project).await?)
-        }
-        "trustProject" => {
-            let params: TrustProjectParams = parse(params)?;
-            answer(super::tasks::trust_project(&core, params.project, params.fingerprint).await?)
-        }
-        "projectFolders" => {
-            let params: ProjectParams = parse(params)?;
-            let settings = core.workspaces.folder_settings(&params.project);
-            let rules = core.workspaces.project_rules(&params.project);
-            let folders =
-                blocking(move || Ok(crate::tasks::folders::folders(Path::new(&params.project))))
-                    .await?;
-            let fields: serde_json::Map<String, Value> = crate::tasks::languages::catalog()
-                .into_iter()
-                .map(|(language, fields)| (language.to_owned(), json!(fields)))
-                .collect();
-            answer(
-                json!({ "folders": folders, "settings": settings, "rules": rules, "fields": fields }),
-            )
-        }
-        "projectServices" => {
-            let params: ProjectParams = parse(params)?;
-            answer(blocking(move || Ok(super::services::list(Path::new(&params.project)))).await?)
-        }
-        "serviceAction" => answer(super::services::action(parse(params)?).await?),
-        "javaRuntimes" => answer(blocking(|| Ok(crate::tasks::java::runtimes())).await?),
-        "projectSuggestions" => answer(super::suggestions::list(&core, parse(params)?).await?),
-        "answerSuggestion" => answer(super::suggestions::answer(&core, parse(params)?).await?),
-        "projectBrief" => {
-            let params: ProjectParams = parse(params)?;
-            let core = core.clone();
-            answer(
-                blocking(move || Ok(super::brief::write(&core, Path::new(&params.project))))
-                    .await?,
-            )
-        }
-        "changeProjectSettings" => answer(workspace::change_project(&core, parse(params)?)?),
-        "untrustProject" => {
-            let params: ProjectParams = parse(params)?;
-            answer(super::tasks::untrust_project(&core, params.project).await?)
-        }
-        "tasks" => {
-            let params: ProjectParams = parse(params)?;
-            answer(super::tasks::list(&core, params.project).await?)
-        }
-        "taskRuns" => answer(super::tasks::runs(&core)),
-        "taskStart" => answer(super::tasks::start(&core, parse(params)?).await?),
-        "taskRerunFailed" => answer(super::tasks::rerun_failed(&core, parse(params)?).await?),
-        "taskStop" => {
-            super::harness::stop_runs(&core, parse(params)?).await;
-            answer(())
-        }
-        "trustAsks" => answer(super::tasks::asks(&core)),
-        "showCi" => {
-            super::ci::show(&core, client.id, parse(params)?);
-            answer(())
-        }
-        "answerTrust" => {
-            let params: TrustAnswerParams = parse(params)?;
-            answer(super::tasks::answer_trust(&core, &params.id, params.trust)?)
-        }
-        "addTask" => answer(super::tasks::add(&core, parse(params)?).await?),
-        "digest" => answer(digest(&core, parse(params)?).await?),
-        "plugin" => answer(plugins::window_call(&core, parse(params)?).await),
-        "pluginManifests" => answer(plugins::manifests()),
-        "pluginSetDisabled" => {
-            plugins::set_disabled(&core, parse(params)?);
-            answer(())
-        }
-        "pluginStream" => answer(plugins::stream_ticket(parse(params)?)?),
-        "pluginSignIn" => {
-            not_an_agent(client).await?;
-            answer(plugins::sign_in_ticket(parse(params)?)?)
-        }
-        "signInCallback" => {
-            not_an_agent(client).await?;
-            answer(plugins::sign_in_callback(parse(params)?)?)
-        }
-        _ => Err(format!("this host does not know {method}").into()),
+calls! { core, client, params;
+    "chatFile": Watch, any_program => answer(chat_file(&core, &client.peer, parse(params)?).await?),
+    "nameAgent": Local => answer(name_agent(&core, parse(params)?).await?),
+    "renameAgent": Full => answer(rename_agent(&core, parse(params)?).await?),
+    "closedAgents": Local => answer(closed_agents(&core, parse(params)?).await?),
+    "publishBuddies": Local => answer(core.workspaces.publish_buddies(parse(params)?)?),
+    "agentNames": Watch, any_program => answer(agent_names(&core).await?),
+    "hostLoad": Watch, any_program => answer(super::load::now()),
+    "stopChatIfIdle": Local => {
+        let params: AgentParams = parse(params)?;
+        answer(json!({ "stopped": super::lifecycle::sleep(&core, &params.agent_id) }))
+    },
+    "sleepIdleChats": Local => answer(json!({ "slept": super::lifecycle::sleep_idle(&core) })),
+    "startTerminalAgent": Local => {
+        let params: TerminalParams = parse(params)?;
+        let size = (params.cols, params.rows);
+        let pty = super::launching::start_terminal(&core, &params.agent_id, size, None).await?;
+        answer(json!({ "ptyId": pty }))
+    },
+    "startChat": Local => {
+        let params: AgentParams = parse(params)?;
+        answer(super::launching::start_saved(&core, &params.agent_id).await?)
+    },
+    "activitySummary": Watch, any_program => answer(activity_summary(&core, parse(params)?).await?),
+    "setActivityPrice": Person => {
+        let params: ActivityPriceParams = parse(params)?;
+        core.activity_log.set_price(&params.model, params.price)?;
+        core.changes.changed(Topic::Activity, None, None);
+        answer(())
+    },
+    "steerQueued": Full => {
+        let params: QueuedParams = parse(params)?;
+        answer(
+            super::chat::queue::steer(&core, &params.agent_id, params.ids, params.message)
+                .await?,
+        )
+    },
+    "dropQueued": Full => {
+        let params: QueuedParams = parse(params)?;
+        answer(super::chat::queue::remove(&core, &params.agent_id, &params.ids)?)
+    },
+    "agentSessions": Local, any_program => answer(saved::call(&core, parse(params)?).await?),
+    "workspace": Watch, any_program => answer(core.workspaces.view()),
+    "runCommand": Local => answer(super::custom_command::run(parse(params)?).await?),
+    "addProject": Person => answer(workspace::add_project(&core, parse(params)?).await?),
+    "removeProject": Person => answer(workspace::remove_project(&core, parse(params)?)?),
+    "updateProject": Person => answer(workspace::update_project(&core, parse(params)?)?),
+    "moveProject": Person => answer(workspace::move_project(&core, parse(params)?)?),
+    "setSpaces": Person => answer(workspace::set_spaces(&core, parse(params)?)?),
+    "setPinnedChats": Person => answer(workspace::set_pinned_chats(&core, parse(params)?)?),
+    "setAgentDefaults": Person => answer(workspace::set_defaults(&core, parse(params)?).await?),
+    "createAgent": Person => answer(workspace::create_agent(&core, parse(params)?)?),
+    "updateAgent": Person => answer(workspace::update_agent(&core, parse(params)?)?),
+    "closeAgents": Person => answer(workspace::close_agents(&core, parse(params)?)?),
+    "closeChat": Full => {
+        let params: AgentParams = parse(params)?;
+        answer(workspace::close_agent(&core, params.agent_id)?)
+    },
+    "createAgentWorktree": Person => answer(super::sandbox::for_agent(&core, parse(params)?).await?),
+    "agentWorktreeAt": Full => answer(super::sandbox::at(parse(params)?).await?),
+    "savedSessions": Full, any_program => answer(saved_sessions::list(parse(params)?).await?),
+    "recentSessions": Full, any_program => answer(saved_sessions::recent(parse(params)?).await?),
+    "renameSession": Person => answer(saved_sessions::rename(parse(params)?).await?),
+    "deleteSession": Person => answer(saved_sessions::delete(parse(params)?).await?),
+    "relocateSession": Person => answer(saved_sessions::relocate(parse(params)?).await?),
+    "skillsOverview": Full, any_program => skill_library::overview(&core).await,
+    "skillsAdded": Full, any_program => skill_library::added(&core).await,
+    "createSkill": Person => skill_library::create(&core, parse(params)?).await,
+    "installSkill": Person => skill_library::install(&core, parse(params)?).await,
+    "removeSkill": Person => skill_library::remove(&core, parse(params)?).await,
+    "adoptSkill": Person => skill_library::adopt(&core, parse(params)?).await,
+    "agentSignIns": Full, any_program => answer(agent_sign_in::pages()),
+    "agentSignIn": Person => answer(agent_sign_in::sign_in(&core, parse(params)?).await?),
+    "agentSignInCode": Person => answer(agent_sign_in::sign_in_code(parse(params)?).await?),
+    "cancelAgentSignIn": Person => {
+        agent_sign_in::cancel(parse(params)?);
+        answer(())
+    },
+    "agentSignOut": Person => answer(agent_sign_in::sign_out(parse(params)?).await?),
+    "modelProviders": Full, any_program => answer(model_providers::list(&core).await?),
+    "modelProviderModels": Full, any_program => {
+        answer(model_providers::models(&core, parse(params)?).await?)
+    },
+    "modelHelper": Full, any_program => answer(model_providers::helper(&core).await?),
+    "modelProviderCheck": Person => answer(model_providers::check(&core, parse(params)?).await?),
+    "modelProviderConnect": Person => {
+        answer(model_providers::connect(&core, parse(params)?).await?)
+    },
+    "modelProviderDisconnect": Person => {
+        answer(model_providers::disconnect(&core, parse(params)?).await?)
+    },
+    "setModelHelper": Person => answer(model_providers::set_helper(&core, parse(params)?).await?),
+    "agentAccounts": Full, any_program => answer(core.workspaces.accounts()),
+    "agentStatus": Full, any_program => answer(agent_accounts::status(&core, parse(params)?).await?),
+    "agentAvailability": Full, any_program => {
+        answer(agent_accounts::availability(&core, parse(params)?).await?)
+    },
+    "agentAccountStatus": Full, any_program => {
+        answer(agent_accounts::account_status(&core, parse(params)?).await?)
+    },
+    "agentUsage": Full, any_program => answer(agent_accounts::usage(&core, parse(params)?).await?),
+    "cancelResume": Full => {
+        agent_accounts::cancel_resume(&core, parse(params)?);
+        answer(())
+    },
+    "setAgentAccounts": Person => {
+        agent_accounts::set(&core, parse(params)?).await?;
+        answer(())
+    },
+    "addAgentAccount": Person => answer(agent_accounts::add(parse(params)?).await?),
+    "forgetAgentStatus": Person => {
+        agent_accounts::forget(&core, parse(params)?);
+        answer(())
+    },
+    "markAgentSignedOut": Person => {
+        agent_accounts::mark_signed_out(&core, parse(params)?);
+        answer(())
+    },
+    "saveAgentAccount": Local => answer(agent_accounts::save(&core, parse(params)?).await?),
+    "removeAgentAccount": Local => answer(agent_accounts::remove(&core, parse(params)?).await?),
+    "selectAgentAccount": Local => answer(agent_accounts::select(&core, parse(params)?).await?),
+    "setAccountAutoSwitch": Local => {
+        answer(agent_accounts::set_auto_switch(&core, parse(params)?).await?)
+    },
+    "retryFailed": Local => answer(agent_accounts::retry_failed(&core, parse(params)?)?),
+    "discardFailed": Local => answer(agent_accounts::discard_failed(&core, parse(params)?)?),
+    "authenticateChat": Local => {
+        agent_accounts::authenticate(&core, parse(params)?).await?;
+        answer(())
+    },
+    "shareChat": Person => {
+        let params: ShareChatParams = parse(params)?;
+        answer(share::share_chat(
+            &core,
+            &params.agent_id,
+            params.lifetime_ms,
+            params.title,
+        )?)
+    },
+    "stopShare": Person => {
+        let params: StopShareParams = parse(params)?;
+        answer(share::stop(&core, &params.id)?)
+    },
+    "shares": Full, any_program => answer(share::list(&core)),
+    "pairing": Person, any_program => answer(remote::pairing(&core)),
+    "signHostRequest": Local => {
+        let request: crate::accounts::HostRequest = parse(params)?;
+        answer(signed(core.remote.sign_host_request(&request)?))
+    },
+    "signShareViewer": Local => {
+        let params: NonceParams = parse(params)?;
+        answer(signed(core.remote.sign_share_viewer(&params.nonce)?))
+    },
+    "answerPairing": Person => answer(remote::answer_pairing(&core, parse(params)?)?),
+    "changeDevice": Person => answer(remote::change_device(&core, parse(params)?)?),
+    "linkHost": Person => answer(super::hosts::link_host(&core, parse(params)?).await?),
+    "requireApproval": Person => answer(json!({ "requireApproval": core.remote.requires_approval() })),
+    "setRequireApproval": Person => answer(remote::set_require_approval(&core, parse(params)?)?),
+    "questions": Watch, any_program => answer(questions::views(&core)),
+    "answerQuestion": Full => answer(questions::answer(&core, parse(params)?).await?),
+    "answerQuestions": Full => answer(questions::answer_all(&core, parse(params)?).await?),
+    "agentMessages": Watch, any_program => answer(agent_messages(&core, parse(params)?).await?),
+    "boards": Watch, any_program => answer(board::boards(&core)),
+    "board": Watch, any_program => answer(board::board(&core, params).await?),
+    "boardAdd": Full => answer(board::person_add(&core, params).await?),
+    "boardAddTicket": Full => answer(board::person_add_ticket(&core, params).await?),
+    "boardUpdate": Full => answer(board::person_update(&core, params).await?),
+    "boardRemove": Full => answer(board::person_remove(&core, params).await?),
+    "boardSettings": Full => answer(board::person_settings(&core, params).await?),
+    "boardRetry": Full => answer(board::person_retry(&core, params).await?),
+    "edits": Watch, any_program => answer(edits(&core, parse(params)?).await?),
+    "changeOwners": Watch, any_program => answer(change_owners(&core, parse(params)?).await?),
+    "commitStaged": Person => answer(commit_staged(&core, parse(params)?).await?),
+    "personSaved": Local => {
+        only_window(&core, client)?;
+        let params: PersonSavedParams = parse(params)?;
+        core.edits.saved(params.path);
+        answer(())
+    },
+    "commitOwners": Watch, any_program => answer(who_wrote::call(&core, parse(params)?).await?),
+    "inbox": Watch, any_program => answer(inbox(&core).await?),
+    "digest": Watch, any_program => answer(digest(&core, parse(params)?).await?),
+    "ports": Local => {
+        let params: PortsParams = parse(params)?;
+        answer(super::ports::project_ports(&core, client.id, params.project).await?)
+    },
+    "testResults": Local => {
+        let params: ProjectParams = parse(params)?;
+        answer(super::tasks::module_tests(&core, params.project).await?)
+    },
+    "projectConfig": Local => {
+        let params: ProjectParams = parse(params)?;
+        answer(super::tasks::project_config(&core, params.project).await?)
+    },
+    "trustProject": Local => {
+        let params: TrustProjectParams = parse(params)?;
+        answer(super::tasks::trust_project(&core, params.project, params.fingerprint).await?)
+    },
+    "projectFolders": Local => {
+        let params: ProjectParams = parse(params)?;
+        let settings = core.workspaces.folder_settings(&params.project);
+        let rules = core.workspaces.project_rules(&params.project);
+        let folders =
+            blocking(move || Ok(crate::tasks::folders::folders(Path::new(&params.project))))
+                .await?;
+        let fields: serde_json::Map<String, Value> = crate::tasks::languages::catalog()
+            .into_iter()
+            .map(|(language, fields)| (language.to_owned(), json!(fields)))
+            .collect();
+        answer(json!({ "folders": folders, "settings": settings, "rules": rules, "fields": fields }))
+    },
+    "projectServices": Local => {
+        let params: ProjectParams = parse(params)?;
+        answer(blocking(move || Ok(super::services::list(Path::new(&params.project)))).await?)
+    },
+    "serviceAction": Local => answer(super::services::action(parse(params)?).await?),
+    "javaRuntimes": Local => answer(blocking(|| Ok(crate::tasks::java::runtimes())).await?),
+    "projectSuggestions": Local => answer(super::suggestions::list(&core, parse(params)?).await?),
+    "answerSuggestion": Person => answer(super::suggestions::answer(&core, parse(params)?).await?),
+    "projectBrief": Local => {
+        let params: ProjectParams = parse(params)?;
+        let core = core.clone();
+        answer(blocking(move || Ok(super::brief::write(&core, Path::new(&params.project)))).await?)
+    },
+    "changeProjectSettings": Person => answer(workspace::change_project(&core, parse(params)?)?),
+    "untrustProject": Local => {
+        let params: ProjectParams = parse(params)?;
+        answer(super::tasks::untrust_project(&core, params.project).await?)
+    },
+    "tasks": Local => {
+        let params: ProjectParams = parse(params)?;
+        answer(super::tasks::list(&core, params.project).await?)
+    },
+    "taskRuns": Local => answer(super::tasks::runs(&core)),
+    "taskStart": Local => answer(super::tasks::start(&core, parse(params)?).await?),
+    "taskRerunFailed": Local => answer(super::tasks::rerun_failed(&core, parse(params)?).await?),
+    "taskStop": Local => {
+        super::harness::stop_runs(&core, parse(params)?).await;
+        answer(())
+    },
+    "trustAsks": Local => answer(super::tasks::asks(&core)),
+    "showCi": Watch, any_program => {
+        super::ci::show(&core, client.id, parse(params)?);
+        answer(())
+    },
+    "answerTrust": Local => {
+        let params: TrustAnswerParams = parse(params)?;
+        answer(super::tasks::answer_trust(&core, &params.id, params.trust)?)
+    },
+    "addTask": Local => answer(super::tasks::add(&core, parse(params)?).await?),
+    "removeTask": Local => answer(super::tasks::remove(&core, parse(params)?).await?),
+    "setCheck": Local => answer(super::tasks::set_check(&core, parse(params)?).await?),
+    "agentModels": Local => {
+        let params: AgentModelsParams = parse(params)?;
+        answer(super::chat::offered::models(&params.agent))
+    },
+    "plugin": Person => answer(plugins::window_call(&core, parse(params)?).await),
+    "pluginManifests": Person => answer(plugins::manifests()),
+    "pluginSetDisabled": Person => {
+        plugins::set_disabled(&core, parse(params)?);
+        answer(())
+    },
+    "pluginStream": Person => answer(plugins::stream_ticket(parse(params)?)?),
+    "pluginSignIn": Person, any_program => {
+        not_an_agent(client).await?;
+        answer(plugins::sign_in_ticket(parse(params)?)?)
+    },
+    "signInCallback": Person, any_program => {
+        not_an_agent(client).await?;
+        answer(plugins::sign_in_callback(parse(params)?)?)
+    },
+}
+
+/// The file tree's and the editor's methods on this host's disk, each read
+/// answering with at most a piece of a file so other replies keep moving.
+async fn files(core: &Core, method: &str, params: Value) -> CoreResult<Value> {
+    let path = params
+        .get("path")
+        .and_then(Value::as_str)
+        .map(PathBuf::from);
+    let method = method.to_owned();
+    let (method, answer) = blocking(move || {
+        let answer = crate::files::run(&method, params, crate::files::PIECE_BYTES)
+            .map_err(|error| CoreError::from(error.to_string()))?;
+        Ok((method, answer))
+    })
+    .await?;
+    if let Some(path) = path.filter(|_| crate::files::saved(&method, &answer)) {
+        core.edits.saved(path);
     }
+    Ok(answer)
 }
 
 /// Refuses a program an agent started: it could sign the person's plugin in
@@ -343,7 +388,7 @@ fn only_window(core: &Core, client: &ClientConn) -> CoreResult<()> {
     }
 }
 
-fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
+pub(super) fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
     serde_json::from_value(params)
         .map_err(|error| CoreError::from(format!("the call's params do not fit: {error}")))
 }
@@ -368,7 +413,6 @@ struct ProjectParams {
 
 #[derive(Deserialize)]
 struct PortsParams {
-    #[serde(default)]
     project: Option<String>,
 }
 
@@ -376,6 +420,11 @@ struct PortsParams {
 struct TrustProjectParams {
     project: String,
     fingerprint: String,
+}
+
+#[derive(Deserialize)]
+struct AgentModelsParams {
+    agent: String,
 }
 
 #[derive(Deserialize)]
@@ -388,7 +437,6 @@ struct TrustAnswerParams {
 #[serde(rename_all = "camelCase")]
 struct AgentMessagesParams {
     project: String,
-    #[serde(default)]
     limit: Option<usize>,
 }
 
@@ -414,7 +462,6 @@ async fn agent_messages(core: &Arc<Core>, params: AgentMessagesParams) -> CoreRe
 struct ShareChatParams {
     agent_id: String,
     lifetime_ms: u64,
-    #[serde(default)]
     title: Option<String>,
 }
 
@@ -463,14 +510,10 @@ async fn chat_file(core: &Core, peer: &Peer, params: ChatFileParams) -> CoreResu
 struct NameAgentParams {
     agent_id: String,
     cwd: PathBuf,
-    #[serde(default)]
     provider: Option<String>,
-    #[serde(default)]
     resume_id: Option<String>,
     /// How the app draws it, kept for when it is opened again.
-    #[serde(default)]
     buddy: Option<Value>,
-    #[serde(default)]
     title: Option<String>,
 }
 
@@ -520,7 +563,6 @@ struct QueuedParams {
     agent_id: String,
     ids: Vec<String>,
     /// A message sent with them, after them.
-    #[serde(default)]
     message: Option<super::chat::queue::Message>,
 }
 
@@ -555,7 +597,7 @@ async fn name_agent(core: &Arc<Core>, params: NameAgentParams) -> CoreResult<Nam
             provider: params.provider.as_deref(),
             resume_id: params.resume_id.as_deref(),
         };
-        let kept = core.names.reopen(&starting, core.running_agents());
+        let kept = core.names.reopen(&starting, core.open_agents());
         let named = core.name_agent(
             &params.agent_id,
             &params.cwd,
@@ -590,7 +632,7 @@ async fn closed_agents(
     let core = core.clone();
     blocking(move || {
         let project = project_of(&params.cwd, &core.workspaces.project_paths());
-        Ok(core.names.closed(&project, core.running_agents()))
+        Ok(core.names.closed(&project, core.open_agents()))
     })
     .await
 }
@@ -607,8 +649,8 @@ async fn rename_agent(core: &Arc<Core>, params: RenameAgentParams) -> CoreResult
     blocking(move || {
         let named = core
             .names
-            .rename(&params.agent_id, &params.name, core.running_agents())?;
-        core.publish_device_view();
+            .rename(&params.agent_id, &params.name, core.open_agents())?;
+        core.view_changed();
         Ok(named)
     })
     .await
@@ -695,7 +737,6 @@ async fn inbox(core: &Arc<Core>) -> CoreResult<inbox::View> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DigestParams {
-    #[serde(default)]
     since: Option<u64>,
 }
 

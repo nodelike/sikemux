@@ -5,13 +5,16 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 use tokio::time::Instant;
 
+use super::changed::Topic;
+use crate::launch::PermissionMode;
 use crate::protocol::{SessionId, SpawnTarget};
 use crate::tasks::check::{self, Check, CheckItem, Checked, Listening};
 use crate::tasks::config::{self, ConfigLoad, TrustCommand};
@@ -34,6 +37,7 @@ const ROWS: u16 = 30;
 const TRUST_WAIT: Duration = Duration::from_secs(10 * 60);
 const MAX_RERUNS: usize = 16;
 const INSTALL_WAIT: Duration = Duration::from_secs(10 * 60);
+const INSTALL_OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,14 +123,8 @@ impl Tasks {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     fn trusts(&self, grant: &Grant) -> bool {
-        let state = self.lock();
+        let state = self.state.locked();
         match grant {
             Grant::Config(config) => state.trust.configs.contains(config),
             Grant::Personal(task) => state.trust.personal.contains(task),
@@ -134,7 +132,7 @@ impl Tasks {
     }
 
     fn grant(&self, grant: Grant) {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         let trust = &mut state.trust;
         match grant {
             Grant::Config(config) => {
@@ -155,19 +153,19 @@ impl Tasks {
 
     /// Forgets the person trusted the project file at `path`, so its commands ask again.
     fn revoke(&self, path: &str) {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         state.trust.configs.retain(|known| known.path != path);
         self.kept.save(&state.trust);
     }
 
     /// A run of a test task ended; what it left is read once.
     pub(crate) fn tests_of(&self, execution_id: &str) -> Option<TestResults> {
-        self.lock().tests.get(execution_id).cloned()
+        self.state.locked().tests.get(execution_id).cloned()
     }
 
     /// Forgets what is kept for runs no longer known.
     fn retain(&self, known: impl Fn(&str) -> bool) {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         state.tests.retain(|id, _| known(id));
     }
 }
@@ -255,7 +253,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
         })
         .collect();
     let project_key = project.to_string_lossy().into_owned();
-    let state = core.tasks.lock();
+    let state = core.tasks.state.locked();
     let mut found: Vec<Definition> = found
         .into_iter()
         .map(|task| {
@@ -444,7 +442,7 @@ pub(crate) async fn trust_project(
         core.tasks
             .grant(Grant::Config(TrustedConfig { path, fingerprint }));
         core.harness.changed();
-        core.changes.changed("tasks", Some(&project), None);
+        core.changes.changed(Topic::Tasks, Some(&project), None);
         Ok(())
     })
     .await
@@ -459,7 +457,7 @@ pub(crate) async fn untrust_project(core: &Arc<Core>, project: String) -> CoreRe
         | ConfigLoad::Valid { path, .. }) = config::load(Path::new(&project));
         core.tasks.revoke(&path);
         core.harness.changed();
-        core.changes.changed("tasks", Some(&project), None);
+        core.changes.changed(Topic::Tasks, Some(&project), None);
         Ok(())
     })
     .await
@@ -605,7 +603,7 @@ fn test_results(project: &Path, tasks: &[Definition]) -> Vec<Value> {
                         } else {
                             format!("{}.{}", failure.class_name, failure.name)
                         },
-                        "message": shorten(&failure.message, 1000),
+                        "message": crate::text::clipped(&failure.message, 1000),
                     });
                     if let (Some(file), Some(object)) = (&failure.file, entry.as_object_mut()) {
                         object.insert("file".into(), relative(project, Path::new(file)).into());
@@ -616,13 +614,6 @@ fn test_results(project: &Path, tasks: &[Definition]) -> Vec<Value> {
             }))
         })
         .collect()
-}
-
-fn shorten(text: &str, chars: usize) -> String {
-    match text.char_indices().nth(chars) {
-        Some((at, _)) => format!("{}…", &text[..at]),
-        None => text.to_owned(),
-    }
 }
 
 /// The terminal a task's runs share, so a rerun shows in the same one.
@@ -716,7 +707,7 @@ fn resolve(
 fn bypasses(core: &Core, agent_id: Option<&str>) -> bool {
     agent_id
         .and_then(|agent_id| core.workspaces.run_of(agent_id))
-        .is_some_and(|run| run.permission_mode == "bypass")
+        .is_some_and(|run| run.permission_mode == PermissionMode::Bypass.as_str())
 }
 
 fn trust_for(
@@ -745,7 +736,7 @@ async fn ask_person(
 ) -> bool {
     let id = uuid::Uuid::new_v4().to_string();
     let grant = ask.grant.clone();
-    core.tasks.lock().asking.insert(
+    core.tasks.state.locked().asking.insert(
         id.clone(),
         Asked {
             id: id.clone(),
@@ -757,14 +748,14 @@ async fn ask_person(
     if let Some(execution_id) = execution_id {
         core.harness.awaiting_trust(execution_id);
     }
-    core.changes.changed("trust", None, None);
+    core.changes.changed(Topic::Trust, None, None);
     let until = Instant::now() + TRUST_WAIT;
     let answer = loop {
         let mut changed = core.harness.subscribe();
         if core.tasks.trusts(&grant) {
             break true;
         }
-        let waiting = core.tasks.lock().asking.contains_key(&id)
+        let waiting = core.tasks.state.locked().asking.contains_key(&id)
             && execution_id.is_none_or(|execution_id| {
                 core.harness
                     .run_of(execution_id)
@@ -778,8 +769,8 @@ async fn ask_person(
             _ = tokio::time::sleep_until(until) => {}
         }
     };
-    core.tasks.lock().asking.remove(&id);
-    core.changes.changed("trust", None, None);
+    core.tasks.state.locked().asking.remove(&id);
+    core.changes.changed(Topic::Trust, None, None);
     answer
 }
 
@@ -810,7 +801,8 @@ pub(crate) async fn config_trusted(
 /// The trust questions waiting on the person.
 pub(crate) fn asks(core: &Core) -> Vec<Value> {
     core.tasks
-        .lock()
+        .state
+        .locked()
         .asking
         .values()
         .map(|asked| serde_json::to_value(asked).unwrap_or_default())
@@ -821,13 +813,15 @@ pub(crate) fn asks(core: &Core) -> Vec<Value> {
 pub(crate) fn answer_trust(core: &Core, id: &str, trust: bool) -> CoreResult<()> {
     let asked = core
         .tasks
-        .lock()
+        .state
+        .locked()
         .asking
         .remove(id)
         .ok_or("Nothing waits on that answer any more")?;
     if trust {
         core.tasks.grant(asked.ask.grant);
-        core.changes.changed("tasks", Some(&asked.project), None);
+        core.changes
+            .changed(Topic::Tasks, Some(&asked.project), None);
     } else if let Some(execution_id) = &asked.execution_id {
         core.harness
             .launch_failed(execution_id, "Project configuration was not approved");
@@ -836,23 +830,10 @@ pub(crate) fn answer_trust(core: &Core, id: &str, trust: bool) -> CoreResult<()>
     Ok(())
 }
 
-/// The core's own identity for a session it spawns itself, as the app gives
-/// it for the ones it asks for.
-fn launch_identity(core: &Core) -> crate::protocol::LaunchIdentity {
-    crate::protocol::LaunchIdentity {
-        version: core.build.version.clone(),
-        cli_executable: std::env::current_exe().ok(),
-        cli_endpoint: core
-            .listening
-            .get()
-            .and_then(|listening| listening.config.cli_endpoint.clone()),
-    }
-}
-
 async fn spawn(core: &Arc<Core>, request: TaskSpawnRequest) -> Result<SessionId, String> {
     let task = super::connection::spawn(
         core.clone(),
-        launch_identity(core),
+        core.launch_identity(),
         Box::new(SpawnTarget::Task { request }),
         None,
     )
@@ -1028,7 +1009,7 @@ fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Resul
                 env_var: Some(variable),
                 ..
             } => {
-                core.tasks.lock().moved.insert(
+                core.tasks.state.locked().moved.insert(
                     (project.to_string_lossy().into_owned(), task.id.clone()),
                     (variable.clone(), *port),
                 );
@@ -1042,33 +1023,20 @@ fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Resul
 fn install_dependencies(cwd: &Path, install: &str) -> Result<(), String> {
     let mut words = install.split(' ');
     let program = words.next().ok_or("nothing to install with")?;
-    let mut child = sikemux_process::user_environment::command(program)
+    let mut command = sikemux_process::user_environment::command(program);
+    command
         .args(words)
         .current_dir(cwd)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("run {install}: {error}"))?;
-    let until = std::time::Instant::now() + INSTALL_WAIT;
-    loop {
-        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
-            return if status.success() {
-                Ok(())
-            } else {
-                let mut stderr = String::new();
-                if let Some(mut pipe) = child.stderr.take() {
-                    let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
-                }
-                Err(format!("{install} failed: {}", stderr.trim()))
-            };
-        }
-        if std::time::Instant::now() >= until {
-            let _ = child.kill();
-            return Err(format!("{install} did not finish within 10 minutes"));
-        }
-        std::thread::sleep(Duration::from_millis(250));
+        .stdin(std::process::Stdio::null());
+    let output = sikemux_process::run(&mut command, None, INSTALL_WAIT, INSTALL_OUTPUT_LIMIT, None)
+        .map_err(|error| format!("{install} did not finish: {error}"))?;
+    if output.status.success() {
+        return Ok(());
     }
+    Err(format!(
+        "{install} failed: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
 }
 
 /// The person starts a task: it replaces the one their project is running.
@@ -1105,10 +1073,11 @@ pub(crate) struct AddParams {
     project: String,
     label: String,
     command: String,
-    #[serde(default)]
     cwd: Option<String>,
     /// For the team in `sikemux.json`, or for this person only.
     team: bool,
+    /// The task this one is an edit of, which goes when its id or place changes.
+    replaces: Option<String>,
 }
 
 /// Saves a task the person wrote; answers its id.
@@ -1143,8 +1112,68 @@ pub(crate) async fn add(core: &Arc<Core>, params: AddParams) -> CoreResult<Value
             }));
             task_id
         };
-        core.changes.changed("tasks", Some(&params.project), None);
+        if let Some(old) = params.replaces.filter(|old| *old != task_id) {
+            detect::remove_saved(&project, &old)?;
+        }
+        core.changes
+            .changed(Topic::Tasks, Some(&params.project), None);
         Ok(json!({ "taskId": task_id }))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CheckParams {
+    project: String,
+    command: String,
+}
+
+/// Names the project's check command in its `sikemux.json`. A file the person
+/// trusted stays trusted, since they wrote this change themselves.
+pub(crate) async fn set_check(core: &Arc<Core>, params: CheckParams) -> CoreResult<Value> {
+    let core = core.clone();
+    blocking(move || {
+        let project = PathBuf::from(&params.project);
+        let trusted = match config::load(&project) {
+            ConfigLoad::Absent { .. } => true,
+            load @ ConfigLoad::Valid { .. } => config_needs(&core, &load).is_none(),
+            ConfigLoad::Invalid { .. } => false,
+        };
+        detect::save_check(&project, &params.command)?;
+        if let (
+            true,
+            ConfigLoad::Valid {
+                path, fingerprint, ..
+            },
+        ) = (trusted, config::load(&project))
+        {
+            core.tasks
+                .grant(Grant::Config(TrustedConfig { path, fingerprint }));
+        }
+        core.harness.changed();
+        core.changes
+            .changed(Topic::Tasks, Some(&params.project), None);
+        Ok(Value::Null)
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemoveParams {
+    project: String,
+    task_id: String,
+}
+
+/// Takes a task the person added off the project.
+pub(crate) async fn remove(core: &Arc<Core>, params: RemoveParams) -> CoreResult<Value> {
+    let core = core.clone();
+    blocking(move || {
+        detect::remove_saved(Path::new(&params.project), &params.task_id)?;
+        core.changes
+            .changed(Topic::Tasks, Some(&params.project), None);
+        Ok(Value::Null)
     })
     .await
 }
@@ -1200,14 +1229,14 @@ pub(crate) async fn rerun_failed(core: &Arc<Core>, params: RerunParams) -> CoreR
     .await?;
     let task_id = rerun.id.clone();
     {
-        let mut state = core.tasks.lock();
+        let mut state = core.tasks.state.locked();
         let reruns = state.reruns.entry(run.project.clone()).or_default();
         reruns.retain(|known| known.id != task_id);
         reruns.push(rerun);
         let over = reruns.len().saturating_sub(MAX_RERUNS);
         reruns.drain(..over);
     }
-    core.changes.changed("tasks", Some(&run.project), None);
+    core.changes.changed(Topic::Tasks, Some(&run.project), None);
     let execution_id = super::harness::start_for_person(core, &run.project, &task_id)?;
     Ok(json!({ "taskId": task_id, "executionId": execution_id }))
 }
@@ -1218,7 +1247,7 @@ pub(crate) fn runs(core: &Core) -> Vec<Value> {
     let runs = core.harness.all_runs();
     core.tasks
         .retain(|id| runs.iter().any(|run| run.execution_id == id));
-    let state = core.tasks.lock();
+    let state = core.tasks.state.locked();
     runs.into_iter()
         .map(|run| {
             let mut value = serde_json::to_value(&run).unwrap_or_default();
@@ -1253,7 +1282,11 @@ pub(crate) fn ended(core: &Core, pty_id: SessionId) {
     }
     tokio::task::spawn_blocking(move || {
         if let Some(found) = results::read(Path::new(&cwd)) {
-            core.tasks.lock().tests.insert(run.execution_id, found);
+            core.tasks
+                .state
+                .locked()
+                .tests
+                .insert(run.execution_id, found);
             core.harness.changed();
         }
     });
@@ -1267,7 +1300,7 @@ pub(crate) async fn publish_runs(core: Arc<Core>) {
         let now = runs(&core);
         if now != last {
             last = now;
-            core.changes.changed("runs", None, None);
+            core.changes.changed(Topic::Runs, None, None);
         }
     }
 }

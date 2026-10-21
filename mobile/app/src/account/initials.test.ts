@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { initials } from '@/account/initials';
+import { initials } from '@mac/lib/initials';
 
 describe('initials', () => {
   it('takes the first and last names', () => {

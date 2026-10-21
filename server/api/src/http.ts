@@ -118,3 +118,19 @@ export async function readOptionalBody<Name extends keyof Definitions & string>(
   const text = await c.req.text();
   return text.trim() ? checked(name, text) : undefined;
 }
+
+export function badRequest(message: string): ApiFailure {
+  return new ApiFailure(400, "bad_request", message);
+}
+
+export function unauthorized(message: string): ApiFailure {
+  return new ApiFailure(401, "unauthorized", message);
+}
+
+export function forbidden(message: string): ApiFailure {
+  return new ApiFailure(403, "forbidden", message);
+}
+
+export function notFound(message: string): ApiFailure {
+  return new ApiFailure(404, "not_found", message);
+}

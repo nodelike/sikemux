@@ -1,6 +1,5 @@
-//! Pull requests and their checks on the project's code host, through the
-//! GitHub and Bitbucket plugins and the person's own sign-in to them, and
-//! what reviewers say on them.
+//! Pull requests and their checks on the project's code host, through its
+//! plugin and the person's own sign-in to it, and what reviewers say on them.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -11,15 +10,56 @@ use serde_json::{json, Value};
 use super::auto::Pull;
 use crate::protocol::CodeHostChoice;
 use crate::server::names::project_of;
-use crate::server::{plugins, Core};
+use crate::server::plugins::{self, Failure};
+use crate::server::Core;
 
-const HOSTS: [(&str, &str); 2] = [("github", "GitHub"), ("bitbucket", "Bitbucket")];
-/// Conclusions that let a change through.
-const PASSING: [&str; 3] = ["success", "skipped", "neutral"];
+/// A code host the core reaches through its plugin, `sikemux.<id>`.
+struct Host {
+    id: &'static str,
+    label: &'static str,
+    /// The ways to merge, tried in order while the repository refuses one;
+    /// none is the repository's own default.
+    merges: &'static [Option<&'static str>],
+    /// What comes before a run's number in an address on the host.
+    run_path: &'static str,
+    /// What comes before a job's number, where an address names one.
+    job_path: Option<&'static str>,
+}
+
+const HOSTS: [Host; 3] = [
+    Host {
+        id: "github",
+        label: "GitHub",
+        merges: &[Some("squash"), Some("merge"), Some("rebase")],
+        run_path: "/actions/runs/",
+        job_path: Some("/job/"),
+    },
+    Host {
+        id: "bitbucket",
+        label: "Bitbucket",
+        merges: &[None],
+        run_path: "/pipelines/results/",
+        job_path: None,
+    },
+    Host {
+        id: "gitlab",
+        label: "GitLab",
+        merges: &[None],
+        run_path: "/-/pipelines/",
+        job_path: Some("/-/jobs/"),
+    },
+];
+
+fn host(id: &str) -> Result<&'static Host, String> {
+    HOSTS
+        .iter()
+        .find(|host| host.id == id)
+        .ok_or_else(|| format!("Sikemux does not know the code host {id}"))
+}
 
 /// A repository on a code host, and the account that reaches it.
 pub(crate) struct Repo {
-    host: &'static str,
+    host: &'static Host,
     owner: String,
     name: String,
     account: Option<String>,
@@ -36,23 +76,27 @@ impl Repo {
 }
 
 impl Pull {
-    fn repo(&self) -> Repo {
-        Repo {
-            host: HOSTS
-                .iter()
-                .map(|(host, _)| *host)
-                .find(|host| *host == self.host)
-                .unwrap_or("github"),
+    fn repo(&self) -> Result<Repo, String> {
+        Ok(Repo {
+            host: host(&self.host)?,
             owner: self.owner.clone(),
             name: self.name.clone(),
             account: self.account.clone(),
-        }
+        })
     }
 }
 
-/// The plugin that speaks for `host`.
-fn plugin(host: &str) -> String {
-    format!("sikemux.{host}")
+impl Host {
+    fn plugin(&self) -> String {
+        format!("sikemux.{}", self.id)
+    }
+}
+
+impl Repo {
+    /// Calls `method` of the host's plugin about this repository, with `more`.
+    async fn call(&self, method: &str, more: Value) -> Result<Value, Failure> {
+        plugins::call(&self.host.plugin(), method, self.params(more)).await
+    }
 }
 
 fn text(value: &Value, key: &str) -> Option<String> {
@@ -89,8 +133,8 @@ pub(crate) async fn find(
     url: &str,
     picks: &BTreeMap<String, CodeHostChoice>,
 ) -> Result<Repo, String> {
-    for (host, label) in HOSTS {
-        let Ok(found) = plugins::call(&plugin(host), "resolveRemote", json!({ "url": url })).await
+    for host in &HOSTS {
+        let Ok(found) = plugins::call(&host.plugin(), "resolveRemote", json!({ "url": url })).await
         else {
             continue;
         };
@@ -101,7 +145,7 @@ pub(crate) async fn find(
         if found["sameHost"] != Value::Bool(true) {
             continue;
         }
-        let pick = picks.get(&plugin(host)).cloned().unwrap_or_default();
+        let pick = picks.get(&host.plugin()).cloned().unwrap_or_default();
         let (owner, name) = pick
             .repo
             .as_deref()
@@ -112,7 +156,7 @@ pub(crate) async fn find(
         let account = match pick.account {
             Some(account) => Some(account),
             None => plugins::call(
-                &plugin(host),
+                &host.plugin(),
                 "accountFor",
                 json!({ "owner": owner, "name": name }),
             )
@@ -122,7 +166,8 @@ pub(crate) async fn find(
         };
         if account.is_none() {
             return Err(format!(
-                "sign in to {label} in Sikemux with an account that can reach {owner}/{name}"
+                "sign in to {} in Sikemux with an account that can reach {owner}/{name}",
+                host.label
             ));
         }
         return Ok(Repo {
@@ -132,7 +177,11 @@ pub(crate) async fn find(
             account,
         });
     }
-    Err("this project's origin is on neither GitHub nor Bitbucket".into())
+    let labels: Vec<&str> = HOSTS.iter().map(|host| host.label).collect();
+    Err(format!(
+        "this project's origin is on none of {}",
+        labels.join(", ")
+    ))
 }
 
 /// The pull requests the commit `sha` came in through, the merged one first,
@@ -143,12 +192,7 @@ pub(crate) async fn pulls_of(
     sha: &str,
 ) -> Result<Vec<Value>, String> {
     let repo = find(url, picks).await?;
-    let found = plugins::call(
-        &plugin(repo.host),
-        "commitPulls",
-        repo.params(json!({ "sha": sha })),
-    )
-    .await?;
+    let found = repo.call("commitPulls", json!({ "sha": sha })).await?;
     Ok(found.as_array().cloned().unwrap_or_default())
 }
 
@@ -157,7 +201,7 @@ fn pull_of(repo: &Repo, found: &Value) -> Result<Pull, String> {
         .as_u64()
         .ok_or("the code host answered without the pull request's number")?;
     Ok(Pull {
-        host: repo.host.to_owned(),
+        host: repo.host.id.to_owned(),
         owner: repo.owner.clone(),
         name: repo.name.clone(),
         number,
@@ -174,24 +218,21 @@ pub(super) async fn open(
     base: &str,
     body: &str,
 ) -> Result<Pull, String> {
-    let params = repo.params(json!({ "title": title, "head": head, "base": base, "body": body }));
-    let error = match plugins::call(&plugin(repo.host), "createPull", params).await {
+    let made = json!({ "title": title, "head": head, "base": base, "body": body });
+    let error = match repo.call("createPull", made).await {
         Ok(found) => return pull_of(repo, &found),
         Err(error) => error,
     };
-    let open = plugins::call(
-        &plugin(repo.host),
-        "pulls",
-        repo.params(json!({ "state": "open" })),
-    )
-    .await
-    .unwrap_or_default();
+    let open = repo
+        .call("pulls", json!({ "state": "open" }))
+        .await
+        .unwrap_or_default();
     open.as_array()
         .into_iter()
         .flatten()
         .find(|pull| text(pull, "head").as_deref() == Some(head))
         .map(|found| pull_of(repo, found))
-        .unwrap_or(Err(error))
+        .unwrap_or_else(|| Err(error.into()))
 }
 
 pub(super) enum Checks {
@@ -205,13 +246,13 @@ pub(super) enum Checks {
 
 /// How the CI runs on `sha` went.
 pub(super) async fn checks(pull: &Pull, branch: &str, sha: &str) -> Result<Checks, String> {
-    let repo = pull.repo();
-    let page = plugins::call(
-        &plugin(repo.host),
-        "runs",
-        repo.params(json!({ "headSha": sha, "branch": branch, "perPage": 50 })),
-    )
-    .await?;
+    let repo = pull.repo()?;
+    let page = repo
+        .call(
+            "runs",
+            json!({ "headSha": sha, "branch": branch, "perPage": 50 }),
+        )
+        .await?;
     let runs: Vec<&Value> = page["runs"]
         .as_array()
         .into_iter()
@@ -229,7 +270,7 @@ pub(super) async fn checks(pull: &Pull, branch: &str, sha: &str) -> Result<Check
     }
     let failed: Vec<String> = runs
         .iter()
-        .filter(|run| !run["conclusion"].as_str().is_some_and(passed))
+        .filter(|run| run["conclusion"].as_str().map(Conclusion::of) != Some(Conclusion::Passed))
         .map(|run| {
             format!(
                 "{}: {} {}",
@@ -248,14 +289,24 @@ pub(super) async fn checks(pull: &Pull, branch: &str, sha: &str) -> Result<Check
     })
 }
 
-/// Whether a finished run or job's `conclusion` means it broke, rather than
-/// passed or was stopped.
-pub(crate) fn failed(conclusion: &str) -> bool {
-    matches!(conclusion, "failure" | "timed_out" | "startup_failure")
+/// How a finished CI run or job ended, by the `conclusion` its host gave.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Conclusion {
+    /// It lets a change through.
+    Passed,
+    Failed,
+    /// It was stopped, or ended some way that says nothing of the change.
+    Stopped,
 }
 
-pub(crate) fn passed(conclusion: &str) -> bool {
-    PASSING.contains(&conclusion)
+impl Conclusion {
+    pub(crate) fn of(conclusion: &str) -> Self {
+        match conclusion {
+            "success" | "skipped" | "neutral" => Self::Passed,
+            "failure" | "timed_out" | "startup_failure" => Self::Failed,
+            _ => Self::Stopped,
+        }
+    }
 }
 
 /// The latest CI runs on `branch`, newest first: of one workflow when
@@ -272,24 +323,19 @@ pub(crate) async fn runs(
         "status": passing.then_some("success"),
         "perPage": 50,
     });
-    let page = plugins::call(&plugin(repo.host), "runs", repo.params(params)).await?;
+    let page = repo.call("runs", params).await?;
     Ok(page["runs"].as_array().cloned().unwrap_or_default())
 }
 
 /// The repository's CI workflows, each with its `id`, `name` and `path`.
 pub(crate) async fn workflows(repo: &Repo) -> Result<Vec<Value>, String> {
-    let found = plugins::call(&plugin(repo.host), "workflows", repo.params(json!({}))).await?;
+    let found = repo.call("workflows", json!({})).await?;
     Ok(found.as_array().cloned().unwrap_or_default())
 }
 
 /// One run, `{ run, jobs }`.
 pub(crate) async fn run(repo: &Repo, id: &Value) -> Result<Value, String> {
-    plugins::call(
-        &plugin(repo.host),
-        "run",
-        repo.params(json!({ "runId": id })),
-    )
-    .await
+    Ok(repo.call("run", json!({ "runId": id })).await?)
 }
 
 /// The last `lines` lines of a job's log.
@@ -300,7 +346,7 @@ pub(crate) async fn log_tail(
     lines: usize,
 ) -> Result<Vec<String>, String> {
     let params = json!({ "runId": run, "jobId": job, "tail": lines });
-    let found = plugins::call(&plugin(repo.host), "jobLogExcerpt", repo.params(params)).await?;
+    let found = repo.call("jobLogExcerpt", params).await?;
     Ok(found["lines"]
         .as_array()
         .into_iter()
@@ -309,34 +355,27 @@ pub(crate) async fn log_tail(
         .collect())
 }
 
-/// A run's id as its code host takes it from an address on it: GitHub's
-/// `/actions/runs/<id>`, or Bitbucket's `/pipelines/results/<number>`.
+/// A run's id as its code host takes it from an address on it, such as
+/// GitHub's `/actions/runs/<id>`.
 pub(crate) fn run_in(address: &str) -> Option<Value> {
-    let number = |rest: &str| -> Option<String> {
-        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-        (!digits.is_empty()).then_some(digits)
-    };
-    if let Some((_, rest)) = address.split_once("/actions/runs/") {
-        return number(rest)?.parse::<u64>().ok().map(Value::from);
-    }
-    let (_, rest) = address.split_once("/pipelines/results/")?;
-    number(rest).map(Value::from)
+    HOSTS
+        .iter()
+        .find_map(|host| address.split_once(host.run_path))
+        .and_then(|(_, rest)| digits(rest))
 }
 
-/// The job an address on a GitHub run points at, `/job/<id>`.
+/// The job an address on a run points at, such as GitHub's `/job/<id>`.
 pub(crate) fn job_in(address: &str) -> Option<Value> {
-    let (_, rest) = address.split_once("/job/")?;
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    digits.parse::<u64>().ok().map(Value::from)
+    HOSTS
+        .iter()
+        .filter_map(|host| host.job_path)
+        .find_map(|path| address.split_once(path))
+        .and_then(|(_, rest)| digits(rest))
 }
 
-/// A run id as typed, for the code host `repo` is on: GitHub's are numbers,
-/// Bitbucket's build numbers are sent as text.
-pub(crate) fn run_id(repo: &Repo, typed: &str) -> Value {
-    match (repo.host, typed.parse::<u64>()) {
-        ("github", Ok(number)) => number.into(),
-        _ => typed.into(),
-    }
+fn digits(rest: &str) -> Option<Value> {
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    (!digits.is_empty()).then(|| digits.into())
 }
 
 /// Where a pull request stands.
@@ -348,13 +387,8 @@ pub(super) struct Looked {
 }
 
 pub(super) async fn look(pull: &Pull) -> Result<Looked, String> {
-    let repo = pull.repo();
-    let found = plugins::call(
-        &plugin(repo.host),
-        "pull",
-        repo.params(json!({ "number": pull.number })),
-    )
-    .await?;
+    let repo = pull.repo()?;
+    let found = repo.call("pull", json!({ "number": pull.number })).await?;
     Ok(Looked {
         state: text(&found, "state").unwrap_or_else(|| "open".to_owned()),
         mark: format!("{} {}", found["updatedAt"], found["comments"]),
@@ -366,17 +400,13 @@ pub(super) async fn look(pull: &Pull) -> Result<Looked, String> {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Feedback {
     pub id: String,
-    #[serde(default)]
     pub author: Option<String>,
     #[serde(default, skip_serializing)]
     pub bot: bool,
     #[serde(default)]
     pub body: String,
-    #[serde(default)]
     pub path: Option<String>,
-    #[serde(default)]
     pub line: Option<u64>,
-    #[serde(default)]
     pub state: Option<String>,
     #[serde(default, skip_serializing)]
     pub at: String,
@@ -384,13 +414,13 @@ pub(crate) struct Feedback {
 
 /// The comments and reviews on the pull request that changed at or after `since`.
 pub(super) async fn feedback(pull: &Pull, since: Option<&str>) -> Result<Vec<Feedback>, String> {
-    let repo = pull.repo();
-    let found = plugins::call(
-        &plugin(repo.host),
-        "reviewFeedback",
-        repo.params(json!({ "number": pull.number, "since": since })),
-    )
-    .await?;
+    let repo = pull.repo()?;
+    let found = repo
+        .call(
+            "reviewFeedback",
+            json!({ "number": pull.number, "since": since }),
+        )
+        .await?;
     serde_json::from_value(found).map_err(|error| error.to_string())
 }
 
@@ -401,48 +431,34 @@ pub(super) async fn answer(
     replies: &[(String, String, String)],
     reviewers: &[String],
 ) -> Result<(), String> {
-    let repo = pull.repo();
+    let repo = pull.repo()?;
     let replies: Vec<Value> = replies
         .iter()
         .map(|(to, body, quote)| json!({ "to": to, "body": body, "quote": quote }))
         .collect();
-    plugins::call(
-        &plugin(repo.host),
-        "answerReview",
-        repo.params(json!({ "number": pull.number, "replies": replies, "reviewers": reviewers })),
-    )
-    .await
-    .map(drop)
+    let answered = json!({ "number": pull.number, "replies": replies, "reviewers": reviewers });
+    Ok(repo.call("answerReview", answered).await.map(drop)?)
 }
 
 /// Closes the pull request without merging it.
 pub(super) async fn close(pull: &Pull) -> Result<(), String> {
-    let repo = pull.repo();
-    plugins::call(
-        &plugin(repo.host),
-        "setPullState",
-        repo.params(json!({ "number": pull.number, "state": "closed" })),
-    )
-    .await
-    .map(drop)
+    let repo = pull.repo()?;
+    let closed = json!({ "number": pull.number, "state": "closed" });
+    Ok(repo.call("setPullState", closed).await.map(drop)?)
 }
 
-/// Merges the pull request at `sha`, the commit whose checks passed.
+/// Merges the pull request at `sha`, the commit whose checks passed, the
+/// first way the repository allows.
 pub(super) async fn merge(pull: &Pull, sha: &str) -> Result<(), String> {
-    let repo = pull.repo();
-    let methods: &[Option<&str>] = if repo.host == "github" {
-        &[Some("squash"), Some("merge"), Some("rebase")]
-    } else {
-        &[None]
-    };
-    let mut last = String::new();
-    for method in methods {
-        let params = repo.params(json!({ "number": pull.number, "method": method, "sha": sha }));
-        match plugins::call(&plugin(repo.host), "mergePull", params).await {
+    let repo = pull.repo()?;
+    let mut refused = None;
+    for method in repo.host.merges {
+        let asked = json!({ "number": pull.number, "method": method, "sha": sha });
+        match repo.call("mergePull", asked).await {
             Ok(_) => return Ok(()),
-            Err(error) if error.to_lowercase().contains("not allowed") => last = error,
-            Err(error) => return Err(error),
+            Err(failure) if failure.category == "merge-method" => refused = Some(failure),
+            Err(failure) => return Err(failure.into()),
         }
     }
-    Err(last)
+    Err(refused.map_or_else(|| "the code host merges no way".to_owned(), String::from))
 }

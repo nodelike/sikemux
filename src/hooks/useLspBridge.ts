@@ -4,7 +4,7 @@ import { documentLanguageOf } from "../languages";
 import { languageServersAllowed } from "../editor/languageServerTrust";
 import { dismissToast, notify, swallow } from "../state/toast";
 import { errorCategory, errorText } from "../lib/format";
-import { projectDiagnosticsRuntime, type ProjectDiagnosticsLease } from "../workbench/projectDiagnostics";
+import { acquireProjectProblems, noteServerStarted, type ProjectProblems } from "../editor/projectProblems";
 
 const CHANGE_DEBOUNCE_MS = 120;
 const MAX_INCREMENTAL_BATCH = 80;
@@ -34,7 +34,7 @@ export function useLspBridge(cwd: string) {
     const chains = useRef<Map<string, Promise<void>>>(new Map());
     const reportedErrors = useRef<Set<string>>(new Set());
     const installing = useRef<Set<string>>(new Set());
-    const [diagnosticsLease, setDiagnosticsLease] = useState<ProjectDiagnosticsLease | null>(null);
+    const [problems, setProblems] = useState<ProjectProblems | null>(null);
     const startedServers = useRef<{ project: string; epoch: number; languages: Set<string> }>({ project: cwd, epoch: 1, languages: new Set() });
     if (startedServers.current.project !== cwd) {
         startedServers.current = { project: cwd, epoch: startedServers.current.epoch + 1, languages: new Set() };
@@ -42,18 +42,11 @@ export function useLspBridge(cwd: string) {
 
     useEffect(() => {
         if (!cwd) return;
-        let lease: ProjectDiagnosticsLease;
-        try {
-            lease = projectDiagnosticsRuntime.acquire(cwd);
-        } catch (error) {
-            swallow("LSP diagnostics acquire")(error);
-            return;
-        }
+        const lease = acquireProjectProblems(cwd);
         const epoch = startedServers.current.epoch;
-        setDiagnosticsLease(lease);
-        void lease.ready.catch(swallow("LSP diagnostics listener"));
+        setProblems(lease.problems);
         for (const language of startedServers.current.project === cwd ? startedServers.current.languages : []) {
-            projectDiagnosticsRuntime.noteServerStarted(cwd, language);
+            noteServerStarted(cwd, language);
         }
         return () => {
             lease.release();
@@ -68,7 +61,7 @@ export function useLspBridge(cwd: string) {
             await lsp.start(cwd, lang);
             if (startedServers.current.project !== cwd || startedServers.current.epoch !== epoch) return false;
             startedServers.current.languages.add(lang);
-            projectDiagnosticsRuntime.noteServerStarted(cwd, lang);
+            noteServerStarted(cwd, lang);
             return true;
         },
         [cwd],
@@ -312,6 +305,5 @@ export function useLspBridge(cwd: string) {
         };
     }, [cwd]);
 
-    const activeDiagnosticsLease = diagnosticsLease?.project === cwd && !diagnosticsLease.released ? diagnosticsLease : null;
-    return { openDoc, scheduleChange, saveDoc, closeDoc, diagnostics: activeDiagnosticsLease?.controller ?? null };
+    return { openDoc, scheduleChange, saveDoc, closeDoc, diagnostics: problems?.project === cwd ? problems : null };
 }

@@ -1,28 +1,20 @@
 import { useState } from "react";
+import { errorText, formatStamp } from "../../../plugin-api/format";
 import { copyWithNotice, notify, openUrl, reportError, swallow } from "../../../plugin-api/host";
-import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
-import { Dropdown, EmptyState, Markdown, SendToAgentMenu, SkeletonRows, StaleNotice } from "../../../plugin-api/ui";
-import { failureMessage, refreshSlack, slackApi, type SlackChannel, type SlackMessage, type SlackStatus } from "../api";
-import { slackChannelsR, slackHistoryR, slackStatusR, slackThreadR } from "../resources";
+import { useResourceEnabled } from "../../../plugin-api/resources";
+import { Dropdown, EmptyState, Loaded, Markdown, SendToAgentMenu, SignedIn, StaleNotice } from "../../../plugin-api/ui";
+import { slackApi, type SlackChannel, type SlackMessage, type SlackStatus } from "../api";
+import { slack, slackChannelsR, slackHistoryR, slackThreadR } from "../resources";
 import { threadForAgent, updateSlackView, useSlackView } from "../state";
 import { SlackSignIn } from "./SlackSignIn";
 import "../slack.css";
 
 export function SlackPane({ paneId, active }: { paneId: string; active: boolean }) {
-    const status = useResourceEnabled(active, slackStatusR);
-    if (status.data === undefined && status.status !== "error") return <SkeletonRows rows={5} label="Connecting to Slack" />;
-    if (!status.data?.configured || status.data.authFailed) return <SlackSignIn status={status.data} onSignedIn={() => refreshSlack()} />;
-    return <SlackWorkspace paneId={paneId} active={active} status={status.data} />;
-}
-
-function when(at: string): string {
-    const time = Date.parse(at);
-    if (Number.isNaN(time)) return "";
-    const date = new Date(time);
-    const today = new Date().toDateString() === date.toDateString();
-    return today
-        ? date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
-        : date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    return (
+        <SignedIn service={slack} active={active} signIn={(status) => <SlackSignIn status={status} onSignedIn={() => slack.refresh()} />}>
+            {(status) => <SlackWorkspace paneId={paneId} active={active} status={status} />}
+        </SignedIn>
+    );
 }
 
 const KIND_MARK: Record<SlackChannel["kind"], string> = { channel: "#", private: "🔒", dm: "●", group: "◍" };
@@ -51,7 +43,7 @@ function SlackWorkspace({ paneId, active, status }: { paneId: string; active: bo
             updateSlackView(paneId, { workspace: thread.workspace, channel: thread.channel, thread: { channel: thread.channel, ts: thread.ts } });
             setLink("");
         } catch (error) {
-            notify("error", `Open the link: ${failureMessage(error)}`);
+            notify("error", `Open the link: ${errorText(error)}`);
         } finally {
             setOpening(false);
         }
@@ -86,7 +78,7 @@ function SlackWorkspace({ paneId, active, status }: { paneId: string; active: bo
                     </div>
                 )}
                 <input
-                    className="slack-input"
+                    className="plugin-input"
                     value={link}
                     onChange={(event) => setLink(event.target.value)}
                     onKeyDown={(event) => {
@@ -97,7 +89,7 @@ function SlackWorkspace({ paneId, active, status }: { paneId: string; active: bo
                     spellCheck={false}
                 />
                 <input
-                    className="slack-input"
+                    className="plugin-input"
                     value={filter}
                     onChange={(event) => setFilter(event.target.value)}
                     placeholder="Find a channel or person"
@@ -105,22 +97,25 @@ function SlackWorkspace({ paneId, active, status }: { paneId: string; active: bo
                     spellCheck={false}
                 />
                 <StaleNotice handle={channels} />
-                {channels.status === "error" && !channels.data ? (
-                    <p className="slack-note">{channels.error}</p>
-                ) : !channels.data ? (
-                    <SkeletonRows rows={6} label="Loading channels" />
-                ) : (
-                    <div className="slack-channels">
-                        {rooms.length > 0 && <div className="slack-heading">Channels</div>}
-                        {rooms.map(row)}
-                        {people.length > 0 && <div className="slack-heading">Direct messages</div>}
-                        {people.map(row)}
-                    </div>
-                )}
+                <Loaded handle={channels} loading="Loading channels">
+                    {() => (
+                        <div className="slack-channels">
+                            {rooms.length > 0 && <div className="plugin-heading">Channels</div>}
+                            {rooms.map(row)}
+                            {people.length > 0 && <div className="plugin-heading">Direct messages</div>}
+                            {people.map(row)}
+                        </div>
+                    )}
+                </Loaded>
                 <button
                     type="button"
-                    className="slack-signout"
-                    onClick={() => void slackApi.signOut(workspace.id).then(refreshSlack).catch(reportError("sign out of Slack"))}>
+                    className="plugin-signout"
+                    onClick={() =>
+                        void slackApi
+                            .signOut(workspace.id)
+                            .then(() => slack.refresh())
+                            .catch(reportError("sign out of Slack"))
+                    }>
                     Sign out of {workspace.name}
                 </button>
             </nav>
@@ -154,14 +149,14 @@ function SlackWorkspace({ paneId, active, status }: { paneId: string; active: bo
 
 function MessageView({ message, onThread, open }: { message: SlackMessage; onThread?: (ts: string) => void; open?: boolean }) {
     return (
-        <article className={`slack-message${open ? " open" : ""}`} aria-label={`${message.name} at ${when(message.at)}`}>
+        <article className={`slack-message${open ? " open" : ""}`} aria-label={`${message.name} at ${formatStamp(message.at)}`}>
             <header className="slack-message-head">
                 <span className="slack-avatar" aria-hidden="true">
                     {message.name.slice(0, 1).toUpperCase()}
                 </span>
                 <span className="slack-author">{message.name}</span>
                 {message.bot && <span className="slack-badge">app</span>}
-                <span className="slack-time">{when(message.at)}</span>
+                <span className="slack-time">{formatStamp(message.at)}</span>
             </header>
             <Markdown className="prose slack-text">{message.text || " "}</Markdown>
             {message.files.length > 0 && <div className="slack-files">📎 {message.files.join(", ")}</div>}
@@ -194,23 +189,24 @@ function ChannelView({
         <section className="slack-main" aria-label={title}>
             <header className="slack-main-head">
                 <h2>{title}</h2>
-                <button type="button" className="slack-chip" onClick={() => void history.refresh()}>
+                <button type="button" className="plugin-chip" onClick={() => void history.refresh()}>
                     Refresh
                 </button>
             </header>
             <StaleNotice handle={history} />
             <div className="slack-messages">
-                {history.status === "error" && !history.data ? (
-                    <EmptyState message={history.error ?? "Slack could not read this channel."} tone="error" />
-                ) : !history.data ? (
-                    <SkeletonRows rows={6} label="Loading messages" />
-                ) : history.data.length === 0 ? (
-                    <EmptyState message="No messages here yet." />
-                ) : (
-                    history.data.map((message) => (
-                        <MessageView key={message.ts} message={message} open={(message.threadTs ?? message.ts) === openThread} onThread={onThread} />
-                    ))
-                )}
+                <Loaded handle={history} loading="Loading messages" empty={(messages) => (messages.length > 0 ? null : "No messages here yet.")}>
+                    {(messages) =>
+                        messages.map((message) => (
+                            <MessageView
+                                key={message.ts}
+                                message={message}
+                                open={(message.threadTs ?? message.ts) === openThread}
+                                onThread={onThread}
+                            />
+                        ))
+                    }
+                </Loaded>
             </div>
         </section>
     );
@@ -242,9 +238,9 @@ function ThreadView({
         try {
             await slackApi.reply(workspace, channel, ts, draft.trim());
             setDraft("");
-            invalidate((kind) => kind === "slack.thread" || kind === "slack.history");
+            slack.refresh(slackThreadR, slackHistoryR);
         } catch (error) {
-            notify("error", `Reply: ${failureMessage(error)}`);
+            notify("error", `Reply: ${errorText(error)}`);
         } finally {
             setSending(false);
         }
@@ -258,7 +254,7 @@ function ThreadView({
                 <span className="slack-grow" />
                 <button
                     type="button"
-                    className="slack-chip primary"
+                    className="plugin-chip primary"
                     disabled={!found}
                     title="Hand this thread to an agent as context"
                     onClick={(event) => {
@@ -269,27 +265,26 @@ function ThreadView({
                 </button>
                 {found?.permalink && (
                     <>
-                        <button type="button" className="slack-chip" onClick={() => copyWithNotice(found.permalink ?? "", "the link")}>
+                        <button type="button" className="plugin-chip" onClick={() => copyWithNotice(found.permalink ?? "", "the link")}>
                             Copy link
                         </button>
-                        <button type="button" className="slack-chip" onClick={() => void openUrl(found.permalink ?? "").catch(swallow("open Slack"))}>
+                        <button
+                            type="button"
+                            className="plugin-chip"
+                            onClick={() => void openUrl(found.permalink ?? "").catch(swallow("open Slack"))}>
                             Open in Slack
                         </button>
                     </>
                 )}
-                <button type="button" className="slack-chip" aria-label="Close the thread" onClick={onClose}>
+                <button type="button" className="plugin-chip" aria-label="Close the thread" onClick={onClose}>
                     ✕
                 </button>
             </header>
             <StaleNotice handle={thread} />
             <div className="slack-messages">
-                {thread.status === "error" && !found ? (
-                    <EmptyState message={thread.error ?? "Slack could not read this thread."} tone="error" />
-                ) : !found ? (
-                    <SkeletonRows rows={4} label="Loading the thread" />
-                ) : (
-                    found.messages.map((message) => <MessageView key={message.ts} message={message} />)
-                )}
+                <Loaded handle={thread} loading="Loading the thread" rows={4}>
+                    {(open) => open.messages.map((message) => <MessageView key={message.ts} message={message} />)}
+                </Loaded>
             </div>
             <div className="slack-composer">
                 <textarea
@@ -301,7 +296,7 @@ function ThreadView({
                     placeholder="Reply in the thread (⌘↵ to send)"
                     aria-label="Reply in the thread"
                 />
-                <button type="button" className="slack-chip primary" disabled={!draft.trim() || sending} onClick={() => void reply()}>
+                <button type="button" className="plugin-chip primary" disabled={!draft.trim() || sending} onClick={() => void reply()}>
                     {sending ? "Sending…" : "Reply"}
                 </button>
             </div>

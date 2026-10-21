@@ -10,7 +10,8 @@ const fake = vi.hoisted(() => ({
 vi.mock("../../api/plugins", async () => (await import("../../plugin-api/fakeTransport")).fakeTransport(fake));
 vi.mock("../../state/resources", async (importOriginal) => ({ ...(await importOriginal<object>()), invalidate: fake.invalidate }));
 
-import { bitbucketApi, bitbucketHostApi, failureMessage, type BitbucketStatus } from "./api";
+import { errorText } from "../../plugin-api/format";
+import { bitbucketApi, bitbucketHostApi, type BitbucketStatus } from "./api";
 import type { RunTick } from "../../plugin-api/codehost";
 
 const repo = { provider: "sikemux.bitbucket", owner: "team", name: "app" };
@@ -72,14 +73,14 @@ describe("failures", () => {
     });
 
     it("reads the message of a plugin failure and of anything else", () => {
-        expect(failureMessage(refused)).toBe("bitbucket: sign-in expired");
-        expect(failureMessage(new Error("boom"))).toBe("boom");
+        expect(errorText(refused)).toBe("bitbucket: sign-in expired");
+        expect(errorText(new Error("boom"))).toBe("boom");
     });
 });
 
 describe("what Bitbucket has no counterpart for", () => {
     it("refuses changes it cannot make without asking Bitbucket", async () => {
-        await expect(bitbucketHostApi.deleteRun(repo, "1")).rejects.toThrow("Bitbucket cannot delete a pipeline");
+        await expect(bitbucketHostApi.deleteRun(repo, "1")).rejects.toThrow("Bitbucket cannot delete a run");
         await expect(bitbucketHostApi.downloadAsset(repo, 1, "a.zip")).rejects.toThrow("Bitbucket cannot download release files");
         expect(fake.call).not.toHaveBeenCalled();
     });

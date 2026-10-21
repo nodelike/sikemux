@@ -1,10 +1,7 @@
 import { createPluginBackend } from "../../plugin-api/backend";
-import { invalidate } from "../../plugin-api/resources";
-import { DATABASE_PLUGIN_ID } from "./kinds";
+import { DATABASE_PLUGIN } from "./kinds";
 
-export { failureMessage } from "../../plugin-api/backend";
-
-const backend = createPluginBackend(DATABASE_PLUGIN_ID);
+const backend = createPluginBackend(DATABASE_PLUGIN.id);
 
 /** PostgreSQL's `sslmode` names: whether to encrypt, and whether to check the server's certificate. */
 export type TlsMode = "disable" | "prefer" | "require" | "verify-full";
@@ -129,8 +126,6 @@ export interface HistoryEntry {
     error: string | null;
     source: "person" | "agent";
 }
-
-export const refreshDatabase = () => invalidate((kind) => kind.startsWith("database."));
 
 export const databaseApi = {
     profiles: () => backend.call<DatabaseProfile[]>("profiles"),

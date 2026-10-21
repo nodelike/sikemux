@@ -10,7 +10,7 @@ import { Farewell } from '@/screens/Farewell';
 import { RestoreAccount } from '@/screens/RestoreAccount';
 import { Welcome } from '@/screens/Welcome';
 import { Button } from '@/ui/controls';
-import { PromptScreen } from '@/ui/prompt';
+import { alertFailure, PromptScreen } from '@/ui/prompt';
 
 function Unreadable({ problem }: { problem: string }) {
   return (
@@ -18,7 +18,13 @@ function Unreadable({ problem }: { problem: string }) {
       icon="IconWarning"
       title="Couldn't read your paired hosts"
       detail={problem}
-      actions={<Button kind="primary" title="Try again" onPress={() => readDevicesAgain().catch(() => {})} />}
+      actions={
+        <Button
+          kind="primary"
+          title="Try again"
+          onPress={() => readDevicesAgain().catch(alertFailure("Couldn't read your paired hosts"))}
+        />
+      }
     />
   );
 }

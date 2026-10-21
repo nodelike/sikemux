@@ -123,6 +123,16 @@
       "required": ["code", "nonce", "signature"],
       "additionalProperties": false
     },
+    "ApprovedHost": {
+      "description": "The host a sign-in code belonged to, once approved.",
+      "type": "object",
+      "properties": {
+        "key": { "$ref": "devices.json#/$defs/DeviceKey" },
+        "name": { "type": "string" }
+      },
+      "required": ["key", "name"],
+      "additionalProperties": false
+    },
     "PendingHost": {
       "description": "The host waiting behind a user code, for the person to check before approving it.",
       "type": "object",

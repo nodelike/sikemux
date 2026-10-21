@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use portable_pty::{Child, ExitStatus, NativePtySystem, PtySize, PtySystem};
+use sikemux_process::sync::Locked;
 use sikemux_pty::output_log::OutputLog;
 use sikemux_pty::process::SpawnedChildGuard;
 use sikemux_pty::screen::{
@@ -29,7 +30,7 @@ use crate::protocol::{
 use super::agent::{self, AgentActivity};
 use super::connection::{ClientConn, ClientId};
 use super::prepare::{Owner, PreparedLaunch};
-use super::{now_ms, CapacityPermit, Core, CoreError, CoreResult};
+use super::{uptime_ms, CapacityPermit, Core, CoreError, CoreResult};
 
 const OUTPUT_COALESCE: Duration = Duration::from_millis(2);
 const OUTPUT_BATCH_BYTES: usize = 64 * 1024;
@@ -204,7 +205,7 @@ impl Session {
     }
 
     pub(crate) fn exit(&self) -> Option<SessionExit> {
-        self.exit.lock().ok().and_then(|exit| exit.clone())
+        self.exit.locked().clone()
     }
 
     /// Holds the process handle so nothing reaps or signals it, unless a
@@ -217,7 +218,7 @@ impl Session {
 
     pub(crate) fn task_log(&self) -> Option<(Vec<u8>, u64)> {
         let task = self.task.as_ref()?;
-        task.log.lock().ok().map(|log| log.contents())
+        Some(task.log.locked().contents())
     }
 
     pub(crate) fn is_task(&self) -> bool {
@@ -235,21 +236,18 @@ impl Session {
                 .is_some_and(|pid| sikemux_pty::process::shell_at_prompt(self.fd(), pid))
     }
 
-    pub(crate) fn has_subscribers(&self) -> Option<bool> {
-        self.subscribers.lock().ok().map(|subs| !subs.is_empty())
+    pub(crate) fn has_subscribers(&self) -> bool {
+        !self.subscribers.locked().is_empty()
     }
 
     pub(crate) fn info(&self) -> SessionInfo {
-        let ((rows, cols), ssh, window_title) = self
-            .parser
-            .lock()
-            .map(|parser| {
-                let callbacks = parser.callbacks();
-                let ssh = callbacks.shell.as_ref().and_then(|shell| shell.ssh());
-                let title = Some(callbacks.window_title.clone()).filter(|title| !title.is_empty());
-                (parser.screen().size(), ssh, title)
-            })
-            .unwrap_or_default();
+        let ((rows, cols), ssh, window_title) = {
+            let parser = self.parser.locked();
+            let callbacks = parser.callbacks();
+            let ssh = callbacks.shell.as_ref().and_then(|shell| shell.ssh());
+            let title = Some(callbacks.window_title.clone()).filter(|title| !title.is_empty());
+            (parser.screen().size(), ssh, title)
+        };
         SessionInfo {
             id: self.id,
             kind: self.kind,
@@ -257,7 +255,7 @@ impl Session {
             running: self.is_running(),
             cols,
             rows,
-            attached: self.subscribers.lock().map(|subs| subs.len()).unwrap_or(0),
+            attached: self.subscribers.locked().len(),
             project: self.owner.project.clone(),
             pane_id: self.owner.pane_id.clone(),
             agent_id: self.owner.agent_id.clone(),
@@ -271,7 +269,7 @@ impl Session {
                 .map(str::to_string),
             task: self.owner.task.clone(),
             started_by: self.owner.started_by.clone(),
-            exit: self.exit.lock().ok().and_then(|exit| exit.clone()),
+            exit: self.exit.locked().clone(),
             killed: self.is_killed(),
             title: None,
             window_title,
@@ -343,7 +341,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
     if core.is_frozen() {
         return Err(super::upgrade::UPDATING.into());
     }
-    core.reclaim_exited_sessions(now_ms());
+    core.reclaim_exited_sessions(uptime_ms());
     let capacity_permit = core.capacity.try_acquire()?;
     let PreparedLaunch {
         cols,
@@ -425,7 +423,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
             owner,
             parser,
             shell_protocol: shell_metadata_enabled,
-            last_activity_ms: now_ms(),
+            last_activity_ms: uptime_ms(),
             trimmed: false,
             killed: false,
             exit: None,
@@ -468,7 +466,7 @@ fn carried_screen(core: &Core, continuation: &Continuation) -> Option<CarriedScr
     if from.is_task() || from.is_running() {
         return None;
     }
-    let mut parser = from.parser.lock().ok()?;
+    let mut parser = from.parser.locked();
     parser.process(RESET_MODES);
     parser.process(b"\x1b[r");
     let (rows, cols) = parser.screen().size();
@@ -543,11 +541,11 @@ pub(crate) fn queue_input(
 }
 
 fn over_budget(session: &Session) -> bool {
-    session.subscribers.lock().is_ok_and(|subscribers| {
-        subscribers
-            .values()
-            .any(|subscriber| subscriber.unacked.load(Ordering::Acquire) >= MAX_UNACKED_BYTES)
-    })
+    session
+        .subscribers
+        .locked()
+        .values()
+        .any(|subscriber| subscriber.unacked.load(Ordering::Acquire) >= MAX_UNACKED_BYTES)
 }
 
 /// Holds the reader while a client is behind. False means the wait ran out.
@@ -572,10 +570,8 @@ async fn await_subscriber_credit(session: &Session) -> bool {
 }
 
 fn forgive_unacked(session: &Session) {
-    if let Ok(subscribers) = session.subscribers.lock() {
-        for subscriber in subscribers.values() {
-            subscriber.release(usize::MAX);
-        }
+    for subscriber in session.subscribers.locked().values() {
+        subscriber.release(usize::MAX);
     }
 }
 
@@ -700,19 +696,17 @@ async fn read_output(core: Arc<Core>, session: Arc<Session>) {
     // stay, so a command that finished before its spawn reply arrived can
     // still be read, and so do agents, so one resumed after a crash starts
     // below its last screen.
-    if !session.is_task() && session.agent.is_none() && session.has_subscribers() != Some(false) {
+    if !session.is_task() && session.agent.is_none() && session.has_subscribers() {
         core.remove_session(&session);
     }
     let _ = tokio::task::spawn_blocking(move || {
-        let status = match session.child.lock() {
-            Ok(mut child) => {
-                let status = child.wait().ok();
-                // Stamped under the child lock, so a concurrent kill or drain
-                // never signals a pid that may already be reused.
-                stamp_exited(&session);
-                status
-            }
-            Err(_) => None,
+        let status = {
+            let mut child = session.child.locked();
+            let status = child.wait().ok();
+            // Stamped under the child lock, so a concurrent kill or drain
+            // never signals a pid that may already be reused.
+            stamp_exited(&session);
+            status
         };
         report_exit(&core, &session, status.as_ref());
     })
@@ -720,7 +714,7 @@ async fn read_output(core: Arc<Core>, session: Arc<Session>) {
 }
 
 pub(crate) fn stamp_exited(session: &Session) -> Option<u64> {
-    let exited_at = now_ms().max(1);
+    let exited_at = uptime_ms().max(1);
     match session
         .exited_at_ms
         .compare_exchange(0, exited_at, Ordering::AcqRel, Ordering::Acquire)
@@ -745,17 +739,15 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
         }
         None => (None, None),
     };
-    let parser = session.parser.lock();
+    let parser = session.parser.locked();
     if session.exit_reported.swap(true, Ordering::AcqRel) {
         session.exited.store(true, Ordering::Release);
         return;
     }
-    if let Ok(mut exit) = session.exit.lock() {
-        *exit = Some(SessionExit {
-            code,
-            signal: signal.clone(),
-        });
-    }
+    *session.exit.locked() = Some(SessionExit {
+        code,
+        signal: signal.clone(),
+    });
     session.exited.store(true, Ordering::Release);
     core.broadcast_event(&Event::Exited {
         id: session.id,
@@ -813,23 +805,19 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
 
 fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
     if let Some(task) = session.task.as_ref() {
-        if let Ok(mut log) = task.log.lock() {
-            log.push(bytes);
-        }
+        task.log.locked().push(bytes);
         if !task.notice_pending.swap(true, Ordering::AcqRel) {
             core.schedule_task_output_notice(session.id, TASK_OUTPUT_NOTICE_DELAY);
         }
     }
-    let output_now_ms = now_ms();
+    let output_now_ms = uptime_ms();
     session
         .last_activity_ms
         .store(output_now_ms, Ordering::Relaxed);
     if let Some(agent) = session.agent.as_ref() {
         agent::note_output(core, agent);
     }
-    let Ok(mut parser) = session.parser.lock() else {
-        return;
-    };
+    let mut parser = session.parser.locked();
     if session.trimmed.swap(false, Ordering::AcqRel) {
         reseed_parser(&mut parser, PARSER_SCROLLBACK);
     }
@@ -858,11 +846,7 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
                 return;
             };
             session.title_pending.store(false, Ordering::Release);
-            let title = session
-                .parser
-                .lock()
-                .map(|parser| parser.callbacks().window_title.clone())
-                .unwrap_or_default();
+            let title = session.parser.locked().callbacks().window_title.clone();
             core.broadcast_local(&Event::TerminalTitle { id, title });
         });
     }
@@ -880,17 +864,16 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
 /// Callers hold the parser lock, which keeps frames in the order the parser
 /// saw the bytes.
 fn send_to_subscribers(session: &Session, bytes: &[u8]) {
-    if let Ok(mut subscribers) = session.subscribers.lock() {
-        if !subscribers.is_empty() {
-            let frame: Arc<[u8]> = encode_output(session.id, bytes).into();
-            subscribers.retain(|_, subscriber| {
-                let sent = subscriber.client.send(frame.clone());
-                if sent {
-                    subscriber.unacked.fetch_add(bytes.len(), Ordering::AcqRel);
-                }
-                sent
-            });
-        }
+    let mut subscribers = session.subscribers.locked();
+    if !subscribers.is_empty() {
+        let frame: Arc<[u8]> = encode_output(session.id, bytes).into();
+        subscribers.retain(|_, subscriber| {
+            let sent = subscriber.client.send(frame.clone());
+            if sent {
+                subscriber.unacked.fetch_add(bytes.len(), Ordering::AcqRel);
+            }
+            sent
+        });
     }
 }
 
@@ -899,7 +882,7 @@ pub(crate) const RESET_MODES: &[u8] = b"\x1b>\x1b[4l\x1b[?1l\x1b[?6l\x1b[?7h\x1b
 /// Sends the same reset to the screen and every subscriber under the parser
 /// lock, so no output from the program can land between the two.
 pub(crate) fn reset_modes(session: &Session) -> CoreResult<()> {
-    let mut parser = session.parser.lock().map_err(CoreError::poisoned)?;
+    let mut parser = session.parser.locked();
     parser.process(RESET_MODES);
     send_to_subscribers(session, RESET_MODES);
     Ok(())
@@ -918,9 +901,9 @@ pub(crate) fn attach(
     client: &Arc<ClientConn>,
     request_id: RequestId,
 ) -> CoreResult<()> {
-    let mut parser = session.parser.lock().map_err(CoreError::poisoned)?;
+    let mut parser = session.parser.locked();
     let alternate_screen = parser.screen().alternate_screen();
-    let mut subscribers = session.subscribers.lock().map_err(CoreError::poisoned)?;
+    let mut subscribers = session.subscribers.locked();
     if !subscribers.contains_key(&client.id) && subscribers.len() >= MAX_SUBSCRIBERS_PER_SESSION {
         return Err("pty: PTY subscriber capacity reached".into());
     }
@@ -958,8 +941,8 @@ pub(crate) fn subscribe(
     client: &Arc<ClientConn>,
     request_id: RequestId,
 ) -> CoreResult<()> {
-    let parser = session.parser.lock().map_err(CoreError::poisoned)?;
-    let mut subscribers = session.subscribers.lock().map_err(CoreError::poisoned)?;
+    let parser = session.parser.locked();
+    let mut subscribers = session.subscribers.locked();
     if !subscribers.contains_key(&client.id) && subscribers.len() >= MAX_SUBSCRIBERS_PER_SESSION {
         return Err("pty: PTY subscriber capacity reached".into());
     }
@@ -973,14 +956,12 @@ pub(crate) fn subscribe(
 }
 
 pub(crate) fn detach(session: &Session, client: ClientId) {
-    let emptied = match session.subscribers.lock() {
-        Ok(mut subscribers) => {
-            if subscribers.remove(&client).is_none() {
-                return;
-            }
-            subscribers.is_empty()
+    let emptied = {
+        let mut subscribers = session.subscribers.locked();
+        if subscribers.remove(&client).is_none() {
+            return;
         }
-        Err(_) => return,
+        subscribers.is_empty()
     };
     session.flow_control.notify_waiters();
     if !emptied || session.trimmed.load(Ordering::Acquire) {
@@ -989,14 +970,8 @@ pub(crate) fn detach(session: &Session, client: ClientId) {
     // Nobody is looking any more, so keep only what a reattach replays.
     // Re-check under the parser lock so an attach that raced us keeps its
     // history.
-    let Ok(mut parser) = session.parser.lock() else {
-        return;
-    };
-    if !session
-        .subscribers
-        .lock()
-        .is_ok_and(|subscribers| subscribers.is_empty())
-    {
+    let mut parser = session.parser.locked();
+    if session.has_subscribers() {
         return;
     }
     if screen_scrollback_len(parser.screen_mut()) <= IDLE_SCROLLBACK {
@@ -1008,17 +983,15 @@ pub(crate) fn detach(session: &Session, client: ClientId) {
 }
 
 pub(crate) fn detach_all(session: &Session) {
-    let subscribers = match session.subscribers.lock() {
-        Ok(mut subscribers) => std::mem::take(&mut *subscribers),
-        Err(_) => return,
-    };
+    let subscribers = std::mem::take(&mut *session.subscribers.locked());
     for subscriber in subscribers.values() {
         subscriber.client.note_subscription(session.id, false);
     }
 }
 
 pub(crate) fn ack(session: &Session, client: ClientId, bytes: usize) {
-    if let Ok(subscribers) = session.subscribers.lock() {
+    {
+        let subscribers = session.subscribers.locked();
         let Some(subscriber) = subscribers.get(&client) else {
             return;
         };
@@ -1046,9 +1019,7 @@ pub(crate) fn resize(session: &Session, cols: u16, rows: u16) -> CoreResult<()> 
     if rc != 0 {
         return Err(os_error());
     }
-    if let Ok(mut parser) = session.parser.lock() {
-        parser.screen_mut().set_size(rows, cols);
-    }
+    session.parser.locked().screen_mut().set_size(rows, cols);
     Ok(())
 }
 
@@ -1060,11 +1031,7 @@ pub(crate) fn task_output(
         .task
         .as_ref()
         .ok_or_else(|| CoreError::from("PTY is not a managed task"))?;
-    task.log
-        .lock()
-        .map_err(|_| CoreError::from("output lock poisoned"))?
-        .query(query)
-        .map_err(CoreError::from)
+    task.log.locked().query(query).map_err(CoreError::from)
 }
 
 pub(crate) fn kill(core: &Core, session: &Session) {
@@ -1078,18 +1045,15 @@ pub(crate) fn kill(core: &Core, session: &Session) {
     if let Some(agent) = session.agent.as_ref() {
         agent.silence();
     }
-    let status = match session.child.lock() {
-        Ok(mut child) => {
-            let force_task_tree = sikemux_pty::task::task_process_needs_force_backstop(
-                session.is_task(),
-                session.exited_at_ms.load(Ordering::Acquire),
-            );
-            let status =
-                sikemux_pty::process::terminate_and_reap_child(&mut child, force_task_tree);
-            stamp_exited(session);
-            status
-        }
-        Err(_) => None,
+    let status = {
+        let mut child = session.child.locked();
+        let force_task_tree = sikemux_pty::task::task_process_needs_force_backstop(
+            session.is_task(),
+            session.exited_at_ms.load(Ordering::Acquire),
+        );
+        let status = sikemux_pty::process::terminate_and_reap_child(&mut child, force_task_tree);
+        stamp_exited(session);
+        status
     };
     report_exit(core, session, status.as_ref());
     if !session.is_task() {
@@ -1102,14 +1066,13 @@ pub(crate) fn kill(core: &Core, session: &Session) {
 /// First half of shutting everything down: ask the process tree to stop.
 pub(crate) fn signal_for_drain(session: &Session) {
     session.killed.store(true, Ordering::Release);
-    if let Ok(child) = session.child.lock() {
-        if sikemux_pty::task::should_signal_process_on_drain(
-            session.is_task(),
-            session.exited_at_ms.load(Ordering::Acquire),
-        ) {
-            if let Some(pid) = child.process_id() {
-                sikemux_pty::process::terminate_process_tree(pid, false);
-            }
+    let child = session.child.locked();
+    if sikemux_pty::task::should_signal_process_on_drain(
+        session.is_task(),
+        session.exited_at_ms.load(Ordering::Acquire),
+    ) {
+        if let Some(pid) = child.process_id() {
+            sikemux_pty::process::terminate_process_tree(pid, false);
         }
     }
 }
@@ -1118,31 +1081,29 @@ pub(crate) fn signal_for_drain(session: &Session) {
 pub(crate) fn finish_drain(core: &Core, session: &Session) {
     use sikemux_pty::process::{child_process_id, kill_and_reap_child, terminate_process_tree};
     use sikemux_pty::task::{should_signal_process_on_drain, task_process_needs_force_backstop};
-    let status = match session.child.lock() {
-        Ok(mut child) => {
-            let is_task = session.is_task();
-            let exited_at = session.exited_at_ms.load(Ordering::Acquire);
-            let status = if !should_signal_process_on_drain(is_task, exited_at) {
-                child.try_wait().ok().flatten()
-            } else if task_process_needs_force_backstop(is_task, exited_at) {
-                let pid = child_process_id(&mut child);
-                if let Some(pid) = pid {
-                    terminate_process_tree(pid, true);
-                }
-                match child.try_wait() {
-                    Ok(Some(status)) => Some(status),
-                    _ => kill_and_reap_child(&mut child, pid),
-                }
-            } else if let Ok(Some(status)) = child.try_wait() {
-                Some(status)
-            } else {
-                let pid = child_process_id(&mut child);
-                kill_and_reap_child(&mut child, pid)
-            };
-            stamp_exited(session);
-            status
-        }
-        Err(_) => None,
+    let status = {
+        let mut child = session.child.locked();
+        let is_task = session.is_task();
+        let exited_at = session.exited_at_ms.load(Ordering::Acquire);
+        let status = if !should_signal_process_on_drain(is_task, exited_at) {
+            child.try_wait().ok().flatten()
+        } else if task_process_needs_force_backstop(is_task, exited_at) {
+            let pid = child_process_id(&mut child);
+            if let Some(pid) = pid {
+                terminate_process_tree(pid, true);
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => Some(status),
+                _ => kill_and_reap_child(&mut child, pid),
+            }
+        } else if let Ok(Some(status)) = child.try_wait() {
+            Some(status)
+        } else {
+            let pid = child_process_id(&mut child);
+            kill_and_reap_child(&mut child, pid)
+        };
+        stamp_exited(session);
+        status
     };
     report_exit(core, session, status.as_ref());
     session.stop_reader.notify_one();
@@ -1151,18 +1112,13 @@ pub(crate) fn finish_drain(core: &Core, session: &Session) {
 pub(crate) fn trim_if_idle(session: &Session, now: u64, idle: Duration) {
     let idle_ms = idle.as_millis() as u64;
     let quiet = || now.saturating_sub(session.last_activity_ms.load(Ordering::Relaxed)) >= idle_ms;
-    if session.trimmed.load(Ordering::Relaxed)
-        || !quiet()
-        || session.has_subscribers() != Some(false)
-    {
+    if session.trimmed.load(Ordering::Relaxed) || !quiet() || session.has_subscribers() {
         return;
     }
-    let Ok(mut parser) = session.parser.lock() else {
-        return;
-    };
+    let mut parser = session.parser.locked();
     // Output and attaches take the parser lock first, so re-checking under it
     // means neither can slip in between the check and the compaction.
-    if !quiet() || session.has_subscribers() != Some(false) {
+    if !quiet() || session.has_subscribers() {
         return;
     }
     if compact_parser_for_idle(&mut parser) {

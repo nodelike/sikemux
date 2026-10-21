@@ -1,7 +1,7 @@
 import { codeFence } from "../agents/agentTargets";
 import type { AgentDelivery } from "../agents/agentInbox";
 import { basename, relativePath } from "../lib/paths";
-import type { DiagnosticProblem } from "../workbench/diagnosticsController";
+import type { DiagnosticProblem } from "./projectProblems";
 
 export function problemLocation(project: string, problem: Pick<DiagnosticProblem, "path" | "range">): string {
     const relative = relativePath(problem.path, project);

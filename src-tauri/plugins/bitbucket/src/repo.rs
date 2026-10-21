@@ -3,7 +3,8 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use sikemux_plugin_api::codehost::{Repo, RepoListing};
 
 use crate::client;
 use crate::error::{BitbucketError, BitbucketResult};
@@ -104,18 +105,8 @@ pub fn avatar_of(user: Option<&User>) -> Option<String> {
     user.and_then(User::avatar)
 }
 
-#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Repo {
-    pub host: String,
-    pub owner: String,
-    pub name: String,
-}
-
-impl Repo {
-    pub fn slug(&self) -> String {
-        format!("{}/{}", self.owner, self.name)
-    }
+pub fn slug(repo: &Repo) -> String {
+    format!("{}/{}", repo.owner, repo.name)
 }
 
 /// The repository a git remote points at, in any of the ways a remote can be
@@ -160,20 +151,7 @@ pub struct Branch {
     pub name: String,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Listing {
-    pub owner: String,
-    pub name: String,
-    pub slug: String,
-    pub private: bool,
-    pub archived: bool,
-    pub default_branch: Option<String>,
-    pub pushed_at: Option<String>,
-    pub url: String,
-}
-
-pub async fn mine(data_dir: &Path, limit: u32) -> BitbucketResult<Vec<Listing>> {
+pub async fn mine(data_dir: &Path, limit: u32) -> BitbucketResult<Vec<RepoListing>> {
     let limit = limit.clamp(1, 200);
     let rows: Vec<RepoRow> = client::get_all(
         data_dir,
@@ -191,7 +169,7 @@ pub async fn mine(data_dir: &Path, limit: u32) -> BitbucketResult<Vec<Listing>> 
         .take(limit as usize)
         .filter_map(|row| {
             let (owner, name) = row.full_name.split_once('/')?;
-            Some(Listing {
+            Some(RepoListing {
                 owner: owner.to_string(),
                 name: name.to_string(),
                 slug: row.full_name.clone(),
@@ -238,7 +216,7 @@ mod tests {
     use super::*;
 
     fn slug(remote: &str) -> Option<String> {
-        from_remote(remote).map(|repo| format!("{} {}", repo.host, repo.slug()))
+        from_remote(remote).map(|repo| format!("{} {}", repo.host, super::slug(&repo)))
     }
 
     #[test]

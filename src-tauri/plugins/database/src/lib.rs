@@ -21,13 +21,10 @@ mod values;
 
 use std::sync::Arc;
 
-use serde::Serialize;
 use serde_json::Value;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
 };
-
-use crate::error::DatabaseResult;
 
 pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
     Ok(Arc::new(Database {
@@ -39,12 +36,6 @@ pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
 struct Database {
     manifest: Manifest,
     pool: connections::Pool,
-}
-
-async fn answer<T: Serialize>(
-    result: impl std::future::Future<Output = DatabaseResult<T>>,
-) -> Result<Value, PluginError> {
-    reply(result.await?)
 }
 
 impl Plugin for Database {

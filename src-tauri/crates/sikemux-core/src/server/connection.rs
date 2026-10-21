@@ -3,15 +3,16 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use sikemux_process::sync::{Locked, Shared};
 use sikemux_pty::validate_pty_dimensions;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, Notify};
 
 use crate::protocol::{
-    decode_input, encode_control, fits, read_frame, ClientMessage, Event, FrameKind,
-    HostRegistration, LaunchIdentity, Request, RequestId, Response, ServerMessage, SessionId,
-    SpawnTarget, OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
+    decode_input, encode_control, fits, read_frame, ClientMessage, FrameKind, HostRegistration,
+    LaunchIdentity, Request, RequestId, Response, ServerMessage, SessionId, SpawnTarget,
+    OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
 };
 
 use super::access::{self, Needs, Peer};
@@ -112,9 +113,7 @@ impl ClientConn {
     }
 
     pub(crate) fn is_subscribed(&self, id: SessionId) -> bool {
-        self.subscriptions
-            .lock()
-            .is_ok_and(|subscriptions| subscriptions.contains(&id))
+        self.subscriptions.locked().contains(&id)
     }
 
     pub(crate) fn send(&self, frame: Arc<[u8]>) -> bool {
@@ -175,20 +174,16 @@ impl ClientConn {
     }
 
     pub(crate) fn note_subscription(&self, id: SessionId, subscribed: bool) {
-        if let Ok(mut subscriptions) = self.subscriptions.lock() {
-            if subscribed {
-                subscriptions.insert(id);
-            } else {
-                subscriptions.remove(&id);
-            }
+        let mut subscriptions = self.subscriptions.locked();
+        if subscribed {
+            subscriptions.insert(id);
+        } else {
+            subscriptions.remove(&id);
         }
     }
 
     pub(crate) fn take_subscriptions(&self) -> HashSet<SessionId> {
-        self.subscriptions
-            .lock()
-            .map(|mut subscriptions| std::mem::take(&mut *subscriptions))
-            .unwrap_or_default()
+        std::mem::take(&mut *self.subscriptions.locked())
     }
 
     pub(crate) async fn wait_flushed(&self, limit: Duration) {
@@ -464,6 +459,10 @@ async fn run_requests(
             Request::Spawn { launch, target } => {
                 tokio::spawn(async move {
                     let started_by = client.peer.device_id();
+                    let launch = match started_by {
+                        Some(_) => core.launch_identity(),
+                        None => launch,
+                    };
                     match spawn(core.clone(), launch, target, started_by).await {
                         Ok(pending) => {
                             let id = pending.id();
@@ -528,6 +527,9 @@ async fn run_requests(
             }
             Request::RegisterWindow => {
                 core.window.register(client.clone());
+                if let Some(listening) = core.listening.get() {
+                    crate::waiting::wake(&listening.config.socket);
+                }
                 core.agents_changed();
                 client.respond(request_id, Ok(Response::Done));
             }
@@ -554,20 +556,15 @@ async fn run_requests(
                 });
             }
             Request::ListManifests => {
-                let result = core.manifest_report();
-                client.respond(
-                    request_id,
-                    result.map(|report| Response::Manifests { report }),
-                );
+                let report = core.manifest_report();
+                client.respond(request_id, Ok(Response::Manifests { report }));
             }
             Request::ExplainAgentDetection { agent_id } => {
                 let result = match core.agent_session(&agent_id) {
                     Some(target) => {
                         let explaining = core.clone();
                         blocking(move || {
-                            let registry = explaining.detection.read().map_err(|_| {
-                                CoreError::from("agent detection registry lock poisoned")
-                            })?;
+                            let registry = explaining.detection.read_locked();
                             agent::explain(&registry, &target)
                         })
                         .await
@@ -589,8 +586,9 @@ async fn run_requests(
                     }
                     Err(error) => Err(error),
                 };
-                if let Err(error) = result {
-                    client.respond(request_id, Err(error));
+                match result {
+                    Ok(()) => core.view_changed(),
+                    Err(error) => client.respond(request_id, Err(error)),
                 }
             }
             Request::Subscribe { id } => {
@@ -601,8 +599,9 @@ async fn run_requests(
                     }
                     Err(error) => Err(error),
                 };
-                if let Err(error) = result {
-                    client.respond(request_id, Err(error));
+                match result {
+                    Ok(()) => core.view_changed(),
+                    Err(error) => client.respond(request_id, Err(error)),
                 }
             }
             Request::ResetModes { id } => {
@@ -632,6 +631,7 @@ async fn run_requests(
                     .await;
                 }
                 client.note_subscription(id, false);
+                core.view_changed();
                 client.respond(request_id, Ok(Response::Done));
             }
             Request::Resize { id, cols, rows } => {
@@ -642,6 +642,9 @@ async fn run_requests(
                     },
                     Err(error) => Err(error.into()),
                 };
+                if result.is_ok() {
+                    core.view_changed();
+                }
                 client.respond(request_id, result.map(|()| Response::Done));
             }
             Request::List => {
@@ -677,10 +680,13 @@ async fn run_requests(
                 before,
                 turns,
             } => {
-                client.respond(
-                    request_id,
-                    chat::history(&core, &agent_id, &feed, before, turns),
-                );
+                tokio::spawn(async move {
+                    let reading = core.clone();
+                    let page =
+                        blocking(move || chat::history(&reading, &agent_id, &feed, before, turns))
+                            .await;
+                    client.respond(request_id, page);
+                });
             }
             Request::AcpDetach { agent_id } => {
                 chat::detach(&core, client.id, &agent_id);
@@ -855,11 +861,12 @@ async fn run_requests(
             }
             Request::PublishOnScreen { agent_ids, focused } => {
                 let shown = core.seen.show(client.id, agent_ids, focused);
+                core.view_changed();
                 super::lifecycle::wake_shown(&core, shown);
                 client.respond(request_id, Ok(Response::Done));
             }
             Request::FocusAgent { agent_id } => {
-                let shown = core.window.tell(Event::FocusAgent { agent_id });
+                let shown = core.window.focus(agent_id);
                 client.respond(
                     request_id,
                     if shown {
@@ -1124,7 +1131,7 @@ fn give_agent_environment(
         .workspaces
         .folder_environment(folder, agent_id.is_some())
         .into_iter()
-        .chain(super::plugins::agent_environment(core, folder, agent_id));
+        .chain(super::plugins::agent_environment(core, folder));
     for (key, value) in given {
         env.entry(key).or_insert(value);
     }

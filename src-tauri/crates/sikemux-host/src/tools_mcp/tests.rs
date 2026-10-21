@@ -68,7 +68,7 @@ impl FakeSikemux {
             "agent-one",
             method,
             &params,
-            harness::REPLY_TIMEOUT,
+            harness::TOOLS_REPLY_TIMEOUT,
             Duration::ZERO,
         )
     }
@@ -323,7 +323,7 @@ fn a_missing_app_fails_without_a_connection() {
             "agent-one",
             "workspace.inspect",
             &json!({}),
-            harness::REPLY_TIMEOUT,
+            harness::TOOLS_REPLY_TIMEOUT,
             Duration::ZERO,
         ),
         Err("Sikemux is not running".into())

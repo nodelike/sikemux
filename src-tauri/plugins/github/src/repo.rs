@@ -4,25 +4,17 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+pub use sikemux_plugin_api::codehost::Repo;
+use sikemux_plugin_api::codehost::RepoListing;
 
 use crate::client;
 use crate::error::{GithubError, GithubResult};
 
 const MAX_NAME: usize = 100;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Repo {
-    pub host: String,
-    pub owner: String,
-    pub name: String,
-}
-
-impl Repo {
-    pub fn slug(&self) -> String {
-        format!("{}/{}", self.owner, self.name)
-    }
+pub fn slug(repo: &Repo) -> String {
+    format!("{}/{}", repo.owner, repo.name)
 }
 
 /// Owner and repository names reach the API inside a path, so only the
@@ -106,22 +98,9 @@ struct RepoRow {
     html_url: String,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Listing {
-    pub owner: String,
-    pub name: String,
-    pub slug: String,
-    pub private: bool,
-    pub archived: bool,
-    pub default_branch: Option<String>,
-    pub pushed_at: Option<String>,
-    pub url: String,
-}
-
 /// The repositories the signed-in account can reach, most recently pushed
 /// first, so the ones somebody is actually working on come up.
-pub async fn mine(data_dir: &Path, limit: u32) -> GithubResult<Vec<Listing>> {
+pub async fn mine(data_dir: &Path, limit: u32) -> GithubResult<Vec<RepoListing>> {
     let rows: Vec<RepoRow> = client::get(
         data_dir,
         "/user/repos",
@@ -137,7 +116,7 @@ pub async fn mine(data_dir: &Path, limit: u32) -> GithubResult<Vec<Listing>> {
     .await?;
     Ok(rows
         .into_iter()
-        .map(|row| Listing {
+        .map(|row| RepoListing {
             slug: format!("{}/{}", row.owner.login, row.name),
             owner: row.owner.login,
             name: row.name,

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { AccountEvent, LiveServerMessage, RevokeReason } from '@protocol';
 
-import { afterByeDelay, LiveAccount, liveUrl, readEvents, reconnectDelay, type LiveDeps, type SocketHandlers } from './live';
+import { afterByeDelay, liveUrl, reconnectDelay, type SocketHandlers } from '@protocol/live';
+
+import { LiveAccount, readEvents, type LiveDeps } from './live';
 
 const OWN = 'aa'.repeat(32);
 const HOST = 'bb'.repeat(32);
@@ -75,6 +77,7 @@ beforeEach(() => {
       },
     },
     hostsChanged: vi.fn<() => void>(),
+    deviceAdded: vi.fn<(key: string) => void>(),
     gone: vi.fn<(reason: RevokeReason) => void>(),
     random: () => 0.5,
   };
@@ -338,11 +341,11 @@ describe('readEvents', () => {
     const read = readEvents(
       [
         event(6, 'device.revoked', { key: OWN, role: 'client', reason: 'signed_out' }),
-        event(5, 'device.added', { key: HOST, role: 'host' }),
+        event(5, 'device.added', { key: HOST, role: 'host', at: new Date().toISOString() }),
       ],
       OWN,
       4,
     );
-    expect(read).toEqual({ newest: 6, handled: 6, hostsChanged: true, gone: 'signed_out' });
+    expect(read).toEqual({ newest: 6, handled: 6, hostsChanged: true, added: [HOST], gone: 'signed_out' });
   });
 });

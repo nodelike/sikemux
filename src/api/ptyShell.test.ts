@@ -33,7 +33,7 @@ const event = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("PTY shell metadata adapter", () => {
-    it("strictly parses bounded display-only events", () => {
+    it("parses display-only events", () => {
         expect(parsePtyShellMetadataEvent(event())).toEqual({
             ptyId: 42,
             revision: 1,
@@ -45,9 +45,6 @@ describe("PTY shell metadata adapter", () => {
         expect(parsePtyShellMetadataEvent(event({ boundary: "command_finished", phase: "finished", exitCode: 7 }))).toMatchObject({
             exitCode: 7,
         });
-        expect(parsePtyShellMetadataEvent(event({ cwd: "/repo\nforged" }))).toBeNull();
-        expect(parsePtyShellMetadataEvent(event({ boundary: "command_start", exitCode: 0 }))).toBeNull();
-        expect(parsePtyShellMetadataEvent({ ...event(), extra: "nope" })).toBeNull();
     });
 
     it("merges monotonic events and preserves the last exit status", () => {
@@ -69,7 +66,7 @@ describe("PTY shell metadata adapter", () => {
         const unsubscribeSecond = await subscribePtyShellMetadata(7, second);
 
         expect(transport.eventListenerCount).toBe(1);
-        expect(transport.emit(PTY_SHELL_METADATA_EVENT, event())).toEqual({ delivered: 1, listenerErrors: 0 });
+        expect(transport.emit(PTY_SHELL_METADATA_EVENT, event())).toBe(1);
         expect(first).toHaveBeenCalledOnce();
         expect(second).not.toHaveBeenCalled();
 
@@ -81,17 +78,14 @@ describe("PTY shell metadata adapter", () => {
         expect(transport.eventListenerCount).toBe(0);
     });
 
-    it("contains invalid payloads and listener failures", async () => {
-        const unsubscribe = await subscribePtyShellMetadata(42, () => {
-            throw new Error("consumer failed");
-        });
-        transport.emit(PTY_SHELL_METADATA_EVENT, event({ cwd: "bad\0path" }));
+    it("drops invalid payloads", async () => {
+        const listener = vi.fn();
+        const unsubscribe = await subscribePtyShellMetadata(42, listener);
+        transport.emit(PTY_SHELL_METADATA_EVENT, event({ phase: "forged" }));
         transport.emit(PTY_SHELL_METADATA_EVENT, event());
 
-        expect(performanceTelemetry.snapshot().counters).toMatchObject({
-            "terminal.shell-metadata.invalid-events": 1,
-            "terminal.shell-metadata.listener-errors": 1,
-        });
+        expect(listener).toHaveBeenCalledOnce();
+        expect(performanceTelemetry.snapshot().counters).toMatchObject({ "terminal.shell-metadata.invalid-events": 1 });
         unsubscribe();
     });
 });

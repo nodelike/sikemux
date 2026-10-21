@@ -1,4 +1,4 @@
-import { recordOf } from "./acpEvents";
+import { recordOf } from "../lib/guards";
 import { basename } from "../lib/paths";
 import { durationLabel } from "./durationLabel";
 import { TOOL_ROWS } from "./generated/toolRows";

@@ -231,11 +231,13 @@ body {
 /* Sidebar */
 
 #nd-sidebar {
+  border-inline-end: 1px solid var(--border);
+  background: var(--surface);
   font-size: 14px;
 }
 
 #nd-sidebar [data-radix-scroll-area-viewport] {
-  padding-inline: 16px 12px;
+  padding-inline: 28px 20px;
 }
 
 .nav-group {
@@ -326,6 +328,10 @@ body {
   font-size: 14px;
 }
 
+#nd-sidebar .tree > a[data-active="true"]::after {
+  box-shadow: 0 0 0 3px var(--surface);
+}
+
 #nd-sidebar .tree > a .agent-mark {
   width: 15px;
   height: 15px;
@@ -360,6 +366,11 @@ body {
 
 #nd-page {
   --page-gap: 56px;
+}
+
+#nd-page > * {
+  width: 100%;
+  margin-inline: auto;
 }
 
 #nd-page h1 {

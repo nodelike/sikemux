@@ -16,13 +16,10 @@ mod text;
 
 use std::sync::Arc;
 
-use serde::Serialize;
 use serde_json::Value;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
-
-use crate::error::SlackResult;
 
 pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
     Ok(Arc::new(Slack {
@@ -32,12 +29,6 @@ pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
 
 struct Slack {
     manifest: Manifest,
-}
-
-async fn answer<T: Serialize>(
-    result: impl std::future::Future<Output = SlackResult<T>>,
-) -> Result<Value, PluginError> {
-    reply(result.await?)
 }
 
 impl Plugin for Slack {
@@ -88,7 +79,7 @@ impl Plugin for Slack {
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(!config::load(ctx.data_dir()).workspaces.is_empty()) })
+        Box::pin(async move { Ok(!config::load(ctx.data_dir())?.workspaces.is_empty()) })
     }
 }
 
@@ -101,21 +92,6 @@ mod tests {
         PluginContext::new(
             std::env::temp_dir().join(format!("sikemux-slack-{name}-{}", std::process::id())),
         )
-    }
-
-    #[test]
-    fn its_manifest_parses_with_the_four_tools() {
-        let plugin = plugin().expect("manifest parses");
-        let names: Vec<&str> = plugin
-            .manifest()
-            .tools
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect();
-        assert_eq!(
-            names,
-            ["slack_thread", "slack_search", "slack_post", "slack_user"]
-        );
     }
 
     #[tokio::test]

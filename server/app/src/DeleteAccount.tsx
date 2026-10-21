@@ -1,19 +1,16 @@
 import { useAuth } from "@clerk/react";
+import {
+  CONFIRM_WORD,
+  confirmsDeletion,
+  errorCode,
+  orReverify,
+} from "@sikemux/protocol/account";
 import { useId, useState, type SubmitEvent } from "react";
 
-import {
-  api,
-  formatDay,
-  orReverify,
-  problemText,
-  signedInToken,
-} from "./api.ts";
-import { errorCode } from "./clerkErrors.ts";
+import { api, formatDay, problemText, signedInToken } from "./api.ts";
 import type { Load } from "./Devices.tsx";
 import { BackIcon } from "./icons.tsx";
 import { useReverified } from "./Reverify.tsx";
-
-const CONFIRM_WORD = "delete";
 const POLICY = "https://sikemux.com/delete-account";
 const CONTACT = "contact@nodelike.com";
 
@@ -45,12 +42,12 @@ export function DeleteAccount({
     const token = await signedInToken(getToken, "delete your account", {
       fresh: true,
     });
-    return orReverify(() => api.deleteAccount(token));
+    return orReverify(() => api(token).deleteAccount());
   });
 
   const submit = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (typed.trim().toLowerCase() !== CONFIRM_WORD || busy) return;
+    if (!confirmsDeletion(typed) || busy) return;
     setBusy(true);
     setProblem(undefined);
     try {
@@ -133,7 +130,7 @@ export function DeleteAccount({
         <button
           type="submit"
           className="button danger"
-          disabled={typed.trim().toLowerCase() !== CONFIRM_WORD || busy}
+          disabled={!confirmsDeletion(typed) || busy}
           data-busy={busy || undefined}
         >
           Delete account

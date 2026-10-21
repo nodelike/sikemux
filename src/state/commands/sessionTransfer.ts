@@ -1,4 +1,4 @@
-import { getState, mutate, type StoreState } from "../store";
+import { getState, mutate } from "../store";
 import { notify } from "../toast";
 import { parseSessionBundle } from "../sessionBundle";
 import { agentIdsOf } from "../selectors";
@@ -7,7 +7,7 @@ import { copyText, readClipboardText } from "../../lib/clipboard";
 import { collectPanes, cloneLayout, newId } from "../layout";
 import type { Agent, Session, Window } from "../types";
 import { attachSession } from "./shared";
-import { defaultWorkbenchItemTitle } from "../../workbench/registry";
+import { defaultWorkbenchItemTitle } from "../../workbench/itemStates";
 
 function stripImportedStartup(node: Window["root"]): Window["root"] {
     if (node.type === "pane")
@@ -64,7 +64,7 @@ export async function importSessionFromClipboard(): Promise<void> {
             pinned: false,
             activeWindowId: importedWindows[0].id,
         };
-        attachSession(d as unknown as StoreState, session, importedWindows);
+        attachSession(d, session, importedWindows);
         for (const row of bundle.agents) {
             const id = newId("agent");
             d.agents[id] = {

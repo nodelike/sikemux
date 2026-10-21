@@ -2,7 +2,7 @@
 # Build, sign and verify a macOS release, building and signing in separate steps
 # so the build's dependencies never see the signing material. The Release
 # workflow runs each step on its own machine: --stage helpers, scripts/sign-helper.sh,
-# --stage app, scripts/sign-mac.sh, then scripts/verify-release.sh. --publish
+# --stage compile, --stage package, scripts/sign-mac.sh, then scripts/verify-release.sh. --publish
 # marks a build the workflow publishes with scripts/publish-release.sh.
 set -euo pipefail
 
@@ -25,11 +25,11 @@ for ((i = 0; i < ${#options[@]}; i++)); do
 done
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> <notes> [--nightly] [--publish] [--stage helpers|app]" >&2
+  echo "Usage: $0 <version> <notes> [--nightly] [--publish] [--stage helpers|compile|package]" >&2
   exit 2
 fi
-if [[ "$STAGE" != "all" && "$STAGE" != "helpers" && "$STAGE" != "app" ]]; then
-  echo "--stage must be helpers or app" >&2
+if [[ "$STAGE" != "all" && "$STAGE" != "helpers" && "$STAGE" != "compile" && "$STAGE" != "package" ]]; then
+  echo "--stage must be helpers, compile or package" >&2
   exit 2
 fi
 if ! VERSION="$VERSION" node - <<'NODE'
@@ -272,7 +272,7 @@ SIM="$ROOT/src-tauri/binaries/sikemux-sim-$HOST"
 # Remove stale outputs before the one release build. Their absence afterwards
 # is stronger evidence of freshness than directory mtimes, which do not change
 # when a bundler updates files in place.
-if [[ "$STAGE" != "app" ]]; then
+if [[ "$STAGE" == "all" || "$STAGE" == "helpers" ]]; then
   rm -f "$VOICE" "$SIM"
   echo "→ Building the voice and simulator helpers for v$VERSION"
   node "$ROOT/scripts/build-voice-helper.mjs"
@@ -285,8 +285,10 @@ if [[ "$STAGE" != "helpers" ]]; then
   [[ -x "$VOICE" && -x "$SIM" ]] || fail "the signed voice and simulator helpers are missing"
   rm -rf "$APP" "$BUNDLE/macos/${APP_NAME}.app.tar.gz" "$BUNDLE/macos/${APP_NAME}.app.tar.gz.sig" "$BUNDLE/dmg"
   echo "→ Building v$VERSION"
-  REQUIRE_VALID_SIGNATURE=1 PREBUILT_HELPERS=1 "$ROOT/scripts/build-mac.sh"
-  [[ -d "$APP" ]] || fail "app bundle was not produced"
+  step=all
+  [[ "$STAGE" == "compile" || "$STAGE" == "package" ]] && step="$STAGE"
+  BUILD_STEP="$step" REQUIRE_VALID_SIGNATURE=1 PREBUILT_HELPERS=1 "$ROOT/scripts/build-mac.sh"
+  [[ "$STAGE" == "compile" || -d "$APP" ]] || fail "app bundle was not produced"
 fi
 if [[ "$STAGE" == "all" ]]; then
   signing "$ROOT/scripts/sign-mac.sh" "$VERSION"
@@ -299,7 +301,8 @@ snapshot_expected
 [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]] || fail "HEAD moved during the release; rebuild from a settled tree"
 case "$STAGE" in
   helpers) echo "✓ Built the helpers for v$VERSION; sign them with scripts/sign-helper.sh before the app" ;;
-  app) echo "✓ Built v$VERSION; sign it with scripts/sign-mac.sh" ;;
+  compile) echo "✓ Compiled v$VERSION; pack it with --stage package" ;;
+  package) echo "✓ Built v$VERSION; sign it with scripts/sign-mac.sh" ;;
   all) echo "✓ Verified $CHANNEL release v$VERSION" ;;
 esac
 if [[ "$PUBLISH" == "1" ]]; then

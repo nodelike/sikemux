@@ -9,7 +9,7 @@ import { sql, type Kysely } from "kysely";
 
 import type { Tables } from "./db.ts";
 import { hostRequestMessage, signedBy } from "./devices/signature.ts";
-import { ApiFailure, type Env } from "./http.ts";
+import { ApiFailure, forbidden, unauthorized, type Env } from "./http.ts";
 
 export interface Identity {
   userId: string;
@@ -45,8 +45,11 @@ export interface VerifierOptions {
 
 const OAUTH_TYPES = new Set(["at+jwt", "application/at+jwt"]);
 
-function unauthorized(message: string): ApiFailure {
-  return new ApiFailure(401, "unauthorized", message);
+/** Refuses a sign-in to an account that was deleted but can still be restored. */
+export function accountDeleted(): ApiFailure {
+  return unauthorized(
+    "This account was deleted. Sign in to the phone app or app.sikemux.com to restore it.",
+  );
 }
 
 /**
@@ -133,10 +136,7 @@ export async function checkStanding(
           and user_id = ${identity.userId}
           and reason = 'removed'
       ) as removed`.execute(db);
-  if (rows[0]?.deleted && !allowDeleted)
-    throw unauthorized(
-      "This account was deleted. Sign in to the phone app or app.sikemux.com to restore it.",
-    );
+  if (rows[0]?.deleted && !allowDeleted) throw accountDeleted();
   if (rows[0]?.removed)
     throw unauthorized("This sign-in was removed from the account.");
 }
@@ -146,9 +146,10 @@ export type AuthEnv = Env & { Variables: { identity: Identity } };
 /**
  * The ways in a route takes. The Mac app's OAuth token is only for adding its host, right after
  * the person signs in in the browser; from then on the host signs its own requests, so removing
- * it from the account cuts it off.
+ * it from the account cuts it off. "mac" takes that token at any age, for the routes Macs on
+ * 0.5.3 and earlier call with it.
  */
-export type SignIn = "session" | "host" | "macRegistration";
+export type SignIn = "session" | "host" | "macRegistration" | "mac";
 
 /** How long after its sign-in the Mac app's OAuth token may add its host. */
 const MAC_REGISTRATION_MINUTES = 10;
@@ -209,10 +210,18 @@ async function hostIdentity(
   };
 }
 
-function admits(identity: Identity, accept: readonly SignIn[]): boolean {
-  if (identity.via === "session") return accept.includes("session");
-  if (identity.via === "host") return accept.includes("host");
-  return accept.includes("macRegistration");
+/** Refuses a sign-in that is none of the ways in `accept`. */
+function admit(identity: Identity, accept: readonly SignIn[]) {
+  const admitted =
+    identity.via === "mac"
+      ? accept.includes("macRegistration") || accept.includes("mac")
+      : accept.includes(identity.via);
+  if (!admitted)
+    throw forbidden(
+      identity.via === "mac"
+        ? "The Mac app's sign-in only adds its host to your account."
+        : "Only the phone app and app.sikemux.com may do this.",
+    );
 }
 
 /**
@@ -233,8 +242,12 @@ export function requireIdentity(
     const host = HOST_SCHEME.exec(header);
     const bearer = /^Bearer\s+(\S+)$/i.exec(header);
     let identity: Identity;
-    if (host?.[1] && host[2] && host[3] && accept.includes("host")) {
-      identity = await hostIdentity(c, db, [host[1], host[2], host[3]]);
+    if (host && accept.includes("host")) {
+      identity = await hostIdentity(
+        c,
+        db,
+        host.slice(1) as [string, string, string],
+      );
     } else if (bearer?.[1]) {
       identity = await verifier.verify(bearer[1]);
       await checkStanding(db, identity, { allowDeleted });
@@ -245,14 +258,7 @@ export function requireIdentity(
           : "Sign in first: send Authorization: Bearer <token>.",
       );
     }
-    if (!admits(identity, accept))
-      throw new ApiFailure(
-        403,
-        "forbidden",
-        identity.via === "mac"
-          ? "The Mac app's sign-in only adds its host to your account."
-          : "Only the phone app and app.sikemux.com may do this.",
-      );
+    admit(identity, accept);
     c.set("identity", identity);
     c.set("log", c.get("log").child({ userId: identity.userId }));
     await next();
@@ -263,16 +269,10 @@ export function requireIdentity(
 export function allow(...accept: SignIn[]): MiddlewareHandler<AuthEnv> {
   return async (c, next) => {
     const identity = c.get("identity");
-    if (!admits(identity, accept))
-      throw new ApiFailure(
-        403,
-        "forbidden",
-        identity.via === "mac"
-          ? "The Mac app's sign-in only adds its host to your account."
-          : "Only the phone app and app.sikemux.com may do this.",
-      );
+    admit(identity, accept);
     if (
       identity.via === "mac" &&
+      !accept.includes("mac") &&
       Date.now() - (identity.issuedAt?.getTime() ?? 0) >
         MAC_REGISTRATION_MINUTES * 60_000
     )

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { errorText } from "../lib/format";
+import { errorText, formatTimeLeft } from "../lib/format";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { shareApi, type ShareView } from "../api/share";
 import { copyText } from "../lib/clipboard";
 import { useStore } from "../state/store";
 import { useOccludeNativeViews } from "../state/nativeViews";
-import { notify, reportError } from "../state/toast";
+import { notify, reportError, swallow } from "../state/toast";
 import type { Agent } from "../state/types";
 import { IconCopy, IconEye, IconShare } from "../ui/Icons";
 import { Kbd } from "../ui/Kbd";
@@ -17,7 +17,7 @@ import {
     SHARE_LIFETIMES,
     useChatShare,
     useShares,
-    useSharesPolling,
+    useFollowShares,
 } from "./macShares";
 import "../styles/share.css";
 
@@ -27,20 +27,12 @@ function watching(share: ShareView): string {
     return share.viewers === 1 ? "1 person watching" : `${share.viewers} people watching`;
 }
 
-function endsIn(expiresAt: number, now: number): string {
-    const minutes = Math.max(1, Math.round((expiresAt - now) / 60_000));
-    if (minutes < 60) return `${minutes} min`;
-    const hours = Math.round(minutes / 60);
-    if (hours < 48) return hours === 1 ? "1 hour" : `${hours} hours`;
-    return `${Math.round(hours / 24)} days`;
-}
-
 /** Beside the chat's name: a share button, or once shared, a green eye and how many watch. */
 export function ShareButton({ agent }: { agent: Agent }) {
     const share = useChatShare(agent.id);
     const shared = share !== null;
     useEffect(() => {
-        if (shared) void shareApi.share(agent.id, DEFAULT_SHARE_LIFETIME_MS, agent.title).catch(() => undefined);
+        if (shared) void shareApi.share(agent.id, DEFAULT_SHARE_LIFETIME_MS, agent.title).catch(swallow("share the chat"));
     }, [shared, agent.id, agent.title]);
     if (!share)
         return (
@@ -66,9 +58,9 @@ export function ShareButton({ agent }: { agent: Agent }) {
     );
 }
 
-/** The share dialog of whichever chat asked for it, and the polling that keeps shares fresh. Mounted once, at the app's root. */
+/** The share dialog of whichever chat asked for it, and what keeps the shares current. Mounted once, at the app's root. */
 export function ShareHost() {
-    useSharesPolling();
+    useFollowShares();
     const agentId = useShares((state) => state.dialog);
     useOccludeNativeViews(agentId !== null);
     if (!agentId) return null;
@@ -168,7 +160,7 @@ function ShareDialog({ agentId }: { agentId: string }) {
                             </button>
                         </div>
                         <span className="share-status" role="status">
-                            {watching(share)} · ends in {endsIn(share.expiresAt, now)}
+                            {watching(share)} · ends in {formatTimeLeft(share.expiresAt, now)}
                         </span>
                     </div>
                 ) : (

@@ -47,13 +47,13 @@ describe("invokeCommand", () => {
         const failure = deferred<never>();
         const successHandler = vi.fn((_args: IpcInvokeArguments | undefined, _context: MemoryInvokeContext) => success.promise);
         const failureHandler = vi.fn((_args: IpcInvokeArguments | undefined, _context: MemoryInvokeContext) => failure.promise);
-        transport.register("project_read", successHandler);
-        transport.register("git_status", failureHandler);
+        transport.register("files_call", successHandler);
+        transport.register("state_save", failureHandler);
 
         const readArgs = { path: "/project/file" };
         const statusArgs = { repo: "/project" };
-        const successful = invokeCommand<{ readonly marker: "result" }>("project_read", readArgs);
-        const failed = invokeCommand<never>("git_status", statusArgs);
+        const successful = invokeCommand<{ readonly marker: "result" }>("files_call", readArgs);
+        const failed = invokeCommand<never>("state_save", statusArgs);
 
         expect(performanceTelemetry.snapshot().gauges[IPC_INVOKE_ACTIVE_GAUGE]).toBe(2);
         expect(successHandler.mock.calls[0]![0]).toBe(readArgs);
@@ -79,7 +79,7 @@ describe("invokeCommand", () => {
         });
         const spans = snapshot.spans.filter((span) => span.name === IPC_INVOKE_METRIC);
         expect(spans).toHaveLength(2);
-        expect(spans.map((span) => span.metadata.command)).toEqual(["project_read", "git_status"]);
+        expect(spans.map((span) => span.metadata.command)).toEqual(["files_call", "state_save"]);
         const requestIds = spans.map((span) => span.metadata.requestId as number);
         expect(requestIds[1]).toBe(requestIds[0] + 1);
         expect(spans[1].metadata).toMatchObject({ outcome: "error", category: "git" });
@@ -135,8 +135,8 @@ describe("invokeCommand", () => {
             expect(context.signal).toBe(controller.signal);
             return pending.promise;
         });
-        transport.register("logs_tail", handler);
-        const invocation = invokeCommand("logs_tail", args, { signal: controller.signal });
+        transport.register("pty_sessions", handler);
+        const invocation = invokeCommand("pty_sessions", args, { signal: controller.signal });
         const reason = Object.freeze({ privateCancellationReason: true });
 
         controller.abort(reason);
@@ -157,20 +157,20 @@ describe("invokeCommand", () => {
 
     it("does not derive categories from ordinary errors and never reuses request IDs", async () => {
         const firstError = new Error("private failure detail");
-        transport.register("first_command", async () => {
+        transport.register("boot_init", async () => {
             throw firstError;
         });
-        await expect(invokeCommand("first_command")).rejects.toBe(firstError);
+        await expect(invokeCommand("boot_init")).rejects.toBe(firstError);
         const firstRequestId = performanceTelemetry.snapshot().spans[0].metadata.requestId as number;
 
         performanceTelemetry.reset();
-        transport.register("second_command", async () => null);
-        await invokeCommand<null>("second_command");
+        transport.register("integration_health", async () => null);
+        await invokeCommand<null>("integration_health");
 
         const snapshot = performanceTelemetry.snapshot();
         expect(snapshot.spans[0].metadata.requestId).toBeGreaterThan(firstRequestId);
         expect(snapshot.spans[0].metadata).toEqual({
-            command: "second_command",
+            command: "integration_health",
             requestId: snapshot.spans[0].metadata.requestId,
             outcome: "success",
         });
@@ -183,14 +183,14 @@ describe("invokeCommand", () => {
         const failure = deferred<never>();
         const cancelled = deferred<never>();
         const controller = new AbortController();
-        transport.register("home_dir", () => success.promise);
-        transport.register("git_status", () => failure.promise);
-        transport.register("logs_tail", () => cancelled.promise);
+        transport.register("open_url", () => success.promise);
+        transport.register("state_save", () => failure.promise);
+        transport.register("pty_sessions", () => cancelled.promise);
 
-        const resolving = invokeCommand<null>("home_dir");
-        const rejecting = invokeCommand<never>("git_status", { repo: "/project" });
-        const aborting = invokeCommand<never>("logs_tail", undefined, { signal: controller.signal });
-        expect(uiActivity.snapshot().inflight.map((entry) => entry.command)).toEqual(["home_dir", "git_status", "logs_tail"]);
+        const resolving = invokeCommand<null>("open_url");
+        const rejecting = invokeCommand<never>("state_save", { repo: "/project" });
+        const aborting = invokeCommand<never>("pty_sessions", undefined, { signal: controller.signal });
+        expect(uiActivity.snapshot().inflight.map((entry) => entry.command)).toEqual(["open_url", "state_save", "pty_sessions"]);
 
         success.resolve(null);
         await resolving;
@@ -202,9 +202,9 @@ describe("invokeCommand", () => {
         const report = uiActivity.snapshot();
         expect(report.inflight).toEqual([]);
         expect(report.recent.map((entry) => ({ command: entry.command, ok: entry.ok }))).toEqual([
-            { command: "logs_tail", ok: false },
-            { command: "git_status", ok: false },
-            { command: "home_dir", ok: true },
+            { command: "pty_sessions", ok: false },
+            { command: "state_save", ok: false },
+            { command: "open_url", ok: true },
         ]);
         expect(JSON.stringify(report)).not.toContain("native failure detail");
         uiActivity.reset();

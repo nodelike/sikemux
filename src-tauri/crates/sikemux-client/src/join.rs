@@ -12,8 +12,9 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 pub const JOIN_ALPN: &[u8] = b"sikemux/join/1";
 
-/// How long the host waits for the person at it to answer.
-pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long a host that asks the person before letting a device in waits
+/// for an answer, whether or not the device stays connected.
+pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(600);
 const STEP_TIMEOUT: Duration = Duration::from_secs(15);
 /// Every join message is a few hundred bytes. Either side reads them before
 /// it knows who sent them, so nothing larger is accepted.

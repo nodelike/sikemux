@@ -1,12 +1,13 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::Value;
 
-use super::claude::claude_transcript;
-use super::roots::agent_config_root;
-use super::{collect_jsonl, read_suffix};
+use super::read_suffix;
+use super::roots::account_root;
+use super::transcript;
 use crate::agent_catalog::AgentKind;
 
 // ---- context window of a saved session ---------------------------------
@@ -34,39 +35,15 @@ pub fn read_session_context(
     }
 }
 
-/// Where Claude or Codex writes a session's transcript. Other agents keep
-/// their history in shapes Sikemux does not read line by line.
+/// Where Claude or Codex writes a session's transcript.
 pub fn session_transcript_path(
     agent: AgentKind,
     cwd: &str,
     session_id: &str,
     config_path: Option<&str>,
 ) -> Option<PathBuf> {
-    let safe_id = !session_id.is_empty()
-        && session_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    if !safe_id {
-        return None;
-    }
-    match agent {
-        AgentKind::Claude => {
-            let root = agent_config_root("claude", config_path)?;
-            Some(claude_transcript(&root, cwd, session_id))
-        }
-        AgentKind::Codex => {
-            let root = agent_config_root("codex", config_path)?;
-            let mut paths = Vec::new();
-            collect_jsonl(&root.join("sessions"), &mut paths, 0);
-            let suffix = format!("-{session_id}.jsonl");
-            paths.into_iter().find(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.ends_with(&suffix))
-            })
-        }
-        _ => None,
-    }
+    let root = account_root(agent, config_path, &BTreeMap::new())?;
+    transcript::find(agent, &root, Some(cwd), session_id)
 }
 
 /// The last line of a transcript that `parse` accepts, read from the end so a

@@ -5,6 +5,18 @@ import type { StoreState } from "./store";
 import { collectPanes, openSides } from "./layout";
 import { relativePath } from "../lib/paths";
 
+/** One saved chat in a map or set: the agent kind and its own session id. */
+export const chatKey = (agent: string, id: string): string => `${agent}\0${id}`;
+
+/** Whether `agent` has the saved chat open. */
+export const hasChat = (agent: Pick<Agent, "type" | "resumeId">, chat: { agent: string; id: string }): boolean =>
+    agent.type === chat.agent && agent.resumeId === chat.id;
+
+export function agentForChat<A extends Pick<Agent, "type" | "resumeId">>(agents: Iterable<A>, chat: { agent: string; id: string }): A | undefined {
+    for (const agent of agents) if (hasChat(agent, chat)) return agent;
+    return undefined;
+}
+
 export const selectSessionIds = (state: StoreState): readonly string[] => state.sessionOrder;
 export const selectFocusMode = (state: Pick<StoreState, "sideRailOpen" | "tabRailOpen">): boolean => !state.sideRailOpen && !state.tabRailOpen;
 

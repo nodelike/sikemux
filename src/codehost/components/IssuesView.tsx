@@ -6,7 +6,8 @@ import { EmptyState, IconChevron, IconExternal, IconInfo, IconPlus, SkeletonRows
 import { SwipePages } from "../../ui/SwipePages";
 import { SectionIcon } from "./ActionsIcon";
 import { GitColumns } from "../../git/GitColumns";
-import { hostApi, failureMessage, type Issue, type RepoRef } from "../api";
+import { hostApi, type Issue, type RepoRef } from "../api";
+import { errorText } from "../../lib/format";
 import { issueCountsR, issueR, issuesR, timelineR } from "../resources";
 import { compose, setListState, showItem, updateView } from "../state";
 import { Comments, Labels, ListTitle, ShellAccount, StateMark } from "./Bits";
@@ -169,7 +170,7 @@ export function IssueDetail({ repo, number, active, cwd = null }: { repo: RepoRe
     const [busy, runBusy] = useBusy();
     if (issue.status === "loading" && !issue.data) return <SkeletonRows rows={6} label="Loading issue" />;
     if (!issue.data) {
-        return <EmptyState title="Could not read it" message={failureMessage(issue.error)} tone="error" />;
+        return <EmptyState title="Could not read it" message={errorText(issue.error)} tone="error" />;
     }
     const found = issue.data;
     const closing = found.state === "open";
@@ -273,7 +274,7 @@ export function IssuesView({ paneId, repo, listState, item, composing, page, cwd
         ) : issues.error && !issues.data ? (
             <EmptyState
                 title="Could not read issues"
-                message={failureMessage(issues.error)}
+                message={errorText(issues.error)}
                 tone="error"
                 action={{ label: "Try again", onClick: () => void issues.refresh() }}
             />

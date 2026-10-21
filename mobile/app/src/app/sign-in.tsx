@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSignIn, useSignUp } from '@clerk/expo';
+import { errorCode, explain } from '@protocol/account';
 
-import { errorCode, explain } from '@/account/clerkErrors';
 import { CodeEntry } from '@/ui/CodeEntry';
 import { goBack, goHome } from '@/ui/navigate';
 import { Button, Field, PasswordField } from '@/ui/controls';

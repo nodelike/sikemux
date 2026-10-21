@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Url};
 
 use super::address::{resolve, Address};
@@ -96,10 +97,7 @@ impl History {
     }
 
     fn with_store<R>(&self, app: &AppHandle, work: impl FnOnce(&mut Store) -> R) -> R {
-        let mut slot = self
-            .store
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut slot = self.store.locked();
         let store =
             slot.get_or_insert_with(|| path(app).map(|path| load(&path)).unwrap_or_default());
         work(store)
@@ -118,11 +116,7 @@ impl History {
                 return;
             };
             let data = {
-                let slot = manager
-                    .history
-                    .store
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let slot = manager.history.store.locked();
                 match slot.as_ref().map(serde_json::to_vec) {
                     Some(Ok(data)) => data,
                     _ => return,

@@ -2,6 +2,7 @@
 //! its own protocol: turns, permission requests, accounts and starting the
 //! agent again under the chat.
 
+use std::collections::HashMap;
 use std::os::fd::OwnedFd;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -10,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+use crate::launch::PermissionMode;
 
 use crate::acp::account::{self, Failure, FailureKind, SignIn};
 use crate::acp::{permission, SessionEnd};
@@ -190,7 +193,7 @@ impl Sink {
         chat.unprompted.store(false, Ordering::Release);
         chat.cancel_permissions();
         let settle = || {
-            chat.running.store(false, Ordering::Release);
+            chat.stop_running();
             let _ = self.settled.send(turn);
         };
         match end {
@@ -277,16 +280,42 @@ impl Sink {
     }
 }
 
-const HELD_PROMPT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
-
 /// Sends `command` to the chat's loop again once the running turn has ended.
 fn after_turn(chat: Arc<Chat>, command: ChatCommand) {
     tokio::spawn(async move {
-        while chat.running.load(Ordering::Acquire) && !chat.commands.is_closed() {
-            tokio::time::sleep(HELD_PROMPT_POLL).await;
+        tokio::select! {
+            () = chat.turn_ended() => {
+                let _ = chat.send(command);
+            }
+            () = chat.commands.closed() => {}
         }
-        let _ = chat.send(command);
     });
+}
+
+/// How many subagents' histories a resumed chat reads.
+const MAX_SUBAGENT_HISTORIES: usize = 64;
+
+/// The histories of the subagents `first` names and of theirs, each read by
+/// `read`, whose subagents `children` names.
+pub(crate) async fn subagent_histories<F>(
+    first: Vec<String>,
+    read: impl Fn(String) -> F,
+    children: impl Fn(&[Value]) -> Vec<String>,
+) -> HashMap<String, Vec<Value>>
+where
+    F: std::future::Future<Output = Vec<Value>>,
+{
+    let mut histories = HashMap::new();
+    let mut queue = first;
+    while let Some(child) = queue.pop() {
+        if histories.contains_key(&child) || histories.len() >= MAX_SUBAGENT_HISTORIES {
+            continue;
+        }
+        let said = read(child.clone()).await;
+        queue.extend(children(&said));
+        histories.insert(child, said);
+    }
+    histories
 }
 
 /// The session an agent opened, as the chat reads it.
@@ -328,7 +357,7 @@ pub(crate) trait Backend: Sized + Send {
     /// Applies one of the app's permission modes.
     fn set_permission_mode(
         &mut self,
-        mode: &str,
+        mode: PermissionMode,
     ) -> impl std::future::Future<Output = Result<(), String>> + Send;
 
     /// Changes a session option, answering with the options as they now are.
@@ -502,11 +531,9 @@ pub(crate) async fn run<B: Backend>(
             };
             chat.note_agent(backend.pid());
             let start = state.start();
+            crate::server::chat::offered::remember(&provider, &start.setup);
             chat.mark_ready(start.clone());
-            chat.emit(
-                ChatEventKind::Ready,
-                serde_json::to_value(&start).unwrap_or_else(|_| json!({})),
-            );
+            chat.emit(ChatEventKind::Ready, json!(start));
             for update in carried.into_iter().chain(notice) {
                 sink.update(&state.session_id, update);
             }
@@ -584,40 +611,14 @@ pub(crate) async fn run<B: Backend>(
         let command = match woke {
             Woke::Command(Some(command)) => command,
             Woke::Command(None) => break Outcome::Ended(SessionEnd::Requested),
-            Woke::Closed(reason) => {
-                let working = chat.turn_running() || chat.held.load(Ordering::Acquire);
-                let title = if working {
-                    "This agent stopped while it was working, and was started again"
-                } else {
-                    "This agent stopped, and was started again"
-                };
-                if let Some(rebind) = restart(&chat, &launch, &state, working, title, &reason).await
-                {
-                    break Outcome::Rebind(rebind);
-                }
-                if chat.running.load(Ordering::Acquire) {
-                    let failure = error_message(&reason);
-                    chat.turn_failing(&failure);
-                    chat.emit(ChatEventKind::Error, failure);
-                }
-                break Outcome::Ended(SessionEnd::Exited);
-            }
-            Woke::Broken(reason) => {
-                let title = "This agent's session broke, and it was started again";
-                if let Some(rebind) = restart(&chat, &launch, &state, false, title, &reason).await {
-                    break Outcome::Rebind(rebind);
-                }
-                let failure = error_message(reason);
-                chat.turn_failing(&failure);
-                chat.emit(ChatEventKind::Error, failure);
-                break Outcome::Ended(SessionEnd::Exited);
-            }
+            Woke::Closed(reason) => break stopped(&chat, &launch, &state, false, reason).await,
+            Woke::Broken(reason) => break stopped(&chat, &launch, &state, true, reason).await,
             Woke::Failed(failed) => {
                 if failed.turn != state.turn {
                     continue;
                 }
                 if let Some(switching) = state.switching.take() {
-                    chat.running.store(false, Ordering::Release);
+                    chat.stop_running();
                     if let Some(response) = failed.response {
                         chat.emit(ChatEventKind::TurnCompleted, response);
                     }
@@ -657,7 +658,7 @@ pub(crate) async fn run<B: Backend>(
                 if let Some(rebind) = retry {
                     break Outcome::Rebind(Box::new(rebind));
                 }
-                chat.running.store(false, Ordering::Release);
+                chat.stop_running();
                 let failure = failed.failure.payload(current.as_deref());
                 chat.turn_failing(&failure);
                 if let Some(response) = failed.response {
@@ -689,7 +690,7 @@ pub(crate) async fn run<B: Backend>(
             Woke::Stalled(stalled) => {
                 if chat.running.load(Ordering::Acquire) && state.turn == stalled {
                     if let Some(switching) = state.switching.take() {
-                        chat.running.store(false, Ordering::Release);
+                        chat.stop_running();
                         chat.emit(
                             ChatEventKind::TurnCompleted,
                             json!({ "stopReason": "cancelled" }),
@@ -701,7 +702,7 @@ pub(crate) async fn run<B: Backend>(
                     }
                     let why = "It was still at work a while after it was asked to stop.";
                     if state.reloadable {
-                        chat.running.store(false, Ordering::Release);
+                        chat.stop_running();
                         chat.emit(
                             ChatEventKind::TurnCompleted,
                             json!({ "stopReason": "cancelled" }),
@@ -852,10 +853,7 @@ pub(crate) async fn run<B: Backend>(
                     state.session_id = moved;
                     let start = state.start();
                     chat.mark_ready(start.clone());
-                    chat.emit(
-                        ChatEventKind::Ready,
-                        serde_json::to_value(&start).unwrap_or_else(|_| json!({})),
-                    );
+                    chat.emit(ChatEventKind::Ready, json!(start));
                 }
                 let _ = reply.send(Ok(()));
                 state.fresh_turn(&chat);
@@ -915,10 +913,10 @@ pub(crate) async fn run<B: Backend>(
                 let result = if chat.running.load(Ordering::Acquire) {
                     Err("Stop the current turn before changing permissions".into())
                 } else {
-                    backend.set_permission_mode(&mode).await
+                    backend.set_permission_mode(mode).await
                 };
                 if result.is_ok() {
-                    chat.set_permission_mode(&mode);
+                    chat.set_permission_mode(mode);
                 }
                 let _ = reply.send(result);
             }
@@ -1107,7 +1105,7 @@ impl SessionState {
 /// A chat whose agent this core could not take over: it goes on in a new
 /// agent process on the same session, and says so.
 fn not_taken_over(chat: &Chat, launch: &ChatLaunch, error: &str) -> Outcome {
-    if chat.running.swap(false, Ordering::AcqRel) {
+    if chat.stop_running() {
         chat.emit(
             ChatEventKind::TurnCompleted,
             json!({ "stopReason": "cancelled" }),
@@ -1130,6 +1128,32 @@ fn not_taken_over(chat: &Chat, launch: &ChatLaunch, error: &str) -> Outcome {
     }
 }
 
+/// The agent stopped by itself, or its session `broke`: starts it again on
+/// the chat's session, or ends the chat saying why.
+async fn stopped(
+    chat: &Arc<Chat>,
+    launch: &ChatLaunch,
+    state: &SessionState,
+    broke: bool,
+    reason: String,
+) -> Outcome {
+    let working = !broke && (chat.turn_running() || chat.held.load(Ordering::Acquire));
+    let title = match (broke, working) {
+        (true, _) => "This agent's session broke, and it was started again",
+        (false, true) => "This agent stopped while it was working, and was started again",
+        (false, false) => "This agent stopped, and was started again",
+    };
+    if let Some(rebind) = restart(chat, launch, state, working, title, &reason).await {
+        return Outcome::Rebind(rebind);
+    }
+    if broke || chat.running.load(Ordering::Acquire) {
+        let failure = error_message(&reason);
+        chat.turn_failing(&failure);
+        chat.emit(ChatEventKind::Error, failure);
+    }
+    Outcome::Ended(SessionEnd::Exited)
+}
+
 /// Starts the agent again on the chat's session after it stopped by itself,
 /// saying so in the chat, and carrying on the turn it was cut off in when
 /// `carry_on`. None when it cannot load its session, or has stopped too often
@@ -1147,7 +1171,7 @@ async fn restart(
     }
     let launch = chat.relaunch(launch)?;
     let wait = chat.restart_after()?;
-    chat.running.store(false, Ordering::Release);
+    chat.stop_running();
     chat.cancel_permissions();
     chat.end_cut_turn();
     tokio::time::sleep(wait).await;
@@ -1169,7 +1193,7 @@ async fn begin<B: Backend>(chat: &Arc<Chat>, backend: &mut B, turn: u64, prompt:
     chat.unprompted.store(false, Ordering::Release);
     chat.emit(ChatEventKind::TurnStarted, json!({}));
     if let Err(error) = backend.prompt(turn, prompt).await {
-        chat.running.store(false, Ordering::Release);
+        chat.stop_running();
         chat.emit(ChatEventKind::Error, error_message(error));
     }
 }

@@ -12,7 +12,7 @@
       "additionalProperties": false
     },
     "JoinTicket": {
-      "description": "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal.",
+      "description": "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them.",
       "type": "object",
       "properties": {
         "v": {
@@ -44,6 +44,15 @@
           "description": "When it stops being good, in unix seconds: ten minutes after issuedAt.",
           "type": "integer",
           "minimum": 0
+        },
+        "via": {
+          "description": "The host that added the joining app to the account, when a host did, so the host it joins can say which.",
+          "$ref": "devices.json#/$defs/DeviceKey"
+        },
+        "viaName": {
+          "description": "What the account calls the host in via.",
+          "type": "string",
+          "maxLength": 64
         },
         "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
       },

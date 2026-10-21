@@ -361,8 +361,8 @@ const coreKeybindingActions = [
     },
     {
         id: "window.board",
-        label: "Focus board",
-        detail: "Jump to the project's board of cards",
+        label: "Focus agent board",
+        detail: "Jump to the cards the project's agents work from",
         category: "Navigation",
         defaultBinding: on("Meta+Alt+Digit6", "Ctrl+Alt+Digit6"),
     },

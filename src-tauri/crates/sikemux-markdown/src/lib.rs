@@ -3,7 +3,10 @@
 //! redraw only the block at its end.
 
 mod autolink;
+mod doc;
 mod url;
+
+pub use doc::{diff, Doc, Op, Patch};
 
 use pulldown_cmark::{
     Alignment, CodeBlockKind, Event, LinkType, Options as ParserOptions, Parser, Tag, TagEnd,
@@ -129,6 +132,15 @@ pub enum Element {
 /// Parses `text` and returns its top-level blocks from index `skip` on. A
 /// caller that already holds the blocks before `skip` gets only the rest.
 pub fn parse(text: &str, options: Options, skip: usize) -> Vec<Element> {
+    read(text, options, skip).0
+}
+
+/// Parses `text` into its top-level blocks, each with the byte in `text` it starts at.
+pub fn parse_blocks(text: &str, options: Options) -> (Vec<Element>, Vec<usize>) {
+    read(text, options, 0)
+}
+
+fn read(text: &str, options: Options, skip: usize) -> (Vec<Element>, Vec<usize>) {
     let mut flags = ParserOptions::empty();
     if options.gfm {
         flags |= ParserOptions::ENABLE_TABLES
@@ -140,13 +152,21 @@ pub fn parse(text: &str, options: Options, skip: usize) -> Vec<Element> {
         options,
         stack: Vec::new(),
         blocks: Vec::new(),
+        starts: Vec::new(),
+        opening: None,
         seen: 0,
         skip,
         links_open: 0,
         footnotes: Vec::new(),
     };
-    for event in Parser::new_ext(text, flags) {
+    for (event, range) in Parser::new_ext(text, flags).into_offset_iter() {
+        if builder.stack.is_empty() {
+            builder.opening.get_or_insert(range.start);
+        }
         builder.event(event);
+        if builder.stack.is_empty() {
+            builder.opening = None;
+        }
     }
     while matches!(
         builder.stack.last(),
@@ -157,7 +177,7 @@ pub fn parse(text: &str, options: Options, skip: usize) -> Vec<Element> {
     ) {
         builder.close_details();
     }
-    builder.blocks
+    (builder.blocks, builder.starts)
 }
 
 /// Text that came from markup the reader typed. It stays apart from the text
@@ -213,6 +233,10 @@ struct Builder {
     options: Options,
     stack: Vec<Frame>,
     blocks: Vec<Element>,
+    /// Where each of `blocks` starts in the text.
+    starts: Vec<usize>,
+    /// Where the block being read now starts.
+    opening: Option<usize>,
     seen: usize,
     skip: usize,
     links_open: usize,
@@ -341,6 +365,7 @@ impl Builder {
     fn finish_block(&mut self, element: Element) {
         if self.seen >= self.skip {
             self.blocks.push(element);
+            self.starts.push(self.opening.unwrap_or_default());
         }
         self.seen += 1;
     }

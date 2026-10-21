@@ -9,7 +9,7 @@ use tokio::time::timeout_at;
 
 use crate::error::RundeckResult;
 
-use crate::client::{get_json, limited, seg, Session};
+use crate::client::{get_json, seg, Session, HTTP};
 use crate::executions::{latest_and_deployed, ExecSummary};
 
 const MATRIX_DEADLINE: Duration = Duration::from_secs(40);
@@ -74,7 +74,7 @@ pub struct JobIndexEntry {
 pub async fn job_index(session: &Session) -> RundeckResult<Vec<JobIndexEntry>> {
     let all = projects(session).await?;
     Ok(join_all(all.into_iter().map(|project| async move {
-        match limited(jobs(session, project.name.clone())).await {
+        match HTTP.limited(jobs(session, project.name.clone())).await {
             Ok(jobs) => JobIndexEntry {
                 project: project.name,
                 jobs,
@@ -172,7 +172,7 @@ pub async fn branches_matrix(
     let deadline = tokio::time::Instant::now() + MATRIX_DEADLINE;
     let elapsed_ms = |started: Instant| started.elapsed().as_millis() as u64;
 
-    let listed = match timeout_at(deadline, limited(jobs(session, project.clone()))).await {
+    let listed = match timeout_at(deadline, HTTP.limited(jobs(session, project.clone()))).await {
         Ok(listed) => listed,
         Err(_) => {
             return Ok(MatrixResult {

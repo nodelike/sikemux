@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { exit } from "@tauri-apps/plugin-process";
 import { remoteApi, type UpdateRequired } from "../api/remote";
-import { openInBrowser } from "../api/releases";
+import { openUrl } from "../api/system";
 import {
     checkForUpdate,
     checkForUpdateNow,
@@ -73,7 +73,7 @@ function Prompt({ required }: { required: UpdateRequired }) {
                         <button
                             type="button"
                             className="update-required-link"
-                            onClick={() => void openInBrowser(RELEASES_URL).catch(swallow("open releases"))}>
+                            onClick={() => void openUrl(RELEASES_URL).catch(swallow("open releases"))}>
                             See every release
                         </button>
                     </p>
@@ -83,7 +83,7 @@ function Prompt({ required }: { required: UpdateRequired }) {
                         Quit Sikemux
                     </button>
                     {!UPDATES_IN_APP ? (
-                        <button type="button" className="primary" onClick={() => void openInBrowser(RELEASES_URL).catch(swallow("open releases"))}>
+                        <button type="button" className="primary" onClick={() => void openUrl(RELEASES_URL).catch(swallow("open releases"))}>
                             Download the new version
                         </button>
                     ) : pending ? (

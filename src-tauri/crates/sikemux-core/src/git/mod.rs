@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use git2::Repository;
+use sikemux_process::sync::Locked;
 use tokio::task::spawn_blocking;
 
 /// Runs a synchronous closure off the async workers, so a libgit2 walk of a
@@ -65,14 +66,9 @@ async fn shared<T: Clone>(
     key: String,
     work: impl std::future::Future<Output = Result<T, String>>,
 ) -> Result<T, String> {
-    let lock = || {
-        flights
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    };
-    let flight = lock().entry(key.clone()).or_default().clone();
+    let flight = flights.locked().entry(key.clone()).or_default().clone();
     let result = flight.get_or_init(|| work).await.clone();
-    let mut flights = lock();
+    let mut flights = flights.locked();
     if flights
         .get(&key)
         .is_some_and(|current| Arc::ptr_eq(current, &flight))
@@ -124,33 +120,103 @@ fn read_bounded_pipe(mut pipe: impl Read, exceeded: Arc<AtomicBool>) -> io::Resu
     }
 }
 
-/// Capture both pipes while enforcing a deadline and an output cap. Stdin and
-/// both output pipes are handled concurrently so no pipe-ordering deadlock is
-/// possible. Every timeout/error path kills the process group.
-fn run_command_with_timeout(
-    command: &mut Command,
-    input: Option<&[u8]>,
-    timeout: Duration,
-) -> Result<Output, String> {
-    sikemux_process::run(command, input, timeout, MAX_COMMAND_OUTPUT_BYTES, None)
-        .map_err(|error| error.to_string())
-}
-
-/// Every git process the core starts for a client goes through here. A repo's own config can
-/// name an fsmonitor program, which git would otherwise run on any status read.
-pub fn git_command(repo: &str) -> Command {
+/// Every git process the core starts goes through here. A repository's own
+/// config can name an fsmonitor program, which git would otherwise run on any
+/// read of the index, and nobody is there to answer a prompt or an editor.
+pub fn git_command(dir: impl AsRef<std::path::Path>) -> Command {
     let mut command = sikemux_process::user_environment::command("git");
     command
+        .args(["-c", "core.fsmonitor=false"])
+        .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
-        .args(["-c", "core.fsmonitor=false", "-C"])
-        .arg(repo);
+        .env("GIT_EDITOR", "true");
     command
+}
+
+/// One git run in a folder, bounded in time and output.
+pub struct Git<'a> {
+    command: Command,
+    input: Option<&'a [u8]>,
+    timeout: Duration,
+    limit: usize,
+}
+
+impl<'a> Git<'a> {
+    pub fn at(dir: impl AsRef<std::path::Path>) -> Self {
+        Self {
+            command: git_command(dir),
+            input: None,
+            timeout: GIT_COMMAND_TIMEOUT,
+            limit: MAX_COMMAND_OUTPUT_BYTES,
+        }
+    }
+
+    /// Sets `key` for this run only, as `git -c key=value` does.
+    pub fn config(mut self, key: &str, value: &str) -> Self {
+        self.command.arg("-c").arg(format!("{key}={value}"));
+        self
+    }
+
+    pub fn env(mut self, key: &str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        self.command.env(key, value);
+        self
+    }
+
+    /// Uses `index` in place of the checkout's own index.
+    pub fn index(self, index: &std::path::Path) -> Self {
+        self.env("GIT_INDEX_FILE", index)
+    }
+
+    pub fn input(mut self, input: &'a [u8]) -> Self {
+        self.input = Some(input);
+        self
+    }
+
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn limit(mut self, bytes: usize) -> Self {
+        self.limit = bytes;
+        self
+    }
+
+    /// Runs `git args`, whatever it exits with.
+    pub fn output(mut self, args: &[&str]) -> Result<Output, String> {
+        self.command.args(args);
+        sikemux_process::run(
+            &mut self.command,
+            self.input,
+            self.timeout,
+            self.limit,
+            None,
+        )
+        .map_err(|error| format!("git did not run: {error}"))
+    }
+
+    /// What `git args` wrote, or what it said when it failed.
+    pub fn stdout(self, args: &[&str]) -> Result<Vec<u8>, String> {
+        let output = self.output(args)?;
+        if output.status.success() {
+            return Ok(output.stdout);
+        }
+        Err(format!(
+            "git {} failed: {}",
+            args.first().copied().unwrap_or_default(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+
+    /// [`Self::stdout`] as text.
+    pub fn text(self, args: &[&str]) -> Result<String, String> {
+        self.stdout(args)
+            .map(|out| String::from_utf8_lossy(&out).into_owned())
+    }
 }
 
 fn run_git(repo: &str, args: &[&str]) -> Result<(bool, String, String), String> {
-    let mut command = git_command(repo);
-    command.args(args);
-    let out = run_command_with_timeout(&mut command, None, GIT_COMMAND_TIMEOUT)?;
+    let out = Git::at(repo).output(args)?;
     Ok((
         out.status.success(),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -244,9 +310,11 @@ pub fn ignored_paths(repo: &str, paths: &[String]) -> std::collections::HashSet<
         input.extend_from_slice(path.as_bytes());
         input.push(0);
     }
-    let mut command = git_command(repo);
-    command.args(["check-ignore", "-z", "--stdin"]);
-    match run_command_with_timeout(&mut command, Some(&input), IGNORED_TIMEOUT) {
+    let ignored = Git::at(repo)
+        .input(&input)
+        .timeout(IGNORED_TIMEOUT)
+        .output(&["check-ignore", "-z", "--stdin"]);
+    match ignored {
         Ok(output) => String::from_utf8_lossy(&output.stdout)
             .split('\0')
             .filter(|path| !path.is_empty())
@@ -343,6 +411,12 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn run(command: &mut Command, input: Option<&[u8]>) -> Result<Output, String> {
+        let wait = Duration::from_secs(5);
+        sikemux_process::run(command, input, wait, MAX_COMMAND_OUTPUT_BYTES, None)
+            .map_err(|error| error.to_string())
+    }
+
     #[test]
     fn subprocess_drains_output_before_child_reads_stdin() {
         let input = vec![b'i'; 2 * 1024 * 1024];
@@ -351,7 +425,7 @@ mod tests {
             "-c",
             "dd if=/dev/zero bs=1048576 count=2 2>/dev/null; cat >/dev/null",
         ]);
-        let out = run_command_with_timeout(&mut command, Some(&input), Duration::from_secs(5))
+        let out = run(&mut command, Some(&input))
             .expect("concurrent stdin/stdout handling must not deadlock");
         assert!(out.status.success());
         assert_eq!(out.stdout.len(), 2 * 1024 * 1024);
@@ -362,8 +436,7 @@ mod tests {
     fn subprocess_output_is_bounded() {
         let mut command = sikemux_process::user_environment::command("sh");
         command.args(["-c", "dd if=/dev/zero bs=1048576 count=33 2>/dev/null"]);
-        let error = run_command_with_timeout(&mut command, None, Duration::from_secs(5))
-            .expect_err("oversized output must be rejected");
+        let error = run(&mut command, None).expect_err("oversized output must be rejected");
         assert!(error.contains("output exceeds"), "{error}");
     }
 

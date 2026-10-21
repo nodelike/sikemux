@@ -18,11 +18,11 @@ import {
     type KeybindingOverrides,
 } from "../commands/keybindings";
 import { settingsApi } from "../api/settings";
-import { openInBrowser } from "../api/releases";
+import { openUrl } from "../api/system";
 import { isUpdateBusy, RELEASES_URL, updateCheckLabel, UPDATES_IN_APP } from "../api/updater";
 import { prettyPath } from "../lib/paths";
 import { IS_MACOS, PRIMARY_SHORTCUT } from "../lib/platform";
-import { notify, reportError } from "../state/toast";
+import { notify, reportError, swallow } from "../state/toast";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { cloneTheme, newCustomThemeId, THEME_GROUPS, THEMES, themeFromColours, type Theme, type ThemeGroupKey } from "../themes";
@@ -54,10 +54,9 @@ import { Checkbox, Slider, Switch } from "../ui/Controls";
 import { Tooltip } from "../ui/Tooltip";
 import { PaneField } from "../ui/ShaderField";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
-import type { AgentProvider, ProjectRoot, ProviderProfile } from "../state/types";
+import type { ProjectRoot, ProviderProfile } from "../state/types";
 import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agents/agentLaunch";
-import { providerAccent } from "../agents/agentProfiles";
-import { hasAccounts } from "../agents/catalog";
+import { ACCOUNT_AGENT_TYPES, agentBrand, agentLabel, hasAccounts, type AccountAgentType } from "../agents/catalog";
 import {
     searchSettings,
     SETTINGS_GROUPS,
@@ -521,12 +520,12 @@ function AgentsPage() {
                 id: `profile-${Date.now().toString(36)}`,
                 name: "Local provider",
                 provider: "claude",
-                accent: providerAccent("claude"),
+                accent: agentBrand("claude"),
             },
     );
     const isSaved = profiles.some((profile) => profile.id === draft.id);
     const newProfile = () =>
-        setDraft({ id: `profile-${Date.now().toString(36)}`, name: "", provider: "claude", accent: providerAccent("claude"), environmentKeys: [] });
+        setDraft({ id: `profile-${Date.now().toString(36)}`, name: "", provider: "claude", accent: agentBrand("claude"), environmentKeys: [] });
     return (
         <SettingsPage>
             <AgentSetupSection />
@@ -597,13 +596,9 @@ function AgentsPage() {
                                     label="provider"
                                     value={draft.provider}
                                     disabled={draft.id.startsWith("builtin-")}
-                                    options={[
-                                        { value: "claude", label: "Claude" },
-                                        { value: "codex", label: "Codex" },
-                                        { value: "gemini", label: "Gemini" },
-                                    ]}
+                                    options={ACCOUNT_AGENT_TYPES.map((type) => ({ value: type, label: agentLabel(type) }))}
                                     onChange={(value) =>
-                                        setDraft({ ...draft, provider: value as AgentProvider, accent: providerAccent(value as AgentProvider) })
+                                        setDraft({ ...draft, provider: value as AccountAgentType, accent: agentBrand(value as AccountAgentType) })
                                     }
                                 />
                             </SettingsRow>
@@ -752,9 +747,7 @@ function CliPage() {
             notify("success", next.pathConfigured ? "Sikemux CLI is ready" : "Sikemux CLI installed; add its directory to PATH");
         } catch (error) {
             reportError("CLI install")(error);
-            await invoke<CliInstallStatus>("cli_install_status")
-                .then(setStatus)
-                .catch(() => undefined);
+            await invoke<CliInstallStatus>("cli_install_status").then(setStatus).catch(swallow("read the CLI install status"));
         } finally {
             setBusy(false);
         }
@@ -850,7 +843,7 @@ function AboutPage() {
                         </>
                     ) : (
                         <SettingsRow label="New versions" desc="Linux builds do not update themselves yet. Download each new release from GitHub.">
-                            <button className="settings-btn" onClick={() => void openInBrowser(RELEASES_URL).catch(reportError("open releases"))}>
+                            <button className="settings-btn" onClick={() => void openUrl(RELEASES_URL).catch(reportError("open releases"))}>
                                 Open releases
                             </button>
                         </SettingsRow>

@@ -3,14 +3,14 @@ import { invalidate, useResource, useResourceEnabled } from "../../../plugin-api
 import { IconAws, SignInScreen, SignInWaiting, useSignInAttempt } from "../../../plugin-api/ui";
 import { awsApi, type AwsProfile } from "../api";
 import { deriveAuthState } from "../auth";
-import { awsIdentityR, awsProfilesR, awsSetupR } from "../resources";
+import { aws, awsIdentityR, awsProfilesR, awsSetupR } from "../resources";
 import { setAwsProfile } from "../state";
 
 const mark = <IconAws size={28} />;
 const INSTALL_GUIDE = "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html";
 
 function checkAgain(): void {
-    invalidate((kind) => kind.startsWith("aws."));
+    aws.refresh();
 }
 
 /** The pane reads everything again once the terminal closes, so it moves on by itself. */
@@ -149,7 +149,7 @@ function SignedOut({ profile, profiles }: { profile: string; profiles: AwsProfil
             void awsApi
                 .identity(profile, true)
                 .catch(swallow("refresh AWS identity"))
-                .then(() => invalidate((kind, args) => kind.startsWith("aws.") && args[0] === profile));
+                .then(() => invalidate((kind, args) => aws.owns(kind) && args[0] === profile));
         });
     };
 

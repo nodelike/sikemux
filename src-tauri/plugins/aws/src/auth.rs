@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use sikemux_plugin_api::PluginContext;
+use sikemux_process::sync::Locked;
 
 use crate::common::{classify_cli_err, run_aws_cli_async, Target};
 use crate::error::{AwsError, AwsResult};
@@ -278,11 +279,8 @@ const ID_CACHE_CAPACITY: usize = 128;
 
 pub(crate) async fn identity(profile: String, force: bool) -> AwsIdentity {
     if !force {
-        if let Some(cached) = id_cache()
-            .lock()
-            .ok()
-            .and_then(|c| c.get(&profile).cloned())
-        {
+        let cached = id_cache().locked().get(&profile).cloned();
+        if let Some(cached) = cached {
             if cached.0.elapsed() < ID_TTL {
                 return cached.1;
             }
@@ -338,19 +336,19 @@ pub(crate) async fn identity(profile: String, force: bool) -> AwsIdentity {
         }
     };
 
-    if let Ok(mut cache) = id_cache().lock() {
-        cache.retain(|_, (created, _)| created.elapsed() < ID_TTL);
-        if cache.len() >= ID_CACHE_CAPACITY && !cache.contains_key(&profile) {
-            if let Some(oldest) = cache
-                .iter()
-                .min_by_key(|(_, (created, _))| *created)
-                .map(|(profile, _)| profile.clone())
-            {
-                cache.remove(&oldest);
-            }
+    let mut cache = id_cache().locked();
+    cache.retain(|_, (created, _)| created.elapsed() < ID_TTL);
+    if cache.len() >= ID_CACHE_CAPACITY && !cache.contains_key(&profile) {
+        if let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, (created, _))| *created)
+            .map(|(profile, _)| profile.clone())
+        {
+            cache.remove(&oldest);
         }
-        cache.insert(profile, (Instant::now(), id.clone()));
     }
+    cache.insert(profile, (Instant::now(), id.clone()));
+    drop(cache);
     id
 }
 
@@ -370,9 +368,7 @@ pub(crate) async fn sso_login(profile: String) -> AwsLoginResult {
     let r = run_aws_cli_async(&["sso", "login"], &target).await;
     // Drop the cached "expired" identity so the next identity call doesn't
     // lie about state.
-    if let Ok(mut cache) = id_cache().lock() {
-        cache.remove(&profile);
-    }
+    id_cache().locked().remove(&profile);
     match r {
         Ok((ok, out, err)) => AwsLoginResult {
             success: ok,

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+    COLUMN_LABELS,
     RUN_WAITS_ON_PERSON,
     type BoardCard,
     type CardChanges,
@@ -10,7 +11,7 @@ import {
     shortTitle,
 } from "../agents/agentBoard";
 import { agentBoardApi } from "../api/agentBoard";
-import { openInBrowser } from "../api/releases";
+import { openUrl } from "../api/system";
 import * as cmd from "../state/commands";
 import { confirmDialog } from "../state/dialog";
 import { reportError } from "../state/toast";
@@ -18,11 +19,10 @@ import { Dropdown, type DropdownOption } from "../ui/Dropdown";
 import { IconClose, IconExternal } from "../ui/Icons";
 import { Owner } from "./cardParts";
 
-const STATUS_OPTIONS: DropdownOption[] = [
-    { value: "open", label: "Open" },
-    { value: "progress", label: "In progress" },
-    { value: "done", label: "Done" },
-];
+const STATUS_OPTIONS: DropdownOption[] = (["open", "progress", "done"] as const).map((value) => ({
+    value,
+    label: COLUMN_LABELS[value],
+}));
 
 const TOP = "0";
 
@@ -159,7 +159,7 @@ export function CardPanel({
                                 className="kanban-icon-button"
                                 title="Open in browser"
                                 aria-label="Open the ticket in the browser"
-                                onClick={() => void openInBrowser(card.ticket!.url!)}>
+                                onClick={() => void openUrl(card.ticket!.url!)}>
                                 <IconExternal size={12} />
                             </button>
                         )}
@@ -299,7 +299,7 @@ export function CardPanel({
                                         className="kanban-icon-button"
                                         title="Open in browser"
                                         aria-label="Open the pull request in the browser"
-                                        onClick={() => void openInBrowser(card.auto!.pull!.url)}>
+                                        onClick={() => void openUrl(card.auto!.pull!.url)}>
                                         <IconExternal size={12} />
                                     </button>
                                 )}

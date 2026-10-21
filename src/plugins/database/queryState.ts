@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { invalidate } from "../../plugin-api/resources";
-import { databaseApi, failureMessage, type QueryOutcome } from "./api";
+import { errorText } from "../../plugin-api/format";
+import { databaseApi, type QueryOutcome } from "./api";
+import { database, databaseConnectedR, databaseHistoryR } from "./resources";
 
 export const ROW_LIMITS = [100, 500, 1000, 5000] as const;
 export const DEFAULT_ROW_LIMIT = 500;
@@ -40,10 +41,10 @@ export async function runQuery(id: string, profile: string, sql: string): Promis
         const outcome = await databaseApi.query(profile, text, readQuery(id).limit, run);
         updateQuery(id, { outcome, error: null });
     } catch (failure) {
-        updateQuery(id, { outcome: null, error: failureMessage(failure) });
+        updateQuery(id, { outcome: null, error: errorText(failure) });
     } finally {
         updateQuery(id, { running: false, run: null });
-        invalidate((kind) => kind === "database.history" || kind === "database.connected");
+        database.refresh(databaseHistoryR, databaseConnectedR);
     }
 }
 

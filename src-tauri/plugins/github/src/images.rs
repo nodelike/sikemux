@@ -4,16 +4,14 @@
 
 use std::path::Path;
 
-use base64::Engine;
 use reqwest::Url;
 use serde::Deserialize;
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::images;
 
 use crate::client::{self, Session};
 use crate::config::{self, DEFAULT_HOST};
 use crate::error::{GithubError, GithubResult};
-
-const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
-const MAX_HOPS: usize = 3;
 
 #[derive(Deserialize)]
 pub struct ImageRef {
@@ -49,56 +47,35 @@ fn access(url: &Url, signed_in: &str) -> Option<bool> {
     (company_media || at.ends_with(".githubusercontent.com")).then_some(false)
 }
 
-/// `image/png` and the like, and nothing that could break out of a `data:` address.
-fn image_kind(content_type: &str) -> Option<String> {
-    let kind = content_type.split(';').next()?.trim().to_ascii_lowercase();
-    let plain = kind
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '+' | '.' | '-'));
-    (kind.starts_with("image/") && plain).then_some(kind)
-}
-
 pub async fn image(data_dir: &Path, input: ImageRef) -> GithubResult<String> {
     let refused = || GithubError::BadArg("that is not an image GitHub serves".into());
-    let signed_in = config::load(data_dir).host_of(client::chosen().as_deref());
+    let signed_in = config::load(data_dir)?.host_of(chosen().as_deref());
     let mut url = Url::parse(&input.url).map_err(|_| refused())?;
     let mut account = String::new();
-    for _ in 0..MAX_HOPS {
-        let mut request = client::http()?.get(url.clone());
+    for _ in 0..images::MAX_HOPS {
+        let mut request = client::HTTP.client()?.get(url.clone());
         if access(&url, &signed_in).ok_or_else(refused)? {
-            if let Ok(session) = Session::current(data_dir).await {
-                request = request.bearer_auth(session.token);
-                account = session.account.id;
+            // With nobody signed in, a public image is still fetched, only without a token.
+            match Session::current(data_dir).await {
+                Ok(session) => {
+                    request = request.bearer_auth(session.token);
+                    account = session.account.id;
+                }
+                Err(GithubError::Unconfigured) => {}
+                Err(error) => return Err(error),
             }
         }
-        let response = client::limited(request.send()).await?;
+        let response = client::HTTP.send(request).await?;
         if response.status().is_redirection() {
-            url = response
-                .headers()
-                .get("location")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|location| url.join(location).ok())
-                .ok_or_else(|| GithubError::Response("the image moved to no address".into()))?;
+            url = images::moved_to(&response, &url)?;
             continue;
         }
         if !response.status().is_success() {
             return Err(client::failure(&account, response).await);
         }
-        let kind = response
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .and_then(image_kind)
-            .ok_or_else(|| GithubError::Response("that address is not an image".into()))?;
-        let (bytes, _) = client::read_body(response, MAX_IMAGE_BYTES, false).await?;
-        return Ok(format!(
-            "data:{kind};base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(&bytes)
-        ));
+        return images::read_image(response).await;
     }
-    Err(GithubError::Response(
-        "the image moved too many times".into(),
-    ))
+    Err(images::moved_too_often())
 }
 
 #[cfg(test)]
@@ -164,20 +141,5 @@ mod tests {
         ] {
             assert_eq!(allowed(raw, "github.com"), None, "{raw}");
         }
-    }
-
-    #[test]
-    fn only_an_image_type_is_accepted() {
-        assert_eq!(image_kind("image/png").as_deref(), Some("image/png"));
-        assert_eq!(
-            image_kind("Image/JPEG; charset=binary").as_deref(),
-            Some("image/jpeg")
-        );
-        assert_eq!(
-            image_kind("image/svg+xml").as_deref(),
-            Some("image/svg+xml")
-        );
-        assert_eq!(image_kind("text/html"), None);
-        assert_eq!(image_kind("image/png\"><script>"), None);
     }
 }

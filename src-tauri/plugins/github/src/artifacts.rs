@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use sikemux_plugin_api::codehost::{Artifact, SavedArtifact};
 use sikemux_plugin_api::{reply, PluginResult, StreamSink};
 
 use crate::client;
@@ -30,18 +31,6 @@ struct ArtifactList {
     artifacts: Vec<ArtifactRow>,
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Artifact {
-    pub id: u64,
-    pub name: String,
-    pub size_bytes: u64,
-    /// True once GitHub has stopped keeping it, which makes it undownloadable.
-    pub expired: bool,
-    pub created_at: Option<String>,
-    pub expires_at: Option<String>,
-}
-
 pub async fn list(data_dir: &Path, input: RunRef) -> GithubResult<Vec<Artifact>> {
     let path = input
         .repo
@@ -53,7 +42,7 @@ pub async fn list(data_dir: &Path, input: RunRef) -> GithubResult<Vec<Artifact>>
     Ok(artifacts
         .into_iter()
         .map(|row| Artifact {
-            id: row.id,
+            id: row.id.to_string(),
             name: row.name,
             size_bytes: row.size_in_bytes,
             expired: row.expired,
@@ -178,7 +167,7 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 struct Progress {
     received: u64,
     total: Option<u64>,
-    saved: Option<Saved>,
+    saved: Option<SavedArtifact>,
 }
 
 /// Writes a file GitHub hands over, an artifact or a release asset, into the
@@ -219,7 +208,7 @@ pub async fn save(
     sink.send(reply(Progress {
         received,
         total,
-        saved: Some(Saved {
+        saved: Some(SavedArtifact {
             path: landing.target.to_string_lossy().into_owned(),
             bytes: received,
         }),
@@ -231,16 +220,10 @@ pub async fn save(
 pub struct Download {
     #[serde(flatten)]
     pub repo: RepoRef,
+    #[serde(deserialize_with = "sikemux_plugin_api::codehost::numeric_id")]
     pub artifact_id: u64,
     /// What to call the file, which is not the repository's `name`.
     pub file_name: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Saved {
-    pub path: String,
-    pub bytes: u64,
 }
 
 pub async fn download(data_dir: &Path, input: Download, sink: &StreamSink) -> PluginResult<()> {
@@ -258,7 +241,7 @@ mod tests {
     #[test]
     fn the_file_name_and_the_repository_name_arrive_apart() {
         let input: Download = serde_json::from_value(serde_json::json!({
-            "owner": "nodelike", "name": "sikemux", "artifactId": 7, "fileName": "build",
+            "owner": "nodelike", "name": "sikemux", "artifactId": "7", "fileName": "build",
         }))
         .expect("parses");
         assert_eq!(input.repo.name, "sikemux");

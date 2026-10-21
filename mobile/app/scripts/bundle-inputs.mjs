@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 
 const app = resolve(import.meta.dirname, '..');
 const repo = resolve(app, '../..');
-const OWN = /^(\.|\/|@\/|@mac\/|@protocol$)/;
+const OWN = /^(\.|\/|@\/|@mac\/|@protocol(\/|$))/;
 
 function files(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -40,6 +40,9 @@ export async function bundleInputs() {
       {
         name: 'packages',
         setup(builder) {
+          builder.onResolve({ filter: /^@protocol\// }, (args) => ({
+            path: resolve(repo, 'server/protocol/src', `${args.path.slice('@protocol/'.length)}.ts`),
+          }));
           builder.onResolve({ filter: /.*/ }, (args) => (OWN.test(args.path) ? undefined : { path: args.path, external: true }));
         },
       },

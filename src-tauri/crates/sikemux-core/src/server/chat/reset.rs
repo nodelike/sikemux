@@ -5,20 +5,20 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
-use crate::acp::account;
 use crate::agent_accounts::usage;
 use crate::protocol::{ChatEventKind, ChatLaunch};
 
-use super::super::remote::unix_ms;
 use super::super::{launching, Core};
 use super::rebind::Replay;
 use super::{Chat, ChatCommand};
+use sikemux_process::clock::epoch_ms;
 
 const FILE: &str = "limit-resumes.json";
 const MAX_WAITING: usize = 256;
@@ -73,12 +73,6 @@ impl Resets {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, Slot>> {
-        self.slots
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     fn save(&self, slots: &HashMap<String, Slot>) {
         let Some(path) = &self.path else {
             return;
@@ -100,7 +94,7 @@ impl Resets {
 
     /// Starts the timers of the chats an earlier core left waiting.
     pub(crate) fn arm_saved(&self, core: &Arc<Core>) {
-        for slot in self.lock().values_mut() {
+        for slot in self.slots.locked().values_mut() {
             if let Slot::Waiting { waiting, timer } = slot {
                 *timer = Some(arm(core, waiting));
             }
@@ -109,7 +103,7 @@ impl Resets {
 
     /// Stops the chat waiting, saying whether it was.
     pub(crate) fn cancel(&self, agent_id: &str) -> bool {
-        let mut slots = self.lock();
+        let mut slots = self.slots.locked();
         let Some(slot) = slots.remove(agent_id) else {
             return false;
         };
@@ -125,10 +119,10 @@ impl Resets {
 
     /// The chat's stopped prompt, once its limit has reset.
     fn take_due(&self, agent_id: &str) -> Option<Replay> {
-        let mut slots = self.lock();
+        let mut slots = self.slots.locked();
         let due = matches!(
             slots.get(agent_id),
-            Some(Slot::Waiting { waiting, .. }) if waiting.at <= unix_ms()
+            Some(Slot::Waiting { waiting, .. }) if waiting.at <= epoch_ms()
         );
         if !due {
             return None;
@@ -155,7 +149,7 @@ pub(super) fn schedule(
     let resets = &core.chats.resets;
     let ticket = resets.tickets.fetch_add(1, Ordering::Relaxed);
     {
-        let mut slots = resets.lock();
+        let mut slots = resets.slots.locked();
         if slots.len() >= MAX_WAITING && !slots.contains_key(chat.agent_id()) {
             return;
         }
@@ -173,12 +167,12 @@ pub(super) fn schedule(
             known => known,
         };
         let resets = &core.chats.resets;
-        let mut slots = resets.lock();
+        let mut slots = resets.slots.locked();
         let current = slots.get(chat.agent_id());
         if !matches!(current, Some(Slot::Looking { ticket: own }) if *own == ticket) {
             return;
         }
-        let Some(at) = at.filter(|at| *at > unix_ms()) else {
+        let Some(at) = at.filter(|at| *at > epoch_ms()) else {
             slots.remove(chat.agent_id());
             return;
         };
@@ -226,7 +220,7 @@ pub(crate) fn cancel_by_person(core: &Core, agent_id: &str) {
 }
 
 fn arm(core: &Arc<Core>, waiting: &Waiting) -> tokio::task::AbortHandle {
-    let wait = Duration::from_millis(waiting.at.saturating_sub(unix_ms()));
+    let wait = Duration::from_millis(waiting.at.saturating_sub(epoch_ms()));
     let (core, agent_id) = (Arc::downgrade(core), waiting.agent_id.clone());
     tokio::spawn(async move {
         tokio::time::sleep(wait).await;
@@ -260,9 +254,7 @@ async fn resume(core: &Arc<Core>, agent_id: String) {
 /// When the account the chat runs on can be used again, from its usage.
 async fn reset_from_usage(core: &Core, launch: &ChatLaunch) -> Option<u64> {
     let provider = launch.provider.as_str();
-    let folder = account::directory_variable(provider)
-        .and_then(|variable| launch.env.get(variable))
-        .map(String::as_str);
+    let folder = crate::launch::named_account(provider, &launch.env);
     let program = core
         .workspaces
         .account_spec(provider, folder)
@@ -317,7 +309,7 @@ pub(super) fn month_day(text: &str) -> Option<(i32, i32)> {
 /// `at`, in Unix milliseconds, as this host's clock reads it: "at 15:40"
 /// today, else "on 18 Oct at 15:40".
 fn when(at: u64) -> String {
-    let (Some(then), Some(now)) = (calendar(at, Zone::Host), calendar(unix_ms(), Zone::Host))
+    let (Some(then), Some(now)) = (calendar(at, Zone::Host), calendar(epoch_ms(), Zone::Host))
     else {
         return String::new();
     };
@@ -352,7 +344,7 @@ impl WallClock {
     /// In Unix milliseconds: on its day, else the next time the clock reads
     /// it. `None` for a day already past.
     pub(super) fn unix_ms(&self) -> Option<u64> {
-        let now = unix_ms();
+        let now = epoch_ms();
         match self.on_day(now, 0)? {
             at if at > now => Some(at),
             _ if self.date.is_some() => None,

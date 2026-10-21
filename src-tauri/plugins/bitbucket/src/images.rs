@@ -4,14 +4,12 @@
 
 use std::path::Path;
 
-use base64::Engine;
 use reqwest::Url;
 use serde::Deserialize;
+use sikemux_plugin_api::images;
 
 use crate::client::{self, Session};
 use crate::error::{BitbucketError, BitbucketResult};
-
-const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Deserialize)]
 pub struct ImageRef {
@@ -35,40 +33,20 @@ fn access(url: &Url) -> Option<bool> {
     public.then_some(false)
 }
 
-/// `image/png` and the like, and nothing that could break out of a `data:` address.
-fn image_kind(content_type: &str) -> Option<String> {
-    let kind = content_type.split(';').next()?.trim().to_ascii_lowercase();
-    let plain = kind
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '+' | '.' | '-'));
-    (kind.starts_with("image/") && plain).then_some(kind)
-}
-
 pub async fn image(data_dir: &Path, input: ImageRef) -> BitbucketResult<String> {
     let refused = || BitbucketError::BadArg("that is not an image Bitbucket serves".into());
     let url = Url::parse(&input.url).map_err(|_| refused())?;
-    let mut request = client::http()?.get(url.clone());
+    let mut request = client::HTTP.client()?.get(url.clone());
     if access(&url).ok_or_else(refused)? {
-        if let Ok(session) = Session::current(data_dir).await {
-            request = session.credential.apply(request);
-        }
+        let session = Session::current(data_dir).await?;
+        request = session.credential.apply(request);
     }
-    let response = client::limited(request.send()).await?;
+    let response = client::HTTP.send(request).await?;
     let status = response.status();
     if !status.is_success() {
         return Err(client::classify(status, &[]));
     }
-    let kind = response
-        .headers()
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .and_then(image_kind)
-        .ok_or_else(|| BitbucketError::Response("that address is not an image".into()))?;
-    let (bytes, _) = client::read_body(response, MAX_IMAGE_BYTES, false).await?;
-    Ok(format!(
-        "data:{kind};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(&bytes)
-    ))
+    images::read_image(response).await
 }
 
 #[cfg(test)]

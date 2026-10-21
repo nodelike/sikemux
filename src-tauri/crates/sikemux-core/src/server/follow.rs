@@ -16,8 +16,9 @@ use crate::protocol::AgentStatus;
 use super::chat::feed::Said;
 use super::connection::blocking;
 use super::messages::{self, Listed, Reach};
-use super::transcript::{self, Cli};
+use super::transcript;
 use super::Core;
+use crate::agent_catalog::AgentKind;
 
 const MAX_WAIT_MS: u64 = 30_000;
 const MAX_AGENTS: usize = 8;
@@ -418,7 +419,7 @@ fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value
 /// The last lines of a terminal agent's screen.
 fn screen_tail(core: &Core, agent_id: &str, lines: usize) -> Option<String> {
     let session = core.agent_session(agent_id)?;
-    let (screen, _) = super::agent::screen_text(&session)?;
+    let (screen, _) = super::agent::screen_text(&session);
     let mut tail: Vec<&str> = screen
         .lines()
         .map(str::trim_end)
@@ -432,10 +433,10 @@ fn screen_tail(core: &Core, agent_id: &str, lines: usize) -> Option<String> {
 
 /// The session file a terminal agent's CLI writes, once the app has said
 /// which session it runs.
-fn session_file(core: &Core, agent_id: &str) -> Option<(Cli, String, std::path::PathBuf)> {
+fn session_file(core: &Core, agent_id: &str) -> Option<(AgentKind, String, std::path::PathBuf)> {
     let terminal = core.agent_session(agent_id)?;
     let owner = terminal.owner();
-    let cli = Cli::of(owner.agent_type.as_deref()?)?;
+    let cli = AgentKind::from_name(owner.agent_type.as_deref()?)?;
     let session = core.names.session_of(agent_id)?;
     let path = transcript::locate(cli, owner.account_home.as_deref(), &session)?;
     Some((cli, session, path))

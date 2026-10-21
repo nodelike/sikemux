@@ -5,7 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-base64 = "0.23"
 sikemux-plugin-api = { path = "../../crates/sikemux-plugin-api" }
 sikemux-keychain = { path = "../../crates/sikemux-keychain" }
 sikemux-loopback = { path = "../../crates/sikemux-loopback" }

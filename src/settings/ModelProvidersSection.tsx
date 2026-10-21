@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorText } from "../lib/format";
 import { checkWords, modelProvidersApi, modelWords, type ModelHelper, type ModelProvider, type ModelProviderKind } from "../api/modelProviders";
-import { portsApi } from "../api/ports";
-import { CHAT_AGENT_TYPES } from "../agents/agentLaunch";
-import { agentLabel } from "../agents/catalog";
+import { agentLabel, CHAT_AGENT_TYPES } from "../agents/catalog";
 import { reportError } from "../state/toast";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";
+import { openUrl } from "../api/system";
 
 const KEYED_SECTIONS: { kind: ModelProviderKind; title: string; sub: string }[] = [
     {
@@ -46,7 +45,7 @@ function ModelLines({ provider }: { provider: ModelProvider }) {
     );
 }
 
-const openSignUp = (provider: ModelProvider) => void portsApi.openExternal(provider.signUpUrl).catch(reportError("Open link"));
+const openSignUp = (provider: ModelProvider) => void openUrl(provider.signUpUrl).catch(reportError("Open link"));
 
 export function ModelProvidersSection() {
     const [providers, setProviders] = useState<ModelProvider[]>([]);

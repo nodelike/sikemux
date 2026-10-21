@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { browserApi, type BrowserDownload } from "../api/browser";
 import { fsapi } from "../api/fs";
 import { basename, joinPath } from "../lib/paths";
-import { notify, reportError, type ToastKind, type ToastOptions } from "./toast";
+import { notify, reportError, swallow, type ToastKind, type ToastOptions } from "./toast";
 
 function downloadToast(download: BrowserDownload): { kind: ToastKind; text: string; options?: ToastOptions } {
     const name = basename(download.path) || download.url;
@@ -46,7 +46,7 @@ export function useBrowserDownloads(): void {
                 const toast = downloadToast(download);
                 notify(toast.kind, toast.text, toast.options);
             }, controller.signal)
-            .catch(() => {});
+            .catch(swallow("follow browser downloads"));
         return () => controller.abort();
     }, []);
 }

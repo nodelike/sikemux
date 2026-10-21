@@ -27,7 +27,7 @@ import { DocumentIO } from "./documentIO";
 import { lspNav, setLspContext } from "./lspNav";
 import { lspHoverLink, setHoverLinkContext } from "./lspHoverLink";
 import { lspPeek } from "./lspPeek";
-import { fsapi, type FilePreview } from "../api/fs";
+import { fsapi, type FilePreview, type FilesHost } from "../api/fs";
 import type { LspTextChange } from "../api/lsp";
 import { subscribe } from "../state/bus";
 import * as cmd from "../state/commands";
@@ -54,6 +54,7 @@ import { basename, dirname, isPathWithin, joinPath, normalizePath } from "../lib
 import { localPath } from "../lib/imagePaths";
 import { safeWebUrl } from "../lib/urls";
 import { keybindingLabelForAction } from "../commands/keybindings";
+import { openUrl } from "../api/system";
 
 const FileViewer = lazy(() => import("./viewers/FileViewer"));
 
@@ -139,7 +140,7 @@ function MarkdownPreview({ source, path, onOpenFile }: { source: string; path: s
                         if (!href) return;
                         const webUrl = safeWebUrl(href);
                         if (webUrl) {
-                            void invoke("open_url", { url: webUrl, app: null, shortcut: null }).catch(swallow("open markdown link"));
+                            void openUrl(webUrl).catch(swallow("open markdown link"));
                             return;
                         }
                         const file = markdownLinkFile(href, path);
@@ -163,6 +164,7 @@ function MarkdownPreview({ source, path, onOpenFile }: { source: string; path: s
 export function EditorPane({
     paneId,
     cwd,
+    host,
     active,
     visible,
     showInsights = true,
@@ -174,6 +176,8 @@ export function EditorPane({
 }: {
     paneId: string;
     cwd: string;
+    /** The host that holds the files, when it is not this one. */
+    host?: FilesHost;
     active: boolean;
     visible: boolean;
     showInsights?: boolean;
@@ -193,7 +197,9 @@ export function EditorPane({
     const saveRef = useRef<() => boolean>(() => false);
     const openRequestRef = useRef(0);
     const processingCliOpenRef = useRef<string | null>(null);
-    const documentIORef = useRef(new DocumentIO());
+    const documentIORef = useRef(new DocumentIO(host));
+    // Language servers, git and insights still run only on this host's disk.
+    const localCwd = host === undefined ? cwd : "";
     const saveSequenceRef = useRef<Map<string, number>>(new Map());
     const conflictedRef = useRef<Set<string>>(new Set());
     const showConflictRef = useRef<(path: string, detail: string) => void>(() => {});
@@ -266,7 +272,7 @@ export function EditorPane({
         return () => cmd.setEditorDirtyPaths(paneId, []);
     }, [paneId]);
 
-    const { openDoc, scheduleChange, saveDoc, closeDoc, diagnostics } = useLspBridge(cwd);
+    const { openDoc, scheduleChange, saveDoc, closeDoc, diagnostics } = useLspBridge(localCwd);
 
     const nav = useNavHistory({
         project: cwd,
@@ -277,14 +283,14 @@ export function EditorPane({
     });
 
     const bindLspContext = (view: EditorView, path: string | null) => {
-        if (!path || !cwd || showsViewer(path)) {
+        if (!path || !localCwd || showsViewer(path)) {
             setLspContext(view, null);
             setHoverLinkContext(view, null);
             return;
         }
-        setHoverLinkContext(view, { project: cwd, path });
+        setHoverLinkContext(view, { project: localCwd, path });
         setLspContext(view, {
-            project: cwd,
+            project: localCwd,
             path,
             navigate: (targetPath, line, character) => {
                 nav.push({ path: targetPath, line, character });
@@ -323,11 +329,11 @@ export function EditorPane({
                     return next;
                 });
                 if (currentRef.current === path) refreshBlame(viewRef.current);
-                if (cwd) {
+                if (localCwd) {
                     // The repo watcher invalidates the git resources on its own
                     // shortly after the write; doing it here as well makes the
                     // backend walk the repository twice for one save.
-                    invalidate((kind, args) => kind === "files.list" && args[0] === cwd);
+                    invalidate((kind, args) => kind === "files.list" && args[0] === localCwd);
                     void saveDoc(path, text);
                 }
                 if (isSshConfigPath(path)) invalidate((kind) => kind === "ssh.hosts");
@@ -340,7 +346,7 @@ export function EditorPane({
                 reportError("save")(error);
             });
         return true;
-    }, [cwd, saveDoc]);
+    }, [localCwd, saveDoc]);
     saveRef.current = save;
 
     const makeState = useCallback(
@@ -693,7 +699,9 @@ export function EditorPane({
                 cacheState(activePath, st);
                 savedRef.current.set(activePath, content);
                 switchTo(activePath, st);
-            } catch {}
+            } catch (error) {
+                reportError(`open ${basename(activePath)}`)(error);
+            }
         })();
         return () => {
             cancelled = true;
@@ -857,7 +865,7 @@ export function EditorPane({
         };
 
         const unsubscribe = subscribe("fs-changed", (e) => {
-            if (e.repo && e.repo !== cwd) return;
+            if (e.host !== host || (e.repo && e.repo !== cwd)) return;
             if (!e.paths) pendingPaths = null;
             else for (const path of e.paths) pendingPaths?.add(joinPath(cwd, path));
             if (timer) window.clearTimeout(timer);
@@ -869,7 +877,7 @@ export function EditorPane({
             if (timer) window.clearTimeout(timer);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- a new language hint does not need a new file watcher
-    }, [cwd, paneId, visible]);
+    }, [cwd, host, paneId, visible]);
 
     const pathRenamedRef = useRef<(event: { src: string; dest: string }) => void>(() => {});
     pathRenamedRef.current = ({ src, dest }) => {
@@ -932,6 +940,7 @@ export function EditorPane({
     useEffect(() => {
         if (bare) return;
         return subscribe("open-file", (e) => {
+            if (e.host !== host) return;
             // A view split beside other work shows the one file it was given.
             const { windows, editorViews } = useStore.getState();
             const ownWindow = Object.values(windows).find((win) => collectPanes(win.root).some((pane) => pane.id === paneId));
@@ -949,12 +958,12 @@ export function EditorPane({
                 }
             })().catch(reportError("open file"));
         });
-    }, [bare, cwd, active, paneId]);
+    }, [bare, cwd, host, active, paneId]);
 
     useEffect(() => {
         const view = viewRef.current;
         if (!view) return;
-        if (!activePath || !cwd || showsViewer(activePath)) {
+        if (!activePath || !localCwd || showsViewer(activePath)) {
             setLspContext(view, null);
             setHoverLinkContext(view, null);
             return;
@@ -965,7 +974,7 @@ export function EditorPane({
             setHoverLinkContext(view, null);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- bindLspContext is rebuilt every render but only reads cwd and the stable nav history
-    }, [activePath, cwd]);
+    }, [activePath, localCwd]);
 
     // The grammar packs download per language, so a freshly opened document may
     // start plain and gain its highlighting a moment later.
@@ -986,8 +995,8 @@ export function EditorPane({
         };
     }, [activePath, languageHint]);
 
-    useGitBaseline(() => viewRef.current, cwd, activePath);
-    useGitBlame(() => viewRef.current, cwd, activePath);
+    useGitBaseline(() => viewRef.current, localCwd, activePath);
+    useGitBlame(() => viewRef.current, localCwd, activePath);
 
     // Close an arbitrary set of tabs in one shot (used by the close button and the
     // tab context menu). Confirms once if any of them have unsaved changes, then
@@ -1078,6 +1087,7 @@ export function EditorPane({
                     width={treeWidth}
                     onResize={setTreeWidth}
                     cwd={cwd}
+                    host={host}
                     activePath={activePath}
                     onOpenFile={previewTreeFile}
                     onKeepFile={keepTreeFile}
@@ -1158,9 +1168,9 @@ export function EditorPane({
                         <MarkdownPreview source={markdownPreview.content} path={markdownPreview.path} onOpenFile={openLinkedFile} />
                     )}
                 </div>
-                {showInsights && cwd && (
+                {showInsights && localCwd && (
                     <EditorInsights
-                        project={cwd}
+                        project={localCwd}
                         path={activePath}
                         controller={diagnostics}
                         visible={visible}

@@ -7,7 +7,7 @@ import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useHostFile } from './hostFiles';
 import { ImageViewer } from './ImageViewer';
 import { sizeLabel } from './pick';
-import type { Attachment } from './session';
+import type { Attachment } from './uploads';
 
 const IMAGE_PATH = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
 

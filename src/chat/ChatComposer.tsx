@@ -22,7 +22,20 @@ import { finishDictationInto, useVoice, writesInto } from "../voice/dictation";
 import { ContextMeter } from "./ContextMeter";
 import { imagesInClipboard, savePastedClipboard } from "./pasteImage";
 import { arrowsBrowse, recallPrompt, type HistoryPosition } from "./promptHistory";
-import { hasTag, MAX_MENU_ENTRIES, mergePaths, removeToken, tagBefore, tokenAt, type ComposerTrigger, type ProjectEntry } from "./composerInput";
+import {
+    hasTag,
+    imageTag,
+    MAX_MENU_ENTRIES,
+    mergePaths,
+    removeToken,
+    tagBefore,
+    tokenAt,
+    withoutAttachment,
+    type ComposerTrigger,
+    type ProjectEntry,
+} from "./composerInput";
+import { isImagePath } from "../lib/imagePaths";
+import { showImage } from "../state/imageViewer";
 import { canSwitchMode } from "../agents/agentLaunch";
 import { AgentMark } from "../agents/AgentMark";
 import { receiveForAgent } from "../agents/agentInbox";
@@ -48,12 +61,32 @@ function caretTo(editor: RefObject<DraftBox | null>, at: number) {
     editor.current?.setSelectionRange(at, at);
 }
 
-function ComposerAttachment({ path, onRemove }: { path: string; onRemove: () => void }) {
+/** The draft with `text` written over the selection as a word of its own, and where the caret goes after it. */
+function writtenAtCaret(editor: DraftBox, text: string, spaceAfter: boolean): { draft: string; at: number } {
+    const before = editor.value.slice(0, editor.selectionStart);
+    const after = editor.value.slice(editor.selectionEnd);
+    const inserted = `${before && !/\s$/.test(before) ? " " : ""}${text}${spaceAfter && !/^\s/.test(after) ? " " : ""}`;
+    return { draft: `${before}${inserted}${after}`, at: before.length + inserted.length };
+}
+
+function ComposerAttachment({ path, number, onRemove }: { path: string; number: number; onRemove: () => void }) {
     const preview = useImagePreview(path);
+    const name = basename(path);
     return (
         <span className={preview ? "image" : "file"} title={path}>
-            {preview ? <img alt={basename(path)} src={preview} /> : <FileTypeIcon name={basename(path)} size={34} />}
-            <button type="button" aria-label={`Remove ${basename(path)}`} onClick={onRemove}>
+            {preview ? (
+                <button
+                    type="button"
+                    className="chat-attachment-open"
+                    aria-label={`Open ${name}`}
+                    onClick={() => showImage({ src: preview, name, path })}>
+                    <img alt={name} src={preview} />
+                </button>
+            ) : (
+                <FileTypeIcon name={name} size={34} />
+            )}
+            <span className="chat-attachment-number">#{number}</span>
+            <button type="button" className="chat-attachment-remove" aria-label={`Remove ${name}`} onClick={onRemove}>
                 <IconClose size={10} />
             </button>
         </span>
@@ -90,9 +123,9 @@ function readContext(item: ComposerContext): Promise<PromptContext> {
     if (earlier) return import("./earlierChats").then(({ wakeEarlier }) => wakeEarlier(earlier));
     if (!item.tracked) return Promise.reject(new Error(`${item.title} has nothing to send`));
     const { repo, kind, number } = item.tracked;
-    return Promise.all([import("../codehost/tracked"), import("../codehost/api")]).then(([{ loadTrackedContext }, { failureMessage }]) =>
+    return import("../codehost/tracked").then(({ loadTrackedContext }) =>
         loadTrackedContext(repo, kind, number).catch((failure: unknown) => {
-            throw new Error(`Could not read #${number}: ${failureMessage(failure)}`);
+            throw new Error(`Could not read #${number}: ${errorText(failure)}`);
         }),
     );
 }
@@ -250,6 +283,8 @@ export function ChatComposer({
     const recalledCaret = useRef<"start" | "end" | null>(null);
     const [caret, setCaret] = useState(0);
     const [attachments, setAttachments] = useState<string[]>([]);
+    const attachmentsNow = useRef(attachments);
+    attachmentsNow.current = attachments;
     const [contexts, setContexts] = useState<ComposerContext[]>([]);
     const [fileTags, setFileTags] = useState<FileTag[]>([]);
     const [reading, setReading] = useState(false);
@@ -257,6 +292,31 @@ export function ChatComposer({
     const [menuDismissed, setMenuDismissed] = useState(false);
     const editorRef = useRef<DraftBox>(null);
     const { cwd } = usePathRoots();
+
+    /** Adds files to the message; with `inline`, each picture is also named where the caret is, which is where the agent sees it. */
+    const attach = (paths: readonly string[], inline: boolean) => {
+        const current = attachmentsNow.current;
+        const merged = mergePaths(current, paths);
+        if (merged.length === current.length) return;
+        attachmentsNow.current = merged;
+        setAttachments(merged);
+        onError(null);
+        const tags = merged.flatMap((path, index) => (index >= current.length && isImagePath(path) ? [imageTag(index + 1)] : []));
+        const editor = editorRef.current;
+        if (!inline || !editor || tags.length === 0) return;
+        const written = writtenAtCaret(editor, tags.join(" "), true);
+        setDraft(written.draft);
+        setCaret(written.at);
+        caretTo(editorRef, written.at);
+    };
+    const attachNow = useRef(attach);
+    attachNow.current = attach;
+
+    const detach = (path: string) => {
+        const index = attachments.indexOf(path);
+        setAttachments((current) => current.filter((candidate) => candidate !== path));
+        if (index !== -1) setDraft((current) => withoutAttachment(current, index));
+    };
 
     // A recalled message opens with the caret where the next arrow press keeps browsing.
     useLayoutEffect(() => {
@@ -272,16 +332,15 @@ export function ChatComposer({
         const element = paneRef.current;
         if (!element) return;
         return registerPathDrop(element, (paths) => {
-            setAttachments((current) => mergePaths(current, paths));
-            onError(null);
+            attachNow.current(paths, true);
             window.requestAnimationFrame(() => editorRef.current?.focus());
         });
-    }, [onError, paneRef]);
+    }, [paneRef]);
 
     useEffect(() => {
         if (!visible) return;
         return receiveForAgent(agent.id, ({ text, paths, context }) => {
-            if (paths?.length) setAttachments((current) => mergePaths(current, paths));
+            if (paths?.length) attachNow.current(paths, false);
             if (context?.length)
                 setContexts((current) =>
                     mergeContext(
@@ -304,13 +363,10 @@ export function ChatComposer({
         return registerTextInsert(element, (text) => {
             const editor = editorRef.current;
             if (!editor) return;
-            const before = editor.value.slice(0, editor.selectionStart);
-            const after = editor.value.slice(editor.selectionEnd);
-            const inserted = `${before && !/\s$/.test(before) ? " " : ""}${text}`;
-            const at = before.length + inserted.length;
-            setDraft(`${before}${inserted}${after}`);
-            setCaret(at);
-            caretTo(editorRef, at);
+            const written = writtenAtCaret(editor, text, false);
+            setDraft(written.draft);
+            setCaret(written.at);
+            caretTo(editorRef, written.at);
         });
     }, [paneRef]);
 
@@ -339,10 +395,19 @@ export function ChatComposer({
         ),
         ...contexts.flatMap(({ tag, earlier }) =>
             tag && earlier?.named
-                ? [{ text: tag, kind: "agent" as const, agent: { id: earlier.named.agentId, type: earlier.chat.agent, buddy: earlier.named.buddy } }]
+                ? [
+                      {
+                          text: tag,
+                          kind: "agent" as const,
+                          agent: { id: earlier.named.agentId, type: earlier.chat.agent, buddy: earlier.named.buddy, name: earlier.named.name },
+                      },
+                  ]
                 : [],
         ),
         ...fileTags.map((file) => ({ text: file.tag, kind: "file" as const, label: basename(file.path) })),
+        ...attachments.flatMap((path, index) =>
+            isImagePath(path) ? [{ text: imageTag(index + 1), kind: "image" as const, label: basename(path) }] : [],
+        ),
         ...mates.map((mate) => ({ text: `@${mate.name}`, kind: "agent" as const, agent: mate })),
     ];
     const tagTexts = chips.map((chip) => chip.text);
@@ -405,7 +470,7 @@ export function ChatComposer({
 
     const selectEntry = (entry: ProjectEntry) => {
         const path = joinPath(cwd, entry.path);
-        const named = `+${entry.path.replace(/\/$/, "").split("/").pop()}`;
+        const named = `+${basename(entry.path)}`;
         const clash = fileTags.some((file) => file.tag === named && file.path !== path);
         const tag = clash ? `+${entry.path.replace(/\/$/, "")}` : named;
         writeTag(tag);
@@ -525,7 +590,7 @@ export function ChatComposer({
         try {
             const selection = await dialogsApi.pickFiles();
             if (selection.length === 0) return;
-            setAttachments((current) => mergePaths(current, selection));
+            attach(selection, true);
             window.requestAnimationFrame(() => editorRef.current?.focus());
         } catch (failure) {
             onError(errorText(failure));
@@ -574,12 +639,8 @@ export function ChatComposer({
                                 onRemove={answering.onRemove}
                             />
                         )}
-                        {attachments.map((path) => (
-                            <ComposerAttachment
-                                key={path}
-                                path={path}
-                                onRemove={() => setAttachments((current) => current.filter((candidate) => candidate !== path))}
-                            />
+                        {attachments.map((path, index) => (
+                            <ComposerAttachment key={path} path={path} number={index + 1} onRemove={() => detach(path)} />
                         ))}
                         {contexts
                             .filter((item) => !item.tag)
@@ -609,11 +670,7 @@ export function ChatComposer({
                     onPaste={(event) => {
                         if (imagesInClipboard(event.clipboardData).length > 0) event.preventDefault();
                         void savePastedClipboard(event.clipboardData)
-                            .then((paths) => {
-                                if (paths.length === 0) return;
-                                setAttachments((current) => mergePaths(current, paths));
-                                onError(null);
-                            })
+                            .then((paths) => attachNow.current(paths, true))
                             .catch((failure) => onError(errorText(failure)));
                     }}
                     onKeyDown={(event) => {

@@ -22,16 +22,20 @@
 }
 
 .boot-state-mark {
-    display: grid;
-    place-items: center;
-    width: 42px;
-    height: 42px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-panel);
-    background: var(--surface-chosen);
-    color: var(--text-primary);
-    font-weight: 800;
-    letter-spacing: 0.04em;
+    width: 34px;
+    height: 34px;
+    opacity: 0.9;
+}
+
+/* Hangs under the mark, so the mark stays where it was when the line appears. */
+.boot-state:has(> .boot-state-wait) {
+    position: relative;
+}
+
+.boot-state-wait {
+    position: absolute;
+    top: calc(100% + 14px);
+    width: max-content;
 }
 
 .boot-state h1 {
@@ -623,9 +627,12 @@
 /* A hidden layer is still a running layer. `visibility: hidden` takes it off
    the screen but leaves its animations ticking, and every tick still resolves
    style and recomputes what the compositor needs — for a pane nobody can see.
-   With a live agent per layer that was most of the window's idle cost. */
+   With a live agent per layer that was most of the window's idle cost. A pane
+   hidden behind a zoomed one and a rail page off to the side are the same. */
 .window-layer:not(.painted),
-.window-layer:not(.painted) * {
+.window-layer:not(.painted) *,
+.pane-cell.unshown *,
+.swipe-pager:not([data-moving]) .swipe-page:not(.is-current) * {
     /* `!important` earns its place here: every component writes its animation
        with the `animation` shorthand, and the shorthand resets play-state back
        to running. Any sheet loaded after this one would restart what this rule

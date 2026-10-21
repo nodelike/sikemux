@@ -4,8 +4,7 @@ import { useEffect, useRef } from "react";
 import { performanceTelemetry } from "../lib/performance";
 import { dispatchPaths } from "../state/dropRegistry";
 import type { PtyContext } from "../state/types";
-import { claimWorkbenchItemRuntime, disposeWorkbenchItemRuntime, resetWorkbenchItemRuntimeForTests } from "../workbench/itemRuntime";
-import { createItemId } from "../workbench/registry";
+import { resetPaneResourcesForTests } from "./paneResources";
 import { resetPtyShellSubscriptionsForTests, type PtyShellMetadataEvent } from "../api/ptyShell";
 import { setTaskRunsForTests } from "../tasks/coreTasks";
 import type { NativePtyController } from "./usePty";
@@ -52,7 +51,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen }));
 afterEach(async () => {
     cleanup();
     setTaskRunsForTests([]);
-    await resetWorkbenchItemRuntimeForTests();
+    resetPaneResourcesForTests();
     await resetPtyShellSubscriptionsForTests();
     vi.restoreAllMocks();
     invoke.mockReset();
@@ -197,7 +196,6 @@ describe("usePty", () => {
             windowId: "window-1",
             paneId: "pane-task-unbound",
         };
-        claimWorkbenchItemRuntime(createItemId(context.paneId!));
         const onController = vi.fn();
 
         render(<Harness context={context} durable taskTerminalKey="task" onController={onController} />);
@@ -216,7 +214,6 @@ describe("usePty", () => {
             windowId: "window-1",
             paneId: "pane-task-arrival",
         };
-        claimWorkbenchItemRuntime(createItemId(context.paneId!));
         const controllers: Array<NativePtyController | null> = [];
         render(<Harness context={context} durable taskTerminalKey="task" onController={(controller) => controllers.push(controller)} />);
         await waitFor(() => expect(controllers.at(-1)).toBeNull());
@@ -247,7 +244,6 @@ describe("usePty", () => {
             windowId: "window-1",
             paneId: "pane-task-replacement",
         };
-        const runtimeLease = claimWorkbenchItemRuntime(createItemId(context.paneId!));
         setTaskRunsForTests([run(91, "execution-1")]);
         const controllers: NativePtyController[] = [];
         render(
@@ -280,8 +276,8 @@ describe("usePty", () => {
         expect(invoke.mock.calls.some(([command]) => command === "pty_spawn")).toBe(false);
         expect(invoke.mock.calls.some(([command]) => command === "pty_kill")).toBe(false);
 
-        await disposeWorkbenchItemRuntime(runtimeLease);
-        expect(invoke).toHaveBeenCalledWith("pty_unsubscribe", { id: 92, subId: 2 });
+        resetPaneResourcesForTests();
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith("pty_unsubscribe", { id: 92, subId: 2 }));
         expect(invoke.mock.calls.some(([command]) => command === "pty_kill")).toBe(false);
     });
 
@@ -372,7 +368,7 @@ describe("usePty", () => {
         expect(unlisten).toHaveBeenCalledOnce();
     });
 
-    it("keeps a pane PTY alive across renderer remounts until item disposal", async () => {
+    it("keeps a pane PTY alive across renderer remounts until the pane closes", async () => {
         const context: PtyContext = {
             sessionId: "session-1",
             sessionName: "repo",
@@ -381,7 +377,6 @@ describe("usePty", () => {
             windowId: "window-1",
             paneId: "pane-durable",
         };
-        const runtimeLease = claimWorkbenchItemRuntime(createItemId(context.paneId!));
         const first = render(<Harness context={context} durable />);
         await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "pty_spawn")).toHaveLength(1));
         first.unmount();
@@ -390,8 +385,8 @@ describe("usePty", () => {
         const second = render(<Harness context={context} durable />);
         await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "pty_spawn")).toHaveLength(1));
         second.unmount();
-        await disposeWorkbenchItemRuntime(runtimeLease);
-        expect(invoke.mock.calls.filter(([command]) => command === "pty_kill")).toHaveLength(1);
+        resetPaneResourcesForTests();
+        await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "pty_kill")).toHaveLength(1));
     });
 
     it("replaces a durable PTY instead of reusing stale launch configuration", async () => {
@@ -403,7 +398,6 @@ describe("usePty", () => {
             windowId: "window-1",
             paneId: "pane-reconfigured",
         };
-        const runtimeLease = claimWorkbenchItemRuntime(createItemId(context.paneId!));
         const view = render(<Harness context={context} durable cwd="/repo/old" startup="zsh" />);
         await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "pty_spawn")).toHaveLength(1));
 
@@ -415,8 +409,6 @@ describe("usePty", () => {
             cwd: "/repo/new",
             startup: "bash",
         });
-
-        await disposeWorkbenchItemRuntime(runtimeLease);
     });
 
     it("does not respawn a transient CLI when delivered initial input is cleared", async () => {
@@ -436,25 +428,6 @@ describe("usePty", () => {
 
         expect(invoke.mock.calls.filter(([command]) => command === "pty_spawn")).toHaveLength(1);
         expect(invoke.mock.calls.filter(([command]) => command === "pty_kill")).toHaveLength(0);
-    });
-
-    it("refuses a late durable renderer after its ownership generation closes", async () => {
-        const context: PtyContext = {
-            sessionId: "session-1",
-            sessionName: "repo",
-            sessionKind: "project",
-            project: "/repo",
-            windowId: "window-1",
-            paneId: "pane-retired",
-        };
-        const runtimeLease = claimWorkbenchItemRuntime(createItemId(context.paneId!));
-        await disposeWorkbenchItemRuntime(runtimeLease);
-
-        render(<Harness context={context} durable />);
-        await Promise.resolve();
-
-        expect(invoke.mock.calls.some(([command]) => command === "pty_spawn")).toBe(false);
-        expect(performanceTelemetry.snapshot().counters["terminal.durable-owner-missing"]).toBe(1);
     });
 
     it("quotes every dropped path with the semantics of the configured POSIX shell", async () => {

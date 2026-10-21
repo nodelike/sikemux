@@ -4,9 +4,13 @@ import { ChatMessageRow } from "./ChatMessageRow";
 import { contextAsText } from "./promptContext";
 import type { ChatMessage } from "./types";
 
-vi.mock("../api/fs", () => ({
-    fsapi: { pathKinds: vi.fn(async (paths: string[]) => paths.map(() => null)), previewFile: vi.fn(async () => Promise.reject(new Error("none"))) },
-}));
+vi.mock("../api/fs", () => {
+    const fsapi = {
+        pathKinds: vi.fn(async (paths: string[]) => paths.map(() => null)),
+        previewFile: vi.fn(async () => Promise.reject(new Error("none"))),
+    };
+    return { fsapi, filesOn: () => fsapi };
+});
 
 const issue = { uri: "https://github.com/o/r/issues/12", title: "#12 Login crashes", text: "Issue #12: Login crashes\n\nA long body." };
 

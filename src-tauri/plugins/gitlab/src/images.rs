@@ -4,16 +4,15 @@
 
 use std::path::Path;
 
-use base64::Engine;
 use reqwest::Url;
 use serde::Deserialize;
+use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::images;
+use sikemux_plugin_api::store::Accounts;
 
 use crate::client::{self, Session};
 use crate::config::{self, Account};
 use crate::error::{GitlabError, GitlabResult};
-
-const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
-const MAX_HOPS: usize = 3;
 
 #[derive(Deserialize)]
 pub struct ImageRef {
@@ -42,59 +41,30 @@ fn access<'a>(url: &Url, accounts: &'a [Account]) -> Option<Option<&'a Account>>
     public.then_some(None)
 }
 
-/// `image/png` and the like, and nothing that could break out of a `data:` address.
-fn image_kind(content_type: &str) -> Option<String> {
-    let kind = content_type.split(';').next()?.trim().to_ascii_lowercase();
-    let plain = kind
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '+' | '.' | '-'));
-    (kind.starts_with("image/") && plain).then_some(kind)
-}
-
 pub async fn image(data_dir: &Path, input: ImageRef) -> GitlabResult<String> {
     let refused = || GitlabError::BadArg("that is not an image GitLab serves".into());
     let mut url = Url::parse(&input.url).map_err(|_| refused())?;
-    let chosen = client::chosen();
-    let mut accounts = config::load(data_dir).in_order();
+    let chosen = chosen();
+    let mut accounts = config::load(data_dir)?.in_order();
     accounts.sort_by_key(|account| Some(&account.id) != chosen.as_ref());
-    for _ in 0..MAX_HOPS {
-        let mut request = client::http()?.get(url.clone());
+    for _ in 0..images::MAX_HOPS {
+        let mut request = client::HTTP.client()?.get(url.clone());
         if let Some(owner) = access(&url, &accounts).ok_or_else(refused)? {
-            let session =
-                client::as_account(Some(owner.id.clone()), Session::current(data_dir)).await;
-            if let Ok(session) = session {
-                request = client::authorize(request, &session.token);
-            }
+            let session = as_account(Some(owner.id.clone()), Session::current(data_dir)).await?;
+            request = client::authorize(request, &session.token);
         }
-        let response = client::limited(request.send()).await?;
+        let response = client::HTTP.send(request).await?;
         if response.status().is_redirection() {
-            url = response
-                .headers()
-                .get("location")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|location| url.join(location).ok())
-                .ok_or_else(|| GitlabError::Response("the image moved to no address".into()))?;
+            url = images::moved_to(&response, &url)?;
             continue;
         }
         let status = response.status();
         if !status.is_success() {
             return Err(client::classify(status, &[]));
         }
-        let kind = response
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .and_then(image_kind)
-            .ok_or_else(|| GitlabError::Response("that address is not an image".into()))?;
-        let (bytes, _) = client::read_body(response, MAX_IMAGE_BYTES, false).await?;
-        return Ok(format!(
-            "data:{kind};base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(&bytes)
-        ));
+        return images::read_image(response).await;
     }
-    Err(GitlabError::Response(
-        "the image moved too many times".into(),
-    ))
+    Err(images::moved_too_often())
 }
 
 #[cfg(test)]

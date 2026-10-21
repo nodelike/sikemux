@@ -8,11 +8,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+use sikemux_process::sync::Locked;
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::oneshot;
@@ -103,14 +104,10 @@ pub struct SimStatus {
     reason: Option<String>,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 impl SimManager {
     pub fn drain(&self) {
         self.drop_watches();
-        if let Some(mut helper) = lock(&self.helper).take() {
+        if let Some(mut helper) = self.helper.locked().take() {
             let _ = helper.child.kill();
             let _ = helper.child.wait();
             fail_all(&helper.waiting, "Sikemux is quitting");
@@ -119,7 +116,7 @@ impl SimManager {
 
     /// Stops every screen stream, for a page that reloaded and no longer reads them.
     pub fn drop_watches(&self) {
-        for (_, watch) in lock(&self.watches).drain() {
+        for (_, watch) in self.watches.locked().drain() {
             watch.task.abort();
         }
     }
@@ -156,7 +153,7 @@ impl SimManager {
             }
             Ok(Err(_)) => Err(AppError::Other("the simulator helper stopped".into())),
             Err(_) => {
-                lock(&waiting).senders.remove(&id);
+                waiting.locked().senders.remove(&id);
                 if timeout >= HANG {
                     self.note_hang(generation);
                 }
@@ -174,7 +171,7 @@ impl SimManager {
         sender: oneshot::Sender<Reply>,
         request: &Value,
     ) -> AppResult<(Waiting, u64)> {
-        let mut slot = lock(&self.helper);
+        let mut slot = self.helper.locked();
         let running = match slot.as_mut() {
             Some(helper) => matches!(helper.child.try_wait(), Ok(None)),
             None => false,
@@ -185,7 +182,7 @@ impl SimManager {
         let mut sender = Some(sender);
         for _ in 0..2 {
             let helper = slot.as_mut().expect("helper was just started");
-            let mut pending = lock(&helper.waiting);
+            let mut pending = helper.waiting.locked();
             if !pending.closed {
                 pending
                     .senders
@@ -206,7 +203,7 @@ impl SimManager {
             .write_all(line.as_bytes())
             .and_then(|()| helper.stdin.flush());
         if let Err(error) = written {
-            lock(&helper.waiting).senders.remove(&id);
+            helper.waiting.locked().senders.remove(&id);
             return Err(AppError::Other(format!(
                 "simulator helper stopped listening: {error}"
             )));
@@ -215,7 +212,7 @@ impl SimManager {
     }
 
     fn note_answer(&self, generation: u64) {
-        if let Some(helper) = lock(&self.helper).as_mut() {
+        if let Some(helper) = self.helper.locked().as_mut() {
             if helper.generation == generation {
                 helper.hangs = 0;
             }
@@ -224,7 +221,7 @@ impl SimManager {
 
     /// A helper that stops answering is killed, so the next request starts a fresh one.
     fn note_hang(&self, generation: u64) {
-        let mut slot = lock(&self.helper);
+        let mut slot = self.helper.locked();
         let Some(helper) = slot
             .as_mut()
             .filter(|helper| helper.generation == generation)
@@ -262,7 +259,7 @@ impl SimManager {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
                 if let Some((id, reply)) = parse_reply(&line) {
-                    if let Some(sender) = lock(&answers).senders.remove(&id) {
+                    if let Some(sender) = answers.locked().senders.remove(&id) {
                         let _ = sender.send(reply);
                     }
                 }
@@ -279,19 +276,20 @@ impl SimManager {
     }
 
     fn end_watch(&self, id: u64) -> Option<Watch> {
-        lock(&self.watches).remove(&id)
+        self.watches.locked().remove(&id)
     }
 
     /// Whether another watch still streams this device in this format, so its stream must keep running.
     fn streamed(&self, udid: &str, format: &str) -> bool {
-        lock(&self.watches)
+        self.watches
+            .locked()
             .values()
             .any(|watch| watch.udid == udid && watch.format == format)
     }
 }
 
 fn fail_all(waiting: &Waiting, message: &str) {
-    let mut pending = lock(waiting);
+    let mut pending = waiting.locked();
     pending.closed = true;
     for (_, sender) in pending.senders.drain() {
         let _ = sender.send(Err(AppError::Other(message.into())));
@@ -543,7 +541,7 @@ pub async fn sim_watch(
     let token = stream["token"].as_str().unwrap_or_default().to_owned();
     let id = sim.next_id.fetch_add(1, Ordering::SeqCst) + 1;
     let read = Arc::new(Progress::default());
-    let mut watches = lock(&sim.watches);
+    let mut watches = sim.watches.locked();
     let manager = sim.inner().clone();
     let task = tauri::async_runtime::spawn({
         let read = Arc::clone(&read);
@@ -578,7 +576,7 @@ pub async fn sim_watch(
 /// The page has read this many frames of a watch.
 #[tauri::command]
 pub fn sim_watch_read(id: u64, frames: u64, sim: State<'_, SimManager>) {
-    if let Some(watch) = lock(&sim.watches).get(&id) {
+    if let Some(watch) = sim.watches.locked().get(&id) {
         watch.read.report(frames);
     }
 }

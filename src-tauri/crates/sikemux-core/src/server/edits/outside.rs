@@ -7,10 +7,12 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use sikemux_process::clock::{epoch_ms, epoch_ms_of};
+use sikemux_process::sync::Locked;
 
 use super::prior::{text_of, Before, Priors, MAX_FILE_BYTES};
 use super::{changed, line_count, owners::run, Edit, Store};
@@ -18,7 +20,6 @@ use crate::protocol::AgentStatus;
 use crate::server::collisions::{Written, GRACE_MS};
 use crate::server::messages::{listed, Listed};
 use crate::server::names::project_of;
-use crate::server::remote::unix_ms;
 use crate::server::wake::sooner;
 use crate::server::Core;
 
@@ -106,12 +107,6 @@ impl Seen {
     }
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
 /// Who made a change no edit tool reported.
 enum Writer {
     Agent(String),
@@ -135,11 +130,11 @@ impl Outside {
         let Some(top) = self.top_of(core, agent_id) else {
             return;
         };
-        let now = unix_ms();
-        if let Some(checkout) = lock(&self.checkouts).get_mut(&top) {
+        let now = epoch_ms();
+        if let Some(checkout) = self.checkouts.locked().get_mut(&top) {
             checkout.worked_at = now;
             if command {
-                let mut seen = lock(&checkout.seen);
+                let mut seen = checkout.seen.locked();
                 seen.command_began = seen.command_began.max(Some(began));
             }
             return;
@@ -151,7 +146,7 @@ impl Outside {
         };
         let project = project_of(&top, &core.workspaces.project_paths());
         reconcile(store, &top, &project, &seen, Look::Whole { since });
-        let mut checkouts = lock(&self.checkouts);
+        let mut checkouts = self.checkouts.locked();
         if checkouts.len() >= MAX_CHECKOUTS {
             let oldest = checkouts
                 .iter()
@@ -174,7 +169,7 @@ impl Outside {
 
     /// The top folder of the checkout `agent_id` works in, none outside one.
     pub(super) fn top_of(&self, core: &Core, agent_id: &str) -> Option<PathBuf> {
-        if let Some(top) = lock(&self.tops).get(agent_id) {
+        if let Some(top) = self.tops.locked().get(agent_id) {
             return top.clone();
         }
         let cwd = match core.chats.get(agent_id) {
@@ -191,7 +186,7 @@ impl Outside {
             .map(|top| PathBuf::from(top.trim()))
             .filter(|top| top.is_absolute())
             .map(|top| std::fs::canonicalize(&top).unwrap_or(top));
-        let mut tops = lock(&self.tops);
+        let mut tops = self.tops.locked();
         if tops.len() >= MAX_AGENTS {
             tops.clear();
         }
@@ -201,7 +196,8 @@ impl Outside {
 
     /// The watched checkout `path` is in, by its top folder, with its project.
     pub(super) fn checkout_of(&self, path: &Path) -> Option<(PathBuf, String)> {
-        lock(&self.checkouts)
+        self.checkouts
+            .locked()
             .iter()
             .filter(|(top, _)| path.starts_with(top))
             .max_by_key(|(top, _)| top.as_os_str().len())
@@ -215,8 +211,10 @@ impl Outside {
     /// watch cannot see happen, and one taken away lets go of all of it. When
     /// it wants to run next.
     pub(super) fn settle(&self, core: &Arc<Core>, store: &Store) -> Option<u64> {
-        let now = unix_ms();
-        let checkouts: Vec<(PathBuf, String, Arc<Mutex<Seen>>, u64)> = lock(&self.checkouts)
+        let now = epoch_ms();
+        let checkouts: Vec<(PathBuf, String, Arc<Mutex<Seen>>, u64)> = self
+            .checkouts
+            .locked()
             .iter()
             .map(|(top, checkout)| {
                 let Checkout {
@@ -232,7 +230,7 @@ impl Outside {
         let mut agents = None;
         for (top, project, seen, worked_at) in checkouts {
             if !top.exists() {
-                lock(&self.checkouts).remove(&top);
+                self.checkouts.locked().remove(&top);
                 store.priors(&project, |priors| {
                     for path in priors.under(&top) {
                         priors.forget(&path);
@@ -241,7 +239,7 @@ impl Outside {
                 continue;
             }
             let (due, committed, overflowed) = {
-                let mut seen = lock(&seen);
+                let mut seen = seen.locked();
                 let mut due = Vec::new();
                 let before_command = seen.command_began.take();
                 let before_command = |at: u64| before_command.is_some_and(|began| at <= began);
@@ -280,16 +278,21 @@ impl Outside {
             if let Some(at) = overflowed {
                 let since = UNIX_EPOCH + Duration::from_millis(at.saturating_sub(GRACE_MS));
                 reconcile(store, &top, &project, &seen, Look::Whole { since });
-                let found = lock(&seen).changed.values().map(|changed| changed.at).min();
+                let found = seen
+                    .locked()
+                    .changed
+                    .values()
+                    .map(|changed| changed.at)
+                    .min();
                 next = sooner(next, found.map(|at| at + GRACE_MS));
             }
-            if now < worked_at + IDLE_MS || !lock(&seen).idle() {
+            if now < worked_at + IDLE_MS || !seen.locked().idle() {
                 next = sooner(next, Some(worked_at + IDLE_MS));
                 continue;
             }
             let agents = agents.get_or_insert_with(|| listed(core));
             let mid_turn = {
-                let tops = lock(&self.tops);
+                let tops = self.tops.locked();
                 agents.iter().any(|agent| {
                     matches!(agent.status, AgentStatus::Working | AgentStatus::Blocked)
                         && tops
@@ -301,12 +304,12 @@ impl Outside {
                 .collisions
                 .at_work(core, agents, &project, &top, now, GRACE_MS);
             if !mid_turn && shells.is_empty() && terminals.is_empty() {
-                lock(&self.checkouts).remove(&top);
+                self.checkouts.locked().remove(&top);
                 let kept = store.priors(&project, |priors| priors.under(&top));
                 if !kept.is_empty() {
                     reconcile(store, &top, &project, &seen, Look::Kept(&kept));
                 }
-            } else if let Some(checkout) = lock(&self.checkouts).get_mut(&top) {
+            } else if let Some(checkout) = self.checkouts.locked().get_mut(&top) {
                 checkout.worked_at = now;
                 next = sooner(next, Some(now + IDLE_MS));
             }
@@ -347,9 +350,9 @@ fn watch(top: &Path, seen: Arc<Mutex<Seen>>, core: Weak<Core>) -> Option<Recomme
         if matches!(event.kind, EventKind::Access(_)) {
             return;
         }
-        let now = unix_ms();
+        let now = epoch_ms();
         let woke = {
-            let mut seen = lock(&seen);
+            let mut seen = seen.locked();
             let idle = seen.idle();
             for path in event.paths {
                 seen.note(&at, path, now);
@@ -416,7 +419,7 @@ fn reconcile(store: &Store, top: &Path, project: &str, seen: &Mutex<Seen>, look:
     let status = String::from_utf8_lossy(&status);
     let mut changed = HashSet::new();
     {
-        let mut seen = lock(seen);
+        let mut seen = seen.locked();
         for entry in status.split('\0').filter(|entry| entry.len() > 3) {
             let (code, path) = entry.split_at(3);
             let path = top.join(path.trim_end_matches('/'));
@@ -447,8 +450,8 @@ fn reconcile(store: &Store, top: &Path, project: &str, seen: &Mutex<Seen>, look:
                 continue;
             };
             if let Some(at) = meta.modified().ok().filter(|at| *at >= since) {
-                let changed = Written::exact(&meta, unix_ms()).unwrap_or(Written {
-                    at: unix_ms_of(at),
+                let changed = Written::exact(&meta, epoch_ms()).unwrap_or(Written {
+                    at: epoch_ms_of(at),
                     exact: false,
                 });
                 recent.push((PathBuf::from(path), changed));
@@ -467,15 +470,10 @@ fn reconcile(store: &Store, top: &Path, project: &str, seen: &Mutex<Seen>, look:
         }
         recent
     });
-    let mut seen = lock(seen);
+    let mut seen = seen.locked();
     for (path, changed) in recent {
         seen.changed.entry(path).or_insert(changed);
     }
-}
-
-fn unix_ms_of(at: SystemTime) -> u64 {
-    at.duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| since.as_millis() as u64)
 }
 
 /// Records the changes `due` in a watched checkout once their grace passed.
@@ -502,7 +500,7 @@ fn look(
             due.iter().map(|(inside, ..)| inside.as_str()),
             false,
         );
-        let seen = lock(seen);
+        let seen = seen.locked();
         due.retain(|(_, path, _)| !seen.ignored.iter().any(|ignored| path.starts_with(ignored)));
     }
     for due in due.chunks(AT_ONCE) {
@@ -660,9 +658,9 @@ fn told(
         }
     };
     priors.keep(&key, Some((&text, &meta)));
-    let last = Written::exact(&meta, unix_ms());
+    let last = Written::exact(&meta, epoch_ms());
     let edit = (before != text).then(|| Edit {
-        at: unix_ms(),
+        at: epoch_ms(),
         agent_id: String::new(),
         shared: Vec::new(),
         name: None,
@@ -795,7 +793,7 @@ fn learn_ignored<'a>(
     .unwrap_or_default();
     let answered = String::from_utf8_lossy(&answered);
     let ignored_folders: Vec<&str> = answered.split('\0').filter(|at| !at.is_empty()).collect();
-    let mut seen = lock(seen);
+    let mut seen = seen.locked();
     for file in files {
         let topmost = ignored_folders
             .iter()

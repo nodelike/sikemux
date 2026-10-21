@@ -11,11 +11,12 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sikemux_process::sync::Locked;
 
 use super::folders::{link_shared, root, sessions_root};
 use super::usage::codex_app_server;
 use super::{cli, key};
-use crate::agent_catalog::AGENTS;
+use crate::agent_catalog::{AgentKind, AGENTS};
 use crate::launch::{discovery, AgentSpec};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -43,6 +44,18 @@ impl AgentStatus {
             Self::SignedOut => "signedOut",
             Self::Ready { .. } => "ready",
             Self::Unknown => "unknown",
+        }
+    }
+
+    /// Why an agent labelled `label` cannot be started now, if it cannot.
+    pub fn refusal(&self, label: &str) -> Option<String> {
+        match self {
+            Self::Missing => Some(format!("{label} is not installed on this host")),
+            Self::SignedOut => Some(format!(
+                "{label} is signed out on this host; ask the person to sign in"
+            )),
+            Self::Broken { .. } => Some(format!("{label} does not start on this host")),
+            Self::Ready { .. } | Self::Unknown => None,
         }
     }
 }
@@ -75,7 +88,7 @@ fn status_cache() -> &'static Mutex<HashMap<String, (Instant, AgentStatus)>> {
 /// The last minute's answer for one account, if there is one.
 pub(crate) fn cached(provider: &str, config_path: Option<&str>) -> Option<AgentStatus> {
     let key = key(provider, config_path);
-    let mut cache = status_cache().lock().ok()?;
+    let mut cache = status_cache().locked();
     let (stored, status) = cache.get(&key)?;
     if stored.elapsed() < STATUS_TTL {
         return Some(status.clone());
@@ -85,21 +98,19 @@ pub(crate) fn cached(provider: &str, config_path: Option<&str>) -> Option<AgentS
 }
 
 pub(crate) fn remember(provider: &str, config_path: Option<&str>, status: AgentStatus) {
-    if let Ok(mut cache) = status_cache().lock() {
-        cache.retain(|_, (stored, _)| stored.elapsed() < STATUS_TTL);
-        cache.insert(key(provider, config_path), (Instant::now(), status));
-    }
+    let mut cache = status_cache().locked();
+    cache.retain(|_, (stored, _)| stored.elapsed() < STATUS_TTL);
+    cache.insert(key(provider, config_path), (Instant::now(), status));
 }
 
 /// Forgets one account's answer, or every answer when `provider` is absent.
 pub(crate) fn forget(provider: Option<&str>, config_path: Option<&str>) {
-    if let Ok(mut cache) = status_cache().lock() {
-        match provider {
-            Some(provider) => {
-                cache.remove(&key(provider, config_path));
-            }
-            None => cache.clear(),
+    let mut cache = status_cache().locked();
+    match provider {
+        Some(provider) => {
+            cache.remove(&key(provider, config_path));
         }
+        None => cache.clear(),
     }
 }
 
@@ -118,19 +129,31 @@ pub async fn signed_in(
     status
 }
 
+/// Where `spec`'s program is, and why each program tried before it failed.
+pub async fn locate(spec: &AgentSpec) -> (Option<PathBuf>, Vec<String>) {
+    let Some(def) = AGENTS.iter().find(|def| def.kind == spec.provider) else {
+        return (None, Vec::new());
+    };
+    let candidates = discovery::candidates(def, spec.executable_path.as_deref());
+    discovery::first_healthy(def, candidates).await
+}
+
+/// An agent with no working program: missing, or broken by what `failures` say.
+pub fn unfound(failures: &[String]) -> AgentStatus {
+    if failures.is_empty() {
+        AgentStatus::Missing
+    } else {
+        AgentStatus::Broken {
+            reason: failures.join("; "),
+        }
+    }
+}
+
 /// Where `spec`'s program is, or why there is none: it is missing or broken.
 pub async fn find(spec: &AgentSpec) -> Result<PathBuf, AgentStatus> {
-    let def = AGENTS
-        .iter()
-        .find(|def| def.kind == spec.provider)
-        .ok_or(AgentStatus::Missing)?;
-    let candidates = discovery::candidates(def, spec.executable_path.as_deref());
-    match discovery::first_healthy(def.kind, candidates).await {
+    match locate(spec).await {
         (Some(program), _) => Ok(program),
-        (None, failures) if failures.is_empty() => Err(AgentStatus::Missing),
-        (None, failures) => Err(AgentStatus::Broken {
-            reason: failures.join("; "),
-        }),
+        (None, failures) => Err(unfound(&failures)),
     }
 }
 
@@ -241,15 +264,19 @@ async fn check_sign_in(
     config_path: Option<&str>,
     providers: BTreeMap<String, String>,
 ) -> AgentStatus {
-    match provider {
-        "claude" | "codex" => match account(provider, program, config_path).await {
+    let Some(kind) = AgentKind::from_name(provider) else {
+        return AgentStatus::Unknown;
+    };
+    match kind {
+        AgentKind::Claude | AgentKind::Codex => match account(provider, program, config_path).await
+        {
             Ok(account) if account.signed_in => AgentStatus::Ready {
                 account: account.method,
             },
             Ok(_) => AgentStatus::SignedOut,
             Err(_) => AgentStatus::Unknown,
         },
-        "pi" => {
+        AgentKind::Pi => {
             match exit_code_and_output(provider, program, config_path, &["auth", "check", "--json"])
                 .await
             {
@@ -257,7 +284,7 @@ async fn check_sign_in(
                 None => AgentStatus::Unknown,
             }
         }
-        "opencode" => {
+        AgentKind::Opencode => {
             let Some((_, listing)) =
                 exit_code_and_output(provider, program, config_path, &["auth", "list"]).await
             else {
@@ -272,7 +299,9 @@ async fn check_sign_in(
         }
         // Hermes answers in free text that changes with the provider, and Grok, OMP and Muse
         // have no check; a chat that is refused for sign-in marks them signed out instead.
-        _ => AgentStatus::Unknown,
+        AgentKind::Hermes | AgentKind::Grok | AgentKind::Omp | AgentKind::Muse => {
+            AgentStatus::Unknown
+        }
     }
 }
 
@@ -397,6 +426,51 @@ pub async fn account(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_agent_is_found_working_broken_or_missing() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let script = |name: &str, body: &str| {
+            let path = dir.path().join(name);
+            fs::write(&path, body).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let pi = script(
+            "pi",
+            "#!/bin/sh\n[ \"$1\" = --version ] && echo 'pi 1.0' && exit 0\nexit 64\n",
+        );
+        let broken = script(
+            "omp",
+            "#!/bin/sh\nprintf 'launcher missing\\n' >&2\nexit 127\n",
+        );
+        let spec = |provider: &str, path: &Path| AgentSpec {
+            provider: provider.into(),
+            executable_path: Some(path.to_string_lossy().into_owned()),
+            config_path: None,
+            environment_keys: Vec::new(),
+        };
+
+        assert_eq!(locate(&spec("pi", &pi)).await.0, Some(pi.clone()));
+        let (program, failures) = locate(&spec("omp", &broken)).await;
+        assert!(program.is_none());
+        assert!(
+            matches!(unfound(&failures), AgentStatus::Broken { reason } if reason.contains("launcher missing"))
+        );
+        let (program, failures) = locate(&spec("grok", &dir.path().join("nowhere/grok"))).await;
+        assert!(program.is_none());
+        assert!(
+            matches!(
+                unfound(&failures),
+                AgentStatus::Missing | AgentStatus::Broken { .. }
+            ),
+            "a profile whose binary is gone is not ready"
+        );
+    }
 
     #[test]
     fn statuses_read_as_a_state_and_its_details() {

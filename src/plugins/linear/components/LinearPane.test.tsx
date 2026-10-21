@@ -13,7 +13,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), linearApi: api }));
 
-import { invalidate } from "../../../plugin-api/resources";
+import { linear } from "../resources";
 import { issueForAgent } from "../state";
 import { LinearPane } from "./LinearPane";
 
@@ -59,7 +59,7 @@ const renderPane = () => render(<LinearPane paneId={`linear-${++pane}`} active /
 
 afterEach(() => {
     cleanup();
-    invalidate((kind) => kind.startsWith("linear."));
+    linear.refresh();
 });
 
 beforeEach(() => {

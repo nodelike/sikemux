@@ -2,97 +2,62 @@
 //! and how the app looks to paired devices. The core keeps the state; these
 //! commands forward to it.
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use serde_json::Value;
 use sikemux_core::client::CoreClient;
-use sikemux_core::protocol::{AllowedDevice, BackdropImage, DeviceAccess, RemoteStatus};
+use sikemux_core::protocol::Request;
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Manager, State};
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::login_item::{self, CoreLaunch};
 use crate::pty::{core_error, PtyManager};
 
-/// The backdrop the app last published, sent again to a core it reconnects
-/// to, which keeps it in memory only.
+/// What the app last published of each kind, sent again to a core it
+/// reconnects to, which keeps it in memory only.
 #[derive(Default)]
-pub struct PublishedBackdrop(Mutex<Option<(bool, Option<BackdropImage>)>>);
+pub struct Published(Mutex<Vec<Request>>);
 
-/// The theme colours the app last published, sent again like the backdrop.
-#[derive(Default)]
-pub struct PublishedPalette(Mutex<BTreeMap<String, String>>);
+const PUBLISH_BUDDIES: &str = "publishBuddies";
 
-/// The buddies the app last published, or none while they are off, sent again like the backdrop.
-#[derive(Default)]
-pub struct PublishedBuddies(Mutex<Value>);
-
-/// The agents the app last showed and whether its window was in front, sent again like the backdrop.
-#[derive(Default)]
-pub struct PublishedOnScreen(Mutex<(Vec<String>, bool)>);
-
-#[tauri::command]
-pub async fn remote_publish_backdrop(
-    manager: State<'_, PtyManager>,
-    published: State<'_, PublishedBackdrop>,
-    texture: bool,
-    image: Option<BackdropImage>,
-) -> AppResult<()> {
-    if let Ok(mut last) = published.0.lock() {
-        *last = Some((texture, image.clone()));
+fn is_publication(request: &Request) -> bool {
+    match request {
+        Request::PublishBackdrop { .. }
+        | Request::PublishPalette { .. }
+        | Request::PublishOnScreen { .. } => true,
+        Request::Call { method, .. } => method == PUBLISH_BUDDIES,
+        _ => false,
     }
-    let client = manager.client().await?;
-    client
-        .publish_backdrop(texture, image)
-        .await
-        .map_err(core_error)
 }
 
-#[tauri::command]
-pub async fn remote_publish_palette(
-    manager: State<'_, PtyManager>,
-    published: State<'_, PublishedPalette>,
-    palette: BTreeMap<String, String>,
-) -> AppResult<()> {
-    if let Ok(mut last) = published.0.lock() {
-        *last = palette.clone();
+fn same_publication(kept: &Request, request: &Request) -> bool {
+    match (kept, request) {
+        (Request::Call { method: kept, .. }, Request::Call { method, .. }) => kept == method,
+        _ => std::mem::discriminant(kept) == std::mem::discriminant(request),
     }
-    let client = manager.client().await?;
-    client.publish_palette(palette).await.map_err(core_error)
 }
 
+/// How the app looks and what it shows, for paired devices: the backdrop,
+/// the theme's colours, the buddies and the agents on screen.
 #[tauri::command]
-pub async fn remote_publish_buddies(
+pub async fn remote_publish(
     manager: State<'_, PtyManager>,
-    published: State<'_, PublishedBuddies>,
-    buddies: Value,
+    published: State<'_, Published>,
+    request: Request,
 ) -> AppResult<()> {
-    if let Ok(mut last) = published.0.lock() {
-        *last = buddies.clone();
+    if !is_publication(&request) {
+        return Err(AppError::Other(
+            "only a publication can be published".into(),
+        ));
+    }
+    {
+        let mut kept = published.0.locked();
+        kept.retain(|kept| !same_publication(kept, &request));
+        kept.push(request.clone());
     }
     let client = manager.client().await?;
-    client
-        .call("publishBuddies", buddies)
-        .await
-        .map_err(core_error)?;
+    client.request(request).await.map_err(core_error)?;
     Ok(())
-}
-
-#[tauri::command]
-pub async fn remote_publish_on_screen(
-    manager: State<'_, PtyManager>,
-    published: State<'_, PublishedOnScreen>,
-    agent_ids: Vec<String>,
-    focused: bool,
-) -> AppResult<()> {
-    if let Ok(mut last) = published.0.lock() {
-        *last = (agent_ids.clone(), focused);
-    }
-    let client = manager.client().await?;
-    client
-        .publish_on_screen(agent_ids, focused)
-        .await
-        .map_err(core_error)
 }
 
 /// Gives a core the app just connected to what it published to the last one,
@@ -102,50 +67,19 @@ pub(crate) async fn connected(
     launch: Option<&CoreLaunch>,
     client: &Arc<CoreClient>,
 ) {
-    let palette = app
-        .try_state::<PublishedPalette>()
-        .and_then(|published| published.0.lock().ok().map(|last| last.clone()))
-        .filter(|palette| !palette.is_empty());
-    if let Some(palette) = palette {
-        if let Err(error) = client.publish_palette(palette).await {
-            eprintln!("Sikemux could not tell its core the theme's colours: {error}");
-        }
-    }
-    let backdrop = app
-        .try_state::<PublishedBackdrop>()
-        .and_then(|published| published.0.lock().ok().and_then(|last| last.clone()));
-    if let Some((texture, image)) = backdrop {
-        if let Err(error) = client.publish_backdrop(texture, image).await {
-            eprintln!("Sikemux could not tell its core what it draws behind panes: {error}");
-        }
-    }
-    let buddies = app
-        .try_state::<PublishedBuddies>()
-        .and_then(|published| published.0.lock().ok().map(|last| last.clone()))
-        .filter(|buddies| !buddies.is_null());
-    if let Some(buddies) = buddies {
-        if let Err(error) = client.call("publishBuddies", buddies).await {
-            eprintln!("Sikemux could not tell its core the buddies it draws: {error}");
-        }
-    }
-    let on_screen = app
-        .try_state::<PublishedOnScreen>()
-        .and_then(|published| published.0.lock().ok().map(|last| last.clone()))
-        .filter(|(agent_ids, _)| !agent_ids.is_empty());
-    if let Some((agent_ids, focused)) = on_screen {
-        if let Err(error) = client.publish_on_screen(agent_ids, focused).await {
-            eprintln!("Sikemux could not tell its core which agents are on screen: {error}");
+    let kept = app
+        .try_state::<Published>()
+        .map(|published| published.0.locked().clone())
+        .unwrap_or_default();
+    for request in kept {
+        if let Err(error) = client.request(request).await {
+            eprintln!("Sikemux could not tell its core again what it published: {error}");
         }
     }
     if let Ok(status) = client.remote_status().await {
         login_item::sync(&app.config().identifier, launch, status.enabled);
     }
-}
-
-#[tauri::command]
-pub async fn remote_status(manager: State<'_, PtyManager>) -> AppResult<RemoteStatus> {
-    let client = manager.client().await?;
-    client.remote_status().await.map_err(core_error)
+    crate::hosts::follow_links(app);
 }
 
 /// Keeps the login item in step with remote access, which the switch turns
@@ -158,58 +92,4 @@ pub(crate) fn follow_remote_access(app: &AppHandle, enabled: bool) {
     tauri::async_runtime::spawn_blocking(move || {
         login_item::sync(&identifier, launch.as_ref(), enabled);
     });
-}
-
-#[tauri::command]
-pub async fn remote_set_enabled(
-    manager: State<'_, PtyManager>,
-    enabled: bool,
-) -> AppResult<RemoteStatus> {
-    let client = manager.client().await?;
-    client.set_remote_access(enabled).await.map_err(core_error)
-}
-
-#[tauri::command]
-pub async fn remote_set_device_access(
-    manager: State<'_, PtyManager>,
-    id: String,
-    access: DeviceAccess,
-) -> AppResult<RemoteStatus> {
-    let client = manager.client().await?;
-    client
-        .set_device_access(id, access)
-        .await
-        .map_err(core_error)
-}
-
-#[tauri::command]
-pub async fn remote_revoke_device(
-    manager: State<'_, PtyManager>,
-    id: String,
-) -> AppResult<RemoteStatus> {
-    let client = manager.client().await?;
-    client.revoke_device(id).await.map_err(core_error)
-}
-
-#[tauri::command]
-pub async fn remote_answer_pairing(
-    manager: State<'_, PtyManager>,
-    id: String,
-    allow: bool,
-    access: DeviceAccess,
-) -> AppResult<RemoteStatus> {
-    let client = manager.client().await?;
-    client
-        .answer_pairing(id, allow, access)
-        .await
-        .map_err(core_error)
-}
-
-#[tauri::command]
-pub async fn remote_allow_devices(
-    manager: State<'_, PtyManager>,
-    devices: Vec<AllowedDevice>,
-) -> AppResult<RemoteStatus> {
-    let client = manager.client().await?;
-    client.allow_devices(devices).await.map_err(core_error)
 }

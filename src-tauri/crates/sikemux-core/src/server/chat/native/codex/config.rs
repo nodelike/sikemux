@@ -1,7 +1,12 @@
 //! The session's permission modes, models and effort levels: what the app
 //! picks from, and what Codex is told on every turn.
 
-use serde_json::{json, Value};
+use agent_client_protocol::schema::v1::McpServer;
+use serde_json::{json, Map, Value};
+
+use super::super::servers;
+use crate::acp::pickers;
+use crate::launch::PermissionMode;
 
 /// The app's two permission modes, as the presets Codex's ACP adapter names
 /// them by. "read-only" still writes inside the workspace; it asks first for
@@ -13,11 +18,10 @@ pub(super) enum Mode {
 }
 
 impl Mode {
-    pub fn from_app(mode: &str) -> Result<Self, String> {
+    pub fn from_app(mode: PermissionMode) -> Self {
         match mode {
-            "workspace-write" => Ok(Self::Ask),
-            "bypass" => Ok(Self::FullAccess),
-            _ => Err(format!("Unsupported permission mode: {mode}")),
+            PermissionMode::WorkspaceWrite => Self::Ask,
+            PermissionMode::Bypass => Self::FullAccess,
         }
     }
 
@@ -140,118 +144,80 @@ impl Models {
     /// The session's `configOptions`: the model picker, and the effort picker
     /// when the model reasons.
     pub fn options(&self, model: &str, effort: Option<&str>) -> Value {
-        let mut models: Vec<Value> = self
+        let models = self
             .0
             .iter()
-            .map(|entry| {
-                json!({
-                    "value": entry["id"],
-                    "name": entry["displayName"],
-                    "description": entry["description"],
-                })
+            .filter_map(|entry| {
+                let id = entry["id"].as_str()?;
+                let name = entry["displayName"].as_str().unwrap_or(id);
+                Some(pickers::choice(id, name, entry["description"].as_str()))
             })
             .collect();
-        if self.find(model).is_none() {
-            models.insert(
-                0,
-                json!({ "value": model, "name": model, "description": null }),
-            );
-        }
-        let mut options = vec![json!({
-            "id": "model",
-            "name": "Model",
-            "description": "Model Codex uses for the session",
-            "category": "model",
-            "type": "select",
-            "currentValue": model,
-            "options": models,
-        })];
+        let mut options = vec![pickers::model_select(
+            Some("Model Codex uses for the session"),
+            model,
+            models,
+        )];
         if let Some(effort) = effort.filter(|_| self.reasons(model)) {
-            let efforts: Vec<Value> = self
+            let efforts = self
                 .efforts(model)
                 .iter()
-                .map(|option| {
-                    let value = option["reasoningEffort"].as_str().unwrap_or_default();
-                    json!({
-                        "value": value,
-                        "name": capitalized(value),
-                        "description": option["description"],
-                    })
+                .filter_map(|option| {
+                    let value = option["reasoningEffort"].as_str()?;
+                    let about = option["description"].as_str();
+                    Some(pickers::choice(value, &pickers::level_name(value), about))
                 })
                 .collect();
-            options.push(json!({
-                "id": "reasoning_effort",
-                "name": "Reasoning effort",
-                "description": "How much reasoning effort the model should use",
-                "category": "thought_level",
-                "type": "select",
-                "currentValue": effort,
-                "options": efforts,
-            }));
+            options.push(pickers::effort_select(
+                "reasoning_effort",
+                "Reasoning effort",
+                "How much reasoning effort the model should use",
+                effort,
+                efforts,
+            ));
         }
         Value::Array(options)
-    }
-}
-
-fn capitalized(word: &str) -> String {
-    let mut characters = word.chars();
-    match characters.next() {
-        Some(first) => first.to_uppercase().chain(characters).collect(),
-        None => String::new(),
     }
 }
 
 /// Codex's config overrides for a session: the folder is trusted, and the
 /// chat's own tool servers are added unless Codex's config already has one
 /// by that name.
-pub(super) fn session_config(cwd: &str, servers: &[Value], configured: &[String]) -> Value {
+pub(super) fn session_config(cwd: &str, tools: &[McpServer], configured: &[String]) -> Value {
     let mut config = json!({ "projects": { cwd: { "trust_level": "trusted" } } });
-    let mut tools = serde_json::Map::new();
-    for server in servers {
-        let Some(name) = server["name"].as_str() else {
-            continue;
-        };
-        let name = name.replace(char::is_whitespace, "_");
-        if configured.contains(&name) {
-            continue;
-        }
-        match tool_server(server) {
-            Ok(entry) => {
-                tools.insert(name, entry);
+    let mut entries = Map::new();
+    for server in tools {
+        let (name, entry) = match server {
+            McpServer::Http(http) => (
+                &http.name,
+                json!({ "url": http.url, "http_headers": servers::headers(&http.headers) }),
+            ),
+            McpServer::Stdio(stdio) => (
+                &stdio.name,
+                json!({
+                    "command": stdio.command,
+                    "args": stdio.args,
+                    "env": servers::variables(&stdio.env),
+                }),
+            ),
+            McpServer::Sse(sse) => {
+                eprintln!(
+                    "sikemux core: Codex skips tool server {}: it does not take SSE servers",
+                    sse.name
+                );
+                continue;
             }
-            Err(error) => eprintln!("sikemux core: Codex skips tool server {name}: {error}"),
+            _ => continue,
+        };
+        let name = servers::config_key(name);
+        if !configured.contains(&name) {
+            entries.insert(name, entry);
         }
     }
-    if !tools.is_empty() {
-        config["mcp_servers"] = Value::Object(tools);
+    if !entries.is_empty() {
+        config["mcp_servers"] = Value::Object(entries);
     }
     config
-}
-
-/// The names in an ACP name and value list, as a map.
-fn pairs(list: &Value) -> Value {
-    Value::Object(
-        list.as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|pair| Some((pair["name"].as_str()?.to_owned(), pair["value"].clone())))
-            .collect(),
-    )
-}
-
-fn tool_server(server: &Value) -> Result<Value, String> {
-    match server["type"].as_str() {
-        Some("http") => Ok(json!({
-            "url": server["url"],
-            "http_headers": pairs(&server["headers"]),
-        })),
-        Some(kind @ ("sse" | "acp")) => Err(format!("Codex does not support {kind} tool servers")),
-        _ => Ok(json!({
-            "command": server["command"],
-            "args": server["args"],
-            "env": pairs(&server["env"]),
-        })),
-    }
 }
 
 /// The tool server names Codex's own config already has, in any layer.
@@ -288,9 +254,14 @@ mod tests {
 
     #[test]
     fn the_app_modes_map_to_the_adapter_presets() {
-        assert_eq!(Mode::from_app("bypass").unwrap().id(), "agent-full-access");
-        assert_eq!(Mode::from_app("workspace-write").unwrap().id(), "read-only");
-        assert!(Mode::from_app("plan").is_err());
+        assert_eq!(
+            Mode::from_app(PermissionMode::Bypass).id(),
+            "agent-full-access"
+        );
+        assert_eq!(
+            Mode::from_app(PermissionMode::WorkspaceWrite).id(),
+            "read-only"
+        );
         assert_eq!(Mode::FullAccess.approval_policy(), "never");
         assert_eq!(
             Mode::FullAccess.sandbox_policy()["type"],
@@ -336,7 +307,7 @@ mod tests {
         let options = models().options("gpt-old", None);
         assert_eq!(
             options[0]["options"][0],
-            json!({ "value": "gpt-old", "name": "gpt-old", "description": null })
+            json!({ "value": "gpt-old", "name": "gpt-old" })
         );
     }
 
@@ -370,6 +341,10 @@ mod tests {
             }),
             json!({ "type": "http", "name": "mine", "url": "https://y", "headers": [] }),
         ];
+        let servers: Vec<McpServer> = servers
+            .into_iter()
+            .map(|server| serde_json::from_value(server).unwrap())
+            .collect();
         let config = session_config("/work", &servers, &["mine".to_owned()]);
         assert_eq!(config["projects"]["/work"]["trust_level"], "trusted");
         assert_eq!(

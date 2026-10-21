@@ -8,7 +8,9 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock};
+
+use sikemux_process::sync::Locked;
 
 use crate::{KeychainError, KeychainResult};
 
@@ -64,8 +66,7 @@ pub(crate) fn run<T: Send + 'static>(
     let keeper = KEEPER.get().and_then(Option::as_ref).ok_or_else(gone)?;
     let (answer, answered) = mpsc::channel();
     keeper
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
+        .locked()
         .send(Box::new(move |root| {
             let _ = answer.send(work(root));
         }))

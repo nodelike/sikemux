@@ -22,16 +22,17 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, Mutex, MutexGuard, Weak};
+use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use super::chat::Chat;
 use super::names::project_of;
-use super::remote::unix_ms;
 use super::Core;
 pub(crate) use lines::{changed, hunk, replaced, Lines, Replaced};
 pub(crate) use owners::{authors, before, git, owners_at, Owners};
@@ -53,22 +54,22 @@ pub(crate) struct Edit {
     /// The agents at work when no one of them could have made the change.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub cli: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// The run of the chat whose history holds the turn.
     pub feed: String,
     /// Where the turn starts in that history.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub turn: Option<u64>,
     pub tool_call_id: String,
     pub path: String,
     /// Empty when the whole file changed or where is not known.
     pub lines: Lines,
     /// How many lines the file had just after, when it could be read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
 }
 
@@ -103,10 +104,7 @@ impl Open {
         if changes.is_empty() && !matches!(status, Some("completed" | "failed")) {
             return None;
         }
-        let mut open = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut open = self.0.locked();
         let earlier = open
             .iter()
             .position(|(open_id, _)| open_id == id)
@@ -231,13 +229,9 @@ pub(crate) struct Edits {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Filter {
     pub project: PathBuf,
-    #[serde(default)]
     agent_id: Option<String>,
-    #[serde(default)]
     feed: Option<String>,
-    #[serde(default)]
     turn: Option<u64>,
-    #[serde(default)]
     path: Option<String>,
 }
 
@@ -274,7 +268,7 @@ impl Edits {
     fn send_working(&self, agent_id: &str, command: bool) {
         let _ = self.jobs.send(Job::Working {
             agent_id: agent_id.to_owned(),
-            at: unix_ms(),
+            at: epoch_ms(),
             command,
         });
     }
@@ -296,7 +290,7 @@ impl Edits {
     /// Notes what `chat`'s tool call `tool_call_id` changed.
     pub(crate) fn record(&self, chat: &Chat, tool_call_id: String, changes: Changes) {
         let done = Done {
-            at: unix_ms(),
+            at: epoch_ms(),
             agent_id: chat.agent_id().to_owned(),
             cli: chat.provider().to_owned(),
             model: chat.current_launch().model,
@@ -348,12 +342,6 @@ impl Edits {
 }
 
 impl Store {
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, Log>> {
-        self.logs
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// The name a project's record goes by, and the folder beside it.
     fn stem(&self, project: &str) -> Option<PathBuf> {
         let digest = hex::encode(Sha256::digest(project.as_bytes()));
@@ -367,10 +355,7 @@ impl Store {
 
     /// Runs `work` on what is kept of a project's changed files, saving it after.
     fn priors<T>(&self, project: &str, work: impl FnOnce(&mut prior::Priors) -> T) -> T {
-        let mut priors = self
-            .priors
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut priors = self.priors.locked();
         let priors = priors
             .entry(project.to_owned())
             .or_insert_with(|| prior::Priors::load(self.stem(project)));
@@ -380,7 +365,7 @@ impl Store {
     }
 
     fn matching(&self, project: &str, keep: impl Fn(&Edit) -> bool) -> Vec<Edit> {
-        let mut logs = self.lock();
+        let mut logs = self.logs.locked();
         let kept =
             logs.contains_key(project) || self.file(project).is_some_and(|file| file.exists());
         if !kept {
@@ -422,7 +407,7 @@ impl Store {
         loop {
             let first = match due {
                 Some(due) => {
-                    let wait = Duration::from_millis(due.saturating_sub(unix_ms()));
+                    let wait = Duration::from_millis(due.saturating_sub(epoch_ms()));
                     match queue.recv_timeout(wait) {
                         Ok(job) => Some(job),
                         Err(mpsc::RecvTimeoutError::Timeout) => None,
@@ -490,7 +475,7 @@ impl Store {
     }
 
     fn append(&self, project: &str, edits: &[Edit]) {
-        let mut logs = self.lock();
+        let mut logs = self.logs.locked();
         let log = self.log(&mut logs, project);
         let lines = json_lines(edits);
         log.lines_on_disk += edits.len();

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
+
+use sikemux_process::sync::Locked;
 
 const MAX_ACTIVITY_ENTRIES: usize = 32;
 const MAX_ACTIVITY_STRING_CHARS: usize = 200;
@@ -100,7 +102,7 @@ pub struct UiActivityLog {
 impl UiActivityLog {
     pub fn record(&self, snapshot: UiActivitySnapshot) {
         let snapshot = snapshot.bounded();
-        let mut state = self.lock_state();
+        let mut state = self.state.locked();
         if let Some(previous) = state.latest.replace(snapshot) {
             if state.history.len() == ACTIVITY_HISTORY_CAPACITY {
                 state.history.pop_front();
@@ -111,18 +113,11 @@ impl UiActivityLog {
 
     /// The latest snapshot, and the ones before it oldest first.
     pub fn snapshot(&self) -> (Option<UiActivitySnapshot>, Vec<UiActivitySnapshot>) {
-        let state = self.lock_state();
+        let state = self.state.locked();
         (
             state.latest.clone(),
             state.history.iter().cloned().collect(),
         )
-    }
-
-    fn lock_state(&self) -> MutexGuard<'_, UiActivityState> {
-        match self.state.lock() {
-            Ok(state) => state,
-            Err(poisoned) => poisoned.into_inner(),
-        }
     }
 }
 

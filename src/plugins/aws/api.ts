@@ -1,9 +1,8 @@
 import { browserSignIn, createPluginBackend } from "../../plugin-api/backend";
 import { openSignInUrl, swallow } from "../../plugin-api/host";
-import { AWS_PLUGIN_ID } from "./kinds";
+import { AWS_PLUGIN } from "./kinds";
 
-const backend = createPluginBackend(AWS_PLUGIN_ID, {
-    signInStatus: (kind) => kind === "aws.identity",
+const backend = createPluginBackend(AWS_PLUGIN.id, {
     signedOutCategories: ["aws-token-expired", "aws-no-credentials", "aws-cli-missing"],
 });
 

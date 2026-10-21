@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { languageFromPath, lsp, type LspDocumentSymbol } from "../api/lsp";
-import type { DiagnosticProblem, DiagnosticsController } from "../workbench/diagnosticsController";
+import type { DiagnosticProblem, ProjectProblems } from "./projectProblems";
 import { VirtualPanelRows } from "../git/VirtualPanelRows";
 import { TreeContextMenu } from "../rail/FileTree";
 import { SendToAgentMenu } from "../agents/SendToAgentMenu";
@@ -17,7 +17,7 @@ export type EditorInsightsTab = "problems" | "outline";
 interface EditorInsightsProps {
     project: string;
     path: string | null;
-    controller: DiagnosticsController | null;
+    controller: ProjectProblems | null;
     visible: boolean;
     onNavigate: (path: string, line: number, column: number) => void;
     /** Its project's agents are the ones a problem can be sent to. */
@@ -46,7 +46,8 @@ type OutlineState =
 
 const EMPTY_OUTLINE: OutlineState = Object.freeze({ key: "", status: "idle", symbols: Object.freeze([]) });
 const NOOP_SUBSCRIBE = () => () => {};
-const ZERO_REVISION = () => 0;
+const EMPTY_PROBLEMS: readonly DiagnosticProblem[] = [];
+const NO_PROBLEMS = () => EMPTY_PROBLEMS;
 
 const SYMBOL_KINDS: Readonly<Record<number, string>> = Object.freeze({
     1: "file",
@@ -110,14 +111,7 @@ export function EditorInsights({ project, path, controller, visible, onNavigate,
     const [outline, setOutline] = useState<OutlineState>(EMPTY_OUTLINE);
     const [outlineRequest, setOutlineRequest] = useState(0);
 
-    const subscribeRevision = useMemo(() => (controller ? (listener: () => void) => controller.subscribe(listener) : NOOP_SUBSCRIBE), [controller]);
-    const readRevision = useMemo(() => (controller ? () => controller.getSnapshot().revision : ZERO_REVISION), [controller]);
-    const revision = useSyncExternalStore(subscribeRevision, readRevision, ZERO_REVISION);
-    const snapshot = controller?.getSnapshot();
-    const problems = useMemo(() => {
-        void revision;
-        return controller ? Array.from(controller.selectProblems()) : [];
-    }, [controller, revision]);
+    const problems = useSyncExternalStore(controller?.subscribe ?? NOOP_SUBSCRIBE, controller?.problems ?? NO_PROBLEMS);
     const language = path ? languageFromPath(path) : null;
     const outlineKey = path && language ? `${project}\0${language}\0${path}` : "";
     const outlineCurrent = outline.key === outlineKey;
@@ -157,7 +151,7 @@ export function EditorInsights({ project, path, controller, visible, onNavigate,
                     className={tab === "problems" && expanded ? "active" : ""}
                     aria-expanded={expanded && tab === "problems"}
                     onClick={() => selectTab("problems")}>
-                    Problems <span>{snapshot?.problems ?? 0}</span>
+                    Problems <span>{problems.length}</span>
                 </button>
                 <button
                     type="button"

@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use futures::future::join_all;
 use semver::Version;
+use sikemux_core::protocol::BuildChannel;
 use tauri::{ipc::Channel, AppHandle};
 use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 
@@ -92,18 +93,18 @@ impl DownloadProgressReporter {
     }
 }
 
-fn channel_feeds(channel: &str) -> AppResult<&'static [&'static str]> {
+fn channel_feeds(channel: BuildChannel) -> AppResult<&'static [&'static str]> {
     match channel {
-        "stable" => Ok(&[STABLE_ENDPOINT]),
+        BuildChannel::Stable => Ok(&[STABLE_ENDPOINT]),
         // A stable release can overtake the newest nightly, so nightly follows both.
-        "nightly" => Ok(&[NIGHTLY_ENDPOINT, STABLE_ENDPOINT]),
-        _ => Err(AppError::BadArg("update channel must be stable or nightly")),
+        BuildChannel::Nightly => Ok(&[NIGHTLY_ENDPOINT, STABLE_ENDPOINT]),
+        BuildChannel::Dev => Err(AppError::BadArg("update channel must be stable or nightly")),
     }
 }
 
 async fn newest_update(
     app: &AppHandle,
-    channel: &str,
+    channel: BuildChannel,
     timeout: Duration,
 ) -> AppResult<Option<Update>> {
     if cfg!(debug_assertions) {
@@ -170,8 +171,8 @@ fn feed_updater(app: &AppHandle, endpoint: &str, timeout: Duration) -> AppResult
 }
 
 #[tauri::command]
-pub async fn update_check(app: AppHandle, channel: String) -> AppResult<Option<UpdateInfo>> {
-    Ok(newest_update(&app, &channel, UPDATE_CHECK_TIMEOUT)
+pub async fn update_check(app: AppHandle, channel: BuildChannel) -> AppResult<Option<UpdateInfo>> {
+    Ok(newest_update(&app, channel, UPDATE_CHECK_TIMEOUT)
         .await?
         .map(|update| UpdateInfo {
             version: update.version,
@@ -185,21 +186,21 @@ pub async fn update_check(app: AppHandle, channel: String) -> AppResult<Option<U
 #[tauri::command]
 pub async fn update_install(
     app: AppHandle,
-    channel: String,
+    channel: BuildChannel,
     on_progress: Channel<UpdateInstallProgress>,
 ) -> AppResult<UpdateInfo> {
     let observer = global_observability();
     let mut metadata = Metadata::new();
-    metadata.insert("channel".to_owned(), ScalarValue::from(channel.as_str()));
+    metadata.insert("channel".to_owned(), ScalarValue::from(channel.name()));
     let span = observer.begin_span("update.install", None, metadata);
     let context = span.context();
 
-    let result = update_install_inner(&app, &channel, on_progress, context).await;
+    let result = update_install_inner(&app, channel, on_progress, context).await;
     let outcome = if result.is_ok() {
-        let _ = observer.increment_counter("update.install.success", 1);
+        observer.increment_counter("update.install.success", 1);
         SpanOutcome::Success
     } else {
-        let _ = observer.increment_counter("update.install.errors", 1);
+        observer.increment_counter("update.install.errors", 1);
         SpanOutcome::Error
     };
     span.finish(outcome);
@@ -208,7 +209,7 @@ pub async fn update_install(
 
 async fn update_install_inner(
     app: &AppHandle,
-    channel: &str,
+    channel: BuildChannel,
     on_progress: Channel<UpdateInstallProgress>,
     context: SpanContext,
 ) -> AppResult<UpdateInfo> {

@@ -49,9 +49,11 @@ export function WorktreeNote({ step, worktree, home }: { step: string | null; wo
     if (!worktree) return null;
     return (
         <div className="chat-worktree-note" role="note">
-            <IconGit size={12} />
-            <span>
-                Working in worktree <code>{worktree.branch}</code>
+            <span className="chat-worktree-mark" aria-hidden="true">
+                <IconGit size={14} />
+            </span>
+            <span className="chat-worktree-branch" title={worktree.branch}>
+                <span>Working in a worktree on</span> <code>{worktree.branch}</code>
             </span>
             <span className="chat-worktree-path" title={worktree.path}>
                 {prettyPath(worktree.path, home)}

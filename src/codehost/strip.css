@@ -20,10 +20,36 @@
     min-height: 0;
 }
 
+/* The host's own mark in a cell of its own, a hairline, then the words, as the Run button splits: the logo keeps its colours on the plain ground. */
 .git-nav-signin {
+    display: inline-flex;
+    align-items: stretch;
     height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-2);
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    background: color-mix(in srgb, var(--surface) var(--panel-solidity), transparent);
+    box-shadow: inset 0 0 0 1px var(--border);
+    cursor: pointer;
+}
+.git-nav-signin:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+.git-nav-signin-mark {
+    display: grid;
+    place-items: center;
+    padding: 0 8px;
+    border-right: 1px solid var(--border);
+}
+.git-nav-signin-label {
+    display: inline-flex;
+    align-items: center;
     padding: 0 10px;
-    gap: var(--space-1h);
 }
 .git-nav-account {
     position: relative;

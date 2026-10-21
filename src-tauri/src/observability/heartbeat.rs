@@ -2,7 +2,8 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use super::increment_monotonic;
+use sikemux_process::sync::Locked;
+
 use super::store::global_observability;
 use super::watchdog::WatchdogSignal;
 
@@ -58,17 +59,11 @@ impl Heartbeat {
     }
 
     pub(super) fn attach_waker(&self, signal: Arc<WatchdogSignal>) {
-        match self.inner.waker.lock() {
-            Ok(mut waker) => *waker = Some(signal),
-            Err(poisoned) => *poisoned.into_inner() = Some(signal),
-        }
+        *self.inner.waker.locked() = Some(signal);
     }
 
     fn wake_watcher(&self) {
-        let waker = match self.inner.waker.lock() {
-            Ok(waker) => waker.clone(),
-            Err(poisoned) => poisoned.into_inner().clone(),
-        };
+        let waker = self.inner.waker.locked().clone();
         if let Some(signal) = waker {
             signal.wake();
         }
@@ -80,7 +75,7 @@ impl Heartbeat {
         // Multiple producers may race. `fetch_max` prevents an older producer
         // from moving the observed heartbeat timestamp backwards.
         self.inner.last_beat_us.fetch_max(now_us, Ordering::Release);
-        increment_monotonic(&self.inner.sequence)
+        self.inner.sequence.fetch_add(1, Ordering::Release) + 1
     }
 
     pub fn set_armed(&self, armed: bool) {

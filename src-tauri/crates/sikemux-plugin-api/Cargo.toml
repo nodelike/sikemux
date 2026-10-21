@@ -5,11 +5,16 @@ edition = "2021"
 publish = false
 
 [dependencies]
+base64 = "0.23"
 reqwest = { version = "0.13", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 semver = { version = "1", features = ["serde"] }
-tokio = { version = "1", features = ["time"] }
+sikemux-keychain = { path = "../sikemux-keychain" }
+sikemux-loopback = { path = "../sikemux-loopback" }
+sikemux-process = { path = "../sikemux-process" }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+url = "2"
 
 [dev-dependencies]
 rustls = { version = "0.23", default-features = false, features = ["ring"] }

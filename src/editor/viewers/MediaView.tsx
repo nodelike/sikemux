@@ -1,13 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ViewerBar, ViewerMessage, type ViewProps } from "./ViewerBar";
-
-function formatDuration(seconds: number): string {
-    const whole = Math.round(seconds);
-    const h = Math.floor(whole / 3600);
-    const m = Math.floor((whole % 3600) / 60);
-    const s = String(whole % 60).padStart(2, "0");
-    return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
-}
+import { formatClock } from "../../lib/format";
 
 export function MediaView({ kind, visible, path, preview, url, onReload }: ViewProps & { kind: "video" | "audio"; visible: boolean }) {
     const mediaRef = useRef<HTMLVideoElement & HTMLAudioElement>(null);
@@ -56,7 +49,7 @@ export function MediaView({ kind, visible, path, preview, url, onReload }: ViewP
                                     {meta.w}×{meta.h}
                                 </span>
                             )}
-                            {Number.isFinite(meta.duration) && <span>{formatDuration(meta.duration)}</span>}
+                            {Number.isFinite(meta.duration) && <span>{formatClock(meta.duration)}</span>}
                         </>
                     )
                 }

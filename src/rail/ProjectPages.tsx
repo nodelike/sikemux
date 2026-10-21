@@ -1,27 +1,36 @@
-import { type MouseEvent, type ReactNode, useState } from "react";
 import { useShortcutLabel } from "../commands/useShortcutLabel";
 import { basename, dirname, relativePath } from "../lib/paths";
 import * as cmd from "../state/commands";
 import { collectPanes } from "../state/layout";
 import { activeTabRef, documentsOf, terminalLabel } from "../state/selectors";
-import { getState, useStore } from "../state/store";
-import type { Session, TabRef } from "../state/types";
+import { getState, useStore, type StoreState } from "../state/store";
+import type { FilesPlace } from "../state/commands/shared";
+import type { Session } from "../state/types";
 import { FileIcon } from "../ui/FileIcon";
-import { IconClose, IconFile, IconPlus, IconTerminal } from "../ui/Icons";
+import { IconFile, IconPlus, IconTerminal } from "../ui/Icons";
 import { Panel } from "../ui/Panel";
-import { Tooltip } from "../ui/Tooltip";
 import { fileTabMenu, windowTabMenu } from "../workspace/tabMenus";
-import { AgentRowProject } from "./AgentRowTree";
-import { type CtxItem, FileTree, TreeContextMenu } from "./FileTree";
+import { FileTree } from "./FileTree";
 import { RailEmpty } from "./RailEmpty";
 import { NewRow } from "./RailNewRow";
 import { RailToggle } from "./RailToggle";
-import { ScopeTabs } from "./ScopeTabs";
+import { NewOnHost, remoteTerminalRows, useRemoteCopies } from "./RemoteRows";
+import { HostScopeTabs, ScopeTabs } from "./ScopeTabs";
+import { HostTerminals } from "./HostLists";
+import { TabRow, useTabMenu } from "./TabRow";
+import { chosenHostOf } from "../hosts/hosts";
 
 const EMPTY_IDS: readonly string[] = [];
-const openEntry = (entry: { path: string }) => cmd.requestOpenFile(entry.path);
 
-type Menu = { x: number; y: number; items: CtxItem[] };
+/** The copy the Files page shows: the one the focused chat, terminal or editor works in on another host, else the project's own. */
+function filesPlace(state: StoreState, session: Session | undefined): FilesPlace | undefined {
+    if (!session) return undefined;
+    const win = state.windows[session.activeWindowId];
+    const pane = win && collectPanes(win.root).find((candidate) => candidate.id === win.activePaneId);
+    const agent = pane && state.agents[pane.id];
+    const host = pane?.host ?? agent?.host;
+    return pane && host !== undefined ? { cwd: agent?.cwd ?? pane.cwd, host } : { cwd: session.cwd, host: session.host };
+}
 
 function PageHeader({ label }: { label: string }) {
     return (
@@ -41,78 +50,11 @@ function useProjectSession(): Session | undefined {
     return session?.kind === "project" ? session : undefined;
 }
 
-/** A tab of the session's strip, as a rail row: it selects the tab, closes it, and opens the strip's menu for it. */
-function TabRow({
-    tab,
-    icon,
-    glyph,
-    label,
-    detail,
-    title,
-    project,
-    active,
-    onMenu,
-}: {
-    tab: TabRef;
-    icon: ReactNode;
-    /** What colours the icon, the way the strip colours the same tab's. */
-    glyph?: string;
-    label: string;
-    detail?: string | null;
-    title?: string;
-    /** The project the tab lives in, shown under its label when the list spans projects. */
-    project?: { name: string; sessionId: string };
-    active: boolean;
-    onMenu: (event: MouseEvent) => void;
-}) {
-    return (
-        <div className="agent-row-wrap">
-            <button
-                type="button"
-                className={`agent-row rail-tab${project ? " two-line" : ""}${active ? " active" : ""}`}
-                title={title}
-                onClick={() => {
-                    if (project && project.sessionId !== getState().activeSessionId) cmd.selectSession(project.sessionId);
-                    cmd.selectTab(tab);
-                }}
-                onAuxClick={(event) => {
-                    if (event.button === 1) cmd.closeTab(tab);
-                }}
-                onContextMenu={onMenu}>
-                <span className={`agent-glyph${glyph ? ` ${glyph}` : ""}`}>{icon}</span>
-                {project ? (
-                    <span className="agent-row-text">
-                        <span className="agent-title">{label}</span>
-                        <AgentRowProject name={project.name} />
-                    </span>
-                ) : (
-                    <span className="agent-title">{label}</span>
-                )}
-                {detail && <span className="rail-file-folder">{detail}</span>}
-            </button>
-            <Tooltip label={`Close ${label}`}>
-                <button type="button" className="row-x" aria-label={`Close ${label}`} onClick={() => cmd.closeTab(tab)}>
-                    <IconClose size={11} />
-                </button>
-            </Tooltip>
-        </div>
-    );
-}
-
-function useTabMenu() {
-    const [menu, setMenu] = useState<Menu | null>(null);
-    const open = (event: MouseEvent, items: CtxItem[]) => {
-        event.preventDefault();
-        event.stopPropagation();
-        setMenu({ x: event.clientX, y: event.clientY, items });
-    };
-    const shown = menu && <TreeContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />;
-    return { open, shown };
-}
-
 /** The terminal tabs of this project, or of every open project. */
 export function TerminalsPage() {
     const session = useProjectSession();
+    const host = useStore(chosenHostOf);
+    const activeSessionId = useStore((s) => s.activeSessionId);
     const scope = useStore((s) => s.tabRailScope);
     const sessions = useStore((s) => s.sessions);
     const sessionOrder = useStore((s) => s.sessionOrder);
@@ -121,48 +63,62 @@ export function TerminalsPage() {
     const titles = useStore((s) => s.terminalTitles);
     const closeShortcut = useShortcutLabel("pane.close");
     const menu = useTabMenu();
+    const copies = useRemoteCopies(session);
 
-    const shown = scope === "all" ? sessionOrder.map((id) => sessions[id]).filter((s) => s?.kind === "project") : session ? [session] : [];
+    const shown = scope === "all" ? sessionOrder.map((id) => sessions[id]).filter((s) => s?.kind === "project") : session && !host ? [session] : [];
     const tabs = shown.flatMap((owner) =>
         (windowsBySession[owner.id] ?? EMPTY_IDS).flatMap((id) => {
             const win = windows[id];
             const home = win?.role === "term" ? collectPanes(win.root).find((pane) => pane.kind === "terminal") : undefined;
-            return win && home ? [{ win, owner, label: terminalLabel(win, home, titles) }] : [];
+            return win && home ? [{ win, owner, home, label: terminalLabel(win, home, titles) }] : [];
         }),
     );
+    const remoteTerminals =
+        scope === "project" && session && !host
+            ? remoteTerminalRows({ sessionId: session.id, copies, open: new Set(tabs.flatMap(({ home }) => home.ptyId ?? [])) })
+            : [];
 
     return (
         <>
             <PageHeader label="Terminals" />
-            {!session ? (
+            {!session && !host ? (
                 <RailEmpty icon={<IconTerminal size={20} />} title="No project open" shortcut="project.open" doing="open one" />
             ) : (
                 <>
                     <div className="tab-rail-top">
                         <div className="agent-actions">
+                            <NewOnHost />
                             <NewRow icon={<IconPlus size={15} />} title="New terminal" shortcut="terminal.new" onClick={cmd.newTerminal} />
                         </div>
-                        <ScopeTabs scope={scope} projectName={session.name} onChange={cmd.setTabRailScope} />
+                        {host ? (
+                            <HostScopeTabs host={host} />
+                        ) : (
+                            session && <ScopeTabs scope={scope} name={session.name} onChange={cmd.setTabRailScope} />
+                        )}
                     </div>
                     <div className="rail-scroll">
-                        {tabs.length === 0 ? (
+                        {host && scope === "project" ? (
+                            <HostTerminals choice={host} />
+                        ) : tabs.length === 0 && remoteTerminals.length === 0 ? (
                             <RailEmpty icon={<IconTerminal size={20} />} title="No terminals open" shortcut="terminal.new" doing="start one" />
                         ) : (
                             <Panel variant="group" className="agent-group">
-                                {tabs.map(({ win, owner, label }) => (
+                                {tabs.map(({ win, owner, home, label }) => (
                                     <TabRow
                                         key={win.id}
                                         tab={{ id: win.id }}
                                         icon={<IconTerminal size={15} />}
                                         glyph="term"
                                         label={label}
+                                        host={home.host}
                                         project={scope === "all" ? { name: owner.name, sessionId: owner.id } : undefined}
-                                        active={owner.id === session.id && session.activeWindowId === win.id}
+                                        active={owner.id === activeSessionId && owner.activeWindowId === win.id}
                                         onMenu={(event) =>
                                             menu.open(event, windowTabMenu(owner.id, getState().windows[win.id] ?? win, closeShortcut))
                                         }
                                     />
                                 ))}
+                                {remoteTerminals}
                             </Panel>
                         )}
                     </div>
@@ -180,6 +136,8 @@ export function FilesPage() {
     const windowIds = useStore((s) => (session ? s.windowsBySession[session.id] : undefined) ?? EMPTY_IDS);
     const windows = useStore((s) => s.windows);
     const editorViews = useStore((s) => s.editorViews);
+    const host = useStore((s) => filesPlace(s, session)?.host);
+    const cwd = useStore((s) => filesPlace(s, session)?.cwd ?? "");
     const closeShortcut = useShortcutLabel("pane.close");
     const menu = useTabMenu();
 
@@ -192,7 +150,7 @@ export function FilesPage() {
         );
     }
 
-    const cwd = session.cwd;
+    const openEntry = (entry: { path: string }) => cmd.requestOpenFile(entry.path, undefined, undefined, { cwd, host });
     const live = activeTabRef(session, windows, editorViews);
     const open: { id: string; path: string }[] = [];
     let activePath: string | null = null;
@@ -228,7 +186,7 @@ export function FilesPage() {
     return (
         <>
             <PageHeader label="Files" />
-            <FileTree cwd={cwd} activePath={activePath} onOpenFile={openEntry} onKeepFile={openEntry} active={showing} lead={lead} />
+            <FileTree cwd={cwd} host={host} activePath={activePath} onOpenFile={openEntry} onKeepFile={openEntry} active={showing} lead={lead} />
             {menu.shown}
         </>
     );

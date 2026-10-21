@@ -37,6 +37,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
 /// What a session was started with.
 #[derive(Clone, Default)]
@@ -59,10 +60,9 @@ struct Agent {
 
 impl Agent {
     fn send(&self, message: Value) {
-        if let Ok(mut out) = self.out.lock() {
-            let _ = writeln!(out, "{message}");
-            let _ = out.flush();
-        }
+        let mut out = self.out.locked();
+        let _ = writeln!(out, "{message}");
+        let _ = out.flush();
     }
 
     fn reply(&self, id: &Value, result: Value) {
@@ -87,9 +87,7 @@ impl Agent {
     fn ask(&self, params: Value) -> Value {
         let id = format!("fake-{}", self.next_request.fetch_add(1, Ordering::Relaxed));
         let (answer, answered) = channel();
-        if let Ok(mut waiting) = self.waiting.lock() {
-            waiting.insert(id.clone(), answer);
-        }
+        self.waiting.locked().insert(id.clone(), answer);
         self.send(json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -100,11 +98,7 @@ impl Agent {
     }
 
     fn config(&self) -> Value {
-        let current = self
-            .model
-            .lock()
-            .map(|model| model.clone())
-            .unwrap_or_default();
+        let current = self.model.locked().clone();
         json!([{
             "id": "model",
             "name": "Model",
@@ -256,9 +250,9 @@ fn command_line(text: &str) -> &str {
 fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
     let session = agent
         .sessions
-        .lock()
-        .ok()
-        .and_then(|sessions| sessions.get(session_id).cloned())
+        .locked()
+        .get(session_id)
+        .cloned()
         .unwrap_or_default();
     let line = command_line(text);
     let mut words = line.split_whitespace();
@@ -386,11 +380,7 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
     let Some(method) = message.get("method").and_then(Value::as_str) else {
         // An answer to a request this agent sent.
         if let Some(key) = id.as_ref().and_then(Value::as_str) {
-            let waiter = agent
-                .waiting
-                .lock()
-                .ok()
-                .and_then(|mut waiting| waiting.remove(key));
+            let waiter = agent.waiting.locked().remove(key);
             if let Some(waiter) = waiter {
                 let _ = waiter.send(message.get("result").cloned().unwrap_or(Value::Null));
             }
@@ -434,15 +424,13 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
                 .flat_map(|server| server["env"].as_array().cloned().unwrap_or_default())
                 .find(|variable| variable["name"] == "SIKEMUX_CLI_ENDPOINT")
                 .and_then(|variable| variable["value"].as_str().map(PathBuf::from));
-            if let Ok(mut known) = agent.sessions.lock() {
-                known.insert(
-                    session_id.clone(),
-                    Session {
-                        cwd: params["cwd"].as_str().map(PathBuf::from),
-                        endpoint,
-                    },
-                );
-            }
+            agent.sessions.locked().insert(
+                session_id.clone(),
+                Session {
+                    cwd: params["cwd"].as_str().map(PathBuf::from),
+                    endpoint,
+                },
+            );
             agent.reply(
                 &id,
                 json!({ "sessionId": session_id, "configOptions": agent.config() }),
@@ -506,9 +494,8 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
         ("session/cancel", None) => agent.cancelled.store(true, Ordering::Release),
         ("session/set_config_option", Some(id)) => {
             if params["configId"] == "model" {
-                if let (Some(value), Ok(mut model)) = (params["value"].as_str(), agent.model.lock())
-                {
-                    *model = value.to_owned();
+                if let Some(value) = params["value"].as_str() {
+                    *agent.model.locked() = value.to_owned();
                 }
             }
             agent.reply(&id, json!({ "configOptions": agent.config() }));
@@ -524,10 +511,7 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
 }
 
 fn limited(account: &str) -> bool {
-    let reset = resets_at().is_some_and(|at| {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-        now.is_ok_and(|now| now.as_millis() >= u128::from(at))
-    });
+    let reset = resets_at().is_some_and(|at| sikemux_process::clock::epoch_ms() >= at);
     !reset
         && std::env::var("FAKE_ACP_LIMITED")
             .unwrap_or_default()

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
-import { AccountProblem } from './api';
+import { ApiProblem } from './api';
 import { AccountSequence, type AccountStatus, type SequenceDeps } from './sequence';
 
 vi.mock('@/device/identity', () => ({ deviceIdentity: async () => ({}) }));
@@ -62,7 +62,7 @@ describe('AccountSequence', () => {
   it('never opens the live connection when registering fails, so an old removal cannot sign the phone out', async () => {
     const sequence = new AccountSequence(deps);
     sequence.start(true);
-    registration().reject(new AccountProblem('This device is registered to another account.', 409));
+    registration().reject(new ApiProblem('This device is registered to another account.', 409));
     await settle();
     expect(statuses.at(-1)).toEqual({ step: 'failed', problem: 'This device is registered to another account.', retrying: false });
     await vi.advanceTimersByTimeAsync(120_000);
@@ -83,7 +83,7 @@ describe('AccountSequence', () => {
   it('tries again with backoff while the server is out of reach and the app is in front', async () => {
     const sequence = new AccountSequence(deps);
     sequence.start(true);
-    registration().reject(new AccountProblem("Can't reach Sikemux."));
+    registration().reject(new ApiProblem("Can't reach Sikemux."));
     await settle();
     expect(statuses.at(-1)).toMatchObject({ step: 'failed', retrying: true });
     await vi.advanceTimersByTimeAsync(499);
@@ -97,7 +97,7 @@ describe('AccountSequence', () => {
   it('treats a busy server as worth trying again', async () => {
     const sequence = new AccountSequence(deps);
     sequence.start(true);
-    registration().reject(new AccountProblem('Too many requests.', 429));
+    registration().reject(new ApiProblem('Too many requests.', 429));
     await settle();
     expect(statuses.at(-1)).toMatchObject({ retrying: true });
   });
@@ -105,7 +105,7 @@ describe('AccountSequence', () => {
   it('waits in the background, and tries again at once on returning to the front', async () => {
     const sequence = new AccountSequence(deps);
     sequence.start(false);
-    registration().reject(new AccountProblem("Can't reach Sikemux."));
+    registration().reject(new ApiProblem("Can't reach Sikemux."));
     await settle();
     await vi.advanceTimersByTimeAsync(120_000);
     expect(registrations).toEqual([]);
@@ -118,7 +118,7 @@ describe('AccountSequence', () => {
   it('tries again at once when the network comes back, even after a refusal', async () => {
     const sequence = new AccountSequence(deps);
     sequence.start(true);
-    registration().reject(new AccountProblem('Sign in again.', 401));
+    registration().reject(new ApiProblem('Sign in again.', 401));
     await settle();
     sequence.online();
     expect(registrations).toHaveLength(1);

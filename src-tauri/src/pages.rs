@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use sikemux_process::sync::Locked;
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::{AppHandle, Manager, Runtime, State, UriSchemeContext, UriSchemeResponder};
 
@@ -35,10 +36,7 @@ pub struct Pages {
 
 impl Pages {
     fn theme(&self) -> String {
-        self.theme
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .clone()
+        self.theme.locked().clone()
     }
 
     /// The page with the current theme, the base styles and the bootstrap
@@ -158,10 +156,7 @@ fn theme_rule(dark: bool, variables: &BTreeMap<String, String>) -> String {
 
 #[tauri::command]
 pub fn page_theme(pages: State<'_, Pages>, dark: bool, variables: BTreeMap<String, String>) {
-    *pages
-        .theme
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner()) = theme_rule(dark, &variables);
+    *pages.theme.locked() = theme_rule(dark, &variables);
 }
 
 /// The core kept a page the agent showed: the draft's tab has done its job,

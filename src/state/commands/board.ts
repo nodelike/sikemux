@@ -8,7 +8,7 @@ function keep(d: Draft<StoreState>, board: ProjectBoard): void {
     d.agentBoardAuto[board.project] = { settings: board.settings, running: board.running, autoNote: board.autoNote };
 }
 
-export const openBoard = (): void => ensureRoleWindow("board", "board", "Board");
+export const openBoard = (): void => ensureRoleWindow("board");
 
 /** Takes the boards the core sent, which replace the app's copies of those projects. */
 export function setAgentBoards(boards: readonly ProjectBoard[]): void {

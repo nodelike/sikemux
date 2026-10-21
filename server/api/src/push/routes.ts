@@ -5,10 +5,10 @@ import { sql } from "kysely";
 import { audit } from "../audit.ts";
 import { allow, type AuthEnv } from "../auth.ts";
 import type { Database } from "../db.ts";
-import { consumeChallenge } from "../devices/challenge.ts";
+import { proveKey } from "../devices/challenge.ts";
 import { ownedDevice } from "../devices/owned.ts";
-import { pushTokenMessage, signedBy } from "../devices/signature.ts";
-import { ApiFailure, readBody } from "../http.ts";
+import { pushTokenMessage } from "../devices/signature.ts";
+import { badRequest, readBody } from "../http.ts";
 import { limit, type RateLimiter } from "../limits.ts";
 import type { PushSettings } from "./settings.ts";
 
@@ -31,40 +31,27 @@ export function pushTokenRoutes(
         (registration.platform === "apns") !==
         (registration.apnsEnvironment !== undefined)
       )
-        throw new ApiFailure(
-          400,
-          "bad_request",
+        throw badRequest(
           "APNs tokens say which environment issued them; FCM tokens do not.",
         );
       if (registration.app !== settings.app)
-        throw new ApiFailure(
-          400,
-          "bad_request",
+        throw badRequest(
           `This server delivers only to the ${settings.app} app.`,
         );
       if (registration.apnsEnvironment === "sandbox" && !settings.allowSandbox)
-        throw new ApiFailure(
-          400,
-          "bad_request",
+        throw badRequest(
           "This server does not deliver through Apple's sandbox.",
         );
 
-      await consumeChallenge(db, userId, registration.nonce);
+      await proveKey(db, userId, {
+        nonce: registration.nonce,
+        key,
+        message: pushTokenMessage(registration.nonce, key, registration.token),
+        signature: registration.signature,
+      });
 
       const updatedAt = await db.transaction().execute(async (trx) => {
         await ownedDevice(trx, userId, key, { role: "client", lock: true });
-        if (
-          !signedBy(
-            key,
-            pushTokenMessage(registration.nonce, key, registration.token),
-            registration.signature,
-          )
-        )
-          throw new ApiFailure(
-            403,
-            "forbidden",
-            "The signature does not prove this phone holds the key.",
-          );
 
         await trx
           .deleteFrom("push_tokens")

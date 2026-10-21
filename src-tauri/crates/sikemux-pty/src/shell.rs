@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use portable_pty::CommandBuilder;
+use sikemux_process::vars;
 
 use crate::error::{PtyError, PtyResult};
 use crate::launch::PtyContext;
@@ -280,7 +281,7 @@ pub fn configure_shell_integration(
         ShellKind::Zsh => Ok(None),
         ShellKind::Bash => {
             let (directory, path) = temporary_shell_file(Path::new("bashrc"), BASH_INTEGRATION)?;
-            cmd.env("SIKEMUX_SHELL_INTEGRATION", "1");
+            cmd.env(vars::SHELL_INTEGRATION, "1");
             cmd.arg("--rcfile");
             cmd.arg(path);
             Ok(Some(ShellLaunchIntegration {
@@ -288,14 +289,14 @@ pub fn configure_shell_integration(
             }))
         }
         ShellKind::Fish => {
-            cmd.env("SIKEMUX_SHELL_INTEGRATION", "1");
+            cmd.env(vars::SHELL_INTEGRATION, "1");
             // Fish's native init command runs after its normal configuration
             // chain, preserving user/vendor conf.d scripts and autoload paths.
             cmd.args(["--init-command", FISH_INTEGRATION]);
             Ok(Some(ShellLaunchIntegration { files: None }))
         }
         ShellKind::PowerShell => {
-            cmd.env("SIKEMUX_SHELL_INTEGRATION", "1");
+            cmd.env(vars::SHELL_INTEGRATION, "1");
             cmd.args(["-NoExit", "-Command", POWERSHELL_INTEGRATION]);
             Ok(Some(ShellLaunchIntegration { files: None }))
         }

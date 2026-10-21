@@ -308,7 +308,7 @@ describe("rust", () => {
   it("maps optional and nullable fields to Option, skipping only the optional ones", () => {
     expect(out).toContain("    pub last_seen_at: Option<String>,\n");
     expect(out).toContain(
-      '    #[serde(default, skip_serializing_if = "Option::is_none")]\n    pub channel: Option<String>,\n',
+      '    #[serde(skip_serializing_if = "Option::is_none")]\n    pub channel: Option<String>,\n',
     );
   });
 

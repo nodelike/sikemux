@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
-use super::limits::{release_counter_slots, reserve_open_document_slot, OPEN_DOCUMENT_COUNT};
-use super::lsp;
+use super::limits::check_open_document_slot;
 use super::protocol::path_to_uri;
 use super::server::{OpenDoc, ServerHandle};
 use super::transport::notify;
@@ -43,10 +43,10 @@ pub(super) fn open_document(
         return Err(AppError::Lsp("server shut down".into()));
     }
     let hash = content_hash(&content);
-    let mut documents = server.open_docs.lock().map_err(lsp)?;
+    let mut documents = server.open_docs.locked();
 
     if documents.contains_key(path) {
-        let mut last_change = server.last_change.lock().map_err(lsp)?;
+        let mut last_change = server.last_change.locked();
         let previous = *documents
             .get(path)
             .expect("document disappeared while its map is locked");
@@ -87,14 +87,8 @@ pub(super) fn open_document(
         return result;
     }
 
-    reserve_open_document_slot(documents.len(), &OPEN_DOCUMENT_COUNT)?;
-    let mut last_change = match server.last_change.lock() {
-        Ok(last_change) => last_change,
-        Err(error) => {
-            release_counter_slots(&OPEN_DOCUMENT_COUNT, 1);
-            return Err(lsp(error));
-        }
-    };
+    check_open_document_slot(documents.len())?;
+    let mut last_change = server.last_change.locked();
     let previous_hash = last_change.insert(path.to_owned(), hash);
     documents.insert(
         path.to_owned(),
@@ -118,7 +112,6 @@ pub(super) fn open_document(
     if result.is_err() {
         documents.remove(path);
         restore_last_change(&mut last_change, path, previous_hash);
-        release_counter_slots(&OPEN_DOCUMENT_COUNT, 1);
     }
     result
 }
@@ -133,11 +126,11 @@ pub(super) fn change_document(
         return Err(AppError::Lsp("server shut down".into()));
     }
     let hash = content_hash(&content);
-    let mut documents = server.open_docs.lock().map_err(lsp)?;
+    let mut documents = server.open_docs.locked();
     let previous = *documents
         .get(path)
         .ok_or_else(|| AppError::Lsp("document not open".into()))?;
-    let mut last_change = server.last_change.lock().map_err(lsp)?;
+    let mut last_change = server.last_change.locked();
     let previous_hash = last_change.get(path).copied();
     if previous_hash == Some(hash) {
         return Ok(());
@@ -172,11 +165,11 @@ pub(super) fn change_document_incremental(
     if server.shutdown.load(Ordering::Acquire) {
         return Err(AppError::Lsp("server shut down".into()));
     }
-    let mut documents = server.open_docs.lock().map_err(lsp)?;
+    let mut documents = server.open_docs.locked();
     let previous = *documents
         .get(path)
         .ok_or_else(|| AppError::Lsp("document not open".into()))?;
-    let mut last_change = server.last_change.lock().map_err(lsp)?;
+    let mut last_change = server.last_change.locked();
     let previous_hash = last_change.remove(path);
     let version = requested_version.max(previous.version.saturating_add(1));
     documents

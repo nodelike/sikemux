@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use git2::{ErrorCode, Repository};
 use serde::Serialize;
+use sikemux_process::sync::Locked;
 
 use super::log::{children_before_parents, describe_commits, GitCommit};
 use super::{default_remote, git_ok, git_walk_permit, open_repo, run_blocking};
@@ -131,10 +132,8 @@ fn file_text_at(repo: &str, rev: &str, path: &str) -> Result<String, String> {
     let cacheable = is_immutable_rev(rev);
     let key = (repo.to_string(), rev.to_string(), path.to_string());
     if cacheable {
-        if let Ok(mut cache) = file_at_cache().lock() {
-            if let Some(hit) = cache.get(&key) {
-                return Ok(hit);
-            }
+        if let Some(hit) = file_at_cache().locked().get(&key) {
+            return Ok(hit);
         }
     }
     let r = open_repo(repo)?;
@@ -166,9 +165,7 @@ fn file_text_at(repo: &str, rev: &str, path: &str) -> Result<String, String> {
         }
     };
     if cacheable {
-        if let Ok(mut cache) = file_at_cache().lock() {
-            cache.insert(key, content.clone());
-        }
+        file_at_cache().locked().insert(key, content.clone());
     }
     Ok(content)
 }

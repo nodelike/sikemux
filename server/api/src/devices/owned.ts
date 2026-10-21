@@ -2,7 +2,7 @@ import type { DeviceRole } from "@sikemux/protocol";
 import type { Kysely } from "kysely";
 
 import type { Tables } from "../db.ts";
-import { ApiFailure } from "../http.ts";
+import { notFound } from "../http.ts";
 
 const MISSING: Record<DeviceRole | "any", string> = {
   host: "None of your hosts has that key.",
@@ -27,6 +27,6 @@ export async function ownedDevice(
     .where("user_id", "=", userId);
   if (role) query = query.where("role", "=", role);
   const device = await (lock ? query.forUpdate() : query).executeTakeFirst();
-  if (!device) throw new ApiFailure(404, "not_found", MISSING[role ?? "any"]);
+  if (!device) throw notFound(MISSING[role ?? "any"]);
   return device;
 }

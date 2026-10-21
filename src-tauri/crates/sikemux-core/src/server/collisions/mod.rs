@@ -14,13 +14,14 @@ mod watch;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use serde_json::Value;
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use super::edits::{self, authors, before, changed, line_count, replaced, Change, Changes, Edit};
 use super::names::project_of;
-use super::remote::unix_ms;
 use super::wake::{sooner, Wake};
 use super::Core;
 pub(crate) use checks::Failing;
@@ -294,16 +295,10 @@ impl Collisions {
         }
     }
 
-    pub(super) fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// Starts and stops watching what the last change asked for.
     fn watch_files(&self) {
         let (follow, unfollow) = {
-            let mut state = self.lock();
+            let mut state = self.state.locked();
             (
                 std::mem::take(&mut state.follow),
                 std::mem::take(&mut state.unfollow),
@@ -349,7 +344,7 @@ impl Collisions {
         let ended = matches!(status, Some("completed" | "failed"));
         let key = (agent_id.to_owned(), id.to_owned());
         let (call, began) = {
-            let mut state = self.lock();
+            let mut state = self.state.locked();
             if !state.calls.contains_key(&key) && state.calls.len() >= MAX_CALLS {
                 let oldest = state
                     .calls
@@ -361,7 +356,7 @@ impl Collisions {
                 }
             }
             let call = state.calls.entry(key.clone()).or_insert_with(|| Call {
-                at: unix_ms(),
+                at: epoch_ms(),
                 ..Call::default()
             });
             let was_command = call.kind == "execute";
@@ -387,7 +382,7 @@ impl Collisions {
                     }
                     runs.push_back(ShellRun {
                         started: call.at,
-                        ended: unix_ms(),
+                        ended: epoch_ms(),
                         command: call.command.clone(),
                     });
                 }
@@ -419,8 +414,8 @@ impl Collisions {
     /// Keeps `text` as the copy of `path` the agent last saw.
     fn keep_seen(&self, agent_id: &str, path: &Path, text: Arc<str>) {
         self.observe(path, text.clone(), None);
-        let mut state = self.lock();
-        let at = unix_ms();
+        let mut state = self.state.locked();
+        let at = epoch_ms();
         let key = (agent_id.to_owned(), path.to_path_buf());
         let freed = state.seen.get(&key).map_or(0, |copy| copy.text.len());
         state.bytes = state.bytes.saturating_sub(freed) + text.len();
@@ -431,7 +426,7 @@ impl Collisions {
     /// Notes that `path` holds `text`, made by `by` when known. A change no
     /// edit tool claims is looked at once the grace time has passed.
     fn observe(&self, path: &Path, text: Arc<str>, by: Option<&str>) {
-        let now = unix_ms();
+        let now = epoch_ms();
         let written = match by {
             Some(_) => Written {
                 at: now,
@@ -439,7 +434,7 @@ impl Collisions {
             },
             None => Written::of(path, now),
         };
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         let tracked = state.files.contains_key(path);
         if !tracked {
             state.follow.push(path.to_path_buf());
@@ -485,7 +480,7 @@ impl Collisions {
 
     /// A file in a watched folder changed on disk.
     pub(crate) fn disk_changed(&self, path: &Path) {
-        if !self.lock().files.contains_key(path) {
+        if !self.state.locked().files.contains_key(path) {
             return;
         }
         if let Some(text) = read(path) {
@@ -502,7 +497,7 @@ impl Collisions {
             let path = real(&cwd.join(&*path));
             let Some(now) = read(&path) else { continue };
             let (prior, base, until) = {
-                let state = self.lock();
+                let state = self.state.locked();
                 let file = state.files.get(&path);
                 (
                     file.and_then(|file| file.before(&now)),
@@ -535,7 +530,7 @@ impl Collisions {
                     }
                 }
             }
-            let mut state = self.lock();
+            let mut state = self.state.locked();
             let key = (agent_id.to_owned(), path.clone());
             let freed = state.seen.get(&key).map_or(0, |copy| copy.text.len());
             state.bytes = state.bytes.saturating_sub(freed) + now.len();
@@ -543,7 +538,7 @@ impl Collisions {
                 key.clone(),
                 Copy {
                     text: now,
-                    at: unix_ms(),
+                    at: epoch_ms(),
                 },
             );
             match prior_text {
@@ -583,7 +578,7 @@ impl Collisions {
         if std::fs::write(path, &*result).is_err() {
             return None;
         }
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         let note = mended_note(core, &state, agent_id, path, base, &merged.kept);
         tell(&mut state, agent_id, note);
         drop(state);
@@ -599,7 +594,8 @@ impl Collisions {
             let path = PathBuf::from(&edit.path);
             self.claim(core, project, edit, &path);
             let prior = self
-                .lock()
+                .state
+                .locked()
                 .priors
                 .remove(&(edit.agent_id.clone(), path.clone()));
             let Some(prior) = prior else { continue };
@@ -664,8 +660,8 @@ impl Collisions {
         owner: &str,
         lines: &[(u64, u64)],
     ) {
-        let now = unix_ms();
-        let mut state = self.lock();
+        let now = epoch_ms();
+        let mut state = self.state.locked();
         let overlap = state
             .overlaps
             .entry((path.to_path_buf(), writer.to_owned(), owner.to_owned()))
@@ -684,10 +680,10 @@ impl Collisions {
     /// Holds or refreshes `edit`'s agent's claim on a fragile file, or tells
     /// both agents when another holds it.
     fn claim(&self, core: &Core, project: &str, edit: &Edit, path: &Path) {
-        let known = self.lock().fragile.get(path).copied();
+        let known = self.state.locked().fragile.get(path).copied();
         let why = known.unwrap_or_else(|| {
             let why = fragile::why(path);
-            let mut state = self.lock();
+            let mut state = self.state.locked();
             if state.fragile.len() >= MAX_FRAGILE {
                 state.fragile.clear();
             }
@@ -697,9 +693,9 @@ impl Collisions {
         let Some(why) = why else {
             return;
         };
-        let now = unix_ms();
+        let now = epoch_ms();
         let agent = &edit.agent_id;
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         let holder = state
             .claims
             .get(path)
@@ -767,9 +763,9 @@ impl Collisions {
         commit: &str,
         message: &str,
     ) {
-        let now = unix_ms();
+        let now = epoch_ms();
         let project = project_of(top, &core.workspaces.project_paths());
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         for path in paths {
             let path = real(&top.join(path));
             let key = (agent_id.to_owned(), path.clone());
@@ -811,7 +807,7 @@ impl Collisions {
 
     /// The pairs of agents that keep colliding.
     pub(crate) fn pairs(&self) -> Vec<Pair> {
-        let state = self.lock();
+        let state = self.state.locked();
         let mut pairs: Vec<Pair> = Vec::new();
         for hit in &state.hits {
             let same = |pair: &&mut Pair| {
@@ -838,7 +834,7 @@ impl Collisions {
 
     /// The projects whose check has failed long enough for the person to hear.
     pub(crate) fn failing(&self) -> Vec<Failing> {
-        self.lock().checks.failing().cloned().collect()
+        self.state.locked().checks.failing().cloned().collect()
     }
 
     /// `project`'s branch moved, by whatever commit, an agent's own `git
@@ -870,7 +866,8 @@ impl Collisions {
                 agents,
             };
             core.collisions
-                .lock()
+                .state
+                .locked()
                 .checks
                 .wait(project.clone(), dir, commit);
             core.collisions.wake.now();
@@ -1035,9 +1032,9 @@ struct Unclaimed {
 /// collisions' wake is woken.
 pub(crate) fn settle(core: &Arc<Core>) {
     let collisions = &core.collisions;
-    let now = unix_ms();
+    let now = epoch_ms();
     let mut next = None;
-    let mut state = collisions.lock();
+    let mut state = collisions.state.locked();
     while state
         .hits
         .front()
@@ -1148,8 +1145,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         });
     }
     if publish {
-        let core = core.clone();
-        tokio::task::spawn_blocking(move || core.publish_device_view());
+        core.view_changed();
     }
 }
 
@@ -1225,7 +1221,7 @@ impl Collisions {
         };
         if let Some((agent, true)) = &writer {
             let key = (agent.clone(), path.clone());
-            let base = self.lock().seen.get(&key).cloned();
+            let base = self.state.locked().seen.get(&key).cloned();
             if let Some(base) = base.filter(|base| base.at < at && base.text != prior) {
                 if self.changed_by_others(core, agent, &path, &base, at) {
                     self.mend(core, agent, &path, &base, &prior, &now);
@@ -1233,7 +1229,7 @@ impl Collisions {
             }
         }
         {
-            let mut state = self.lock();
+            let mut state = self.state.locked();
             for agent in &shells {
                 let key = (agent.clone(), path.clone());
                 let older = state.seen.get(&key).map(|copy| (copy.at, copy.text.len()));
@@ -1326,7 +1322,7 @@ impl Collisions {
         until: u64,
     ) -> bool {
         let unclaimed: Vec<Written> = {
-            let state = self.lock();
+            let state = self.state.locked();
             let mut unclaimed = Vec::new();
             for version in state
                 .files
@@ -1391,7 +1387,7 @@ impl Collisions {
 
     /// Whether an agent's edit tool is changing `path` now.
     pub(crate) fn editing(&self, path: &Path) -> bool {
-        self.lock().calls.values().any(|call| {
+        self.state.locked().calls.values().any(|call| {
             matches!(call.kind.as_str(), "edit" | "delete" | "move")
                 && call.paths.iter().any(|called| called == path)
         })
@@ -1432,7 +1428,7 @@ impl Collisions {
     ) -> BTreeMap<String, Vec<Arc<str>>> {
         let mut found: BTreeMap<String, Vec<Arc<str>>> = BTreeMap::new();
         {
-            let state = self.lock();
+            let state = self.state.locked();
             let open = state
                 .calls
                 .iter()

@@ -18,7 +18,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../api/agents", () => ({ agentApi: { available: async () => [] } }));
-vi.mock("../api/fs", () => ({ fsapi: { pathKinds: async (paths: string[]) => paths.map(() => null) } }));
+vi.mock("../api/fs", () => {
+    const fsapi = { pathKinds: async (paths: string[]) => paths.map(() => null) };
+    return { fsapi, filesOn: () => fsapi };
+});
 vi.mock("../api/git", () => ({ git: { worktrees: mocks.worktrees, overview: async () => ({ status: { branch: "main" } }) } }));
 vi.mock("../api/core", async (importOriginal) => {
     const original = await importOriginal<typeof import("../api/core")>();
@@ -130,7 +133,7 @@ describe("AgentChatPane in a worktree", () => {
         await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Fix the flaky PTY test", [], [], expect.any(String)));
         expect(mocks.start).toHaveBeenCalledTimes(2);
         expect(mocks.prompt).toHaveBeenCalledTimes(1);
-        expect(await screen.findByRole("note")).toHaveTextContent("Working in worktree sikemux/fix-the-flaky-pty-test");
+        expect(await screen.findByRole("note")).toHaveTextContent("Working in a worktree on sikemux/fix-the-flaky-pty-test");
         expect(await screen.findByRole("button", { name: "sikemux/fix-the-flaky-pty-test" })).toBeDisabled();
     });
 

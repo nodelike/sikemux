@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { chooseFactor, verifying, type Verify, type VerifyAction } from './reverify';
+import { chooseFactor } from '@protocol/account';
+
+import { verifying, type Verify, type VerifyAction } from './reverify';
 
 function run(state: Verify | undefined, ...actions: VerifyAction[]): Verify | undefined {
   return actions.reduce(verifying, state);
 }
 
-const EMAIL = { strategy: 'email_code', to: 'c***@nodelike.com' } as const;
+const EMAIL = { strategy: 'email_code', to: 'c***@nodelike.com', emailAddressId: 'idn_1' } as const;
 
 describe('proving it is them again', () => {
   const asked = run(undefined, { type: 'ask', factor: EMAIL });
@@ -30,16 +32,11 @@ describe('proving it is them again', () => {
 
 describe('chooseFactor', () => {
   it('takes the password when the account has one', () => {
-    expect(chooseFactor([{ strategy: 'email_code', emailAddressId: 'idn_1' }, { strategy: 'password' }])).toEqual({
-      factor: { strategy: 'password' },
-    });
+    expect(chooseFactor([{ strategy: 'email_code', emailAddressId: 'idn_1' }, { strategy: 'password' }])).toEqual({ strategy: 'password' });
   });
 
   it('sends a code to the email for an account signed in with Google or GitHub', () => {
-    expect(chooseFactor([{ strategy: 'email_code', emailAddressId: 'idn_1', safeIdentifier: 'c***@nodelike.com' }])).toEqual({
-      factor: EMAIL,
-      emailAddressId: 'idn_1',
-    });
+    expect(chooseFactor([{ strategy: 'email_code', emailAddressId: 'idn_1', safeIdentifier: 'c***@nodelike.com' }])).toEqual(EMAIL);
   });
 
   it('has nothing to offer without either', () => {

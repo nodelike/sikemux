@@ -20,6 +20,7 @@ import { useTranscriptScroll } from '@/chat/transcriptScroll';
 import { Activity, Earlier, EarlierLost, Message, ProviderContext, WorkSummary } from '@/chat/Transcript';
 import { phoneCipher } from '@/share/cipher';
 import { AgentIcon, Icon } from '@/ui/Icon';
+import { useMinute } from '@/ui/motion';
 import { EmptyState, type Glyph } from '@/ui/prompt';
 import { Nav, Screen } from '@/ui/screen';
 import { Working } from '@/ui/status';
@@ -126,11 +127,7 @@ function SharedChat({ session }: { session: ShareSession }) {
   const liveId = state.running ? state.messages[state.messages.length - 1]?.id : undefined;
   const marks = useMemo(() => [snapshot.replayed, liveId, workFold, openWork], [snapshot.replayed, liveId, workFold, openWork]);
   const [since] = useState(Date.now);
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useMinute() * 60_000;
   const live = snapshot.status === 'live';
   const activity = live ? activityText({ ...state, permissions: [...snapshot.permissions] }, activeToolLabel(state.messages)) : null;
   const problem = problemOf(snapshot);
@@ -178,6 +175,7 @@ function SharedChat({ session }: { session: ShareSession }) {
               <View style={styles.transcript}>
                 <FlashList
                   ref={list}
+                  showsVerticalScrollIndicator={false}
                   data={state.messages}
                   keyExtractor={(message) => message.id}
                   getItemType={(message, index) => {

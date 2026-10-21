@@ -4,6 +4,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use sikemux_process::vars;
+
 use super::protocol::CliEndpointDescriptor;
 
 /// `~/.config/sikemux/cli.json`, `cli.dev.json` in debug builds, unless
@@ -13,8 +15,7 @@ use super::protocol::CliEndpointDescriptor;
 /// Sikemux spawns so it can find the endpoint. Reading it here would let a
 /// second Sikemux started from one of those terminals publish over it.
 pub fn default_endpoint_path() -> Option<PathBuf> {
-    if let Some(path) =
-        std::env::var_os("SIKEMUX_CLI_ENDPOINT_PUBLISH").filter(|path| !path.is_empty())
+    if let Some(path) = std::env::var_os(vars::CLI_ENDPOINT_PUBLISH).filter(|path| !path.is_empty())
     {
         return Some(PathBuf::from(path));
     }

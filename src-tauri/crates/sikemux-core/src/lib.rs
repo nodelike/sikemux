@@ -8,9 +8,12 @@ pub mod acp;
 pub mod agent_accounts;
 #[rustfmt::skip]
 pub mod agent_catalog;
+mod backoff;
 pub mod cli;
 #[cfg(unix)]
 pub mod client;
+#[cfg(unix)]
+pub mod files;
 pub mod frozen;
 #[cfg(unix)]
 pub mod git;
@@ -25,6 +28,8 @@ pub use sikemux_wire::protocol;
 #[cfg(unix)]
 pub mod push;
 #[cfg(unix)]
+pub use sikemux_client::device;
+#[cfg(unix)]
 pub use sikemux_client::remote;
 #[cfg(unix)]
 pub mod pages;
@@ -34,8 +39,11 @@ pub mod server;
 pub mod sessions;
 pub mod skills;
 pub mod tasks;
+mod text;
 pub mod trailers;
 pub mod usage;
+#[cfg(unix)]
+pub mod waiting;
 
 use std::path::PathBuf;
 

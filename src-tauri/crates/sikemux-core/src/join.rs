@@ -59,7 +59,7 @@ impl Refusal {
 
 /// The exact text the server signs.
 pub fn ticket_message(ticket: &JoinTicket) -> String {
-    format!(
+    let base = format!(
         "sikemux-join|v1|{}|{}|{}|{}|{}|{}",
         ticket.key_id,
         ticket.account,
@@ -67,7 +67,27 @@ pub fn ticket_message(ticket: &JoinTicket) -> String {
         ticket.phone,
         ticket.issued_at,
         ticket.expires_at
-    )
+    );
+    match &ticket.via {
+        Some(via) => format!(
+            "{base}|{via}|{}",
+            ticket.via_name.as_deref().unwrap_or_default()
+        ),
+        None => base,
+    }
+}
+
+/// What the person is asked to let in: the app a host on the account added
+/// is named by that host, which the account vouches for, never by what the
+/// joiner calls itself.
+pub fn joiner_name(hello: &JoinHello) -> String {
+    match &hello.ticket.via {
+        Some(_) => format!(
+            "The app on {}",
+            hello.ticket.via_name.as_deref().unwrap_or("another host")
+        ),
+        None => hello.name.clone(),
+    }
 }
 
 /// The server keys a host trusts to sign tickets, by key id.

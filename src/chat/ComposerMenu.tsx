@@ -209,6 +209,7 @@ export default function ComposerMenu({
                                                 id: earlier.named?.agentId ?? earlier.chat.id,
                                                 type: earlier.chat.agent,
                                                 buddy: earlier.named?.buddy,
+                                                name: earlier.named?.name,
                                             }}
                                             size={13}
                                             logoSize={13}

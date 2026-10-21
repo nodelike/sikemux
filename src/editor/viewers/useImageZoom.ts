@@ -72,7 +72,8 @@ export function useImageZoom(
         if (!image || !stage || !dims) return;
         const { scale, x, y } = view.current;
         image.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-        image.style.visibility = "visible";
+        // Inherited, not "visible": a visible child shows through a hidden screen, and stayed over the next tab.
+        image.style.visibility = "inherit";
         const pans = dims.w * scale > stage.clientWidth + 0.5 || dims.h * scale > stage.clientHeight + 0.5;
         stage.toggleAttribute("data-pans", pans);
         setZoomState(fitted.current ? "fit" : Math.round(scale * 100) / 100);

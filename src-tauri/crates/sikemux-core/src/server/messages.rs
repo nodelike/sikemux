@@ -7,11 +7,13 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
 use crate::protocol::{AgentStatus, ChatState};
@@ -21,7 +23,6 @@ use super::chat::{self, Delivery};
 use super::connection::blocking;
 use super::kept::Kept;
 use super::names::project_of;
-use super::remote::unix_ms;
 use super::session::{self, Session};
 use super::wake::{sooner, Wake};
 use super::{agent, launching, Core};
@@ -114,13 +115,10 @@ pub(crate) struct Carried {
     pub from_name: String,
     pub cli: String,
     pub text: String,
-    #[serde(default)]
     pub note: Option<String>,
     /// The person's answer to a question, copied to the lead it went to first.
-    #[serde(default)]
     pub answered: Option<Answered>,
     /// The id of the question of its own that a lead answers.
-    #[serde(default)]
     pub question: Option<String>,
 }
 
@@ -162,7 +160,7 @@ struct Origin {
 struct Queued {
     text: String,
     /// Unknown for a message that came back unread.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<Origin>,
 }
 
@@ -276,12 +274,6 @@ enum Admitted {
 }
 
 impl Mailbox {
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// Takes up the messages left waiting for agents `known` says still
     /// exist.
     pub(crate) fn new(data_dir: Option<&Path>, known: impl Fn(&str) -> bool) -> Self {
@@ -301,7 +293,7 @@ impl Mailbox {
 
     /// Changes the messages waiting, and keeps what they are now.
     fn change<R>(&self, change: impl FnOnce(&mut State) -> R) -> R {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         let changed = change(&mut state);
         state.waiting.retain(|_, waiting| !waiting.is_empty());
         self.kept.save(&state.record());
@@ -311,7 +303,7 @@ impl Mailbox {
     }
 
     fn admit(&self, letter: &Letter, to: &str, to_name: &str) -> Result<Admitted, String> {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         let now = letter.at;
         state
             .sent
@@ -354,7 +346,7 @@ impl Mailbox {
     }
 
     fn note_sent(&self, letter: &Letter, to: &str) {
-        self.lock().sent.push_back(Sent {
+        self.state.locked().sent.push_back(Sent {
             from: letter.from_id.clone(),
             to: to.to_owned(),
             kind: letter.kind,
@@ -366,7 +358,7 @@ impl Mailbox {
     /// Holds a message of a loop, keeping the newest few each pair sent.
     /// Answers those it no longer keeps.
     fn hold(&self, from: &str, to: &str, queued: Queued) -> Vec<Queued> {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         let pair = |held: &Held| {
             (held.from == from && held.to == to) || (held.from == to && held.to == from)
         };
@@ -380,14 +372,14 @@ impl Mailbox {
             from: from.to_owned(),
             to: to.to_owned(),
             queued,
-            at: unix_ms(),
+            at: epoch_ms(),
         });
         dropped
     }
 
     /// The pairs of agents whose messages to each other are held.
     pub(crate) fn loops(&self) -> Vec<Loop> {
-        let state = self.lock();
+        let state = self.state.locked();
         let mut loops: Vec<Loop> = Vec::new();
         for held in &state.held {
             let known = loops.iter().any(|known| {
@@ -405,11 +397,12 @@ impl Mailbox {
     }
 
     pub(crate) fn has_waiting(&self, agent_id: &str) -> bool {
-        self.lock().waiting.contains_key(agent_id)
+        self.state.locked().waiting.contains_key(agent_id)
     }
 
     fn missed_pastes(&self, agent_id: &str) -> u8 {
-        self.lock()
+        self.state
+            .locked()
             .missed_pastes
             .get(agent_id)
             .copied()
@@ -529,7 +522,7 @@ pub(crate) fn task(
         from_name: lead_name.to_owned(),
         cli: lead_cli.to_owned(),
         text,
-        at: unix_ms(),
+        at: epoch_ms(),
         answers: None,
         note: Some(format!(
             "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person. {answer}"
@@ -592,7 +585,7 @@ fn log<'a>(core: &Core, to: &str, queued: impl IntoIterator<Item = &'a Queued>, 
     let Some(project) = core.names.get(to).map(|named| named.project) else {
         return;
     };
-    let at = unix_ms();
+    let at = epoch_ms();
     let to_name = core.names.name(to);
     let mut logged = false;
     for queued in queued {
@@ -612,18 +605,8 @@ fn log<'a>(core: &Core, to: &str, queued: impl IntoIterator<Item = &'a Queued>, 
         logged = true;
     }
     if logged {
-        devices_hear_of_it(core);
+        core.view_changed();
     }
-}
-
-/// Sends the device view, which carries when each project last logged a
-/// message. Building it reads every terminal, so it runs on a task of its own
-/// rather than under whatever locks the caller holds.
-fn devices_hear_of_it(core: &Core) {
-    let (Ok(runtime), Some(core)) = (tokio::runtime::Handle::try_current(), core.arc()) else {
-        return;
-    };
-    runtime.spawn_blocking(move || core.publish_device_view());
 }
 
 /// How an agent can be reached.
@@ -803,7 +786,7 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             .iter()
             .filter_map(|agent| Some((agent.agent_id.clone(), agent.name.clone()?)))
             .collect();
-        let now = unix_ms();
+        let now = epoch_ms();
         let rows: Vec<Value> = agents
             .iter()
             .filter(|agent| all || agent.project == project)
@@ -1119,7 +1102,7 @@ pub(crate) async fn from_host(
         },
         cli: carried.cli,
         text: carried.text,
-        at: unix_ms(),
+        at: epoch_ms(),
         note: carried.note,
         answers: carried.answered,
     };
@@ -1176,7 +1159,7 @@ pub(crate) async fn from_hosts(
         from_name: "Sikemux".to_owned(),
         cli: "sikemux".to_owned(),
         text,
-        at: unix_ms(),
+        at: epoch_ms(),
         note: Some(HOSTS_NOTE.to_owned()),
         answers: None,
     };
@@ -1255,7 +1238,7 @@ pub(crate) async fn answer(
         from_name: "the person".to_owned(),
         cli: "person".to_owned(),
         text,
-        at: unix_ms(),
+        at: epoch_ms(),
         note: Some(note),
         answers: Some(answered),
     });
@@ -1307,7 +1290,7 @@ pub(crate) async fn from_board(
         from_name: "Board".to_owned(),
         cli: "sikemux".to_owned(),
         text,
-        at: unix_ms(),
+        at: epoch_ms(),
         note: Some(note),
         answers: None,
     };
@@ -1328,7 +1311,7 @@ pub(crate) async fn from_sikemux(
         from_name: "Sikemux".to_owned(),
         cli: "sikemux".to_owned(),
         text,
-        at: unix_ms(),
+        at: epoch_ms(),
         note: Some("Sent by Sikemux itself, not by the person or another agent.".to_owned()),
         answers: None,
     };
@@ -1344,7 +1327,7 @@ fn auto_letter(text: String) -> Letter {
         from_name: "Auto".to_owned(),
         cli: "sikemux".to_owned(),
         text,
-        at: unix_ms(),
+        at: epoch_ms(),
         note: Some(AUTO_NOTE.to_owned()),
         answers: None,
     }
@@ -1383,7 +1366,8 @@ pub(crate) fn withdraw(core: &Core, agent_id: &str, mark: &str) {
 pub(crate) fn is_waiting(core: &Core, agent_id: &str, mark: &str) -> bool {
     core.harness
         .mailbox
-        .lock()
+        .state
+        .locked()
         .waiting
         .get(agent_id)
         .is_some_and(|waiting| waiting.iter().any(|queued| queued.text.contains(mark)))
@@ -1405,7 +1389,7 @@ fn letter_from(
         cli: sender.map_or_else(|| "agent".to_owned(), |agent| agent.cli.clone()),
         from_id: from,
         text,
-        at: unix_ms(),
+        at: epoch_ms(),
         note,
         answers: None,
     }
@@ -1474,10 +1458,6 @@ async fn deliver_as(
             kind: letter.kind,
         }),
     };
-    core.names.reached_from(
-        &target.agent_id,
-        super::hosts::sign_ins::behind(core, &letter.from_id),
-    );
     let handed = handed(core, target, letter, &queued).await;
     let outcome = handed
         .as_ref()
@@ -1536,7 +1516,7 @@ async fn handed(
             launching::wake_chat(core, target.agent_id.clone())
                 .await
                 .map_err(|error| format!("{name} is asleep and did not wake: {error}"))?;
-            mailbox.lock().wake_failed.remove(&target.agent_id);
+            mailbox.state.locked().wake_failed.remove(&target.agent_id);
             woke = " Sikemux woke it first.";
         }
         Reach::Stopped if letter.answers.is_some() || letter.kind == Kind::Report => {
@@ -1623,7 +1603,7 @@ fn rests_until(core: &Core, agent_id: &str) -> Option<u64> {
     core.seen
         .active_at(agent_id)
         .map(|at| at + SETTLE_MS)
-        .filter(|until| *until > unix_ms())
+        .filter(|until| *until > epoch_ms())
 }
 
 fn rested(core: &Core, agent_id: &str) -> bool {
@@ -1679,10 +1659,7 @@ fn paste(core: &Arc<Core>, agent_id: &str, terminal: Arc<Session>, texts: Vec<Qu
         .chars()
         .filter(|char| matches!(char, '\n' | '\t') || !char.is_control())
         .collect();
-    let pastes = terminal
-        .parser
-        .lock()
-        .is_ok_and(|parser| parser.screen().bracketed_paste());
+    let pastes = terminal.parser.locked().screen().bracketed_paste();
     let typed = if pastes {
         format!("\x1b[200~{plain}\x1b[201~")
     } else {
@@ -1708,8 +1685,15 @@ fn paste(core: &Arc<Core>, agent_id: &str, terminal: Arc<Session>, texts: Vec<Qu
             return;
         }
         session::queue_input(&terminal, b"\r".to_vec(), Box::new(drop));
-        if let Some(pasted) = core.harness.mailbox.lock().pasted.get_mut(&agent_id) {
-            pasted.entered_at = Some(unix_ms());
+        if let Some(pasted) = core
+            .harness
+            .mailbox
+            .state
+            .locked()
+            .pasted
+            .get_mut(&agent_id)
+        {
+            pasted.entered_at = Some(epoch_ms());
         }
     });
 }
@@ -1730,9 +1714,9 @@ fn unpasted(core: &Core, agent_id: &str) {
 /// loop it was in: the messages held between it and another agent go on.
 pub(crate) fn worked(core: &Core, agent_id: &str) {
     let mailbox = &core.harness.mailbox;
-    let now = unix_ms();
+    let now = epoch_ms();
     let looped = {
-        let mut state = mailbox.lock();
+        let mut state = mailbox.state.locked();
         state
             .worked
             .retain(|_, at| now.saturating_sub(*at) < PAIR_WINDOW_MS);
@@ -1772,7 +1756,7 @@ pub(crate) fn used_tool(core: &Core, agent_id: &str, tool: &str) {
 pub(crate) fn prompt_taken(core: &Core, agent_id: &str) {
     let mailbox = &core.harness.mailbox;
     let taken = {
-        let mut state = mailbox.lock();
+        let mut state = mailbox.state.locked();
         state.missed_pastes.remove(agent_id);
         let entered = state
             .pasted
@@ -1801,7 +1785,7 @@ pub(crate) fn prompt_taken(core: &Core, agent_id: &str) {
 /// turn of its own makes it worth typing into again.
 pub(crate) fn prompt_settled(core: &Core, agent_id: &str, last_output_ms: u64) {
     let entered_at = {
-        let mut state = core.harness.mailbox.lock();
+        let mut state = core.harness.mailbox.state.locked();
         match state.pasted.get(agent_id) {
             Some(pasted) => pasted.entered_at,
             None => {
@@ -1823,14 +1807,14 @@ pub(crate) fn prompt_settled(core: &Core, agent_id: &str, last_output_ms: u64) {
 /// and again when an agent still resting from a turn is due.
 pub(crate) fn settle(core: &Arc<Core>) {
     let mailbox = &core.harness.mailbox;
-    let pasted: Vec<String> = mailbox.lock().pasted.keys().cloned().collect();
+    let pasted: Vec<String> = mailbox.state.locked().pasted.keys().cloned().collect();
     for agent_id in pasted {
         if core.agent_session(&agent_id).is_none() {
             unpasted(core, &agent_id);
         }
     }
     let due: Vec<String> = {
-        let mut state = mailbox.lock();
+        let mut state = mailbox.state.locked();
         let State {
             waiting,
             wake_failed,
@@ -1875,9 +1859,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
             if !core.window.is_open() {
                 continue;
             }
-            let failed = mailbox.lock().wake_failed.get(&agent_id).copied();
+            let failed = mailbox.state.locked().wake_failed.get(&agent_id).copied();
             match failed.map(|at| at + WAKE_RETRY_MS) {
-                Some(retry) if retry > unix_ms() => next = sooner(next, Some(retry)),
+                Some(retry) if retry > epoch_ms() => next = sooner(next, Some(retry)),
                 _ => deliver_later(core, agent_id, Pending::Asleep),
             }
         } else if core.workspaces.closed(&agent_id) {
@@ -1896,7 +1880,7 @@ enum Pending {
 
 fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
     let mailbox = &core.harness.mailbox;
-    if !mailbox.lock().delivering.insert(agent_id.clone()) {
+    if !mailbox.state.locked().delivering.insert(agent_id.clone()) {
         return;
     }
     let core = core.clone();
@@ -1914,14 +1898,14 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
             }
             Pending::Asleep => {
                 let woke = launching::wake_chat(&core, agent_id.clone()).await;
-                let mut state = mailbox.lock();
+                let mut state = mailbox.state.locked();
                 match woke {
                     Ok(_) => state.wake_failed.remove(&agent_id),
-                    Err(_) => state.wake_failed.insert(agent_id.clone(), unix_ms()),
+                    Err(_) => state.wake_failed.insert(agent_id.clone(), epoch_ms()),
                 };
             }
         }
-        mailbox.lock().delivering.remove(&agent_id);
+        mailbox.state.locked().delivering.remove(&agent_id);
         mailbox.wake.now();
     });
 }

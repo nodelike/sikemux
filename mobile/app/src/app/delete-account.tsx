@@ -2,12 +2,12 @@ import { useReducer } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth, useUser } from '@clerk/expo';
+import { CONFIRM_WORD, explain } from '@protocol/account';
 
 import { deleteAccount } from '@/account/api';
 import { appleConsent } from '@/account/apple';
-import { explain } from '@/account/clerkErrors';
 import { ConfirmItsYou, ReverifyCancelled, useRecentSignIn } from '@/account/ConfirmItsYou';
-import { CONFIRM_WORD, confirmed, deletion, START } from '@/account/deletion';
+import { confirmed, deletion, START } from '@/account/deletion';
 import { signOutHere } from '@/account/leave';
 import { Button, Field } from '@/ui/controls';
 import { Prompt } from '@/ui/prompt';
@@ -65,7 +65,10 @@ export default function DeleteAccount() {
   return (
     <Screen>
       <Nav back="Back" onBack={() => router.back()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: bottom }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: bottom }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
         <Prompt
           icon="IconTrash"
           tone="danger"

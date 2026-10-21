@@ -164,7 +164,21 @@ fn as_replayed(events: &[ChatEvent]) -> Vec<(ChatEventKind, Value)> {
         match event.kind {
             ChatEventKind::Status | ChatEventKind::Ready => continue,
             ChatEventKind::SessionUpdate => {
-                for update in updates(std::slice::from_ref(event)) {
+                for mut update in updates(std::slice::from_ref(event)) {
+                    if let Some(ours) = update
+                        .pointer_mut("/update/_meta/sikemux")
+                        .and_then(Value::as_object_mut)
+                    {
+                        ours.remove("md");
+                    }
+                    if update["update"]["_meta"]["sikemux"]
+                        .as_object()
+                        .is_some_and(serde_json::Map::is_empty)
+                    {
+                        if let Some(update) = update["update"].as_object_mut() {
+                            update.remove("_meta");
+                        }
+                    }
                     let joins = folded.last().is_some_and(|(kind, last)| {
                         *kind == ChatEventKind::SessionUpdate
                             && last["update"]["sessionUpdate"] == "agent_message_chunk"

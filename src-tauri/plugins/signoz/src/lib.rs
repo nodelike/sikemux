@@ -28,7 +28,8 @@ use reqwest::Method;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
+    SignInStatus, StreamSink,
 };
 
 use crate::config::AuthMode;
@@ -44,38 +45,34 @@ struct Signoz {
     manifest: Manifest,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-struct Status {
-    configured: bool,
+struct Where {
     url: String,
     auth: AuthMode,
     email: String,
     key_from_environment: bool,
     version: Option<String>,
-    ok: bool,
-    auth_failed: bool,
-    message: Option<String>,
 }
 
+type Status = SignInStatus<Where>;
+
 async fn status(data_dir: &Path) -> Status {
-    let config = auth::load(data_dir).await.unwrap_or_default();
-    let key_from_environment = config::env_api_key().is_some();
-    let base = |ok, auth_failed, version, message| Status {
-        configured: !config.url.is_empty(),
+    let config = match auth::load(data_dir).await {
+        Ok(config) => config,
+        Err(error) => return status_of(false, Where::default(), Some(error)),
+    };
+    let mut found = Where {
         url: config.url.clone(),
         auth: config.auth,
         email: config.email.clone(),
-        key_from_environment,
-        version,
-        ok,
-        auth_failed,
-        message,
+        key_from_environment: config::env_api_key().is_some(),
+        version: None,
     };
     if config.url.is_empty() {
-        return base(false, false, None, None);
+        return status_of(false, found, None);
     }
-    let version = client::send(
+    found.version = client::send(
         &auth::Credentials::anonymous(&config.url),
         Method::GET,
         "/api/v1/version",
@@ -93,20 +90,28 @@ async fn status(data_dir: &Path) -> Status {
         query::window(Some(1)),
         json!({ "signal": "logs", "limit": 1 }),
     );
-    match client::query_range(data_dir, &probe).await {
-        Ok(_) => base(true, false, version, None),
-        Err(error) => {
-            let auth_failed = matches!(
-                error,
+    let check = client::query_range(data_dir, &probe).await.err();
+    status_of(true, found, check)
+}
+
+/// A credential that is missing or that SigNoz turns down needs signing in again.
+fn status_of(configured: bool, found: Where, error: Option<SignozError>) -> Status {
+    Status {
+        configured,
+        ok: configured && error.is_none(),
+        auth_failed: matches!(
+            error,
+            Some(
                 SignozError::Unconfigured
                     | SignozError::Auth(_)
                     | SignozError::Http {
                         status: 401 | 403,
                         ..
                     }
-            );
-            base(false, auth_failed, version, Some(error.to_string()))
-        }
+            )
+        ),
+        message: error.map(|error| error.to_string()),
+        details: found,
     }
 }
 
@@ -118,12 +123,6 @@ fn has_credentials(config: &config::SignozConfig) -> bool {
 async fn signed_in(data_dir: &Path, outcome: SignozResult<()>) -> Result<Value, PluginError> {
     outcome?;
     reply(status(data_dir).await)
-}
-
-async fn answer<T: Serialize>(
-    result: impl std::future::Future<Output = SignozResult<T>>,
-) -> Result<Value, PluginError> {
-    reply(result.await?)
 }
 
 impl Plugin for Signoz {

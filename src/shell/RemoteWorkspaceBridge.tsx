@@ -25,7 +25,7 @@ export function RemoteWorkspaceBridge() {
     const buddyShape = useStore((s) => s.buddyShape);
     const buddyMotion = useStore((s) => s.buddyMotion);
     const buddies = useMemo(
-        () => JSON.stringify(buddiesOn ? publishBuddies(Object.values(agents), { pack: buddyPack, shape: buddyShape }, buddyMotion) : null),
+        () => JSON.stringify(publishBuddies(Object.values(agents), { pack: buddyPack, shape: buddyShape }, buddyMotion, buddiesOn)),
         [buddiesOn, agents, buddyPack, buddyShape, buddyMotion],
     );
     const active = useStore((s) => activeAgentId(s, s.sessions[s.activeSessionId]));
@@ -69,7 +69,7 @@ export function RemoteWorkspaceBridge() {
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
-            remoteApi.publishBuddies(JSON.parse(buddies) as PublishedBuddies | null).catch(swallow("publish buddies to the core"));
+            remoteApi.publishBuddies(JSON.parse(buddies) as PublishedBuddies).catch(swallow("publish buddies to the core"));
         }, PUBLISH_DELAY_MS);
         return () => window.clearTimeout(timer);
     }, [buddies]);

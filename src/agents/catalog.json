@@ -6,13 +6,39 @@
             "about": "Anthropic's coding agent",
             "command": "claude",
             "brand": "#d97757",
+            "featured": true,
             "accounts": true,
             "usage": true,
             "deletableChats": true,
-            "bypass": true,
             "efforts": ["low", "medium", "high", "xhigh", "max"],
             "install": "curl -fsSL https://claude.ai/install.sh | bash",
-            "login": ["auth", "login"]
+            "login": ["auth", "login"],
+            "probe": ["--version"],
+            "installPaths": ["~/.claude/local/claude", "~/.claude/bin/claude"],
+            "gitShimArgs": [],
+            "home": {
+                "variable": "CLAUDE_CONFIG_DIR",
+                "dir": ".claude",
+                "sessions": "projects"
+            },
+            "terminal": {
+                "normal": ["--permission-mode", "acceptEdits"],
+                "bypass": ["--dangerously-skip-permissions"],
+                "effort": ["--effort", "{}"],
+                "resume": {
+                    "flag": "--resume"
+                },
+                "withChoices": []
+            },
+            "chat": {
+                "driver": "claude"
+            },
+            "providers": "routed",
+            "resumesByPath": false,
+            "relocatableSessions": true,
+            "commitMessages": {
+                "model": "sonnet"
+            }
         },
         {
             "type": "codex",
@@ -20,13 +46,39 @@
             "about": "OpenAI's coding agent",
             "command": "codex",
             "brand": "#7a9dff",
+            "featured": true,
             "accounts": true,
             "usage": true,
             "deletableChats": true,
-            "bypass": true,
             "efforts": ["minimal", "low", "medium", "high", "xhigh", "max"],
             "install": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-            "login": ["login"]
+            "login": ["login"],
+            "probe": ["--version"],
+            "installPaths": ["/Applications/ChatGPT.app/Contents/Resources/codex"],
+            "gitShimArgs": ["-c", "allow_login_shell=false"],
+            "home": {
+                "variable": "CODEX_HOME",
+                "dir": ".codex",
+                "sessions": "sessions"
+            },
+            "terminal": {
+                "normal": ["--sandbox", "workspace-write"],
+                "bypass": ["--dangerously-bypass-approvals-and-sandbox"],
+                "effort": ["--config", "model_reasoning_effort=\"{}\""],
+                "resume": {
+                    "subcommand": "resume"
+                },
+                "withChoices": []
+            },
+            "chat": {
+                "driver": "codex"
+            },
+            "providers": "routed",
+            "resumesByPath": false,
+            "relocatableSessions": true,
+            "commitMessages": {
+                "model": "gpt-5.5"
+            }
         },
         {
             "type": "hermes",
@@ -34,13 +86,49 @@
             "about": "Nous Research's coding agent",
             "command": "hermes",
             "brand": "#e0a050",
+            "featured": false,
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": true,
             "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
             "install": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
-            "login": ["model"]
+            "login": ["model"],
+            "probe": ["--help"],
+            "installPaths": [],
+            "gitShimArgs": [],
+            "home": {
+                "variable": "HERMES_HOME",
+                "dir": ".hermes",
+                "private": {
+                    "config": "config.yaml",
+                    "emptyConfig": "{}\n",
+                    "sessionStore": "state.db",
+                    "sessionStoreIsFolder": false
+                }
+            },
+            "terminal": {
+                "normal": [],
+                "bypass": ["--yolo"],
+                "effort": ["--reasoning", "{}"],
+                "resume": {
+                    "flag": "--resume"
+                },
+                "withChoices": ["--tui"]
+            },
+            "chat": {
+                "driver": "acp",
+                "args": ["acp"],
+                "modes": {
+                    "normal": "accept_edits",
+                    "bypass": "dont_ask"
+                }
+            },
+            "providers": null,
+            "resumesByPath": false,
+            "relocatableSessions": false,
+            "commitMessages": {
+                "model": "openai/gpt-5.5"
+            }
         },
         {
             "type": "pi",
@@ -48,13 +136,34 @@
             "about": "A minimal terminal coding agent",
             "command": "pi",
             "brand": "#7dd3fc",
+            "featured": false,
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": false,
             "efforts": ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
             "install": "curl -fsSL https://pi.dev/install.sh | sh",
-            "login": null
+            "login": null,
+            "probe": ["--version"],
+            "installPaths": [],
+            "gitShimArgs": [],
+            "home": {
+                "variable": "PI_CODING_AGENT_DIR",
+                "dir": ".pi/agent"
+            },
+            "terminal": {
+                "normal": [],
+                "bypass": null,
+                "effort": ["--thinking", "{}"],
+                "resume": {
+                    "flag": "--session"
+                },
+                "withChoices": []
+            },
+            "chat": null,
+            "providers": "reads",
+            "resumesByPath": true,
+            "relocatableSessions": false,
+            "commitMessages": null
         },
         {
             "type": "opencode",
@@ -62,13 +171,34 @@
             "about": "An open-source agent for many model providers",
             "command": "opencode",
             "brand": "#a78bfa",
+            "featured": false,
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": false,
             "efforts": [],
             "install": "curl -fsSL https://opencode.ai/install | bash",
-            "login": ["auth", "login"]
+            "login": ["auth", "login"],
+            "probe": ["--version"],
+            "installPaths": ["~/.opencode/bin/opencode"],
+            "gitShimArgs": [],
+            "home": null,
+            "terminal": {
+                "normal": [],
+                "bypass": null,
+                "effort": null,
+                "resume": {
+                    "flag": "--session"
+                },
+                "withChoices": []
+            },
+            "chat": {
+                "driver": "acp",
+                "args": ["acp"]
+            },
+            "providers": "reads",
+            "resumesByPath": false,
+            "relocatableSessions": false,
+            "commitMessages": null
         },
         {
             "type": "omp",
@@ -76,13 +206,34 @@
             "about": "oh-my-pi, a terminal coding agent",
             "command": "omp",
             "brand": "#f97316",
+            "featured": false,
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": true,
             "efforts": ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
             "install": "curl -fsSL https://omp.sh/install | sh",
-            "login": ["login"]
+            "login": ["login"],
+            "probe": ["--version"],
+            "installPaths": [],
+            "gitShimArgs": [],
+            "home": null,
+            "terminal": {
+                "normal": [],
+                "bypass": ["--approval-mode", "yolo"],
+                "effort": ["--thinking", "{}"],
+                "resume": {
+                    "flag": "--resume"
+                },
+                "withChoices": []
+            },
+            "chat": {
+                "driver": "acp",
+                "args": ["acp"]
+            },
+            "providers": "reads",
+            "resumesByPath": true,
+            "relocatableSessions": false,
+            "commitMessages": null
         },
         {
             "type": "grok",
@@ -90,13 +241,43 @@
             "about": "xAI's coding agent",
             "command": "grok",
             "brand": "#fcfcfc",
+            "featured": false,
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": true,
             "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
             "install": "curl -fsSL https://x.ai/cli/install.sh | bash",
-            "login": ["login"]
+            "login": ["login"],
+            "probe": ["--version"],
+            "installPaths": ["~/.grok/bin/grok"],
+            "gitShimArgs": [],
+            "home": {
+                "variable": "GROK_HOME",
+                "dir": ".grok",
+                "private": {
+                    "config": "config.toml",
+                    "emptyConfig": "",
+                    "sessionStore": "sessions",
+                    "sessionStoreIsFolder": true
+                }
+            },
+            "terminal": {
+                "normal": [],
+                "bypass": ["--permission-mode", "bypassPermissions"],
+                "effort": ["--reasoning-effort", "{}"],
+                "resume": {
+                    "flag": "--resume"
+                },
+                "withChoices": []
+            },
+            "chat": {
+                "driver": "acp",
+                "args": ["agent", "--no-leader", "stdio"]
+            },
+            "providers": null,
+            "resumesByPath": false,
+            "relocatableSessions": false,
+            "commitMessages": null
         },
         {
             "type": "muse",
@@ -104,13 +285,37 @@
             "about": "Meta's coding agent",
             "command": "muse",
             "brand": "#0081fb",
+            "featured": false,
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": true,
             "efforts": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
             "install": null,
-            "login": null
+            "login": null,
+            "probe": ["--version"],
+            "installPaths": [],
+            "gitShimArgs": [],
+            "home": {
+                "variable": "XDG_CONFIG_HOME",
+                "dir": ".config",
+                "within": "muse"
+            },
+            "terminal": {
+                "normal": [],
+                "bypass": ["--yolo"],
+                "effort": ["--reasoning-effort", "{}"],
+                "resume": {
+                    "flag": "resume"
+                },
+                "withChoices": []
+            },
+            "chat": {
+                "driver": "muse"
+            },
+            "providers": null,
+            "resumesByPath": false,
+            "relocatableSessions": false,
+            "commitMessages": null
         }
     ]
 }

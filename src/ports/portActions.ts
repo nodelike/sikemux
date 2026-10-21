@@ -1,10 +1,10 @@
-import { portsApi } from "../api/ports";
 import { copyText } from "../lib/clipboard";
 import * as cmd from "../state/commands";
 import { activeAgentId } from "../state/selectors";
 import { getState } from "../state/store";
 import { notify, reportError } from "../state/toast";
 import type { PortReveal } from "./projectPorts";
+import { openUrl } from "../api/system";
 
 export function openPortOnDesk(agentId: string, url: string): void {
     const state = getState();
@@ -13,7 +13,7 @@ export function openPortOnDesk(agentId: string, url: string): void {
 }
 
 export function openPortExternally(url: string): void {
-    void portsApi.openExternal(url).catch(reportError("open in browser"));
+    void openUrl(url).catch(reportError("open in browser"));
 }
 
 export function copyPortUrl(url: string): void {

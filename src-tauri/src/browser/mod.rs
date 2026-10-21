@@ -33,6 +33,7 @@ use std::time::{Duration, Instant};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, Webview, WebviewUrl,
@@ -417,7 +418,8 @@ impl BrowserManager {
     pub fn snapshot(&self, agent_id: &str) -> AppResult<BrowserSnapshot> {
         validate_agent_id(agent_id)?;
         Ok(self
-            .lock()
+            .agents
+            .locked()
             .get(agent_id)
             .map(|agent| agent.strip.snapshot())
             .unwrap_or(BrowserSnapshot {
@@ -443,7 +445,7 @@ impl BrowserManager {
         );
         let webview = self.create_view(app, agent_id, &tab_id, parsed, USER_AGENT)?;
         {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             let agent = agents.entry(agent_id.to_owned()).or_default();
             agent.strip.insert(
                 tab_id.clone(),
@@ -474,7 +476,8 @@ impl BrowserManager {
             .get_window("main")
             .ok_or_else(|| AppError::Window("main window is not open".into()))?;
         let (width, height) = self
-            .lock()
+            .agents
+            .locked()
             .get(agent_id)
             .and_then(|agent| agent.seen)
             .unwrap_or(PARKED_SIZE);
@@ -517,7 +520,7 @@ impl BrowserManager {
                     },
                     move |dialog| {
                         let manager = dialog_app.state::<BrowserManager>();
-                        let mut dialogs = manager.dialogs_lock();
+                        let mut dialogs = manager.dialogs.locked();
                         match dialog {
                             Some(dialog) => dialogs.insert(dialog_tab.clone(), dialog),
                             None => dialogs.remove(&dialog_tab),
@@ -530,7 +533,8 @@ impl BrowserManager {
                     move |event| {
                         let manager = document_app.state::<BrowserManager>();
                         let failed = manager
-                            .documents_lock()
+                            .documents
+                            .locked()
                             .entry(document_tab.clone())
                             .or_default()
                             .note(event);
@@ -547,7 +551,7 @@ impl BrowserManager {
                     },
                     move |stall| {
                         let manager = health_app.state::<BrowserManager>();
-                        let mut stalls = manager.stalls_lock();
+                        let mut stalls = manager.stalls.locked();
                         match stall {
                             Some(stall) => stalls.insert(health_tab.clone(), stall),
                             None => stalls.remove(&health_tab),
@@ -571,7 +575,7 @@ impl BrowserManager {
     fn restore(&self, agent_id: &str, tab_id: &str) -> Option<Webview> {
         let app = self.app.get()?;
         let (url, user_agent) = {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             let agent = agents.get_mut(agent_id)?;
             if !agent.strip.unloaded.remove(tab_id) {
                 return agent.views.get(tab_id).cloned();
@@ -593,7 +597,7 @@ impl BrowserManager {
             Ok(view) => view,
             Err(error) => {
                 eprintln!("Sikemux could not reload browser tab {tab_id}: {error}");
-                if let Some(agent) = self.lock().get_mut(agent_id) {
+                if let Some(agent) = self.agents.locked().get_mut(agent_id) {
                     agent.strip.unloaded.insert(tab_id.to_owned());
                 }
                 return None;
@@ -601,7 +605,7 @@ impl BrowserManager {
         };
         let mark = self.next_mark.fetch_add(1, Ordering::AcqRel);
         let kept = {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             match agents
                 .get_mut(agent_id)
                 .filter(|agent| agent.strip.pages.contains_key(tab_id))
@@ -629,7 +633,8 @@ impl BrowserManager {
             tokio::time::sleep(REVEAL_LIMIT).await;
             let manager = app.state::<BrowserManager>();
             let released = manager
-                .lock()
+                .agents
+                .locked()
                 .get_mut(&agent_id)
                 .is_some_and(|agent| agent.strip.release_revealing(&tab_id, mark));
             if released {
@@ -642,7 +647,7 @@ impl BrowserManager {
     /// Whether the agent's shown tab has no live page yet: unloaded, or
     /// still loading again off screen.
     pub fn reloading(&self, agent_id: &str) -> bool {
-        self.lock().get(agent_id).is_some_and(|agent| {
+        self.agents.locked().get(agent_id).is_some_and(|agent| {
             agent.strip.active.as_ref().is_some_and(|id| {
                 agent.strip.unloaded.contains(id) || agent.strip.revealing.contains_key(id)
             })
@@ -680,10 +685,7 @@ impl BrowserManager {
         builder
             .on_download(move |_, event| {
                 if matches!(event, DownloadEvent::Requested { .. })
-                    && !downloads
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .admit(Instant::now())
+                    && !downloads.locked().admit(Instant::now())
                 {
                     return false;
                 }
@@ -719,10 +721,7 @@ impl BrowserManager {
                 });
             })
             .on_new_window(move |url, _| {
-                let admitted = popups
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .admit(Instant::now());
+                let admitted = popups.locked().admit(Instant::now());
                 if !admitted {
                     return NewWindowResponse::Deny;
                 }
@@ -750,11 +749,11 @@ impl BrowserManager {
                 };
                 let path = unique_download_path(&folder, &download_file_name(&url, destination));
                 *destination = path.clone();
-                self.downloads_lock().insert(key(&url), path.clone());
+                self.downloads.locked().insert(key(&url), path.clone());
                 (url, path, DownloadState::Started)
             }
             DownloadEvent::Finished { url, path, success } => {
-                let chosen = self.downloads_lock().remove(&key(&url));
+                let chosen = self.downloads.locked().remove(&key(&url));
                 let path = path.or(chosen).unwrap_or_default();
                 #[cfg(target_os = "macos")]
                 if success {
@@ -782,7 +781,7 @@ impl BrowserManager {
             path: path.to_string_lossy().into_owned(),
             state,
         };
-        if let Some(agent) = self.lock().get_mut(agent_id) {
+        if let Some(agent) = self.agents.locked().get_mut(agent_id) {
             agent.downloads.note(&download, bytes);
         }
         let _ = app.emit(BROWSER_DOWNLOAD_EVENT, download);
@@ -792,13 +791,15 @@ impl BrowserManager {
     /// The number the agent's next download will get, to find later which
     /// downloads an action started.
     pub fn download_mark(&self, agent_id: &str) -> u64 {
-        self.lock()
+        self.agents
+            .locked()
             .get(agent_id)
             .map_or(0, |agent| agent.downloads.mark())
     }
 
     pub fn downloads_since(&self, agent_id: &str, mark: u64) -> Vec<downloads::SavedFile> {
-        self.lock()
+        self.agents
+            .locked()
             .get(agent_id)
             .map(|agent| agent.downloads.since(mark))
             .unwrap_or_default()
@@ -808,62 +809,32 @@ impl BrowserManager {
         self.downloads_since(agent_id, 0)
     }
 
-    fn dialogs_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, PageDialog>> {
-        self.dialogs
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     pub fn dialog(&self, tab_id: &str) -> Option<PageDialog> {
-        self.dialogs_lock().get(tab_id).cloned()
-    }
-
-    fn uploads_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<PathBuf>>> {
-        self.uploads
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.dialogs.locked().get(tab_id).cloned()
     }
 
     /// Files for the tab's next file chooser, answered in place of the person.
     pub fn offer_upload(&self, tab_id: &str, paths: Vec<PathBuf>) {
-        self.uploads_lock().insert(tab_id.to_owned(), paths);
-    }
-
-    #[cfg(target_os = "macos")]
-    fn recordings_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, recording::Session>> {
-        self.recordings
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.uploads.locked().insert(tab_id.to_owned(), paths);
     }
 
     pub fn upload_pending(&self, tab_id: &str) -> bool {
-        self.uploads_lock().contains_key(tab_id)
+        self.uploads.locked().contains_key(tab_id)
     }
 
     /// `None` once the chooser took the files or the offer was withdrawn.
     pub fn take_upload(&self, tab_id: &str) -> Option<Vec<PathBuf>> {
-        self.uploads_lock().remove(tab_id)
-    }
-
-    fn documents_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, documents::DocumentLog>> {
-        self.documents
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.uploads.locked().remove(tab_id)
     }
 
     /// The tab's top-level loads, oldest first; with `since_current`, only
     /// the one that produced the page on screen and any tried after it.
     pub fn documents(&self, tab_id: &str, since_current: bool) -> Vec<documents::DocumentLoad> {
-        self.documents_lock()
+        self.documents
+            .locked()
             .get(tab_id)
             .map(|log| log.loads(since_current))
             .unwrap_or_default()
-    }
-
-    fn stalls_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, TabStall>> {
-        self.stalls
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Set once WebKit has seen the tab's page stop answering or crash, and
@@ -871,13 +842,7 @@ impl BrowserManager {
     /// noticed a few seconds after input reaches it; `input::probe_responsiveness`
     /// sends some.
     pub fn stalled(&self, tab_id: &str) -> Option<TabStall> {
-        self.stalls_lock().get(tab_id).copied()
-    }
-
-    fn downloads_lock(&self) -> std::sync::MutexGuard<'_, HashMap<(String, String), PathBuf>> {
-        self.downloads
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.stalls.locked().get(tab_id).copied()
     }
 
     pub fn note_page(
@@ -888,7 +853,7 @@ impl BrowserManager {
         update: impl FnOnce(&mut TabPage),
     ) {
         let (changed, loading, shown) = {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             match agents
                 .get_mut(agent_id)
                 .and_then(|agent| agent.strip.pages.get_mut(tab_id))
@@ -925,7 +890,7 @@ impl BrowserManager {
 
     fn settle(&self, app: &AppHandle, agent_id: &str, tab_id: &str) {
         let mark = self.next_mark.fetch_add(1, Ordering::AcqRel);
-        match self.lock().get_mut(agent_id) {
+        match self.agents.locked().get_mut(agent_id) {
             Some(agent) => {
                 agent.strip.settle(tab_id, mark);
                 agent.strip.revealing.remove(tab_id);
@@ -938,7 +903,8 @@ impl BrowserManager {
             tokio::time::sleep(LOAD_SETTLE).await;
             let manager = app.state::<BrowserManager>();
             let released = manager
-                .lock()
+                .agents
+                .locked()
                 .get_mut(&agent_id)
                 .is_some_and(|agent| agent.strip.release_settled(&tab_id, mark));
             if released {
@@ -950,7 +916,7 @@ impl BrowserManager {
     pub fn close_tab(&self, app: &AppHandle, agent_id: &str, tab_id: &str) -> AppResult<()> {
         validate_agent_id(agent_id)?;
         let view = {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             let agent = agents
                 .get_mut(agent_id)
                 .ok_or(AppError::BadArg("unknown browser tab"))?;
@@ -959,8 +925,8 @@ impl BrowserManager {
             }
             let view = agent.views.remove(tab_id);
             agent.viewports.remove(tab_id);
-            self.documents_lock().remove(tab_id);
-            self.stalls_lock().remove(tab_id);
+            self.documents.locked().remove(tab_id);
+            self.stalls.locked().remove(tab_id);
             if agent.strip.order.is_empty() {
                 agents.remove(agent_id);
             }
@@ -977,19 +943,20 @@ impl BrowserManager {
     pub fn close_agent(&self, app: &AppHandle, agent_id: &str) -> AppResult<()> {
         validate_agent_id(agent_id)?;
         #[cfg(target_os = "macos")]
-        self.recordings_lock().remove(agent_id);
+        self.recordings.locked().remove(agent_id);
         let views = self
-            .lock()
+            .agents
+            .locked()
             .remove(agent_id)
             .map(|agent| agent.views.into_iter().collect::<Vec<_>>())
             .unwrap_or_default();
         let views: Vec<Webview> = {
-            let mut documents = self.documents_lock();
+            let mut documents = self.documents.locked();
             views
                 .into_iter()
                 .map(|(tab_id, view)| {
                     documents.remove(&tab_id);
-                    self.stalls_lock().remove(&tab_id);
+                    self.stalls.locked().remove(&tab_id);
                     view
                 })
                 .collect()
@@ -1010,7 +977,8 @@ impl BrowserManager {
     pub fn switch_tab(&self, app: &AppHandle, agent_id: &str, tab_id: &str) -> AppResult<()> {
         validate_agent_id(agent_id)?;
         let switched = self
-            .lock()
+            .agents
+            .locked()
             .get_mut(agent_id)
             .is_some_and(|agent| agent.strip.activate(tab_id));
         if !switched {
@@ -1032,7 +1000,7 @@ impl BrowserManager {
         }
         let bounds = bounds.filter(|area| !viewport::collapsed(area));
         {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             let agent = match agents.get_mut(agent_id) {
                 Some(agent) => agent,
                 None if bounds.is_some() => agents.entry(agent_id.to_owned()).or_default(),
@@ -1049,7 +1017,7 @@ impl BrowserManager {
 
     /// Whether the person can see this tab's page in its pane right now.
     pub fn shown(&self, agent_id: &str, tab_id: &str) -> bool {
-        self.lock().get(agent_id).is_some_and(|agent| {
+        self.agents.locked().get(agent_id).is_some_and(|agent| {
             agent.strip.active.as_deref() == Some(tab_id)
                 && agent
                     .bounds
@@ -1103,7 +1071,7 @@ impl BrowserManager {
         fixed: Option<viewport::Viewport>,
     ) -> AppResult<()> {
         let view = {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             let agent = agents
                 .get_mut(agent_id)
                 .ok_or(AppError::BadArg("unknown browser tab"))?;
@@ -1131,7 +1099,8 @@ impl BrowserManager {
     }
 
     pub fn viewport(&self, agent_id: &str, tab_id: &str) -> Option<viewport::Viewport> {
-        self.lock()
+        self.agents
+            .locked()
             .get(agent_id)
             .and_then(|agent| agent.viewports.get(tab_id).copied())
     }
@@ -1141,7 +1110,8 @@ impl BrowserManager {
         validate_agent_id(agent_id)?;
         let no_tab = || AppError::BadArg("this agent has no open browser tab");
         let (id, view) = self
-            .lock()
+            .agents
+            .locked()
             .get(agent_id)
             .and_then(|agent| {
                 let id = agent.strip.active.clone()?;
@@ -1160,7 +1130,8 @@ impl BrowserManager {
     /// Show the active tab inside the pane's page area and park the rest.
     fn relayout(&self, agent_id: &str) {
         let needed = self
-            .lock()
+            .agents
+            .locked()
             .get(agent_id)
             .map(AgentBrowser::needed_back)
             .unwrap_or_default();
@@ -1169,7 +1140,7 @@ impl BrowserManager {
         }
         let now = Instant::now();
         let plan: Vec<(Webview, viewport::Layout, bool)> = {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             let Some(agent) = agents.get_mut(agent_id) else {
                 return;
             };
@@ -1223,7 +1194,7 @@ impl BrowserManager {
     pub fn mark_acting(&self, app: &AppHandle, agent_id: &str) -> Option<(String, u64)> {
         let mark = self.next_mark.fetch_add(1, Ordering::AcqRel);
         let (tab, woke) = {
-            let mut agents = self.lock();
+            let mut agents = self.agents.locked();
             let strip = &mut agents.get_mut(agent_id)?.strip;
             let was_awake = strip.active.as_deref().is_some_and(|id| strip.awake(id));
             (strip.mark_acting(mark)?, !was_awake)
@@ -1247,7 +1218,7 @@ impl BrowserManager {
             tokio::time::sleep(ACTING_LINGER).await;
             let manager = app.state::<BrowserManager>();
             let mut released = false;
-            if let Some(agent) = manager.lock().get_mut(&agent_id) {
+            if let Some(agent) = manager.agents.locked().get_mut(&agent_id) {
                 for (tab, mark) in &marks {
                     released |= agent.strip.release_acting(tab, *mark);
                 }
@@ -1282,7 +1253,8 @@ impl BrowserManager {
 
     pub fn drain(&self, why: &str) {
         let views: Vec<Webview> = self
-            .lock()
+            .agents
+            .locked()
             .drain()
             .flat_map(|(_, agent)| agent.views.into_values())
             .collect();
@@ -1292,12 +1264,6 @@ impl BrowserManager {
         for view in views {
             drop_view(view);
         }
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, AgentBrowser>> {
-        self.agents
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 

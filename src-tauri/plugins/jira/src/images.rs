@@ -3,18 +3,13 @@
 
 use std::path::Path;
 
-use base64::Engine;
 use reqwest::{StatusCode, Url};
 use serde::Deserialize;
+use sikemux_plugin_api::images;
 
 use crate::auth;
 use crate::client;
 use crate::error::{JiraError, JiraResult};
-
-const MAX_IMAGE_BYTES: usize = 2 * 1024 * 1024;
-/// Gravatar sends a person without a picture of their own on to Atlassian's drawn initials,
-/// through its image proxy.
-const MAX_REDIRECTS: usize = 3;
 
 #[derive(Deserialize)]
 pub struct ImageRef {
@@ -36,27 +31,11 @@ fn allowed(url: &Url) -> bool {
     })
 }
 
-/// `image/png` and the like, and nothing that could break out of a `data:` address.
-fn image_kind(content_type: &str) -> Option<String> {
-    let kind = content_type.split(';').next()?.trim().to_ascii_lowercase();
-    let plain = kind
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '+' | '.' | '-'));
-    (kind.starts_with("image/") && plain).then_some(kind)
-}
-
 #[derive(Deserialize)]
 pub struct SiteImageRef {
     pub url: String,
     #[serde(default)]
     pub site: Option<String>,
-}
-
-fn data_address(kind: &str, bytes: &[u8]) -> String {
-    format!(
-        "data:{kind};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    )
 }
 
 /// The path of one of the site's own avatars, such as a project's, and nothing else of it.
@@ -77,33 +56,24 @@ pub async fn site_image(data_dir: &Path, input: SiteImageRef) -> JiraResult<Stri
     let url = Url::parse(&input.url).map_err(|_| refused())?;
     let path = site_avatar_path(&url, &site.host).ok_or_else(refused)?;
     let query: Vec<(String, String)> = url.query_pairs().into_owned().collect();
-    let (kind, bytes) = client::fetch(&credentials, &path, &query).await?;
-    let kind = kind
-        .as_deref()
-        .and_then(image_kind)
-        .ok_or_else(|| JiraError::Response("that address is not an image".into()))?;
-    if bytes.len() > MAX_IMAGE_BYTES {
-        return Err(JiraError::Response("that avatar is too big".into()));
-    }
-    Ok(data_address(&kind, &bytes))
+    images::read_image(client::fetch(&credentials, &path, &query).await?).await
 }
 
 pub async fn image(input: ImageRef) -> JiraResult<String> {
     let refused = || JiraError::BadArg("that is not an avatar Jira serves".into());
     let mut url = Url::parse(&input.url).map_err(|_| refused())?;
-    for _ in 0..=MAX_REDIRECTS {
+    // Gravatar sends a person without a picture of their own on to Atlassian's drawn
+    // initials, through its image proxy.
+    for _ in 0..=images::MAX_HOPS {
         if !allowed(&url) {
             return Err(refused());
         }
-        let response = client::http()?.get(url.clone()).send().await?;
+        let response = client::HTTP
+            .send(client::HTTP.client()?.get(url.clone()))
+            .await?;
         let status = response.status();
         if status.is_redirection() {
-            let next = response
-                .headers()
-                .get("location")
-                .and_then(|value| value.to_str().ok())
-                .ok_or_else(refused)?;
-            url = url.join(next).map_err(|_| refused())?;
+            url = images::moved_to(&response, &url)?;
             continue;
         }
         if status != StatusCode::OK {
@@ -112,25 +82,7 @@ pub async fn image(input: ImageRef) -> JiraResult<String> {
                 message: "the avatar did not load".into(),
             });
         }
-        let kind = response
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .and_then(image_kind)
-            .ok_or_else(|| JiraError::Response("that address is not an image".into()))?;
-        if response
-            .content_length()
-            .is_some_and(|size| size > MAX_IMAGE_BYTES as u64)
-        {
-            return Err(JiraError::Response("that avatar is too big".into()));
-        }
-        let bytes = client::read_limited(response).await?;
-        if bytes.len() > MAX_IMAGE_BYTES {
-            return Err(JiraError::Response("that avatar is too big".into()));
-        }
-        return Ok(data_address(&kind, &bytes));
+        return images::read_image(response).await;
     }
-    Err(JiraError::Response(
-        "the avatar redirected too many times".into(),
-    ))
+    Err(images::moved_too_often())
 }

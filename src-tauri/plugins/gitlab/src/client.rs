@@ -2,77 +2,31 @@
 // answer may be, the server and token each account uses, GitLab's paging, and
 // its error shapes turned into ours.
 
-use std::collections::BTreeMap;
-use std::future::Future;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
 
-use futures::StreamExt;
 use reqwest::header::HeaderMap;
-use reqwest::{Client, Method, RequestBuilder, Response, StatusCode, Url};
+use reqwest::{Method, RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tokio::sync::Semaphore;
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::http::{self, Deadline, Http, Redirects};
+use sikemux_plugin_api::ratelimit::{LimitHeaders, RateLimits};
+use sikemux_plugin_api::store::{self, Accounts, Held};
 
 use crate::config::{self, Account};
-use crate::error::{GitlabError, GitlabResult};
-use crate::ratelimit;
+use crate::error::{Gitlab, GitlabError, GitlabResult};
 
 pub const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_REQUESTS_IN_FLIGHT: usize = 8;
-const MAX_REDIRECTS: usize = 5;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
-/// A token read from the Keychain is held briefly, since starting `security`
-/// for every request costs more than the request.
-const TOKEN_TTL: Duration = Duration::from_secs(60);
 const PER_PAGE: u32 = 100;
 
-pub async fn limited<T>(work: impl Future<Output = T>) -> T {
-    static PERMITS: OnceLock<Semaphore> = OnceLock::new();
-    let _permit = PERMITS
-        .get_or_init(|| Semaphore::new(MAX_REQUESTS_IN_FLIGHT))
-        .acquire()
-        .await
-        .ok();
-    work.await
-}
-
-/// A redirect keeps the token, so only one over https on the same server is followed.
-fn same_host(next: &Url, first: &Url) -> bool {
-    next.scheme() == "https"
-        && next.host_str() == first.host_str()
-        && next.port_or_known_default() == first.port_or_known_default()
-}
-
-pub fn http() -> GitlabResult<&'static Client> {
-    static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            let redirects = reqwest::redirect::Policy::custom(|attempt| {
-                let follow = attempt.previous().len() <= MAX_REDIRECTS
-                    && attempt
-                        .previous()
-                        .first()
-                        .is_some_and(|first| same_host(attempt.url(), first));
-                if follow {
-                    attempt.follow()
-                } else {
-                    attempt.stop()
-                }
-            });
-            Client::builder()
-                .pool_idle_timeout(Duration::from_secs(25))
-                .redirect(redirects)
-                .user_agent("sikemux-gitlab/0.1")
-                .connect_timeout(CONNECT_TIMEOUT)
-                .timeout(Duration::from_secs(30))
-                .build()
-                .ok()
-        })
-        .as_ref()
-        .ok_or_else(|| GitlabError::Transport("could not start the HTTP client".into()))
-}
+pub static HTTP: Http<Gitlab> = Http::new(Redirects::SameHost, Deadline::WholeAnswer, 8);
+pub static LIMITS: RateLimits = RateLimits::new(LimitHeaders {
+    limit: "ratelimit-limit",
+    remaining: Some("ratelimit-remaining"),
+    reset: Some("ratelimit-reset"),
+    near: None,
+});
+static TOKENS: Held<String> = Held::secrets();
 
 /// Where a server's API lives.
 pub fn api_base(host: &str) -> String {
@@ -84,38 +38,10 @@ pub fn authorize(request: RequestBuilder, token: &str) -> RequestBuilder {
     request.bearer_auth(token)
 }
 
-struct HeldToken {
-    token: String,
-    at: Instant,
-}
-
-tokio::task_local! {
-    /// The account a call named, held for everything the call does.
-    static CHOSEN: Option<String>;
-}
-
-/// Runs a call as the account it named, or with none named, as the default one.
-pub fn as_account<F: Future>(account: Option<String>, work: F) -> impl Future<Output = F::Output> {
-    CHOSEN.scope(account, work)
-}
-
-pub fn chosen() -> Option<String> {
-    CHOSEN.try_with(Clone::clone).ok().flatten()
-}
-
-static TOKENS: Mutex<BTreeMap<String, HeldToken>> = Mutex::new(BTreeMap::new());
-
 /// Drops the token held in memory for one account, or for all of them, so the
 /// next request reads the Keychain again.
 pub fn forget(account: Option<&str>) {
-    if let Ok(mut held) = TOKENS.lock() {
-        match account {
-            Some(id) => {
-                held.remove(id);
-            }
-            None => held.clear(),
-        }
-    }
+    TOKENS.forget(account);
 }
 
 pub struct Session {
@@ -126,7 +52,7 @@ pub struct Session {
 impl Session {
     /// The account the call named, or the default one.
     pub async fn current(data_dir: &Path) -> GitlabResult<Session> {
-        let account = config::load(data_dir)
+        let account = config::load(data_dir)?
             .account(chosen().as_deref())
             .cloned()
             .ok_or(GitlabError::Unconfigured)?;
@@ -140,65 +66,15 @@ impl Session {
 }
 
 async fn token_of(account: &Account) -> GitlabResult<String> {
-    if let Ok(held) = TOKENS.lock() {
-        if let Some(held) = held
-            .get(&account.id)
-            .filter(|held| held.at.elapsed() < TOKEN_TTL)
-        {
-            return Ok(held.token.clone());
-        }
+    if let Some(token) = TOKENS.get(&account.id) {
+        return Ok(token);
     }
     let reading = account.clone();
-    let token = config::blocking(Box::new(move || config::keychain_read(&reading)))
+    let token = store::blocking(move || config::keychain_read(&reading))
         .await?
         .ok_or(GitlabError::Unconfigured)?;
-    if let Ok(mut held) = TOKENS.lock() {
-        held.insert(
-            account.id.clone(),
-            HeldToken {
-                token: token.clone(),
-                at: Instant::now(),
-            },
-        );
-    }
+    TOKENS.put(&account.id, token.clone());
     Ok(token)
-}
-
-/// Reads an answer of up to `limit` bytes. Past that the read fails, unless
-/// `keep_tail` is set: then the start is dropped, and the second value says so.
-pub async fn read_body(
-    response: Response,
-    limit: usize,
-    keep_tail: bool,
-) -> GitlabResult<(Vec<u8>, bool)> {
-    let too_big = || GitlabError::Response(format!("more than {} MiB came back", limit >> 20));
-    if !keep_tail
-        && response
-            .content_length()
-            .is_some_and(|size| size > limit as u64)
-    {
-        return Err(too_big());
-    }
-    let mut stream = response.bytes_stream();
-    let mut bytes = Vec::new();
-    let mut cut = false;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        if bytes.len() + chunk.len() > limit {
-            if !keep_tail {
-                return Err(too_big());
-            }
-            cut = true;
-        }
-        bytes.extend_from_slice(&chunk);
-        if bytes.len() > 2 * limit {
-            bytes.drain(..bytes.len() - limit);
-        }
-    }
-    if bytes.len() > limit {
-        bytes.drain(..bytes.len() - limit);
-    }
-    Ok((bytes, cut))
 }
 
 /// GitLab says what went wrong as `message` (a sentence, a list, or a field
@@ -260,7 +136,7 @@ pub fn classify(status: StatusCode, bytes: &[u8]) -> GitlabError {
         403 => GitlabError::Forbidden(message),
         404 => GitlabError::NotFound(message),
         429 => GitlabError::RateLimited {
-            resets_in_secs: ratelimit::latest_wait(),
+            resets_in_secs: Some(LIMITS.latest_wait()),
         },
         status => GitlabError::Http { status, message },
     }
@@ -287,9 +163,11 @@ pub async fn send_limited(
     let mut waited = false;
     loop {
         let session = Session::current(data_dir).await?;
-        ratelimit::check(&session.account.id)?;
+        let account = session.account.id.as_str();
+        LIMITS.check(account)?;
         let mut request = authorize(
-            http()?.request(method.clone(), format!("{}{path}", session.base())),
+            HTTP.client()?
+                .request(method.clone(), format!("{}{path}", session.base())),
             &session.token,
         );
         if !query.is_empty() {
@@ -298,21 +176,26 @@ pub async fn send_limited(
         if let Some(body) = body {
             request = request.json(body);
         }
-        let response = limited(request.send()).await?;
+        let response = HTTP.send(request).await?;
         let status = response.status();
         let headers = response.headers().clone();
         if status == StatusCode::UNAUTHORIZED {
-            forget(Some(&session.account.id));
+            forget(Some(account));
         }
-        if let Some(secs) = ratelimit::named_wait(status, &headers)
-            .filter(|secs| *secs <= ratelimit::SHORT_WAIT_SECS && !waited)
+        if let Some(pause) = LIMITS
+            .short_wait(account, status, &headers, b"")
+            .filter(|_| !waited)
         {
             waited = true;
-            tokio::time::sleep(Duration::from_secs(secs.max(1))).await;
+            tokio::time::sleep(pause).await;
             continue;
         }
-        ratelimit::observe(&session.account.id, status, &headers);
-        let (bytes, cut) = read_body(response, limit, keep_tail).await?;
+        LIMITS.observe(account, status, &headers, b"");
+        let (bytes, cut) = if keep_tail {
+            http::read_tail(response, limit).await?
+        } else {
+            (http::read_body(response, limit).await?, false)
+        };
         return Ok(Answer {
             status,
             headers,
@@ -426,17 +309,11 @@ pub async fn get_all<T: DeserializeOwned>(
     query: &[(&str, String)],
     max_pages: u32,
 ) -> GitlabResult<Vec<T>> {
-    let mut all = Vec::new();
-    let mut page = 1;
-    for _ in 0..max_pages.max(1) {
-        let mut found: Page<T> = get_page(data_dir, path, query, page, PER_PAGE).await?;
-        all.append(&mut found.items);
-        match found.next {
-            Some(next) if next > page => page = next,
-            _ => break,
-        }
-    }
-    Ok(all)
+    http::collect_pages(1, max_pages, |page| async move {
+        let found: Page<T> = get_page(data_dir, path, query, page, PER_PAGE).await?;
+        Ok((found.items, found.next.filter(|next| *next > page)))
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -466,25 +343,14 @@ mod tests {
     }
 
     #[test]
-    fn only_a_redirect_over_https_on_the_same_server_is_followed() {
-        let url = |raw: &str| Url::parse(raw).expect("parses");
-        let api = url("https://gitlab.acme.dev/api/v4/projects/a%2Fb");
-        assert!(same_host(
-            &url("https://gitlab.acme.dev/api/v4/projects/9"),
-            &api
-        ));
-        assert!(same_host(&url("https://gitlab.acme.dev:443/x"), &api));
-        assert!(!same_host(&url("http://gitlab.acme.dev/x"), &api));
-        assert!(!same_host(&url("https://gitlab.acme.dev:8443/x"), &api));
-        assert!(!same_host(&url("https://storage.acme.dev/x"), &api));
-    }
-
-    #[test]
     fn the_token_goes_in_the_authorization_header() -> GitlabResult<()> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let request = authorize(http()?.get("https://gitlab.com/api/v4/user"), "glpat-x")
-            .build()
-            .map_err(|error| GitlabError::Transport(error.to_string()))?;
+        let request = authorize(
+            HTTP.client()?.get("https://gitlab.com/api/v4/user"),
+            "glpat-x",
+        )
+        .build()
+        .map_err(|error| GitlabError::Transport(error.to_string()))?;
         assert_eq!(
             request
                 .headers()

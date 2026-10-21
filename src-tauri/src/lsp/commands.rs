@@ -1,6 +1,7 @@
 use std::sync::atomic::Ordering;
 
 use serde_json::json;
+use sikemux_process::sync::Locked;
 use tauri::AppHandle;
 use tokio::task;
 
@@ -9,11 +10,9 @@ use super::documents::{
     change_document, change_document_incremental, open_document, restore_last_change,
 };
 use super::limits::{
-    release_counter_slots, server_limit_error, validate_document_language_id,
-    validate_document_path, validate_server_identity, MAX_LSP_PATH_BYTES, MAX_LSP_SERVERS,
-    OPEN_DOCUMENT_COUNT,
+    server_limit_error, validate_document_language_id, validate_document_path,
+    validate_server_identity, MAX_LSP_PATH_BYTES, MAX_LSP_SERVERS,
 };
-use super::lsp;
 use super::process::spawn_server;
 use super::protocol::{parse_document_symbols, parse_locations, path_to_uri};
 use super::registry::{
@@ -68,14 +67,13 @@ async fn lsp_start_inner(app: AppHandle, project: String, language: String) -> A
     // admission, process initialization, and registry insertion, making the
     // cap a hard pre-spawn admission limit rather than an eventual backstop.
     task::spawn_blocking(move || -> AppResult<()> {
-        let _guard = start_lock().lock().map_err(lsp)?;
-        if live_server_exists(&server_key)? {
-            let existing = registry().lock().ok().and_then(|registry| {
-                registry
-                    .get(&server_key)
-                    .filter(|server| !server.shutdown.load(Ordering::Acquire))
-                    .cloned()
-            });
+        let _guard = start_lock().locked();
+        if live_server_exists(&server_key) {
+            let existing = registry()
+                .locked()
+                .get(&server_key)
+                .filter(|server| !server.shutdown.load(Ordering::Acquire))
+                .cloned();
             if let Some(server) = existing {
                 server.idle_generation.fetch_add(1, Ordering::AcqRel);
                 return Ok(());
@@ -87,7 +85,7 @@ async fn lsp_start_inner(app: AppHandle, project: String, language: String) -> A
 
         let server = spawn_server(&project, &language, app)?;
         let insertion = {
-            let mut registry = registry().lock().map_err(lsp)?;
+            let mut registry = registry().locked();
             if registry.len() >= MAX_LSP_SERVERS {
                 Err(server_limit_error())
             } else {
@@ -129,9 +127,9 @@ async fn lsp_stop_inner(project: String) -> AppResult<()> {
     // Serialize against start so a stop racing a 20-second initialize cannot
     // miss the process and let it appear in the registry after stop returns.
     task::spawn_blocking(move || -> AppResult<()> {
-        let _guard = start_lock().lock().map_err(lsp)?;
+        let _guard = start_lock().locked();
         let to_kill = {
-            let mut registry = registry().lock().map_err(lsp)?;
+            let mut registry = registry().locked();
             server_keys_for_project(&registry, &project)
                 .into_iter()
                 .filter_map(|key| registry.remove(&key))
@@ -242,7 +240,7 @@ pub async fn lsp_close(project: String, language: String, path: String) -> AppRe
     let server_key = ServerKey::new(&project, &language);
     let idle_server = server.clone();
     let became_idle = task::spawn_blocking(move || -> AppResult<bool> {
-        let mut documents = server.open_docs.lock().map_err(lsp)?;
+        let mut documents = server.open_docs.locked();
         let Some(document) = documents.get(&path).copied() else {
             return Ok(false);
         };
@@ -253,7 +251,7 @@ pub async fn lsp_close(project: String, language: String, path: String) -> AppRe
                 .refs -= 1;
             return Ok(false);
         }
-        let mut last_change = server.last_change.lock().map_err(lsp)?;
+        let mut last_change = server.last_change.locked();
         let previous_hash = last_change.remove(&path);
         documents.remove(&path);
         let result = notify(
@@ -266,7 +264,6 @@ pub async fn lsp_close(project: String, language: String, path: String) -> AppRe
             restore_last_change(&mut last_change, &path, previous_hash);
             return Err(error);
         }
-        release_counter_slots(&OPEN_DOCUMENT_COUNT, 1);
         Ok(documents.is_empty())
     })
     .await

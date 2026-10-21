@@ -15,11 +15,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use sikemux_process::vars;
 
 use super::footer;
-
-/// The git the shim runs, as the core found it on the person's PATH.
-const REAL_GIT: &str = "SIKEMUX_REAL_GIT";
 
 /// The name the hook is linked under, outside the agents' PATH.
 const HOOK: &str = "sikemux-git-hook";
@@ -139,7 +137,10 @@ pub(crate) fn environment(path: Option<&str>) -> Vec<(String, String)> {
     };
     let mut env = vec![("PATH".to_owned(), path)];
     if let Some(git) = sikemux_process::user_environment::git_program() {
-        env.push((REAL_GIT.to_owned(), git.to_string_lossy().into_owned()));
+        env.push((
+            vars::REAL_GIT.to_owned(),
+            git.to_string_lossy().into_owned(),
+        ));
     }
     if let Some(hooks) = HOOKS_FOLDER.get() {
         env.push((
@@ -149,7 +150,7 @@ pub(crate) fn environment(path: Option<&str>) -> Vec<(String, String)> {
     }
     if let Some(endpoint) = ENDPOINT.get() {
         env.push((
-            "SIKEMUX_CLI_ENDPOINT".to_owned(),
+            vars::CLI_ENDPOINT.to_owned(),
             endpoint.to_string_lossy().into_owned(),
         ));
     }
@@ -168,7 +169,7 @@ pub(crate) fn sign_commit(command: &mut Command, dir: &Path) {
     let options = ["-C".to_owned(), dir.to_string_lossy().into_owned()];
     footer::prepare(command, hooks, &git, &options, &[]);
     if let Some(endpoint) = ENDPOINT.get() {
-        command.env("SIKEMUX_CLI_ENDPOINT", endpoint);
+        command.env(vars::CLI_ENDPOINT, endpoint);
     }
 }
 
@@ -182,8 +183,8 @@ pub(crate) fn folder() -> Option<&'static Path> {
 /// runs them in a login shell, whose profile puts the system's git ahead of
 /// it, unless told not to.
 pub(crate) fn arguments(provider: &str) -> &'static [&'static str] {
-    match provider {
-        "codex" if FOLDER.get().is_some() => &["-c", "allow_login_shell=false"],
+    match crate::agent_catalog::agent(provider) {
+        Some(agent) if FOLDER.get().is_some() => agent.git_shim_args,
         _ => &[],
     }
 }
@@ -290,7 +291,7 @@ fn real_git() -> Option<PathBuf> {
         .and_then(|exe| exe.canonicalize())
         .ok();
     let not_shim = |git: &PathBuf| git.canonicalize().ok() != shim;
-    std::env::var_os(REAL_GIT)
+    std::env::var_os(vars::REAL_GIT)
         .map(PathBuf::from)
         .filter(|git| git.is_file() && not_shim(git))
         .or_else(|| {

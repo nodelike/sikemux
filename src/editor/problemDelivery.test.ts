@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { DiagnosticProblem } from "../workbench/diagnosticsController";
+import type { DiagnosticProblem } from "./projectProblems";
 import { problemDelivery } from "./problemDelivery";
 
 function problem(overrides: Partial<DiagnosticProblem>): DiagnosticProblem {
     return {
-        project: "/repo",
         language: "typescript",
         path: "/repo/src/app.ts",
-        serverGeneration: 1,
-        version: 1,
         range: { start: { line: 3, character: 4 }, end: { line: 3, character: 8 } },
         severity: "error",
         code: "TS2304",

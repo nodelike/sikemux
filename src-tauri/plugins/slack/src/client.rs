@@ -2,52 +2,28 @@
 // uses, and Slack's way of answering `ok: false` with an error code turned
 // into ours.
 
-use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use futures::StreamExt;
-use reqwest::{Client, Response, StatusCode};
+use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use sikemux_plugin_api::http::{self, Deadline, Http, Redirects};
+use sikemux_plugin_api::store::{self, Accounts, Held};
 
 use crate::config::{self, Workspace};
-use crate::error::{SlackError, SlackResult};
+use crate::error::{Slack, SlackError, SlackResult};
 
 pub const API: &str = "https://slack.com/api";
 const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
-const TOKEN_TTL: Duration = Duration::from_secs(60);
 /// A wait this short is sat out and the call tried again, rather than failing it.
 const SHORT_WAIT_SECS: u64 = 3;
 
-pub fn http() -> SlackResult<&'static Client> {
-    static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            Client::builder()
-                .pool_idle_timeout(Duration::from_secs(25))
-                .user_agent("sikemux-slack/0.1")
-                .connect_timeout(Duration::from_secs(4))
-                .timeout(Duration::from_secs(30))
-                .build()
-                .ok()
-        })
-        .as_ref()
-        .ok_or_else(|| SlackError::Transport("could not start the HTTP client".into()))
-}
-
-struct HeldToken {
-    token: String,
-    at: Instant,
-}
-
-static TOKENS: Mutex<BTreeMap<String, HeldToken>> = Mutex::new(BTreeMap::new());
+static HTTP: Http<Slack> = Http::new(Redirects::Follow, Deadline::WholeAnswer, 8);
+static TOKENS: Held<String> = Held::secrets();
 
 pub fn forget(workspace: &str) {
-    if let Ok(mut held) = TOKENS.lock() {
-        held.remove(workspace);
-    }
+    TOKENS.forget(Some(workspace));
 }
 
 pub struct Session {
@@ -58,8 +34,8 @@ pub struct Session {
 impl Session {
     /// The workspace named, or the default one.
     pub async fn of(data_dir: &Path, workspace: Option<&str>) -> SlackResult<Session> {
-        let workspace = config::load(data_dir)
-            .workspace(workspace)
+        let workspace = config::load(data_dir)?
+            .account(workspace)
             .cloned()
             .ok_or(SlackError::Unconfigured)?;
         let token = token_of(&workspace).await?;
@@ -68,40 +44,15 @@ impl Session {
 }
 
 async fn token_of(workspace: &Workspace) -> SlackResult<String> {
-    if let Ok(held) = TOKENS.lock() {
-        if let Some(held) = held
-            .get(&workspace.id)
-            .filter(|held| held.at.elapsed() < TOKEN_TTL)
-        {
-            return Ok(held.token.clone());
-        }
+    if let Some(token) = TOKENS.get(&workspace.id) {
+        return Ok(token);
     }
     let reading = workspace.clone();
-    let token = config::blocking(Box::new(move || config::keychain_read(&reading)))
+    let token = store::blocking(move || config::keychain_read(&reading))
         .await?
         .ok_or(SlackError::Unconfigured)?;
-    if let Ok(mut held) = TOKENS.lock() {
-        held.insert(
-            workspace.id.clone(),
-            HeldToken {
-                token: token.clone(),
-                at: Instant::now(),
-            },
-        );
-    }
+    TOKENS.put(&workspace.id, token.clone());
     Ok(token)
-}
-
-async fn read_body(response: Response) -> SlackResult<Vec<u8>> {
-    let mut stream = response.bytes_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        bytes.extend_from_slice(&chunk?);
-        if bytes.len() > MAX_RESPONSE_BYTES {
-            return Err(SlackError::Response("more than 8 MiB came back".into()));
-        }
-    }
-    Ok(bytes)
 }
 
 /// Slack says a call failed in the body: `ok: false` and an error code.
@@ -118,16 +69,15 @@ pub fn checked(body: Value) -> SlackResult<Value> {
         "not_authed" | "invalid_auth" | "token_revoked" | "token_expired" | "account_inactive" => {
             SlackError::Auth(code.replace('_', " "))
         }
-        "missing_scope" => SlackError::MissingScope(
+        "missing_scope" => crate::error::missing_scope(
             body.get("needed")
                 .and_then(Value::as_str)
-                .unwrap_or("needed")
-                .to_string(),
+                .unwrap_or("needed"),
         ),
         "ratelimited" => SlackError::RateLimited {
-            retry_after_secs: 30,
+            resets_in_secs: Some(30),
         },
-        _ => SlackError::Api(code),
+        _ => SlackError::Api(crate::error::in_words(&code)),
     })
 }
 
@@ -141,10 +91,10 @@ async fn send(token: &str, method: &str, body: Body<'_>) -> SlackResult<Value> {
     loop {
         let address = format!("{API}/{method}");
         let request = match &body {
-            Body::Query(query) => http()?.get(&address).query(query),
-            Body::Json(json) => http()?.post(&address).json(json),
+            Body::Query(query) => HTTP.client()?.get(&address).query(query),
+            Body::Json(json) => HTTP.client()?.post(&address).json(json),
         };
-        let response = request.bearer_auth(token).send().await?;
+        let response = HTTP.send(request.bearer_auth(token)).await?;
         let status = response.status();
         if status == StatusCode::TOO_MANY_REQUESTS {
             let wait = response
@@ -159,10 +109,10 @@ async fn send(token: &str, method: &str, body: Body<'_>) -> SlackResult<Value> {
                 continue;
             }
             return Err(SlackError::RateLimited {
-                retry_after_secs: wait,
+                resets_in_secs: Some(wait),
             });
         }
-        let bytes = read_body(response).await?;
+        let bytes = http::read_body(response, MAX_RESPONSE_BYTES).await?;
         if !status.is_success() {
             return Err(SlackError::Http {
                 status: status.as_u16(),
@@ -208,27 +158,24 @@ impl Session {
         query: &[(&str, String)],
         max_pages: u32,
     ) -> SlackResult<Vec<T>> {
-        let mut all = Vec::new();
-        let mut cursor = String::new();
-        for _ in 0..max_pages.max(1) {
+        http::collect_pages(String::new(), max_pages, |cursor| async move {
             let mut asked = query.to_vec();
             if !cursor.is_empty() {
-                asked.push(("cursor", cursor.clone()));
+                asked.push(("cursor", cursor));
             }
             let page = self.get(method, &asked).await?;
-            if let Some(items) = page.get(key).cloned() {
-                all.extend(serde_json::from_value::<Vec<T>>(items)?);
-            }
-            cursor = page
+            let items = match page.get(key).cloned() {
+                Some(items) => serde_json::from_value::<Vec<T>>(items)?,
+                None => Vec::new(),
+            };
+            let next = page
                 .pointer("/response_metadata/next_cursor")
                 .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            if cursor.is_empty() {
-                break;
-            }
-        }
-        Ok(all)
+                .filter(|cursor| !cursor.is_empty())
+                .map(str::to_string);
+            Ok((items, next))
+        })
+        .await
     }
 }
 
@@ -244,17 +191,11 @@ mod tests {
             checked(json!({ "ok": false, "error": "invalid_auth" })),
             Err(SlackError::Auth(_))
         ));
-        match checked(json!({ "ok": false, "error": "missing_scope", "needed": "search:read" })) {
-            Err(SlackError::MissingScope(scope)) => assert_eq!(scope, "search:read"),
-            other => panic!(
-                "expected a missing scope, got {}",
-                other
-                    .map(|_| "ok".to_string())
-                    .unwrap_or_else(|e| e.to_string())
-            ),
-        }
         assert!(
-            matches!(checked(json!({ "ok": false, "error": "channel_not_found" })), Err(SlackError::Api(code)) if code == "channel_not_found")
+            matches!(checked(json!({ "ok": false, "error": "missing_scope", "needed": "search:read" })), Err(SlackError::Forbidden(message)) if message.contains("search:read"))
+        );
+        assert!(
+            matches!(checked(json!({ "ok": false, "error": "channel_not_found" })), Err(SlackError::Api(message)) if message == "that channel does not exist, or this account cannot see it")
         );
         assert!(matches!(
             checked(json!({ "something": 1 })),

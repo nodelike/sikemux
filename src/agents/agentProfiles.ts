@@ -1,4 +1,4 @@
-import { DEFAULT_PROVIDER_PROFILES, type AgentProvider, type AgentType, type ProviderProfile, type ProviderProfileSelection } from "../state/types";
+import type { AgentType, ProviderProfile, ProviderProfileSelection } from "../state/types";
 import { ACCOUNT_AGENT_TYPES } from "./catalog";
 
 export interface AgentRuntimeProfile {
@@ -27,9 +27,4 @@ export function selectedAgentRuntimeProfiles(profiles: readonly ProviderProfile[
             configPath: profile?.configPath,
         };
     });
-}
-
-/** The colour a new profile takes: its provider's brand. */
-export function providerAccent(provider: AgentProvider): string {
-    return DEFAULT_PROVIDER_PROFILES.find((profile) => profile.provider === provider)!.accent;
 }

@@ -6,11 +6,17 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use sikemux_core::client::{ensure_running, probe, wait_for_core, ClientError, CoreHello};
 
 #[cfg(target_os = "macos")]
 use launchd as service;
 #[cfg(not(target_os = "macos"))]
 use systemd as service;
+
+const SERVICE_PROBE: Duration = Duration::from_secs(1);
+const SERVICE_START: Duration = Duration::from_secs(5);
 
 /// How the app starts the core, which the login item repeats.
 pub struct CoreLaunch {
@@ -122,6 +128,22 @@ pub fn sync(identifier: &str, launch: Option<&CoreLaunch>, enabled: bool) {
 /// Where the login item is, whether or not it is installed.
 pub fn path(identifier: &str) -> Option<PathBuf> {
     service::path(&label(identifier))
+}
+
+/// The core `launch` describes, started first when none runs: through the
+/// login item when there is one, so it is never a second core beside it, and
+/// directly when there is none or it did not start one.
+pub fn start_core(identifier: &str, launch: &CoreLaunch) -> Result<CoreHello, ClientError> {
+    if path(identifier).is_some_and(|path| path.exists()) {
+        if let Ok(hello) = probe(&launch.socket, SERVICE_PROBE) {
+            return Ok(hello);
+        }
+        start(identifier);
+        if let Ok(hello) = wait_for_core(&launch.socket, SERVICE_START) {
+            return Ok(hello);
+        }
+    }
+    ensure_running(&launch.socket, &launch.binary, &launch.log, &launch.args)
 }
 
 pub fn install(identifier: &str, launch: &CoreLaunch) -> std::io::Result<PathBuf> {

@@ -3,8 +3,9 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_plugin_api::codehost::ReviewFeedback;
 
 use crate::client;
 use crate::common::LIST_PAGES;
@@ -32,26 +33,9 @@ struct Row {
     original_line: Option<u64>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Feedback {
-    /// `comment/`, `inline/` or `review/` and GitHub's id, as each kind
-    /// counts its ids on its own.
-    pub id: String,
-    pub author: Option<String>,
-    pub bot: bool,
-    pub body: String,
-    pub path: Option<String>,
-    pub line: Option<u64>,
-    /// `CHANGES_REQUESTED` for a review that asked for changes.
-    pub state: Option<String>,
-    pub at: String,
-    pub url: Option<String>,
-}
-
 impl Row {
-    fn feedback(self, kind: &str) -> Feedback {
-        Feedback {
+    fn feedback(self, kind: &str) -> ReviewFeedback {
+        ReviewFeedback {
             id: format!("{kind}/{}", self.id),
             bot: self
                 .user
@@ -77,7 +61,7 @@ pub struct FeedbackQuery {
     pub since: Option<String>,
 }
 
-pub async fn feedback(data_dir: &Path, input: FeedbackQuery) -> GithubResult<Vec<Feedback>> {
+pub async fn feedback(data_dir: &Path, input: FeedbackQuery) -> GithubResult<Vec<ReviewFeedback>> {
     let PullRef { repo, number } = &input.pull;
     let since: Vec<(&str, String)> = input.since.iter().map(|at| ("since", at.clone())).collect();
     let general = repo.path(&format!("/issues/{number}/comments"))?;

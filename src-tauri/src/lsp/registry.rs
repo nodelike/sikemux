@@ -3,10 +3,10 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use sikemux_process::sync::Locked;
 use tokio::task;
 
-use super::limits::{server_limit_error, MAX_LSP_SERVERS, OPEN_DOCUMENT_COUNT};
-use super::lsp;
+use super::limits::{server_limit_error, MAX_LSP_SERVERS};
 use super::server::{shutdown_server, ServerHandle, ServerKey};
 use crate::error::AppResult;
 use crate::observability::global_observability;
@@ -23,8 +23,7 @@ pub(super) fn start_lock() -> &'static Mutex<()> {
 
 pub(super) fn server_for(project: &str, language: &str) -> Option<ServerHandle> {
     registry()
-        .lock()
-        .ok()?
+        .locked()
         .get(&ServerKey::new(project, language))
         .filter(|server| !server.shutdown.load(Ordering::Acquire))
         .cloned()
@@ -32,35 +31,26 @@ pub(super) fn server_for(project: &str, language: &str) -> Option<ServerHandle> 
 
 pub fn server_count() -> usize {
     registry()
-        .lock()
-        .map(|registry| {
-            registry
-                .values()
-                .filter(|server| !server.shutdown.load(Ordering::Acquire))
-                .count()
-        })
-        .unwrap_or(0)
+        .locked()
+        .values()
+        .filter(|server| !server.shutdown.load(Ordering::Acquire))
+        .count()
 }
 
+/// The documents open across every language server, and how many running
+/// servers have none open.
 pub fn document_counts() -> (usize, usize) {
-    let idle_servers = registry()
-        .lock()
-        .map(|registry| {
-            let mut idle_servers = 0usize;
-            for server in registry.values() {
-                if server.shutdown.load(Ordering::Acquire) {
-                    continue;
-                }
-                match server.open_docs.lock() {
-                    Ok(docs) if docs.is_empty() => idle_servers += 1,
-                    Ok(_) => {}
-                    Err(_) => {}
-                }
-            }
-            idle_servers
-        })
-        .unwrap_or_default();
-    (OPEN_DOCUMENT_COUNT.load(Ordering::Acquire), idle_servers)
+    let registry = registry().locked();
+    let mut open_documents = 0;
+    let mut idle_servers = 0;
+    for server in registry.values() {
+        let documents = server.open_docs.locked().len();
+        open_documents += documents;
+        if documents == 0 && !server.shutdown.load(Ordering::Acquire) {
+            idle_servers += 1;
+        }
+    }
+    (open_documents, idle_servers)
 }
 
 const LSP_IDLE_GRACE: Duration = Duration::from_secs(5 * 60);
@@ -160,17 +150,13 @@ pub(super) enum PreparedServerStart {
 /// `MAX_LSP_SERVERS`.
 pub(super) fn prepare_server_start(requested: &ServerKey) -> AppResult<PreparedServerStart> {
     let (action, to_shutdown) = {
-        let mut registry = registry().lock().map_err(lsp)?;
+        let mut registry = registry().locked();
         let entries = registry
             .iter()
             .map(|(key, server)| AdmissionEntry {
                 key: key.clone(),
                 live: !server.shutdown.load(Ordering::Acquire),
-                idle: server
-                    .open_docs
-                    .lock()
-                    .map(|documents| documents.is_empty())
-                    .unwrap_or(false),
+                idle: server.open_docs.locked().is_empty(),
                 last_used: server.last_used.load(Ordering::Relaxed),
             })
             .collect::<Vec<_>>();
@@ -206,7 +192,7 @@ pub(super) fn prepare_server_start(requested: &ServerKey) -> AppResult<PreparedS
         ServerStartAction::Existing => Ok(PreparedServerStart::Existing),
         ServerStartAction::Admit { .. } => Ok(PreparedServerStart::Admit),
         ServerStartAction::Reject => {
-            let _ = global_observability().increment_counter("lsp.server_limit_rejections", 1);
+            global_observability().increment_counter("lsp.server_limit_rejections", 1);
             Err(server_limit_error())
         }
     }
@@ -224,35 +210,29 @@ pub(super) fn schedule_idle_shutdown(server_key: ServerKey, server: ServerHandle
                 .idle_generation
                 .load(std::sync::atomic::Ordering::Acquire)
                 != generation
-            || server
-                .open_docs
-                .lock()
-                .map(|docs| !docs.is_empty())
-                .unwrap_or(true)
+            || !server.open_docs.locked().is_empty()
         {
             return;
         }
         let _ = task::spawn_blocking(move || {
-            let _start_guard = start_lock()
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let _start_guard = start_lock().locked();
             if server.shutdown.load(Ordering::Acquire)
                 || server.idle_generation.load(Ordering::Acquire) != generation
-                || server
-                    .open_docs
-                    .lock()
-                    .map(|docs| !docs.is_empty())
-                    .unwrap_or(true)
+                || !server.open_docs.locked().is_empty()
             {
                 return;
             }
-            let victim = registry().lock().ok().and_then(|mut reg| {
-                let current = reg.get(&server_key)?;
-                if !Arc::ptr_eq(current, &server) {
-                    return None;
+            let victim = {
+                let mut reg = registry().locked();
+                let still_ours = reg
+                    .get(&server_key)
+                    .is_some_and(|current| Arc::ptr_eq(current, &server));
+                if still_ours {
+                    reg.remove(&server_key)
+                } else {
+                    None
                 }
-                reg.remove(&server_key)
-            });
+            };
             if let Some(victim) = victim {
                 shutdown_server(victim);
             }
@@ -264,12 +244,12 @@ pub(super) fn schedule_idle_shutdown(server_key: ServerKey, server: ServerHandle
 /// Return true only for a usable registry entry. Reader-owned teardown marks
 /// failed/exited servers shut down; remove those entries so a subsequent start
 /// can actually spawn a replacement.
-pub(super) fn live_server_exists(key: &ServerKey) -> AppResult<bool> {
+pub(super) fn live_server_exists(key: &ServerKey) -> bool {
     let stale = {
-        let mut registry = registry().lock().map_err(lsp)?;
+        let mut registry = registry().locked();
         match registry.get(key) {
             Some(server) if !server.shutdown.load(std::sync::atomic::Ordering::Relaxed) => {
-                return Ok(true)
+                return true
             }
             Some(_) => registry.remove(key),
             None => None,
@@ -278,23 +258,17 @@ pub(super) fn live_server_exists(key: &ServerKey) -> AppResult<bool> {
     if let Some(server) = stale {
         shutdown_server(server);
     }
-    Ok(false)
+    false
 }
 
 /// Application-teardown backstop for servers whose project stop never arrived.
 pub fn drain_all() {
-    let _start_guard = start_lock()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _start_guard = start_lock().locked();
     let servers = registry()
-        .lock()
-        .map(|mut registry| {
-            registry
-                .drain()
-                .map(|(_, server)| server)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+        .locked()
+        .drain()
+        .map(|(_, server)| server)
+        .collect::<Vec<_>>();
     for server in servers {
         shutdown_server(server);
     }

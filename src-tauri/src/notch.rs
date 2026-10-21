@@ -1,7 +1,7 @@
 //! The island over the MacBook notch. The `sikemux-notch` helper draws it and
-//! reads the core's device view; the app starts it with the core's own launch
-//! command, so a core it starts runs as the app's would. It keeps running
-//! after the app quits, as the core does.
+//! reads the core's device view; the app gives it the core's binary, whose
+//! `start` runs the core as the app would. It keeps running after the app
+//! quits, as the core does.
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -164,12 +164,7 @@ mod mac {
             .arg("--state-dir")
             .arg(&state_dir)
             .arg("--core-binary")
-            .arg(&launch.binary)
-            .arg("--core-log")
-            .arg(&launch.log);
-        for argument in &launch.args {
-            command.arg("--core-arg").arg(argument);
-        }
+            .arg(&launch.binary);
         if let Some(bundle) = bundle() {
             command.arg("--app").arg(bundle);
         }

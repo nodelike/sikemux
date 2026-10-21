@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { closeCorePalettes, onPaneClosed, openSurface } from "../../plugin-api/host";
 import { definePluginSettings } from "../../plugin-api/settings";
-import { RUNDECK_DEPLOY, RUNDECK_PLUGIN_ID } from "./kinds";
+import { RUNDECK_DEPLOY, RUNDECK_PLUGIN } from "./kinds";
 import { basenameOf } from "./shape";
 
 /** A Rundeck job as the views address it, plus the local checkout linked to it, if any. */
@@ -58,7 +58,7 @@ function decodeSettings(saved: unknown): RundeckSettings {
     };
 }
 
-export const rundeckSettings = definePluginSettings(RUNDECK_PLUGIN_ID, decodeSettings);
+export const rundeckSettings = definePluginSettings(RUNDECK_PLUGIN.id, decodeSettings);
 
 export function updateRundeckSettings(patch: Partial<RundeckSettings>): void {
     rundeckSettings.update((settings) => ({ ...settings, ...patch }));

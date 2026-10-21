@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ComponentType, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
-import { fsapi, type DirEntry } from "../api/fs";
+import { filesOn, fsapi, type DirEntry, type FilesHost } from "../api/fs";
 import { type GitFile } from "../api/git";
 import { subscribe } from "../state/bus";
 import { useResourceEnabled } from "../state/resources";
@@ -35,6 +35,8 @@ import { leavingMenu } from "../lib/motion";
 
 interface FileTreeProps {
     cwd: string;
+    /** The host that holds this copy of the project, when it is not this one. */
+    host?: FilesHost;
     activePath: string | null;
     /** A single click: the file takes the preview tab. */
     onOpenFile: (entry: DirEntry) => void;
@@ -64,6 +66,7 @@ type VisibleTreeRow =
     { key: string; kind: "entry"; entry: DirEntry; depth: number } | { key: string; kind: "new"; depth: number; request: NewEntryRequest };
 
 const TREE_ROW_HEIGHT = 23;
+const REMOTE_DROP = "files can't be dropped onto a copy on another host yet";
 const READ_DIRS_BATCH = 512;
 const TREE_VIRTUALIZE_AFTER = 150;
 
@@ -104,6 +107,7 @@ function reshapesIgnores(changed: string, dir: string): boolean {
 
 export const FileTree = memo(function FileTree({
     cwd,
+    host,
     activePath,
     onOpenFile,
     onKeepFile,
@@ -114,6 +118,7 @@ export const FileTree = memo(function FileTree({
     lead,
 }: FileTreeProps) {
     const resizable = width !== undefined && onResize !== undefined;
+    const files = useMemo(() => filesOn(host), [host]);
     const [dirs, setDirs] = useState<Record<string, DirEntry[]>>({});
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [selectedDir, setSelectedDir] = useState<string | null>(null);
@@ -199,26 +204,29 @@ export const FileTree = memo(function FileTree({
         return () => observer.disconnect();
     }, [hasLead]);
 
-    const loadDirs = useCallback(async (paths: readonly string[]) => {
-        if (paths.length === 0) return;
-        const batches: string[][] = [];
-        for (let at = 0; at < paths.length; at += READ_DIRS_BATCH) {
-            batches.push(paths.slice(at, at + READ_DIRS_BATCH) as string[]);
-        }
-        let listings;
-        try {
-            listings = (await Promise.all(batches.map((batch) => fsapi.readDirs(batch)))).flat();
-        } catch (error) {
-            swallow("readDirs")(error);
-            return;
-        }
-        const loaded: Record<string, DirEntry[]> = {};
-        for (const listing of listings ?? []) {
-            if (listing?.error === null && Array.isArray(listing.entries)) loaded[listing.path] = listing.entries;
-        }
-        if (Object.keys(loaded).length === 0) return;
-        setDirs((d) => ({ ...d, ...loaded }));
-    }, []);
+    const loadDirs = useCallback(
+        async (paths: readonly string[]) => {
+            if (paths.length === 0) return;
+            const batches: string[][] = [];
+            for (let at = 0; at < paths.length; at += READ_DIRS_BATCH) {
+                batches.push(paths.slice(at, at + READ_DIRS_BATCH) as string[]);
+            }
+            let listings;
+            try {
+                listings = (await Promise.all(batches.map((batch) => files.readDirs(batch)))).flat();
+            } catch (error) {
+                swallow("readDirs")(error);
+                return;
+            }
+            const loaded: Record<string, DirEntry[]> = {};
+            for (const listing of listings ?? []) {
+                if (listing?.error === null && Array.isArray(listing.entries)) loaded[listing.path] = listing.entries;
+            }
+            if (Object.keys(loaded).length === 0) return;
+            setDirs((d) => ({ ...d, ...loaded }));
+        },
+        [files],
+    );
 
     const loadDir = useCallback((path: string) => loadDirs([path]), [loadDirs]);
 
@@ -230,7 +238,7 @@ export const FileTree = memo(function FileTree({
     useEffect(() => {
         if (!cwd || !active) return;
         const unsubscribe = subscribe("fs-changed", (e) => {
-            if (e.repo && e.repo !== cwd) return;
+            if (e.host !== host || (e.repo && e.repo !== cwd)) return;
             const changed = e.paths?.map((path) => joinPath(cwd, path));
             const stale = [cwd, ...expandedRef.current].filter(
                 (path) => !changed || changed.some((entry) => dirname(entry) === path || isPathWithin(path, entry) || reshapesIgnores(entry, path)),
@@ -238,7 +246,7 @@ export const FileTree = memo(function FileTree({
             void loadDirs(stale);
         });
         return unsubscribe;
-    }, [cwd, active, loadDirs]);
+    }, [cwd, host, active, loadDirs]);
 
     useEffect(() => {
         const path = revealPath ?? activePath;
@@ -305,7 +313,7 @@ export const FileTree = memo(function FileTree({
         const parent = dirname(renaming);
         const dest = joinPath(parent, trimmed);
         try {
-            await renameEditorPath(renaming, dest);
+            await renameEditorPath(renaming, dest, host);
             await loadDir(parent);
             cancelRename();
         } catch (err) {
@@ -351,8 +359,8 @@ export const FileTree = memo(function FileTree({
         }
         const target = joinPath(newRequest.parent, name);
         try {
-            if (newRequest.kind === "file") await fsapi.createFile(target);
-            else await fsapi.createDir(target);
+            if (newRequest.kind === "file") await files.createFile(target);
+            else await files.createDir(target);
             await loadDir(newRequest.parent);
             cancelNew();
             if (newRequest.kind === "file") {
@@ -388,6 +396,7 @@ export const FileTree = memo(function FileTree({
         if (existing?.el === el) return;
         existing?.unreg();
         const unreg = registerFolderDrop(el, async (paths) => {
+            if (host !== undefined) return notify("error", REMOTE_DROP);
             try {
                 for (const p of paths) await fsapi.copyIntoDir(p, dir);
                 await loadDir(dir);
@@ -422,7 +431,7 @@ export const FileTree = memo(function FileTree({
         if (!canDropInto(src, destDir)) return;
         const dest = joinPath(destDir, basename(src));
         try {
-            await renameEditorPath(src, dest);
+            await renameEditorPath(src, dest, host);
             await Promise.all([loadDir(dirname(src)), loadDir(destDir)]);
             setExpanded((s) => new Set(s).add(destDir));
         } catch (err) {
@@ -567,7 +576,16 @@ export const FileTree = memo(function FileTree({
         }
     };
 
-    const revealInFinder = (p: string) => void fsapi.revealInFinder(p).catch(reportError("reveal"));
+    const revealItem = (p: string): CtxItem[] =>
+        host === undefined
+            ? [
+                  {
+                      label: `Reveal in ${FILE_MANAGER_NAME}`,
+                      icon: <IconFolder size={13} />,
+                      run: () => void fsapi.revealInFinder(p).catch(reportError("reveal")),
+                  },
+              ]
+            : [];
 
     const deleteEntry = async (entry: DirEntry) => {
         const ok = await confirmDialog({
@@ -578,7 +596,7 @@ export const FileTree = memo(function FileTree({
         });
         if (!ok) return;
         try {
-            await fsapi.deletePath(entry.path);
+            await files.deletePath(entry.path);
             await loadDir(dirname(entry.path) || cwd);
             if (renaming === entry.path) cancelRename();
             if (selectedDir === entry.path) setSelectedDir(null);
@@ -601,12 +619,12 @@ export const FileTree = memo(function FileTree({
                 { label: "New File", icon: <IconFilePlus size={13} />, run: () => startNew("file", cwd) },
                 { label: "New Folder", icon: <IconFolderPlus size={13} />, run: () => startNew("folder", cwd) },
                 { sep: true },
-                { label: `Reveal in ${FILE_MANAGER_NAME}`, icon: <IconFolder size={13} />, run: () => revealInFinder(cwd) },
+                ...revealItem(cwd),
                 { label: "Copy Path", icon: <IconCopy size={13} />, run: () => void copyToClipboard(cwd, "path") },
             ];
         }
         const tail: CtxItem[] = [
-            { label: `Reveal in ${FILE_MANAGER_NAME}`, icon: <IconFolder size={13} />, run: () => revealInFinder(entry.path) },
+            ...revealItem(entry.path),
             { label: "Copy Path", icon: <IconCopy size={13} />, run: () => void copyToClipboard(entry.path, "path") },
             {
                 label: "Copy Relative Path",
@@ -802,6 +820,7 @@ export const FileTree = memo(function FileTree({
         const el = rootScrollRef.current;
         if (!el || !cwd || !active) return;
         return registerFolderDrop(el, async (paths) => {
+            if (host !== undefined) return notify("error", REMOTE_DROP);
             try {
                 for (const p of paths) await fsapi.copyIntoDir(p, cwd);
                 await loadDir(cwd);
@@ -809,7 +828,7 @@ export const FileTree = memo(function FileTree({
                 reportError("drop")(err);
             }
         });
-    }, [cwd, active, loadDir]);
+    }, [cwd, host, active, loadDir]);
 
     const focusEntryAt = (entryIndex: number) => {
         const row = entryRows[entryIndex];

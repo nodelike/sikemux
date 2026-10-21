@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
 use super::{Core, CoreError, CoreResult};
 
@@ -22,8 +23,14 @@ pub struct Failure {
     pub plugin: String,
     pub category: String,
     pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<u16>,
+}
+
+impl From<Failure> for String {
+    fn from(failure: Failure) -> Self {
+        failure.message
+    }
 }
 
 impl Failure {
@@ -101,29 +108,17 @@ fn plugins(plugin: &str) -> Result<&'static dyn Plugins, Failure> {
 }
 
 /// What the plugins set for an agent, terminal or task started in `cwd`,
-/// asked of the project that holds it. An agent a linked host is behind gets
-/// it only once the person allows that host.
-pub(crate) fn agent_environment(
-    core: &Core,
-    cwd: &Path,
-    agent_id: Option<&str>,
-) -> BTreeMap<String, String> {
+/// asked of the project that holds it.
+pub(crate) fn agent_environment(core: &Core, cwd: &Path) -> BTreeMap<String, String> {
     let Some(plugins) = PLUGINS.get() else {
         return BTreeMap::new();
     };
-    if agent_id.is_some_and(|agent_id| !super::hosts::sign_ins::allowed(core, agent_id)) {
-        return BTreeMap::new();
-    }
     let project = super::names::project_of(cwd, &core.workspaces.project_paths());
     plugins.agent_environment(Path::new(&project))
 }
 
-pub(crate) async fn call(plugin: &str, method: &str, params: Value) -> Result<Value, String> {
-    let plugins = plugins(plugin).map_err(|failure| failure.message)?;
-    plugins
-        .call(plugin, method, params)
-        .await
-        .map_err(|failure| failure.message)
+pub(crate) async fn call(plugin: &str, method: &str, params: Value) -> Result<Value, Failure> {
+    plugins(plugin)?.call(plugin, method, params).await
 }
 
 #[derive(Deserialize)]
@@ -173,7 +168,7 @@ pub(crate) fn set_disabled(core: &Core, disabled: Disabled) {
     if let Some(plugins) = PLUGINS.get() {
         plugins.set_disabled(disabled.ids);
         core.harness.plugins_changed();
-        core.publish_device_view();
+        core.view_changed();
     }
 }
 
@@ -239,9 +234,7 @@ pub(crate) struct Ticket {
 /// Holds a stream for the window to collect over the tool endpoint, which
 /// only it may ask for, though anyone holding the endpoint's token may connect.
 pub(crate) fn stream_ticket(call: WindowCall) -> CoreResult<Ticket> {
-    let mut tickets = TICKETS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut tickets = TICKETS.locked();
     tickets.retain(|(_, made, _)| made.elapsed() < TICKET_LIFETIME);
     if tickets.len() >= MAX_TICKETS {
         return Err(CoreError::from(
@@ -262,9 +255,7 @@ pub(crate) fn stream_ticket(call: WindowCall) -> CoreResult<Ticket> {
 }
 
 pub(crate) fn redeem(ticket: &str) -> Option<Pending> {
-    let mut tickets = TICKETS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut tickets = TICKETS.locked();
     let at = tickets.iter().position(|(held, made, _)| {
         crate::cli::auth::same_secret(held, ticket) && made.elapsed() < TICKET_LIFETIME
     })?;
@@ -353,19 +344,13 @@ fn remote_urls(path: &Path) -> Vec<String> {
 
 /// None when `repo` is not inside a repository.
 fn urls_of(repo: &Path) -> Option<Vec<String>> {
-    let mut command = sikemux_process::user_environment::command("git");
-    command
-        .arg("-C")
-        .arg(repo)
-        .args(["remote", "-v"])
-        .env("GIT_TERMINAL_PROMPT", "0");
-    let output =
-        sikemux_process::run(&mut command, None, GIT_TIMEOUT, GIT_OUTPUT_LIMIT, None).ok()?;
-    if !output.status.success() {
-        return None;
-    }
+    let listed = crate::git::Git::at(repo)
+        .timeout(GIT_TIMEOUT)
+        .limit(GIT_OUTPUT_LIMIT)
+        .text(&["remote", "-v"])
+        .ok()?;
     Some(
-        String::from_utf8_lossy(&output.stdout)
+        listed
             .lines()
             .filter_map(|line| line.strip_suffix(" (fetch)")?.split_once('\t'))
             .map(|(_, url)| with_real_ssh_host(url, ssh_hostname))

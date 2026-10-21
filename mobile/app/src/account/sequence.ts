@@ -1,5 +1,7 @@
-import { AccountDeleting, AccountProblem } from './api';
-import { reconnectDelay } from './live';
+import { reconnectDelay } from '@protocol/live';
+
+import { problem } from '@/core/problem';
+import { AccountDeleting, ApiProblem } from './api';
 
 /** How far signing this phone in to the account has got, so a screen can say why it stopped. */
 export type AccountStatus =
@@ -23,12 +25,7 @@ const TOO_MANY = 429;
 
 /** Out of reach, failing on its side or busy: worth trying again by itself. Anything else waits for the person. */
 function retryable(error: unknown): boolean {
-  return !(error instanceof AccountProblem) || error.unreachable || error.status === TOO_MANY;
-}
-
-function problemOf(error: unknown): string {
-  if (error instanceof AccountProblem) return error.message;
-  return error instanceof Error ? error.message : String(error);
+  return !(error instanceof ApiProblem) || error.unreachable || error.status === TOO_MANY;
 }
 
 /**
@@ -112,7 +109,7 @@ export class AccountSequence {
         }
         console.warn('sikemux: could not add this phone to the account', error);
         const retrying = retryable(error);
-        this.deps.status({ step: 'failed', problem: problemOf(error), retrying });
+        this.deps.status({ step: 'failed', problem: problem(error), retrying });
         if (!retrying || !this.front) return;
         this.retrying = setTimeout(() => this.register(), reconnectDelay(this.attempt, (this.deps.random ?? Math.random)()));
         this.attempt += 1;

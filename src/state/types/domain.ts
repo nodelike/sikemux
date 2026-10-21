@@ -1,4 +1,4 @@
-import { agentBrand, type AgentType } from "../../agents/catalog";
+import { ACCOUNT_AGENT_TYPES, agentBrand, agentLabel, type AccountAgentType, type AgentType } from "../../agents/catalog";
 import type { PluginKind } from "../../plugins/kinds";
 import type { SpaceIcon } from "../projectSpaces";
 
@@ -10,7 +10,9 @@ import type { SpaceIcon } from "../projectSpaces";
  * are tabs, and the active pane decides which is on top.
  */
 export type SplitDir = "row" | "column" | "stack";
-export type CorePaneKind = "terminal" | "editor" | "git" | "diff" | "search" | "agent" | "desk" | "shared" | "board";
+import type { CorePaneKind, WindowRole } from "../windowRoles";
+
+export type { CorePaneKind, WindowRole };
 export type PaneKind = CorePaneKind | PluginKind;
 
 export interface PaneNode {
@@ -24,6 +26,8 @@ export interface PaneNode {
     tab?: { name: string; role: WindowRole };
     /** The terminal core session this pane shows, which outlives the app. */
     ptyId?: number;
+    /** The host the terminal runs on, by its core's key, when that is not this one. */
+    host?: string;
     /** Runtime-only marker: this pane borrows a process owned outside its renderer. */
     externalPty?: true;
     /** Runtime-only stable task identity used to reuse its presentation window. */
@@ -42,8 +46,6 @@ export type LayoutNode = PaneNode | SplitNode;
 
 export type SessionKind = "project" | "command" | "ssh" | PluginKind;
 
-export type WindowRole = "term" | "files" | "git" | "diff" | "search" | "ssh-config" | "named" | "agent" | "shared" | "board" | PluginKind;
-
 export interface Window {
     id: string;
     name: string;
@@ -59,14 +61,12 @@ export interface Window {
 
 export type { AgentType };
 
-/** The permission boundary applied when starting an agent process. */
-export type AgentPermissionMode = "read-only" | "workspace-write" | "full-access" | "bypass";
+/** Whether an agent asks before it acts (the provider's own approvals and sandbox) or acts without asking. */
+export type AgentPermissionMode = "workspace-write" | "bypass";
 
 /** Provider-neutral reasoning levels; unsupported levels are normalized per CLI. */
-export type AgentEffort = "off" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
-
-/** Supported profile backends. Gemini is profile-ready ahead of a dedicated agent tab. */
-export type AgentProvider = "claude" | "codex" | "gemini";
+export const AGENT_EFFORTS = ["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
+export type AgentEffort = (typeof AGENT_EFFORTS)[number];
 
 /**
  * Durable, non-secret configuration for an agent executable.
@@ -76,7 +76,7 @@ export type AgentProvider = "claude" | "codex" | "gemini";
 export interface ProviderProfile {
     id: string;
     name: string;
-    provider: AgentProvider;
+    provider: AccountAgentType;
     accent: string;
     executablePath?: string;
     configPath?: string;
@@ -85,16 +85,18 @@ export interface ProviderProfile {
 
 export type ProviderProfileSelection = Partial<Record<AgentType, string>>;
 
-export const DEFAULT_PROVIDER_PROFILES: readonly ProviderProfile[] = [
-    { id: "builtin-claude", name: "Claude", provider: "claude", accent: agentBrand("claude") },
-    { id: "builtin-codex", name: "Codex", provider: "codex", accent: agentBrand("codex") },
-    { id: "builtin-gemini", name: "Gemini", provider: "gemini", accent: "#4285f4" },
-];
+const builtinProfileId = (type: AccountAgentType): string => `builtin-${type}`;
 
-export const DEFAULT_PROVIDER_PROFILE_SELECTION: Readonly<ProviderProfileSelection> = {
-    claude: "builtin-claude",
-    codex: "builtin-codex",
-};
+export const DEFAULT_PROVIDER_PROFILES: readonly ProviderProfile[] = ACCOUNT_AGENT_TYPES.map((type) => ({
+    id: builtinProfileId(type),
+    name: agentLabel(type),
+    provider: type,
+    accent: agentBrand(type),
+}));
+
+export const DEFAULT_PROVIDER_PROFILE_SELECTION: Readonly<ProviderProfileSelection> = Object.fromEntries(
+    ACCOUNT_AGENT_TYPES.map((type) => [type, builtinProfileId(type)]),
+);
 
 export interface Agent {
     id: string;
@@ -106,7 +108,6 @@ export interface Agent {
     title: string;
     resumeId?: string;
     createdAt?: number;
-    /** Explicit launch boundary. Absent on legacy in-memory records. */
     permissionMode?: AgentPermissionMode;
     /** Non-secret provider profile selected for this launch. */
     profileId?: string;
@@ -120,8 +121,6 @@ export interface Agent {
     modelProvider?: string;
     /** Optional provider reasoning-effort override selected at launch. */
     effort?: AgentEffort;
-    /** @deprecated Compatibility bridge for snapshots and command builders. */
-    skipPermissions?: boolean;
     /**
      * Session ids that already existed when this fresh agent launched. Used to
      * keep it from adopting a pre-existing session during reconciliation —
@@ -138,6 +137,8 @@ export interface Agent {
     worktree?: AgentWorktree;
     /** The terminal core session running this agent's TUI, which outlives the app. */
     ptyId?: number;
+    /** The host the chat runs on, by its core's key, when that is not this one. */
+    host?: string;
     /** The character drawn for this agent. Without a pack and shape it follows the default style in settings. */
     buddy?: AgentBuddy;
 }
@@ -221,6 +222,8 @@ export interface Session {
     cwd: string;
     pinned: boolean;
     activeWindowId: string;
+    /** The host whose folder this is, by its core's key, for a project only another host holds. */
+    host?: string;
 }
 
 /**

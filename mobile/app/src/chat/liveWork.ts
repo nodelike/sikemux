@@ -1,6 +1,7 @@
-import { recordOf } from '@mac/chat/acpEvents';
+import { recordOf } from '@mac/lib/guards';
 import { groupTasks, runningSubagents, subagentActivity, taskDetail, workflowAgentDetail } from '@mac/chat/transcript';
 import type { AcpAsyncTask, AcpSubagent, ChatState } from '@mac/chat/types';
+import { counted } from '@/devices/words';
 import type { Held } from './session';
 
 export type PlanEntry = { content: string; status: 'pending' | 'in_progress' | 'completed' };
@@ -44,11 +45,6 @@ export type StripPiece = { key: string; task?: string; count: string; word: stri
 
 /** The one line docked on the composer: a count for each kind of work, and the running things it turns through. */
 export type LiveStripView = { pieces: StripPiece[]; lines: string[]; working: boolean };
-
-/** A kind of work named the way the Mac's live stack names it, counted. */
-export function counted(word: string, count: number): string {
-  return count === 1 || word === 'queued' ? word : `${word}s`;
-}
 
 export function liveStrip(work: LiveWork): LiveStripView {
   const done = work.plan.filter((entry) => entry.status === 'completed').length;

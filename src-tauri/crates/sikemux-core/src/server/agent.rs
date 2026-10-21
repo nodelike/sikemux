@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use portable_pty::ExitStatus;
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::{Locked, Shared};
 use sikemux_pty::agent_detection::{
     AgentDetection, AgentDetectionState, AgentKind, DetectionConfidence, DetectionExplain,
     DetectionInput, ManifestRegistry,
@@ -16,7 +17,7 @@ use super::activity::Activity;
 use super::messages;
 use super::session::Session;
 use super::spawn::{self, Ending};
-use super::{now_ms, Core, CoreResult};
+use super::{uptime_ms, Core, CoreResult};
 
 const ACTIVITY_SETTLE: Duration = Duration::from_secs(2);
 /// How long an agent at rest must keep printing before that counts as a turn
@@ -305,7 +306,9 @@ pub(crate) fn note_input(core: &Core, session: &Session, bytes: &[u8]) {
         return;
     }
     agent.armed.store(true, Ordering::Release);
-    session.last_activity_ms.store(now_ms(), Ordering::Relaxed);
+    session
+        .last_activity_ms
+        .store(uptime_ms(), Ordering::Relaxed);
     agent.idle_confirmations.store(0, Ordering::Release);
     agent.revision.fetch_add(1, Ordering::AcqRel);
     agent.publish(core, WORKING, "activity", "high", "command submitted", None);
@@ -320,7 +323,7 @@ pub(crate) fn note_output(core: &Core, agent: &AgentActivity) {
         return;
     }
     agent.idle_confirmations.store(0, Ordering::Release);
-    let now = now_ms();
+    let now = uptime_ms();
     let previous = agent.last_output_ms.swap(now, Ordering::AcqRel);
     if !agent.busy() {
         if now.saturating_sub(previous) >= ACTIVITY_SETTLE.as_millis() as u64 {
@@ -386,7 +389,7 @@ pub(crate) fn takes_prompt(core: &Core, session: &Session) -> bool {
             AgentDetectionState::Working | AgentDetectionState::Blocked
         );
     }
-    let quiet = now_ms().saturating_sub(session.last_activity_ms.load(Ordering::Relaxed))
+    let quiet = uptime_ms().saturating_sub(session.last_activity_ms.load(Ordering::Relaxed))
         >= ACTIVITY_SETTLE.as_millis() as u64;
     quiet
         && matches!(detection.state, AgentDetectionState::Idle)
@@ -402,17 +405,17 @@ pub(crate) fn asks_now(core: &Core, session: &Session) -> bool {
 
 fn screen_now(core: &Core, session: &Session) -> Option<AgentDetection> {
     let kind = session.agent.as_ref()?.kind?;
-    let (recent, title) = screen_text(session)?;
-    let registry = core.detection.read().ok()?;
+    let (recent, title) = screen_text(session);
+    let registry = core.detection.read_locked();
     Some(registry.detect(kind, detection_input(&recent, &title)))
 }
 
-pub(crate) fn screen_text(session: &Session) -> Option<(String, String)> {
-    let parser = session.parser.lock().ok()?;
-    Some((
+pub(crate) fn screen_text(session: &Session) -> (String, String) {
+    let parser = session.parser.locked();
+    (
         parser.screen().contents(),
         parser.callbacks().window_title.clone(),
-    ))
+    )
 }
 
 /// Reads a settled agent screen and publishes what it shows. Runs a few times
@@ -434,17 +437,15 @@ pub(crate) fn poll(core: &Core, session: &Session, now: u64) {
     if agent.last_detection_revision.load(Ordering::Acquire) == revision {
         return;
     }
-    let Some((recent, title)) = screen_text(session) else {
-        return;
-    };
+    let (recent, title) = screen_text(session);
     let fingerprint = semantic_fingerprint(revision, &recent, &title);
     if agent.last_detection_fingerprint.load(Ordering::Acquire) == fingerprint {
         return;
     }
-    let detection = match core.detection.read() {
-        Ok(registry) => registry.detect(kind, detection_input(&recent, &title)),
-        Err(_) => return,
-    };
+    let detection = core
+        .detection
+        .read_locked()
+        .detect(kind, detection_input(&recent, &title));
     if detection.skip_state_update {
         agent
             .last_detection_fingerprint
@@ -503,7 +504,7 @@ pub(crate) fn explain(
         .as_ref()
         .and_then(AgentActivity::kind)
         .ok_or("invalid argument: terminal has no known agent type")?;
-    let (recent, title) = screen_text(session).ok_or("agent terminal parser lock poisoned")?;
+    let (recent, title) = screen_text(session);
     Ok(registry.explain(kind, detection_input(&recent, &title)))
 }
 

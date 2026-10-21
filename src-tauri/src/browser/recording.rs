@@ -33,6 +33,7 @@ use objc2_core_video::{
 use objc2_foundation::{NSDictionary, NSError, NSNumber, NSString, NSURL};
 use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Manager};
 
 use super::BrowserManager;
@@ -75,7 +76,7 @@ struct Encoder {
 
 pub async fn start(app: &AppHandle, agent_id: &str, path: Option<String>) -> Result<Value, String> {
     let manager = app.state::<BrowserManager>();
-    if manager.recordings_lock().contains_key(agent_id) {
+    if manager.recordings.locked().contains_key(agent_id) {
         return Err("this agent is already recording; stop it first".into());
     }
     let (tab_id, view) = manager
@@ -129,7 +130,7 @@ pub async fn start(app: &AppHandle, agent_id: &str, path: Option<String>) -> Res
         stop.clone(),
         width as f64,
     ));
-    manager.recordings_lock().insert(
+    manager.recordings.locked().insert(
         agent_id.to_owned(),
         Session {
             path: path.clone(),
@@ -145,7 +146,8 @@ pub async fn start(app: &AppHandle, agent_id: &str, path: Option<String>) -> Res
 pub async fn stop(app: &AppHandle, agent_id: &str) -> Result<Value, String> {
     let session = app
         .state::<BrowserManager>()
-        .recordings_lock()
+        .recordings
+        .locked()
         .remove(agent_id)
         .ok_or("nothing is recording")?;
     session.stop.store(true, Ordering::Release);
@@ -493,7 +495,7 @@ fn capture(
     }
     let done = std::sync::Mutex::new(Some(done));
     let block = RcBlock::new(move |image: *mut NSImage, _: *mut NSError| {
-        let Some(done) = done.lock().ok().and_then(|mut slot| slot.take()) else {
+        let Some(done) = done.locked().take() else {
             return;
         };
         // SAFETY: WebKit passes a live image or nil; `retain` takes our own reference.

@@ -4,7 +4,6 @@ import { useState, type ReactNode } from "react";
 import { Avatar } from "./Avatar.tsx";
 import { Logo } from "./icons.tsx";
 
-export const CONSENT = "/oauth-consent";
 export const SIGNED_IN = "/signed-in";
 
 /** Where Clerk sends a sign-in an app started, such as the Mac's, to ask the person first. */

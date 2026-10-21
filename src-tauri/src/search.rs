@@ -20,12 +20,13 @@ use ignore::{DirEntry, ParallelVisitor, ParallelVisitorBuilder, WalkBuilder, Wal
 use rayon::prelude::*;
 use regex::bytes::RegexBuilder as BytesRegexBuilder;
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::error::{AppError, AppResult};
 use crate::files;
@@ -328,12 +329,6 @@ fn generations() -> &'static Mutex<HashMap<String, Arc<AtomicU64>>> {
     GENERATIONS.get_or_init(Default::default)
 }
 
-fn lock_generations() -> MutexGuard<'static, HashMap<String, Arc<AtomicU64>>> {
-    generations()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 /// One search's place in its repo's sequence. Workers hold the counter itself,
 /// so checking it costs one atomic load rather than a map lookup.
 struct Generation {
@@ -348,13 +343,13 @@ impl Generation {
 }
 
 fn bump_generation(repo: &str) -> Generation {
-    let counter = Arc::clone(lock_generations().entry(repo.to_string()).or_default());
+    let counter = Arc::clone(generations().locked().entry(repo.to_string()).or_default());
     let gen = counter.fetch_add(1, Ordering::SeqCst) + 1;
     Generation { counter, gen }
 }
 
 fn clear_generation(repo: &str, generation: &Generation) {
-    let mut generations = lock_generations();
+    let mut generations = generations().locked();
     if generations
         .get(repo)
         .is_some_and(|counter| Arc::ptr_eq(counter, &generation.counter) && generation.is_current())
@@ -365,7 +360,7 @@ fn clear_generation(repo: &str, generation: &Generation) {
 
 #[tauri::command]
 pub fn project_search_cancel(repo: String) {
-    if let Some(counter) = lock_generations().remove(&repo) {
+    if let Some(counter) = generations().locked().remove(&repo) {
         counter.fetch_add(1, Ordering::SeqCst);
     }
 }
@@ -733,13 +728,12 @@ fn run_replace(
             if std::str::from_utf8(&bytes).is_err() || !self.rewrite_re.is_match(&bytes) {
                 return WalkState::Continue;
             }
-            if let Ok(mut candidates) = self.candidates.lock() {
-                if candidates.len() >= MAX_REPLACE_CANDIDATES {
-                    self.limit_exceeded.store(true, Ordering::Release);
-                    return WalkState::Quit;
-                }
-                candidates.push(path.to_path_buf());
+            let mut candidates = self.candidates.locked();
+            if candidates.len() >= MAX_REPLACE_CANDIDATES {
+                self.limit_exceeded.store(true, Ordering::Release);
+                return WalkState::Quit;
             }
+            candidates.push(path.to_path_buf());
             WalkState::Continue
         }
     }

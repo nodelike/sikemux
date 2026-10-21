@@ -1,9 +1,8 @@
 import { useEffect } from "react";
 import { create } from "zustand";
+import { onCoreChanged } from "../api/coreChanged";
 import { shareApi, type ShareView } from "../api/share";
-
-/** How often the shares are read again while one is open or being set up, for their viewer counts. */
-const POLL_MS = 3_000;
+import { swallow } from "../state/toast";
 
 export const SHARE_LIFETIMES = [
     { label: "1 hour", ms: 60 * 60_000 },
@@ -44,7 +43,6 @@ export async function refreshShares(): Promise<void> {
 
 export function openShareDialog(agentId: string) {
     useShares.setState({ dialog: agentId });
-    void refreshShares().catch(() => undefined);
 }
 
 export function closeShareDialog() {
@@ -55,15 +53,11 @@ export function useChatShare(agentId: string): ShareView | null {
     return useShares((state) => state.shares.find((share) => share.agentId === agentId && share.state !== "refused") ?? null);
 }
 
-/** Keeps the shares fresh while any is open or the dialog is up. Mounted once, at the app's root. */
-export function useSharesPolling() {
-    const active = useShares((state) => state.dialog !== null || state.shares.length > 0);
+/** Keeps the shares as the core has them, reading them again whenever the core says they changed. Mounted once, at the app's root. */
+export function useFollowShares() {
     useEffect(() => {
-        void refreshShares().catch(() => undefined);
+        const read = () => void refreshShares().catch(swallow("read the shares"));
+        read();
+        return onCoreChanged("shares", read);
     }, []);
-    useEffect(() => {
-        if (!active) return;
-        const timer = window.setInterval(() => void refreshShares().catch(() => undefined), POLL_MS);
-        return () => window.clearInterval(timer);
-    }, [active]);
 }

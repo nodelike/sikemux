@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { openUrl, reportError, swallow } from "../../../plugin-api/host";
-import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
+import { useResourceEnabled } from "../../../plugin-api/resources";
 import { signozApi, type SignozStatus } from "../api";
 import { mergeByService } from "../health";
-import { signozDashboardsR, signozServicesR } from "../resources";
+import { signoz, signozDashboardsR, signozServicesR } from "../resources";
 import { openDashboard, showSection, showService, signozSettings, updateSettings, useExploreView, type Pin, type Section } from "../state";
 import { SectionIcon } from "./SectionIcon";
 
@@ -79,7 +79,7 @@ export function Sidebar({ paneId, active, status }: { paneId: string; active: bo
     const signOut = () =>
         void signozApi
             .signOut()
-            .then(() => invalidate((kind) => kind.startsWith("signoz.")))
+            .then(() => signoz.refresh())
             .catch(reportError("sign out of SigNoz"));
 
     return (

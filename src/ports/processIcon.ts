@@ -1,3 +1,5 @@
+import { basename } from "../lib/paths";
+
 const RUNTIMES: [RegExp, string][] = [
     [/^(node|next-server|nuxt|vite|npm|pnpm|yarn|bun|tsx|esbuild|webpack|astro|remix)\b/, "nodejs"],
     [/^deno\b/, "deno"],
@@ -11,7 +13,7 @@ const RUNTIMES: [RegExp, string][] = [
 
 /** The file icon of the runtime behind a listening process, or null when its name says nothing about one. */
 export function processIcon(process: string): string | null {
-    const name = process.trim().toLowerCase().split("/").pop() ?? "";
+    const name = basename(process.trim().toLowerCase());
     for (const [pattern, icon] of RUNTIMES) if (pattern.test(name)) return icon;
     return null;
 }

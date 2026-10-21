@@ -1,13 +1,14 @@
 import { emit } from "../bus";
 import { mutate, type StoreState } from "../store";
-import { ensureRoleWindow } from "./shared";
+import { ensureRoleWindow, type FilesPlace } from "./shared";
 
-export function requestOpenFile(path: string, line?: number, character?: number): void {
-    ensureRoleWindow("files", "editor", "editor", path);
-    emit({ type: "open-file", path, line, character });
+/** Opens `path` in the project's editor, or, for a copy on another `place.host`, in an editor of that copy. */
+export function requestOpenFile(path: string, line?: number, character?: number, place?: FilesPlace): void {
+    ensureRoleWindow("editor", path, place);
+    emit({ type: "open-file", path, line, character, ...(place?.host === undefined ? {} : { host: place.host }) });
 }
 
-export const openEditorPane = (): void => ensureRoleWindow("files", "editor", "editor");
+export const openEditorPane = (): void => ensureRoleWindow("editor");
 
 /** Opens `path` as a tab, and returns the preview tab it took the place of, if any. */
 export function openEditorTab(paneId: string, path: string, activate = true, preview = false): string | null {

@@ -18,10 +18,10 @@ use crate::frozen::{FrozenReply, FrozenRequest};
 use crate::protocol::{
     encode_frozen, read_frame_sync, BuildIdentity, FrameKind, ServerMessage, PROTOCOL_VERSION,
 };
+use crate::waiting;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 const START_TIMEOUT: Duration = Duration::from_secs(5);
-const START_POLL: Duration = Duration::from_millis(20);
 
 #[derive(Debug)]
 pub enum ProbeError {
@@ -113,41 +113,37 @@ fn wait_for_new_build(
 ) -> Result<CoreHello, ClientError> {
     let deadline = Instant::now() + timeout;
     let is_old = |hello: &CoreHello| old.is_some_and(|old| hello.build.same_build(old));
-    loop {
+    let settled = waiting::wait_until(socket, deadline, || {
         let timed_out = Instant::now() >= deadline;
         match probe(socket, PROBE_TIMEOUT) {
-            Ok(hello) if hello.pid != pid => {
-                return Err(ClientError::Core(format!(
-                    "a new core (pid {}) answered instead of the upgraded one (pid {pid})",
-                    hello.pid
-                )))
-            }
-            Ok(hello) if !is_old(&hello) => return Ok(hello),
-            Ok(_) if !deferred || timed_out => {
-                return Err(ClientError::Core(
-                    "the core could not replace itself and carried on as it was".into(),
-                ))
-            }
+            Ok(hello) if hello.pid != pid => Some(Err(ClientError::Core(format!(
+                "a new core (pid {}) answered instead of the upgraded one (pid {pid})",
+                hello.pid
+            )))),
+            Ok(hello) if !is_old(&hello) => Some(Ok(hello)),
+            Ok(_) if !deferred || timed_out => Some(Err(ClientError::Core(
+                "the core could not replace itself and carried on as it was".into(),
+            ))),
             Err(ProbeError::Rejected {
                 pid: answered,
                 version,
             }) if answered == pid && version != PROTOCOL_VERSION && (!deferred || timed_out) => {
-                return Err(ClientError::VersionMismatch {
+                Some(Err(ClientError::VersionMismatch {
                     version,
                     pid,
                     message: format!(
                         "the upgraded core speaks protocol version {version}, not {PROTOCOL_VERSION}"
                     ),
-                })
+                }))
             }
-            Err(_) if timed_out => {
-                return Err(ClientError::Core(format!(
-                    "the core did not come back within {timeout:?} of accepting an upgrade"
-                )))
-            }
-            _ => std::thread::sleep(START_POLL),
+            _ => None,
         }
-    }
+    })?;
+    settled.unwrap_or_else(|| {
+        Err(ClientError::Core(format!(
+            "the core did not come back within {timeout:?} of accepting an upgrade"
+        )))
+    })
 }
 
 /// Starts `<binary> core --socket <socket> <args>` in its own session,
@@ -302,15 +298,8 @@ fn spawn_responsible(command: &std::process::Command, log: &std::fs::File) -> io
     Ok(())
 }
 
-/// Finds the core at `socket`, or starts one with `args` after its socket.
-pub fn ensure_running(
-    socket: &Path,
-    binary: &Path,
-    log: &Path,
-    args: &[OsString],
-) -> Result<CoreHello, ClientError> {
-    let reject = |version, pid| {
-        ClientError::VersionMismatch {
+fn rejected(socket: &Path, version: u32, pid: u32) -> ClientError {
+    ClientError::VersionMismatch {
         version,
         pid,
         message: format!(
@@ -318,22 +307,33 @@ pub fn ensure_running(
             socket.display()
         ),
     }
-    };
+}
+
+/// The core at `socket` once it answers, waiting up to `timeout` for one
+/// that is starting.
+pub fn wait_for_core(socket: &Path, timeout: Duration) -> Result<CoreHello, ClientError> {
+    let found = waiting::wait_until(socket, Instant::now() + timeout, || {
+        match probe(socket, PROBE_TIMEOUT) {
+            Ok(hello) => Some(Ok(hello)),
+            Err(ProbeError::Rejected { version, pid }) => Some(Err(rejected(socket, version, pid))),
+            Err(ProbeError::NotRunning(_) | ProbeError::Unanswered(_)) => None,
+        }
+    })?;
+    found.unwrap_or(Err(ClientError::StartTimeout(timeout)))
+}
+
+/// Finds the core at `socket`, or starts one with `args` after its socket.
+pub fn ensure_running(
+    socket: &Path,
+    binary: &Path,
+    log: &Path,
+    args: &[OsString],
+) -> Result<CoreHello, ClientError> {
     match probe(socket, PROBE_TIMEOUT) {
         Ok(hello) => return Ok(hello),
-        Err(ProbeError::Rejected { version, pid }) => return Err(reject(version, pid)),
+        Err(ProbeError::Rejected { version, pid }) => return Err(rejected(socket, version, pid)),
         Err(ProbeError::NotRunning(_) | ProbeError::Unanswered(_)) => {}
     }
     start_detached(socket, binary, log, args)?;
-    let deadline = Instant::now() + START_TIMEOUT;
-    loop {
-        match probe(socket, PROBE_TIMEOUT) {
-            Ok(hello) => return Ok(hello),
-            Err(ProbeError::Rejected { version, pid }) => return Err(reject(version, pid)),
-            Err(_) if Instant::now() >= deadline => {
-                return Err(ClientError::StartTimeout(START_TIMEOUT))
-            }
-            Err(_) => std::thread::sleep(START_POLL),
-        }
-    }
+    wait_for_core(socket, START_TIMEOUT)
 }

@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
+import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, SkeletonRows } from "../../../plugin-api/ui";
 import type { Scope } from "../api";
 import { mergeByService, percent } from "../health";
-import { signozDashboardsR, signozServicesR, signozStatusR } from "../resources";
+import { signoz, signozDashboardsR, signozServicesR } from "../resources";
 import {
     WINDOWS,
     scopeOf,
@@ -31,8 +31,6 @@ import { TraceList } from "./TraceList";
 import { TraceView } from "./TraceView";
 import { timeLabel } from "./charts";
 import "../signoz.css";
-
-const refreshAll = () => invalidate((kind) => kind.startsWith("signoz."));
 
 export function windowLabel(minutes: number): string {
     if (minutes >= 1440) return `${minutes / 1440}d`;
@@ -172,7 +170,7 @@ function Body({ paneId, view, scope, active, signozUrl }: { paneId: string; view
 }
 
 export function SignozPane({ paneId, active }: { paneId: string; active: boolean }) {
-    const status = useResourceEnabled(active, signozStatusR);
+    const status = useResourceEnabled(active, signoz.statusR);
     const view = useExploreView(paneId);
     const minutes = signozSettings.useSelect((settings) => settings.minutes);
     const environment = signozSettings.useSelect((settings) => settings.environment);
@@ -188,7 +186,7 @@ export function SignozPane({ paneId, active }: { paneId: string; active: boolean
     if (!status.data.ok) {
         return (
             <div className="sgz-pane">
-                <SignozSignIn status={status.data} onSignedIn={refreshAll} />
+                <SignozSignIn status={status.data} onSignedIn={() => signoz.refresh()} />
             </div>
         );
     }

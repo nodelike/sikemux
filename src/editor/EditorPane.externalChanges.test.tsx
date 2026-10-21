@@ -5,6 +5,7 @@ import { emit } from "../state/bus";
 import { getState, setState } from "../state/store";
 import { useToasts } from "../state/toast";
 import { EditorPane } from "./EditorPane";
+import { fileRead, wholeFile } from "../test/files";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
@@ -30,10 +31,10 @@ describe("EditorPane external changes", () => {
         version = "version-1";
         failReads = false;
         invoke.mockReset();
-        invoke.mockImplementation(async (command: string) => {
-            if (command === "read_file_versioned") {
+        invoke.mockImplementation(async (command: string, args?: unknown) => {
+            if (fileRead(command, args)) {
                 if (failReads) throw { category: "io", message: "io: No such file or directory (os error 2)" };
-                return { content, version };
+                return wholeFile(content, version);
             }
             return null;
         });
@@ -50,7 +51,7 @@ describe("EditorPane external changes", () => {
         failReads = true;
 
         act(() => emit({ type: "fs-changed", repo: "/repo" }));
-        await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "read_file_versioned").length).toBeGreaterThan(1));
+        await waitFor(() => expect(invoke.mock.calls.filter(([command, args]) => fileRead(command, args)).length).toBeGreaterThan(1));
 
         expect(getState().dirtyEditorPaths.pane ?? []).toEqual([]);
         expect(container.querySelector(".tab-dot")).not.toBeInTheDocument();

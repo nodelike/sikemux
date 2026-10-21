@@ -18,13 +18,10 @@ mod projects;
 
 use std::sync::Arc;
 
-use serde::Serialize;
 use serde_json::Value;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
-
-use crate::error::VercelResult;
 
 pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
     Ok(Arc::new(Vercel {
@@ -34,12 +31,6 @@ pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
 
 struct Vercel {
     manifest: Manifest,
-}
-
-async fn answer<T: Serialize>(
-    result: impl std::future::Future<Output = VercelResult<T>>,
-) -> Result<Value, PluginError> {
-    reply(result.await?)
 }
 
 impl Plugin for Vercel {
@@ -102,7 +93,7 @@ impl Plugin for Vercel {
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(config::load(ctx.data_dir()).account.is_some()) })
+        Box::pin(async move { Ok(config::load(ctx.data_dir())?.account.is_some()) })
     }
 }
 
@@ -115,31 +106,6 @@ mod tests {
         PluginContext::new(
             std::env::temp_dir().join(format!("sikemux-vercel-{name}-{}", std::process::id())),
         )
-    }
-
-    #[test]
-    fn its_manifest_parses_with_the_nine_tools() {
-        let plugin = plugin().expect("manifest parses");
-        let names: Vec<&str> = plugin
-            .manifest()
-            .tools
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect();
-        assert_eq!(
-            names,
-            [
-                "vercel_projects",
-                "vercel_deployments",
-                "vercel_deployment",
-                "vercel_logs",
-                "vercel_redeploy",
-                "vercel_promote",
-                "vercel_cancel",
-                "vercel_domains",
-                "vercel_env"
-            ]
-        );
     }
 
     #[tokio::test]

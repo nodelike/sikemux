@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type MouseEvent, type ReactNode } from "react";
-import { fsapi } from "../api/fs";
+import { fsapi, type FilesHost } from "../api/fs";
 import { FileIcon, FileTypeIcon } from "../ui/FileIcon";
 import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
 import { IconCopy, IconEditor, IconFile, IconFolder, IconPanelRight } from "../ui/Icons";
@@ -7,6 +7,7 @@ import { copyText } from "../lib/clipboard";
 import { basename, dirname, relativePath } from "../lib/paths";
 import { FILE_MANAGER_NAME } from "../lib/platform";
 import * as cmd from "../state/commands";
+import type { FilesPlace } from "../state/commands/shared";
 import { notify, reportError } from "../state/toast";
 import { parsePathRef, type PathRef, type PathRoots } from "./filePath";
 import { useRemoteOrigin } from "./origin";
@@ -14,13 +15,16 @@ import { usePathState, type PathState } from "./pathExistence";
 
 const PathRootsContext = createContext<PathRoots>({ cwd: "" });
 const DeskOwnerContext = createContext<string | null>(null);
+const ChatHostContext = createContext<FilesHost>(undefined);
 
-/** Where a transcript's relative paths are relative to, and whose desk its files open on. */
-export function PathRootsProvider({ cwd, home, agentId, children }: PathRoots & { agentId?: string; children: ReactNode }) {
+/** Where a transcript's relative paths are relative to, the other host that holds them, if any, and whose desk its files open on. */
+export function PathRootsProvider({ cwd, home, agentId, host, children }: PathRoots & { agentId?: string; host?: FilesHost; children: ReactNode }) {
     const roots = useMemo(() => ({ cwd, home }), [cwd, home]);
     return (
         <PathRootsContext.Provider value={roots}>
-            <DeskOwnerContext.Provider value={agentId ?? null}>{children}</DeskOwnerContext.Provider>
+            <ChatHostContext.Provider value={host}>
+                <DeskOwnerContext.Provider value={host === undefined ? (agentId ?? null) : null}>{children}</DeskOwnerContext.Provider>
+            </ChatHostContext.Provider>
         </PathRootsContext.Provider>
     );
 }
@@ -37,7 +41,7 @@ export function usePathRoots(): PathRoots {
 export function useFileRef(raw: string | null | undefined): { ref: PathRef; state: PathState } | null {
     const roots = usePathRoots();
     const ref = useMemo(() => (raw ? parsePathRef(raw, roots) : null), [raw, roots]);
-    const state = usePathState(ref?.path ?? null);
+    const state = usePathState(ref?.path ?? null, useContext(ChatHostContext));
     if (!ref || state === null || state === "missing") return null;
     return { ref, state };
 }
@@ -48,19 +52,19 @@ function copy(value: string, label: string) {
         .catch(reportError("copy"));
 }
 
-/** Opens a file on the agent's desk when there is one to open it on, and in the workspace editor otherwise. */
-export function openFileRef(ref: PathRef, state: PathState, deskAgentId: string | null = null): void {
+/** Opens a file on the agent's desk when there is one to open it on, and in the workspace editor otherwise, of the copy on `place.host` when it is another host's. */
+export function openFileRef(ref: PathRef, state: PathState, deskAgentId: string | null = null, place?: FilesPlace): void {
     if (state === "dir") {
-        void fsapi.revealInFinder(ref.path).catch(reportError("reveal"));
+        if (!place) void fsapi.revealInFinder(ref.path).catch(reportError("reveal"));
         return;
     }
     const line = ref.line === undefined ? undefined : ref.line - 1;
     const column = ref.column === undefined ? undefined : ref.column - 1;
     if (deskAgentId) cmd.openFileOnDesk(deskAgentId, ref.path, line, column);
-    else cmd.requestOpenFile(ref.path, line, column);
+    else cmd.requestOpenFile(ref.path, line, column, place);
 }
 
-function menuItems(ref: PathRef, state: PathState, cwd: string, deskAgentId: string | null, remote: boolean): CtxItem[] {
+function menuItems(ref: PathRef, state: PathState, cwd: string, deskAgentId: string | null, remote: boolean, place?: FilesPlace): CtxItem[] {
     const relative = relativePath(ref.path, cwd) ?? basename(ref.path);
     const reveal: CtxItem = {
         label: `Reveal in ${FILE_MANAGER_NAME}`,
@@ -72,7 +76,8 @@ function menuItems(ref: PathRef, state: PathState, cwd: string, deskAgentId: str
         { label: "Copy Relative Path", icon: <IconCopy size={13} />, run: () => copy(relative, "relative path") },
         { label: "Copy Name", icon: <IconCopy size={13} />, run: () => copy(basename(ref.path), "name") },
     ];
-    if (remote) return copies;
+    if (remote || (place && state === "dir")) return copies;
+    if (place) return [{ label: "Open", icon: <IconFile size={13} />, run: () => openFileRef(ref, state, null, place) }, { sep: true }, ...copies];
     if (state === "dir") return [reveal, { sep: true }, ...copies];
     return [
         ...(deskAgentId ? [{ label: "Open on Desk", icon: <IconPanelRight size={13} />, run: () => openFileRef(ref, state, deskAgentId) }] : []),
@@ -116,6 +121,8 @@ export function ChatFileRef({
 }) {
     const { cwd } = usePathRoots();
     const deskAgentId = useContext(DeskOwnerContext);
+    const host = useContext(ChatHostContext);
+    const place = host === undefined ? undefined : { host, cwd };
     const remote = useRemoteOrigin() !== null;
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const openMenu = (event: MouseEvent) => {
@@ -134,12 +141,12 @@ export function ChatFileRef({
                 onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    if (event.detail < 2 && !remote) openFileRef(refers, state, deskAgentId);
+                    if (event.detail < 2 && !remote) openFileRef(refers, state, deskAgentId, place);
                 }}
                 onDoubleClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    if (state !== "dir" && !remote) openFileRef(refers, state);
+                    if (state !== "dir" && !remote) openFileRef(refers, state, null, place);
                 }}
                 onContextMenu={openMenu}>
                 {state === "dir" ? (
@@ -154,7 +161,12 @@ export function ChatFileRef({
                 {!tile && <span className="chat-file-ref-name">{label}</span>}
             </button>
             {menu && (
-                <TreeContextMenu x={menu.x} y={menu.y} items={menuItems(refers, state, cwd, deskAgentId, remote)} onClose={() => setMenu(null)} />
+                <TreeContextMenu
+                    x={menu.x}
+                    y={menu.y}
+                    items={menuItems(refers, state, cwd, deskAgentId, remote, place)}
+                    onClose={() => setMenu(null)}
+                />
             )}
         </>
     );

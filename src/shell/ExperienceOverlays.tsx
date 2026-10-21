@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invokeCommand as invoke } from "../api/invoke";
 import { uiActivity, type UiActivityReport } from "../lib/activity";
 import { browserDiagnostics, exportDiagnosticsSnapshot, nativeDiagnostics } from "../lib/diagnostics";
 import { useResourceEnabled } from "../state/resources";
@@ -20,10 +19,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { copyText } from "../lib/clipboard";
 import { errorText } from "../lib/format";
-
-interface IntegrationHealth {
-    git: boolean;
-}
+import { swallow } from "../state/toast";
+import { integrationHealth } from "../api/system";
 
 /** Real first moves. Picking one closes the welcome and runs the action. */
 const WELCOME_MOVES = [
@@ -110,11 +107,11 @@ export function Onboarding() {
         if (!open) return;
         let disposed = false;
         setGitMissing(false);
-        void invoke<IntegrationHealth>("integration_health")
+        void integrationHealth()
             .then((value) => {
                 if (!disposed) setGitMissing(!value.git);
             })
-            .catch(() => {});
+            .catch(swallow("read integration health"));
         return () => {
             disposed = true;
         };
@@ -176,9 +173,7 @@ export function Onboarding() {
     const dragWindow = (event: React.MouseEvent<HTMLElement>) => {
         if (event.button !== 0 || event.target !== event.currentTarget) return;
         event.preventDefault();
-        void getCurrentWindow()
-            .startDragging()
-            .catch(() => {});
+        void getCurrentWindow().startDragging().catch(swallow("drag the window"));
     };
 
     return (

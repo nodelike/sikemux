@@ -2,7 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ACCOUNT_CHANGED_EVENT, type AccountStatus } from "../api/account";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
-import { initials, useAccount } from "./account";
+import { initials } from "../lib/initials";
+import { useAccount } from "./account";
 import { RailAccount } from "./RailAccount";
 
 const PICTURE = "data:image/png;base64,iVBORw0KGgo=";

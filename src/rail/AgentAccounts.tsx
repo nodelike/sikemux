@@ -1,27 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentUsage } from "../api/agents";
-import { accountName, accountsOf, openAccountDialog, signOut, switchAccount, type AccountProvider } from "../agents/accounts";
+import { accountName, accountsOf, openAccountDialog, signOut, switchAccount } from "../agents/accounts";
 import { selectedProviderProfile } from "../agents/agentProfiles";
-import { agentLabel } from "../agents/catalog";
+import { agentLabel, type AccountAgentType } from "../agents/catalog";
 import { fetchResource, invalidate, peekResource, type ResourceHandle, useResource } from "../state/resources";
 import { agentAccountR, agentUsageR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import type { ProviderProfile } from "../state/types";
 import { IconChevron, IconLogOut, IconPlus, IconRefresh, IconUser } from "../ui/Icons";
-import { reportError } from "../state/toast";
+import { reportError, swallow } from "../state/toast";
 import { CountUp } from "../ui/RollingText";
 import { Tooltip } from "../ui/Tooltip";
 import { TreeContextMenu, type CtxItem } from "./FileTree";
 import { planLabel, resetCountdown, resetTitle, usagePeak, usageTone } from "./usageFormat";
-
-function useMinuteClock(): number {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-        return () => window.clearInterval(timer);
-    }, []);
-    return now;
-}
+import { useNow } from "../hooks/useNow";
 
 /**
  * The rail's footer: the plan limits of the account new chats start on. The
@@ -32,7 +24,7 @@ export function AgentAccountsPanel({
     provider,
     usage,
 }: {
-    provider: AccountProvider;
+    provider: AccountAgentType;
     /** The limits of the account new chats start on, which the rail already reads. */
     usage: ResourceHandle<AgentUsage>;
 }) {
@@ -53,7 +45,7 @@ export function AgentAccountsPanel({
             if (account.id === current?.id) continue;
             void fetchResource(agentAccountR, provider, account.configPath)
                 .then((other) => (other.signedIn ? fetchResource(agentUsageR, provider, account.configPath) : undefined))
-                .catch(() => {});
+                .catch(swallow("read another account's usage"));
         }
     };
     useEffect(readOthers, [accounts.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -126,7 +118,7 @@ export function AgentAccountsPanel({
 /* Which signed-in account new chats use, and a new one to sign in. Accounts
    signed out of wait in the sign-in dialog, where they can be removed. */
 function accountMenu(
-    provider: AccountProvider,
+    provider: AccountAgentType,
     accounts: ProviderProfile[],
     current: ProviderProfile,
     currentUsage: AgentUsage | undefined,
@@ -167,7 +159,7 @@ function accountMenu(
 }
 
 function UsageWindows({ usage }: { usage: ResourceHandle<AgentUsage> }) {
-    const now = useMinuteClock();
+    const now = useNow(true, 60_000);
     const windows = usage.data?.windows ?? [];
     if (windows.length === 0) {
         return (

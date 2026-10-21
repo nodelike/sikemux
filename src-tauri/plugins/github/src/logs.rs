@@ -4,7 +4,8 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use sikemux_plugin_api::codehost::{JobLog, LogExcerpt, LogLine};
 
 use crate::client;
 use crate::error::{GithubError, GithubResult};
@@ -14,24 +15,6 @@ use crate::runs::{self, JobRef};
 /// Fractional seconds are usually there but not always, so only the part
 /// every stamp has is counted on.
 const SHORTEST_STAMP: usize = "2026-01-01T00:00:00Z".len();
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LogLine {
-    pub number: u64,
-    pub timestamp: Option<String>,
-    pub text: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JobLog {
-    pub lines: Vec<LogLine>,
-    /// True once a log has aged out of GitHub's retention, so nothing is coming.
-    pub expired: bool,
-    /// True when the log was too long to read whole, so only its end is here.
-    pub truncated: bool,
-}
 
 /// Runner logs start every line with a timestamp. Splitting it off lets the
 /// view show the text on its own and the time beside it.
@@ -117,13 +100,6 @@ pub struct Excerpt {
     pub job: JobRef,
     pub tail: Option<usize>,
     pub grep: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LogExcerpt {
-    pub lines: Vec<LogLine>,
-    pub truncated: bool,
 }
 
 /// The end of a job's log, optionally only the lines that mention something.

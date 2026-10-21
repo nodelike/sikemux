@@ -1,7 +1,9 @@
 import type { InvokeArgs, InvokeOptions } from "@tauri-apps/api/core";
 import { uiActivity } from "../lib/activity";
 import { performanceTelemetry } from "../lib/performance";
-import { getIpcTransport, type IpcInvokeOptions } from "./transport";
+import { errorCategory } from "../lib/format";
+import { getIpcTransport } from "./transport";
+import type { IpcCommand } from "./generated/ipcCommands";
 
 export const IPC_INVOKE_METRIC = "ipc.invoke";
 export const IPC_INVOKE_SUCCESS_COUNTER = "ipc.invoke.success";
@@ -22,77 +24,23 @@ type InvokeOutcome<T> =
 let requestSequence = 0;
 let activeInvocations = 0;
 
-function nextRequestId(): number {
-    if (requestSequence >= Number.MAX_SAFE_INTEGER) throw new RangeError("IPC request ID space exhausted");
-    requestSequence += 1;
-    return requestSequence;
-}
-
-function errorCategory(error: unknown): string | undefined {
-    if (typeof error !== "object" || error === null) return undefined;
-    try {
-        const descriptor = Object.getOwnPropertyDescriptor(error, "category");
-        if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string") return undefined;
-        return descriptor.value;
-    } catch {
-        return undefined;
-    }
-}
-
 function settleInvocation<T>(command: string, args: InvokeArgs | undefined, options: InvokeCommandOptions | undefined): Promise<InvokeOutcome<T>> {
     const signal = options?.signal;
-    if (signal?.aborted) return Promise.resolve({ kind: "cancel", reason: signal.reason });
-
-    let pending: Promise<T>;
-    try {
-        // Args are deliberately passed through by identity. In particular, do not
-        // clone or enumerate them: Tauri Channel instances carry serialization hooks.
-        const transport = getIpcTransport();
-        if (options?.signal !== undefined || options?.invokeOptions !== undefined) {
-            const transportOptions: IpcInvokeOptions = {
-                ...(options.signal === undefined ? {} : { signal: options.signal }),
-                ...(options.invokeOptions === undefined ? {} : { native: options.invokeOptions }),
-            };
-            pending = transport.invoke<T>(command, args, transportOptions);
-        } else if (args !== undefined) pending = transport.invoke<T>(command, args);
-        else pending = transport.invoke<T>(command);
-    } catch (error) {
-        return Promise.resolve({ kind: "error", error });
-    }
-
-    if (!signal) {
-        return pending.then(
-            (value) => ({ kind: "success", value }),
-            (error: unknown) => ({ kind: "error", error }),
+    return getIpcTransport()
+        .invoke<T>(command, args, { signal, native: options?.invokeOptions })
+        .then(
+            (value): InvokeOutcome<T> => ({ kind: "success", value }),
+            (error: unknown): InvokeOutcome<T> => (signal?.aborted ? { kind: "cancel", reason: signal.reason } : { kind: "error", error }),
         );
-    }
-
-    return new Promise((resolve) => {
-        let settled = false;
-        const finish = (outcome: InvokeOutcome<T>) => {
-            if (settled) return;
-            settled = true;
-            signal.removeEventListener("abort", onAbort);
-            resolve(outcome);
-        };
-        const onAbort = () => finish({ kind: "cancel", reason: signal.reason });
-
-        signal.addEventListener("abort", onAbort, { once: true });
-        // Cover an abort between the initial check and listener registration.
-        if (signal.aborted) onAbort();
-        pending.then(
-            (value) => finish({ kind: "success", value }),
-            (error: unknown) => finish({ kind: "error", error }),
-        );
-    });
 }
 
 /**
  * Invoke a native command while retaining only its name, request ID, duration,
  * and outcome. Arguments, return values, and error details remain opaque.
  */
-export async function invokeCommand<T>(command: string, args?: InvokeArgs, options?: InvokeCommandOptions): Promise<T> {
-    const requestId = nextRequestId();
+export async function invokeCommand<T>(command: IpcCommand, args?: InvokeArgs, options?: InvokeCommandOptions): Promise<T> {
+    requestSequence += 1;
+    const requestId = requestSequence;
     const span = performanceTelemetry.startTrace(IPC_INVOKE_METRIC, { command, requestId });
     const ticket = uiActivity.beginCommand(command);
     activeInvocations += 1;

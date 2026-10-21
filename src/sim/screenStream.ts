@@ -1,6 +1,7 @@
 import { simApi, type SimScreen, type SimStreamFormat } from "../api/sim";
 import { turnDegrees } from "./orientation";
 import { avcDescription, codecName, isKeyFrame, lengthPrefixed, PPS, SPS, splitUnits, unitType } from "./h264";
+import { swallow } from "../state/toast";
 
 export type DecoderChoice = { kind: "annexb"; config: VideoDecoderConfig } | { kind: "avcc"; config: VideoDecoderConfig } | { kind: "mjpeg" };
 
@@ -162,7 +163,7 @@ export function playScreen(udid: string, canvas: HTMLCanvasElement, events: Scre
 
     const close = () => {
         if (!watch) return;
-        void watch.then((id) => simApi.unwatch(id)).catch(() => {});
+        void watch.then((id) => simApi.unwatch(id)).catch(swallow("stop the simulator stream"));
         watch = null;
     };
 

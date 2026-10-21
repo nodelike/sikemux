@@ -3,23 +3,15 @@
 // only says which accounts there are, how each signed in, and which one a
 // project uses when it names none.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sikemux_plugin_api::keychain_service;
+use sikemux_plugin_api::store::{self, Accounts};
 
-use crate::error::{BitbucketError, BitbucketResult};
+use crate::error::BitbucketResult;
 
-/// A development build keeps entries of its own, so it never spends or replaces the
-/// installed app's sign-in.
-#[cfg(not(test))]
-const TOKEN_SERVICE: &str = if cfg!(debug_assertions) {
-    "sikemux-bitbucket-token-dev"
-} else {
-    "sikemux-bitbucket-token"
-};
-/// Tests keep to an entry of their own, so they never replace or delete a real token.
-#[cfg(test)]
-const TOKEN_SERVICE: &str = "sikemux-bitbucket-token-test";
+pub const TOKEN_SERVICE: &str = keychain_service!("sikemux-bitbucket-token");
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -48,7 +40,7 @@ pub struct Account {
 }
 
 impl Account {
-    fn keychain_account(&self) -> String {
+    pub fn keychain_account(&self) -> String {
         let kind = match self.method {
             Method::Oauth => "oauth",
             Method::Token => "token",
@@ -67,149 +59,51 @@ pub struct BitbucketConfig {
     pub default: Option<String>,
 }
 
-impl BitbucketConfig {
-    /// The account named, or with none named, the default one.
-    pub fn account(&self, id: Option<&str>) -> Option<&Account> {
-        let wanted = id.or(self.default.as_deref());
-        match wanted {
-            Some(wanted) => self.accounts.iter().find(|account| account.id == wanted),
-            None => self.accounts.first(),
-        }
-    }
-
-    /// Adds the account, or replaces the one with the same id. The first account becomes the default.
-    pub fn upsert(&mut self, account: Account) {
-        match self.accounts.iter_mut().find(|kept| kept.id == account.id) {
-            Some(kept) => *kept = account,
-            None => self.accounts.push(account),
-        }
-        let default_is_signed_in = self
-            .default
-            .as_ref()
-            .is_some_and(|id| self.accounts.iter().any(|account| &account.id == id));
-        if !default_is_signed_in {
-            self.default = self.accounts.first().map(|account| account.id.clone());
-        }
-    }
-
-    /// Takes the account out; a removed default passes to the first account left.
-    pub fn remove(&mut self, id: &str) -> Option<Account> {
-        let index = self.accounts.iter().position(|account| account.id == id)?;
-        let removed = self.accounts.remove(index);
-        if self.default.as_deref() == Some(id) {
-            self.default = self.accounts.first().map(|account| account.id.clone());
-        }
-        Some(removed)
-    }
-
-    /// Every account, the default first, which is the order to try them in.
-    pub fn in_order(&self) -> Vec<Account> {
-        let mut ordered = self.accounts.clone();
-        ordered.sort_by_key(|account| Some(&account.id) != self.default.as_ref());
-        ordered
+impl store::Account for Account {
+    fn id(&self) -> &str {
+        &self.id
     }
 }
 
-fn config_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("config.json")
-}
+impl Accounts for BitbucketConfig {
+    type Account = Account;
 
-pub fn load(data_dir: &Path) -> BitbucketConfig {
-    std::fs::read(config_path(data_dir))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
-}
-
-fn io_error(error: std::io::Error) -> BitbucketError {
-    BitbucketError::Transport(format!("saving settings: {error}"))
-}
-
-pub fn save(data_dir: &Path, config: &BitbucketConfig) -> BitbucketResult<()> {
-    std::fs::create_dir_all(data_dir).map_err(io_error)?;
-    let path = config_path(data_dir);
-    let staged = path.with_extension("json.tmp");
-    std::fs::write(&staged, serde_json::to_vec_pretty(config)?).map_err(io_error)?;
-    std::fs::rename(&staged, &path).map_err(io_error)
-}
-
-fn keychain_error(error: sikemux_keychain::KeychainError) -> BitbucketError {
-    match error {
-        sikemux_keychain::KeychainError::Invalid(message) => BitbucketError::BadArg(message),
-        sikemux_keychain::KeychainError::Failed(message) => BitbucketError::Keychain(message),
+    fn accounts(&self) -> &[Account] {
+        &self.accounts
     }
+    fn accounts_mut(&mut self) -> &mut Vec<Account> {
+        &mut self.accounts
+    }
+    fn default_id(&self) -> Option<&str> {
+        self.default.as_deref()
+    }
+    fn default_id_mut(&mut self) -> &mut Option<String> {
+        &mut self.default
+    }
+}
+
+pub fn load(data_dir: &Path) -> BitbucketResult<BitbucketConfig> {
+    Ok(store::load(data_dir)?)
 }
 
 pub fn keychain_read(account: &Account) -> BitbucketResult<Option<String>> {
-    sikemux_keychain::read(TOKEN_SERVICE, &account.keychain_account()).map_err(keychain_error)
+    Ok(sikemux_keychain::read(
+        TOKEN_SERVICE,
+        &account.keychain_account(),
+    )?)
 }
 
 pub fn keychain_write(account: &Account, secret: &str) -> BitbucketResult<()> {
-    sikemux_keychain::write(TOKEN_SERVICE, &account.keychain_account(), secret)
-        .map_err(keychain_error)
+    Ok(sikemux_keychain::write(
+        TOKEN_SERVICE,
+        &account.keychain_account(),
+        secret,
+    )?)
 }
 
 pub fn keychain_delete(account: &Account) -> BitbucketResult<()> {
-    sikemux_keychain::delete(TOKEN_SERVICE, &account.keychain_account()).map_err(keychain_error)
-}
-
-/// Runs work that starts a process or touches the Keychain on a thread meant
-/// for blocking, away from the few threads every plugin shares.
-pub async fn blocking<T: Send + 'static>(
-    work: Box<dyn FnOnce() -> BitbucketResult<T> + Send>,
-) -> BitbucketResult<T> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| BitbucketError::Keychain(error.to_string()))?
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn account(id: &str) -> Account {
-        Account {
-            id: id.into(),
-            login: id.into(),
-            display_name: None,
-            avatar_url: None,
-            method: Method::Oauth,
-            email: None,
-        }
-    }
-
-    #[test]
-    fn the_first_account_becomes_the_default_and_a_second_does_not() {
-        let mut config = BitbucketConfig::default();
-        assert!(config.account(None).is_none());
-        config.upsert(account("work"));
-        config.upsert(account("home"));
-        assert_eq!(config.account(None).map(|a| a.id.as_str()), Some("work"));
-        assert_eq!(
-            config.account(Some("home")).map(|a| a.id.as_str()),
-            Some("home")
-        );
-        assert!(config.account(Some("gone")).is_none());
-    }
-
-    #[test]
-    fn removing_the_default_hands_it_to_the_next_account() {
-        let mut config = BitbucketConfig::default();
-        config.upsert(account("work"));
-        config.upsert(account("home"));
-        config.remove("work");
-        assert_eq!(config.default.as_deref(), Some("home"));
-        config.remove("home");
-        assert_eq!(config.default, None);
-    }
-
-    #[test]
-    fn accounts_are_tried_default_first() {
-        let mut config = BitbucketConfig::default();
-        config.upsert(account("work"));
-        config.upsert(account("home"));
-        config.default = Some("home".into());
-        let order: Vec<String> = config.in_order().into_iter().map(|a| a.id).collect();
-        assert_eq!(order, ["home", "work"]);
-    }
+    Ok(sikemux_keychain::delete(
+        TOKEN_SERVICE,
+        &account.keychain_account(),
+    )?)
 }

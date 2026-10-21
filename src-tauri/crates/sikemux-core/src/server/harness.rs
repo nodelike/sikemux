@@ -5,19 +5,20 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 use sikemux_pty::output_log::{OutputPage, OutputQuery};
 use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::cli::protocol::{
     is_browser_method, is_sim_method, validate_harness, HarnessRequest, COMMIT_FOOTER_METHOD,
-    GIT_GUARD_METHOD, PLUGINS_CHANGED_METHOD, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
-    TOOLS_MANIFEST_METHOD,
+    CORE_REPLY_TIMEOUT, GIT_GUARD_METHOD, PLUGINS_CHANGED_METHOD, SIM_CANCEL_METHOD,
+    SIM_OFFERED_METHOD, TOOLS_MANIFEST_METHOD,
 };
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
 use crate::harness::journal::{EventsPage, JournalRecord, Journals};
@@ -35,9 +36,6 @@ use crate::skills;
 /// MCP hosts give up on a tool call after about a minute, so a start answers
 /// well before that with whatever state it reached.
 const START_BUDGET: Duration = Duration::from_secs(30);
-/// A little longer than the app gives its page, so the app's own timeout,
-/// which names the tool, is the one an agent sees.
-const WINDOW_REPLY_TIMEOUT: Duration = Duration::from_secs(66);
 /// A chatty task adds at most one output event per this long.
 const OUTPUT_EVENT_GAP: Duration = Duration::from_millis(250);
 const READY_POLL: Duration = Duration::from_millis(250);
@@ -196,13 +194,13 @@ impl Harness {
 
     /// Runs `change` on the state and wakes every waiter.
     fn change<T>(&self, change: impl FnOnce(&mut State) -> T) -> T {
-        let result = change(&mut self.state.lock().unwrap_or_else(PoisonError::into_inner));
+        let result = change(&mut self.state.locked());
         self.changes.send_modify(|version| *version += 1);
         result
     }
 
     fn read<T>(&self, read: impl FnOnce(&mut State) -> T) -> T {
-        read(&mut self.state.lock().unwrap_or_else(PoisonError::into_inner))
+        read(&mut self.state.locked())
     }
 
     /// A task session just spawned. True when its run was stopped before it
@@ -219,7 +217,7 @@ impl Harness {
             run.label = Some(task.label.clone());
             run.command = Some(task.command.clone());
             run.cwd = Some(task.cwd.clone());
-            run.started_at = Some(super::remote::unix_ms());
+            run.started_at = Some(sikemux_process::clock::epoch_ms());
             if matches!(run.status, RunStatus::Starting | RunStatus::AwaitingTrust) {
                 state.set_status(&task.execution_id, RunStatus::Running);
             }
@@ -458,7 +456,7 @@ fn no_answer(method: &str) -> String {
     format!(
         "{} got no answer from Sikemux within {} s. Check that the Sikemux window is open and responsive, then retry.",
         method.replace('.', "_"),
-        WINDOW_REPLY_TIMEOUT.as_secs()
+        CORE_REPLY_TIMEOUT.as_secs()
     )
 }
 
@@ -486,7 +484,7 @@ async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> 
         purpose(&request.method),
         false,
     )?;
-    answer_of(core, call, WINDOW_REPLY_TIMEOUT, no_answer(&request.method)).await
+    answer_of(core, call, CORE_REPLY_TIMEOUT, no_answer(&request.method)).await
 }
 
 /// Answers one tool call from the client at `peer` on the tool endpoint's
@@ -561,12 +559,6 @@ async fn dispatch(
                 "You review a card blind for Auto, so {} is not yours to use; judge the change from the card, the diff and your folder",
                 request.method.replace('.', "_")
             ));
-        }
-        if uses_sign_ins(&request.method) {
-            let tool = tool_name(&request).unwrap_or_default().replace('.', "_");
-            if let Some(refusal) = super::hosts::sign_ins::refused(core, agent_id, &tool) {
-                return Err(refusal);
-            }
         }
     }
     match request.method.as_str() {
@@ -971,11 +963,8 @@ pub(crate) async fn stop_run(core: &Arc<Core>, execution_id: &str) -> Result<Run
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RunSelector {
-    #[serde(default)]
     execution_id: Option<String>,
-    #[serde(default)]
     project: Option<String>,
-    #[serde(default)]
     agent_id: Option<String>,
 }
 
@@ -1322,12 +1311,6 @@ async fn output_appears(
     }
 }
 
-/// Tools that act through this host's sign-ins: plugin calls, and browser
-/// tabs, which hold the host browser's site sign-ins.
-fn uses_sign_ins(method: &str) -> bool {
-    method == "plugins.call" || is_browser_method(method)
-}
-
 /// A plugin tool is named by the agent's tool name, anything else by its
 /// method. Listing plugin tools is not a call.
 fn tool_name(request: &HarnessRequest) -> Option<String> {
@@ -1358,7 +1341,7 @@ struct Tally {
 /// surface can be trimmed by what is used. The tally stays on this machine.
 fn record_tool_call(path: &Path, tool: &str, succeeded: bool) {
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
-    let _held = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    let _held = ONE_AT_A_TIME.locked();
     if let Err(error) = add_tool_call(path, tool, succeeded) {
         eprintln!("sikemux core: could not count a call to {tool}: {error}");
     }

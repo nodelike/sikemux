@@ -1,6 +1,7 @@
 import { requestOpenFile } from "../state/commands/editor";
 import { IconAgent, IconClose, IconRefresh, IconTerminal } from "../ui/Icons";
 import type { ProjectTask, TestResults } from "./coreTasks";
+import { basename } from "../lib/paths";
 
 export interface FinishedTestRun {
     /** Changes with every run, so a card dismissed for one run opens again for the next. */
@@ -11,7 +12,7 @@ export interface FinishedTestRun {
 
 /** `FooTest` for a Java class, `price.test.ts` for a file a JavaScript runner names. */
 function shortClass(className: string): string {
-    if (className.includes("/") || /\.[cm]?[jt]sx?$/.test(className)) return className.split("/").pop() ?? className;
+    if (className.includes("/") || /\.[cm]?[jt]sx?$/.test(className)) return basename(className);
     return className.split(".").pop() ?? className;
 }
 
@@ -63,7 +64,7 @@ export function TestResultsCard({
                                             onClose();
                                             requestOpenFile(failure.file!, failure.line ? failure.line - 1 : undefined);
                                         }}>
-                                        {failure.file.split("/").pop()}
+                                        {basename(failure.file)}
                                         {failure.line ? `:${failure.line}` : ""}
                                     </button>
                                 )}

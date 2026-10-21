@@ -24,6 +24,7 @@ use std::time::Duration;
 use portable_pty::{Child, ChildKiller, ExitStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 use sikemux_pty::output_log::OutputLog;
 use sikemux_pty::screen::{replay_snapshot, restored_parser};
 use sikemux_pty::shell::ShellLaunchIntegration;
@@ -39,8 +40,8 @@ use super::harness::HarnessRecord;
 use super::prepare::Owner;
 use super::session::{self, Session, SessionParts};
 use super::{
-    continue_clock, lock_path, now_ms, run_core, tools, Core, CoreError, CoreResult, ServerConfig,
-    ServerError,
+    continue_clock, lock_path, run_core, tools, uptime_ms, Core, CoreError, CoreResult,
+    ServerConfig, ServerError,
 };
 
 const STATE_FILE: &str = "state.json";
@@ -136,7 +137,7 @@ fn private_directory() -> std::io::Result<PathBuf> {
 }
 
 fn capture(session: &Session, directory: &Path) -> CoreResult<SessionRecord> {
-    let mut parser = session.parser.lock().map_err(CoreError::poisoned)?;
+    let mut parser = session.parser.locked();
     let (rows, cols) = parser.screen().size();
     let replay = replay_snapshot(&mut parser)?;
     let shell = parser
@@ -234,12 +235,10 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
             ),
         }
     }
-    let tools = core.tools.lock().ok().and_then(|tools| {
-        tools.as_ref().map(|tools| ToolsRecord {
-            path: tools.path().to_path_buf(),
-            fd: tools.fd(),
-            token: tools.token().to_owned(),
-        })
+    let tools = core.tools.locked().as_ref().map(|tools| ToolsRecord {
+        path: tools.path().to_path_buf(),
+        fd: tools.fd(),
+        token: tools.token().to_owned(),
     });
     let mut chats = Vec::new();
     let mut live_chats = Vec::new();
@@ -273,7 +272,7 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
     let state = HandoverState {
         format: RESUME_FORMAT,
         from_build: core.build.clone(),
-        uptime_ms: now_ms(),
+        uptime_ms: uptime_ms(),
         socket: config.socket.clone(),
         listener_fd: listening.listener_fd,
         lock_fd: listening.lock_fd,
@@ -440,38 +439,6 @@ fn migrate(mut state: Value) -> Result<Value, String> {
             .and_then(Value::as_u64)
             .ok_or("it names no format")?;
         match format {
-            1 => {
-                // Format 1 cores held no chats.
-                state["chats"] = Value::Array(Vec::new());
-                state["format"] = Value::from(2);
-            }
-            2 => {
-                // Format 2 cores were reached only by the app on this host.
-                for list in ["sessions", "chats"] {
-                    let entries = state.get_mut(list).and_then(Value::as_array_mut);
-                    for entry in entries.into_iter().flatten() {
-                        let holder = if list == "sessions" {
-                            entry.get_mut("owner")
-                        } else {
-                            Some(entry)
-                        };
-                        if let Some(holder) = holder.and_then(Value::as_object_mut) {
-                            holder.insert("startedBy".into(), Value::Null);
-                        }
-                    }
-                }
-                state["format"] = Value::from(3);
-            }
-            3 => {
-                // Format 3 chats were started without a launcher.
-                let chats = state.get_mut("chats").and_then(Value::as_array_mut);
-                for chat in chats.into_iter().flatten() {
-                    if let Some(chat) = chat.as_object_mut() {
-                        chat.insert("launcher".into(), Value::Null);
-                    }
-                }
-                state["format"] = Value::from(4);
-            }
             4 => {
                 // Format 4 cores stopped every chat, and said nothing of why.
                 let chats = state.get_mut("chats").and_then(Value::as_array_mut);
@@ -502,7 +469,27 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                 }
                 state["format"] = Value::from(6);
             }
-            6 => return Ok(state),
+            6 => {
+                // Format 6 cores knew whether a chat's agent names the
+                // JSON-RPC version in every message without keeping it, and
+                // wrote a Claude chat's request for a title as `{ "title": true }`.
+                let chats = state.get_mut("liveChats").and_then(Value::as_array_mut);
+                for chat in chats.into_iter().flatten() {
+                    let versioned = chat["launch"]["provider"] != "codex";
+                    let rpc = chat.pointer_mut("/backend/rpc");
+                    if let Some(rpc) = rpc.and_then(Value::as_object_mut) {
+                        rpc.insert("versioned".into(), json!(versioned));
+                    }
+                    let control = chat.pointer_mut("/backend/control");
+                    for entry in control.and_then(Value::as_array_mut).into_iter().flatten() {
+                        if entry[1] == json!({ "title": true }) {
+                            entry[1] = json!("title");
+                        }
+                    }
+                }
+                state["format"] = Value::from(7);
+            }
+            7 => return Ok(state),
             other => return Err(format!("it is in format {other}, not {RESUME_FORMAT}")),
         }
     }
@@ -756,7 +743,7 @@ fn adopt_bare(
             owner: Owner::default(),
             parser: restored_parser(rows, cols, &[], None, None, String::new()),
             shell_protocol: false,
-            last_activity_ms: now_ms(),
+            last_activity_ms: uptime_ms(),
             trimmed: false,
             killed: false,
             exit: None,
@@ -923,9 +910,7 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
             }
         }
     }
-    if let Ok(mut slot) = core.tools.lock() {
-        *slot = endpoint;
-    }
+    *core.tools.locked() = endpoint;
     if let Err(error) = std::fs::remove_dir_all(&recovery.directory) {
         eprintln!(
             "sikemux core: could not remove {}: {error}",
@@ -1065,42 +1050,15 @@ mod tests {
     use super::migrate;
 
     #[test]
-    fn format_one_state_gains_an_empty_chat_list() {
-        let migrated = migrate(json!({ "format": 1, "sessions": [] })).expect("migrate");
-        assert_eq!(migrated["format"], 6);
-        assert_eq!(migrated["chats"], json!([]));
-        assert_eq!(migrated["liveChats"], json!([]));
-        assert_eq!(migrated["sessions"], json!([]));
-    }
-
-    #[test]
-    fn format_two_sessions_and_chats_were_started_by_the_app() {
-        let migrated = migrate(json!({
-            "format": 2,
-            "sessions": [{ "id": 1, "owner": { "project": "/p" } }],
-            "chats": [{ "launch": {} }],
-        }))
-        .expect("migrate");
-        assert_eq!(migrated["format"], 6);
-        assert_eq!(
-            migrated["sessions"][0]["owner"],
-            json!({ "project": "/p", "startedBy": null })
-        );
-        assert_eq!(
-            migrated["chats"][0],
-            json!({ "launch": {}, "startedBy": null, "launcher": null, "notice": null })
-        );
-    }
-
-    #[test]
     fn current_state_is_left_as_it_is_and_unknown_formats_are_refused() {
         let current = json!({
-            "format": 6,
+            "format": 7,
             "chats": [{ "launch": {}, "startedBy": "phone", "launcher": "claude", "notice": null }],
             "liveChats": [],
             "harness": { "mailbox": { "waiting": {} }, "questions": { "open": [] } },
         });
         assert_eq!(migrate(current.clone()).expect("migrate"), current);
+        assert!(migrate(json!({ "format": 3 })).is_err());
         assert!(migrate(json!({ "format": 9 })).is_err());
         assert!(migrate(json!({})).is_err());
     }

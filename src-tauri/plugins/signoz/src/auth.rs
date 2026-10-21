@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_plugin_api::store;
+use sikemux_process::sync::Locked;
 use tokio::sync::Mutex;
 
 use crate::client;
@@ -49,17 +51,9 @@ struct Access {
 static ACCESS: Mutex<Option<Access>> = Mutex::const_new(None);
 static API_KEY: StdMutex<Option<(String, String)>> = StdMutex::new(None);
 
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> SignozResult<T> + Send + 'static,
-) -> SignozResult<T> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| SignozError::Keychain(error.to_string()))?
-}
-
 pub async fn load(data_dir: &Path) -> SignozResult<SignozConfig> {
     let data_dir = data_dir.to_path_buf();
-    blocking(move || Ok(config::load(&data_dir))).await
+    store::blocking(move || config::load(&data_dir)).await
 }
 
 pub async fn credentials(data_dir: &Path) -> SignozResult<Credentials> {
@@ -83,11 +77,7 @@ pub async fn credentials(data_dir: &Path) -> SignozResult<Credentials> {
 }
 
 async fn api_key(config: SignozConfig) -> SignozResult<Credentials> {
-    if let Some((account, key)) = API_KEY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone()
-    {
+    if let Some((account, key)) = API_KEY.locked().clone() {
         if account == config.account {
             return Ok(Credentials {
                 url: config.url,
@@ -96,13 +86,10 @@ async fn api_key(config: SignozConfig) -> SignozResult<Credentials> {
         }
     }
     let account = config.account.clone();
-    let key = blocking(move || config::keychain_read(API_KEY_SERVICE, &account))
+    let key = store::blocking(move || config::keychain_read(API_KEY_SERVICE, &account))
         .await?
         .ok_or(SignozError::Unconfigured)?;
-    *API_KEY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) =
-        Some((config.account.clone(), key.clone()));
+    *API_KEY.locked() = Some((config.account.clone(), key.clone()));
     Ok(Credentials {
         url: config.url,
         auth: Auth::ApiKey(key),
@@ -131,7 +118,7 @@ fn unpack(saved: &str) -> Option<(String, String)> {
 
 async fn saved_session(config: &SignozConfig) -> SignozResult<(String, String)> {
     let account = config.account.clone();
-    let saved = blocking(move || config::keychain_read(SESSION_SERVICE, &account))
+    let saved = store::blocking(move || config::keychain_read(SESSION_SERVICE, &account))
         .await?
         .ok_or(SignozError::Unconfigured)?;
     unpack(&saved).ok_or(SignozError::Unconfigured)
@@ -222,7 +209,7 @@ async fn remember(
         config.account.clone(),
         pack(&tokens.access_token, &tokens.refresh_token),
     );
-    blocking(move || config::keychain_write(SESSION_SERVICE, &account, &saved)).await?;
+    store::blocking(move || config::keychain_write(SESSION_SERVICE, &account, &saved)).await?;
     let lifetime = if tokens.expires_in == 0 {
         ASSUMED_LIFETIME
     } else {
@@ -246,9 +233,7 @@ pub async fn expire_access() {
 }
 
 pub fn forget_api_key() {
-    *API_KEY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    *API_KEY.locked() = None;
 }
 
 #[derive(Deserialize)]
@@ -453,7 +438,7 @@ pub async fn use_api_key(data_dir: &Path, request: UseApiKey) -> SignozResult<()
         Some(key) => key,
         None => {
             let account = account.clone();
-            blocking(move || config::keychain_read(API_KEY_SERVICE, &account))
+            store::blocking(move || config::keychain_read(API_KEY_SERVICE, &account))
                 .await?
                 .ok_or_else(|| {
                     SignozError::Auth(format!(
@@ -470,7 +455,7 @@ pub async fn use_api_key(data_dir: &Path, request: UseApiKey) -> SignozResult<()
     .await?;
     if given.is_some() {
         let (account, key) = (account.clone(), key.clone());
-        blocking(move || config::keychain_write(API_KEY_SERVICE, &account, &key)).await?;
+        store::blocking(move || config::keychain_write(API_KEY_SERVICE, &account, &key)).await?;
     }
     forget_api_key();
     let config = SignozConfig {
@@ -485,7 +470,7 @@ pub async fn use_api_key(data_dir: &Path, request: UseApiKey) -> SignozResult<()
 
 async fn save(data_dir: &Path, config: SignozConfig) -> SignozResult<()> {
     let data_dir = data_dir.to_path_buf();
-    blocking(move || config::save(&data_dir, &config)).await
+    store::blocking(move || Ok(store::save(&data_dir, &config)?)).await
 }
 
 /// Ends the session on SigNoz's side too, and removes only the Keychain entries Sikemux made.
@@ -509,7 +494,7 @@ pub async fn sign_out(data_dir: &Path) -> SignozResult<()> {
     }
     forget_api_key();
     let data_dir = data_dir.to_path_buf();
-    blocking(move || {
+    store::blocking(move || {
         match config.auth {
             AuthMode::Session if !config.account.is_empty() => {
                 config::keychain_delete(SESSION_SERVICE, &config.account)?
@@ -519,7 +504,7 @@ pub async fn sign_out(data_dir: &Path) -> SignozResult<()> {
             }
             _ => {}
         }
-        config::save(&data_dir, &signed_out(config))
+        Ok(store::save(&data_dir, &signed_out(config))?)
     })
     .await
 }
@@ -537,17 +522,22 @@ fn signed_out(config: SignozConfig) -> SignozConfig {
 /// Keeps an address that answered, and the email typed for it. A new
 /// address drops the old credential, which belongs to the old address.
 async fn remember_address(data_dir: &Path, url: &str, email: Option<&str>) -> SignozResult<()> {
-    let mut config = load(data_dir).await?;
-    if config.url != url {
-        config = signed_out(SignozConfig {
-            url: url.to_string(),
-            ..config
-        });
-    }
-    if let Some(email) = email {
-        config.email = email.to_string();
-    }
-    save(data_dir, config).await
+    let (data_dir, url, email) = (
+        data_dir.to_path_buf(),
+        url.to_string(),
+        email.map(str::to_string),
+    );
+    store::blocking(move || {
+        let mut config = config::load(&data_dir)?;
+        if config.url != url {
+            config = signed_out(SignozConfig { url, ..config });
+        }
+        if let Some(email) = email {
+            config.email = email;
+        }
+        Ok(store::save(&data_dir, &config)?)
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -602,17 +592,17 @@ mod tests {
             email: "me@example.com".into(),
             owns_key: false,
         };
-        config::save(&dir, &signed_in).unwrap();
+        store::save(&dir, &signed_in).unwrap();
 
         remember_address(&dir, "https://a.example.com", None)
             .await
             .unwrap();
-        assert_eq!(config::load(&dir).account, "a.example.com");
+        assert_eq!(config::load(&dir).unwrap().account, "a.example.com");
 
         remember_address(&dir, "https://b.example.com", Some("other@example.com"))
             .await
             .unwrap();
-        let moved = config::load(&dir);
+        let moved = config::load(&dir).unwrap();
         assert_eq!(moved.url, "https://b.example.com");
         assert_eq!(moved.email, "other@example.com");
         assert_eq!(moved.account, "");
@@ -621,8 +611,8 @@ mod tests {
             Err(SignozError::Unconfigured)
         ));
 
-        config::save(&dir, &signed_out(signed_in)).unwrap();
-        let after_sign_out = config::load(&dir);
+        store::save(&dir, &signed_out(signed_in)).unwrap();
+        let after_sign_out = config::load(&dir).unwrap();
         assert_eq!(
             (after_sign_out.url.as_str(), after_sign_out.email.as_str()),
             ("https://a.example.com", "me@example.com")

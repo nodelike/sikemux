@@ -9,6 +9,7 @@ export type Actor =
 export type AuditAction =
   | "device.registered"
   | "device.updated"
+  | "device.renamed"
   | "device.removed"
   | "push.enabled"
   | "push.disabled"

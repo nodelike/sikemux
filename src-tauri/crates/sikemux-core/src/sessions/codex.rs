@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use rayon::prelude::*;
 use serde_json::Value;
+use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 use tokio::process::{ChildStdin, Command};
 
@@ -36,17 +37,15 @@ type CodexIndexCache = HashMap<PathBuf, (TitleCacheStamp, Arc<CodexTitles>)>;
 fn codex_indexed_titles(root: &Path) -> Arc<CodexTitles> {
     let path = root.join("session_index.jsonl");
     let stamp = title_cache_stamp(&path);
-    if let Ok(cache) = codex_index_cache().lock() {
-        if let Some((cached, titles)) = cache.get(&path) {
-            if *cached == stamp {
-                return titles.clone();
-            }
+    if let Some((cached, titles)) = codex_index_cache().locked().get(&path) {
+        if *cached == stamp {
+            return titles.clone();
         }
     }
     let titles = Arc::new(read_codex_index(&path));
-    if let Ok(mut cache) = codex_index_cache().lock() {
-        cache.insert(path, (stamp, titles.clone()));
-    }
+    codex_index_cache()
+        .locked()
+        .insert(path, (stamp, titles.clone()));
     titles
 }
 
@@ -113,30 +112,27 @@ fn read_codex_rollout(path: &Path) -> Option<CodexRollout> {
 }
 
 fn cached_codex_rollout(path: &Path, stamp: TitleCacheStamp) -> Option<Arc<CodexRollout>> {
-    if let Ok(mut cache) = codex_header_cache().lock() {
-        if let Some((cached, rollout, access)) = cache.get_mut(path) {
-            if *cached == stamp {
-                *access = next_title_cache_access();
-                return rollout.clone();
-            }
+    if let Some((cached, rollout, access)) = codex_header_cache().locked().get_mut(path) {
+        if *cached == stamp {
+            *access = next_title_cache_access();
+            return rollout.clone();
         }
     }
     let rollout = read_codex_rollout(path).map(Arc::new);
-    if let Ok(mut cache) = codex_header_cache().lock() {
-        if cache.len() >= MAX_CODEX_HEADER_ENTRIES && !cache.contains_key(path) {
-            if let Some(oldest) = cache
-                .iter()
-                .min_by_key(|(_, (_, _, access))| *access)
-                .map(|(path, _)| path.clone())
-            {
-                cache.remove(&oldest);
-            }
+    let mut cache = codex_header_cache().locked();
+    if cache.len() >= MAX_CODEX_HEADER_ENTRIES && !cache.contains_key(path) {
+        if let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, (_, _, access))| *access)
+            .map(|(path, _)| path.clone())
+        {
+            cache.remove(&oldest);
         }
-        cache.insert(
-            path.to_path_buf(),
-            (stamp, rollout.clone(), next_title_cache_access()),
-        );
     }
+    cache.insert(
+        path.to_path_buf(),
+        (stamp, rollout.clone(), next_title_cache_access()),
+    );
     rollout
 }
 

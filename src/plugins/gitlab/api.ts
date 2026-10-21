@@ -1,46 +1,15 @@
-import { createPluginBackend, type PluginStreamHandlers } from "../../plugin-api/backend";
-import type {
-    Annotation,
-    Artifact,
-    ChangedFile,
-    CodeHostApi,
-    Comment,
-    HostAccount,
-    HostAccountEntry,
-    Issue,
-    IssuePage,
-    JobLog,
-    JobSummary,
-    MergeMethod,
-    NewPull,
-    Notification,
-    PendingApproval,
-    Pull,
-    PullCommit,
-    RateLimit,
-    Release,
-    RepoListing,
-    RepoRef,
-    Resolved,
-    Review,
-    ReviewEvent,
-    RunDetail,
-    RunPage,
-    RunQuery,
-    RunTick,
-    RunTiming,
-    ThreadOf,
-    TimelineItem,
-    Workflow,
-    WorkflowFile,
+import {
+    createCodeHostBackend,
+    namedArgsHostApi,
+    type CodeHostApi,
+    type HostAccount,
+    type HostAccountEntry,
+    type HostCapabilities,
 } from "../../plugin-api/codehost";
-import { createCodeHostClient } from "../../plugin-api/codehost";
-import { GITLAB_PLUGIN_ID } from "./kinds";
+import { GITLAB_PLUGIN } from "./kinds";
 
-export { failureMessage } from "../../plugin-api/backend";
-
-const backend = createPluginBackend(GITLAB_PLUGIN_ID, { signInStatus: (kind) => kind === "host.status" || kind === "host.gitlabStatus" });
-const { call, image, watch } = createCodeHostClient(backend);
+const client = createCodeHostBackend(GITLAB_PLUGIN.id);
+const { backend } = client;
 
 export interface GitlabStatus {
     configured: boolean;
@@ -55,8 +24,6 @@ export interface GitlabStatus {
     authFailed: boolean;
     message: string | null;
 }
-
-const cannot = (what: string) => (): Promise<never> => Promise.reject(new Error(`GitLab cannot ${what} here yet`));
 
 export const gitlabApi = {
     status: (account: string | null = null) => backend.call<GitlabStatus>("status", { account }),
@@ -99,62 +66,34 @@ export function entryOf(account: ListedAccount): HostAccountEntry {
 }
 
 /** GitLab as the Git pane reads any code host. */
+export const gitlabCapabilities: HostCapabilities = {
+    ci: {
+        graph: true,
+        attempts: false,
+        approvals: false,
+        dispatch: true,
+        annotations: false,
+        summaries: false,
+        artifacts: false,
+        billing: false,
+        workflowFile: true,
+        rerunFailed: true,
+        rerunJob: true,
+        debugLogs: false,
+        deleteRuns: true,
+        deleteLogs: false,
+    },
+    pulls: { draft: true, mergeMethods: ["merge", "squash"], requestChanges: false, reopen: true, mergeability: true },
+    issues: true,
+    releases: true,
+    inbox: true,
+};
+
+/** GitLab as the Git pane reads any code host. */
 export const gitlabHostApi: CodeHostApi = {
-    rateLimit: (account: string | null) => backend.call<RateLimit>("rateLimit", { account }),
-    status: (account: string | null) => gitlabApi.status(account).then(accountOf),
-    signOut: (account: string | null) => backend.call<void>("signOut", { account }),
+    ...namedArgsHostApi(GITLAB_PLUGIN.name, client),
+    rerunJob: (repo, jobId) => client.call<void>("rerunJob", { ...repo, jobId }),
+    deleteRun: (repo, runId) => client.call<void>("deleteRun", { ...repo, runId }),
+    status: (account) => gitlabApi.status(account).then(accountOf),
     accounts: () => backend.call<ListedAccount[]>("accounts").then((listed) => listed.map(entryOf)),
-    setDefaultAccount: (account: string) => backend.call<void>("setDefaultAccount", { id: account }),
-    accountFor: (repo: RepoRef) => call<string | null>("accountFor", repo),
-    resolveRemote: (url: string) => backend.call<Resolved>("resolveRemote", { url }),
-    myRepos: (account: string | null, limit = 50) => call<RepoListing[]>("myRepos", { account, limit }),
-    image,
-
-    workflows: (repo: RepoRef) => call<Workflow[]>("workflows", repo),
-    branches: (repo: RepoRef) => call<string[]>("branches", repo),
-    runs: (query: RunQuery) => call<RunPage>("runs", query),
-    run: (repo: RepoRef, runId: string) => call<RunDetail>("run", { ...repo, runId }),
-    runAttempt: cannot("show an earlier attempt of a pipeline"),
-    jobLog: (repo: RepoRef, jobId: string) => call<JobLog>("jobLog", { ...repo, jobId }),
-    annotations: (): Promise<Annotation[]> => Promise.resolve([]),
-    jobSummary: (): Promise<JobSummary | null> => Promise.resolve(null),
-    runTiming: (repo: RepoRef, runId: string) => call<RunTiming>("runTiming", { ...repo, runId }),
-    workflowFile: (repo: RepoRef) => call<WorkflowFile>("workflowFile", repo),
-    artifacts: (): Promise<Artifact[]> => Promise.resolve([]),
-    pendingApprovals: (): Promise<PendingApproval[]> => Promise.resolve([]),
-    dispatch: (repo: RepoRef, workflowId: string, gitRef: string, inputs: Record<string, string>) =>
-        call<void>("dispatch", { ...repo, workflowId, gitRef, inputs }),
-    rerun: (repo: RepoRef, runId: string, failedOnly: boolean) => call<void>("rerun", { ...repo, runId, failedOnly }),
-    rerunJob: (repo: RepoRef, jobId: string) => call<void>("rerunJob", { ...repo, jobId }),
-    cancel: (repo: RepoRef, runId: string) => call<void>("cancel", { ...repo, runId }),
-    deleteRunLogs: cannot("delete a pipeline's logs alone"),
-    deleteRun: (repo: RepoRef, runId: string) => call<void>("deleteRun", { ...repo, runId }),
-    reviewDeployment: cannot("approve a deployment"),
-    downloadArtifact: cannot("download job artifacts"),
-    watch: (repo: RepoRef, runId: string, handlers: PluginStreamHandlers<RunTick>) => watch<RunTick>({ ...repo, runId }, handlers),
-
-    pulls: (repo: RepoRef, state: string) => call<Pull[]>("pulls", { ...repo, state }),
-    pull: (repo: RepoRef, number: number) => call<Pull>("pull", { ...repo, number }),
-    pullFiles: (repo: RepoRef, number: number) => call<ChangedFile[]>("pullFiles", { ...repo, number, fullPatches: true }),
-    pullCommits: (repo: RepoRef, number: number) => call<PullCommit[]>("pullCommits", { ...repo, number }),
-    pullReviews: (repo: RepoRef, number: number) => call<Review[]>("pullReviews", { ...repo, number }),
-    timeline: (repo: RepoRef, number: number, of: ThreadOf = "pull") => call<TimelineItem[]>("timeline", { ...repo, number, of }),
-    mergePull: (repo: RepoRef, number: number, method: MergeMethod, sha: string) => call<void>("mergePull", { ...repo, number, method, sha }),
-    createPull: (repo: RepoRef, pull: NewPull) => call<Pull>("createPull", { ...repo, ...pull }),
-    setPullState: (repo: RepoRef, number: number, state: "open" | "closed") => call<void>("setPullState", { ...repo, number, state }),
-    reviewPull: (repo: RepoRef, number: number, event: ReviewEvent, body: string) => call<void>("reviewPull", { ...repo, number, event, body }),
-
-    issues: (repo: RepoRef, state: string, page: number) => call<IssuePage>("issues", { ...repo, state, page }),
-    issue: (repo: RepoRef, number: number) => call<Issue>("issue", { ...repo, number }),
-    createIssue: (repo: RepoRef, title: string, body: string) => call<Issue>("createIssue", { ...repo, title, body }),
-    setIssueState: (repo: RepoRef, number: number, state: "open" | "closed") => call<void>("setIssueState", { ...repo, number, state }),
-    comments: (repo: RepoRef, number: number, of: ThreadOf = "pull") => call<Comment[]>("comments", { ...repo, number, of }),
-    addComment: (repo: RepoRef, number: number, body: string, of: ThreadOf = "pull") => call<void>("addComment", { ...repo, number, body, of }),
-
-    releases: (repo: RepoRef) => call<Release[]>("releases", repo),
-    downloadAsset: cannot("download release files"),
-
-    inbox: (account: string | null, all: boolean) => call<Notification[]>("inbox", { account, all }),
-    markRead: (account: string | null, id: string) => call<void>("markRead", { account, id }),
-    markAllRead: (account: string | null) => call<void>("markAllRead", { account }),
 };

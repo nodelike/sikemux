@@ -4,8 +4,8 @@
 //! ack-based flow control the in-process terminals had.
 
 pub(crate) mod commands;
-mod sink;
-mod streams;
+pub(crate) mod sink;
+pub(crate) mod streams;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -14,17 +14,17 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use sikemux_core::client::{
-    await_deferred_upgrade, await_upgrade, ensure_running, frozen_request, Attached, ClientError,
-    CoreClient, Reply,
+    await_deferred_upgrade, await_upgrade, frozen_request, Attached, ClientError, CoreClient, Reply,
 };
 use sikemux_core::frozen::{FrozenReply, FrozenRequest, UpdateBlocker};
 use sikemux_core::protocol::{BuildIdentity, Request, SessionInfo, SessionKind};
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::error::{AppError, AppResult};
 
 use sink::AppSink;
-use streams::StreamTable;
+pub(crate) use streams::StreamTable;
 
 /// Browser tabs are child webviews of the same app. Every terminal event
 /// belongs to the workbench, so address it by label instead of broadcasting.
@@ -71,16 +71,25 @@ pub struct PtyManager {
 
 pub(crate) fn core_error(error: ClientError) -> AppError {
     match error {
-        ClientError::Core(message) => {
-            if let Some(reason) = message.strip_prefix("invalid argument: ") {
-                AppError::BadArgText(reason.to_string())
-            } else if let Some(reason) = message.strip_prefix("pty: ") {
-                AppError::Pty(reason.to_string())
-            } else {
-                AppError::Other(message)
-            }
-        }
+        ClientError::Core(message) => core_message(message),
         other => AppError::Pty(other.to_string()),
+    }
+}
+
+/// What the core said went wrong, under the category its prefix names.
+pub(crate) fn core_message(message: String) -> AppError {
+    if let Some(reason) = message.strip_prefix("invalid argument: ") {
+        AppError::BadArgText(reason.to_string())
+    } else if let Some(reason) = message.strip_prefix("pty: ") {
+        AppError::Pty(reason.to_string())
+    } else if let Some(reason) = message.strip_prefix("fs: ") {
+        AppError::Fs(reason.to_string())
+    } else if let Some(reason) = message.strip_prefix("file-conflict: ") {
+        AppError::FileConflict(reason.to_string())
+    } else if let Some(path) = message.strip_prefix("not-text: ") {
+        AppError::NotText(path.to_string())
+    } else {
+        AppError::Other(message)
     }
 }
 
@@ -152,8 +161,7 @@ impl PtyManager {
 
     fn current(&self) -> Option<Arc<CoreClient>> {
         self.client
-            .lock()
-            .ok()?
+            .locked()
             .clone()
             .filter(|client| client.is_connected())
     }
@@ -171,18 +179,16 @@ impl PtyManager {
             .settings
             .get()
             .ok_or_else(|| AppError::Pty("the terminal core is not configured yet".into()))?;
-        let binary = settings.binary.clone().ok_or_else(|| {
+        let launch = self.core_launch().ok_or_else(|| {
             AppError::Pty("the sikemux-host sidecar that runs terminals is missing".into())
         })?;
-        let socket = settings.socket.clone();
-        let log = settings.log.clone();
-        let core_args = settings.core_args.clone();
-        if let Some(directory) = log.parent() {
+        let binary = launch.binary.clone();
+        if let Some(directory) = launch.log.parent() {
             let _ = std::fs::create_dir_all(directory);
         }
-        let starting = binary.clone();
+        let identifier = settings.app.config().identifier.clone();
         let found = tauri::async_runtime::spawn_blocking(move || {
-            ensure_running(&socket, &starting, &log, &core_args)
+            crate::login_item::start_core(&identifier, &launch)
         })
         .await
         .map_err(|error| AppError::Pty(format!("core start join: {error}")))?;
@@ -224,9 +230,7 @@ impl PtyManager {
         crate::inbox::connected(&client).await;
         let _ = settings.app.emit_to("main", "core_connected", ());
         self.core_pid.store(client.core_pid(), Ordering::Release);
-        if let Ok(mut current) = self.client.lock() {
-            *current = Some(client.clone());
-        }
+        *self.client.locked() = Some(client.clone());
         Ok(client)
     }
 
@@ -251,56 +255,20 @@ impl PtyManager {
             };
             match manager.client().await {
                 Ok(client) if client.core_pid() == previous => {
-                    manager.reattach(&client).await;
-                    crate::acp::reconnected(&app, Some(&client)).await;
+                    reattach(&client, &manager.streams).await;
+                    crate::acp::reconnected(&app, None, Some(&client)).await;
                 }
                 Ok(client) => {
                     sink::report_all_exited(&manager.streams);
-                    crate::acp::reconnected(&app, Some(&client)).await;
+                    crate::acp::reconnected(&app, None, Some(&client)).await;
                 }
                 Err(error) => {
                     sink::report_all_exited(&manager.streams);
-                    crate::acp::reconnected(&app, None).await;
+                    crate::acp::reconnected(&app, None, None).await;
                     eprintln!("Sikemux could not restart its terminal core: {error}");
                 }
             }
         });
-    }
-
-    /// Sends every pane its screen again from the updated core, followed by
-    /// the live output.
-    async fn reattach(&self, client: &Arc<CoreClient>) {
-        for id in self.streams.core_subscribed() {
-            let streams = self.streams.clone();
-            let submitted = client.submit(Request::Attach { id }, move |reply| match reply {
-                Ok(Reply::Attached(Attached {
-                    alternate_screen,
-                    exited,
-                    replay,
-                    ..
-                })) => {
-                    streams.restart(id);
-                    // An alternate screen repaints itself in full and leaves
-                    // the pane's own normal-screen history alone.
-                    let mut screen = Vec::with_capacity(replay.len() + FULL_RESET.len());
-                    if !alternate_screen {
-                        screen.extend_from_slice(FULL_RESET);
-                    }
-                    screen.extend_from_slice(&replay);
-                    sink::deliver(&streams, id, &screen);
-                    if exited {
-                        streams.channels(id).send(&[]);
-                    }
-                }
-                // A dropped connection is not the session ending; the next
-                // reconnect deals with it.
-                Err(ClientError::Disconnected) => {}
-                _ => sink::report_exited(&streams, id),
-            });
-            if let Ok(replied) = submitted {
-                let _ = replied.await;
-            }
-        }
     }
 
     /// A page load is a quiet moment to move the core to the sidecar's build,
@@ -438,6 +406,46 @@ impl PtyManager {
             blocked_agents: agents("blocked"),
             idle_agents: agents("idle"),
             unknown_agents: agents("unknown"),
+        }
+    }
+}
+
+/// Sends every pane its screen again from a core that came back, followed
+/// by the live output. `streams` holds the page's ids, which the core of
+/// another host knows by its own.
+pub(crate) async fn reattach(client: &Arc<CoreClient>, streams: &Arc<StreamTable>) {
+    for id in streams.core_subscribed() {
+        let table = streams.clone();
+        let request = Request::Attach {
+            id: crate::hosts::core_session(id),
+        };
+        let submitted = client.submit(request, move |reply| match reply {
+            Ok(Reply::Attached(Attached {
+                alternate_screen,
+                exited,
+                replay,
+                ..
+            })) => {
+                table.restart(id);
+                // An alternate screen repaints itself in full and leaves
+                // the pane's own normal-screen history alone.
+                let mut screen = Vec::with_capacity(replay.len() + FULL_RESET.len());
+                if !alternate_screen {
+                    screen.extend_from_slice(FULL_RESET);
+                }
+                screen.extend_from_slice(&replay);
+                sink::deliver(&table, id, &screen);
+                if exited {
+                    table.channels(id).send(&[]);
+                }
+            }
+            // A dropped connection is not the session ending; the next
+            // reconnect deals with it.
+            Err(ClientError::Disconnected) => {}
+            _ => sink::report_exited(&table, id),
+        });
+        if let Ok(replied) = submitted {
+            let _ = replied.await;
         }
     }
 }
@@ -587,7 +595,7 @@ mod tests {
         let manager = PtyManager::default();
         let (channel, messages) = recorded();
         {
-            let mut guard = manager.streams.lock().expect("lock");
+            let mut guard = manager.streams.lock();
             guard.begin_attach(3).expect("begin");
             guard.finish_attach(3, channel).expect("attach");
         }

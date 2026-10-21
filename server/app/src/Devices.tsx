@@ -1,4 +1,5 @@
 import { useAuth } from "@clerk/react";
+import { platformName } from "@mac/remote/access";
 import type { AccountEvent, Device } from "@sikemux/protocol";
 import {
   useCallback,
@@ -16,13 +17,6 @@ export type Load =
   | { state: "failed"; message: string }
   | { state: "loaded"; devices: Device[] };
 
-const PLATFORMS: Record<Device["platform"], string> = {
-  macos: "macOS",
-  linux: "Linux",
-  ios: "iOS",
-  android: "Android",
-};
-
 /** The account's devices, read once and then kept current by `apply` and `reload`. */
 export function useDevices(ready: boolean) {
   const { isSignedIn, getToken } = useAuth();
@@ -33,7 +27,7 @@ export function useDevices(ready: boolean) {
     const attempt = ++reading.current;
     try {
       const token = await signedInToken(getToken, "see your devices");
-      const list = await api.devices(token);
+      const list = await api(token).listDevices();
       if (attempt === reading.current)
         setLoad({ state: "loaded", devices: list.devices });
     } catch (error) {
@@ -80,7 +74,7 @@ export function useDevices(ready: boolean) {
 
   const remove = async (key: string) => {
     const token = await signedInToken(getToken, "remove a device");
-    await api.removeDevice(token, key);
+    await api(token).removeDevice(key);
     drop(key);
   };
 
@@ -200,7 +194,7 @@ function DeviceRow({
       </span>
       <span className="name">{device.name}</span>
       <span className="detail">
-        {PLATFORMS[device.platform] ?? device.platform}
+        {platformName(device.platform)}
         {device.channel ? ` · ${device.channel}` : ""}
         {` · added ${formatDay(device.createdAt, "short")}`}
       </span>

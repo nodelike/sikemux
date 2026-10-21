@@ -31,7 +31,8 @@ import { FileIcon } from "../../ui/FileIcon";
 import { SwipePages } from "../../ui/SwipePages";
 import { basename, dirname } from "../../lib/paths";
 import { requestOpenFile } from "../../state/commands";
-import { hostApi, failureMessage, type MergeMethod, type Pull, type RepoRef, type Run } from "../api";
+import { hostApi, type MergeMethod, type Pull, type RepoRef, type Run } from "../api";
+import { errorText } from "../../lib/format";
 import { pullCommitsR, pullCountsR, pullFilesR, pullR, pullReviewsR, pullsR, runsR, timelineR } from "../resources";
 import { checksSummary, outcomeOf, overallOutcome, type Outcome } from "../runStatus";
 import { needsPull } from "../compose";
@@ -700,9 +701,7 @@ function PullColumn({
     const [page, setPage] = useState<SidePage>("files");
     if (pull.status === "loading" && !pull.data) return <SkeletonRows rows={8} label="Loading pull request" />;
     if (!pull.data) {
-        return (
-            <EmptyState title="Could not read it" message={failureMessage(pull.error)} tone="error" action={{ label: "Back", onClick: onClose }} />
-        );
+        return <EmptyState title="Could not read it" message={errorText(pull.error)} tone="error" action={{ label: "Back", onClick: onClose }} />;
     }
     const found = pull.data;
     const reviewList = reviews.data ?? [];
@@ -827,7 +826,7 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
         ) : pulls.error && !pulls.data ? (
             <EmptyState
                 title="Could not read pull requests"
-                message={failureMessage(pulls.error)}
+                message={errorText(pulls.error)}
                 tone="error"
                 action={{ label: "Try again", onClick: () => void pulls.refresh() }}
             />

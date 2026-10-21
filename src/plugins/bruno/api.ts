@@ -1,7 +1,7 @@
 import { createPluginBackend, isPluginFailure } from "../../plugin-api/backend";
-import { BRUNO_PLUGIN_ID } from "./kinds";
+import { BRUNO_PLUGIN } from "./kinds";
 
-const backend = createPluginBackend(BRUNO_PLUGIN_ID);
+const backend = createPluginBackend(BRUNO_PLUGIN.id);
 
 export type BruBodyWire =
     | { kind: "none" }
@@ -42,7 +42,7 @@ export const brunoApi = {
             return await backend.call<BruSendResponse>("send", { req });
         } catch (error) {
             if (!isPluginFailure(error)) throw error;
-            throw new Error(error.message.replace(`${BRUNO_PLUGIN_ID}: `, ""), { cause: error });
+            throw new Error(error.message.replace(`${BRUNO_PLUGIN.id}: `, ""), { cause: error });
         }
     },
 };

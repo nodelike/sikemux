@@ -137,9 +137,7 @@ pub struct RunRecord {
     pub signal: Option<String>,
     pub error: Option<String>,
     pub preview_url: Option<String>,
-    #[serde(default)]
     pub cwd: Option<String>,
-    #[serde(default)]
     pub started_at: Option<u64>,
     pub agent_id: Option<String>,
     pub launch_spec: Option<CommandLaunch>,

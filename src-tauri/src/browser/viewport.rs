@@ -5,6 +5,7 @@
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use sikemux_process::sync::Locked;
 
 use super::{BrowserBounds, BrowserHole, BrowserManager, MOBILE_USER_AGENT};
 
@@ -167,7 +168,7 @@ fn parse_inner_size(raw: &str) -> Option<(f64, f64)> {
 impl BrowserManager {
     /// The size the tab's page should lay out at now, in CSS pixels.
     pub fn layout_size(&self, agent_id: &str, tab_id: &str) -> Option<(f64, f64)> {
-        let agents = self.lock();
+        let agents = self.agents.locked();
         let agent = agents.get(agent_id)?;
         agent.views.get(tab_id)?;
         Some(agent.layout_of(tab_id).page_size())
@@ -187,7 +188,8 @@ impl BrowserManager {
                 .layout_size(agent_id, tab_id)
                 .ok_or("the tab closed while its viewport was changing")?;
             let view = self
-                .lock()
+                .agents
+                .locked()
                 .get(agent_id)
                 .and_then(|agent| agent.views.get(tab_id).cloned())
                 .ok_or("the tab closed while its viewport was changing")?;

@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
 
 use super::{too_long, Workspaces, MAX_FIELD_CHARS, MAX_PROJECTS, MAX_TITLE_CHARS};
 use crate::server::suggestions::{Status, Suggestion};
@@ -244,7 +245,8 @@ fn change_rules(rules: &mut ProjectRules, change: Change) -> CoreResult<()> {
 impl Workspaces {
     pub(crate) fn folder_settings(&self, project: &str) -> BTreeMap<String, FolderSettings> {
         let key = project_key(project);
-        self.lock()
+        self.published
+            .locked()
             .saved
             .folder_settings
             .get(&key)
@@ -254,7 +256,8 @@ impl Workspaces {
 
     pub(crate) fn project_rules(&self, project: &str) -> ProjectRules {
         let key = project_key(project);
-        self.lock()
+        self.published
+            .locked()
             .saved
             .project_rules
             .get(&key)
@@ -311,7 +314,8 @@ impl Workspaces {
 
     pub(crate) fn suggestions(&self, project: &str) -> Vec<Suggestion> {
         let key = project_key(project);
-        self.lock()
+        self.published
+            .locked()
             .saved
             .suggestions
             .get(&key)
@@ -371,7 +375,7 @@ impl Workspaces {
     /// folder directly inside it that `cwd` is in.
     fn project_of(&self, cwd: &Path) -> Option<(PathBuf, Option<String>)> {
         let path = crate::server::names::in_main_checkout_or_self(cwd);
-        let published = self.lock();
+        let published = self.published.locked();
         let saved = &published.saved;
         let project = saved
             .folder_settings

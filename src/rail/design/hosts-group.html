@@ -1,0 +1,213 @@
+<!doctype html>
+<html>
+<head>
+<!-- View by serving the repo root (python3 -m http.server) and opening /src/rail/design/hosts-group.html. -->
+<meta charset="utf-8">
+<style>
+  :root { --rail:#0f0f12; --menu:#141418; --line:#26262d; --ink:#e6e6ea; --mid:#a1a1ab; --low:#6c6c77; --lift:rgba(255,255,255,.07); --ssh:#e879a6; --live:#4ade80; --mark:#a277ff; }
+  body { margin:0; font: 13px/1.4 var(--font-sans, Figtree, -apple-system, sans-serif); color: var(--foreground, #e6e6ea); background: var(--background, #0b0b0d); }
+  h3 { font-size: 13px; font-weight: 600; margin: 22px 0 4px; }
+  h3:first-child { margin-top: 0; }
+  p.why { margin: 0 0 10px; color: var(--muted-foreground, #9a9aa4); font-size: 12px; }
+  .pair { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
+  .cap { font-size: 11px; color: var(--muted-foreground, #9a9aa4); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .08em; }
+  .cap.new { color: var(--accent, #a277ff); }
+  .rail { background: var(--rail); border: 1px solid var(--line); border-radius: 10px; padding: 10px 8px; color: var(--ink); position: relative; }
+  svg.i { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .menu { background: var(--menu); border: 1px solid var(--line); border-radius: 9px; padding: 4px; }
+  .mrow { display:flex; align-items:center; gap: 9px; height: 27px; padding: 0 8px; border-radius: 6px; color: var(--ink); white-space: nowrap; font-size: 12.5px; }
+  .mrow.hot { background: var(--lift); }
+  .mrow .k { margin-left:auto; color: var(--low); font-size: 11px; font-family: var(--font-mono, ui-monospace, monospace); }
+  .mrow .on { margin-left:auto; color: var(--low); font-size: 11px; }
+  .mrow.bad { color: #f0a0a0; }
+  .mrow.bad .on { color: #c07878; }
+  .mhead { padding: 4px 8px 3px; font-size: 11px; color: var(--low); }
+  .mhead b { color: var(--mid); font-weight: 500; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+  .glabel { display:flex; align-items:center; gap: 8px; margin: 2px 6px 6px; font-size: 10.5px; letter-spacing: .18em; color: var(--low); }
+  .glabel .rule { flex:1; border-top: 1px solid var(--line); }
+  .glabel .k { letter-spacing: 0; font-family: var(--font-mono, ui-monospace, monospace); }
+  .row { display:flex; align-items:center; gap: 9px; height: 28px; padding: 0 8px; border-radius: 6px; color: var(--ink); white-space: nowrap; font-size: 12.5px; min-width: 0; }
+  .row.chosen { background: var(--lift); }
+  .row .meta { color: var(--low); font-size: 11px; overflow:hidden; text-overflow: ellipsis; }
+  .row .end { margin-left:auto; display:flex; align-items:center; gap: 8px; color: var(--low); font-size: 11px; }
+  .ssh { color: var(--ssh); }
+  .core { color: var(--mark); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--live); }
+  .dot.off { background: transparent; border: 1.3px solid var(--low); width: 5px; height: 5px; }
+  .dot.wait { background: #f5a524; }
+  .bar { width: 46px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .bar i { display:block; height: 100%; width: 62%; background: var(--mark); }
+  .float { position: absolute; z-index: 2; width: 214px; box-shadow: 0 14px 34px rgba(0,0,0,.55); }
+  .note { font-size: 11.5px; color: var(--muted-foreground, #9a9aa4); margin-top: 8px; line-height: 1.45; }
+  .note b { color: var(--foreground, #e6e6ea); font-weight: 500; }
+  .stack { display:grid; gap: 10px; }
+  .proj { font-weight: 600; }
+  .scope { display:grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; margin: 8px 2px 10px; border-radius: 7px; background: rgba(255,255,255,.04); font-size: 11.5px; }
+  .scope span { display:flex; align-items:center; justify-content:center; gap: 6px; height: 22px; border-radius: 5px; color: var(--low); }
+  .scope span.on { background: var(--lift); color: var(--ink); }
+  .scope svg.i { width: 13px; height: 13px; }
+  .row.here { color: var(--ink); }
+  .row .tag { color: var(--low); font-size: 11px; }
+  .row:not(.here) { color: var(--mid); }
+  .trow { display:flex; align-items:center; gap: 9px; padding: 4px 8px; border-radius: 6px; color: var(--ink); font-size: 12.5px; min-width: 0; }
+  .trow.chosen { background: var(--lift); }
+  .trow .txt { display:grid; min-width: 0; }
+  .trow .txt b { font-weight: 400; overflow:hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trow .txt small { color: var(--low); font-size: 11px; display:flex; align-items:center; gap: 4px; }
+  .trow .txt small svg.i { width: 11px; height: 11px; }
+  .trow .end { margin-left:auto; color: var(--low); font-size: 11px; }
+  .claude { color: #d97757; }
+  .live { color: var(--live); }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="term" viewBox="0 0 16 16"><rect x="2.2" y="3" width="11.6" height="10" rx="1.4"/><path d="M4.8 6.4 6.8 8l-2 1.6M8.4 10h2.8"/></symbol>
+  <symbol id="globe" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c1.6 1.6 2.3 3.6 2.3 5.6S9.6 12 8 13.6M8 2.4C6.4 4 5.7 6 5.7 8s.7 4 2.3 5.6"/></symbol>
+  <symbol id="server" viewBox="0 0 16 16"><rect x="2.4" y="2.6" width="11.2" height="4.6" rx="1.2"/><rect x="2.4" y="8.8" width="11.2" height="4.6" rx="1.2"/><path d="M4.9 4.9h.6M4.9 11.1h.6"/></symbol>
+  <symbol id="laptop" viewBox="0 0 16 16"><rect x="3.2" y="3.4" width="9.6" height="6.8" rx="1"/><path d="M1.8 12.6h12.4"/></symbol>
+  <symbol id="folder" viewBox="0 0 16 16"><path d="M2 3.6h4l1.6 2H14v7.2H2z"/></symbol>
+  <symbol id="dots" viewBox="0 0 16 16"><path d="M4 8h.01M8 8h.01M12 8h.01" stroke-width="2"/></symbol>
+  <symbol id="down" viewBox="0 0 16 16"><path d="M8 2.8v7.4M5 7.4 8 10.4l3-3M3 13.2h10"/></symbol>
+  <symbol id="pen" viewBox="0 0 16 16"><path d="M10.6 3.2l2.2 2.2-7 7H3.6v-2.2z"/></symbol>
+  <symbol id="trash" viewBox="0 0 16 16"><path d="M3 4.6h10M6.4 4.6V3h3.2v1.6M4.4 4.6l.6 8.4h6l.6-8.4"/></symbol>
+</svg>
+
+<h3>1 · The "+" menu stops growing with every host</h3>
+<p class="why">Three rows, always. They start where new work starts: the chosen host, else where the focused chat or terminal runs, else this one; ⌘N and ⌘T follow the same rule. The menu names it only when it isn't this one.</p>
+<div class="pair">
+  <div>
+    <div class="cap">Today</div>
+    <div class="menu">
+      <div class="mrow"><svg class="i"><use href="#plus"/></svg>New chat<span class="k">⌘N</span></div>
+      <div class="mrow"><svg class="i"><use href="#term"/></svg>New terminal<span class="k">⌘T</span></div>
+      <div class="mrow"><svg class="i"><use href="#globe"/></svg>New browser<span class="k">⌘⇧T</span></div>
+      <div class="mrow"><svg class="i"><use href="#plus"/></svg>New chat<span class="on">on ip-10-0-16-158</span></div>
+      <div class="mrow"><svg class="i"><use href="#term"/></svg>New terminal<span class="on">on ip-10-0-16-158</span></div>
+      <div class="mrow bad"><svg class="i"><use href="#plus"/></svg>New chat<span class="on">on staging</span></div>
+      <div class="mrow bad"><svg class="i"><use href="#term"/></svg>New terminal<span class="on">on staging</span></div>
+      <div class="mrow bad"><svg class="i"><use href="#plus"/></svg>New chat<span class="on">on cicd</span></div>
+      <div class="mrow bad"><svg class="i"><use href="#term"/></svg>New terminal<span class="on">on cicd</span></div>
+    </div>
+    <div class="note">Two rows per host: with three servers it is already nine.</div>
+  </div>
+  <div>
+    <div class="cap new">Proposed · focused on a chat on test-ec2</div>
+    <div class="menu">
+      <div class="mhead">on <b>test-ec2</b></div>
+      <div class="mrow hot"><svg class="i"><use href="#plus"/></svg>New chat<span class="k">⌘N</span></div>
+      <div class="mrow"><svg class="i"><use href="#term"/></svg>New terminal<span class="k">⌘T</span></div>
+      <div class="mrow"><svg class="i"><use href="#globe"/></svg>New browser<span class="k">⌘⇧T</span></div>
+    </div>
+    <div class="note">Another host: its row under <b>Hosts</b>, or the host chip in the new-chat strip. Focused on this laptop, the "on" line is not there at all.</div>
+  </div>
+</div>
+
+<h3>2 · SSH becomes Hosts: every host, one row each</h3>
+<p class="why">Sikemux hosts on the account always, and a plain SSH host only while you have a terminal open on it, as the SSH group did; ⌘⇧S and the group's + open any host in ~/.ssh/config. The icon says how it is reached; the dot says whether it's up.</p>
+<div class="pair">
+  <div>
+    <div class="cap">Today</div>
+    <div class="rail">
+      <div class="glabel">SSH<span class="rule"></span><span class="k">⌘⇧S</span></div>
+      <div class="row"><svg class="i ssh"><use href="#server"/></svg>nginx<span class="end"><span class="dot off"></span></span></div>
+      <div class="row"><svg class="i ssh"><use href="#server"/></svg>cicd<span class="end"><span class="dot off"></span></span></div>
+      <div class="row"><svg class="i ssh"><use href="#server"/></svg>staging<span class="end"><span class="dot off"></span></span></div>
+      <div class="row"><svg class="i ssh"><use href="#server"/></svg>test-ec2<span class="end"><span class="dot"></span></span></div>
+    </div>
+    <div class="note">test-ec2 runs Sikemux, but the rail knows it only as an SSH tab, and as <b>ip-10-0-16-158</b> everywhere else.</div>
+  </div>
+  <div>
+    <div class="cap new">Proposed</div>
+    <div class="rail">
+      <div class="glabel">HOSTS<span class="rule"></span><span class="k">⌘⇧S</span></div>
+      <div class="row"><svg class="i"><use href="#laptop"/></svg>This host<span class="end">3 agents<span class="dot"></span></span></div>
+      <div class="row chosen"><svg class="i core"><use href="#server"/></svg>test-ec2<span class="meta">4% · 1.1 GB</span><span class="end">1 agent<span class="dot"></span></span></div>
+      <div class="row"><svg class="i core"><use href="#server"/></svg>staging<span class="end">out of reach<span class="dot off"></span></span></div>
+      <div class="row"><svg class="i ssh"><use href="#server"/></svg>cicd<span class="end">installing<span class="bar"><i></i></span></span></div>
+      <div class="row"><svg class="i ssh"><use href="#server"/></svg>nginx<span class="end"><span class="dot off"></span></span></div>
+    </div>
+    <div class="note"><span class="core">Purple</span>: runs Sikemux, reached through its core: no SSH, survives your laptop sleeping. <span class="ssh">Pink</span>: SSH only. A click chooses the row, as it chooses a project (section 4); a terminal there is in its ⋯.</div>
+  </div>
+</div>
+
+<h3>3 · A row's ⋯ menu, and adding a server in one click</h3>
+<p class="why">A Sikemux host offers what the core can run there, and its lock: whether a new device or host on your account waits for you there. A plain SSH host offers to become one: the installer runs over the SSH you already have, the host signs in to your account by itself (ADR 0018), and the row turns purple.</p>
+<div class="pair">
+  <div>
+    <div class="cap new">⋯ on test-ec2</div>
+    <div class="rail" style="height: 250px;">
+      <div class="glabel">HOSTS<span class="rule"></span></div>
+      <div class="row"><svg class="i"><use href="#laptop"/></svg>This host<span class="end"><span class="dot"></span></span></div>
+      <div class="row chosen"><svg class="i core"><use href="#server"/></svg>test-ec2<span class="end"><svg class="i"><use href="#dots"/></svg></span></div>
+      <div class="menu float" style="left: 118px; top: 74px;">
+        <div class="mrow hot"><svg class="i"><use href="#plus"/></svg>New chat here</div>
+        <div class="mrow"><svg class="i"><use href="#term"/></svg>New terminal here</div>
+        <div class="mrow"><svg class="i"><use href="#folder"/></svg>Files</div>
+        <hr>
+        <div class="mrow"><svg class="i"><use href="#pen"/></svg>Require approval for new devices<span class="k">off</span></div>
+        <div class="mrow"><svg class="i"><use href="#pen"/></svg>Rename</div>
+        <div class="mrow"><svg class="i"><use href="#trash"/></svg>Remove from account</div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="cap new">⋯ on nginx, SSH only</div>
+    <div class="rail" style="height: 222px;">
+      <div class="glabel">HOSTS<span class="rule"></span></div>
+      <div class="row"><svg class="i core"><use href="#server"/></svg>test-ec2<span class="end"><span class="dot"></span></span></div>
+      <div class="row chosen"><svg class="i ssh"><use href="#server"/></svg>nginx<span class="end"><svg class="i"><use href="#dots"/></svg></span></div>
+      <div class="menu float" style="left: 118px; top: 74px; width: 230px;">
+        <div class="mrow"><svg class="i"><use href="#term"/></svg>New SSH terminal</div>
+        <div class="mrow hot"><svg class="i core"><use href="#down"/></svg>Install Sikemux here</div>
+        <hr>
+        <div class="mrow"><svg class="i"><use href="#pen"/></svg>Edit in ~/.ssh/config</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>4 · A host is chosen as a project is</h3>
+<p class="why">Clicking a host's row chooses it with the same lift a project gets, and only one row in the side rail is chosen at a time. The tab rail then lists every chat and terminal running on that host, from every project, each with its project under it; its scope tabs read <b>test-ec2 | All projects</b>. Choosing a project still lists its chats from every host (ADR 0017). On an SSH-only host the list is its open SSH terminals. Opening a row keeps the host chosen.</p>
+<div class="pair">
+  <div>
+    <div class="cap new">Side rail · test-ec2 chosen</div>
+    <div class="rail">
+      <div class="glabel">PROJECTS<span class="rule"></span></div>
+      <div class="row"><svg class="i"><use href="#folder"/></svg><span class="proj">sikemux</span></div>
+      <div class="row"><svg class="i"><use href="#folder"/></svg><span class="proj">infra</span></div>
+      <div class="glabel" style="margin-top:10px">HOSTS<span class="rule"></span><span class="k">⌘⇧S</span></div>
+      <div class="row"><svg class="i"><use href="#laptop"/></svg>This host<span class="end">3 agents<span class="dot"></span></span></div>
+      <div class="row chosen here"><svg class="i core"><use href="#server"/></svg>test-ec2<span class="tag">here</span><span class="meta">4% · 1.1 GB</span><span class="end">2 agents<span class="dot"></span></span></div>
+      <div class="row"><svg class="i ssh"><use href="#server"/></svg>nginx<span class="end"><span class="dot"></span></span></div>
+    </div>
+    <div class="cap new" style="margin-top:14px">Side rail · sikemux chosen, a chat on this host in front</div>
+    <div class="rail">
+      <div class="glabel">PROJECTS<span class="rule"></span></div>
+      <div class="row chosen here"><svg class="i"><use href="#folder"/></svg><span class="proj">sikemux</span></div>
+      <div class="glabel" style="margin-top:10px">HOSTS<span class="rule"></span><span class="k">⌘⇧S</span></div>
+      <div class="row here"><svg class="i"><use href="#laptop"/></svg>This host<span class="tag">here</span><span class="end">3 agents<span class="dot"></span></span></div>
+      <div class="row"><svg class="i core"><use href="#server"/></svg>test-ec2<span class="meta">4% · 1.1 GB</span><span class="end">2 agents<span class="dot"></span></span></div>
+    </div>
+    <div class="note">The host where ⌘N and ⌘T start says <b>here</b>: its name in full ink and a small tag, never the chosen lift. Focus a chat on test-ec2 and the tag moves to test-ec2.</div>
+  </div>
+  <div>
+    <div class="cap new">Tab rail · agents page</div>
+    <div class="rail">
+      <div class="mhead">on <b>test-ec2</b></div>
+      <div class="mrow"><svg class="i"><use href="#plus"/></svg>New chat<span class="k">⌘N</span></div>
+      <div class="mrow"><svg class="i"><use href="#term"/></svg>New terminal<span class="k">⌘T</span></div>
+      <div class="mrow"><svg class="i"><use href="#globe"/></svg>New browser<span class="k">⌘⇧T</span></div>
+      <div class="scope"><span class="on"><svg class="i"><use href="#server"/></svg>test-ec2</span><span>All projects</span></div>
+      <div class="trow chosen"><svg class="i claude"><use href="#plus"/></svg><span class="txt"><b>Wire the host chip</b><small><svg class="i"><use href="#folder"/></svg>sikemux</small></span><span class="end">@Kite</span></div>
+      <div class="trow"><svg class="i claude"><use href="#plus"/></svg><span class="txt"><b>Rotate the deploy keys</b><small><svg class="i"><use href="#folder"/></svg>infra</small></span><span class="end">@Wren</span></div>
+    </div>
+    <div class="note">The terminals page lists the host's terminals the same way. With nothing running there: <b>No chats on test-ec2</b>, ⌘N to start one.</div>
+  </div>
+</div>
+
+</body>
+</html>

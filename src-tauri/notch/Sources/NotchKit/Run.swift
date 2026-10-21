@@ -5,11 +5,10 @@ import AppKit
 // this helper; it reads the same view of the core that paired phones get.
 
 public func runNotch(_ arguments: [String]) -> Never {
-    signal(SIGCHLD, SIG_IGN)
     guard let options = Options.parse(arguments) else {
         FileHandle.standardError.write(Data("""
         usage: sikemux-notch --socket PATH --protocol-version N --settings PATH --state-dir DIR
-               [--core-binary PATH] [--core-log PATH] [--core-arg ARG]... [--app PATH] [--fonts DIR]
+               [--core-binary PATH] [--app PATH] [--fonts DIR]
                [--dev [--app-pid PID]]
 
         """.utf8))

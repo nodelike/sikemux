@@ -12,16 +12,19 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use super::access::Peer;
+use super::changed::Topic;
 use super::connection::ClientConn;
-use super::remote::{unix_ms, StoredShare};
+use super::remote::StoredShare;
 use super::{chat, Core, CoreError, CoreResult};
 use seal::Seal;
 
@@ -113,14 +116,6 @@ pub(crate) struct Shares {
     next_request: AtomicU64,
 }
 
-impl Shares {
-    fn lock(&self) -> MutexGuard<'_, Inner> {
-        self.inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-}
-
 /// Where a share's link opens: the web app, which hands it on to the Mac or
 /// phone app when one is installed. The key stays after `#`, which browsers
 /// never send to a server.
@@ -145,7 +140,14 @@ fn view_of(running: &Running) -> ShareView {
     }
 }
 
+/// Clients read the shares again: one began, ended, or its state, problem
+/// or viewers moved.
+fn changed(core: &Core) {
+    core.changes.changed(Topic::Shares, None, None);
+}
+
 fn save(core: &Core, inner: &Inner) {
+    changed(core);
     let mut shares: Vec<StoredShare> = inner
         .running
         .values()
@@ -163,7 +165,7 @@ fn save(core: &Core, inner: &Inner) {
 
 /// Has a link waiting out a failure connect again now, if one runs.
 pub(crate) fn network_back(core: &Core) {
-    if let Some(link) = &core.shares.lock().link {
+    if let Some(link) = &core.shares.inner.locked().link {
         let _ = link.send(ToLink::Retry);
     }
 }
@@ -205,7 +207,7 @@ fn begin(core: &Arc<Core>, inner: &mut Inner, stored: StoredShare) -> CoreResult
             let Some(core) = weak.upgrade() else {
                 return;
             };
-            let mut inner = core.shares.lock();
+            let mut inner = core.shares.inner.locked();
             tell(&core, &mut inner, ToLink::Heard(id.clone(), frame));
         }
     });
@@ -245,7 +247,7 @@ pub(crate) fn share_chat(
     if core.chats.get(agent_id).is_none() {
         return Err("This chat is not running, so there is nothing to share yet.".into());
     }
-    let mut inner = core.shares.lock();
+    let mut inner = core.shares.inner.locked();
     if let Some(running) = inner
         .running
         .values_mut()
@@ -267,7 +269,7 @@ pub(crate) fn share_chat(
         id: random()?,
         key: seal::random_text(seal::KEY_LEN).ok_or("no randomness")?,
         agent_id: agent_id.to_owned(),
-        expires_at: unix_ms() + lifetime_ms.clamp(MIN_LIFETIME_MS, MAX_LIFETIME_MS),
+        expires_at: epoch_ms() + lifetime_ms.clamp(MIN_LIFETIME_MS, MAX_LIFETIME_MS),
         title,
     };
     let id = stored.id.clone();
@@ -285,7 +287,7 @@ pub(crate) fn share_chat(
 
 /// Stops a share for good. Its viewers are told it was stopped.
 pub(crate) fn stop(core: &Arc<Core>, id: &str) -> CoreResult<()> {
-    let mut inner = core.shares.lock();
+    let mut inner = core.shares.inner.locked();
     let running = inner
         .running
         .remove(id)
@@ -303,7 +305,7 @@ pub(crate) fn stop(core: &Arc<Core>, id: &str) -> CoreResult<()> {
 }
 
 pub(crate) fn list(core: &Core) -> Vec<ShareView> {
-    let inner = core.shares.lock();
+    let inner = core.shares.inner.locked();
     let mut views: Vec<ShareView> = inner.running.values().map(view_of).collect();
     views.sort_by(|a, b| a.id.cmp(&b.id));
     views
@@ -311,8 +313,8 @@ pub(crate) fn list(core: &Core) -> Vec<ShareView> {
 
 /// Takes up the shares a core before this one ran.
 pub(crate) fn restore(core: &Arc<Core>) {
-    let now = unix_ms();
-    let mut inner = core.shares.lock();
+    let now = epoch_ms();
+    let mut inner = core.shares.inner.locked();
     for stored in core.remote.shares() {
         if stored.expires_at <= now {
             continue;
@@ -385,7 +387,7 @@ fn published<'a>(core: &Core, id: &str, frame: &'a [u8]) -> Option<(Cow<'a, [u8]
             ..
         } => {
             let attachment = serde_json::to_value(&attachment).ok()?;
-            let mut inner = core.shares.lock();
+            let mut inner = core.shares.inner.locked();
             let running = inner.running.get_mut(id)?;
             running.feed = attachment
                 .pointer("/mark/feed")
@@ -409,13 +411,20 @@ fn published<'a>(core: &Core, id: &str, frame: &'a [u8]) -> Option<(Cow<'a, [u8]
 /// Asks the chat for everything a viewer starting now needs, which comes back
 /// through the share's client as a snapshot.
 fn take_snapshot(core: &Arc<Core>, id: &str) {
-    let Some((client, agent_id)) = core.shares.lock().running.get_mut(id).map(|running| {
-        running.chat = core
-            .chats
-            .get(&running.stored.agent_id)
-            .map(|chat| Arc::as_ptr(&chat) as usize);
-        (running.client.clone(), running.stored.agent_id.clone())
-    }) else {
+    let Some((client, agent_id)) = core
+        .shares
+        .inner
+        .locked()
+        .running
+        .get_mut(id)
+        .map(|running| {
+            running.chat = core
+                .chats
+                .get(&running.stored.agent_id)
+                .map(|chat| Arc::as_ptr(&chat) as usize);
+            (running.client.clone(), running.stored.agent_id.clone())
+        })
+    else {
         return;
     };
     let request_id = core.shares.next_request.fetch_add(1, Ordering::Relaxed);
@@ -442,7 +451,7 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
     }
 
     let (seal, agent_id) = {
-        let inner = core.shares.lock();
+        let inner = core.shares.inner.locked();
         let running = inner.running.get(&id)?;
         (running.seal.clone(), running.stored.agent_id.clone())
     };

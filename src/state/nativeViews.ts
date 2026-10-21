@@ -1,41 +1,29 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { externalValue, useExternalValue } from "../lib/externalValue";
 import { mergeHoles, watchOverlays } from "./overlayHoles";
 
 /* Native child views (the browser pages) paint above every DOM element, so an
    overlay that must show over them asks for them to step aside while it is
    open. Depth-counted: overlapping overlays compose and release in any order. */
 let depth = 0;
-const listeners = new Set<() => void>();
+const occluded = externalValue(false);
 
-function notify() {
-    for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void) {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
-}
-
-export function nativeViewsOccluded(): boolean {
-    return depth > 0;
-}
+export const nativeViewsOccluded = occluded.get;
 
 export function occludeNativeViews(): () => void {
     depth += 1;
-    if (depth === 1) notify();
+    occluded.set(true);
     let released = false;
     return () => {
         if (released) return;
         released = true;
         depth -= 1;
-        if (depth === 0) notify();
+        occluded.set(depth > 0);
     };
 }
 
 export function useNativeViewsOccluded(): boolean {
-    return useSyncExternalStore(subscribe, nativeViewsOccluded, nativeViewsOccluded);
+    return useExternalValue(occluded);
 }
 
 /** Hold the native views aside for as long as `active` stays true. */
@@ -60,26 +48,8 @@ export interface NativeViewHole {
 
 const NO_HOLES: NativeViewHole[] = [];
 const holesByOwner = new Map<object, NativeViewHole[]>();
-let holes = NO_HOLES;
-const holeListeners = new Set<() => void>();
 const OVERLAYS = {};
-let stopWatching: (() => void) | null = null;
-
-function subscribeHoles(listener: () => void) {
-    holeListeners.add(listener);
-    stopWatching ??= watchOverlays((next) => setNativeViewHoles(OVERLAYS, next));
-    return () => {
-        holeListeners.delete(listener);
-        if (holeListeners.size || !stopWatching) return;
-        const stop = stopWatching;
-        stopWatching = null;
-        stop();
-    };
-}
-
-function currentHoles(): NativeViewHole[] {
-    return holes;
-}
+const holes = externalValue(NO_HOLES, () => watchOverlays((next) => setNativeViewHoles(OVERLAYS, next)));
 
 /** Replace the holes `owner` asked for. An empty list withdraws them. */
 export function setNativeViewHoles(owner: object, next: NativeViewHole[]): void {
@@ -87,25 +57,26 @@ export function setNativeViewHoles(owner: object, next: NativeViewHole[]): void 
     if (next.length === previous.length && next.every((hole, i) => sameHole(hole, previous[i]))) return;
     if (next.length) holesByOwner.set(owner, next);
     else holesByOwner.delete(owner);
-    holes = holesByOwner.size ? mergeHoles([...holesByOwner.values()].flat()) : NO_HOLES;
-    for (const listener of holeListeners) listener();
+    holes.set(holesByOwner.size ? mergeHoles([...holesByOwner.values()].flat()) : NO_HOLES);
 }
 
 function sameHole(a: NativeViewHole, b: NativeViewHole): boolean {
     return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.radius === b.radius;
 }
 
-export function useNativeViewHoles(): NativeViewHole[] {
-    return useSyncExternalStore(subscribeHoles, currentHoles, currentHoles);
+const watchNothing = () => () => {};
+
+/** The holes to cut while `wanted`; the DOM is watched for them only while some page wants them. */
+export function useNativeViewHoles(wanted = true): NativeViewHole[] {
+    return useSyncExternalStore(wanted ? holes.subscribe : watchNothing, () => (wanted ? holes.get() : NO_HOLES));
 }
 
 /* A swipe slides the stage sideways by transform, which carries every pane on
    it somewhere else without a scroll or a resize to say so. A native view is
    placed by measuring the DOM, so while the stage moves it has to measure every
    frame, and one loop does that for all of them. */
-let moving = false;
+const moving = externalValue(false);
 let frame = 0;
-const watchers = new Set<() => void>();
 const followers = new Set<() => void>();
 
 function tick() {
@@ -113,30 +84,20 @@ function tick() {
     for (const follower of followers) follower();
 }
 
-function watch(watcher: () => void) {
-    watchers.add(watcher);
-    return () => {
-        watchers.delete(watcher);
-    };
-}
-
-export function stageMoving(): boolean {
-    return moving;
-}
+export const stageMoving = moving.get;
 
 function setStageMoving(next: boolean) {
-    if (moving === next) return;
-    moving = next;
+    if (moving.get() === next) return;
     if (next) frame = requestAnimationFrame(tick);
     else {
         cancelAnimationFrame(frame);
         frame = 0;
     }
-    for (const watcher of watchers) watcher();
+    moving.set(next);
 }
 
 export function useStageMoving(): boolean {
-    return useSyncExternalStore(watch, stageMoving, stageMoving);
+    return useExternalValue(moving);
 }
 
 /**
@@ -146,9 +107,9 @@ export function useStageMoving(): boolean {
 export function whenStageStill(still: () => void): () => void {
     let stop = () => {};
     const frame = requestAnimationFrame(() => {
-        if (!moving) return still();
-        stop = watch(() => {
-            if (moving) return;
+        if (!moving.get()) return still();
+        stop = moving.subscribe(() => {
+            if (moving.get()) return;
             stop();
             still();
         });

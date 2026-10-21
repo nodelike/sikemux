@@ -47,7 +47,8 @@ curl -fsSL https://sikemux.com/install | sh -s -- --host
 - **Chats that know your work**: `@` attaches project files, `#` hands over GitHub, GitLab or Bitbucket issues and pull requests, and an optional worktree gives a chat its own branch. Terminal selections, problems, logs and pull request lines can be sent to any agent
 - **Nothing stops when you quit**: terminals, agents and tasks keep running in the background and come back where they were. Quit and Stop Everything (`⌥⌘Q`) ends them
 - **Panels** for AWS, GitHub, GitLab, Bitbucket, Jira, Rundeck, SigNoz and Bruno, and a database client for PostgreSQL, MySQL and SQLite that your agents can query too
-- **SSH** sessions, nine themes and a custom theme editor
+- **Hosts**: this host, every host on your account and the SSH hosts you have open, in one list. Chats and terminals run on whichever you pick, with no SSH, and **Install Sikemux here** turns an SSH host into one of them in a click
+- Nine themes and a custom theme editor
 
 The [website](https://sikemux.com) has the full tour.
 

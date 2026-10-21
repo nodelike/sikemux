@@ -1,4 +1,4 @@
-import { coreCall } from "./core";
+import { coreCall, coreRequest, type CoreRequest } from "./core";
 import { invokeCommand as invoke } from "./invoke";
 import type { PublishedBuddies } from "../buddies/published";
 import { getIpcTransport } from "./transport";
@@ -10,21 +10,31 @@ export type { AllowedDevice, DeviceAccess, RemotePairing, RemoteStatus };
 
 export const REMOTE_STATUS_EVENT = "remote_status_changed";
 
+/** Every change to remote access answers with where it stands now. */
+function remote(request: CoreRequest): Promise<RemoteStatus> {
+    return coreRequest<{ status: RemoteStatus }>(request).then(({ status }) => status);
+}
+
+/** The core keeps what was published last of each kind and the app sends it again to a core it reconnects to. */
+function publish(request: { op: string } & Record<string, unknown>): Promise<void> {
+    return invoke<void>("remote_publish", { request });
+}
+
 export const remoteApi = {
-    status: () => invoke<RemoteStatus>("remote_status"),
+    status: () => remote({ op: "remoteStatus" }),
     pairing: () => coreCall<RemotePairing>("pairing"),
-    setEnabled: (enabled: boolean) => invoke<RemoteStatus>("remote_set_enabled", { enabled }),
-    setDeviceAccess: (id: string, access: DeviceAccess) => invoke<RemoteStatus>("remote_set_device_access", { id, access }),
-    revokeDevice: (id: string) => invoke<RemoteStatus>("remote_revoke_device", { id }),
-    /** Lets agents a linked host started or messaged use this host's sign-ins, or stops them. */
-    setLinkSignIns: (id: string, allowed: boolean) => coreCall<RemotePairing>("setLinkSignIns", { id, allowed }),
-    answerPairing: (id: string, allow: boolean, access: DeviceAccess) => invoke<RemoteStatus>("remote_answer_pairing", { id, allow, access }),
-    allowDevices: (devices: readonly AllowedDevice[]) => invoke<RemoteStatus>("remote_allow_devices", { devices }),
-    publishOnScreen: (agentIds: readonly string[], focused: boolean) => invoke<void>("remote_publish_on_screen", { agentIds, focused }),
-    publishPalette: (palette: Readonly<Record<string, string>>) => invoke<void>("remote_publish_palette", { palette }),
-    publishBuddies: (buddies: PublishedBuddies | null) => invoke<void>("remote_publish_buddies", { buddies }),
+    setEnabled: (enabled: boolean) => remote({ op: "setRemoteAccess", enabled }),
+    setDeviceAccess: (id: string, access: DeviceAccess) => remote({ op: "setDeviceAccess", id, access }),
+    revokeDevice: (id: string) => remote({ op: "revokeDevice", id }),
+    /** Whether each new device and host waits for the person here, rather than coming in on its account's word. */
+    setRequireApproval: (requireApproval: boolean) => coreCall<RemoteStatus>("setRequireApproval", { requireApproval }),
+    answerPairing: (id: string, allow: boolean, access: DeviceAccess) => remote({ op: "answerPairing", id, allow, access }),
+    allowDevices: (devices: readonly AllowedDevice[]) => remote({ op: "allowDevices", devices }),
+    publishOnScreen: (agentIds: readonly string[], focused: boolean) => publish({ op: "publishOnScreen", agentIds, focused }),
+    publishPalette: (palette: Readonly<Record<string, string>>) => publish({ op: "publishPalette", palette }),
+    publishBuddies: (buddies: PublishedBuddies) => publish({ op: "call", method: "publishBuddies", params: buddies }),
     publishBackdrop: (texture: boolean, image: { readonly id: string; readonly dataUrl: string } | null) =>
-        invoke<void>("remote_publish_backdrop", { texture, image }),
+        publish({ op: "publishBackdrop", texture, image }),
     subscribe: (listener: (status: RemoteStatus) => void, signal: AbortSignal) =>
         getIpcTransport().subscribe<RemoteStatus>(REMOTE_STATUS_EVENT, (event) => listener(event.payload), { signal }),
 };

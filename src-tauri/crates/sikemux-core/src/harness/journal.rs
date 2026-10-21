@@ -6,10 +6,10 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sikemux_process::clock::epoch_ms;
 
 pub const MAX_JOURNAL_BYTES: u64 = 5 * 1024 * 1024;
 /// What a rotation keeps, so the next one is a while away.
@@ -25,11 +25,11 @@ pub struct JournalEntry {
     pub seq: u64,
     pub ts: u64,
     pub kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
 }
 
@@ -57,13 +57,6 @@ pub struct Journals {
 pub fn journal_file_name(project: &str) -> String {
     let digest = hex::encode(Sha256::digest(project.as_bytes()));
     format!("{}.jsonl", digest.get(..16).unwrap_or(&digest))
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// The last whole lines of the file, at most `TAIL_READ_BYTES` of them.
@@ -212,7 +205,7 @@ impl Journals {
             project,
             JournalEntry {
                 seq: 0,
-                ts: now_ms(),
+                ts: epoch_ms(),
                 kind: kind.to_owned(),
                 execution_id: execution_id.map(str::to_owned),
                 task_id: task_id.map(str::to_owned),
@@ -227,7 +220,7 @@ impl Journals {
             project,
             JournalEntry {
                 seq: 0,
-                ts: now_ms(),
+                ts: epoch_ms(),
                 kind: kind.to_owned(),
                 execution_id: None,
                 task_id: None,

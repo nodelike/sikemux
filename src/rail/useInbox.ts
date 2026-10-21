@@ -1,6 +1,7 @@
-import { useSyncExternalStore } from "react";
+import { useEffect } from "react";
 import { INBOX_EVENT, inboxApi, type Inbox, type InboxItem } from "../api/inbox";
 import { getIpcTransport } from "../api/transport";
+import { externalValue, useExternalValue } from "../lib/externalValue";
 import { agentWindowId, ownerSessionId, projectSessionId } from "../state/selectors";
 import type { AgentShown } from "../state/agentStatus";
 import { setAgentStatus } from "../state/commands/agents";
@@ -11,14 +12,12 @@ interface InboxState {
     inbox: Inbox;
 }
 
-let state: InboxState = { inbox: { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [] } };
-const listeners = new Set<() => void>();
+const state = externalValue<InboxState>({ inbox: { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [] } });
 let started = false;
 
 function take(inbox: Inbox): void {
-    state = { inbox };
     setAgentStatus(inbox.agents);
-    for (const listener of listeners) listener();
+    state.set({ inbox });
 }
 
 /** Follows the core's inbox for the whole app, and with it how every agent is shown. */
@@ -32,15 +31,10 @@ export function watchInbox(): void {
         .catch(swallow("read the inbox"));
 }
 
-function subscribe(listener: () => void): () => void {
-    watchInbox();
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-}
-
 /** The core's inbox, kept for the whole app once anything reads it. */
 export function useInbox(): InboxState {
-    return useSyncExternalStore(subscribe, () => state);
+    useEffect(watchInbox, []);
+    return useExternalValue(state);
 }
 
 /** Agents in the order the core lists them on every device; those it does not list keep their order after it. */

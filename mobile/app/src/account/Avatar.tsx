@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Image, PixelRatio, StyleSheet, Text, View } from 'react-native';
 import { useUser } from '@clerk/expo';
 
-import { initials } from '@/account/initials';
+import { initials } from '@mac/lib/initials';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 
 /** Clerk's image host scales the whole picture to fit the size asked for; its crop and cover fits zoom in on a slice of it. */

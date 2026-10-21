@@ -139,7 +139,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const hostName = device ? deviceName(device) : 'the host';
   const info = live.snapshot?.chats.find((chat) => chat.agentId === agentId);
   const provider = info?.provider ?? 'agent';
-  const { session, chat } = useChat(core, agentId);
+  const { session, chat, connection } = useChat(core, agentId);
   const state = chat.agent;
   const request = chat.permissions[0];
   const liveId = state.running ? state.messages[state.messages.length - 1]?.id : undefined;
@@ -205,13 +205,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const liveShown = hasLiveWork(fresh) && chat.attached === 'live';
   const recalls = !watchOnly && (chat.queued.length > 0 || state.messages.some((message) => message.role === 'user'));
   const strip = liveShown ? <LiveStrip work={work} provider={provider} onOpen={openLive} /> : null;
-  const questions = useQuestions(
-    live.status === 'open' ? live.connection : undefined,
-    agentId,
-    `${info?.activeAt}|${info?.unread}|${state.running}`,
-    state.messages,
-    session.report,
-  );
+  const questions = useQuestions(connection, agentId, `${info?.activeAt}|${info?.unread}|${state.running}`, state.messages, session.report);
   const input = useRef<TextInput>(null);
   const composing = watchOnly ? null : questions.composing;
   const unreachable = chat.attached !== 'live' && live.status === 'closed';
@@ -261,6 +255,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                     <MaskedView style={styles.transcript} maskElement={<EdgeFades />}>
                       <FlashList
                         ref={list}
+                        showsVerticalScrollIndicator={false}
                         data={state.messages}
                         keyExtractor={(message) => message.id}
                         getItemType={(message, index) => {
@@ -402,7 +397,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                       commands: state.commands.length > 0,
                     })
               }
-              permissionMode={chat.permissionMode ?? info?.permissionMode ?? ''}
+              permissionMode={chat.permissionMode ?? ''}
               modeLocked={
                 state.running || chat.permissions.length > 0 || chat.changingMode || state.connection !== 'ready' || live.status !== 'open'
               }

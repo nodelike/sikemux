@@ -5,8 +5,8 @@ import type { DatabaseProfile, TableInfo } from "../api";
 const api = vi.hoisted(() => ({ describe: vi.fn() }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), databaseApi: api }));
 
-import { invalidate } from "../../../plugin-api/resources";
 import { TableView } from "./TableView";
+import { database } from "../resources";
 
 const shop: DatabaseProfile = {
     id: "p1",
@@ -48,7 +48,7 @@ const orders: TableInfo = {
 
 afterEach(() => {
     cleanup();
-    invalidate((kind) => kind.startsWith("database."));
+    database.refresh();
 });
 beforeEach(() => {
     api.describe.mockReset();

@@ -276,6 +276,7 @@ export function DevicesList({ devices }: { devices: PairedDevice[] }) {
       </View>
       <ScrollView
         ref={list}
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.list, { paddingBottom: bottom + 12 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
         onContentSizeChange={() => {

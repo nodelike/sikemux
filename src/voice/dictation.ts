@@ -7,7 +7,7 @@ import { NETWORK_CHANGED_EVENT } from "../shell/NetworkBridge";
 import { setVoiceDictation } from "../state/commands";
 import { useStore } from "../state/store";
 import { focusedTextInsertTarget, insertText } from "../state/textInsertRegistry";
-import { notify } from "../state/toast";
+import { notify, swallow } from "../state/toast";
 
 export type VoicePhase = "off" | "unsupported" | "preparing" | "ready" | "listening" | "transcribing";
 
@@ -238,7 +238,7 @@ export function useVoiceDictation(): void {
         });
         void getIpcTransport()
             .subscribe<NetworkChange>(NETWORK_CHANGED_EVENT, ({ payload }) => resumeAfterNetwork(payload), { signal: controller.signal })
-            .catch(() => {});
+            .catch(swallow("follow network changes"));
         window.addEventListener("keydown", onVoiceKeyDown, { capture: true, signal: controller.signal });
         window.addEventListener("keyup", onVoiceKeyUp, { capture: true, signal: controller.signal });
         window.addEventListener("blur", () => held && abandonHold(), { signal: controller.signal });

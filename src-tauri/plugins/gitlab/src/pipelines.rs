@@ -9,8 +9,12 @@ use std::sync::Mutex;
 
 use futures::future::join_all;
 use reqwest::{Method, StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use sikemux_plugin_api::codehost::{
+    Job, JobLog, LogExcerpt, LogLine, Run, RunDetail, RunPage, RunTiming, Workflow, WorkflowFile,
+};
+use sikemux_process::sync::Locked;
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};
@@ -77,95 +81,67 @@ pub struct PipelineRow {
     pub user: Option<User>,
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Run {
-    pub id: String,
-    pub name: String,
-    pub title: String,
-    pub workflow_id: String,
-    pub path: Option<String>,
-    pub run_number: u64,
-    pub attempt: u64,
-    pub event: String,
-    pub status: String,
-    pub conclusion: Option<String>,
-    pub branch: Option<String>,
-    pub sha: String,
-    pub short_sha: String,
-    pub actor: Option<String>,
-    pub avatar_url: Option<String>,
-    pub created_at: String,
-    pub started_at: Option<String>,
-    pub updated_at: String,
-    pub pull_requests: Vec<u64>,
-    pub url: String,
-}
-
-impl Run {
-    pub fn from_row(row: &PipelineRow, commit_title: Option<&str>) -> Self {
-        let merge_request = merge_request_of(&row.git_ref);
-        let (status, conclusion) = status_of(&row.status, false);
-        let name = row
-            .name
+pub fn run_of(row: &PipelineRow, commit_title: Option<&str>) -> Run {
+    let merge_request = merge_request_of(&row.git_ref);
+    let (status, conclusion) = status_of(&row.status, false);
+    let name = row
+        .name
+        .clone()
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Pipeline".into());
+    let title = commit_title
+        .map(str::to_string)
+        .or_else(|| row.name.clone().filter(|name| !name.is_empty()))
+        .unwrap_or_else(|| match merge_request {
+            Some(number) => format!("Merge request !{number}"),
+            None => row.git_ref.clone(),
+        });
+    Run {
+        id: row.id.to_string(),
+        name,
+        title,
+        workflow_id: WORKFLOW_ID.into(),
+        path: Some(PIPELINE_FILE.into()),
+        run_number: row.iid.unwrap_or(row.id),
+        attempt: 1,
+        event: event_of(row.source.as_deref()).into(),
+        status,
+        conclusion,
+        branch: merge_request
+            .is_none()
+            .then(|| row.git_ref.clone())
+            .filter(|branch| !branch.is_empty()),
+        short_sha: row.sha.chars().take(8).collect(),
+        sha: row.sha.clone(),
+        actor: login_of(row.user.as_ref()),
+        avatar_url: avatar_of(row.user.as_ref()),
+        created_at: row.created_at.clone(),
+        started_at: row
+            .started_at
             .clone()
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| "Pipeline".into());
-        let title = commit_title
-            .map(str::to_string)
-            .or_else(|| row.name.clone().filter(|name| !name.is_empty()))
-            .unwrap_or_else(|| match merge_request {
-                Some(number) => format!("Merge request !{number}"),
-                None => row.git_ref.clone(),
-            });
-        Run {
-            id: row.id.to_string(),
-            name,
-            title,
-            workflow_id: WORKFLOW_ID.into(),
-            path: Some(PIPELINE_FILE.into()),
-            run_number: row.iid.unwrap_or(row.id),
-            attempt: 1,
-            event: event_of(row.source.as_deref()).into(),
-            status,
-            conclusion,
-            branch: merge_request
-                .is_none()
-                .then(|| row.git_ref.clone())
-                .filter(|branch| !branch.is_empty()),
-            short_sha: row.sha.chars().take(8).collect(),
-            sha: row.sha.clone(),
-            actor: login_of(row.user.as_ref()),
-            avatar_url: avatar_of(row.user.as_ref()),
-            created_at: row.created_at.clone(),
-            started_at: row
-                .started_at
-                .clone()
-                .or_else(|| Some(row.created_at.clone())),
-            updated_at: row
-                .updated_at
-                .clone()
-                .unwrap_or_else(|| row.created_at.clone()),
-            pull_requests: merge_request.into_iter().collect(),
-            url: row.web_url.clone(),
-        }
+            .or_else(|| Some(row.created_at.clone())),
+        updated_at: row
+            .updated_at
+            .clone()
+            .unwrap_or_else(|| row.created_at.clone()),
+        pull_requests: merge_request.into_iter().collect(),
+        url: row.web_url.clone(),
     }
 }
 
 static TITLES: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 
 fn known_title(sha: &str) -> Option<String> {
-    TITLES.lock().ok()?.as_ref()?.get(sha).cloned()
+    TITLES.locked().as_ref()?.get(sha).cloned()
 }
 
 fn remember_title(sha: &str, title: &str) {
-    if let Ok(mut titles) = TITLES.lock() {
-        let titles = titles.get_or_insert_with(HashMap::new);
-        if titles.len() >= TITLES_KEPT {
-            titles.clear();
-        }
-        titles.insert(sha.to_string(), title.to_string());
+    let mut titles = TITLES.locked();
+    let titles = titles.get_or_insert_with(HashMap::new);
+    if titles.len() >= TITLES_KEPT {
+        titles.clear();
     }
+    titles.insert(sha.to_string(), title.to_string());
 }
 
 #[derive(Deserialize)]
@@ -226,14 +202,6 @@ fn source_of(event: &str) -> Option<&'static str> {
     })
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunPage {
-    pub runs: Vec<Run>,
-    pub total: u64,
-    pub next_page: Option<u32>,
-}
-
 pub async fn list(data_dir: &Path, input: RunQuery) -> GitlabResult<RunPage> {
     let page = input.page.unwrap_or(1).max(1);
     let per_page = input.per_page.unwrap_or(30).clamp(1, 100);
@@ -279,7 +247,7 @@ pub async fn list(data_dir: &Path, input: RunQuery) -> GitlabResult<RunPage> {
     let runs: Vec<Run> = found
         .items
         .iter()
-        .map(|row| Run::from_row(row, known_title(&row.sha).as_deref()))
+        .map(|row| run_of(row, known_title(&row.sha).as_deref()))
         .collect();
     Ok(RunPage {
         total: found.total.unwrap_or(runs.len() as u64),
@@ -329,47 +297,23 @@ pub struct JobRow {
     web_url: Option<String>,
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Job {
-    pub id: String,
-    pub name: String,
-    pub status: String,
-    pub conclusion: Option<String>,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
-    pub runner: Option<String>,
-    pub url: Option<String>,
-    pub check_run_id: Option<String>,
-    pub steps: Vec<Value>,
-}
-
-impl Job {
-    pub fn from_row(row: JobRow) -> Self {
-        let (status, conclusion) = status_of(&row.status, row.allow_failure);
-        Job {
-            id: row.id.to_string(),
-            name: match row.stage.filter(|stage| !stage.is_empty()) {
-                Some(stage) => format!("{stage} / {}", row.name),
-                None => row.name,
-            },
-            status,
-            conclusion,
-            started_at: row.started_at,
-            completed_at: row.finished_at,
-            runner: row.runner.and_then(|runner| runner.description),
-            url: row.web_url,
-            check_run_id: None,
-            steps: Vec::new(),
-        }
+pub fn job_of(row: JobRow) -> Job {
+    let (status, conclusion) = status_of(&row.status, row.allow_failure);
+    Job {
+        id: row.id.to_string(),
+        name: match row.stage.filter(|stage| !stage.is_empty()) {
+            Some(stage) => format!("{stage} / {}", row.name),
+            None => row.name,
+        },
+        status,
+        conclusion,
+        started_at: row.started_at,
+        completed_at: row.finished_at,
+        runner: row.runner.and_then(|runner| runner.description),
+        url: row.web_url,
+        check_run_id: None,
+        steps: Vec::new(),
     }
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct RunDetail {
-    pub run: Run,
-    pub jobs: Vec<Job>,
 }
 
 pub async fn detail(data_dir: &Path, input: RunRef) -> GitlabResult<RunDetail> {
@@ -382,24 +326,17 @@ pub async fn detail(data_dir: &Path, input: RunRef) -> GitlabResult<RunDetail> {
         3,
     )
     .await?;
-    let mut jobs: Vec<Job> = rows.into_iter().map(Job::from_row).collect();
+    let mut jobs: Vec<Job> = rows.into_iter().map(job_of).collect();
     jobs.sort_by_key(|job| job.id.parse::<u64>().unwrap_or(0));
     Ok(RunDetail {
-        run: Run::from_row(&row, title.as_deref()),
+        run: run_of(&row, title.as_deref()),
         jobs,
     })
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Timing {
-    pub run_duration_ms: Option<u64>,
-    pub billable: Vec<Value>,
-}
-
-pub async fn timing(data_dir: &Path, input: RunRef) -> GitlabResult<Timing> {
+pub async fn timing(data_dir: &Path, input: RunRef) -> GitlabResult<RunTiming> {
     let row = pipeline(data_dir, &input.repo, &input.run_id).await?;
-    Ok(Timing {
+    Ok(RunTiming {
         run_duration_ms: row.duration.map(|secs| (secs * 1000.0) as u64),
         billable: Vec::new(),
     })
@@ -487,22 +424,6 @@ pub async fn rerun_job(data_dir: &Path, input: JobRef) -> GitlabResult<()> {
     Ok(())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LogLine {
-    pub number: u64,
-    pub timestamp: Option<String>,
-    pub text: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JobLog {
-    pub lines: Vec<LogLine>,
-    pub expired: bool,
-    pub truncated: bool,
-}
-
 /// A log line as a person reads it: without colour codes, without GitLab's
 /// folding markers, and with only what was last written over a `\r`.
 pub fn readable(line: &str) -> String {
@@ -585,13 +506,6 @@ pub struct Excerpt {
     pub grep: Option<String>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LogExcerpt {
-    pub lines: Vec<LogLine>,
-    pub truncated: bool,
-}
-
 const DEFAULT_TAIL: usize = 200;
 const MAX_TAIL: usize = 2000;
 
@@ -620,17 +534,6 @@ pub async fn excerpt(data_dir: &Path, input: Excerpt) -> GitlabResult<LogExcerpt
         lines,
         truncated: cut || whole.truncated,
     })
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Workflow {
-    pub id: String,
-    pub name: String,
-    pub path: String,
-    pub state: String,
-    pub active: bool,
-    pub url: String,
 }
 
 #[derive(Deserialize)]
@@ -685,12 +588,6 @@ pub async fn workflows(data_dir: &Path, repo: RepoRef) -> GitlabResult<Vec<Workf
         active: true,
         url: String::new(),
     }])
-}
-
-#[derive(Serialize)]
-pub struct WorkflowFile {
-    pub path: String,
-    pub text: String,
 }
 
 pub async fn workflow_file(data_dir: &Path, input: FileRef) -> GitlabResult<WorkflowFile> {
@@ -772,7 +669,7 @@ mod tests {
             "web_url": "https://gitlab.com/acme/api/-/pipelines/1834",
             "user": { "id": 3, "username": "ankit", "avatar_url": "https://gitlab.com/a.png" }
         }));
-        let run = Run::from_row(&pipeline, Some("fix(invoices): round VAT per line"));
+        let run = run_of(&pipeline, Some("fix(invoices): round VAT per line"));
         assert_eq!((run.id.as_str(), run.run_number), ("1834", 212));
         assert_eq!(run.title, "fix(invoices): round VAT per line");
         assert_eq!(
@@ -790,7 +687,7 @@ mod tests {
             "id": 9, "sha": "", "ref": "refs/merge-requests/42/head", "status": "success", "source": "merge_request_event",
             "created_at": "2026-10-09T08:00:00Z", "web_url": "https://gitlab.com/acme/api/-/pipelines/9"
         }));
-        let run = Run::from_row(&pipeline, None);
+        let run = run_of(&pipeline, None);
         assert_eq!(run.pull_requests, [42]);
         assert_eq!(run.branch, None);
         assert_eq!(run.title, "Merge request !42");
@@ -807,7 +704,7 @@ mod tests {
             "started_at": "a", "finished_at": "b", "runner": { "description": "shared-runner-3" }, "web_url": "https://x"
         }))
         .expect("job parses");
-        let job = Job::from_row(job);
+        let job = job_of(job);
         assert_eq!(job.name, "test / unit");
         assert_eq!(job.conclusion.as_deref(), Some("neutral"));
         assert_eq!(job.runner.as_deref(), Some("shared-runner-3"));

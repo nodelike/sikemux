@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::Duration;
 
+use crate::git::Git;
 use crate::server::{edits, sandbox, Core};
 
 const QUICK: Duration = Duration::from_secs(60);
@@ -14,24 +15,6 @@ const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 /// How much of a failure's output a note or a fix request carries.
 const TAIL_CHARS: usize = 3000;
 const SLUG_MAX: usize = 40;
-
-fn run(
-    dir: &Path,
-    program: &str,
-    args: &[&str],
-    envs: &[(&str, &str)],
-    timeout: Duration,
-) -> Result<Output, String> {
-    let mut command = sikemux_process::user_environment::command(program);
-    command
-        .args(args)
-        .current_dir(dir)
-        .envs(envs.iter().copied())
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_EDITOR", "true");
-    sikemux_process::run(&mut command, None, timeout, OUTPUT_LIMIT, None)
-        .map_err(|error| format!("{program} did not run: {error}"))
-}
 
 pub(crate) fn git_in(dir: &Path, args: &[&str], timeout: Duration) -> Result<String, String> {
     git_with(dir, args, &[], timeout)
@@ -44,7 +27,11 @@ pub(crate) fn git_with(
     envs: &[(&str, &str)],
     timeout: Duration,
 ) -> Result<String, String> {
-    let output = run(dir, "git", args, envs, timeout)?;
+    let mut git = Git::at(dir).timeout(timeout).limit(OUTPUT_LIMIT);
+    for (key, value) in envs {
+        git = git.env(key, value);
+    }
+    let output = git.output(args)?;
     if output.status.success() {
         return Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned());
     }
@@ -277,7 +264,10 @@ pub(super) fn rebase(tree: &Path, base: &str) -> Result<bool, String> {
 /// Runs the project's check command in the worktree. Whether it passed, and
 /// the end of what it wrote.
 pub(super) fn check(cwd: &Path, command: &str) -> Result<(bool, String), String> {
-    let output = run(cwd, "/bin/sh", &["-c", command], &[], CHECK)?;
+    let mut shell = sikemux_process::user_environment::command("/bin/sh");
+    shell.args(["-c", command]).current_dir(cwd);
+    let output = sikemux_process::run(&mut shell, None, CHECK, OUTPUT_LIMIT, None)
+        .map_err(|error| format!("the check did not run: {error}"))?;
     Ok((output.status.success(), said(&output)))
 }
 

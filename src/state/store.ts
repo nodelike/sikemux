@@ -190,8 +190,8 @@ export interface ViewState {
     deskAddressOpen: string | null;
     settingsOpen: boolean;
     settingsPage: SettingsPageId;
-    /** The page of the project in front's own settings, or null while they are closed. */
-    projectSettingsPage: import("../settings/projectSettingsPages").ProjectSettingsPageId | null;
+    /** The page each project's settings tab shows, by project folder; one not here opens on its first. */
+    projectSettingsPages: Record<string, import("../settings/projectSettingsPages").ProjectSettingsPageId>;
     /** A section or row title the settings pane scrolls to once it opens. */
     settingsTarget: string | null;
     zoomedPaneId: string | null;
@@ -238,6 +238,14 @@ export interface ViewState {
     /** What the program in each core terminal last called it, by session id. */
     terminalTitles: Record<string, string>;
     lastSessionId: string | null;
+    /** The account's other hosts this app joined, and how each is reached. */
+    hosts: readonly import("../hosts/hosts").HostEntry[];
+    /** What each of those hosts last showed this app, by its id. */
+    hostViews: Readonly<Record<string, import("../api/generated/wire").DeviceView>>;
+    /** What each of this host's projects is known by on every host, by project folder, as its core works it out. */
+    projectIdentities: Readonly<Record<string, string>>;
+    /** The host chosen in the side rail, chosen only while the session it was chosen over is still in front. */
+    chosenHost: import("../hosts/hosts").ChosenHost | null;
 
     pendingUpdate: PendingUpdate | null;
     /** The chats a waiting update waits on before it installs. */
@@ -353,7 +361,7 @@ export const useStore = create<StoreState>(() => {
         deskAddressOpen: null,
         settingsOpen: false,
         settingsPage: "general",
-        projectSettingsPage: null,
+        projectSettingsPages: {},
         settingsTarget: null,
         zoomedPaneId: null,
         sessionSwitcher: null,
@@ -382,6 +390,10 @@ export const useStore = create<StoreState>(() => {
         commandPopup: null,
         terminalTitles: {},
         lastSessionId: null,
+        hosts: [],
+        hostViews: {},
+        projectIdentities: {},
+        chosenHost: null,
         pendingUpdate: null,
         updateBlockers: [],
         lastUpdateCheck: null,

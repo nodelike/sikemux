@@ -526,8 +526,8 @@ async fn a_push_reaches_the_server_and_its_answer_comes_back() {
         .unwrap();
 
     let mut asked = attention("r1");
-    asked.at = unix_ms();
-    host.signal(Signal::Attention(Box::new(asked)), unix_ms());
+    asked.at = epoch_ms();
+    host.signal(Signal::Attention(Box::new(asked)), epoch_ms());
     let push = read(socket.next().await.unwrap().unwrap());
     assert_eq!(push["type"], "push");
     assert_eq!(push["to"], host.phone);

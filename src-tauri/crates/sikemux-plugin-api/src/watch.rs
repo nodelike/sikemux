@@ -7,6 +7,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tokio::time::sleep;
 
+use crate::service::{Service, ServiceError};
 use crate::{reply, PluginResult, StreamSink};
 
 /// With few requests left, a run is read far less often, so the rest of the
@@ -31,6 +32,28 @@ pub struct Failure {
     pub signed_out: bool,
     /// A spent rate limit, and how long until it resets.
     pub rate_reset_secs: Option<u64>,
+}
+
+/// Signed out, a run that is gone, or a request the service cannot take:
+/// asking again will not help.
+impl<S: Service> From<ServiceError<S>> for Failure {
+    fn from(error: ServiceError<S>) -> Self {
+        Failure {
+            fatal: matches!(
+                error,
+                ServiceError::Auth(_)
+                    | ServiceError::Unconfigured
+                    | ServiceError::NotFound(_)
+                    | ServiceError::BadArg(_)
+            ),
+            signed_out: matches!(error, ServiceError::Auth(_) | ServiceError::Unconfigured),
+            rate_reset_secs: match error {
+                ServiceError::RateLimited { resets_in_secs } => resets_in_secs,
+                _ => None,
+            },
+            message: error.to_string(),
+        }
+    }
 }
 
 pub trait Follow: Send {

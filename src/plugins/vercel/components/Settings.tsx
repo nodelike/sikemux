@@ -1,6 +1,6 @@
 import { formatAgo } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
-import { EmptyState, SkeletonRows } from "../../../plugin-api/ui";
+import { EmptyState, Loaded, Pending } from "../../../plugin-api/ui";
 import { vercelDomainsR, vercelEnvR } from "../resources";
 import { IconExternal, visit } from "./parts";
 
@@ -14,8 +14,7 @@ const targetsLabel = (targets: string[]) =>
 /** A project's environment variables as Vercel lists them, by name only. */
 export function Environment({ active, team, project, find }: { active: boolean; team: string; project: string; find: string }) {
     const variables = useResourceEnabled(active, vercelEnvR, team, project);
-    if (variables.status === "error" && !variables.data) return <p className="vercel-note">{variables.error}</p>;
-    if (!variables.data) return <SkeletonRows rows={5} label="Loading environment variables" />;
+    if (!variables.data) return <Pending handle={variables} loading="Loading environment variables" rows={5} />;
     const words = find.trim().toLowerCase();
     const shown = variables.data.filter((variable) => !words || variable.key.toLowerCase().includes(words));
     return (
@@ -49,30 +48,31 @@ export function Environment({ active, team, project, find }: { active: boolean; 
 /** A project's domains as Vercel lists them, each with whether it is set up right. */
 export function Domains({ active, team, project }: { active: boolean; team: string; project: string }) {
     const domains = useResourceEnabled(active, vercelDomainsR, team, project);
-    if (domains.status === "error" && !domains.data) return <p className="vercel-note">{domains.error}</p>;
-    if (!domains.data) return <SkeletonRows rows={3} label="Loading domains" />;
-    if (domains.data.length === 0) return <EmptyState message="No domains." />;
     return (
-        <div className="vercel-settings">
-            {domains.data.map((domain) => (
-                <section key={domain.name} className="vercel-box vercel-domain">
-                    <button type="button" className="vercel-link vercel-domain-name" onClick={() => visit(`https://${domain.name}`)}>
-                        {domain.name}
-                        <IconExternal />
-                    </button>
-                    <span className="vercel-status">
-                        <span className={`vercel-dot ${domain.verified ? "ready" : "error"}`} aria-hidden="true" />
-                        {domain.verified ? "Valid Configuration" : "Invalid Configuration"}
-                    </span>
-                    <span className="vercel-muted">
-                        {domain.redirect
-                            ? `Redirects to ${domain.redirect}`
-                            : domain.gitBranch
-                              ? `Assigned to the ${domain.gitBranch} branch`
-                              : "Production"}
-                    </span>
-                </section>
-            ))}
-        </div>
+        <Loaded handle={domains} loading="Loading domains" rows={3} empty={(found) => (found.length > 0 ? null : "No domains.")}>
+            {(found) => (
+                <div className="vercel-settings">
+                    {found.map((domain) => (
+                        <section key={domain.name} className="vercel-box vercel-domain">
+                            <button type="button" className="vercel-link vercel-domain-name" onClick={() => visit(`https://${domain.name}`)}>
+                                {domain.name}
+                                <IconExternal />
+                            </button>
+                            <span className="vercel-status">
+                                <span className={`vercel-dot ${domain.verified ? "ready" : "error"}`} aria-hidden="true" />
+                                {domain.verified ? "Valid Configuration" : "Invalid Configuration"}
+                            </span>
+                            <span className="vercel-muted">
+                                {domain.redirect
+                                    ? `Redirects to ${domain.redirect}`
+                                    : domain.gitBranch
+                                      ? `Assigned to the ${domain.gitBranch} branch`
+                                      : "Production"}
+                            </span>
+                        </section>
+                    ))}
+                </div>
+            )}
+        </Loaded>
     );
 }

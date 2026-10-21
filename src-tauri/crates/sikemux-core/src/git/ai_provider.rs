@@ -7,44 +7,36 @@ use std::time::{Duration, Instant};
 
 use super::ai::{AI_COMMAND_TIMEOUT, AI_RESPONSE_LIMIT};
 use super::{kill_and_reap_process, read_bounded_pipe};
+use crate::agent_catalog::AgentKind;
 
+/// The agent that writes a commit message, and its model for one when the
+/// person names none.
 #[derive(Clone, Copy, Debug)]
-pub(super) enum GitAiProvider {
-    Hermes,
-    Codex,
-    Claude,
+pub(super) struct GitAiProvider {
+    kind: AgentKind,
+    default_model: &'static str,
 }
 
 impl GitAiProvider {
     pub(super) fn parse(raw: Option<String>) -> Result<Self, String> {
-        match raw
-            .as_deref()
-            .unwrap_or("hermes")
-            .trim()
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "" | "hermes" => Ok(Self::Hermes),
-            "codex" => Ok(Self::Codex),
-            "claude" => Ok(Self::Claude),
-            other => Err(format!("unknown local AI provider: {other}")),
-        }
+        let name = raw.unwrap_or_default().trim().to_ascii_lowercase();
+        let name = if name.is_empty() { "hermes" } else { &name };
+        AgentKind::from_name(name)
+            .and_then(|kind| {
+                Some(Self {
+                    kind,
+                    default_model: kind.entry().commit_model?,
+                })
+            })
+            .ok_or_else(|| format!("unknown local AI provider: {name}"))
     }
 
     fn bin(self) -> &'static str {
-        match self {
-            Self::Hermes => "hermes",
-            Self::Codex => "codex",
-            Self::Claude => "claude",
-        }
+        self.kind.entry().command
     }
 
     pub(super) fn default_model(self) -> &'static str {
-        match self {
-            Self::Hermes => "openai/gpt-5.5",
-            Self::Codex => "gpt-5.5",
-            Self::Claude => "sonnet",
-        }
+        self.default_model
     }
 }
 
@@ -697,16 +689,16 @@ pub(super) fn run_ai_commit_model(
     } else {
         model.trim()
     };
-    match provider {
-        GitAiProvider::Hermes => run_ai_candidate(provider, |bin| {
+    match provider.kind {
+        AgentKind::Hermes => run_ai_candidate(provider, |bin| {
             let mut command = sikemux_process::user_environment::command(bin);
             command
                 .current_dir(repo)
                 .args(["chat", "-Q", "-m", model, "-t", "safe", "-q", prompt]);
             (command, None, AiOutputFormat::Text)
         }),
-        GitAiProvider::Codex => run_codex_app_server(repo, model, prompt),
-        GitAiProvider::Claude => run_ai_candidate(provider, |bin| {
+        AgentKind::Codex => run_codex_app_server(repo, model, prompt),
+        AgentKind::Claude => run_ai_candidate(provider, |bin| {
             let mut command = sikemux_process::user_environment::command(bin);
             command.current_dir(repo).args([
                 "--print",
@@ -729,6 +721,10 @@ pub(super) fn run_ai_commit_model(
                 AiOutputFormat::ClaudeJson,
             )
         }),
+        kind => Err(format!(
+            "{} cannot write commit messages",
+            kind.entry().label
+        )),
     }
 }
 

@@ -21,7 +21,6 @@ vi.mock("../api/git", () => ({
         branchDelete: mocks.branchDelete,
     },
 }));
-vi.mock("../projects/controllerBridge", () => ({ projectControllerBridge: { refresh: vi.fn(async () => {}) } }));
 vi.mock("../state/commands", () => ({ setAgentWorktree: mocks.setAgentWorktree }));
 vi.mock("../state/dialog", () => ({ confirmDialog: mocks.confirm }));
 vi.mock("../state/toast", async (importOriginal) => ({ ...(await importOriginal<object>()), notify: mocks.notify }));

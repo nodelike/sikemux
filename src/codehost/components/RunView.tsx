@@ -16,7 +16,8 @@ import {
     SkeletonRows,
     Tooltip,
 } from "../../plugin-api/ui";
-import { hostApi, failureMessage, type Job, type RepoRef, type Run } from "../api";
+import { hostApi, type Job, type RepoRef, type Run } from "../api";
+import { errorText } from "../../lib/format";
 import { useHost } from "../registry";
 import { artifactsR, runAttemptR, runR, timingR } from "../resources";
 import { elapsedMs, eventLabel, failedStep, isUnfinished, outcomeOf, OUTCOME_LABEL, summaryJobs, watchIsNewer } from "../runStatus";
@@ -95,7 +96,7 @@ function useOpenRun(repo: RepoRef, runId: string, active: boolean): OpenRun {
                           if (tick.fatal || !last || !isUnfinished(last)) life.finish();
                       },
                       onEnd: life.ended,
-                      onError: (error) => setWatchError(failureMessage(error)),
+                      onError: (error) => setWatchError(errorText(error)),
                   })
             : null,
         [repo, runId],
@@ -554,7 +555,7 @@ function OpenRunView({ paneId, repo, runId, openJob, active, canWrite }: Props) 
                     open.error ? (
                         <EmptyState
                             title="Could not read the run"
-                            message={failureMessage(open.error)}
+                            message={errorText(open.error)}
                             tone="error"
                             action={{ label: "Try again", onClick: open.refresh }}
                         />

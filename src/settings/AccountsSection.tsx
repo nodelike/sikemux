@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AccountSignIn } from "../agents/AccountSignIn";
-import { accountName, accountsOf, openAccountDialog, signOut, switchAccount, useSignIn, type AccountProvider } from "../agents/accounts";
+import { accountName, accountsOf, openAccountDialog, signOut, switchAccount, useSignIn } from "../agents/accounts";
+import type { AccountAgentType } from "../agents/catalog";
 import { selectedProviderProfile } from "../agents/agentProfiles";
 import { ACCOUNT_AGENT_TYPES, agentLabel } from "../agents/catalog";
 import * as cmd from "../state/commands";
@@ -28,11 +29,11 @@ export function AccountsSections() {
     );
 }
 
-export function accountsSectionTitle(provider: AccountProvider): string {
+export function accountsSectionTitle(provider: AccountAgentType): string {
     return `${agentLabel(provider)} accounts`;
 }
 
-function ProviderAccounts({ provider, label }: { provider: AccountProvider; label: string }) {
+function ProviderAccounts({ provider, label }: { provider: AccountAgentType; label: string }) {
     const profiles = useStore((s) => s.providerProfiles);
     const selections = useStore((s) => s.selectedProviderProfileIds);
     const autoSwitch = useStore((s) => s.accountAutoSwitch[provider] === true);
@@ -68,7 +69,7 @@ function ProviderAccounts({ provider, label }: { provider: AccountProvider; labe
     );
 }
 
-function AccountRow({ provider, account, inUse }: { provider: AccountProvider; account: ProviderProfile; inUse: boolean }) {
+function AccountRow({ provider, account, inUse }: { provider: AccountAgentType; account: ProviderProfile; inUse: boolean }) {
     const status = useResource(agentAccountR, provider, account.configPath);
     const signing = useSignIn(account.id);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);

@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use super::review::Review;
 use super::{blind, finish, git, Board, Card, Status, Team};
@@ -15,7 +17,6 @@ use crate::launch::providers;
 use crate::protocol::Event;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
-use crate::server::remote::unix_ms;
 use crate::server::spawn::Ending;
 use crate::server::{chat, messages, Core};
 
@@ -23,8 +24,6 @@ pub(super) const MAX_SLOTS: u32 = 8;
 const DEFAULT_SLOTS: u32 = 2;
 const MAX_LAUNCHER_CHARS: usize = 256;
 const MAX_MODEL_CHARS: usize = 200;
-const MAX_CHECK_BYTES: usize = 4096;
-const MAX_STATUS_CHARS: usize = 60;
 
 /// Where a card's run ends when its checks pass.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,24 +33,6 @@ pub(crate) enum Finish {
     Merge,
     /// At an open pull request, for the person to merge.
     Pr,
-}
-
-/// The ticket statuses a card's ticket moves to, by the names its tracker
-/// gives them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct Statuses {
-    pub progress: String,
-    pub done: String,
-}
-
-impl Default for Statuses {
-    fn default() -> Self {
-        Self {
-            progress: "In Progress".to_owned(),
-            done: "Done".to_owned(),
-        }
-    }
 }
 
 /// The agent that reviews a card's change before Auto merges it.
@@ -78,10 +59,6 @@ pub(crate) struct Settings {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub finish: Finish,
-    /// What proves a change sound when no CI runs on its pull request, run in
-    /// the card's worktree.
-    pub check: Option<String>,
-    pub statuses: Statuses,
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     pub reviewer: Option<ReviewerChoice>,
@@ -96,8 +73,6 @@ impl Default for Settings {
             provider: None,
             model: None,
             finish: Finish::Merge,
-            check: None,
-            statuses: Statuses::default(),
             reviewer: None,
         }
     }
@@ -159,9 +134,6 @@ impl Settings {
         if let Some(model) = optional(params, "model", MAX_MODEL_CHARS)? {
             settings.model = model;
         }
-        if let Some(check) = optional(params, "check", MAX_CHECK_BYTES)? {
-            settings.check = check;
-        }
         if let Some(reviewer) = params.get("reviewer") {
             settings.reviewer = reviewer_choice(reviewer)?;
         }
@@ -171,26 +143,6 @@ impl Settings {
             Some("pr") => settings.finish = Finish::Pr,
             Some(_) => return Err("finish must be merge or pr".into()),
         }
-        if let Some(statuses) = params.get("statuses") {
-            for (key, slot) in [
-                ("progress", &mut settings.statuses.progress),
-                ("done", &mut settings.statuses.done),
-            ] {
-                match statuses.get(key) {
-                    None => {}
-                    Some(Value::String(name))
-                        if !name.trim().is_empty() && name.chars().count() <= MAX_STATUS_CHARS =>
-                    {
-                        *slot = name.trim().to_owned();
-                    }
-                    Some(_) => {
-                        return Err(format!(
-                            "statuses.{key} must be a status name of at most {MAX_STATUS_CHARS} characters"
-                        ))
-                    }
-                }
-            }
-        }
         Ok(settings)
     }
 }
@@ -198,7 +150,7 @@ impl Settings {
 /// Where a card's run is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) enum Stage {
+pub(crate) enum Stage {
     /// Its worktree and agent are being made.
     Starting,
     Working,
@@ -249,7 +201,6 @@ pub(crate) struct Pull {
     pub name: String,
     pub number: u64,
     pub url: String,
-    #[serde(default)]
     pub account: Option<String>,
 }
 
@@ -269,14 +220,10 @@ pub(super) struct Run {
     pub start_sha: String,
     pub stage: Stage,
     /// What is happening, or why the card is back with the person.
-    #[serde(default)]
     pub note: Option<String>,
-    #[serde(default)]
     pub pull: Option<Pull>,
     /// The commit whose checks are awaited, and since when.
-    #[serde(default)]
     pub head: Option<String>,
-    #[serde(default)]
     pub checks_since: Option<u64>,
     /// The branch was put on the latest base once already.
     #[serde(default)]
@@ -287,14 +234,14 @@ pub(super) struct Run {
     #[serde(default)]
     pub review: Review,
     /// The reviewer at work on the change now.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reviewer: Option<blind::Reviewer>,
     /// What the reviewer said, waiting to be acted on.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub verdict: Option<blind::Verdict>,
     /// The commit a reviewer approved. A push of any other leaves the change
     /// unapproved.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub approved: Option<String>,
 }
 
@@ -321,19 +268,46 @@ impl Run {
         }
     }
 
-    pub(super) fn view(&self) -> Value {
-        json!({
-            "agent": self.agent,
-            "repo": self.repo,
-            "worktree": self.worktree,
-            "branch": self.branch,
-            "base": self.base,
-            "startSha": self.start_sha,
-            "stage": self.stage,
-            "note": self.note,
-            "pull": self.pull.as_ref().map(|pull| json!({ "number": pull.number, "url": pull.url, "host": pull.host })),
-        })
+    pub(super) fn view(&self) -> RunView {
+        RunView {
+            agent: self.agent.clone(),
+            repo: self.repo.clone(),
+            worktree: self.worktree.clone(),
+            branch: self.branch.clone(),
+            base: self.base.clone(),
+            start_sha: self.start_sha.clone(),
+            stage: self.stage,
+            note: self.note.clone(),
+            pull: self.pull.as_ref().map(|pull| PullView {
+                number: pull.number,
+                url: pull.url.clone(),
+                host: pull.host.clone(),
+            }),
+        }
     }
+}
+
+/// A card's run as the app and devices read it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RunView {
+    agent: String,
+    repo: String,
+    worktree: String,
+    branch: String,
+    base: String,
+    start_sha: String,
+    stage: Stage,
+    note: Option<String>,
+    pull: Option<PullView>,
+}
+
+/// A run's pull request as the app and devices read it.
+#[derive(Serialize)]
+pub(crate) struct PullView {
+    number: u64,
+    url: String,
+    host: String,
 }
 
 /// How many of the board's cards have an agent of Auto's at work that is
@@ -366,7 +340,7 @@ fn takes(board: &Board, card: &Card) -> bool {
 /// Whether some board has Auto on with work it could still do, which keeps
 /// the core running with nothing else open.
 pub(crate) fn has_work(core: &Core) -> bool {
-    let state = core.boards.lock();
+    let state = core.boards.state.locked();
     state.boards.values().any(|board| {
         board.settings.auto
             && board.cards.iter().any(|card| {
@@ -381,10 +355,10 @@ pub(crate) fn has_work(core: &Core) -> bool {
 
 /// Starts an agent on each card Auto may take, while it has places free.
 pub(super) fn start_free(core: &Arc<Core>) {
-    let now = unix_ms();
+    let now = epoch_ms();
     let launchers = core.workspaces.has_launchers();
     let starts: Vec<(String, u64, String)> = {
-        let mut state = core.boards.lock();
+        let mut state = core.boards.state.locked();
         let projects: Vec<String> = state
             .boards
             .iter()
@@ -405,10 +379,10 @@ pub(super) fn start_free(core: &Arc<Core>) {
                 state.dirty.insert(project.clone());
             }
             let stepping: HashSet<u64> = state
-                .jobs
+                .work
                 .iter()
-                .filter(|(other, _)| *other == project)
-                .map(|(_, id)| *id)
+                .filter(|((other, _), work)| *other == project && work.job)
+                .map(|((_, id), _)| *id)
                 .collect();
             let Some(board) = state.boards.get_mut(&project) else {
                 continue;
@@ -444,14 +418,16 @@ pub(super) fn start_free(core: &Arc<Core>) {
             }
             core.boards.save(&mut state, &project);
         }
-        state.jobs.extend(state_jobs);
+        for (project, id) in state_jobs {
+            state.work(&project, id).job = true;
+        }
         starts
     };
     for (project, id, agent) in starts {
         let core = core.clone();
         tokio::spawn(async move {
             let started = start(&core, &project, id, &agent).await;
-            core.boards.end_job(&(project.clone(), id));
+            core.boards.end_job(&project, id);
             if let Err(error) = started {
                 let gone = core.chats.get(&agent).is_none();
                 if gone {
@@ -506,7 +482,7 @@ fn task(card: &Card, tree: &git::Tree, settings: &Settings, ticket: Option<Strin
 
 async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<(), String> {
     let (card, settings, ticket) = {
-        let state = core.boards.lock();
+        let state = core.boards.state.locked();
         let board = state.boards.get(project).ok_or("the board is gone")?;
         let card = board.card(id)?.clone();
         let ticket = card.ticket.as_ref().map(|ticket| match &ticket.url {
@@ -548,7 +524,7 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
                     provider: Some(&launch.provider),
                     resume_id: None,
                 },
-                core.running_agents(),
+                core.open_agents(),
             );
             launch.agent_id = agent.clone();
             Ok((tree, launch, launcher, named.name))
@@ -596,7 +572,7 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
     let worktree = serde_json::Map::from_iter([("worktree".to_owned(), worktree)]);
     let _ = core.workspaces.update_agent(agent, worktree);
     core.broadcast_local(&Event::ChatBegun { chat: chat.info() });
-    core.publish_device_view();
+    core.view_changed();
     chat::until_started(core, chat)
         .await
         .map_err(|error| error.to_string())?;
@@ -610,7 +586,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         return;
     }
     let found = {
-        let state = core.boards.lock();
+        let state = core.boards.state.locked();
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
                 let run = card.auto.as_ref()?;
@@ -683,7 +659,7 @@ fn worker_ended(core: &Arc<Core>, agent_id: &str) {
         return;
     }
     let found = {
-        let state = core.boards.lock();
+        let state = core.boards.state.locked();
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
                 let run = card.auto.as_ref()?;

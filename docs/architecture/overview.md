@@ -9,26 +9,27 @@ covers setup and the checks you run before pushing.
 
 One word for each idea, in the interface, docs and the core's messages.
 
-| Word                      | Means                                                                                                         |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| host                      | Anything running the core: a server, a Mac mini, a laptop. "This host", never "this computer".                |
-| device                    | What the person holds to reach hosts: a phone, a laptop, a browser.                                           |
-| app                       | The software on a device: the desktop app, phone app, web app and the notch.                                  |
-| pair                      | A device joins a host, once the host's owner allows it.                                                       |
-| link                      | Two hosts on one account work for each other ([ADR 0013](./0013-hosts-link-to-run-agents-for-each-other.md)). |
-| you                       | Devices on the host's own account with full access, which act as the person. In code, "the person".           |
-| full access               | Can run any command on the host as the person.                                                                |
-| watch                     | Can read, answer questions and allow permissions, but not start or drive anything.                            |
-| shared device             | Someone else's device paired with a host. It never acts as the person.                                        |
-| agent, lead, worker, team | One running agent CLI; one that started others; one another started; all of them.                             |
-| board, card, Auto         | Where work waits; one piece of work; what carries a card to merged.                                           |
-| sandbox                   | Where one card's work runs: a worktree or a virtual machine.                                                  |
-| trigger, event            | A rule that adds work when something happens; one time it happened.                                           |
-| inbox, digest             | What waits on the person; what happened while they were away.                                                 |
-| vault                     | The account's encrypted store of keys, plugin sign-ins and site sign-ins.                                     |
-| agent sign-in             | An agent CLI's own login, kept on each host and never in the vault.                                           |
-| site sign-in              | A website login the host's browser loads for agents allowed that site.                                        |
-| take over                 | Drive a host's browser tab from any device, to sign in or pass a check.                                       |
+| Word                      | Means                                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| host                      | Anything running the core: a server, a Mac mini, a laptop. "This host", never "this computer".                                 |
+| device                    | What the person holds to reach hosts: a phone, a laptop, a browser.                                                            |
+| app                       | The software on a device: the desktop app, phone app, web app and the notch.                                                   |
+| pair                      | A device on another account joins a host, once the host's owner allows it.                                                     |
+| link                      | Every host on one account works for the others ([ADR 0018](./0018-the-account-is-the-trust.md)).                               |
+| project, copy             | A git repository, shown once on every client; a checkout of it on one host ([ADR 0017](./0017-projects-belong-to-no-host.md)). |
+| you                       | Devices on the host's own account with full access, which act as the person. In code, "the person".                            |
+| full access               | Can run any command on the host as the person.                                                                                 |
+| watch                     | Can read, answer questions and allow permissions, but not start or drive anything.                                             |
+| shared device             | Someone else's device paired with a host. It never acts as the person.                                                         |
+| agent, lead, worker, team | One running agent CLI; one that started others; one another started; all of them.                                              |
+| board, card, Auto         | Where work waits; one piece of work; what carries a card to merged.                                                            |
+| sandbox                   | Where one card's work runs: a worktree or a virtual machine.                                                                   |
+| trigger, event            | A rule that adds work when something happens; one time it happened.                                                            |
+| inbox, digest             | What waits on the person; what happened while they were away.                                                                  |
+| vault                     | The account's encrypted store of keys, plugin sign-ins and site sign-ins.                                                      |
+| agent sign-in             | An agent CLI's own login, kept on each host and never in the vault.                                                            |
+| site sign-in              | A website login the host's browser loads for agents allowed that site.                                                         |
+| take over                 | Drive a host's browser tab from any device, to sign in or pass a check.                                                        |
 
 Never "Mac", "computer", "machine" or "node" for a host, "client" for a device, or "session" for a
 website login, which would read as a chat or terminal session.

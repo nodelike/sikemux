@@ -1,26 +1,24 @@
 use std::path::Path;
-use std::time::Duration;
 
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use sikemux_plugin_api::StreamSink;
+use serde_json::Value;
+use sikemux_plugin_api::oauth::Tokens;
+use sikemux_plugin_api::store::{self, Accounts};
+use sikemux_plugin_api::{SignInStatus, StreamSink};
 
 use crate::client::{self, Auth, Credentials};
-use crate::config::{self, normalise_host, SignIn as SiteSignIn, Site};
+use crate::config::{self, normalise_host, JiraConfig, SignIn as SiteSignIn, Site};
 use crate::error::{JiraError, JiraResult};
 use crate::oauth;
 
-/// How long a browser sign-in waits for the person to finish before giving up the port.
-const BROWSER_WAIT: Duration = Duration::from_secs(300);
-
 /// Who is asking, on the site named or the default one.
 pub async fn credentials(data_dir: &Path, host: Option<&str>) -> JiraResult<(Site, Credentials)> {
-    let site = config::load(data_dir).site(host)?.clone();
+    let site = config::load(data_dir)?.site(host)?.clone();
     let credentials = match &site.sign_in {
         SiteSignIn::Token { email } => {
             let kept = site.clone();
-            let token = config::blocking(Box::new(move || config::keychain_read(&kept)))
+            let token = store::blocking(move || config::keychain_read(&kept))
                 .await?
                 .ok_or(JiraError::Unconfigured)?;
             Credentials {
@@ -35,7 +33,10 @@ pub async fn credentials(data_dir: &Path, host: Option<&str>) -> JiraResult<(Sit
             url: format!("{}/{cloud_id}", oauth::API_URL),
             auth: Auth::Atlassian {
                 site: site.clone(),
-                token: oauth::access_token(&site).await?,
+                token: oauth::ACCESS
+                    .access(&site.account_id, oauth::entry(&site))
+                    .await?
+                    .token,
             },
         },
     };
@@ -95,31 +96,18 @@ pub async fn sign_in(data_dir: &Path, request: SignIn) -> JiraResult<()> {
         display_name: me.display_name,
         sign_in: SiteSignIn::Token { email },
     };
-    let kept = site.clone();
-    config::blocking(Box::new(move || config::keychain_write(&kept, &token))).await?;
-    let mut saved = config::load(data_dir);
-    saved.upsert(site);
-    config::save(data_dir, &saved)
+    store::update(data_dir, move |config: &mut JiraConfig| {
+        config::keychain_write(&site, &token)?;
+        config.upsert(site);
+        Ok(())
+    })
+    .await
 }
 
 /// Opens Atlassian's sign-in in the browser, through the URL sent down the stream, and
 /// signs in to every Jira site the account reaches. Stopping the stream stops the wait.
 pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> JiraResult<()> {
-    if !oauth::available() {
-        return Err(JiraError::Auth(
-            "this build cannot sign in through the browser; use an API token instead".into(),
-        ));
-    }
-    let callback = oauth::listen().await?;
-    let state = oauth::new_state()?;
-    let verifier = oauth::new_verifier()?;
-    sink.send(json!({ "url": oauth::authorize_url(&state, &verifier) }))
-        .map_err(|_| JiraError::Auth("the sign-in was closed".into()))?;
-    let code = tokio::time::timeout(BROWSER_WAIT, oauth::code(&callback, &state))
-        .await
-        .map_err(|_| JiraError::Auth("nobody finished signing in".into()))??;
-    drop(callback);
-    let tokens = oauth::exchange(&code, &verifier).await?;
+    let tokens: Tokens = oauth::APP.sign_in(&client::HTTP, sink).await?;
     let cloud_sites = oauth::sites(&tokens.access_token).await?;
     let Some(first) = cloud_sites.first() else {
         return Err(JiraError::Auth(
@@ -142,19 +130,19 @@ pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> JiraRes
             },
         })
         .collect();
-    if let Some(site) = sites.first().cloned() {
-        let refresh_token = tokens.refresh_token.clone();
-        config::blocking(Box::new(move || {
-            config::keychain_write(&site, &refresh_token)
-        }))
-        .await?;
-    }
-    oauth::remember(&me.account_id, &tokens).await;
-    let mut saved = config::load(data_dir);
-    for site in sites {
-        saved.upsert(site);
-    }
-    config::save(data_dir, &saved)
+    let refresh_token = tokens.refresh_token.clone();
+    store::update(data_dir, move |config: &mut JiraConfig| {
+        if let Some(site) = sites.first() {
+            config::keychain_write(site, &refresh_token)?;
+        }
+        for site in sites {
+            config.upsert(site);
+        }
+        Ok(())
+    })
+    .await?;
+    oauth::ACCESS.remember(&me.account_id, &tokens).await;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -164,20 +152,26 @@ pub struct SignOut {
 
 /// A browser sign-in is kept until the last of its sites is signed out of.
 pub async fn sign_out(data_dir: &Path, request: SignOut) -> JiraResult<()> {
-    let mut saved = config::load(data_dir);
-    let Some(site) = saved.remove(&normalise_host(&request.site)) else {
-        return Ok(());
-    };
-    let still_used = saved
-        .sites
-        .iter()
-        .any(|other| other.shares_sign_in_with(&site));
-    if !still_used {
-        let account_id = site.account_id.clone();
-        config::blocking(Box::new(move || config::keychain_delete(&site))).await?;
-        oauth::forget(&account_id).await;
+    let host = normalise_host(&request.site);
+    let unused = store::update(data_dir, move |config: &mut JiraConfig| {
+        let Some(site) = config.remove(&host) else {
+            return Ok(None);
+        };
+        let still_used = config
+            .sites
+            .iter()
+            .any(|other| other.shares_sign_in_with(&site));
+        if still_used {
+            return Ok(None);
+        }
+        config::keychain_delete(&site)?;
+        Ok(Some(site.account_id))
+    })
+    .await?;
+    if let Some(account_id) = unused {
+        oauth::ACCESS.forget(Some(&account_id)).await;
     }
-    config::save(data_dir, &saved)
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -190,19 +184,20 @@ pub struct SiteStatus {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Status {
-    pub configured: bool,
+pub struct Sites {
     pub sites: Vec<SiteStatus>,
-    /// Whether the default site still takes its token; false with `authFailed` when it was revoked.
-    pub ok: bool,
-    pub auth_failed: bool,
-    pub message: Option<String>,
     /// A build without the OAuth secret can only take an API token.
     pub browser_sign_in: bool,
 }
 
+/// `ok` says whether the default site still takes its token; false with `authFailed` when it was revoked.
+pub type Status = SignInStatus<Sites>;
+
 pub async fn status(data_dir: &Path) -> Status {
-    let saved = config::load(data_dir);
+    let saved = match config::load(data_dir) {
+        Ok(saved) => saved,
+        Err(error) => return status_of(Vec::new(), Some(error)),
+    };
     let sites = saved
         .sites
         .iter()
@@ -216,31 +211,33 @@ pub async fn status(data_dir: &Path) -> Status {
         Ok((_, credentials)) => who_is(&credentials).await.map(|_| ()),
         Err(error) => Err(error),
     };
-    let (ok, auth_failed, message) = match probe {
-        Ok(()) => (true, false, None),
-        Err(error) => {
-            let auth_failed = matches!(
-                error,
-                JiraError::Unconfigured
-                    | JiraError::Auth(_)
-                    | JiraError::Http {
-                        status: 401 | 403,
-                        ..
-                    }
-            );
-            (
-                false,
-                auth_failed,
-                (!sites.is_empty()).then(|| error.to_string()),
-            )
-        }
-    };
+    status_of(sites, probe.err())
+}
+
+/// A site whose token is gone from the Keychain, or that Jira refuses, needs signing in again.
+fn status_of(sites: Vec<SiteStatus>, error: Option<JiraError>) -> Status {
+    let auth_failed = matches!(
+        error,
+        Some(
+            JiraError::Unconfigured
+                | JiraError::Auth(_)
+                | JiraError::Http {
+                    status: 401 | 403,
+                    ..
+                }
+        )
+    );
+    let configured = !sites.is_empty();
     Status {
-        configured: !sites.is_empty(),
-        sites,
-        ok,
+        configured,
+        ok: error.is_none(),
         auth_failed,
-        message,
-        browser_sign_in: oauth::available(),
+        message: error
+            .filter(|error| configured || !matches!(error, JiraError::Unconfigured))
+            .map(|error| error.to_string()),
+        details: Sites {
+            sites,
+            browser_sign_in: oauth::APP.available(),
+        },
     }
 }

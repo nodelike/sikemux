@@ -210,7 +210,6 @@
 /* With several lanes, a long column scrolls past most of the screen so the next lane is never far; its title stays put. */
 .kanban-lane:not(:only-child) .kanban-column {
     max-height: 85vh;
-    padding-top: 0;
     overflow-y: auto;
 }
 
@@ -218,7 +217,6 @@
     position: sticky;
     top: 0;
     z-index: 1;
-    padding-top: 8px;
     background: color-mix(in srgb, var(--surface-sunken) 72%, var(--surface));
 }
 
@@ -269,9 +267,9 @@
     max-width: 320px;
     gap: 6px;
     min-height: 0;
-    padding: 6px;
+    padding: 0 6px 6px;
     border: 1px solid transparent;
-    border-radius: 12px;
+    border-radius: var(--radius-3);
     background: color-mix(in srgb, var(--surface-sunken) 72%, transparent);
 }
 
@@ -280,12 +278,18 @@
     background: color-mix(in oklab, var(--acc) 10%, color-mix(in srgb, var(--surface-sunken) 72%, transparent));
 }
 
+/* An empty column is only its head, so the head alone sets its height and centres its name. */
+.kanban-column:not(:has(.kanban-card)) {
+    padding-bottom: 0;
+}
+
 .kanban-column-head {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 6px;
-    min-height: 28px;
-    padding: 2px 6px 4px;
+    height: 34px;
+    padding: 0 6px;
     font-size: var(--text-3xs);
     font-weight: 600;
     letter-spacing: var(--tracking-label);

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use portable_pty::Child;
 
@@ -7,6 +7,7 @@ use portable_pty::Child;
 // SIGTERM and flush; short enough that app quit / update-relaunch doesn't
 // feel laggy. One shared window, not per-PTY — see `drain`.
 pub const DRAIN_GRACE: Duration = Duration::from_millis(250);
+const EXIT_POLL: Duration = Duration::from_millis(10);
 
 pub fn child_process_id(child: &mut Box<dyn Child + Send + Sync>) -> Option<u32> {
     child.process_id()
@@ -73,16 +74,34 @@ pub fn terminate_and_reap_child(
     if let Some(pid) = pid {
         terminate_process_tree(pid, false);
     }
-    std::thread::sleep(DRAIN_GRACE);
     if force_process_tree_after_grace {
+        std::thread::sleep(DRAIN_GRACE);
         if let Some(pid) = pid {
             terminate_process_tree(pid, true);
         }
-    }
-    if let Ok(Some(status)) = child.try_wait() {
+        if let Ok(Some(status)) = child.try_wait() {
+            return Some(status);
+        }
+    } else if let Some(status) = exit_within(child, DRAIN_GRACE) {
         return Some(status);
     }
     kill_and_reap_child(child, pid)
+}
+
+fn exit_within(
+    child: &mut Box<dyn Child + Send + Sync>,
+    grace: Duration,
+) -> Option<portable_pty::ExitStatus> {
+    let deadline = Instant::now() + grace;
+    loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            return Some(status);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(EXIT_POLL);
+    }
 }
 
 /// Owns a freshly-spawned child until the fully-initialized `Pty` takes it.

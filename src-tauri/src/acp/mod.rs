@@ -3,7 +3,7 @@
 //! it keeps; the app forwards every command to it, and its events come back
 //! on its connection and reach the page as `acp_event`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -12,11 +12,12 @@ use sikemux_core::acp::bounded_text;
 use sikemux_core::agent_accounts;
 use sikemux_core::client::{ClientError, CoreClient, Reply};
 use sikemux_core::protocol::{
-    ChatAccount, ChatAttachment, ChatContext, ChatEvent, ChatEventKind, ChatInfo, ChatStart,
-    Request, Response,
+    ChatAccount, ChatAttachment, ChatEvent, ChatEventKind, ChatStart, Request, Response,
 };
+use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::hosts::{self, Hosts};
 use crate::pty::PtyManager;
 
 const MAX_AGENT_ID: usize = 200;
@@ -26,40 +27,43 @@ const REPLAY_BATCH: usize = 2_000;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct AcpEvent<'a> {
+struct AcpEvent<'a, Kind> {
     agent_id: &'a str,
-    kind: &'a str,
+    kind: Kind,
     payload: Value,
 }
 
 #[derive(Default)]
 pub struct AcpManager {
-    /// The chats this app shows, which hear the core's events for them.
-    shown: Mutex<HashSet<String>>,
+    /// The chats this app shows, which hear the core's events for them, by
+    /// the host each runs on; none is this one.
+    shown: Mutex<HashMap<String, Option<String>>>,
 }
 
 impl AcpManager {
-    fn show(&self, agent_id: &str) {
-        if let Ok(mut shown) = self.shown.lock() {
-            shown.insert(agent_id.to_owned());
-        }
+    fn show(&self, agent_id: &str, host: Option<String>) {
+        self.shown.locked().insert(agent_id.to_owned(), host);
     }
 
     fn forget(&self, agent_id: &str) {
-        if let Ok(mut shown) = self.shown.lock() {
-            shown.remove(agent_id);
-        }
+        self.shown.locked().remove(agent_id);
     }
 
-    fn take_shown(&self) -> Vec<String> {
-        self.shown
-            .lock()
-            .map(|mut shown| std::mem::take(&mut *shown).into_iter().collect())
-            .unwrap_or_default()
+    fn take_shown(&self, host: Option<&str>) -> Vec<String> {
+        let mut shown = self.shown.locked();
+        let taken: Vec<String> = shown
+            .iter()
+            .filter(|(_, on)| on.as_deref() == host)
+            .map(|(agent_id, _)| agent_id.clone())
+            .collect();
+        for agent_id in &taken {
+            shown.remove(agent_id);
+        }
+        taken
     }
 }
 
-fn emit(app: &AppHandle, agent_id: &str, kind: &str, payload: Value) {
+fn emit(app: &AppHandle, agent_id: &str, kind: impl Serialize + Clone, payload: Value) {
     let _ = app.emit_to(
         "main",
         "acp_event",
@@ -71,19 +75,6 @@ fn emit(app: &AppHandle, agent_id: &str, kind: &str, payload: Value) {
     );
 }
 
-fn kind_name(kind: ChatEventKind) -> &'static str {
-    match kind {
-        ChatEventKind::Status => "status",
-        ChatEventKind::Ready => "ready",
-        ChatEventKind::SessionUpdate => "session_update",
-        ChatEventKind::Prompt => "prompt",
-        ChatEventKind::TurnStarted => "turn_started",
-        ChatEventKind::TurnCompleted => "turn_completed",
-        ChatEventKind::PermissionRequest => "permission_request",
-        ChatEventKind::Error => "error",
-    }
-}
-
 /// Hands one event from the core to the page.
 pub(crate) fn deliver(app: &AppHandle, agent_id: &str, event: ChatEvent) {
     let ended = event.kind == ChatEventKind::Status
@@ -91,7 +82,7 @@ pub(crate) fn deliver(app: &AppHandle, agent_id: &str, event: ChatEvent) {
     if let (true, Some(manager)) = (ended, app.try_state::<AcpManager>()) {
         manager.forget(agent_id);
     }
-    emit(app, agent_id, kind_name(event.kind), event.payload);
+    emit(app, agent_id, event.kind, event.payload);
 }
 
 /// A permission request was answered or withdrawn, wherever that happened.
@@ -113,7 +104,7 @@ fn replay(app: &AppHandle, agent_id: &str, events: Vec<ChatEvent>) {
             emit(
                 app,
                 agent_id,
-                "session_update",
+                ChatEventKind::SessionUpdate,
                 json!({ "updates": std::mem::take(updates) }),
             );
         }
@@ -127,18 +118,23 @@ fn replay(app: &AppHandle, agent_id: &str, events: Vec<ChatEvent>) {
             continue;
         }
         flush(&mut updates);
-        emit(app, agent_id, kind_name(event.kind), event.payload);
+        emit(app, agent_id, event.kind, event.payload);
     }
     flush(&mut updates);
 }
 
-/// The core went away and came back, still running the chats it lists or
-/// having taken them up again, which the page attaches to again.
-pub(crate) async fn reconnected(app: &AppHandle, client: Option<&Arc<CoreClient>>) {
+/// The core of `host`, or this host's own, went away and came back, still
+/// running the chats it lists or having taken them up again, which the page
+/// attaches to again.
+pub(crate) async fn reconnected(
+    app: &AppHandle,
+    host: Option<&str>,
+    client: Option<&Arc<CoreClient>>,
+) {
     let Some(manager) = app.try_state::<AcpManager>() else {
         return;
     };
-    let shown = manager.take_shown();
+    let shown = manager.take_shown(host);
     if shown.is_empty() {
         return;
     }
@@ -159,7 +155,7 @@ pub(crate) async fn reconnected(app: &AppHandle, client: Option<&Arc<CoreClient>
             emit(
                 app,
                 &agent_id,
-                "status",
+                ChatEventKind::Status,
                 json!({ "state": "stopped", "reason": "exited" }),
             );
         }
@@ -188,8 +184,14 @@ fn failure(error: ClientError) -> String {
     error.to_string()
 }
 
-async fn core(pty: &PtyManager) -> Result<Arc<CoreClient>, String> {
-    pty.client().await.map_err(|error| error.to_string())
+async fn core(
+    pty: &PtyManager,
+    hosts: &Hosts,
+    host: Option<&str>,
+) -> Result<Arc<CoreClient>, String> {
+    hosts::client(pty, hosts, host)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// What the page hears back from an attach. The replay itself arrives as
@@ -209,18 +211,10 @@ pub enum Attachment {
         /// The core's run of this chat, which paging back names.
         feed: String,
         /// Set when the replay holds only the chat's last turns: the event
-        /// before which `acp_history` pages back.
+        /// before which `acpHistory` pages back.
         older_before: Option<u64>,
     },
     Missing,
-}
-
-/// Turns from before what the page shows, and where the page before them starts.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatHistory {
-    events: Vec<ChatEvent>,
-    older_before: Option<u64>,
 }
 
 /// Takes up a chat the core already runs, if it runs one for this agent.
@@ -229,10 +223,12 @@ pub async fn acp_attach(
     app: AppHandle,
     manager: State<'_, AcpManager>,
     pty: State<'_, PtyManager>,
+    hosts: State<'_, Hosts>,
+    host: Option<String>,
     agent_id: String,
 ) -> Result<Attachment, String> {
     bounded_text("agent id", &agent_id, MAX_AGENT_ID)?;
-    let client = core(&pty).await?;
+    let client = core(&pty, &hosts, host.as_deref()).await?;
     let replaying = app.clone();
     let replay_agent = agent_id.clone();
     // The replay goes to the page on the connection's reader, before any
@@ -279,166 +275,26 @@ pub async fn acp_attach(
         .map_err(failure)?;
     let attachment = replied.await.map_err(failure)?.map_err(failure)?;
     if let Attachment::Live { .. } = &attachment {
-        manager.show(&agent_id);
+        manager.show(&agent_id, host);
     }
     Ok(attachment)
-}
-
-/// The chat's turns before event `before` of its run `feed`, for a page shown
-/// only the chat's end.
-#[tauri::command]
-pub async fn acp_history(
-    pty: State<'_, PtyManager>,
-    agent_id: String,
-    feed: String,
-    before: u64,
-    turns: u32,
-) -> Result<ChatHistory, String> {
-    bounded_text("agent id", &agent_id, MAX_AGENT_ID)?;
-    let (events, older_before) = core(&pty)
-        .await?
-        .acp_history(agent_id, feed, before, turns)
-        .await
-        .map_err(failure)?;
-    Ok(ChatHistory {
-        events,
-        older_before,
-    })
 }
 
 /// Moves a running chat to another account, on the same session.
 #[tauri::command]
 pub async fn acp_switch_account(
     pty: State<'_, PtyManager>,
+    hosts: State<'_, Hosts>,
+    host: Option<String>,
     agent_id: String,
     provider: String,
     account: AccountRequest,
 ) -> Result<(), String> {
     bounded_text("agent id", &agent_id, MAX_AGENT_ID)?;
     let account = chat_account(&provider, &account);
-    core(&pty)
+    core(&pty, &hosts, host.as_deref())
         .await?
         .acp_switch_account(agent_id, account)
-        .await
-        .map_err(failure)
-}
-
-/// The chats the core runs, for the page to stop the ones it no longer shows.
-#[tauri::command]
-pub async fn acp_list(pty: State<'_, PtyManager>) -> Result<Vec<ChatInfo>, String> {
-    core(&pty).await?.acp_list().await.map_err(failure)
-}
-
-#[tauri::command]
-pub async fn acp_set_permission_mode(
-    pty: State<'_, PtyManager>,
-    agent_id: String,
-    permission_mode: String,
-) -> Result<(), String> {
-    core(&pty)
-        .await?
-        .acp_set_permission_mode(agent_id, permission_mode)
-        .await
-        .map_err(failure)
-}
-
-#[tauri::command]
-pub async fn acp_set_config(
-    pty: State<'_, PtyManager>,
-    agent_id: String,
-    config_id: String,
-    value: String,
-) -> Result<Value, String> {
-    core(&pty)
-        .await?
-        .acp_set_config(agent_id, config_id, value)
-        .await
-        .map_err(failure)
-}
-
-#[tauri::command]
-pub async fn acp_prompt(
-    pty: State<'_, PtyManager>,
-    agent_id: String,
-    message_id: Option<String>,
-    text: String,
-    paths: Vec<String>,
-    context: Vec<ChatContext>,
-) -> Result<(), String> {
-    core(&pty)
-        .await?
-        .acp_prompt(agent_id, message_id, text, paths, context)
-        .await
-        .map_err(failure)
-}
-
-/// Takes the chat back to before the person's message `message_id` and sends
-/// `text` in its place.
-#[tauri::command]
-pub async fn acp_edit(
-    pty: State<'_, PtyManager>,
-    agent_id: String,
-    message_id: String,
-    text: String,
-    paths: Vec<String>,
-    context: Vec<ChatContext>,
-) -> Result<(), String> {
-    core(&pty)
-        .await?
-        .acp_edit(agent_id, message_id, text, paths, context)
-        .await
-        .map_err(failure)
-}
-
-/// Puts a message into the running turn, answering `promptRequired` when the
-/// turn ended first and the caller should send it as a prompt of its own.
-#[tauri::command]
-pub async fn acp_steer(
-    pty: State<'_, PtyManager>,
-    agent_id: String,
-    text: String,
-    paths: Vec<String>,
-    context: Vec<ChatContext>,
-) -> Result<String, String> {
-    core(&pty)
-        .await?
-        .acp_steer(agent_id, text, paths, context)
-        .await
-        .map_err(failure)
-}
-
-#[tauri::command]
-pub async fn acp_cancel(pty: State<'_, PtyManager>, agent_id: String) -> Result<(), String> {
-    core(&pty)
-        .await?
-        .acp_cancel(agent_id)
-        .await
-        .map_err(failure)
-}
-
-#[tauri::command]
-pub async fn acp_stop_task(
-    pty: State<'_, PtyManager>,
-    agent_id: String,
-    task_id: String,
-) -> Result<(), String> {
-    core(&pty)
-        .await?
-        .acp_stop_task(agent_id, task_id)
-        .await
-        .map_err(failure)
-}
-
-#[tauri::command]
-pub async fn acp_permission_reply(
-    pty: State<'_, PtyManager>,
-    agent_id: String,
-    request_id: String,
-    option_id: Option<String>,
-) -> Result<(), String> {
-    core(&pty)
-        .await?
-        .acp_permission_reply(agent_id, request_id, option_id)
         .await
         .map_err(failure)
 }
@@ -447,31 +303,21 @@ pub async fn acp_permission_reply(
 pub async fn acp_stop(
     manager: State<'_, AcpManager>,
     pty: State<'_, PtyManager>,
+    hosts: State<'_, Hosts>,
+    host: Option<String>,
     agent_id: String,
 ) -> Result<(), String> {
     manager.forget(&agent_id);
-    core(&pty).await?.acp_stop(agent_id).await.map_err(failure)
+    core(&pty, &hosts, host.as_deref())
+        .await?
+        .acp_stop(agent_id)
+        .await
+        .map_err(failure)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn every_event_kind_keeps_the_name_the_page_reads() {
-        for (kind, name) in [
-            (ChatEventKind::Status, "status"),
-            (ChatEventKind::Ready, "ready"),
-            (ChatEventKind::SessionUpdate, "session_update"),
-            (ChatEventKind::TurnStarted, "turn_started"),
-            (ChatEventKind::TurnCompleted, "turn_completed"),
-            (ChatEventKind::PermissionRequest, "permission_request"),
-            (ChatEventKind::Error, "error"),
-        ] {
-            assert_eq!(kind_name(kind), name);
-            assert_eq!(serde_json::to_value(kind).unwrap(), name);
-        }
-    }
 
     #[test]
     fn an_attachment_reads_as_the_page_expects() {

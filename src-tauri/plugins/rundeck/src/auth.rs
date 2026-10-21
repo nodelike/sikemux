@@ -7,38 +7,24 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::StreamExt;
 use reqwest::{Client, Method, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sikemux_plugin_api::http::{self, Deadline, Redirects};
+use sikemux_plugin_api::SignInStatus;
 
-use crate::error::{RundeckError, RundeckResult};
+use crate::error::{Rundeck, RundeckError, RundeckResult};
 
 use crate::client::{get_json, request_as, seg, Session, API_VERSION};
 use crate::config::{self, Saved, Settings};
 
 const MAX_AUTH_RESPONSE_BYTES: usize = 1024 * 1024;
+const LOGIN_DEADLINE: Duration = Duration::from_secs(20);
 
 async fn response_text_limited(resp: Response) -> RundeckResult<String> {
-    if resp
-        .content_length()
-        .is_some_and(|size| size > MAX_AUTH_RESPONSE_BYTES as u64)
-    {
-        return Err(RundeckError::Auth(
-            "authentication response exceeds 1 MiB limit".into(),
-        ));
-    }
-    let mut stream = resp.bytes_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| RundeckError::Auth(e.to_string()))?;
-        if bytes.len() + chunk.len() > MAX_AUTH_RESPONSE_BYTES {
-            return Err(RundeckError::Auth(
-                "authentication response exceeds 1 MiB limit".into(),
-            ));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
+    let bytes = http::read_body(resp, MAX_AUTH_RESPONSE_BYTES)
+        .await
+        .map_err(|error| RundeckError::Auth(error.to_string()))?;
     String::from_utf8(bytes)
         .map_err(|_| RundeckError::Auth("authentication response is not UTF-8".into()))
 }
@@ -74,11 +60,12 @@ fn short_hostname() -> String {
 
 fn fresh_session_client(transport: &config::ValidatedTransport) -> RundeckResult<Client> {
     Ok(transport
-        .pin_dns(Client::builder())
+        .pin_dns(http::builder::<Rundeck>(
+            Redirects::Refuse,
+            Deadline::WholeAnswer,
+        ))
         .cookie_provider(Arc::new(reqwest::cookie::Jar::default()))
-        .timeout(Duration::from_secs(20))
-        .user_agent("sikemux-rundeck-auth/0.1")
-        .redirect(reqwest::redirect::Policy::none())
+        .timeout(LOGIN_DEADLINE)
         .build()?)
 }
 
@@ -193,20 +180,17 @@ async fn perform_login(req: &LoginRequest) -> RundeckResult<MintedToken> {
     })
 }
 
-// ---- Tauri commands ------------------------------------------------------
-
 #[derive(Serialize, Clone)]
-pub struct RundeckStatus {
-    pub configured: bool,
+#[serde(rename_all = "camelCase")]
+pub struct Connection {
     pub url: String,
     pub user: String,
     pub token_present: bool,
     pub rundeck_version: Option<String>,
-    pub ok: bool,
-    pub auth_failed: bool,
-    pub message: Option<String>,
     pub allow_insecure_private_http: bool,
 }
+
+pub type RundeckStatus = SignInStatus<Connection>;
 
 fn is_auth_failure(e: &RundeckError) -> bool {
     matches!(
@@ -215,38 +199,37 @@ fn is_auth_failure(e: &RundeckError) -> bool {
     )
 }
 
+/// A token that may not read the system info still signs in.
 pub async fn status(data_dir: &Path) -> RundeckStatus {
     let (saved, problem) = match config::load(data_dir).await {
         Ok(saved) => (saved, None),
         Err(error) => (Saved::default(), Some(error.to_string())),
     };
     let settings = saved.settings.clone();
-    let offline = |message: Option<String>, auth_failed: bool| RundeckStatus {
-        configured: saved.is_signed_in(),
+    let mut connection = Connection {
         url: settings.url.clone(),
         user: settings.user.clone(),
         token_present: saved.token.is_some(),
         rundeck_version: None,
-        ok: false,
-        auth_failed,
-        message,
         allow_insecure_private_http: settings.allow_insecure_private_http,
     };
-    let Ok(session) = Session::of(&saved) else {
-        return offline(problem, false);
+    let (ok, auth_failed, message) = match Session::of(&saved) {
+        Err(_) => (false, false, problem),
+        Ok(session) => match get_json::<Value>(&session, "/system/info", &[]).await {
+            Ok(info) => {
+                connection.rundeck_version = rundeck_version(&info);
+                (true, false, None)
+            }
+            Err(RundeckError::Forbidden(message)) => (true, false, Some(message)),
+            Err(error) => (false, is_auth_failure(&error), Some(error.to_string())),
+        },
     };
-    let info: RundeckResult<Value> = get_json(&session, "/system/info", &[]).await;
-    match info {
-        Ok(info) => RundeckStatus {
-            ok: true,
-            rundeck_version: rundeck_version(&info),
-            ..offline(None, false)
-        },
-        Err(RundeckError::Forbidden(message)) => RundeckStatus {
-            ok: true,
-            ..offline(Some(message), false)
-        },
-        Err(e) => offline(Some(e.to_string()), is_auth_failure(&e)),
+    SignInStatus {
+        configured: saved.is_signed_in(),
+        ok,
+        auth_failed,
+        message,
+        details: connection,
     }
 }
 
@@ -330,7 +313,7 @@ pub async fn login_with_token(
     let url = req.url.trim().trim_end_matches('/').to_string();
     let token = req.token.trim().to_string();
     if token.is_empty() {
-        return Err(RundeckError::BadArg("token is empty"));
+        return Err(RundeckError::BadArg("token is empty".into()));
     }
     let session = Session {
         url: url.clone(),
@@ -387,10 +370,18 @@ pub async fn logout(data_dir: &Path) -> RundeckResult<()> {
     config::save(data_dir, saved).await
 }
 
-/// The lists people edit in the plugin's settings. An empty list goes back to the defaults.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// The lists people edit in the plugin's settings.
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Lists {
+    pub branch_options: Vec<String>,
+    pub prod_envs: Vec<String>,
+}
+
+/// The lists to change; one left out stays as it is, and an empty one goes back to the defaults.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListChanges {
     pub branch_options: Option<Vec<String>>,
     pub prod_envs: Option<Vec<String>>,
 }
@@ -398,12 +389,12 @@ pub struct Lists {
 pub async fn lists(data_dir: &Path) -> RundeckResult<Lists> {
     let settings = config::load(data_dir).await?.settings;
     Ok(Lists {
-        branch_options: Some(settings.branch_options),
-        prod_envs: Some(settings.prod_envs),
+        branch_options: settings.branch_options,
+        prod_envs: settings.prod_envs,
     })
 }
 
-pub async fn set_lists(data_dir: &Path, lists: Lists) -> RundeckResult<()> {
+pub async fn set_lists(data_dir: &Path, lists: ListChanges) -> RundeckResult<()> {
     fn tidy(names: Vec<String>, fallback: fn() -> Vec<String>) -> Vec<String> {
         let names: Vec<String> = names
             .into_iter()

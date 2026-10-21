@@ -3,6 +3,16 @@
 
 pub mod protocol;
 
+impl From<crate::protocol::BuildChannel> for protocol::Channel {
+    fn from(build: crate::protocol::BuildChannel) -> Self {
+        match build {
+            crate::protocol::BuildChannel::Dev => Self::Dev,
+            crate::protocol::BuildChannel::Nightly => Self::Nightly,
+            crate::protocol::BuildChannel::Stable => Self::Stable,
+        }
+    }
+}
+
 #[cfg(test)]
 type RoundTrip = serde_json::Result<serde_json::Value>;
 

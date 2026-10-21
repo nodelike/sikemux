@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
+use crate::agent_catalog::{AgentKind, Home};
+use crate::sessions::roots::account_root;
+
 /// Marks a folder as one Sikemux made, whose shared entries it may link.
 const MARKER: &str = ".sikemux-account";
 
@@ -55,31 +58,28 @@ fn shares(provider: &str, name: &str) -> bool {
     }
 }
 
+/// `provider` and its home, when it keeps one account per folder.
+fn accounts_home(provider: &str) -> Option<(AgentKind, &'static Home)> {
+    let kind = AgentKind::from_name(provider)?;
+    let entry = kind.entry();
+    Some((kind, entry.home.as_ref().filter(|_| entry.accounts)?))
+}
+
 /// The folder an account of `provider` keeps its sign-in in: the one
 /// `config_path` names, else the one the person's shell names, else the default.
 pub fn root(provider: &str, config_path: Option<&str>) -> Option<PathBuf> {
-    let env: BTreeMap<String, String> = crate::launch::account_environment(provider, config_path)
-        .into_iter()
-        .collect();
-    crate::acp::account::directory(provider, &env)
+    let (kind, _) = accounts_home(provider)?;
+    account_root(kind, config_path, &BTreeMap::new())
 }
 
 fn default_root(provider: &str) -> Option<PathBuf> {
-    match provider {
-        "claude" => Some(home().join(".claude")),
-        "codex" => Some(home().join(".codex")),
-        _ => None,
-    }
+    Some(home().join(accounts_home(provider)?.1.dir))
 }
 
 /// The folder an account keeps its chats in. Accounts that share one can
 /// take over each other's chats.
 pub fn sessions_root(provider: &str, config_path: Option<&str>) -> Option<PathBuf> {
-    let folder = match provider {
-        "claude" => "projects",
-        "codex" => "sessions",
-        _ => return None,
-    };
+    let folder = accounts_home(provider)?.1.sessions?;
     let path = root(provider, config_path)?.join(folder);
     Some(std::fs::canonicalize(&path).unwrap_or(path))
 }
@@ -105,11 +105,9 @@ fn link_into(provider: &str, account: &Path, shared: &Path) {
     if !account.join(MARKER).is_file() || account == shared {
         return;
     }
-    let sessions = match provider {
-        "claude" => "projects",
-        _ => "sessions",
-    };
-    let _ = std::fs::create_dir_all(shared.join(sessions));
+    if let Some(sessions) = accounts_home(provider).and_then(|(_, home)| home.sessions) {
+        let _ = std::fs::create_dir_all(shared.join(sessions));
+    }
     let Ok(entries) = std::fs::read_dir(shared) else {
         return;
     };
@@ -182,11 +180,10 @@ fn claude_seed(default: &Value) -> Value {
 }
 
 fn make_account(provider: &str, name: &str, home: &Path) -> Result<String, String> {
-    let prefix = match provider {
-        "claude" => ".claude",
-        "codex" => ".codex",
-        _ => return Err("Only Claude and Codex keep separate accounts".into()),
-    };
+    let prefix = accounts_home(provider)
+        .ok_or("Only Claude and Codex keep separate accounts")?
+        .1
+        .dir;
     let base = format!("{prefix}-{}", slug(name));
     let mut folder = base.clone();
     let mut counter = 2;

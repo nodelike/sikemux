@@ -157,6 +157,7 @@ jobs:
     timeout-minutes: 15
     environment: release
     needs: [plan, android-build]
+    if: ${{ !cancelled() && needs.android-build.result == 'success' }}
     env:
       # The Play upload key's certificate; a release signed with anything else is refused.
       UPLOAD_CERT_SHA256: 4b29a5636b54e630aee1a7037c2cf4f182b7a140ffed36c6a38cafdd2529b32b
@@ -240,6 +241,7 @@ jobs:
     timeout-minutes: 30
     environment: release
     needs: [plan, android-sign]
+    if: ${{ !cancelled() && needs.android-sign.result == 'success' }}
     permissions:
       contents: write
       actions: write
@@ -410,6 +412,7 @@ jobs:
     timeout-minutes: 90
     environment: release
     needs: [plan, ios-build]
+    if: ${{ !cancelled() && needs.ios-build.result == 'success' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

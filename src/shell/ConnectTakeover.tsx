@@ -7,22 +7,14 @@ import { ACCESS_OPTIONS } from "../remote/access";
 import { IconCommand, IconEye, IconLaptop, IconPhone } from "../ui/Icons";
 import { ENTER_GLYPH } from "../commands/keybindings";
 import "../styles/connect-takeover.css";
+import { formatClock } from "../lib/format";
+import { useNow } from "../hooks/useNow";
 
 const ACCESS_ICONS: Record<DeviceAccess, typeof IconCommand> = { full: IconCommand, watch: IconEye };
 
 /** `1:52`, how long the phone still waits. */
 export function waitsLabel(expiresAt: number, now: number): string {
-    const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
-    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function useNow(): number {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        const timer = window.setInterval(() => setNow(Date.now()), 1000);
-        return () => window.clearInterval(timer);
-    }, []);
-    return now;
+    return formatClock(Math.max(0, Math.ceil((expiresAt - now) / 1000)));
 }
 
 /** Everything else on the page stops taking clicks and focus until the question is answered. */

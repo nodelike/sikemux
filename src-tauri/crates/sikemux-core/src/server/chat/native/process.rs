@@ -6,11 +6,12 @@ use std::collections::VecDeque;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sikemux_process::sync::Locked;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::unix::pipe;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -240,6 +241,12 @@ impl Process {
         status
     }
 
+    /// Stops the agent and waits until it has exited.
+    pub async fn stop(&self) {
+        kill_group(self.pid);
+        self.exited().await;
+    }
+
     /// The last lines the agent wrote to its error stream.
     pub fn stderr(&self) -> String {
         String::from_utf8_lossy(&self.stderr_bytes())
@@ -248,21 +255,26 @@ impl Process {
     }
 
     fn stderr_bytes(&self) -> Vec<u8> {
-        self.stderr
-            .lock()
-            .map(|tail| tail.iter().copied().collect())
-            .unwrap_or_default()
+        self.stderr.locked().iter().copied().collect()
+    }
+
+    /// `error`, with the last thing the agent wrote to its error stream.
+    pub fn start_error(&self, error: String) -> String {
+        let stderr = self.stderr();
+        match stderr
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+        {
+            Some(line) => format!("{error}: {line}"),
+            None => error,
+        }
     }
 
     /// Why the agent stopped, in words for the chat.
     pub async fn ended(&self) -> String {
-        let status = self.exited().await;
-        let stderr = self.stderr();
-        let last = stderr.lines().rev().find(|line| !line.trim().is_empty());
-        match last {
-            Some(line) => format!("{status}: {}", line.trim()),
-            None => status,
-        }
+        self.start_error(self.exited().await)
     }
 
     /// Lets go of the agent without stopping it: everything already sent to
@@ -271,7 +283,7 @@ impl Process {
     /// with the process, when the agent has exited or closed a pipe.
     pub async fn release(mut self, lines: Lines) -> Result<Released, String> {
         {
-            let mut reaping = self.reaping.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut reaping = self.reaping.locked();
             if self.exit.borrow().is_some() {
                 return Err("The agent has exited".into());
             }
@@ -313,9 +325,7 @@ impl Process {
     /// A release that failed leaves the agent to be killed, and its exit
     /// collected, as if it had never been tried.
     fn unrelease(&self) {
-        if let Ok(mut reaping) = self.reaping.lock() {
-            reaping.released = false;
-        }
+        self.reaping.locked().released = false;
         let (exited, exit) = watch::channel(None);
         drop(exit);
         tokio::spawn(reap(self.pid, self.reaping.clone(), exited));
@@ -390,11 +400,10 @@ async fn keep_tail(
             read = pipe.read(&mut buffer) => match read {
                 Ok(0) | Err(_) => break,
                 Ok(read) => {
-                    if let Ok(mut kept) = tail.lock() {
-                        kept.extend(&buffer[..read]);
-                        let excess = kept.len().saturating_sub(STDERR_TAIL);
-                        kept.drain(..excess);
-                    }
+                    let mut kept = tail.locked();
+                    kept.extend(&buffer[..read]);
+                    let excess = kept.len().saturating_sub(STDERR_TAIL);
+                    kept.drain(..excess);
                 }
             },
         }
@@ -417,7 +426,7 @@ async fn reap(pid: u32, reaping: Arc<Mutex<Reaping>>, exited: watch::Sender<Opti
     let mut children = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child()).ok();
     loop {
         {
-            let reaping = reaping.lock().unwrap_or_else(PoisonError::into_inner);
+            let reaping = reaping.locked();
             if reaping.released {
                 return;
             }

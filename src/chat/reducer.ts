@@ -1,4 +1,6 @@
-import { recordOf } from "./acpEvents";
+import { recordOf } from "../lib/guards";
+import { applyPatch } from "../markdown/patch";
+import type { MdChange } from "../markdown/types";
 import type { QueuedMessage } from "./queuedMessages";
 import { isAgentLetter } from "./agentLetters";
 import { toolDiff, toolFailure } from "./diff";
@@ -20,6 +22,7 @@ import type {
     ChatFailure,
     ChatMessage,
     ChatPart,
+    PartTree,
     ChatState,
     ContextUsage,
 } from "./types";
@@ -130,6 +133,16 @@ function timedStream(message: ChatMessage, chars: number): Partial<ChatMessage> 
     };
 }
 
+/* A part's tree follows the core's changes while each one fits the text it
+   ends at; one that does not loses it until the core sends a whole tree. */
+function nextTree(tree: PartTree | undefined, change: MdChange | undefined, text: string): PartTree | undefined {
+    if (!change) return tree;
+    const whole = change.o[0]?.p.length === 0 && change.o[0].at === 0 && "c" in change.o[0];
+    if (!whole && !tree) return null;
+    const blocks = applyPatch(whole ? [] : (tree?.blocks ?? []), change.o);
+    return change.n === text.length ? { blocks, n: change.n } : null;
+}
+
 function appendChunk(
     transcript: Transcript,
     role: ChatMessage["role"],
@@ -137,6 +150,7 @@ function appendChunk(
     chunk: AcpContentChunk,
     timed: boolean,
     fresh: boolean,
+    md?: MdChange,
 ): Transcript {
     const contentText = textOf(chunk.content.text);
     const lastMessage = transcript.messages.at(-1);
@@ -151,7 +165,7 @@ function appendChunk(
     if (existingIndex < 0) {
         const part: ChatPart =
             contentText !== undefined
-                ? { id: `${messageId}-${partKind}-0`, kind: partKind, text: contentText }
+                ? { id: `${messageId}-${partKind}-0`, kind: partKind, text: contentText, md: nextTree(undefined, md, contentText) }
                 : { id: `${messageId}-content-0`, kind: "content", content: boundContent(chunk.content) };
         const opened: ChatMessage = {
             id: messageId,
@@ -170,9 +184,15 @@ function appendChunk(
         while (open > 0 && (parts[open].kind === "notice" || parts[open].kind === "agent_notice")) open -= 1;
         const last = parts[open];
         if (contentText !== undefined && last?.kind === partKind) {
-            parts[open] = { ...last, text: last.text + contentText };
+            const text = last.text + contentText;
+            parts[open] = { ...last, text, md: nextTree(last.md, md, text) };
         } else if (contentText !== undefined) {
-            parts.push({ id: `${messageId}-${partKind}-${parts.length}`, kind: partKind, text: contentText });
+            parts.push({
+                id: `${messageId}-${partKind}-${parts.length}`,
+                kind: partKind,
+                text: contentText,
+                md: nextTree(undefined, md, contentText),
+            });
         } else {
             parts.push({ id: `${messageId}-content-${parts.length}`, kind: "content", content: boundContent(chunk.content) });
         }
@@ -276,7 +296,8 @@ function transcriptUpdate(transcript: Transcript, update: Record<string, unknown
             )
                 return null;
             const partKind = update.sessionUpdate === "agent_thought_chunk" ? "thought" : "text";
-            return appendChunk(transcript, role, partKind, chunk, timed, fresh && role === "assistant");
+            const md = recordOf(recordOf(update._meta)?.sikemux)?.md as MdChange | undefined;
+            return appendChunk(transcript, role, partKind, chunk, timed, fresh && role === "assistant", md);
         }
         case "tool_call": {
             const toolCallId = textOf(update.toolCallId);
@@ -583,16 +604,19 @@ function endTurn(state: ChatState, stopReason: string | null, at = Date.now()): 
     };
 }
 
-function sessionUpdate(state: ChatState, sessionId: string, update: Record<string, unknown>): ChatState {
+function sessionUpdate(state: ChatState, sessionId: string, update: Record<string, unknown>, main = false): ChatState {
     if (update.sessionUpdate === "subagent_state_update") return setSubagentState(state, update);
     if (update.sessionUpdate === "subagent_usage") return setSubagentUsage(state, update);
-    const inSubagent = patchSubagent(state, sessionId, (subagent) => {
-        const next =
-            update.sessionUpdate === "subagent_spawned"
-                ? withSubagent(subagent, update, state.messages)
-                : transcriptUpdate(subagent, update, state.running);
-        return next ? { ...subagent, ...next } : subagent;
-    });
+    // No subagent shares the chat's own session, so its updates need no search through the subagents.
+    const inSubagent = main
+        ? null
+        : patchSubagent(state, sessionId, (subagent) => {
+              const next =
+                  update.sessionUpdate === "subagent_spawned"
+                      ? withSubagent(subagent, update, state.messages)
+                      : transcriptUpdate(subagent, update, state.running);
+              return next ? { ...subagent, ...next } : subagent;
+          });
     if (inSubagent) return inSubagent;
 
     if (update.sessionUpdate === "user_message_chunk") {
@@ -818,6 +842,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 state.awaitingReplay ? { ...state, messages: [], nextId: 1, plan: null, awaitingReplay: false } : state,
                 action.sessionId,
                 action.update,
+                action.main,
             );
         case "turn_started":
             return {

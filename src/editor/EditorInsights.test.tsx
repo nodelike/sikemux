@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lsp, noteServedLanguages } from "../api/lsp";
-import { DiagnosticsController } from "../workbench/diagnosticsController";
+import { ProjectProblems } from "./projectProblems";
 import { EditorInsights } from "./EditorInsights";
 
 vi.mock("../api/agents", () => ({ agentApi: { available: vi.fn(async () => []) } }));
@@ -9,27 +9,24 @@ vi.mock("../api/agents", () => ({ agentApi: { available: vi.fn(async () => []) }
 const PROJECT = "/repo";
 const PATH = "/repo/src/app.ts";
 
-function controllerWithProblem(): DiagnosticsController {
-    const controller = new DiagnosticsController(PROJECT);
-    controller.activateServer("typescript", 1);
-    controller.publish(
-        {
-            project: PROJECT,
-            language: "typescript",
-            path: PATH,
-            version: 2,
-            diagnostics: [
-                {
-                    range: { start: { line: 3, character: 4 }, end: { line: 3, character: 8 } },
-                    severity: "error",
-                    code: "TS100",
-                    source: "typescript",
-                    message: "Expected a value",
-                },
-            ],
-        },
-        1,
-    );
+function controllerWithProblem(): ProjectProblems {
+    const controller = new ProjectProblems(PROJECT);
+    controller.serverStarted("typescript");
+    controller.publish({
+        project: PROJECT,
+        language: "typescript",
+        path: PATH,
+        version: 2,
+        diagnostics: [
+            {
+                range: { start: { line: 3, character: 4 }, end: { line: 3, character: 8 } },
+                severity: "error",
+                code: "TS100",
+                source: "typescript",
+                message: "Expected a value",
+            },
+        ],
+    });
     return controller;
 }
 

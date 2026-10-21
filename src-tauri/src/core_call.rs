@@ -1,35 +1,47 @@
-//! The page's calls to the core's methods. The core decides who may make
-//! each, so the app passes every one on unchanged.
+//! The page's requests to a core: this host's own, or `host`, another the app
+//! joined. The core decides who may make each, so the app passes every one on
+//! unchanged.
 
 use serde_json::Value;
-use sikemux_core::client::{CoreClient, Reply};
 use sikemux_core::protocol::{Request, Response};
 use tauri::State;
 
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
+use crate::hosts::{self, Hosts};
 use crate::pty::{core_error, PtyManager};
 
 #[tauri::command]
 pub async fn core_call(
     manager: State<'_, PtyManager>,
+    hosts: State<'_, Hosts>,
+    host: Option<String>,
     method: String,
     params: Value,
 ) -> AppResult<Value> {
-    let client = manager.client().await?;
-    call(&client, method, params).await
+    let client = hosts::client(&manager, &hosts, host.as_deref()).await?;
+    client.call(&method, params).await.map_err(core_error)
 }
 
-pub(crate) async fn call(client: &CoreClient, method: String, params: Value) -> AppResult<Value> {
-    let reply = client
-        .submit(Request::Call { method, params }, |reply| reply)
-        .map_err(core_error)?
-        .await
-        .map_err(core_error)?
-        .map_err(core_error)?;
-    match reply {
-        Reply::Response(Response::Called { result }) => Ok(result),
-        _ => Err(AppError::Other(
-            "the core answered a call with something else".into(),
-        )),
+/// One of the core's requests as is, for the page to reach a request no app
+/// command has its own work for.
+#[tauri::command]
+pub async fn core_request(
+    manager: State<'_, PtyManager>,
+    hosts: State<'_, Hosts>,
+    host: Option<String>,
+    mut request: Request,
+) -> AppResult<Response> {
+    if let Request::ShellAtPrompt { id } = &mut request {
+        if let Some((host, core_id)) = hosts.of_session(*id)? {
+            *id = core_id;
+            return host
+                .client()
+                .await?
+                .request(request)
+                .await
+                .map_err(core_error);
+        }
     }
+    let client = hosts::client(&manager, &hosts, host.as_deref()).await?;
+    client.request(request).await.map_err(core_error)
 }

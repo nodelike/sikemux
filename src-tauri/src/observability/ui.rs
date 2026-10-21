@@ -1,4 +1,6 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
+
+use sikemux_process::sync::Locked;
 
 use super::activity::{UiActivityLog, UiActivitySnapshot};
 use super::heartbeat::Heartbeat;
@@ -116,21 +118,14 @@ impl UiWatchdogState {
     }
 
     pub(crate) fn suspend(&self) {
-        let mut progress = self.lock_progress();
+        let mut progress = self.progress.locked();
         let sequence = progress.last_sequence;
         apply_ui_heartbeat_update(&self.heartbeat, &mut progress, false, sequence);
     }
 
     fn update(&self, visible: bool, sequence: u32) {
-        let mut progress = self.lock_progress();
+        let mut progress = self.progress.locked();
         apply_ui_heartbeat_update(&self.heartbeat, &mut progress, visible, sequence);
-    }
-
-    fn lock_progress(&self) -> MutexGuard<'_, UiHeartbeatProgress> {
-        match self.progress.lock() {
-            Ok(progress) => progress,
-            Err(poisoned) => poisoned.into_inner(),
-        }
     }
 }
 

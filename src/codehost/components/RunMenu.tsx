@@ -69,7 +69,7 @@ export function RunMenu({ run, repo, canWrite, onDeleted }: Props) {
             .catch(reportError("Could not delete the run"));
     };
 
-    const deletable = canWrite && ci.deleteRuns && finished;
+    const deletable = canWrite && finished;
     const items: { label: string; icon: ReactNode; danger?: boolean; run: () => Promise<void> }[] = [
         ...(canWrite && ci.debugLogs && finished
             ? [{ label: "Re-run all with debug logs", icon: <IconRotate size={13} />, run: rerunWithDebug }]
@@ -83,12 +83,8 @@ export function RunMenu({ run, repo, canWrite, onDeleted }: Props) {
                     .catch(swallow("copy the link")),
         },
         { label: `Open on ${host.name}`, icon: <IconExternal size={13} />, run: () => openUrl(run.url).catch(swallow(`open ${host.name}`)) },
-        ...(deletable
-            ? [
-                  { label: "Delete all logs", icon: <IconTrash size={13} />, danger: true, run: deleteLogs },
-                  { label: "Delete run", icon: <IconTrash size={13} />, danger: true, run: deleteRun },
-              ]
-            : []),
+        ...(deletable && ci.deleteLogs ? [{ label: "Delete all logs", icon: <IconTrash size={13} />, danger: true, run: deleteLogs }] : []),
+        ...(deletable && ci.deleteRuns ? [{ label: "Delete run", icon: <IconTrash size={13} />, danger: true, run: deleteRun }] : []),
     ];
 
     return (

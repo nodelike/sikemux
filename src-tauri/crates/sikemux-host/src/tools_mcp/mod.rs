@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
 use manifest::{Manifest, Tool};
 use sikemux_core::cli::protocol::{
@@ -67,7 +68,7 @@ fn simulator_offered(agent_id: &str) -> bool {
 }
 
 fn agent_id() -> Result<String, String> {
-    validate_agent_id(&std::env::var("SIKEMUX_TOOLS_AGENT_ID").unwrap_or_default())
+    validate_agent_id(&std::env::var(sikemux_process::vars::TOOLS_AGENT_ID).unwrap_or_default())
 }
 
 fn validate_agent_id(value: &str) -> Result<String, String> {
@@ -169,14 +170,14 @@ impl Offer {
     /// Holds what the app serves, noting the parts of its guide that changed
     /// since the agent was last told.
     fn hold(&self, manifest: Manifest) -> Arc<Manifest> {
-        let mut told = lock(&self.told_guide);
+        let mut told = self.told_guide.locked();
         let changed = told
             .as_deref()
             .map(|told| manifest.guide_changes(told))
             .unwrap_or_default();
         if told.is_none() || !changed.is_empty() {
             *told = Some(manifest.guide_source().to_owned());
-            let mut news = lock(&self.guide_news);
+            let mut news = self.guide_news.locked();
             for part in changed {
                 if !news.contains(&part) {
                     news.push(part);
@@ -189,7 +190,7 @@ impl Offer {
 
     /// Tells the agent once which parts of the guide to read again.
     fn take_guide_news(&self) -> Option<String> {
-        let news = std::mem::take(&mut *lock(&self.guide_news));
+        let news = std::mem::take(&mut *self.guide_news.locked());
         if news.is_empty() {
             return None;
         }
@@ -226,7 +227,7 @@ impl Offer {
         if let Some(tools) = self.ask_plugins(relay) {
             keep(&self.plugins, tools);
         }
-        let mut given = lock(&self.given);
+        let mut given = self.given.locked();
         let Some(before) = given.as_ref() else {
             return (false, served);
         };
@@ -246,19 +247,13 @@ impl Offer {
     }
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
 fn held<T>(slot: &Mutex<Option<Arc<T>>>) -> Option<Arc<T>> {
-    lock(slot).clone()
+    slot.locked().clone()
 }
 
 fn keep<T>(slot: &Mutex<Option<Arc<T>>>, value: T) -> Arc<T> {
     let value = Arc::new(value);
-    *lock(slot) = Some(Arc::clone(&value));
+    *slot.locked() = Some(Arc::clone(&value));
     value
 }
 
@@ -307,7 +302,7 @@ impl Relays {
                     &quick_id,
                     method,
                     params,
-                    harness::REPLY_TIMEOUT,
+                    harness::TOOLS_REPLY_TIMEOUT,
                     Duration::ZERO,
                 )
             }),
@@ -457,12 +452,14 @@ struct Calls(Mutex<HashMap<String, (String, bool)>>);
 
 impl Calls {
     fn start(&self, id: &Value, name: &str) {
-        self.lock().insert(id.to_string(), (name.to_owned(), false));
+        self.0
+            .locked()
+            .insert(id.to_string(), (name.to_owned(), false));
     }
 
     /// Marks the call cancelled, and names its tool.
     fn cancel(&self, id: &Value) -> Option<String> {
-        let mut calls = self.lock();
+        let mut calls = self.0.locked();
         let (name, cancelled) = calls.get_mut(&id.to_string())?;
         *cancelled = true;
         Some(name.clone())
@@ -470,15 +467,10 @@ impl Calls {
 
     /// Whether the finished call should still be answered.
     fn finish(&self, id: &Value) -> bool {
-        self.lock()
+        self.0
+            .locked()
             .remove(&id.to_string())
             .is_none_or(|(_, cancelled)| !cancelled)
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, (String, bool)>> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -544,7 +536,7 @@ fn initialize(manifest: &Manifest, params: &Value) -> Value {
 
 fn list(offer: &Offer, relay: &Relay<'_>) -> Vec<Value> {
     let tools = declarations(&offer.built_in(relay), &offer.plugin_tools(relay));
-    *lock(&offer.given) = Some(tools.clone());
+    *offer.given.locked() = Some(tools.clone());
     tools
 }
 

@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use git2::{BranchType, ErrorCode, Repository};
 use serde::Serialize;
+use sikemux_process::sync::Locked;
 
 use crate::error::{RundeckError, RundeckResult};
 
@@ -127,8 +128,7 @@ fn claim_fetch(root: PathBuf) -> bool {
     static LAST_FETCH: OnceLock<Mutex<HashMap<PathBuf, Instant>>> = OnceLock::new();
     let mut last = LAST_FETCH
         .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .locked();
     let now = Instant::now();
     if last
         .get(&root)
@@ -185,13 +185,13 @@ fn read_head(repo: &Repository, plan: &mut PlanResult) -> bool {
 /// The branch the checkout at `repo_path` is on.
 pub fn current_branch(repo_path: &std::path::Path) -> RundeckResult<String> {
     let repo = Repository::discover(repo_path).map_err(|_| {
-        RundeckError::Unclear(format!("{} is not in a git checkout", repo_path.display()))
+        RundeckError::BadArg(format!("{} is not in a git checkout", repo_path.display()))
     })?;
     let detached = repo.head_detached().unwrap_or(false);
     let head = repo.head().ok().filter(|_| !detached);
     let branch = head.and_then(|head| head.shorthand().ok().map(String::from));
     branch.ok_or_else(|| {
-        RundeckError::Unclear(format!(
+        RundeckError::BadArg(format!(
             "{} is on no branch; name the branch",
             repo_path.display()
         ))

@@ -19,6 +19,7 @@ on:
   # A PR that skipped the whole workflow would leave its required checks waiting forever,
   # so PRs always start it and the changes job skips what they don't touch.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
   workflow_call:
 
@@ -42,6 +43,7 @@ jobs:
   # failed keeps running until it passes again.
   changes:
     name: What changed
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -91,6 +93,7 @@ jobs:
 
   frontend:
     name: Frontend quality, build, and tests
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -139,6 +142,9 @@ jobs:
 
       - name: Check the file icons match the installed icon theme
         run: pnpm file-icons:check
+
+      - name: Check each plugin's TypeScript, tools and service name agree with its Rust side
+        run: pnpm plugin-contract:check
 
       - name: Test the dev launcher
         run: pnpm dev-launcher:test
@@ -249,6 +255,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # A runner's first boot of a device takes minutes, so it boots while the helper builds.
+      - name: Start booting an iPhone 17 Pro simulator
+        run: |
+          udid=$(xcrun simctl create "Sikemux CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)
+          xcrun simctl boot "$udid"
+          echo "SIKEMUX_SIM_DEVICE=$udid" >>"$GITHUB_ENV"
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -283,14 +296,18 @@ jobs:
       - name: Prepare Tauri resource placeholder
         run: mkdir -p src-tauri/icons/build && touch src-tauri/icons/build/Assets.car
 
-      # A runner's first boot of a device takes minutes, longer than one tool call waits.
-      - name: Boot an iPhone 17 Pro simulator
+      - name: Build the simulator tests
+        working-directory: src-tauri
+        run: cargo test --lib --no-run
+
+      - name: Wait for the simulator to finish booting
         timeout-minutes: 10
+        # "Booted" comes before the home screen takes input, and the tests no longer compile after it.
         run: |
-          udid=$(xcrun simctl create "Sikemux CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)
-          xcrun simctl boot "$udid"
-          xcrun simctl bootstatus "$udid" -b
-          echo "SIKEMUX_SIM_DEVICE=$udid" >>"$GITHUB_ENV"
+          xcrun simctl bootstatus "$SIKEMUX_SIM_DEVICE" -b
+          xcrun simctl launch "$SIKEMUX_SIM_DEVICE" com.apple.Preferences
+          sleep 20
+          xcrun simctl terminate "$SIKEMUX_SIM_DEVICE" com.apple.Preferences
 
       - name: Drive a real simulator and the fixture app as an agent would
         working-directory: src-tauri

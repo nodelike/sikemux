@@ -355,7 +355,7 @@ pub enum Request {
     /// paired devices get it.
     WatchView,
     /// Asks the app's window to show this agent. Refused when no window is
-    /// open.
+    /// open; a window that opens within a minute shows it then.
     FocusAgent {
         agent_id: String,
     },
@@ -849,6 +849,11 @@ pub struct ProjectInfo {
     /// host's plugin id, over what its remote and the host's accounts say.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub code_hosts: BTreeMap<String, CodeHostChoice>,
+    /// What the project is known by on every host (ADR 0017): its remote,
+    /// normalised, else its repository's first commit. A folder outside git
+    /// has none. The core keeps it; clients only read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
 }
 
 /// A repository or account picked for a project on one code host.
@@ -1049,6 +1054,25 @@ pub enum BuildChannel {
     Stable,
 }
 
+impl BuildChannel {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Dev => "dev",
+            Self::Nightly => "nightly",
+            Self::Stable => "stable",
+        }
+    }
+
+    /// A release's channel by its version: `0.5.0-nightly.3` is a nightly.
+    pub fn of_release(version: &str) -> Self {
+        if version.contains("-nightly") {
+            Self::Nightly
+        } else {
+            Self::Stable
+        }
+    }
+}
+
 /// A device approved to reach this core from another machine.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1100,6 +1124,10 @@ pub struct RemoteStatus {
     /// The phones that asked this host for notifications.
     #[serde(default)]
     pub notifications: Vec<PhoneNotifications>,
+    /// The person asked to allow each new device and host here, rather than
+    /// let in whatever their account signed in (ADR 0018).
+    #[serde(default)]
+    pub require_approval: bool,
 }
 
 /// What a phone wants to hear about from this host. The phone owns these
@@ -1422,6 +1450,13 @@ pub enum Event {
         title: String,
         body: String,
         agent_id: String,
+    },
+    /// A device or host joined the person's account, which the app's window
+    /// offers to remove (ADR 0018).
+    AccountDevice {
+        key: String,
+        name: String,
+        platform: String,
     },
     /// The program in a terminal set its title. Sent only to clients on this
     /// host; devices read it in their view.

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { coreCall } from "../api/core";
 import { onCoreChanged } from "../api/coreChanged";
+import type { CoreChangeTopic } from "../api/generated/wire";
 import { invalidate, resource } from "../state/resources";
 import type { ProjectFolders } from "./projectFolders";
 import type { Suggestion } from "./projectSuggestions";
@@ -56,16 +57,18 @@ export const javaRuntimesR = resource({
     staleAfterMs: 5 * 60_000,
 });
 
-const READ_AGAIN: Record<string, readonly string[]> = {
+const READ_AGAIN = {
     projectSettings: ["project.folders", "project.brief"],
     suggestions: ["project.suggestions"],
     tasks: ["project.brief"],
-};
+} satisfies Partial<Record<CoreChangeTopic, readonly string[]>>;
 
 /** Reads project settings again whenever the core says they changed, from any window or agent. */
 export function useProjectSettingsSync(): void {
     useEffect(() => {
-        const stops = Object.entries(READ_AGAIN).map(([topic, kinds]) => onCoreChanged(topic, () => invalidate((kind) => kinds.includes(kind))));
+        const stops = (Object.entries(READ_AGAIN) as [CoreChangeTopic, readonly string[]][]).map(([topic, kinds]) =>
+            onCoreChanged(topic, () => invalidate((kind) => kinds.includes(kind))),
+        );
         return () => stops.forEach((stop) => stop());
     }, []);
 }

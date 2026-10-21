@@ -6,8 +6,13 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::http;
+use sikemux_plugin_api::store::{self, Accounts};
+use sikemux_plugin_api::SignInStatus;
+
 use crate::client::{self, Session};
-use crate::config::{self, Account, GITLAB_COM};
+use crate::config::{self, Account, GitlabConfig, GITLAB_COM};
 use crate::error::{GitlabError, GitlabResult};
 use crate::repo::{RepoRef, User};
 
@@ -50,12 +55,14 @@ pub fn host_of(typed: &str) -> GitlabResult<String> {
 
 async fn get_with(host: &str, token: &str, path: &str) -> GitlabResult<serde_json::Value> {
     let request = client::authorize(
-        client::http()?.get(format!("{}{path}", client::api_base(host))),
+        client::HTTP
+            .client()?
+            .get(format!("{}{path}", client::api_base(host))),
         token,
     );
-    let response = client::limited(request.send()).await?;
+    let response = client::HTTP.send(request).await?;
     let status = response.status();
-    let (bytes, _) = client::read_body(response, 1024 * 1024, false).await?;
+    let bytes = http::read_body(response, 1024 * 1024).await?;
     if !status.is_success() {
         return Err(client::classify(status, &bytes));
     }
@@ -84,27 +91,27 @@ pub fn can_write(scopes: &[String]) -> bool {
     scopes.is_empty() || scopes.iter().any(|scope| scope == "api")
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct Status {
-    pub configured: bool,
+pub struct Signed {
     pub account: Option<String>,
     pub host: Option<String>,
     pub login: String,
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
     pub can_write_ci: bool,
-    pub ok: bool,
-    pub auth_failed: bool,
-    pub message: Option<String>,
 }
+
+pub type Status = SignInStatus<Signed>;
 
 /// The account the call named, or the default one.
 pub async fn status(data_dir: &Path) -> Status {
-    let config = config::load(data_dir);
-    let account = config.account(client::chosen().as_deref()).cloned();
-    let base = |ok: bool, auth_failed: bool, message: Option<String>| Status {
-        configured: account.is_some(),
+    let config = match config::load(data_dir) {
+        Ok(config) => config,
+        Err(error) => return Status::checked(false, Signed::default(), &Err::<(), _>(error)),
+    };
+    let account = config.account(chosen().as_deref()).cloned();
+    let mut signed = Signed {
         account: account.as_ref().map(|account| account.id.clone()),
         host: account.as_ref().map(|account| account.host.clone()),
         login: account
@@ -118,35 +125,27 @@ pub async fn status(data_dir: &Path) -> Status {
             .as_ref()
             .and_then(|account| account.avatar_url.clone()),
         can_write_ci: false,
-        ok,
-        auth_failed,
-        message,
     };
-    let session = match Session::current(data_dir).await {
-        Ok(session) => session,
-        Err(GitlabError::Unconfigured) => return base(false, false, None),
-        Err(error) => return base(false, false, Some(error.to_string())),
+    let check = match Session::current(data_dir).await {
+        Ok(session) => identify(&session.account.host, &session.token)
+            .await
+            .map(|user| (session, user)),
+        Err(error) => Err(error),
     };
-    match identify(&session.account.host, &session.token).await {
-        Ok(user) => Status {
-            login: user
+    match &check {
+        Ok((session, user)) => {
+            signed.login = user
                 .username
                 .clone()
-                .unwrap_or_else(|| session.account.login.clone()),
-            display_name: user.name.clone(),
-            avatar_url: user.avatar_url.clone(),
-            can_write_ci: can_write(&scopes(&session.account.host, &session.token).await),
-            ..base(true, false, None)
-        },
-        Err(error @ GitlabError::RateLimited { .. }) => Status {
-            can_write_ci: true,
-            ..base(true, false, Some(error.to_string()))
-        },
-        Err(error) => {
-            let auth_failed = matches!(error, GitlabError::Auth(_));
-            base(false, auth_failed, Some(error.to_string()))
+                .unwrap_or_else(|| session.account.login.clone());
+            signed.display_name = user.name.clone();
+            signed.avatar_url = user.avatar_url.clone();
+            signed.can_write_ci = can_write(&scopes(&session.account.host, &session.token).await);
         }
+        Err(GitlabError::RateLimited { .. }) => signed.can_write_ci = true,
+        Err(_) => {}
     }
+    Status::checked(account.is_some(), signed, &check)
 }
 
 #[derive(Serialize)]
@@ -161,9 +160,9 @@ pub struct Listed {
 }
 
 /// Every account signed in, the default first.
-pub fn accounts(data_dir: &Path) -> Vec<Listed> {
-    let config = config::load(data_dir);
-    config
+pub fn accounts(data_dir: &Path) -> GitlabResult<Vec<Listed>> {
+    let config = config::load(data_dir)?;
+    Ok(config
         .in_order()
         .into_iter()
         .map(|account| Listed {
@@ -174,7 +173,7 @@ pub fn accounts(data_dir: &Path) -> Vec<Listed> {
             display_name: account.display_name,
             avatar_url: account.avatar_url,
         })
-        .collect()
+        .collect())
 }
 
 fn new_account(host: &str, user: &User) -> GitlabResult<Account> {
@@ -211,13 +210,11 @@ pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> GitlabRe
     let user = identify(&host, &token).await?;
     let account = new_account(&host, &user)?;
     let id = account.id.clone();
-    let data_dir = data_dir.to_path_buf();
-    config::blocking(Box::new(move || {
+    store::update(data_dir, move |config: &mut GitlabConfig| {
         config::keychain_write(&account, &token)?;
-        let mut config = config::load(&data_dir);
         config.upsert(account);
-        config::save(&data_dir, &config)
-    }))
+        Ok(())
+    })
     .await?;
     client::forget(Some(&id));
     Ok(id)
@@ -225,10 +222,8 @@ pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> GitlabRe
 
 /// Signs out the account the call named, or the default one.
 pub async fn sign_out(data_dir: &Path) -> GitlabResult<()> {
-    let data_dir = data_dir.to_path_buf();
-    let chosen = client::chosen();
-    let removed = config::blocking(Box::new(move || {
-        let mut config = config::load(&data_dir);
+    let chosen = chosen();
+    let removed = store::update(data_dir, move |config: &mut GitlabConfig| {
         let Some(id) = config
             .account(chosen.as_deref())
             .map(|account| account.id.clone())
@@ -239,9 +234,8 @@ pub async fn sign_out(data_dir: &Path) -> GitlabResult<()> {
         if let Some(account) = &removed {
             config::keychain_delete(account)?;
         }
-        config::save(&data_dir, &config)?;
         Ok(removed)
-    }))
+    })
     .await?;
     if let Some(account) = removed {
         client::forget(Some(&account.id));
@@ -255,17 +249,9 @@ pub struct DefaultChoice {
 }
 
 pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> GitlabResult<()> {
-    let data_dir = data_dir.to_path_buf();
-    config::blocking(Box::new(move || {
-        let mut config = config::load(&data_dir);
-        if !config.accounts.iter().any(|account| account.id == input.id) {
-            return Err(GitlabError::NotFound(
-                "no account signed in by that id".into(),
-            ));
-        }
-        config.default = Some(input.id);
-        config::save(&data_dir, &config)
-    }))
+    store::update(data_dir, move |config: &mut GitlabConfig| {
+        config.set_default(&input.id)
+    })
     .await
 }
 
@@ -284,7 +270,7 @@ pub struct ProjectOnHost {
 /// for on another server.
 pub async fn account_for(data_dir: &Path, input: ProjectOnHost) -> GitlabResult<Option<String>> {
     let path = input.repo.path("")?;
-    let on_server: Vec<Account> = config::load(data_dir)
+    let on_server: Vec<Account> = config::load(data_dir)?
         .in_order()
         .into_iter()
         .filter(|account| {
@@ -297,7 +283,7 @@ pub async fn account_for(data_dir: &Path, input: ProjectOnHost) -> GitlabResult<
     for account in &on_server {
         let id = account.id.clone();
         let seen: GitlabResult<serde_json::Value> =
-            client::as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
+            as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
         match seen {
             Ok(_) => return Ok(Some(id)),
             Err(GitlabError::Unconfigured) => return Ok(None),

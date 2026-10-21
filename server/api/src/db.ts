@@ -67,6 +67,11 @@ export interface Tables {
       string | null,
       string | null | undefined,
       string | null
+    >; /** The host that added this client to the account, when a host did. */
+    registered_by: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
     >;
   };
   challenges: { nonce: string; user_id: string; expires_at: Date };
@@ -151,7 +156,7 @@ export interface Database {
 export function openDatabase(url: string, log: Logger): Database {
   const pool = new pg.Pool({
     connectionString: url,
-    max: 10,
+    max: 20,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 3_000,
     application_name: "sikemux-api",

@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sikemux_process::sync::Locked;
 
 use crate::acp::account::{Failure, FailureKind};
 
@@ -15,28 +16,13 @@ use super::super::super::reset::{month_day, WallClock, Zone};
 use super::super::super::states::{self, Held, Subagent, Task as TaskState};
 use super::super::super::Respond;
 use super::super::json::{self, text};
+use super::super::pending::{Answered, Purpose};
 use super::super::process::Reads;
 use super::super::session::{Sink, TurnEnd};
 use super::control::Control;
+use super::failure;
 use super::permission;
 use super::tools::{self, TaskPlan};
-
-/// Text Claude Code shows instead of an answer when the account is out of
-/// usage, taken from the Agent SDK.
-const USAGE_LIMIT_PREFIXES: [&str; 12] = [
-    "You've hit your",
-    "You've reached your",
-    "You're out of usage credits",
-    "Your org is out of usage · add funds to continue",
-    "Your org is out of usage · contact your admin",
-    "Your seat type doesn't include usage credits",
-    "Your seat type doesn't include usage",
-    "Your usage allocation has been disabled by your admin",
-    "Your group's usage limit is set to $0",
-    "Fable 5 requires usage credits",
-    "You're out of extra usage",
-    "Your seat type doesn't include extra usage",
-];
 
 /// Slash commands that only make sense in Claude Code's own terminal.
 const TERMINAL_COMMANDS: [&str; 8] = [
@@ -211,7 +197,7 @@ pub(crate) fn available_commands(commands: &Value) -> Value {
 fn failure_of(message: &Value) -> Option<Failure> {
     let inner = message.get("message")?;
     let said = json::joined_text(inner.get("content").filter(|content| content.is_array()));
-    let synthetic = text(inner, "model") == Some("<synthetic>");
+    let synthetic = failure::is_synthetic(inner);
     let title = |fallback: &str| {
         if said.trim().is_empty() {
             fallback.to_owned()
@@ -219,14 +205,10 @@ fn failure_of(message: &Value) -> Option<Failure> {
             said.trim().to_owned()
         }
     };
-    if synthetic && said.contains("Please run /login") {
+    if synthetic && failure::asks_sign_in(&said) {
         return Some(Failure::sign_in(title("Sign in to continue using Claude.")));
     }
-    if synthetic
-        && USAGE_LIMIT_PREFIXES
-            .iter()
-            .any(|prefix| said.trim_start().starts_with(prefix))
-    {
+    if synthetic && failure::out_of_usage(&said) {
         return Some(Failure {
             kind: FailureKind::Limit,
             title: title("The Claude account has no available quota."),
@@ -482,10 +464,7 @@ impl Reader {
     }
 
     fn turn_running(&self) -> bool {
-        self.shared
-            .lock()
-            .map(|shared| shared.turn.is_some())
-            .unwrap_or(false)
+        self.shared.locked().turn.is_some()
     }
 
     /// Sends `update` to the session `parent` names: the chat's own, or the
@@ -543,10 +522,8 @@ impl Reader {
                     return;
                 }
                 let mut unread = None;
-                if let (Some(uuid), Ok(mut shared)) =
-                    (text(&message, "command_uuid"), self.shared.lock())
-                {
-                    if let Some(turn) = shared.turn.as_mut() {
+                if let Some(uuid) = text(&message, "command_uuid") {
+                    if let Some(turn) = self.shared.locked().turn.as_mut() {
                         turn.waiting.remove(uuid);
                         let letter = turn.letters.remove(uuid);
                         if matches!(state, Some("cancelled" | "dropped")) {
@@ -615,11 +592,7 @@ impl Reader {
                 tools::tool_call(&tool_id, &name, &input, &self.data.cwd),
             );
         }
-        let mode = self
-            .shared
-            .lock()
-            .map(|shared| shared.mode.clone())
-            .unwrap_or_default();
+        let mode = self.shared.locked().mode.clone();
         let asked = permission::request(
             &session,
             &tool_id,
@@ -645,8 +618,8 @@ impl Reader {
     }
 
     /// The answer to a control request sent with `purpose`.
-    fn purpose_answered(&self, purpose: &Value, result: Result<Value, String>) {
-        if purpose.get("title").is_some() {
+    fn purpose_answered(&self, purpose: &Purpose, result: Answered) {
+        if *purpose == Purpose::Title {
             let title = result
                 .ok()
                 .and_then(|named| feed::title(text(&named, "title")?));
@@ -786,11 +759,10 @@ impl Reader {
         let parent = text(message, "parent_tool_use_id").map(str::to_owned);
         if parent.is_none() {
             if let Some(failure) = failure_of(message) {
-                if let Ok(mut shared) = self.shared.lock() {
-                    if let Some(turn) = shared.turn.as_mut() {
-                        turn.failure = Some(failure);
-                        return;
-                    }
+                let mut shared = self.shared.locked();
+                if let Some(turn) = shared.turn.as_mut() {
+                    turn.failure = Some(failure);
+                    return;
                 }
             }
         }
@@ -798,7 +770,9 @@ impl Reader {
             return;
         };
         if parent.is_none() {
-            if let Some(model) = text(inner, "model").filter(|model| *model != "<synthetic>") {
+            if let Some(model) =
+                text(inner, "model").filter(|model| *model != failure::SYNTHETIC_MODEL)
+            {
                 self.data.model = Some(model.to_owned());
                 self.note_model(model);
             }
@@ -862,12 +836,7 @@ impl Reader {
 
     fn user(&mut self, message: &Value) {
         if let Some(uuid) = text(message, "uuid") {
-            if self
-                .shared
-                .lock()
-                .map(|shared| shared.sent.contains(uuid))
-                .unwrap_or(false)
-            {
+            if self.shared.locked().sent.contains(uuid) {
                 return;
             }
         }
@@ -980,9 +949,7 @@ impl Reader {
         // A turn that background work started, rather than a message, carries its origin.
         let woken = result.get("origin").is_some();
         let ended = {
-            let Ok(mut shared) = self.shared.lock() else {
-                return;
-            };
+            let mut shared = self.shared.locked();
             let ends = shared.turn.as_ref().is_some_and(|turn| match answers {
                 Some(uuid) => turn.messages.contains(uuid) && turn.waiting.is_empty(),
                 None => !woken,
@@ -1030,7 +997,7 @@ impl Reader {
                 })
                 .filter(|said| !said.is_empty())
                 .unwrap_or_else(|| "Claude could not finish this turn".to_owned());
-            let kind = if said.contains("Please run /login") {
+            let kind = if failure::asks_sign_in(&said) {
                 FailureKind::SignIn
             } else {
                 FailureKind::Other
@@ -1242,11 +1209,7 @@ impl Reader {
 
     /// Claude Code went idle: anything the turn still waited on is over.
     fn idle(&mut self) {
-        let turn = self
-            .shared
-            .lock()
-            .ok()
-            .and_then(|mut shared| shared.turn.take());
+        let turn = self.shared.locked().turn.take();
         match turn {
             Some(turn) => {
                 let end = match turn.failure {
@@ -1659,12 +1622,10 @@ impl Asking {
         let Some(id) = reply["requestId"].as_str().map(str::to_owned) else {
             return Box::new(|_| {});
         };
-        if let Ok(mut open) = self.open.lock() {
-            open.insert(id.clone());
-        }
+        self.open.locked().insert(id.clone());
         let asking = self.clone();
         Box::new(move |chosen| {
-            let still_open = asking.open.lock().is_ok_and(|mut open| open.remove(&id));
+            let still_open = asking.open.locked().remove(&id);
             if !still_open {
                 return;
             }
@@ -1679,15 +1640,13 @@ impl Asking {
     }
 
     fn take_back(&self, id: &str) {
-        if let Ok(mut open) = self.open.lock() {
-            open.remove(id);
-        }
+        let mut open = self.open.locked();
+        open.remove(id);
     }
 
     fn close(&self) {
-        if let Ok(mut open) = self.open.lock() {
-            open.clear();
-        }
+        let mut open = self.open.locked();
+        open.clear();
     }
 }
 
@@ -1705,7 +1664,7 @@ mod tests {
 
     #[test]
     fn a_usage_limit_says_when_it_resets() {
-        let now = crate::server::remote::unix_ms() / 1000;
+        let now = sikemux_process::clock::epoch_secs();
         let resets = |text: &str, params: Value| {
             let message = json!({
                 "type": "assistant", "error": "rate_limit", "api_error_params": params,

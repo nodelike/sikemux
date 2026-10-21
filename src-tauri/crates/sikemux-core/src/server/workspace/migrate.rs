@@ -1,6 +1,7 @@
 //! Carries over a workspace saved before the core kept agents: the projects
 //! devices added, how sleeping chats ran, and the projects, agents, spaces and
-//! pinned chats the app kept in its own state then.
+//! pinned chats the app kept in its own state then. Agents kept before the
+//! core chose buddy colours get theirs.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -9,7 +10,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{check_agent, is_chat_provider, Kept, Saved};
+use super::{check_agent, dress, is_chat_provider, Kept, Saved};
 use crate::protocol::{
     ChatAccount, CodeHostChoice, PinnedChat, ProjectInfo, SpaceInfo, WorkspaceAgent,
 };
@@ -27,7 +28,6 @@ const APP_DATA_DIR: &str = if cfg!(debug_assertions) {
 struct Earlier {
     #[serde(default)]
     added: Vec<ProjectInfo>,
-    #[serde(default)]
     chats: Option<Vec<EarlierChat>>,
     #[serde(default)]
     asleep: Vec<EarlierAsleep>,
@@ -68,6 +68,15 @@ pub(super) fn carry_over(saved: &mut Saved, read: &Value, data_dir: Option<&Path
         {
             saved.projects.push(project);
         }
+    }
+}
+
+/// Gives every agent kept before the core chose buddy colours one of its own.
+pub(super) fn dress_agents(saved: &mut Saved) {
+    for index in 0..saved.agents.len() {
+        let mut agent = saved.agents[index].agent.clone();
+        dress(&mut agent, &saved.agents);
+        saved.agents[index].agent = agent;
     }
 }
 
@@ -140,6 +149,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 code_hosts: code_hosts_of(&cwd),
                 path: cwd.into(),
                 pinned: session["pinned"].as_bool().unwrap_or(false),
+                identity: None,
             })
         })
         .filter(|project| project.path.is_absolute())

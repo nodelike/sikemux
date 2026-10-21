@@ -539,70 +539,10 @@
     border-color: color-mix(in srgb, var(--danger) 45%, transparent);
     color: var(--danger);
 }
-.tb-run-add {
-    display: grid;
-    gap: var(--space-1h);
-    margin: var(--space-1) var(--space-1) var(--space-1h);
-    padding: var(--space-2);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-2);
-    font-family: var(--ui);
-}
-.tb-run-add-field {
-    display: grid;
-    grid-template-columns: 64px 1fr;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-}
-.tb-run-add-field input {
-    height: 26px;
+.tb-run-menu .env-dd-item > span {
     min-width: 0;
-    padding: 0 var(--space-2);
-    background: var(--surface-sunken);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-2);
-    color: var(--text-primary);
-    font-family: var(--mono);
-    font-size: var(--text-2xs);
-    outline: none;
-}
-.tb-run-add-field input:focus {
-    border-color: var(--border-selected);
-}
-.tb-run-add-scope {
-    display: flex;
-    gap: var(--space-1h);
-}
-.tb-run-add-scope button {
-    height: 24px;
-    padding: 0 var(--space-2);
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    font-family: var(--ui);
-    font-size: var(--text-xs);
-    cursor: pointer;
-}
-.tb-run-add-scope button:hover {
-    background: var(--surface-hover);
-}
-.tb-run-add-scope button.on {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
-    color: var(--text-primary);
-}
-.tb-run-add-foot {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1h);
-    padding-top: var(--space-1);
-}
-.tb-run-add-hint {
-    flex: 1;
-    min-width: 0;
-    font-size: var(--text-2xs);
-    color: var(--text-tertiary);
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }

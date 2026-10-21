@@ -3,20 +3,22 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { Avatar } from "./Avatar.tsx";
 import { Backdrop } from "./Backdrop.tsx";
-import { Consent, CONSENT, Panel, SIGNED_IN, SignedIn } from "./Consent.tsx";
+import { Consent, Panel, SIGNED_IN, SignedIn } from "./Consent.tsx";
 import {
   AccountDeleted,
   DeleteAccount,
   DeleteAccountIntro,
 } from "./DeleteAccount.tsx";
 import { Devices, useDevices } from "./Devices.tsx";
-import { HOST, HostApproval } from "./HostApproval.tsx";
+import { HostApproval } from "./HostApproval.tsx";
 import { Logo } from "./icons.tsx";
 import { useLive } from "./live.ts";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
+  CONSENT,
   DELETE_ACCOUNT,
+  HOST,
   isSharePath,
   takeReturn,
   takeShareReturn,

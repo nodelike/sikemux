@@ -22,6 +22,23 @@ export type MdElement =
     /** A `<details>` fold from embedded HTML. */
     | { t: "details"; summary: string; open?: boolean; c: MdNode[] };
 
+/**
+ * One change to a tree: `p` is a path of indexes from the top-level blocks down
+ * through each element's children (`c`, or a table's `rows`, its cells and their
+ * contents). Positions in text count UTF-16 units.
+ */
+export type MdOp =
+    /** The list at `p` keeps its first `at` entries and gains `c`. */
+    | { p: number[]; at: number; c: unknown[] }
+    /** The text at `p`, or a code block's `v` there, keeps its first `at` units and gains `s`. */
+    | { p: number[]; at: number; s: string };
+
+/** What the core sends with a piece of an answer: the answer's length once it is added, and how its tree changed. */
+export interface MdChange {
+    n: number;
+    o: MdOp[];
+}
+
 export interface MarkdownOptions {
     /** Tables, strikethrough, task lists, footnotes and bare addresses as links. */
     readonly gfm: boolean;

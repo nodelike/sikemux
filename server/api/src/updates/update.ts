@@ -1,7 +1,12 @@
+import type { ChannelVersions } from "@sikemux/protocol";
+
 /** What phones running Expo's update client ask for, and what a published update must say about itself. */
 
 export const PLATFORMS = ["android", "ios"] as const;
-export const CHANNELS = ["nightly", "stable"] as const;
+export const CHANNELS = [
+  "nightly",
+  "stable",
+] as const satisfies readonly (keyof ChannelVersions)[];
 
 export type UpdatePlatform = (typeof PLATFORMS)[number];
 export type UpdateChannel = (typeof CHANNELS)[number];

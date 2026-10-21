@@ -22,23 +22,17 @@ import {
     IconTimer,
     IconUser,
     IconUserMinus,
+    Loaded,
     Markdown,
+    Pending,
     ResizeHandle,
-    SkeletonRows,
+    SignedIn,
     StaleNotice,
     type ContextMenuItem,
 } from "../../../plugin-api/ui";
-import {
-    failureMessage,
-    jiraApi,
-    refreshJira,
-    type JiraBoard as JiraBoardInfo,
-    type JiraIssue,
-    type JiraIssueSummary,
-    type JiraPerson,
-    type JiraProject,
-} from "../api";
-import { jiraBoardsR, jiraFiltersR, jiraIssueR, jiraProjectsR, jiraSearchR, jiraStatusR } from "../resources";
+import { errorText } from "../../../plugin-api/format";
+import { jiraApi, type JiraBoard as JiraBoardInfo, type JiraIssue, type JiraIssueSummary, type JiraPerson, type JiraProject } from "../api";
+import { jira, jiraBoardsR, jiraFiltersR, jiraIssueR, jiraProjectsR, jiraSearchR } from "../resources";
 import { copyIssue, issueMenu, openIssue } from "../issueLinks";
 import { jiraSettings, jqlOf, mentions, updateJiraView, useJiraView, type JiraList } from "../state";
 import { statusCounts, withStatuses } from "../statusFilter";
@@ -75,10 +69,11 @@ const EMPTY: Partial<Record<JiraList["kind"], string>> = {
 };
 
 export function JiraPane({ paneId, active }: { paneId: string; active: boolean }) {
-    const status = useResourceEnabled(active, jiraStatusR);
-    if (status.data === undefined && status.status !== "error") return <SkeletonRows rows={5} label="Connecting to Jira" />;
-    if (!status.data?.configured || status.data.authFailed) return <JiraSignIn status={status.data} onSignedIn={refreshJira} />;
-    return <JiraWorkspace paneId={paneId} active={active} sites={status.data.sites.map((site) => site.host)} />;
+    return (
+        <SignedIn service={jira} active={active} signIn={(status) => <JiraSignIn status={status} onSignedIn={() => jira.refresh()} />}>
+            {(status) => <JiraWorkspace paneId={paneId} active={active} sites={status.sites.map((site) => site.host)} />}
+        </SignedIn>
+    );
 }
 
 function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: boolean; sites: string[] }) {
@@ -150,7 +145,12 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
                     type="button"
                     className="jira-signout"
                     title={`Sign out of ${site}`}
-                    onClick={() => void jiraApi.signOut(site).then(refreshJira).catch(reportError("sign out of Jira"))}>
+                    onClick={() =>
+                        void jiraApi
+                            .signOut(site)
+                            .then(() => jira.refresh())
+                            .catch(reportError("sign out of Jira"))
+                    }>
                     <IconLogOut size={14} className="jira-list-mark" />
                     <span className="jira-list-label">Sign out</span>
                 </button>
@@ -368,57 +368,51 @@ function IssueList({
 }) {
     const found = useResourceEnabled(active, jiraSearchR, jql, site);
     const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
-    if (found.status === "error" && !found.data)
-        return (
-            <div className="jira-list-pane">
-                <EmptyState message={found.error ?? "Jira could not run that search."} tone="error" />
-            </div>
-        );
-    if (!found.data)
-        return (
-            <div className="jira-list-pane">
-                <SkeletonRows rows={8} label="Loading issues" />
-            </div>
-        );
-    if (found.data.issues.length === 0)
-        return (
-            <div className="jira-list-pane">
-                <EmptyState message={empty} />
-            </div>
-        );
-    const counts = statusCounts(found.data.issues);
-    const shown = new Set([...picked].filter((status) => counts.some((each) => each.status === status)));
-    const toggle = (status: string) => {
-        const next = new Set(shown);
-        if (!next.delete(status)) next.add(status);
-        setPicked(next);
-    };
     return (
         <div className="jira-list-pane">
-            <StaleNotice handle={found} />
-            {counts.length > 1 && (
-                <div className="jira-status-filter" role="group" aria-label="Filter by status">
-                    <button type="button" className="jira-status-pick" aria-pressed={shown.size === 0} onClick={() => setPicked(new Set())}>
-                        All <span className="jira-status-count">{found.data.issues.length}</span>
-                    </button>
-                    {counts.map(({ status, category, count }) => (
-                        <button
-                            key={status}
-                            type="button"
-                            className="jira-status-pick"
-                            aria-pressed={shown.has(status)}
-                            onClick={() => toggle(status)}>
-                            <span className={`jira-dot jira-dot-${category || "new"}`} />
-                            {status} <span className="jira-status-count">{count}</span>
-                        </button>
-                    ))}
-                </div>
-            )}
-            <div className="jira-issues" role="list">
-                {withStatuses(found.data.issues, shown).map((issue) => (
-                    <IssueRow key={issue.key} issue={issue} selected={issue.key === selected} onSelect={() => onSelect(issue.key)} />
-                ))}
-            </div>
+            <Loaded handle={found} loading="Loading issues" rows={8} empty={(page) => (page.issues.length === 0 ? empty : null)}>
+                {(page) => {
+                    const counts = statusCounts(page.issues);
+                    const shown = new Set([...picked].filter((status) => counts.some((each) => each.status === status)));
+                    const toggle = (status: string) => {
+                        const next = new Set(shown);
+                        if (!next.delete(status)) next.add(status);
+                        setPicked(next);
+                    };
+                    return (
+                        <>
+                            <StaleNotice handle={found} />
+                            {counts.length > 1 && (
+                                <div className="jira-status-filter" role="group" aria-label="Filter by status">
+                                    <button
+                                        type="button"
+                                        className="jira-status-pick"
+                                        aria-pressed={shown.size === 0}
+                                        onClick={() => setPicked(new Set())}>
+                                        All <span className="jira-status-count">{page.issues.length}</span>
+                                    </button>
+                                    {counts.map(({ status, category, count }) => (
+                                        <button
+                                            key={status}
+                                            type="button"
+                                            className="jira-status-pick"
+                                            aria-pressed={shown.has(status)}
+                                            onClick={() => toggle(status)}>
+                                            <span className={`jira-dot jira-dot-${category || "new"}`} />
+                                            {status} <span className="jira-status-count">{count}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="jira-issues" role="list">
+                                {withStatuses(page.issues, shown).map((issue) => (
+                                    <IssueRow key={issue.key} issue={issue} selected={issue.key === selected} onSelect={() => onSelect(issue.key)} />
+                                ))}
+                            </div>
+                        </>
+                    );
+                }}
+            </Loaded>
         </div>
     );
 }
@@ -475,16 +469,10 @@ function useMenu(): [ReactNode, (event: MouseEvent, items: ContextMenuItem[]) =>
 
 function IssueDetail({ active, issueKey, site, onClose }: { active: boolean; issueKey: string; site: string; onClose: () => void }) {
     const found = useResourceEnabled(active, jiraIssueR, issueKey, site);
-    if (found.status === "error" && !found.data)
+    if (found.data === undefined)
         return (
             <div className="jira-detail">
-                <EmptyState message={found.error ?? `Jira could not open ${issueKey}.`} tone="error" />
-            </div>
-        );
-    if (!found.data)
-        return (
-            <div className="jira-detail">
-                <SkeletonRows rows={6} label={`Loading ${issueKey}`} />
+                <Pending handle={found} loading={`Loading ${issueKey}`} />
             </div>
         );
     return (
@@ -518,7 +506,7 @@ function IssueBody({
     const [people, setPeople] = useState<JiraPerson[]>([]);
     const changed = () => {
         refresh();
-        refreshJira();
+        jira.refresh();
     };
     const toggleTask = useCallback<ToggleTask>(
         async (index, text, done) => {
@@ -526,7 +514,7 @@ function IssueBody({
                 await jiraApi.setTask(issue.key, index, text, done, site || undefined);
                 refresh();
             } catch (error) {
-                notify("error", `Update the task: ${failureMessage(error)}`);
+                notify("error", `Update the task: ${errorText(error)}`);
                 throw error;
             }
         },
@@ -539,7 +527,7 @@ function IssueBody({
             changed();
             return true;
         } catch (error) {
-            notify("error", `${label}: ${failureMessage(error)}`);
+            notify("error", `${label}: ${errorText(error)}`);
             return false;
         } finally {
             setBusy(false);
@@ -590,7 +578,7 @@ function IssueBody({
                                 })
                             }>
                             <IconAgent size={12} />
-                            Send to board
+                            Send to agent board
                         </button>
                         <button type="button" className="jira-icon-button" title="Close" aria-label="Close the issue" onClick={onClose}>
                             <IconClose size={12} />

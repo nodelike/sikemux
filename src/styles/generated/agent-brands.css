@@ -33,30 +33,6 @@
 .agent-glyph.muse {
     color: var(--brand-muse);
 }
-.agent-dormant-notch.claude {
-    background: var(--brand-claude);
-}
-.agent-dormant-notch.codex {
-    background: var(--brand-codex);
-}
-.agent-dormant-notch.hermes {
-    background: var(--brand-hermes);
-}
-.agent-dormant-notch.pi {
-    background: var(--brand-pi);
-}
-.agent-dormant-notch.opencode {
-    background: var(--brand-opencode);
-}
-.agent-dormant-notch.omp {
-    background: var(--brand-omp);
-}
-.agent-dormant-notch.grok {
-    background: var(--brand-grok);
-}
-.agent-dormant-notch.muse {
-    background: var(--brand-muse);
-}
 .agent-usage.claude {
     --usage-fill: var(--brand-claude);
 }

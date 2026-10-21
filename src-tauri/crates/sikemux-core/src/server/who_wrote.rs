@@ -4,11 +4,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
 use crate::trailers::{self, Agent};
@@ -16,7 +17,7 @@ use crate::trailers::{self, Agent};
 use super::board::codehost;
 use super::connection::blocking;
 use super::edits::note::{self, Note, Wrote};
-use super::edits::{self, footer};
+use super::edits::{footer, git};
 use super::messages::{self, Listed, Reach};
 use super::{saved, Core, CoreResult};
 
@@ -66,14 +67,8 @@ pub(crate) struct AgentOwner {
     pub lines: Option<Wrote>,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
 fn remember<T: Clone>(map: &Mutex<HashMap<String, T>>, key: &str, value: &T) {
-    let mut map = lock(map);
+    let mut map = map.locked();
     if map.len() >= MAX_REMEMBERED {
         map.clear();
     }
@@ -84,7 +79,7 @@ fn remember<T: Clone>(map: &Mutex<HashMap<String, T>>, key: &str, value: &T) {
 fn verified(core: &Core, dir: &Path, commit: &str) -> Vec<Agent> {
     static VERIFIED: OnceLock<Mutex<HashMap<String, Vec<Agent>>>> = OnceLock::new();
     let cache = VERIFIED.get_or_init(Default::default);
-    if let Some(agents) = lock(cache).get(commit) {
+    if let Some(agents) = cache.locked().get(commit) {
         return agents.clone();
     }
     let Ok(agents) = footer::verified(core, dir, commit) else {
@@ -102,7 +97,7 @@ fn saved_session(core: &Core, cli: &str, session_id: &str) -> Option<TitleAndPro
     static SAVED: OnceLock<Mutex<HashMap<String, Option<TitleAndProject>>>> = OnceLock::new();
     let cache = SAVED.get_or_init(Default::default);
     let key = format!("{cli}\0{session_id}");
-    if let Some(saved) = lock(cache).get(&key) {
+    if let Some(saved) = cache.locked().get(&key) {
         return saved.clone();
     }
     let saved = saved::locate(core, session_id, Some(cli))
@@ -276,10 +271,6 @@ impl Found {
             notes: Vec::new(),
         }
     }
-}
-
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    edits::git(dir, args)
 }
 
 fn line_range(spec: &str) -> Option<(u64, u64)> {

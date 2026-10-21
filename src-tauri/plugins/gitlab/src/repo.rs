@@ -4,7 +4,8 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use sikemux_plugin_api::codehost::{Repo, RepoListing};
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};
@@ -70,18 +71,8 @@ pub fn avatar_of(user: Option<&User>) -> Option<String> {
         .filter(|url| !url.is_empty())
 }
 
-#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Repo {
-    pub host: String,
-    pub owner: String,
-    pub name: String,
-}
-
-impl Repo {
-    pub fn slug(&self) -> String {
-        format!("{}/{}", self.owner, self.name)
-    }
+pub fn slug(repo: &Repo) -> String {
+    format!("{}/{}", repo.owner, repo.name)
 }
 
 /// The project a git remote points at, in any of the ways a remote can be
@@ -121,22 +112,9 @@ struct ProjectRow {
     web_url: String,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Listing {
-    pub owner: String,
-    pub name: String,
-    pub slug: String,
-    pub private: bool,
-    pub archived: bool,
-    pub default_branch: Option<String>,
-    pub pushed_at: Option<String>,
-    pub url: String,
-}
-
-fn listing(row: ProjectRow) -> Option<Listing> {
+fn listing(row: ProjectRow) -> Option<RepoListing> {
     let (owner, name) = row.path_with_namespace.rsplit_once('/')?;
-    Some(Listing {
+    Some(RepoListing {
         owner: owner.to_string(),
         name: name.to_string(),
         slug: row.path_with_namespace.clone(),
@@ -148,7 +126,7 @@ fn listing(row: ProjectRow) -> Option<Listing> {
     })
 }
 
-pub async fn mine(data_dir: &Path, limit: u32) -> GitlabResult<Vec<Listing>> {
+pub async fn mine(data_dir: &Path, limit: u32) -> GitlabResult<Vec<RepoListing>> {
     let limit = limit.clamp(1, 200);
     let rows: Vec<ProjectRow> = client::get_all(
         data_dir,
@@ -201,7 +179,7 @@ mod tests {
     use super::*;
 
     fn slug(remote: &str) -> Option<String> {
-        from_remote(remote).map(|repo| format!("{} {}", repo.host, repo.slug()))
+        from_remote(remote).map(|repo| format!("{} {}", repo.host, super::slug(&repo)))
     }
 
     #[test]

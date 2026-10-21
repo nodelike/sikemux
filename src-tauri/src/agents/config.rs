@@ -2,19 +2,19 @@ use std::fs;
 use std::path::Path;
 
 use serde_json::Value;
+use sikemux_core::agent_catalog::AgentKind;
 pub(crate) use sikemux_core::sessions::roots::{
-    agent_config_root, environment_path, grok_root, hermes_root, muse_config_root, omp_agent_root,
-    pi_agent_root,
+    agent_config_root, environment_path, omp_agent_root,
 };
 use sikemux_process::paths::home;
-use sikemux_pty::user_shell::user_variable;
+use sikemux_process::user_environment::shell_var;
 
 const MAX_MODEL_LENGTH: usize = 256;
 
 pub(super) fn configured_default_model(kind: &str, config_path: Option<&str>) -> Option<String> {
     let home = home()?;
     match kind {
-        "claude" => user_variable("ANTHROPIC_MODEL")
+        "claude" => shell_var("ANTHROPIC_MODEL")
             .and_then(|value| clean_model(&value))
             .or_else(|| {
                 json_model(
@@ -34,15 +34,17 @@ pub(super) fn configured_default_model(kind: &str, config_path: Option<&str>) ->
                 .ok()
                 .and_then(|text| toml_model(&text))
         }
-        "hermes" => user_variable("HERMES_INFERENCE_MODEL")
+        "hermes" => shell_var("HERMES_INFERENCE_MODEL")
             .and_then(|value| clean_model(&value))
             .or_else(|| {
-                let text = fs::read_to_string(hermes_root()?.join("config.yaml")).ok()?;
+                let text =
+                    fs::read_to_string(AgentKind::Hermes.home_root()?.join("config.yaml")).ok()?;
                 let (provider, model) = yaml_model_section(&text);
                 qualify_model(provider.as_deref(), model.as_deref())
             }),
         "pi" => {
-            let settings = fs::read_to_string(pi_agent_root()?.join("settings.json")).ok()?;
+            let settings =
+                fs::read_to_string(AgentKind::Pi.home_root()?.join("settings.json")).ok()?;
             let value: Value = serde_json::from_str(&settings).ok()?;
             qualify_model(
                 value.get("defaultProvider").and_then(Value::as_str),
@@ -61,14 +63,14 @@ pub(super) fn configured_default_model(kind: &str, config_path: Option<&str>) ->
             .ok()
             .and_then(|text| yaml_top_level_scalar(&text, "defaultModel"))
             .and_then(|value| clean_model(&value)),
-        "grok" => fs::read_to_string(grok_root()?.join("config.toml"))
+        "grok" => fs::read_to_string(AgentKind::Grok.home_root()?.join("config.toml"))
             .ok()
             .and_then(|text| toml_section_string(&text, "models", "default"))
             .and_then(|value| clean_model(&value))
             .or_else(|| Some("grok-build".to_string())),
-        "muse" => user_variable("MUSE_MODEL")
+        "muse" => shell_var("MUSE_MODEL")
             .and_then(|value| clean_model(&value))
-            .or_else(|| json_model(&muse_config_root()?.join("settings.json"), "model")),
+            .or_else(|| json_model(&AgentKind::Muse.home_root()?.join("settings.json"), "model")),
         _ => None,
     }
 }
@@ -93,12 +95,12 @@ pub(super) fn configured_default_effort(kind: &str, config_path: Option<&str>) -
                 .ok()
                 .and_then(|text| toml_effort(&text))
         }
-        "hermes" => fs::read_to_string(hermes_root()?.join("config.yaml"))
+        "hermes" => fs::read_to_string(AgentKind::Hermes.home_root()?.join("config.yaml"))
             .ok()
             .and_then(|text| yaml_agent_reasoning_effort(&text))
             .and_then(|value| clean_effort(kind, &value)),
         "pi" => json_effort(
-            &pi_agent_root()?.join("settings.json"),
+            &AgentKind::Pi.home_root()?.join("settings.json"),
             "defaultThinkingLevel",
             kind,
         ),
@@ -106,12 +108,12 @@ pub(super) fn configured_default_effort(kind: &str, config_path: Option<&str>) -
             .ok()
             .and_then(|text| yaml_top_level_scalar(&text, "defaultThinkingLevel"))
             .and_then(|value| clean_effort(kind, &value)),
-        "grok" => fs::read_to_string(grok_root()?.join("config.toml"))
+        "grok" => fs::read_to_string(AgentKind::Grok.home_root()?.join("config.toml"))
             .ok()
             .and_then(|text| toml_section_string(&text, "models", "default_reasoning_effort"))
             .and_then(|value| clean_effort(kind, &value)),
         "muse" => json_effort(
-            &muse_config_root()?.join("settings.json"),
+            &AgentKind::Muse.home_root()?.join("settings.json"),
             "reasoning_effort",
             kind,
         ),

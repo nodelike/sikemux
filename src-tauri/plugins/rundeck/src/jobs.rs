@@ -3,11 +3,11 @@
 
 use std::time::Duration;
 
-use futures::StreamExt;
 use serde::Serialize;
 use serde_json::{Map, Value};
+use sikemux_plugin_api::http::{self, Deadline, Redirects};
 
-use crate::error::{RundeckError, RundeckResult};
+use crate::error::{Rundeck, RundeckError, RundeckResult};
 
 use crate::client::{get_json, get_json_at_version, seg, Session, JOB_DEFINITION_API_VERSION};
 use crate::config;
@@ -291,10 +291,11 @@ fn object_pairs(map: &Map<String, Value>) -> Vec<OptionValue> {
 pub async fn option_values(url: String) -> RundeckResult<Vec<OptionValue>> {
     let transport = config::validate_transport(&url, true).await?;
     let client = transport
-        .pin_dns(reqwest::Client::builder())
+        .pin_dns(http::builder::<Rundeck>(
+            Redirects::Refuse,
+            Deadline::WholeAnswer,
+        ))
         .timeout(OPTION_VALUES_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent("sikemux-rundeck/0.1")
         .build()?;
     let resp = client
         .get(&url)
@@ -308,21 +309,7 @@ pub async fn option_values(url: String) -> RundeckResult<Vec<OptionValue>> {
             message: format!("option values URL answered {status}"),
         });
     }
-    if resp
-        .content_length()
-        .is_some_and(|size| size > MAX_OPTION_VALUES_BYTES as u64)
-    {
-        return Err(RundeckError::Api("option values exceed 1 MiB".into()));
-    }
-    let mut stream = resp.bytes_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        if bytes.len() + chunk.len() > MAX_OPTION_VALUES_BYTES {
-            return Err(RundeckError::Api("option values exceed 1 MiB".into()));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
+    let bytes = http::read_body(resp, MAX_OPTION_VALUES_BYTES).await?;
     let body: Value = serde_json::from_slice(&bytes)
         .map_err(|_| RundeckError::Api("option values URL did not return JSON".into()))?;
     parse_option_values(&body)

@@ -3,7 +3,7 @@
 //! replace or delete an item there, and an item never leaves this host.
 
 use std::collections::HashSet;
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 
 use security_framework::access_control::{ProtectionMode, SecAccessControl};
 use security_framework::base::Error;
@@ -64,8 +64,9 @@ pub(crate) fn delete(service: &str, account: &str) -> KeychainResult<()> {
 /// moves here the first time it is read, and any copy left there goes when
 /// it is written or deleted.
 mod legacy {
-    use super::{HashSet, Mutex, PoisonError};
+    use super::{HashSet, Mutex};
     use crate::{KeychainError, KeychainResult};
+    use sikemux_process::sync::Locked;
 
     use std::time::Duration;
 
@@ -79,8 +80,7 @@ mod legacy {
 
     fn first_look(service: &str, account: &str) -> bool {
         LOOKED
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+            .locked()
             .get_or_insert_with(HashSet::new)
             .insert((service.to_owned(), account.to_owned()))
     }

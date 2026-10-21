@@ -8,6 +8,9 @@ use sikemux_core::client::{probe, CoreClient};
 use sikemux_core::protocol::BuildIdentity;
 use sikemux_core::server::{self, ServerConfig};
 
+use iroh::endpoint::presets;
+use iroh::Endpoint;
+
 use super::*;
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -120,15 +123,12 @@ async fn loopback_device(key: SecretKey) -> Device {
         .await
         .expect("device endpoint");
     Device {
-        key,
-        relays: Vec::new(),
-        online: Mutex::new(Online {
+        online: Arc::new(sikemux_client::device::Device::on_endpoint(
+            key,
             endpoint,
-            generation: 0,
-            reached: HashSet::new(),
-            closed: false,
-        }),
-        renewing: tokio::sync::Mutex::new(()),
+            Vec::new(),
+        )),
+        relays: Vec::new(),
     }
 }
 
@@ -182,7 +182,7 @@ fn a_phone_hears_the_mac_s_view_and_asks_it_typed_questions() {
         let device = loopback_device(phone_key).await;
         let views = Arc::new(Views::default());
         let connection = device
-            .connect_to(core_key.public().to_string(), addr, views.clone())
+            .connect_to(addr, views.clone())
             .await
             .expect("the phone connects");
 
@@ -246,13 +246,7 @@ fn a_phone_the_mac_does_not_know_is_told_it_is_unpaired() {
         let (app, _events) = CoreClient::connect(&core.socket).await.expect("app");
         let addr = core_addr(&app).await;
         let device = loopback_device(SecretKey::generate()).await;
-        let refused = device
-            .connect_to(
-                core_key.public().to_string(),
-                addr,
-                Arc::new(Views::default()),
-            )
-            .await;
+        let refused = device.connect_to(addr, Arc::new(Views::default())).await;
         assert!(matches!(refused, Err(MobileError::Unpaired)));
     });
 }
@@ -284,8 +278,7 @@ fn a_join_ticket_reaches_the_host_and_its_refusal_comes_back() {
             name: "Pixel".into(),
             platform: "android".into(),
         };
-        let (endpoint, _) = device.endpoint().expect("online");
-        let answer = join_with(endpoint, addr, hello).await;
+        let answer = device.join_at(addr, hello).await;
         assert_eq!(
             answer.expect("the host answers"),
             JoinAnswer::Refused {
@@ -369,7 +362,7 @@ fn closing_a_connection_fails_what_waits_on_it_and_tells_the_app_nothing_more() 
         let device = loopback_device(phone_key).await;
         let views = Arc::new(Views::default());
         let connection = device
-            .connect_to(core_key.public().to_string(), addr, views.clone())
+            .connect_to(addr, views.clone())
             .await
             .expect("the phone connects");
 
@@ -404,26 +397,27 @@ fn a_renewed_endpoint_closes_the_connections_on_the_old_one_and_a_closed_phone_s
         let (app, _events) = CoreClient::connect(&core.socket).await.expect("app");
         let addr = core_addr(&app).await;
         let device = loopback_device(phone_key).await;
-        let core_id = core_key.public().to_string();
+        let host = core_key.public();
         let views = Arc::new(Views::default());
         let _connection = device
-            .connect_to(core_id.clone(), addr.clone(), views.clone())
+            .connect_to(addr.clone(), views.clone())
             .await
             .expect("the phone connects");
 
-        device.renew_after_failing(&core_id, 0).await;
+        device.online.renew_after_failing(host, 0).await;
         until("the old endpoint's connection closing", || views.closed()).await;
-        assert_eq!(device.endpoint().expect("online").1, 1);
+        assert_eq!(device.online.generation(), 1);
 
-        device.lock().reached.insert(core_id.clone());
+        let _again = device
+            .connect_to(addr.clone(), Arc::new(Views::default()))
+            .await
+            .expect("the phone connects from the fresh endpoint");
         device.close().await;
-        device.renew_after_failing(&core_id, 1).await;
-        assert!(device.lock().closed);
-        assert_eq!(device.lock().generation, 1, "a closed phone never renews");
+        device.online.renew_after_failing(host, 1).await;
+        assert!(device.online.is_closed());
+        assert_eq!(device.online.generation(), 1, "a closed phone never renews");
         assert!(matches!(
-            device
-                .connect_to(core_id, addr, Arc::new(Views::default()))
-                .await,
+            device.connect_to(addr, Arc::new(Views::default())).await,
             Err(MobileError::Connection { .. })
         ));
     });
@@ -438,26 +432,25 @@ fn a_host_reached_before_comes_back_in_one_try_when_the_endpoint_has_gone_stale(
         let (app, _events) = CoreClient::connect(&core.socket).await.expect("app");
         let addr = core_addr(&app).await;
         let device = loopback_device(phone_key).await;
-        let core_id = core_key.public().to_string();
         let views = Arc::new(Views::default());
         let first = device
-            .connect_to(core_id.clone(), addr.clone(), views.clone())
+            .connect_to(addr.clone(), views.clone())
             .await
             .expect("the phone connects");
-        let stale = device.endpoint().expect("online").0;
+        let stale = device.online.endpoint().expect("online").0;
         stale.close().await;
         until("the stale endpoint's connection closing", || views.closed()).await;
         assert!(!first.is_open());
 
         let started = Instant::now();
         let again = device
-            .connect_to(core_id, addr, Arc::new(Views::default()))
+            .connect_to(addr, Arc::new(Views::default()))
             .await
             .expect("the phone connects again from a fresh endpoint");
         assert!(again.is_open());
-        assert_eq!(device.endpoint().expect("online").1, 1);
+        assert_eq!(device.online.endpoint().expect("online").1, 1);
         assert!(
-            started.elapsed() < REDIAL_TIMEOUT + Duration::from_secs(5),
+            started.elapsed() < Duration::from_secs(6 + 5),
             "took {:?}",
             started.elapsed()
         );

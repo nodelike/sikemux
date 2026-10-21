@@ -1,17 +1,12 @@
 use std::os::unix::fs::PermissionsExt;
 
+use sikemux_process::sync::Locked;
 use tempfile::TempDir;
 
 use super::SimulatorManager;
 
 /// Tests that drive a real simulator share it, so they take turns.
 static REAL_DEVICE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn real_device() -> std::sync::MutexGuard<'static, ()> {
-    REAL_DEVICE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
 
 fn helper(script: &str) -> (TempDir, SimulatorManager) {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -31,7 +26,7 @@ fn real_helper() -> SimulatorManager {
 #[test]
 #[ignore = "needs the sikemux-sim helper and Xcode's simulators"]
 fn lists_the_real_simulators() {
-    let _turn = real_device();
+    let _turn = REAL_DEVICE.locked();
     let manager = real_helper();
     let devices = tauri::async_runtime::block_on(manager.request("devices", serde_json::json!({})))
         .expect("devices");
@@ -108,13 +103,14 @@ fn an_agents_calls_run_one_at_a_time_and_a_cancel_stops_them() {
 mod tools {
     use serde_json::json;
 
-    use super::{helper, real_helper};
+    use super::{helper, real_helper, REAL_DEVICE};
     use crate::simulator::claims::Claim;
     use crate::simulator::tools::{
         app_size, cap_logs, changes, choose_device, edge_warning, element_lines, elements_from,
         inside_project, inspect, labelled, launching, newest_iphone, pick_device, run, tap_point,
         Device, Element, Numbered, Numbering, Pick,
     };
+    use sikemux_process::sync::Locked;
     use std::collections::HashMap;
 
     fn numbered(elements: &[Element]) -> Vec<Numbered> {
@@ -746,7 +742,7 @@ done
     #[test]
     #[ignore = "needs the sikemux-sim helper, Xcode's simulators and the fixture app"]
     fn an_agent_drives_the_fixture_app() {
-        let _turn = super::real_device();
+        let _turn = REAL_DEVICE.locked();
         let fixture = std::env::var("SIKEMUX_SIM_FIXTURE")
             .expect("SIKEMUX_SIM_FIXTURE names the built SimFixture.app");
         let manager = real_helper();
@@ -848,7 +844,7 @@ done
     #[test]
     #[ignore = "needs the sikemux-sim helper and Xcode's simulators"]
     fn an_agent_drives_a_real_simulator() {
-        let _turn = super::real_device();
+        let _turn = REAL_DEVICE.locked();
         let manager = real_helper();
         let call = |method: &str, params: serde_json::Value| {
             run_now(&manager, "agent-real", "/tmp", method, &params)

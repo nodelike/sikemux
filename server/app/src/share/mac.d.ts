@@ -2,6 +2,17 @@
  * The Mac app's modules the share page draws a shared chat with, through `@mac/`. The Mac's own
  * check covers them; these say only what this page uses, so its check does not walk the Mac app.
  */
+declare module "@mac/lib/initials" {
+  export function initials(
+    name: string | null | undefined,
+    email: string | null | undefined,
+  ): string;
+}
+
+declare module "@mac/remote/access" {
+  export function platformName(platform: string): string;
+}
+
 declare module "@mac/share/link" {
   export interface ShareLink {
     readonly id: string;

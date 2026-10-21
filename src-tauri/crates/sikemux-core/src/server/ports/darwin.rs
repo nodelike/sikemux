@@ -304,7 +304,7 @@ mod tests {
         bytes.extend_from_slice(b"/usr/bin/node\0\0\0\0node\0SIKEMUX_AGENT_ID=argv\0");
         bytes.extend_from_slice(b"HOME=/Users/me\0SIKEMUX_AGENT_ID=agent-4\0\0junk=1\0");
         assert_eq!(
-            environment_from_procargs(&bytes, "SIKEMUX_AGENT_ID").as_deref(),
+            environment_from_procargs(&bytes, sikemux_process::vars::AGENT_ID).as_deref(),
             Some("agent-4")
         );
         assert_eq!(environment_from_procargs(&bytes, "PATH"), None);

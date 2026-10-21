@@ -9,6 +9,7 @@ const src = join(root, "src");
 const pluginsDir = join(src, "plugins");
 const pluginApi = join(src, "plugin-api");
 const builtins = join(pluginsDir, "builtin.ts");
+const manifests = join(root, "src-tauri", "plugins");
 const PLUGIN_PACKAGES = [
   /^react(\/|$)/u,
   /^zustand(\/|$)/u,
@@ -39,6 +40,9 @@ function pluginFolderOf(file) {
   return rest.length > 0 ? join(pluginsDir, first) : null;
 }
 
+const ownManifest = (pluginFolder) =>
+  join(manifests, relative(pluginsDir, pluginFolder), "manifest.json");
+
 const problems = [];
 for (const file of await sourceFiles(src)) {
   const text = await readFile(file, "utf8");
@@ -59,7 +63,11 @@ for (const file of await sourceFiles(src)) {
     const target = resolve(dirname(file), specifier);
     const targetPlugin = pluginFolderOf(target);
     if (ownPlugin) {
-      if (!inside(target, ownPlugin) && !inside(target, pluginApi))
+      if (
+        !inside(target, ownPlugin) &&
+        !inside(target, pluginApi) &&
+        target !== ownManifest(ownPlugin)
+      )
         problems.push(
           `${where}: a plugin imports "${specifier}" from outside itself; add what it needs to src/plugin-api`,
         );

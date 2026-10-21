@@ -55,6 +55,10 @@
     object-fit: contain;
 }
 
+.chat-attachment-tagged {
+    position: relative;
+}
+
 .chat-message-attachments {
     flex-wrap: wrap;
     align-items: flex-end;

@@ -1,7 +1,6 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
 
 pub const DEFAULT_MINUTES: u32 = 30;
 const MAX_MINUTES: u32 = 7 * 24 * 60;
@@ -21,17 +20,10 @@ pub fn round_ms(ms: f64) -> f64 {
     (ms * 1_000.0).round() / 1_000.0
 }
 
-pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|since| since.as_millis() as u64)
-        .unwrap_or(0)
-}
-
 /// Start and end of the last `minutes`, clamped to a week.
 pub fn window(minutes: Option<u32>) -> (u64, u64) {
     let minutes = minutes.unwrap_or(DEFAULT_MINUTES).clamp(1, MAX_MINUTES);
-    let end = now_ms();
+    let end = epoch_ms();
     (end.saturating_sub(u64::from(minutes) * 60_000), end)
 }
 

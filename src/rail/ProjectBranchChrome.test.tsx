@@ -34,7 +34,7 @@ vi.mock("../state/resources", async (importOriginal) => {
 });
 
 vi.mock("../hooks/useBattery", () => ({ useBattery: () => null }));
-vi.mock("../hooks/useClock", () => ({ useClock: () => new Date("2026-08-07T12:00:00") }));
+vi.mock("../hooks/useNow", () => ({ useNow: () => new Date("2026-08-07T12:00:00").getTime() }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: () => Promise.resolve("test") }));
 
 const initial = getState();

@@ -68,6 +68,10 @@
     flex: 1 1 auto;
     overflow: auto;
     padding: 4px 0 12px;
+    scrollbar-width: none;
+}
+.bruno-tree-scroll::-webkit-scrollbar {
+    display: none;
 }
 .bruno-tree-msg {
     padding: 12px;

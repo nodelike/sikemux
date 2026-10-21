@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Checks citadel every minute and posts to Discord's #alerts when a check starts failing, every six
+# hours while it keeps failing, and once when it recovers. Run by sikemux-watch.timer.
+set -euo pipefail
+
+STATE="${STATE_DIRECTORY:-/var/lib/sikemux-watch}"
+WEBHOOK_URL="${DISCORD_WEBHOOK_URL:?DISCORD_WEBHOOK_URL is not set}"
+REPEAT_SECONDS=$((6 * 3600))
+
+API_SOCKETS_LIMIT=15000
+RELAY_MBITS_LIMIT=400
+MONTH_TB_LIMIT=6
+BACKUP_HOURS_LIMIT=26
+
+declare -A failing=()
+fail() { failing["$1"]="$2"; }
+
+for unit in sikemux-api sikemux-relay caddy postgresql@17-main; do
+  systemctl is-active --quiet "$unit" || fail "unit-$unit" "$unit is $(systemctl is-active "$unit" || true)"
+done
+
+started=$(date +%s%N)
+if health="$(curl -fsS --max-time 5 http://127.0.0.1:4000/v1/health 2>/dev/null)"; then
+  ms=$((($(date +%s%N) - started) / 1000000))
+  [ "$(jq -r .status <<<"$health")" = ok ] || fail health "the API reports $(jq -c . <<<"$health")"
+  [ "$ms" -lt 1500 ] || fail health-slow "the API took ${ms} ms to answer /v1/health, so its database connections are probably all busy"
+else
+  fail health "the API does not answer /v1/health"
+fi
+
+relay_out="$(/usr/local/lib/sikemux/relay-health 2>&1 >/dev/null)" || fail relay-health "relay-health: ${relay_out:-failed}"
+
+cgroup_percent() {
+  local dir="/sys/fs/cgroup/system.slice/$1.service" max
+  [ -r "$dir/memory.max" ] || return 0
+  max="$(cat "$dir/memory.max")"
+  [ "$max" != max ] || return 0
+  echo $(($(cat "$dir/memory.current") * 100 / max))
+}
+for unit in sikemux-api sikemux-relay; do
+  percent="$(cgroup_percent "$unit")"
+  [ -z "$percent" ] || [ "$percent" -lt 80 ] || fail "memory-$unit" "$unit uses ${percent}% of its memory limit"
+done
+
+available=$(awk '/^MemAvailable:/ { a = $2 } /^MemTotal:/ { t = $2 } END { print int(a * 100 / t) }' /proc/meminfo)
+[ "$available" -ge 10 ] || fail memory "only ${available}% of citadel's memory is available"
+
+disk=$(df --output=pcent / | tail -1 | tr -dc 0-9)
+[ "$disk" -lt 85 ] || fail disk "the disk is ${disk}% full"
+
+cpu=$(awk -F'[ =]' '/^some/ { print int($5) }' /proc/pressure/cpu)
+[ "$cpu" -lt 40 ] || fail cpu "work waited for the CPU ${cpu}% of the last minute"
+
+api_sockets=$(ss -Htn state established '( dport = :4000 )' | wc -l)
+[ "$api_sockets" -lt "$API_SOCKETS_LIMIT" ] || fail sockets "$api_sockets connections to the API (live sockets stop at 20000)"
+
+relay_bytes="$(curl -fsS --max-time 3 http://127.0.0.1:9342/metrics 2>/dev/null | awk '$1 == "relayserver_bytes_sent_total" { print $2 }')"
+now=$(date +%s)
+if [ -n "$relay_bytes" ] && [ -f "$STATE/relay" ]; then
+  read -r then_s then_bytes <"$STATE/relay"
+  elapsed=$((now - then_s))
+  if [ "$elapsed" -gt 0 ] && [ "${relay_bytes%.*}" -ge "$then_bytes" ]; then
+    mbits=$(((${relay_bytes%.*} - then_bytes) * 8 / elapsed / 1000000))
+    [ "$mbits" -lt "$RELAY_MBITS_LIMIT" ] || fail relay-rate "the relay is sending ${mbits} Mbit/s"
+  fi
+fi
+[ -z "$relay_bytes" ] || echo "$now ${relay_bytes%.*}" >"$STATE/relay"
+
+if month_tx="$(vnstat --json m 1 2>/dev/null | jq -r '.interfaces[0].traffic.month[0].tx // empty')" && [ -n "$month_tx" ]; then
+  month_tb=$((month_tx / 1000000000000))
+  [ "$month_tb" -lt "$MONTH_TB_LIMIT" ] || fail bandwidth "citadel has sent ${month_tb} TB this month, of the plan's 8 TB"
+fi
+
+# The timer remembers its last run across restarts; the service's result only since this boot.
+backup_at="$(systemctl show sikemux-backup.timer -p LastTriggerUSec --value)"
+backup_result="$(systemctl show sikemux-backup.service -p Result --value)"
+if [ -z "$backup_at" ] || [ "$backup_at" = n/a ]; then
+  fail backup "the database backup has never run"
+elif [ "$backup_result" != success ]; then
+  fail backup "the last database backup ended with $backup_result"
+elif [ $((now - $(date -d "$backup_at" +%s))) -gt $((BACKUP_HOURS_LIMIT * 3600)) ]; then
+  fail backup "the last database backup started at $backup_at"
+fi
+
+post() {
+  jq -n --arg content "$1" '{content: $content, allowed_mentions: {parse: []}}' |
+    curl -fsS --max-time 10 -H 'content-type: application/json' -d @- "$WEBHOOK_URL" >/dev/null
+}
+
+mkdir -p "$STATE/failing"
+for key in "${!failing[@]}"; do
+  since_file="$STATE/failing/$key"
+  if [ ! -f "$since_file" ]; then
+    post "**citadel:** ${failing[$key]}" && echo "$now $now" >"$since_file"
+  else
+    read -r first last <"$since_file"
+    if [ $((now - last)) -ge "$REPEAT_SECONDS" ]; then
+      post "**citadel, still failing for $(((now - first) / 60)) min:** ${failing[$key]}" &&
+        echo "$first $now" >"$since_file"
+    fi
+  fi
+done
+for since_file in "$STATE"/failing/*; do
+  [ -e "$since_file" ] || continue
+  key="$(basename "$since_file")"
+  [ -n "${failing[$key]+set}" ] && continue
+  read -r first _ <"$since_file"
+  post "**citadel, recovered** after $(((now - first) / 60)) min: $key" && rm -f "$since_file"
+done

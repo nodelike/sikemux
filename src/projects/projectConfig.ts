@@ -56,6 +56,8 @@ export interface SikemuxProjectConfig {
         command: string;
         outputs: string[];
     };
+    /** What proves the project sound: run on each commit, and on a card's change when its pull request has no CI. */
+    check?: string;
 }
 
 export type ProjectConfigValidationCode =

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { useAuth } from '@clerk/expo';
 
-import { AccountProblem, restoreAccount } from '@/account/api';
+import { api } from '@/account/api';
+import { problem as problemOf } from '@/core/problem';
 import { signOutHere } from '@/account/leave';
 import { retryRegistration } from '@/account/session';
 import { Button } from '@/ui/controls';
@@ -21,11 +22,11 @@ export function RestoreAccount({ deletesAt }: { deletesAt: string }) {
     setBusy(true);
     setProblem(undefined);
     try {
-      await restoreAccount(() => getToken({ skipCache: true }));
+      await api(() => getToken({ skipCache: true })).restoreAccount();
       retryRegistration();
     } catch (error) {
       setBusy(false);
-      setProblem(error instanceof AccountProblem ? error.message : 'Something went wrong; try again.');
+      setProblem(problemOf(error));
     }
   };
 

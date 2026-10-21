@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { swallow } from "../state/toast";
 
 export function initials(name: string): string {
     const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -50,7 +51,7 @@ export function AuthorAvatar({ name, email }: { name: string; email: string }) {
                 loaded.set(url, picture);
                 if (alive) setData({ url, data: picture });
             })
-            .catch(() => {});
+            .catch(swallow("load an author picture"));
         return () => {
             alive = false;
         };

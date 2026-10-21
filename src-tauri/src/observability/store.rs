@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use super::duration_us;
 use super::model::{
     EventKind, LatencyBuckets, LatencyHistogramSnapshot, Metadata, ObservabilityConfig,
     ObservabilitySnapshot, ScalarValue, SpanContext, TraceEvent, TraceId,
 };
-use super::{duration_us, next_monotonic_id};
+use sikemux_process::sync::Locked;
 
 static GLOBAL_OBSERVABILITY: OnceLock<Observability> = OnceLock::new();
 
@@ -132,7 +133,7 @@ impl Observability {
                 next_trace_id: AtomicU64::new(1),
                 next_span_id: AtomicU64::new(1),
                 next_sequence: AtomicU64::new(1),
-                config: config.normalized(),
+                config,
                 state: Mutex::new(State::new()),
             }),
         }
@@ -140,7 +141,7 @@ impl Observability {
 
     /// Allocates a trace ID. IDs are never reset with the sampled state.
     pub fn next_trace_id(&self) -> TraceId {
-        TraceId(next_monotonic_id(&self.inner.next_trace_id))
+        TraceId(self.inner.next_trace_id.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Records an instantaneous event and returns its monotonic sequence.
@@ -166,23 +167,18 @@ impl Observability {
         sequence
     }
 
-    /// Increments a named counter, saturating at `u64::MAX`.
-    ///
-    /// Returns `None` when the configured metric-series limit rejects a new
-    /// name. Existing names continue to be updated at the limit.
-    pub fn increment_counter(&self, name: impl Into<String>, delta: u64) -> Option<u64> {
-        let name = self.sanitize_text(name.into());
-        let mut state = self.lock_state();
-        if !state.counters.contains_key(&name)
+    /// Increments a named counter, saturating at `u64::MAX`. A new name past
+    /// the metric-series limit is counted as dropped instead.
+    pub fn increment_counter(&self, name: &str, delta: u64) {
+        let mut state = self.inner.state.locked();
+        if !state.counters.contains_key(name)
             && self.metric_series_count(&state) >= self.inner.config.metric_series_capacity
         {
             state.dropped_metric_series = state.dropped_metric_series.saturating_add(1);
-            return None;
+            return;
         }
-
-        let counter = state.counters.entry(name).or_insert(0);
+        let counter = state.counters.entry(name.to_owned()).or_insert(0);
         *counter = counter.saturating_add(delta);
-        Some(*counter)
     }
 
     /// Sets a finite gauge value.
@@ -195,7 +191,7 @@ impl Observability {
         }
 
         let name = self.sanitize_text(name.into());
-        let mut state = self.lock_state();
+        let mut state = self.inner.state.locked();
         if !state.gauges.contains_key(&name)
             && self.metric_series_count(&state) >= self.inner.config.metric_series_capacity
         {
@@ -214,7 +210,7 @@ impl Observability {
     /// Returns a consistent snapshot while retaining the current window.
     pub fn snapshot(&self) -> ObservabilitySnapshot {
         let now_us = self.now_us();
-        let state = self.lock_state();
+        let state = self.inner.state.locked();
         self.snapshot_locked(&state, now_us)
     }
 
@@ -222,7 +218,7 @@ impl Observability {
     /// Trace, span, and event sequence IDs intentionally remain monotonic.
     pub fn reset(&self) -> ObservabilitySnapshot {
         let now_us = self.now_us();
-        let mut state = self.lock_state();
+        let mut state = self.inner.state.locked();
         let snapshot = self.snapshot_locked(&state, now_us);
         state.clear(now_us);
         snapshot
@@ -230,7 +226,7 @@ impl Observability {
 
     pub(super) fn observe_latency_us(&self, name: String, latency_us: u64) -> bool {
         let name = self.sanitize_text(name);
-        let mut state = self.lock_state();
+        let mut state = self.inner.state.locked();
         if !state.latency_histograms.contains_key(&name)
             && self.metric_series_count(&state) >= self.inner.config.metric_series_capacity
         {
@@ -247,7 +243,7 @@ impl Observability {
     }
 
     pub(super) fn push_event(&self, event: TraceEvent) {
-        let mut state = self.lock_state();
+        let mut state = self.inner.state.locked();
         if state.events.len() == self.inner.config.event_capacity {
             state.events.pop_front();
             state.dropped_events = state.dropped_events.saturating_add(1);
@@ -283,18 +279,11 @@ impl Observability {
     }
 
     pub(super) fn next_sequence(&self) -> u64 {
-        next_monotonic_id(&self.inner.next_sequence)
+        self.inner.next_sequence.fetch_add(1, Ordering::Relaxed)
     }
 
     pub(super) fn now_us(&self) -> u64 {
         duration_us(self.inner.epoch.elapsed())
-    }
-
-    fn lock_state(&self) -> MutexGuard<'_, State> {
-        match self.inner.state.lock() {
-            Ok(state) => state,
-            Err(poisoned) => poisoned.into_inner(),
-        }
     }
 
     pub(super) fn sanitize_metadata(&self, metadata: Metadata) -> Metadata {
@@ -424,8 +413,8 @@ mod tests {
     #[test]
     fn counters_gauges_and_reset_are_consistent() {
         let observer = Observability::default();
-        assert_eq!(observer.increment_counter("writes", 2), Some(2));
-        assert_eq!(observer.increment_counter("writes", 3), Some(5));
+        observer.increment_counter("writes", 2);
+        observer.increment_counter("writes", 3);
         assert!(observer.set_gauge("queue", 4.5));
         assert!(!observer.set_gauge("invalid", f64::NAN));
         let before_id = observer.next_trace_id();

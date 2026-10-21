@@ -26,7 +26,7 @@ pub(super) fn output_totals() -> (u64, u64) {
     )
 }
 
-const PTY_EXITED_EVENT: &str = "pty_exited";
+pub(crate) const PTY_EXITED_EVENT: &str = "pty_exited";
 const PTY_SSH_LINK_EVENT: &str = "pty_ssh_link";
 
 #[derive(Clone, serde::Serialize)]
@@ -40,11 +40,11 @@ struct PtySshLink {
 /// page can bring back an agent that died while its pane was hidden.
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PtyExited {
-    id: SessionId,
-    code: Option<u32>,
-    signal: Option<String>,
-    killed: bool,
+pub(crate) struct PtyExited {
+    pub id: SessionId,
+    pub code: Option<u32>,
+    pub signal: Option<String>,
+    pub killed: bool,
 }
 
 /// Turns what the core sends into webview channel messages and app events.
@@ -66,30 +66,29 @@ impl AppSink {
 
     fn emit<S: serde::Serialize + Clone>(&self, event: &str, payload: S) {
         if self.app.emit_to(MAIN_WEBVIEW, event, payload).is_err() {
-            let _ = global_observability().increment_counter("pty.emit_errors", 1);
+            global_observability().increment_counter("pty.emit_errors", 1);
         }
     }
 }
 
-pub(super) fn deliver(streams: &StreamTable, id: SessionId, bytes: &[u8]) {
+pub(crate) fn deliver(streams: &StreamTable, id: SessionId, bytes: &[u8]) {
     let delivery = streams.output(id, bytes);
     if delivery.is_empty() {
         return;
     }
     let dead = delivery.send(bytes);
     if !dead.is_empty() {
-        let _ =
-            global_observability().increment_counter("pty.channel_send_errors", dead.len() as u64);
+        global_observability().increment_counter("pty.channel_send_errors", dead.len() as u64);
         streams.drop_dead(id, &dead);
     }
 }
 
 /// An empty chunk is the frontend's sign that the process is gone.
-pub(super) fn report_exited(streams: &StreamTable, id: SessionId) {
+pub(crate) fn report_exited(streams: &StreamTable, id: SessionId) {
     streams.exited(id).send(&[]);
 }
 
-pub(super) fn report_all_exited(streams: &StreamTable) {
+pub(crate) fn report_all_exited(streams: &StreamTable) {
     for delivery in streams.take_all() {
         delivery.send(&[]);
     }
@@ -97,6 +96,7 @@ pub(super) fn report_all_exited(streams: &StreamTable) {
 
 impl EventSink for AppSink {
     fn output(&self, id: SessionId, bytes: &[u8]) {
+        crate::hosts::install::watch_output(id, bytes);
         let observer = global_observability();
         // Every observability call allocates a name and takes one global lock,
         // and this runs for every frame of every terminal. Instrument a
@@ -133,6 +133,7 @@ impl EventSink for AppSink {
                 signal,
                 killed,
             } => {
+                crate::hosts::install::ended(id);
                 self.emit(
                     PTY_EXITED_EVENT,
                     PtyExited {
@@ -165,6 +166,7 @@ impl EventSink for AppSink {
             Event::Remote { status } => {
                 crate::account::notice_remote(&self.app, &status);
                 crate::remote::follow_remote_access(&self.app, status.enabled);
+                crate::hosts::follow_links(&self.app);
                 self.emit("remote_status_changed", status);
             }
             Event::ChatBegun { .. } => {}
@@ -177,9 +179,24 @@ impl EventSink for AppSink {
                 "agent_notice",
                 serde_json::json!({ "title": title, "body": body, "agentId": agent_id }),
             ),
+            Event::AccountDevice {
+                key,
+                name,
+                platform,
+            } => {
+                let own = self
+                    .app
+                    .try_state::<crate::hosts::Hosts>()
+                    .and_then(|hosts| hosts.own_key());
+                if own.as_deref() != Some(key.as_str()) {
+                    self.emit(
+                        "account_device",
+                        serde_json::json!({ "key": key, "name": name, "platform": platform }),
+                    );
+                }
+            }
             Event::FocusAgent { agent_id } => {
-                crate::harness::bring_to_front(&self.app);
-                self.emit("focus_agent", agent_id);
+                crate::agent_notification::focus_agent(&self.app, agent_id)
             }
             Event::DeviceView { view } => self.view.changed(&self.app, view),
             Event::TerminalTitle { id, title } => self.emit(
@@ -250,7 +267,7 @@ mod tests {
         let streams = StreamTable::default();
         let (pane, chunks) = recording();
         {
-            let mut guard = streams.lock().expect("lock");
+            let mut guard = streams.lock();
             guard.begin_attach(4).expect("begin");
             guard.finish_attach(4, pane).expect("attach");
         }
@@ -263,7 +280,7 @@ mod tests {
         let streams = StreamTable::default();
         let (pane, chunks) = recording();
         {
-            let mut guard = streams.lock().expect("lock");
+            let mut guard = streams.lock();
             guard.begin_attach(11).expect("begin");
             guard.finish_attach(11, pane).expect("attach");
         }

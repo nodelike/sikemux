@@ -5,9 +5,10 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
 
 use crate::protocol::AgentStatus;
 
@@ -39,14 +40,11 @@ pub(crate) struct Foreign {
     pub parent: Option<String>,
     pub role: Role,
     pub status: AgentStatus,
-    #[serde(default)]
     pub active_at: Option<u64>,
     /// The checkout of its lead's project here that its commits come back to.
-    #[serde(default)]
     pub repo: Option<PathBuf>,
     /// The branch its latest commits came back on and how many there are,
     /// until its next report says so.
-    #[serde(default)]
     pub landed: Option<(String, usize)>,
 }
 
@@ -62,7 +60,6 @@ pub(crate) struct Tree {
     /// The lead's commit it started from.
     pub base: String,
     /// The commit its work last went back to the lead at.
-    #[serde(default)]
     pub sent: Option<String>,
 }
 
@@ -87,21 +84,16 @@ impl Team {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, Record> {
-        self.record
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     fn change<R>(&self, change: impl FnOnce(&mut Record) -> R) -> R {
-        let mut record = self.lock();
+        let mut record = self.record.locked();
         let changed = change(&mut record);
         self.kept.save(&*record);
         changed
     }
 
     pub(crate) fn get(&self, agent_id: &str) -> Option<Foreign> {
-        self.lock()
+        self.record
+            .locked()
             .agents
             .iter()
             .find(|agent| agent.agent_id == agent_id)
@@ -109,11 +101,12 @@ impl Team {
     }
 
     pub(crate) fn all(&self) -> Vec<Foreign> {
-        self.lock().agents.clone()
+        self.record.locked().agents.clone()
     }
 
     pub(crate) fn ids(&self) -> HashSet<String> {
-        self.lock()
+        self.record
+            .locked()
             .agents
             .iter()
             .map(|agent| agent.agent_id.clone())
@@ -121,7 +114,8 @@ impl Team {
     }
 
     pub(crate) fn on(&self, host: &str) -> Vec<Foreign> {
-        self.lock()
+        self.record
+            .locked()
             .agents
             .iter()
             .filter(|agent| agent.host == host)
@@ -130,7 +124,11 @@ impl Team {
     }
 
     pub(crate) fn has_host(&self, host: &str) -> bool {
-        self.lock().agents.iter().any(|agent| agent.host == host)
+        self.record
+            .locked()
+            .agents
+            .iter()
+            .any(|agent| agent.host == host)
     }
 
     pub(crate) fn add(&self, foreign: Foreign) {
@@ -180,7 +178,8 @@ impl Team {
     }
 
     pub(crate) fn tree(&self, agent_id: &str) -> Option<Tree> {
-        self.lock()
+        self.record
+            .locked()
             .trees
             .iter()
             .find(|tree| tree.agent_id == agent_id)

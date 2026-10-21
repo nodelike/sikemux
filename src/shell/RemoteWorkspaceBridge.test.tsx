@@ -21,6 +21,7 @@ function status(enabled: boolean): RemoteStatus {
         account: null,
         updateRequired: null,
         notifications: [],
+        requireApproval: false,
     };
 }
 
@@ -48,9 +49,12 @@ async function settle() {
 
 describe("RemoteWorkspaceBridge", () => {
     it("publishes which agent is on screen", async () => {
-        transport.register("remote_status", () => status(false));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status(false) }));
         const onScreen = vi.fn<(args: unknown) => void>();
-        transport.register("remote_publish_on_screen", onScreen);
+        transport.register("remote_publish", (args) => {
+            const { request } = args as { request: { op: string } };
+            if (request.op === "publishOnScreen") onScreen(request);
+        });
         render(<RemoteWorkspaceBridge />);
         await settle();
         act(() => {
@@ -63,9 +67,12 @@ describe("RemoteWorkspaceBridge", () => {
     });
 
     it("publishes the agent on screen as unwatched while the window is behind another app", async () => {
-        transport.register("remote_status", () => status(false));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status(false) }));
         const onScreen = vi.fn<(args: unknown) => void>();
-        transport.register("remote_publish_on_screen", onScreen);
+        transport.register("remote_publish", (args) => {
+            const { request } = args as { request: { op: string } };
+            if (request.op === "publishOnScreen") onScreen(request);
+        });
         render(<RemoteWorkspaceBridge />);
         act(() => {
             cmd.createProjectSession("/Users/me/notch");
@@ -77,11 +84,11 @@ describe("RemoteWorkspaceBridge", () => {
             window.dispatchEvent(new Event("blur"));
         });
         await settle();
-        expect(onScreen.mock.lastCall?.[0]).toEqual({ agentIds: [agentId], focused: false });
+        expect(onScreen.mock.lastCall?.[0]).toEqual({ op: "publishOnScreen", agentIds: [agentId], focused: false });
         act(() => {
             window.dispatchEvent(new Event("focus"));
         });
         await settle();
-        expect(onScreen.mock.lastCall?.[0]).toEqual({ agentIds: [agentId], focused: true });
+        expect(onScreen.mock.lastCall?.[0]).toEqual({ op: "publishOnScreen", agentIds: [agentId], focused: true });
     });
 });

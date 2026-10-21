@@ -8,6 +8,7 @@ use serde_json::Value;
 use sikemux_plugin_api::{
     AgentTool, Manifest, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
 };
+use sikemux_process::sync::{Locked, Shared};
 use tokio::runtime::{Handle, Runtime};
 use tokio::task::JoinHandle;
 
@@ -118,11 +119,7 @@ impl PluginHost {
     }
 
     fn is_enabled(&self, id: &str) -> bool {
-        !self
-            .disabled
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains(id)
+        !self.disabled.read_locked().contains(id)
     }
 
     pub fn set_disabled(&self, ids: Vec<String>) {
@@ -143,22 +140,13 @@ impl PluginHost {
     }
 
     pub fn disabled(&self) -> Vec<String> {
-        let mut ids: Vec<String> = self
-            .disabled
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .cloned()
-            .collect();
+        let mut ids: Vec<String> = self.disabled.read_locked().iter().cloned().collect();
         ids.sort();
         ids
     }
 
     fn keep_disabled(&self, ids: Vec<String>) {
-        *self
-            .disabled
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = ids.into_iter().collect();
+        *self.disabled.write_locked() = ids.into_iter().collect();
     }
 
     fn read_disabled(&self) {
@@ -239,10 +227,7 @@ impl PluginHost {
                     None
                 }
             };
-            let mut before = self
-                .offered_before
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut before = self.offered_before.locked();
             let offers = match answer {
                 Some(offers) => {
                     before.insert(key, offers);

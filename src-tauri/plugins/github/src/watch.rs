@@ -1,11 +1,11 @@
 use std::path::Path;
 use std::time::Duration;
 
+use sikemux_plugin_api::codehost::{Job, Run};
 use sikemux_plugin_api::watch::{self, Failure, Follow, Reading};
 use sikemux_plugin_api::{PluginResult, StreamSink};
 
-use crate::error::GithubError;
-use crate::runs::{self, Followed, Job, Run, RunRef};
+use crate::runs::{self, Followed, RunRef};
 
 /// Below this many requests left in the hour, the run is read less often.
 const SPARING_BELOW: u64 = 500;
@@ -20,26 +20,6 @@ struct Github<'a> {
     reads_since_finished: u32,
 }
 
-/// Signed out, a run that is gone, or a request GitHub cannot take: asking
-/// again will not help.
-fn failure(error: GithubError) -> Failure {
-    Failure {
-        fatal: matches!(
-            error,
-            GithubError::Auth(_)
-                | GithubError::Unconfigured
-                | GithubError::NotFound(_)
-                | GithubError::BadArg(_)
-        ),
-        signed_out: matches!(error, GithubError::Auth(_) | GithubError::Unconfigured),
-        rate_reset_secs: match error {
-            GithubError::RateLimited { resets_in_secs } => Some(resets_in_secs),
-            _ => None,
-        },
-        message: error.to_string(),
-    }
-}
-
 impl Follow for Github<'_> {
     type Run = Run;
     type Job = Job;
@@ -49,7 +29,7 @@ impl Follow for Github<'_> {
     async fn read(&mut self) -> Result<Reading<Run, Job>, Failure> {
         let (detail, remaining) = runs::follow(self.data_dir, &self.reference, &mut self.held)
             .await
-            .map_err(failure)?;
+            .map_err(Failure::from)?;
         Ok(Reading {
             run: detail.run,
             jobs: detail.jobs,

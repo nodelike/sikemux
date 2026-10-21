@@ -2,11 +2,12 @@ import { useState } from "react";
 import { copyWithNotice } from "../../../plugin-api/host";
 import { formatAgo, formatDuration } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
-import { ContextMenu, EmptyState, SendToAgentMenu, SkeletonRows } from "../../../plugin-api/ui";
+import { ContextMenu, Pending, SendToAgentMenu } from "../../../plugin-api/ui";
 import type { VercelLogLine } from "../api";
 import { vercelLogR } from "../resources";
-import { deploymentForAgent, isUnderway } from "../state";
-import { Avatar, EnvBadge, hostOf, IconMore, IconPromote, IconRollback, Source, Status, useDeploymentActions, useUnderwayPoll, visit } from "./parts";
+import { useRefreshEvery } from "../../../plugin-api/hooks";
+import { deploymentForAgent, isUnderway, UNDERWAY_REFRESH_MS } from "../state";
+import { Avatar, EnvBadge, hostOf, IconMore, IconPromote, IconRollback, Source, Status, useDeploymentActions, visit } from "./parts";
 
 /** Builds print plenty to stderr that is not a failure, so only lines that say so are marked. */
 const looksLikeError = (line: VercelLogLine) => line.kind === "fatal" || /\b(error|failed)\b|ERR!/i.test(line.text);
@@ -31,10 +32,9 @@ export function Deployment({
     const [agentMenu, setAgentMenu] = useState<{ x: number; y: number } | null>(null);
     const deployment = log.data?.deployment;
     const underway = deployment ? isUnderway(deployment.state) : false;
-    useUnderwayPoll(active, underway, log.refresh);
+    useRefreshEvery(log, active && underway ? UNDERWAY_REFRESH_MS : null);
 
-    if (log.status === "error" && !deployment) return <EmptyState message={log.error ?? `Vercel could not open ${id}.`} tone="error" />;
-    if (!deployment) return <SkeletonRows rows={8} label={`Loading ${id}`} />;
+    if (!deployment) return <Pending handle={log} loading={`Loading ${id}`} rows={8} />;
 
     const current = deployment.id === production;
     const ready = deployment.state === "READY";

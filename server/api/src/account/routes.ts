@@ -9,7 +9,7 @@ import {
   type Verifier,
 } from "../auth.ts";
 import type { Database } from "../db.ts";
-import { ApiFailure, readOptionalBody } from "../http.ts";
+import { notFound, readOptionalBody } from "../http.ts";
 import { limit, type RateLimiter } from "../limits.ts";
 import { revokeAppleSignIn, type AppleSignIn } from "./apple.ts";
 import type { ClerkBackend } from "./clerk.ts";
@@ -53,9 +53,7 @@ export function accountRoutes(
       async (c) => {
         const identity = c.get("identity");
         if (!(await restoreAccount(db, identity.userId)))
-          throw new ApiFailure(
-            404,
-            "not_found",
+          throw notFound(
             "The account is already deleted and can no longer be restored.",
           );
         c.get("log").info("restored an account");

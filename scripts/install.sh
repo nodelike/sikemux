@@ -1,5 +1,7 @@
 #!/bin/sh
 # Installs Sikemux: curl -fsSL https://sikemux.com/install | sh
+# Each release carries the installer made for its files, and sikemux.com serves
+# the latest stable one; a nightly install hands over to that nightly's own.
 # On Linux it asks whether to install the desktop app or just the core, which
 # runs agents on a server; `| sh -s -- --host` or `--app` picks without asking,
 # and `--yes` takes every default. Set SIKEMUX_CHANNEL=nightly for the nightly build.
@@ -153,6 +155,13 @@ trap 'rm -rf "$TMP"' EXIT
 VERSION=$(latest_version)
 [ -n "$VERSION" ] || fail "could not find the latest $CHANNEL version"
 
+if [ "$CHANNEL" = nightly ] && [ "${SIKEMUX_INSTALLER:-}" != "$VERSION" ]; then
+  curl -fsSL -o "$TMP/install.sh" "$REPO/releases/download/v$VERSION/install.sh" ||
+    fail "v$VERSION has no installer"
+  SIKEMUX_INSTALLER=$VERSION sh "$TMP/install.sh" "$@" </dev/null
+  exit $?
+fi
+
 case "$(uname -s)" in
   Darwin) platform="macOS" ;;
   Linux) platform="Linux" ;;
@@ -283,9 +292,15 @@ install_host() {
     *) note "Add $(home_path "$bin") to your PATH to run sikemux from any shell." ;;
   esac
 
+  if "$bin/sikemux" status --json 2>/dev/null | grep -q '"account": "'; then
+    say ""
+    say "  This host is signed in: your Mac and phone reach it from Sikemux now."
+    say ""
+    return 0
+  fi
   say ""
-  say "  Next, sign this host in to your Sikemux account, then link it from"
-  say "  your Mac in ${BOLD}Settings → Devices → Computers${RESET}."
+  say "  Next, sign this host in to your Sikemux account. Your Mac and phone"
+  say "  reach it from Sikemux as soon as it is."
   if ! (: </dev/tty) 2>/dev/null; then
     say ""
     note "Sign in with: sikemux login"

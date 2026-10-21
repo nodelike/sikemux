@@ -3,23 +3,15 @@
 // beside it only says which accounts there are, where, and which one a project
 // uses when it names none.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sikemux_plugin_api::keychain_service;
+use sikemux_plugin_api::store::{self, Accounts};
 
-use crate::error::{GitlabError, GitlabResult};
+use crate::error::GitlabResult;
 
-/// A development build keeps entries of its own, so it never spends or replaces the
-/// installed app's sign-in.
-#[cfg(not(test))]
-const TOKEN_SERVICE: &str = if cfg!(debug_assertions) {
-    "sikemux-gitlab-token-dev"
-} else {
-    "sikemux-gitlab-token"
-};
-/// Tests keep to an entry of their own, so they never replace or delete a real token.
-#[cfg(test)]
-const TOKEN_SERVICE: &str = "sikemux-gitlab-token-test";
+const TOKEN_SERVICE: &str = keychain_service!("sikemux-gitlab-token");
 
 pub const GITLAB_COM: &str = "gitlab.com";
 
@@ -65,48 +57,30 @@ pub struct GitlabConfig {
     pub default: Option<String>,
 }
 
+impl store::Account for Account {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Accounts for GitlabConfig {
+    type Account = Account;
+
+    fn accounts(&self) -> &[Account] {
+        &self.accounts
+    }
+    fn accounts_mut(&mut self) -> &mut Vec<Account> {
+        &mut self.accounts
+    }
+    fn default_id(&self) -> Option<&str> {
+        self.default.as_deref()
+    }
+    fn default_id_mut(&mut self) -> &mut Option<String> {
+        &mut self.default
+    }
+}
+
 impl GitlabConfig {
-    /// The account named, or with none named, the default one.
-    pub fn account(&self, id: Option<&str>) -> Option<&Account> {
-        let wanted = id.or(self.default.as_deref());
-        match wanted {
-            Some(wanted) => self.accounts.iter().find(|account| account.id == wanted),
-            None => self.accounts.first(),
-        }
-    }
-
-    /// Adds the account, or replaces the one with the same id. The first account becomes the default.
-    pub fn upsert(&mut self, account: Account) {
-        match self.accounts.iter_mut().find(|kept| kept.id == account.id) {
-            Some(kept) => *kept = account,
-            None => self.accounts.push(account),
-        }
-        let default_is_signed_in = self
-            .default
-            .as_ref()
-            .is_some_and(|id| self.accounts.iter().any(|account| &account.id == id));
-        if !default_is_signed_in {
-            self.default = self.accounts.first().map(|account| account.id.clone());
-        }
-    }
-
-    /// Takes the account out; a removed default passes to the first account left.
-    pub fn remove(&mut self, id: &str) -> Option<Account> {
-        let index = self.accounts.iter().position(|account| account.id == id)?;
-        let removed = self.accounts.remove(index);
-        if self.default.as_deref() == Some(id) {
-            self.default = self.accounts.first().map(|account| account.id.clone());
-        }
-        Some(removed)
-    }
-
-    /// Every account, the default first, which is the order to try them in.
-    pub fn in_order(&self) -> Vec<Account> {
-        let mut ordered = self.accounts.clone();
-        ordered.sort_by_key(|account| Some(&account.id) != self.default.as_ref());
-        ordered
-    }
-
     /// The first account on the server, the default first.
     pub fn account_on(&self, host: &str) -> Option<Account> {
         self.in_order()
@@ -126,34 +100,8 @@ impl GitlabConfig {
     }
 }
 
-fn config_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("config.json")
-}
-
-pub fn load(data_dir: &Path) -> GitlabConfig {
-    std::fs::read(config_path(data_dir))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
-}
-
-fn io_error(error: std::io::Error) -> GitlabError {
-    GitlabError::Transport(format!("saving settings: {error}"))
-}
-
-pub fn save(data_dir: &Path, config: &GitlabConfig) -> GitlabResult<()> {
-    std::fs::create_dir_all(data_dir).map_err(io_error)?;
-    let path = config_path(data_dir);
-    let staged = path.with_extension("json.tmp");
-    std::fs::write(&staged, serde_json::to_vec_pretty(config)?).map_err(io_error)?;
-    std::fs::rename(&staged, &path).map_err(io_error)
-}
-
-fn keychain_error(error: sikemux_keychain::KeychainError) -> GitlabError {
-    match error {
-        sikemux_keychain::KeychainError::Invalid(message) => GitlabError::BadArg(message),
-        sikemux_keychain::KeychainError::Failed(message) => GitlabError::Keychain(message),
-    }
+pub fn load(data_dir: &Path) -> GitlabResult<GitlabConfig> {
+    Ok(store::load(data_dir)?)
 }
 
 /// The Keychain only takes token-like names, so the `#` between server and id is left out.
@@ -162,26 +110,25 @@ fn keychain_account(account: &Account) -> String {
 }
 
 pub fn keychain_read(account: &Account) -> GitlabResult<Option<String>> {
-    sikemux_keychain::read(TOKEN_SERVICE, &keychain_account(account)).map_err(keychain_error)
+    Ok(sikemux_keychain::read(
+        TOKEN_SERVICE,
+        &keychain_account(account),
+    )?)
 }
 
 pub fn keychain_write(account: &Account, secret: &str) -> GitlabResult<()> {
-    sikemux_keychain::write(TOKEN_SERVICE, &keychain_account(account), secret)
-        .map_err(keychain_error)
+    Ok(sikemux_keychain::write(
+        TOKEN_SERVICE,
+        &keychain_account(account),
+        secret,
+    )?)
 }
 
 pub fn keychain_delete(account: &Account) -> GitlabResult<()> {
-    sikemux_keychain::delete(TOKEN_SERVICE, &keychain_account(account)).map_err(keychain_error)
-}
-
-/// Runs work that starts a process or touches the Keychain on a thread meant
-/// for blocking, away from the few threads every plugin shares.
-pub async fn blocking<T: Send + 'static>(
-    work: Box<dyn FnOnce() -> GitlabResult<T> + Send>,
-) -> GitlabResult<T> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| GitlabError::Keychain(error.to_string()))?
+    Ok(sikemux_keychain::delete(
+        TOKEN_SERVICE,
+        &keychain_account(account),
+    )?)
 }
 
 #[cfg(test)]
@@ -199,51 +146,12 @@ mod tests {
     }
 
     #[test]
-    fn the_first_account_becomes_the_default_and_a_second_does_not() {
-        let mut config = GitlabConfig::default();
-        assert!(config.account(None).is_none());
-        config.upsert(account("gitlab.com", 1));
-        config.upsert(account("gitlab.acme.dev", 1));
-        assert_eq!(
-            config.account(None).map(|a| a.id.as_str()),
-            Some("gitlab.com#1")
-        );
-        assert_eq!(
-            config
-                .account(Some("gitlab.acme.dev#1"))
-                .map(|a| a.host.as_str()),
-            Some("gitlab.acme.dev")
-        );
-    }
-
-    #[test]
-    fn the_same_person_id_on_two_servers_is_two_accounts() {
-        let mut config = GitlabConfig::default();
-        config.upsert(account("gitlab.com", 7));
-        config.upsert(account("gitlab.acme.dev", 7));
-        config.upsert(account("gitlab.com", 7));
-        assert_eq!(config.accounts.len(), 2);
-    }
-
-    #[test]
     fn gitlab_com_and_every_signed_in_server_count_as_gitlab() {
         let mut config = GitlabConfig::default();
         assert_eq!(config.hosts(), ["gitlab.com"]);
         config.upsert(account("gitlab.acme.dev", 1));
         config.upsert(account("gitlab.com", 2));
         assert_eq!(config.hosts(), ["gitlab.com", "gitlab.acme.dev"]);
-    }
-
-    #[test]
-    fn removing_the_default_hands_it_to_the_next_account_and_order_starts_with_it() {
-        let mut config = GitlabConfig::default();
-        config.upsert(account("gitlab.com", 1));
-        config.upsert(account("gitlab.com", 2));
-        config.default = Some("gitlab.com#2".into());
-        let order: Vec<String> = config.in_order().into_iter().map(|a| a.id).collect();
-        assert_eq!(order, ["gitlab.com#2", "gitlab.com#1"]);
-        config.remove("gitlab.com#2");
-        assert_eq!(config.default.as_deref(), Some("gitlab.com#1"));
     }
 
     #[test]

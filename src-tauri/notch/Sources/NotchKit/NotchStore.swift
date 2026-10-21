@@ -18,6 +18,7 @@ final class NotchStore {
     @ObservationIgnored let options: Options
     @ObservationIgnored private var link: CoreLink?
     @ObservationIgnored private var startedCore = false
+    @ObservationIgnored private var waiter: CoreWaiter?
     @ObservationIgnored private var questions: [AgentQuestion] = []
     @ObservationIgnored private var heard = false
     @ObservationIgnored private var errorTimer: DispatchWorkItem?
@@ -44,6 +45,7 @@ final class NotchStore {
     // MARK: Connection
 
     func connect() {
+        guard link == nil, waitForCore() else { return }
         let link = CoreLink(socket: options.socket, protocolVersion: options.protocolVersion)
         link.onReady = { [weak self, weak link] in
             link?.request(["op": "watchView"])
@@ -57,18 +59,28 @@ final class NotchStore {
             guard let self else { return }
             self.link = nil
             self.disconnected()
-            if let reason { self.fail(reason) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.connect() }
+            guard let reason else { return self.connect() }
+            self.fail(reason)
+            _ = self.waitForCore()
         }
         if link.connect() {
             self.link = link
+            waiter = nil
             return
         }
         if !startedCore {
             startedCore = true
-            CoreStarter.start(options)
+            CoreStarter.start(options) { [weak self] in self?.connect() }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.connect() }
+    }
+
+    /// Listens for the core starting, stopping or opening a window. It listens
+    /// before each try, so a core that comes up during one still wakes it.
+    private func waitForCore() -> Bool {
+        if waiter != nil { return true }
+        waiter = CoreWaiter(socket: options.socket) { [weak self] in self?.connect() }
+        if waiter == nil { fail("the notch could not wait for Sikemux's core at \(options.socket)") }
+        return waiter != nil
     }
 
     private func receive(_ event: [String: Any]) {
@@ -199,23 +211,13 @@ final class NotchStore {
         }
     }
 
-    /// Shows the agent in Sikemux, opening the app first when its window is closed.
+    /// Shows the agent in Sikemux. With its window closed the core keeps the
+    /// agent for the window the app opens.
     func focus(_ agentId: String) {
         guard let link else { return }
         bringAppForward()
         link.request(["op": "focusAgent", "agentId": agentId]) { [weak self] result in
-            guard case .failure = result, let self else { return }
-            self.openApp()
-            self.retryFocus(agentId, attempts: 30)
-        }
-    }
-
-    private func retryFocus(_ agentId: String, attempts: Int) {
-        guard attempts > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.link?.request(["op": "focusAgent", "agentId": agentId]) { result in
-                if case .failure = result { self?.retryFocus(agentId, attempts: attempts - 1) }
-            }
+            if case .failure = result { self?.openApp() }
         }
     }
 

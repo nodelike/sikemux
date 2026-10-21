@@ -14,7 +14,7 @@ import {
 } from "../../plugin-api/host";
 import { invalidate, resource } from "../../plugin-api/resources";
 import { definePluginSettings } from "../../plugin-api/settings";
-import { BRUNO_CLIENT, BRUNO_PLUGIN_ID } from "./kinds";
+import { BRUNO_CLIENT, BRUNO_PLUGIN } from "./kinds";
 import { loadCollection } from "./lib/collection";
 import { parseRequest } from "./lib/parse";
 import { serializeRequest } from "./lib/serialize";
@@ -69,7 +69,7 @@ function decodeSettings(saved: unknown): BrunoSettings {
     };
 }
 
-export const brunoSettings = definePluginSettings(BRUNO_PLUGIN_ID, decodeSettings);
+export const brunoSettings = definePluginSettings(BRUNO_PLUGIN.id, decodeSettings);
 
 export const brunoCollectionR = resource({
     kind: "bruno.collection",

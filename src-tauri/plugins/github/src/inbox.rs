@@ -5,7 +5,9 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::codehost::Notification;
 
 use crate::client;
 use crate::common::MAX_PER_PAGE;
@@ -32,25 +34,6 @@ struct NotificationRow {
     updated_at: String,
     subject: SubjectRow,
     repository: RepositoryRow,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Notification {
-    /// The thread id, which is what marking it read needs.
-    pub id: String,
-    pub title: String,
-    /// `PullRequest`, `Issue`, `Release`, `CheckSuite`, `Discussion` or `Commit`.
-    pub kind: String,
-    /// Why it arrived: `review_requested`, `mention`, `assign`, `author` and so on.
-    pub reason: String,
-    pub repo: String,
-    /// The number of the pull request or issue, when it has one.
-    pub number: Option<u64>,
-    pub unread: bool,
-    pub updated_at: String,
-    /// Where a person would go to read it, or nothing when GitHub gave no address.
-    pub url: Option<String>,
 }
 
 /// `.../repos/owner/name/pulls/12` is where the API keeps it;
@@ -114,7 +97,7 @@ pub struct Query {
 }
 
 pub async fn list(data_dir: &Path, input: Query) -> GithubResult<Vec<Notification>> {
-    let host = crate::config::load(data_dir).host_of(client::chosen().as_deref());
+    let host = crate::config::load(data_dir)?.host_of(chosen().as_deref());
     let rows: Vec<NotificationRow> = client::get(
         data_dir,
         "/notifications",

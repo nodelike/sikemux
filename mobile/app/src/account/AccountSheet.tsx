@@ -5,7 +5,7 @@ import { useAuth, useUser } from '@clerk/expo';
 import { nativeApplicationVersion, nativeBuildVersion } from 'expo-application';
 import * as Updates from 'expo-updates';
 
-import { AccountProblem, removePhone } from '@/account/api';
+import { ApiProblem, removePhone } from '@/account/api';
 import { Avatar } from '@/account/Avatar';
 import { providerName } from '@/account/providers';
 import { signOutHere } from '@/account/leave';
@@ -154,7 +154,7 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
 }
 
 function whyNotConfirmed(error: unknown): string {
-  return error instanceof AccountProblem && !error.unreachable ? error.message : "Can't reach Sikemux";
+  return error instanceof ApiProblem && !error.unreachable ? error.message : "Can't reach Sikemux";
 }
 
 const makeStyles = (colors: Palette) => {

@@ -21,9 +21,9 @@ vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>(
 const confirmDialog = vi.hoisted(() => vi.fn());
 vi.mock("../../../plugin-api/host", async (importOriginal) => ({ ...(await importOriginal<object>()), confirmDialog }));
 
-import { invalidate } from "../../../plugin-api/resources";
 import { deploymentForAgent } from "../state";
 import { VercelPane } from "./VercelPane";
+import { vercel } from "../resources";
 
 const signedIn: VercelStatus = {
     configured: true,
@@ -99,7 +99,7 @@ const accept = (title: string) => waitFor(() => expect(confirmDialog).toHaveBeen
 
 afterEach(() => {
     cleanup();
-    invalidate((kind) => kind.startsWith("vercel."));
+    vercel.refresh();
 });
 
 beforeEach(() => {

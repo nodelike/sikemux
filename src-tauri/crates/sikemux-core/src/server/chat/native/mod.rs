@@ -8,9 +8,12 @@ mod claude;
 mod codex;
 mod json;
 mod muse;
+mod parts;
 mod patch;
+mod pending;
 mod process;
 mod rpc;
+mod servers;
 mod session;
 
 use std::sync::Arc;
@@ -18,12 +21,12 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
+use crate::agent_catalog::ChatDriver;
 use crate::protocol::ChatLaunch;
 
 use super::rebind::Outcome;
 use super::{Chat, ChatCommand};
 
-pub(crate) use claude::transcript_path as claude_transcript;
 pub(crate) use process::{kill_group, AgentRecord, Released};
 pub(crate) use session::{Adopted, Begin, Handed, SessionState};
 
@@ -70,36 +73,19 @@ fn file_link(name: Option<&str>, uri: &str) -> String {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Kind {
-    Claude,
-    Codex,
-    Muse,
-    Acp,
-}
-
-impl Kind {
-    pub fn of(provider: &str) -> Self {
-        match provider {
-            "claude" => Self::Claude,
-            "codex" => Self::Codex,
-            "muse" => Self::Muse,
-            _ => Self::Acp,
-        }
-    }
-}
-
 pub(super) async fn run(
-    kind: Kind,
     chat: Arc<Chat>,
     launch: ChatLaunch,
     commands: &mut mpsc::UnboundedReceiver<ChatCommand>,
     begin: Begin,
 ) -> Result<Outcome, String> {
-    match kind {
-        Kind::Claude => session::run::<claude::Claude>(chat, launch, commands, begin).await,
-        Kind::Codex => session::run::<codex::Codex>(chat, launch, commands, begin).await,
-        Kind::Muse => session::run::<muse::Muse>(chat, launch, commands, begin).await,
-        Kind::Acp => session::run::<acp::Acp>(chat, launch, commands, begin).await,
+    let driver = crate::agent_catalog::agent(chat.provider())
+        .and_then(|agent| agent.chat.as_ref())
+        .ok_or_else(|| format!("{} has no chat", chat.provider()))?;
+    match driver {
+        ChatDriver::Claude => session::run::<claude::Claude>(chat, launch, commands, begin).await,
+        ChatDriver::Codex => session::run::<codex::Codex>(chat, launch, commands, begin).await,
+        ChatDriver::Muse => session::run::<muse::Muse>(chat, launch, commands, begin).await,
+        ChatDriver::Acp { .. } => session::run::<acp::Acp>(chat, launch, commands, begin).await,
     }
 }

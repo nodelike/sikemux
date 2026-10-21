@@ -3,8 +3,9 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_plugin_api::codehost::{Comment, Label, Mention, TimelineItem};
 
 use crate::client;
 use crate::error::GithubResult;
@@ -28,14 +29,6 @@ pub struct ActorRow {
 pub struct LabelRow {
     pub name: String,
     pub color: Option<String>,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Label {
-    pub name: String,
-    /// The six hex digits GitHub stores, with no leading hash.
-    pub color: String,
 }
 
 impl From<LabelRow> for Label {
@@ -63,19 +56,6 @@ struct CommentRow {
     body: Option<String>,
     created_at: String,
     html_url: Option<String>,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Comment {
-    pub id: u64,
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    /// `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR` and the rest.
-    pub author_association: Option<String>,
-    pub body: String,
-    pub created_at: String,
-    pub url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -106,44 +86,10 @@ pub async fn comments(data_dir: &Path, repo: &RepoRef, number: u64) -> GithubRes
         .collect())
 }
 
-/// One thing in a pull request's or issue's history: a comment, a review, a
-/// commit, a merge or anything else GitHub's timeline records, in one shape.
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct TimelineItem {
-    /// GitHub's event name, such as `commented`, `reviewed` or `committed`.
-    pub kind: String,
-    pub id: Option<u64>,
-    pub actor: Option<String>,
-    pub avatar_url: Option<String>,
-    pub association: Option<String>,
-    pub at: Option<String>,
-    pub body: Option<String>,
-    /// A review's verdict, or why an issue was closed.
-    pub state: Option<String>,
-    pub sha: Option<String>,
-    pub message: Option<String>,
-    /// Who or what the event was about: a requested reviewer, a label, a new title.
-    pub subject: Option<String>,
-    /// The issue or pull request that mentioned this one, for a cross-reference.
-    pub source: Option<Source>,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Source {
-    pub number: u64,
-    pub pull: bool,
-    /// `open` or `closed`; a merged pull request also says when.
-    pub state: Option<String>,
-    pub merged: bool,
-    pub repo: Option<String>,
-}
-
-fn source(row: &Value) -> Option<Source> {
+fn source(row: &Value) -> Option<Mention> {
     let issue = row.get("source")?.get("issue")?;
     let pull = issue.get("pull_request");
-    Some(Source {
+    Some(Mention {
         number: issue.get("number")?.as_u64()?,
         pull: pull.is_some(),
         state: text(issue, &["state"]),
@@ -170,38 +116,36 @@ fn first(value: &Value, paths: &[&[&str]]) -> Option<String> {
     paths.iter().find_map(|path| text(value, path))
 }
 
-impl From<Value> for TimelineItem {
-    fn from(row: Value) -> Self {
-        Self {
-            kind: text(&row, &["event"]).unwrap_or_default(),
-            id: row.get("id").and_then(Value::as_u64),
-            actor: first(
-                &row,
-                &[&["actor", "login"], &["user", "login"], &["author", "name"]],
-            ),
-            avatar_url: first(&row, &[&["actor", "avatar_url"], &["user", "avatar_url"]]),
-            association: text(&row, &["author_association"]),
-            at: first(
-                &row,
-                &[&["created_at"], &["submitted_at"], &["author", "date"]],
-            ),
-            body: text(&row, &["body"]),
-            state: first(&row, &[&["state"], &["state_reason"]]),
-            sha: first(&row, &[&["sha"], &["commit_id"]]),
-            message: text(&row, &["message"]),
-            subject: first(
-                &row,
-                &[
-                    &["requested_reviewer", "login"],
-                    &["requested_team", "name"],
-                    &["label", "name"],
-                    &["assignee", "login"],
-                    &["rename", "to"],
-                    &["source", "issue", "title"],
-                ],
-            ),
-            source: source(&row),
-        }
+fn timeline_item(row: Value) -> TimelineItem {
+    TimelineItem {
+        kind: text(&row, &["event"]).unwrap_or_default(),
+        id: row.get("id").and_then(Value::as_u64),
+        actor: first(
+            &row,
+            &[&["actor", "login"], &["user", "login"], &["author", "name"]],
+        ),
+        avatar_url: first(&row, &[&["actor", "avatar_url"], &["user", "avatar_url"]]),
+        association: text(&row, &["author_association"]),
+        at: first(
+            &row,
+            &[&["created_at"], &["submitted_at"], &["author", "date"]],
+        ),
+        body: text(&row, &["body"]),
+        state: first(&row, &[&["state"], &["state_reason"]]),
+        sha: first(&row, &[&["sha"], &["commit_id"]]),
+        message: text(&row, &["message"]),
+        subject: first(
+            &row,
+            &[
+                &["requested_reviewer", "login"],
+                &["requested_team", "name"],
+                &["label", "name"],
+                &["assignee", "login"],
+                &["rename", "to"],
+                &["source", "issue", "title"],
+            ],
+        ),
+        source: source(&row),
     }
 }
 
@@ -212,7 +156,7 @@ pub async fn timeline(
 ) -> GithubResult<Vec<TimelineItem>> {
     let path = repo.path(&format!("/issues/{number}/timeline"))?;
     let rows: Vec<Value> = client::get_all(data_dir, &path, &[], LIST_PAGES, |rows| rows).await?;
-    Ok(rows.into_iter().map(TimelineItem::from).collect())
+    Ok(rows.into_iter().map(timeline_item).collect())
 }
 
 #[derive(Deserialize)]
@@ -243,7 +187,7 @@ mod tests {
 
     #[test]
     fn a_timeline_reads_each_event_into_one_shape() {
-        let commit = TimelineItem::from(json!({
+        let commit = timeline_item(json!({
             "event": "committed",
             "sha": "c1f2023",
             "message": "feat: a thing",
@@ -253,7 +197,7 @@ mod tests {
         assert_eq!(commit.at.as_deref(), Some("2026-09-27T10:44:50Z"));
         assert_eq!(commit.sha.as_deref(), Some("c1f2023"));
 
-        let review = TimelineItem::from(json!({
+        let review = timeline_item(json!({
             "event": "reviewed",
             "id": 7,
             "user": { "login": "nodelike", "avatar_url": "https://a/1" },
@@ -266,7 +210,7 @@ mod tests {
         assert_eq!(review.state.as_deref(), Some("changes_requested"));
         assert_eq!(review.at.as_deref(), Some("2026-09-28T01:00:00Z"));
 
-        let asked = TimelineItem::from(json!({
+        let asked = timeline_item(json!({
             "event": "review_requested",
             "actor": { "login": "Sujal" },
             "requested_reviewer": { "login": "nodelike" },

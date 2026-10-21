@@ -6,6 +6,7 @@ import prettier from "prettier";
 
 import {
   bundle,
+  client,
   collect,
   HEADER,
   openapi,
@@ -59,6 +60,7 @@ try {
     [join(protocol, "generated/openapi.json")]: JSON.stringify(
       openapi(definitions, routes),
     ),
+    [join(protocol, "generated/client.ts")]: client(routes),
     [join(repo, "src-tauri/crates/sikemux-wire/src/accounts/protocol.rs")]:
       rust(definitions, {
         include: (definition) => !CORE_ONLY.has(definition.file),

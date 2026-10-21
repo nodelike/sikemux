@@ -1,4 +1,4 @@
-import { loadProjectFilesSnapshot } from "../projects/application";
+import { invokeCommand } from "./invoke";
 
 export interface ProjectFilesSnapshot {
     readonly scanId: number;
@@ -26,12 +26,6 @@ function generationFor(repo: string): number {
     return Math.max(globalGeneration, repoGenerations.get(repo) ?? 0);
 }
 
-function nextInvalidationGeneration(): number {
-    if (invalidationSequence >= Number.MAX_SAFE_INTEGER) throw new RangeError("file cache generation space exhausted");
-    invalidationSequence += 1;
-    return invalidationSequence;
-}
-
 function touchCache(repo: string, entry: CachedSnapshot): void {
     cache.delete(repo);
     cache.set(repo, entry);
@@ -41,20 +35,6 @@ function touchCache(repo: string, entry: CachedSnapshot): void {
         cache.delete(oldest);
         if (!inflight.has(oldest)) repoGenerations.delete(oldest);
     }
-}
-
-function assertSnapshot(value: unknown): ProjectFilesSnapshot {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        throw new TypeError("native project file snapshot is malformed");
-    }
-    const scanIdDescriptor = Object.getOwnPropertyDescriptor(value, "scanId");
-    const filesDescriptor = Object.getOwnPropertyDescriptor(value, "files");
-    const scanId = scanIdDescriptor && "value" in scanIdDescriptor ? scanIdDescriptor.value : undefined;
-    const files = filesDescriptor && "value" in filesDescriptor ? filesDescriptor.value : undefined;
-    if (!Number.isSafeInteger(scanId) || (scanId as number) <= 0 || !Array.isArray(files) || !files.every((path) => typeof path === "string")) {
-        throw new TypeError("native project file snapshot is malformed");
-    }
-    return { scanId: scanId as number, files };
 }
 
 function snapshot(repo: string): Promise<ProjectFilesSnapshot> {
@@ -68,8 +48,7 @@ function snapshot(repo: string): Promise<ProjectFilesSnapshot> {
     const pending = inflight.get(repo);
     if (pending?.generation === generation) return pending.promise;
 
-    const promise = loadProjectFilesSnapshot(repo)
-        .then(assertSnapshot)
+    const promise = invokeCommand<ProjectFilesSnapshot>("list_project_files_snapshot", { repo })
         .then((incoming) => {
             const previous = cache.get(repo)?.snapshot;
             // scanId is process-monotonic. Never let a late request replace a
@@ -94,7 +73,7 @@ export const filesApi = {
     snapshot,
     list: (repo: string): Promise<string[]> => snapshot(repo).then((result) => result.files),
     invalidate: (repo?: string) => {
-        const generation = nextInvalidationGeneration();
+        const generation = ++invalidationSequence;
         if (repo) repoGenerations.set(repo, generation);
         else globalGeneration = generation;
     },

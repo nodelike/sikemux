@@ -3,10 +3,11 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use sikemux_plugin_api::PluginContext;
+use sikemux_process::sync::Locked;
 use sikemux_process::user_environment::shell_var;
 
 use crate::auth;
@@ -99,7 +100,7 @@ pub(crate) fn pick(
 ) -> AwsResult<AgentProfilePicks> {
     let profile = profile.filter(|profile| !profile.trim().is_empty());
     {
-        let _turn = WRITING.lock().unwrap_or_else(PoisonError::into_inner);
+        let _turn = WRITING.locked();
         let mut saved = read(ctx.data_dir());
         match (project.map(canonical), profile) {
             (Some(project), Some(profile)) => {

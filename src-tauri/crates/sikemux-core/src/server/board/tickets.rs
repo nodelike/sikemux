@@ -1,16 +1,17 @@
 //! Keeps the ticket behind each card in step with it through the person's
-//! own sign-in: a card taken moves its ticket to the project's In Progress,
-//! a card done moves it to Done with a comment naming its pull request, and
-//! a ticket closed in its tracker closes its card.
+//! own sign-in: a card taken moves its ticket into the workflow's in-progress
+//! statuses, a card done moves it into its done statuses with a comment naming
+//! its pull request, and a ticket closed in its tracker closes its card.
 
 use std::sync::Arc;
 
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
-use super::{change_card, send_notices, By, Changes, Status, Ticket};
+use super::{change_card, send_notices, By, Changes, Status, Ticket, Tracker};
 use crate::server::connection::blocking;
-use crate::server::plugins;
-use crate::server::remote::unix_ms;
+use crate::server::plugins::{self, Failure};
 use crate::server::wake::sooner;
 use crate::server::Core;
 
@@ -19,18 +20,26 @@ const UPSTREAM_EVERY_MS: u64 = 5 * 60 * 1000;
 /// How long after a failed update the ticket is tried again.
 const RETRY_AFTER_MS: u64 = 5 * 60 * 1000;
 
-/// The tracker a ticket lives in. Only Jira has a plugin; a Linear ticket
-/// waits here for one.
-enum Tracker {
-    Jira { site: Option<String> },
+/// A ticket in Jira, the one tracker with a plugin; a Linear ticket waits
+/// for one.
+struct Jira<'a> {
+    key: &'a str,
+    /// The Jira site, which the ticket's web address names.
+    site: Option<String>,
 }
 
-fn tracker(ticket: &Ticket) -> Option<Tracker> {
-    match ticket.provider.as_str() {
-        "jira" => Some(Tracker::Jira {
+impl<'a> Jira<'a> {
+    fn of(ticket: &'a Ticket) -> Option<Self> {
+        (ticket.provider == Tracker::Jira).then(|| Self {
+            key: &ticket.key,
             site: ticket.url.as_deref().and_then(site_of),
-        }),
-        _ => None,
+        })
+    }
+
+    async fn call(&self, method: &str, mut params: Value) -> Result<Value, Failure> {
+        params["key"] = self.key.into();
+        params["site"] = json!(self.site);
+        plugins::call("sikemux.jira", method, params).await
     }
 }
 
@@ -41,19 +50,11 @@ fn site_of(url: &str) -> Option<String> {
     (!host.is_empty()).then(|| host.to_owned())
 }
 
-/// Where a failed update of a ticket to `status` notes when it failed.
-fn failed_key(status: Status) -> &'static str {
-    match status {
-        Status::Open => "open-failed",
-        Status::Progress => "progress-failed",
-        Status::Done => "done-failed",
-    }
-}
-
 enum Work {
     /// Move the ticket to match the card, then comment.
     Push {
-        to: String,
+        /// The Jira status category the ticket should be in.
+        to: &'static str,
         status: Status,
         comment: Option<String>,
     },
@@ -64,34 +65,33 @@ enum Work {
 /// Starts each ticket update or look that is due, and answers when the next
 /// one will be.
 pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
-    let now = unix_ms();
+    let now = epoch_ms();
     let mut next = None;
     let due: Vec<(String, u64, Ticket, Work)> = {
-        let mut state = core.boards.lock();
+        let mut state = core.boards.state.locked();
         let mut due = Vec::new();
         for (project, board) in &state.boards {
             for card in &board.cards {
                 let Some(ticket) = &card.ticket else { continue };
-                if tracker(ticket).is_none() {
+                if Jira::of(ticket).is_none() {
                     continue;
                 }
-                let at = |what: &'static str| {
-                    state.polled.get(&(project.clone(), card.id, what)).copied()
-                };
-                let since =
-                    |what: &'static str| at(what).map_or(u64::MAX, |at| now.saturating_sub(at));
+                let kept = state.work_of(project, card.id);
+                let failed = kept
+                    .and_then(|kept| kept.ticket_failed)
+                    .filter(|(status, _)| *status == card.status)
+                    .map(|(_, at)| at);
+                let looked = kept.and_then(|kept| kept.ticket_looked);
+                let since = |at: Option<u64>| at.map_or(u64::MAX, |at| now.saturating_sub(at));
                 let wanted = match card.status {
                     Status::Open => None,
-                    Status::Progress => Some(&board.settings.statuses.progress),
-                    Status::Done => Some(&board.settings.statuses.done),
+                    Status::Progress => Some("indeterminate"),
+                    Status::Done => Some("done"),
                 };
                 let work = match wanted {
                     Some(to) if ticket.synced != Some(card.status) => {
-                        if since(failed_key(card.status)) < RETRY_AFTER_MS {
-                            next = sooner(
-                                next,
-                                at(failed_key(card.status)).map(|at| at + RETRY_AFTER_MS),
-                            );
+                        if since(failed) < RETRY_AFTER_MS {
+                            next = sooner(next, failed.map(|at| at + RETRY_AFTER_MS));
                             continue;
                         }
                         let comment = (card.status == Status::Done)
@@ -99,21 +99,21 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                             .flatten()
                             .map(|pull| format!("Merged in {} by Sikemux's Auto.", pull.url));
                         Work::Push {
-                            to: to.clone(),
+                            to,
                             status: card.status,
                             comment,
                         }
                     }
-                    _ if card.status != Status::Done && since("look") >= UPSTREAM_EVERY_MS => {
+                    _ if card.status != Status::Done && since(looked) >= UPSTREAM_EVERY_MS => {
                         Work::Look
                     }
                     _ if card.status != Status::Done => {
-                        next = sooner(next, at("look").map(|at| at + UPSTREAM_EVERY_MS));
+                        next = sooner(next, looked.map(|at| at + UPSTREAM_EVERY_MS));
                         continue;
                     }
                     _ => continue,
                 };
-                if state.syncing.contains(&(project.clone(), card.id)) {
+                if kept.is_some_and(|kept| kept.syncing) {
                     continue;
                 }
                 due.push((project.clone(), card.id, ticket.clone(), work));
@@ -122,10 +122,10 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
         for (project, id, _, work) in &due {
             match work {
                 Work::Push { .. } => {
-                    state.syncing.insert((project.clone(), *id));
+                    state.work(project, *id).syncing = true;
                 }
                 Work::Look => {
-                    state.polled.insert((project.clone(), *id, "look"), now);
+                    state.work(project, *id).ticket_looked = Some(now);
                     next = sooner(next, Some(now + UPSTREAM_EVERY_MS));
                 }
             }
@@ -138,7 +138,10 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             let pushing = matches!(work, Work::Push { .. });
             run(&core, &project, id, &ticket, work).await;
             if pushing {
-                core.boards.lock().syncing.remove(&(project, id));
+                core.boards
+                    .state
+                    .locked()
+                    .change_work(&project, id, |kept| kept.syncing = false);
                 core.boards.wake.now();
             }
         });
@@ -147,15 +150,10 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
 }
 
 async fn run(core: &Arc<Core>, project: &str, id: u64, ticket: &Ticket, work: Work) {
-    let Some(Tracker::Jira { site }) = tracker(ticket) else {
+    let Some(jira) = Jira::of(ticket) else {
         return;
     };
-    let issue = plugins::call(
-        "sikemux.jira",
-        "issue",
-        json!({ "key": ticket.key, "site": site }),
-    )
-    .await;
+    let issue = jira.call("issue", json!({})).await;
     match work {
         Work::Push {
             to,
@@ -163,8 +161,8 @@ async fn run(core: &Arc<Core>, project: &str, id: u64, ticket: &Ticket, work: Wo
             comment,
         } => {
             let outcome = match issue {
-                Ok(issue) => push(&ticket.key, &site, &issue, &to, comment).await,
-                Err(error) => Err(error),
+                Ok(issue) => push(&jira, &issue, to, comment).await,
+                Err(error) => Err(error.into()),
             };
             settle(core, project, id, &ticket.key, status, outcome);
         }
@@ -180,32 +178,53 @@ async fn run(core: &Arc<Core>, project: &str, id: u64, ticket: &Ticket, work: Wo
 }
 
 async fn push(
-    key: &str,
-    site: &Option<String>,
+    jira: &Jira<'_>,
     issue: &Value,
-    to: &str,
+    category: &str,
     comment: Option<String>,
 ) -> Result<(), String> {
-    let there = issue["status"]
-        .as_str()
-        .is_some_and(|status| status.eq_ignore_ascii_case(to));
-    if !there {
-        plugins::call(
-            "sikemux.jira",
-            "transition",
-            json!({ "key": key, "to": to, "site": site }),
-        )
-        .await?;
+    if issue["statusCategory"].as_str() != Some(category) {
+        let offered = jira.call("transition", json!({})).await?;
+        let Some(id) = into_category(&offered["transitions"], category) else {
+            let into = if category == "done" {
+                "a done"
+            } else {
+                "an in-progress"
+            };
+            return Err(format!(
+                "its workflow has no way into {into} status from where it is now"
+            ));
+        };
+        jira.call("transition", json!({ "to": id })).await?;
     }
     if let Some(body) = comment {
-        plugins::call(
-            "sikemux.jira",
-            "comment",
-            json!({ "key": key, "body": body, "site": site }),
-        )
-        .await?;
+        jira.call("comment", json!({ "body": body })).await?;
     }
     Ok(())
+}
+
+/// The transition into `category` a person would take: the one into the
+/// status named for it, such as In Progress or Done, else the first offered.
+fn into_category(transitions: &Value, category: &str) -> Option<String> {
+    let usual = if category == "done" {
+        "done"
+    } else {
+        "in progress"
+    };
+    let into: Vec<&Value> = transitions
+        .as_array()?
+        .iter()
+        .filter(|transition| transition["toCategory"].as_str() == Some(category))
+        .collect();
+    into.iter()
+        .find(|transition| {
+            transition["to"]
+                .as_str()
+                .is_some_and(|to| to.eq_ignore_ascii_case(usual))
+        })
+        .or(into.first())
+        .and_then(|transition| transition["id"].as_str())
+        .map(str::to_owned)
 }
 
 /// Notes on the card's ticket how its update went.
@@ -217,7 +236,7 @@ fn settle(
     status: Status,
     outcome: Result<(), String>,
 ) {
-    let mut state = core.boards.lock();
+    let mut state = core.boards.state.locked();
     let Some(card) = state
         .boards
         .get_mut(project)
@@ -228,18 +247,18 @@ fn settle(
     let Some(ticket) = card.ticket.as_mut().filter(|ticket| ticket.key == key) else {
         return;
     };
-    let failed = (project.to_owned(), id, failed_key(status));
-    match outcome {
+    let failed = match outcome {
         Ok(()) => {
             ticket.synced = Some(status);
             ticket.sync_note = None;
-            state.polled.remove(&failed);
+            None
         }
         Err(error) => {
             ticket.sync_note = Some(format!("{key} was not updated in Jira: {error}"));
-            state.polled.insert(failed, unix_ms());
+            Some((status, epoch_ms()))
         }
-    }
+    };
+    state.change_work(project, id, |kept| kept.ticket_failed = failed);
     core.boards.save(&mut state, project);
 }
 
@@ -249,7 +268,7 @@ async fn close(core: &Arc<Core>, project: &str, id: u64, key: &str) {
     let (project, key) = (project.to_owned(), key.to_owned());
     let notices = blocking(move || {
         let open = {
-            let mut state = core2.boards.lock();
+            let mut state = core2.boards.state.locked();
             let Some(card) = state
                 .boards
                 .get_mut(&project)

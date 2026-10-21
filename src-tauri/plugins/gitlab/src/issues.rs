@@ -4,13 +4,14 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
+use sikemux_plugin_api::codehost::{Issue, IssuePage, Notification, Release};
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};
 use crate::notes::{Thread, ThreadOf};
-use crate::pulls::{label_of, Label, LabelRow};
+use crate::pulls::{label_of, LabelRow};
 use crate::repo::{avatar_of, login_of, RepoRef, User};
 
 #[derive(Deserialize)]
@@ -34,48 +35,27 @@ pub struct IssueRow {
     web_url: String,
 }
 
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Issue {
-    pub number: u64,
-    pub title: String,
-    pub body: String,
-    pub state: &'static str,
-    pub state_reason: Option<String>,
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub closed_at: Option<String>,
-    pub comments: u64,
-    pub labels: Vec<Label>,
-    pub assignees: Vec<String>,
-    pub url: String,
-}
-
-impl Issue {
-    pub fn from_row(row: IssueRow) -> Self {
-        let closed = row.state == "closed";
-        Issue {
-            number: row.iid,
-            title: row.title,
-            body: row.description.unwrap_or_default(),
-            state: if closed { "closed" } else { "open" },
-            state_reason: closed.then(|| "completed".into()),
-            author: login_of(row.author.as_ref()),
-            avatar_url: avatar_of(row.author.as_ref()),
-            updated_at: row.updated_at.unwrap_or_else(|| row.created_at.clone()),
-            created_at: row.created_at,
-            closed_at: row.closed_at,
-            comments: row.user_notes_count,
-            labels: row.labels.into_iter().map(label_of).collect(),
-            assignees: row
-                .assignees
-                .iter()
-                .filter_map(|user| login_of(Some(user)))
-                .collect(),
-            url: row.web_url,
-        }
+pub fn issue_of(row: IssueRow) -> Issue {
+    let closed = row.state == "closed";
+    Issue {
+        number: row.iid,
+        title: row.title,
+        body: row.description.unwrap_or_default(),
+        state: if closed { "closed" } else { "open" }.into(),
+        state_reason: closed.then(|| "completed".into()),
+        author: login_of(row.author.as_ref()),
+        avatar_url: avatar_of(row.author.as_ref()),
+        updated_at: row.updated_at.unwrap_or_else(|| row.created_at.clone()),
+        created_at: row.created_at,
+        closed_at: row.closed_at,
+        comments: row.user_notes_count,
+        labels: row.labels.into_iter().map(label_of).collect(),
+        assignees: row
+            .assignees
+            .iter()
+            .filter_map(|user| login_of(Some(user)))
+            .collect(),
+        url: row.web_url,
     }
 }
 
@@ -92,14 +72,6 @@ pub struct IssueQuery {
 
 fn first_page() -> u32 {
     1
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IssuePage {
-    pub issues: Vec<Issue>,
-    pub total: u64,
-    pub next_page: Option<u32>,
 }
 
 pub async fn list(data_dir: &Path, input: IssueQuery) -> GitlabResult<IssuePage> {
@@ -120,7 +92,7 @@ pub async fn list(data_dir: &Path, input: IssueQuery) -> GitlabResult<IssuePage>
         30,
     )
     .await?;
-    let issues: Vec<Issue> = found.items.into_iter().map(Issue::from_row).collect();
+    let issues: Vec<Issue> = found.items.into_iter().map(issue_of).collect();
     Ok(IssuePage {
         total: found.total.unwrap_or(issues.len() as u64),
         next_page: found.next,
@@ -154,7 +126,7 @@ pub async fn get(data_dir: &Path, input: IssueRef) -> GitlabResult<Issue> {
         &[("with_labels_details", "true".into())],
     )
     .await?;
-    Ok(Issue::from_row(row))
+    Ok(issue_of(row))
 }
 
 #[derive(Deserialize)]
@@ -177,7 +149,7 @@ pub async fn create(data_dir: &Path, input: NewIssue) -> GitlabResult<Issue> {
         &json!({ "title": input.title.trim(), "description": input.body }),
     )
     .await?;
-    Ok(Issue::from_row(row))
+    Ok(issue_of(row))
 }
 
 #[derive(Deserialize)]
@@ -221,21 +193,6 @@ struct ReleaseLinks {
     page: Option<String>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Release {
-    pub id: u64,
-    pub tag: String,
-    pub name: String,
-    pub body: String,
-    pub draft: bool,
-    pub prerelease: bool,
-    pub published_at: Option<String>,
-    pub author: Option<String>,
-    pub assets: Vec<serde_json::Value>,
-    pub url: String,
-}
-
 /// GitLab names releases by their tag; the list's place stands in for the number other hosts give.
 pub async fn releases(data_dir: &Path, repo: RepoRef) -> GitlabResult<Vec<Release>> {
     let rows: Vec<ReleaseRow> = client::get_all(data_dir, &repo.path("/releases")?, &[], 2).await?;
@@ -254,6 +211,7 @@ pub async fn releases(data_dir: &Path, repo: RepoRef) -> GitlabResult<Vec<Releas
             prerelease: row.upcoming_release,
             published_at: row.released_at,
             author: login_of(row.author.as_ref()),
+            avatar_url: None,
             assets: Vec::new(),
             url: row.links.and_then(|links| links.page).unwrap_or_default(),
         })
@@ -283,20 +241,6 @@ pub struct TodoRow {
     state: Option<String>,
     updated_at: Option<String>,
     created_at: String,
-}
-
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Notification {
-    pub id: String,
-    pub title: String,
-    pub kind: String,
-    pub reason: String,
-    pub repo: String,
-    pub number: Option<u64>,
-    pub unread: bool,
-    pub updated_at: String,
-    pub url: Option<String>,
 }
 
 /// A To-Do item as the inbox reads every host's notifications.
@@ -382,6 +326,7 @@ pub async fn mark_all_read(data_dir: &Path) -> GitlabResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sikemux_plugin_api::codehost::Label;
 
     #[test]
     fn an_issue_reads_as_every_hosts_issue() {
@@ -392,9 +337,13 @@ mod tests {
             "web_url": "https://gitlab.com/acme/api/-/issues/31"
         }))
         .expect("issue parses");
-        let issue = Issue::from_row(row);
+        let issue = issue_of(row);
         assert_eq!(
-            (issue.number, issue.state, issue.state_reason.as_deref()),
+            (
+                issue.number,
+                issue.state.as_str(),
+                issue.state_reason.as_deref()
+            ),
             (31, "closed", Some("completed"))
         );
         assert_eq!(

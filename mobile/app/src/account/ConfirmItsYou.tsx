@@ -2,9 +2,9 @@ import { useReducer, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useReverification, useSession } from '@clerk/expo';
 
-import { ReverifyNeeded } from '@/account/api';
-import { errorCode, explain } from '@/account/clerkErrors';
-import { chooseFactor, REVERIFY_HINT, type Verify, verifying } from '@/account/reverify';
+import { chooseFactor, errorCode, explain, orReverify } from '@protocol/account';
+
+import { type Verify, verifying } from '@/account/reverify';
 import { CodeEntry } from '@/ui/CodeEntry';
 import { Button, PasswordField } from '@/ui/controls';
 import type { IconName } from '@/ui/icons.generated';
@@ -39,33 +39,23 @@ export function useRecentSignIn(elsewhere: string) {
     try {
       if (!session) throw new Error('Sign in again.');
       const started = await session.startVerification({ level: 'first_factor' });
-      const chosen = chooseFactor(started.supportedFirstFactors ?? []);
-      if (!chosen) throw new Error(`This account can't confirm it's you in the app. ${elsewhere}`);
-      if (chosen.emailAddressId) {
-        await session.prepareFirstFactorVerification({ strategy: 'email_code', emailAddressId: chosen.emailAddressId });
+      const factor = chooseFactor(started.supportedFirstFactors ?? []);
+      if (!factor) throw new Error(`This account can't confirm it's you in the app. ${elsewhere}`);
+      if (factor.strategy === 'email_code') {
+        await session.prepareFirstFactorVerification({ strategy: 'email_code', emailAddressId: factor.emailAddressId });
       }
-      dispatch({ type: 'ask', factor: chosen.factor });
+      dispatch({ type: 'ask', factor });
     } catch (error) {
       giveUp(explain(error));
     }
   };
 
-  const reverified = useReverification(
-    async () => {
-      try {
-        return await request.current?.();
-      } catch (error) {
-        if (error instanceof ReverifyNeeded) return REVERIFY_HINT;
-        throw error;
-      }
+  const reverified = useReverification(() => orReverify(async () => request.current?.()), {
+    onNeedsReverification: (next) => {
+      pending.current = next;
+      void ask();
     },
-    {
-      onNeedsReverification: (next) => {
-        pending.current = next;
-        void ask();
-      },
-    },
-  );
+  });
 
   /** Runs `work`, asking the person to prove it is them when the server wants it. Throws ReverifyCancelled when they back out. */
   const run = async <T,>(work: () => Promise<T>): Promise<T> => {

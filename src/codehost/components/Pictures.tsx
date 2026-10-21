@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Markdown } from "../../plugin-api/ui";
-import { failureMessage } from "../api";
+import { errorText } from "../../lib/format";
 import { useHost } from "../registry";
 
 type Picture = { url: string; data: string | null; failed: string | null };
@@ -15,7 +15,7 @@ function usePicture(url: string): Picture | null {
                 if (alive) setLoaded({ url, data, failed: null });
             })
             .catch((error: unknown) => {
-                if (alive) setLoaded({ url, data: null, failed: failureMessage(error) });
+                if (alive) setLoaded({ url, data: null, failed: errorText(error) });
             });
         return () => {
             alive = false;

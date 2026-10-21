@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use base64::Engine;
 use serde::Serialize;
 use tauri::AppHandle;
 
@@ -42,10 +41,7 @@ fn read_wallpaper(path: &Path) -> AppResult<Wallpaper> {
         .unwrap_or_else(|| "Wallpaper".into());
     Ok(Wallpaper {
         name,
-        data_url: format!(
-            "data:{mime};base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(bytes)
-        ),
+        data_url: crate::http_client::data_url(mime, &bytes),
     })
 }
 
@@ -92,23 +88,16 @@ fn aerial_thumbnail(_path: &Path) -> Option<PathBuf> {
 
 #[cfg(not(target_os = "macos"))]
 fn image_bytes(path: &Path) -> AppResult<(Vec<u8>, &'static str)> {
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let mime = match extension.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        "bmp" => "image/bmp",
-        _ => {
-            return Err(AppError::Other(format!(
-                "unsupported wallpaper format: .{extension}"
-            )))
-        }
-    };
+    let mime = crate::file_serving::content_type(path);
+    if !matches!(
+        mime,
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/bmp"
+    ) {
+        return Err(AppError::Other(format!(
+            "unsupported wallpaper format: {}",
+            path.display()
+        )));
+    }
     Ok((std::fs::read(path)?, mime))
 }
 

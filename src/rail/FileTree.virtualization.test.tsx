@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { FileTree } from "./FileTree";
 
 const { readDirs } = vi.hoisted(() => ({ readDirs: vi.fn() }));
-vi.mock("../api/fs", () => ({ fsapi: { readDirs } }));
+vi.mock("../api/fs", () => ({ fsapi: {}, filesOn: () => ({ readDirs }) }));
 vi.mock("../state/resources", async (importOriginal) => ({
     ...(await importOriginal<object>()),
     useResourceEnabled: () => ({ data: undefined, status: "ok", refresh: vi.fn() }),

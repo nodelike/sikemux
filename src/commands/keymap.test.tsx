@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadApplicationActions } from "../actions/bridge";
+import { activeProject } from "../projects/projectState";
+import type { ProjectAction } from "../projects/projectConfig";
+import * as cmd from "../state/commands";
 import { agentApi } from "../api/agents";
 import { browserApi } from "../api/browser";
 import { IS_MACOS } from "../lib/platform";
@@ -10,6 +12,12 @@ import { useKeymap } from "./keymap";
 import { getKeybindingAction, type CoreKeybindingActionId } from "./keybindings";
 import { activeAgentId, agentWindowId } from "../state/selectors";
 import { withAgents } from "../test/agents";
+
+vi.mock("../projects/projectState", () => ({ activeProject: vi.fn(() => null) }));
+vi.mock("../state/commands", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../state/commands")>()),
+    runCustomCommand: vi.fn(),
+}));
 
 const initial = getState();
 
@@ -291,126 +299,92 @@ describe("onboarding modality", () => {
     });
 });
 
-describe("contributed action keybindings", () => {
-    it("dispatches contextual project bindings, revokes them, and keeps built-ins first", async () => {
-        const execute = vi.fn();
-        const runtime = await loadApplicationActions();
-        const registration = runtime.registerProjectActions({
-            projectId: "one",
-            projectRoot: "/tmp/one",
-            configPath: "/tmp/one/sikemux.json",
-            actions: [
-                {
-                    id: "quality",
-                    label: "Run quality checks",
-                    description: "Lint and test",
-                    command: "pnpm check",
-                    placement: "terminal",
-                    contexts: ["project"],
-                    keybinding: "Meta+Alt+KeyQ",
-                },
-                {
-                    id: "zoom-collision",
-                    label: "Do not override zoom",
-                    description: "Built-ins retain priority",
-                    command: "echo no",
-                    placement: "background",
-                    contexts: ["project"],
-                    keybinding: getKeybindingAction("pane.zoom").defaultBinding!,
-                },
-            ],
-            isCurrent: () => true,
-            execute,
-        });
+function openProjectWithActions(actions: ProjectAction[]): void {
+    vi.mocked(activeProject).mockReturnValue({
+        cwd: "/tmp/one",
+        worktrees: [],
+        config: {
+            status: "valid",
+            path: "/tmp/one/sikemux.json",
+            config: { version: 1, actions, tasks: [] },
+            fingerprint: "one",
+            trust: { requiresApproval: false, executableEntries: actions.length, reasons: [] },
+            trusted: true,
+        },
+    });
+}
 
-        try {
-            render(<KeymapHarness />);
+describe("project action keybindings", () => {
+    afterEach(() => {
+        vi.mocked(activeProject).mockReturnValue(null);
+        vi.mocked(cmd.runCustomCommand).mockClear();
+    });
 
-            pressAction("pane.zoom");
-            expect(getState().zoomedPaneId).toBeNull();
-            expect(execute).not.toHaveBeenCalled();
+    it("runs the project's bound action and keeps built-ins first", async () => {
+        openProjectWithActions([
+            {
+                id: "quality",
+                label: "Run quality checks",
+                description: "Lint and test",
+                command: "pnpm check",
+                placement: "terminal",
+                contexts: ["project"],
+                keybinding: "Meta+Alt+KeyQ",
+            },
+            {
+                id: "zoom-collision",
+                label: "Do not override zoom",
+                description: "Built-ins retain priority",
+                command: "echo no",
+                placement: "background",
+                contexts: ["project"],
+                keybinding: getKeybindingAction("pane.zoom").defaultBinding!,
+            },
+        ]);
+        render(<KeymapHarness />);
 
-            window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyQ", metaKey: true, altKey: true, bubbles: true, cancelable: true }));
-            await waitFor(() => expect(execute).toHaveBeenCalledWith(expect.objectContaining({ id: "quality" })));
-            expect(getState().recentCommandKeys.filter((key) => key === "standalone:project.action.quality")).toHaveLength(1);
+        pressAction("pane.zoom");
+        expect(getState().zoomedPaneId).toBeNull();
+        expect(cmd.runCustomCommand).not.toHaveBeenCalled();
 
-            registration.dispose();
-            execute.mockClear();
-            window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyQ", metaKey: true, altKey: true, bubbles: true, cancelable: true }));
-            await Promise.resolve();
-            expect(execute).not.toHaveBeenCalled();
-        } finally {
-            registration.dispose();
-        }
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyQ", metaKey: true, altKey: true, bubbles: true, cancelable: true }));
+        await waitFor(() => expect(cmd.runCustomCommand).toHaveBeenCalledWith(expect.objectContaining({ command: "pnpm check" })));
+        expect(getState().recentCommandKeys.filter((key) => key === "standalone:project.action.quality")).toHaveLength(1);
     });
 
     it("runs a project action on a built-in's key when the built-in has nothing to act on", async () => {
-        const execute = vi.fn();
-        const runtime = await loadApplicationActions();
-        const registration = runtime.registerProjectActions({
-            projectId: "one",
-            projectRoot: "/tmp/one",
-            configPath: "/tmp/one/sikemux.json",
-            actions: [
-                {
-                    id: "yank",
-                    label: "Shares a key with agent permissions",
-                    description: "",
-                    command: "echo",
-                    placement: "background",
-                    contexts: ["project"],
-                    keybinding: getKeybindingAction("agent.permissions").defaultBinding!,
-                },
-            ],
-            isCurrent: () => true,
-            execute,
-        });
-
-        try {
-            render(<KeymapHarness />);
-            pressAction("agent.permissions");
-            await waitFor(() => expect(execute).toHaveBeenCalledWith(expect.objectContaining({ id: "yank" })));
-        } finally {
-            registration.dispose();
-        }
+        openProjectWithActions([
+            {
+                id: "yank",
+                label: "Shares a key with agent permissions",
+                description: "",
+                command: "echo",
+                placement: "background",
+                contexts: ["project"],
+                keybinding: getKeybindingAction("agent.permissions").defaultBinding!,
+            },
+        ]);
+        render(<KeymapHarness />);
+        pressAction("agent.permissions");
+        await waitFor(() => expect(cmd.runCustomCommand).toHaveBeenCalledWith(expect.objectContaining({ command: "echo" })));
     });
 
-    it("does not let a Shift-only trusted action capture editable typing", async () => {
-        const run = vi.fn();
-        const runtime = await loadApplicationActions();
-        const registration = runtime.register({
-            id: "sikemux.editable-actions",
-            actions: [
-                {
-                    id: "uppercase-a",
-                    create: () => ({
-                        commandId: "test.uppercase-a",
-                        definition: {
-                            id: "test.uppercaseA",
-                            title: "Uppercase A",
-                            detail: "Must not capture typing",
-                            category: "Test",
-                            source: "test.actions",
-                            defaultBinding: "Shift+KeyA",
-                            run,
-                        },
-                    }),
-                },
-            ],
-        });
-
-        try {
-            render(<EditableKeymapHarness />);
-            fireEvent.keyDown(screen.getByRole("textbox", { name: "Editable target" }), {
-                code: "KeyA",
-                key: "A",
-                shiftKey: true,
-            });
-            await Promise.resolve();
-            expect(run).not.toHaveBeenCalled();
-        } finally {
-            registration.dispose();
-        }
+    it("does not let a Shift-only action capture editable typing", async () => {
+        openProjectWithActions([
+            {
+                id: "uppercase-a",
+                label: "Uppercase A",
+                description: "Must not capture typing",
+                command: "echo a",
+                placement: "background",
+                contexts: [],
+                keybinding: "Shift+KeyA",
+            },
+        ]);
+        render(<EditableKeymapHarness />);
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "Editable target" }), { code: "KeyA", key: "A", shiftKey: true });
+        await Promise.resolve();
+        expect(cmd.runCustomCommand).not.toHaveBeenCalled();
     });
 });
 

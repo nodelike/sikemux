@@ -26,9 +26,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
 
 struct Claude {
     out: Mutex<std::io::Stdout>,
@@ -47,18 +48,14 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 
 impl Claude {
     fn send(&self, message: Value) {
-        if let Ok(mut out) = self.out.lock() {
-            let _ = writeln!(out, "{message}");
-            let _ = out.flush();
-        }
+        let mut out = self.out.locked();
+        let _ = writeln!(out, "{message}");
+        let _ = out.flush();
     }
 
     fn record(&self, mut record: Value) {
         let uuid = record["uuid"].as_str().unwrap_or_default().to_owned();
-        if let Ok(mut leaf) = self.leaf.lock() {
-            record["parentUuid"] = json!(leaf.clone());
-            *leaf = Some(uuid);
-        }
+        record["parentUuid"] = json!(self.leaf.locked().replace(uuid));
         record["sessionId"] = json!(self.session_id);
         record["isSidechain"] = json!(false);
         if let Some(parent) = self.transcript.parent() {
@@ -89,7 +86,7 @@ impl Claude {
             .filter_map(|record| Some((record["uuid"].as_str()?, record)))
             .collect();
         let mut chain = Vec::new();
-        let mut next = self.leaf.lock().ok().and_then(|leaf| leaf.clone());
+        let mut next = self.leaf.locked().clone();
         while let Some(uuid) = next {
             let Some(record) = by_uuid.get(uuid.as_str()) else {
                 break;
@@ -104,9 +101,7 @@ impl Claude {
     fn ask(&self, request: Value) -> Value {
         let id = uuid::Uuid::new_v4().to_string();
         let (answer, answered) = channel();
-        if let Ok(mut waiting) = self.waiting.lock() {
-            waiting.insert(id.clone(), answer);
-        }
+        self.waiting.locked().insert(id.clone(), answer);
         self.send(json!({ "type": "control_request", "request_id": id, "request": request }));
         answered
             .recv_timeout(Duration::from_secs(30))
@@ -162,9 +157,7 @@ impl Claude {
             return json!({ "rewound": false, "error": "target not found", "reason": "target_not_found" });
         };
         let parent = found["parentUuid"].as_str().map(str::to_owned);
-        if let Ok(mut leaf) = self.leaf.lock() {
-            *leaf = parent.clone();
-        }
+        *self.leaf.locked() = parent.clone();
         json!({
             "rewound": true,
             "targetMessageUuid": found["uuid"],
@@ -286,11 +279,7 @@ impl Claude {
                 self.finish(uuid, None);
             }
             "limit" => {
-                let resets_at = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + 3600;
+                let resets_at = sikemux_process::clock::epoch_secs() + 3600;
                 self.send(json!({
                     "type": "assistant",
                     "parent_tool_use_id": null,
@@ -377,9 +366,7 @@ fn main() {
             .iter()
             .rev()
             .find_map(|record| record["uuid"].as_str().map(str::to_owned));
-        if let Ok(mut current) = claude.leaf.lock() {
-            *current = leaf;
-        }
+        *claude.leaf.locked() = leaf;
     }
 
     let (turns, queued) = channel::<(String, String)>();
@@ -406,11 +393,7 @@ fn main() {
                 let id = message["response"]["request_id"]
                     .as_str()
                     .unwrap_or_default();
-                let answer = claude
-                    .waiting
-                    .lock()
-                    .ok()
-                    .and_then(|mut waiting| waiting.remove(id));
+                let answer = claude.waiting.locked().remove(id);
                 if let Some(answer) = answer {
                     let _ = answer.send(message["response"]["response"].clone());
                 }

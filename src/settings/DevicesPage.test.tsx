@@ -22,6 +22,7 @@ function status(overrides: Partial<RemoteStatus> = {}): RemoteStatus {
         account: null,
         updateRequired: null,
         notifications: [],
+        requireApproval: false,
         ...overrides,
     };
 }
@@ -49,7 +50,7 @@ afterEach(() => {
 
 describe("DevicesPage", () => {
     it("asks a signed-out computer to sign in and keeps remote access off", async () => {
-        transport.register("remote_status", () => status({ enabled: false }));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status({ enabled: false }) }));
         render(<DevicesPage />);
 
         expect(await screen.findByRole("heading", { name: "Sign in to your Sikemux account" })).toBeInTheDocument();
@@ -62,9 +63,9 @@ describe("DevicesPage", () => {
     it("shows the account, the switch and the way to get the phone app while no phone is allowed", async () => {
         const user = userEvent.setup();
         account = SIGNED_IN;
-        transport.register("remote_status", () => status({ enabled: false, owner: "user_2abc" }));
-        const setEnabled = vi.fn(() => status({ owner: "user_2abc" }));
-        transport.register("remote_set_enabled", setEnabled);
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status({ enabled: false, owner: "user_2abc" }) }));
+        const setEnabled = vi.fn(() => ({ status: status({ owner: "user_2abc" }) }));
+        transport.registerCoreRequest("setRemoteAccess", setEnabled);
         render(<DevicesPage />);
 
         expect(await screen.findByText("me@example.com")).toBeInTheDocument();
@@ -74,23 +75,23 @@ describe("DevicesPage", () => {
         expect(screen.getByText("None yet. Waiting for your phone.")).toBeInTheDocument();
 
         await user.click(screen.getByRole("switch", { name: "Remote access" }));
-        expect(setEnabled).toHaveBeenCalledWith({ enabled: true }, expect.anything());
+        expect(setEnabled).toHaveBeenCalledWith({ op: "setRemoteAccess", enabled: true }, expect.anything());
     });
 
     it("lists the phones once one is allowed, in place of the way to get the app", async () => {
         const user = userEvent.setup();
         account = SIGNED_IN;
         const device = { id: PHONE, name: "Phone", platform: "android", access: "full" as const, pairedAt: 1, lastSeen: Date.now() };
-        transport.register("remote_status", () => status({ owner: "user_2abc", devices: [device], connected: [PHONE] }));
-        const revoke = vi.fn(() => status({ owner: "user_2abc" }));
-        transport.register("remote_revoke_device", revoke);
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status({ owner: "user_2abc", devices: [device], connected: [PHONE] }) }));
+        const revoke = vi.fn(() => ({ status: status({ owner: "user_2abc" }) }));
+        transport.registerCoreRequest("revokeDevice", revoke);
         render(<DevicesPage />);
 
         expect(await screen.findByText("Android · connected now")).toBeInTheDocument();
         expect(screen.queryByRole("img", { name: `QR code for ${PHONE_URL}` })).not.toBeInTheDocument();
         await user.click(screen.getByRole("button", { name: /Remove/ }));
 
-        expect(revoke).toHaveBeenCalledWith({ id: PHONE }, expect.anything());
+        expect(revoke).toHaveBeenCalledWith({ op: "revokeDevice", id: PHONE }, expect.anything());
         expect(await screen.findByText("None yet. Waiting for your phone.")).toBeInTheDocument();
         expect(screen.getByRole("img", { name: `QR code for ${PHONE_URL}` })).toBeInTheDocument();
     });
@@ -98,7 +99,7 @@ describe("DevicesPage", () => {
     it("drops a phone the account revoked as soon as the host hears", async () => {
         account = SIGNED_IN;
         const phone = { id: PHONE, name: "Pixel", platform: "ios", access: "full" as const, pairedAt: 1, lastSeen: null };
-        transport.register("remote_status", () => status({ owner: "user_2abc", devices: [phone] }));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status({ owner: "user_2abc", devices: [phone] }) }));
         render(<DevicesPage />);
 
         expect(await screen.findByText("Pixel")).toBeInTheDocument();
@@ -113,7 +114,9 @@ describe("DevicesPage and the account", () => {
 
     it("shows when the connection to the account is down", async () => {
         account = SIGNED_IN;
-        transport.register("remote_status", () => status({ owner: "user_2abc", account: { state: "offline", reason: null, since: 1 } }));
+        transport.registerCoreRequest("remoteStatus", () => ({
+            status: status({ owner: "user_2abc", account: { state: "offline", reason: null, since: 1 } }),
+        }));
         render(<DevicesPage />);
 
         expect(await screen.findByText("Can't reach your account, retrying")).toBeInTheDocument();
@@ -124,7 +127,9 @@ describe("DevicesPage and the account", () => {
 
     it("signs out and says why when the account lets this host go", async () => {
         account = SIGNED_IN;
-        transport.register("remote_status", () => status({ owner: "user_2abc", account: { state: "live", reason: null, since: 1 } }));
+        transport.registerCoreRequest("remoteStatus", () => ({
+            status: status({ owner: "user_2abc", account: { state: "live", reason: null, since: 1 } }),
+        }));
         render(<DevicesPage />);
 
         expect(await screen.findByText("me@example.com")).toBeInTheDocument();
@@ -137,7 +142,7 @@ describe("DevicesPage and the account", () => {
 
     it("signs in through the browser, lands on Settings › Devices, then offers to sign out", async () => {
         const user = userEvent.setup();
-        transport.register("remote_status", () => status({ enabled: false }));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status({ enabled: false }) }));
         let finish: (value: unknown) => void = () => {};
         transport.register("account_sign_in", () => new Promise((resolve) => (finish = resolve)));
         transport.register("account_sign_out", () => SIGNED_OUT);
@@ -157,7 +162,7 @@ describe("DevicesPage and the account", () => {
 
     it("lets the person give up on a sign-in left open in the browser", async () => {
         const user = userEvent.setup();
-        transport.register("remote_status", () => status());
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status() }));
         let fail: (error: unknown) => void = () => {};
         transport.register("account_sign_in", () => new Promise((_, reject) => (fail = reject)));
         const cancel = vi.fn(() => {
@@ -188,13 +193,15 @@ describe("DevicesPage and notifications", () => {
     const phone = { id: PHONE, name: "Pixel", platform: "android", access: "watch" as const, pairedAt: 1, lastSeen: null };
 
     it("says beside each phone whether its notifications reach it", async () => {
-        transport.register("remote_status", () => status({ devices: [phone], notifications: [{ deviceId: PHONE, state: "notReaching", since: 1 }] }));
+        transport.registerCoreRequest("remoteStatus", () => ({
+            status: status({ devices: [phone], notifications: [{ deviceId: PHONE, state: "notReaching", since: 1 }] }),
+        }));
         render(<DevicesPage />);
         expect(await screen.findByText("notifications aren't reaching it")).toHaveClass("device-warning");
     });
 
     it("says nothing of notifications for a phone that never asked", async () => {
-        transport.register("remote_status", () => status({ devices: [phone] }));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status({ devices: [phone] }) }));
         render(<DevicesPage />);
         expect(await screen.findByText("Pixel")).toBeInTheDocument();
         expect(screen.queryByText(/notifications/)).not.toBeInTheDocument();

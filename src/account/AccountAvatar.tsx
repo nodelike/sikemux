@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { AccountStatus } from "../api/account";
-import { initials } from "./account";
+import { initials } from "../lib/initials";
 
 /** The account's picture, or its initials when it has none or the picture does not load. */
 export function AccountAvatar({ account, className }: { account: AccountStatus; className: string }) {

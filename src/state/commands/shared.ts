@@ -3,6 +3,7 @@ import { forgetAgentDeliveries } from "../../agents/agentInbox";
 import { browserApi } from "../../api/browser";
 import { basename } from "../../lib/paths";
 import { emit } from "../bus";
+import type { Draft } from "immer";
 import { getState, mutate, setState, type StoreState } from "../store";
 import { deskEditorId } from "../desks";
 import { notify, reportError } from "../toast";
@@ -10,7 +11,8 @@ import { choiceDialog, confirmDialog } from "../dialog";
 import { editorPaneOf, projectSessionId } from "../selectors";
 import { isAgentBusy } from "../agentStatus";
 import { collectPanes, makePane, newId } from "../layout";
-import type { PaneKind, Session, SessionKind, Window, WindowRole } from "../types";
+import type { CorePaneKind, PaneKind, Session, SessionKind, Window, WindowRole } from "../types";
+import { CORE_PANE_KINDS } from "../windowRoles";
 import { focusPane } from "./panes";
 import { selectWindowId } from "./tabs";
 
@@ -18,23 +20,23 @@ export const patchWindow = (id: string, fn: (w: Window) => Window): void =>
     mutate((d) => {
         const cur = d.windows[id];
         if (!cur) return;
-        d.windows[id] = fn(cur as Window);
+        d.windows[id] = fn(cur);
     });
 
-export const withActiveSession = (fn: (d: StoreState, session: Session) => void): void =>
+export const withActiveSession = (fn: (d: Draft<StoreState>, session: Draft<Session>) => void): void =>
     mutate((d) => {
         const session = d.sessions[d.activeSessionId];
         if (!session) return;
-        fn(d as unknown as StoreState, session as Session);
+        fn(d, session);
     });
 
-export const withActiveWindow = (fn: (d: StoreState, win: Window, session: Session) => void): void =>
+export const withActiveWindow = (fn: (d: Draft<StoreState>, win: Draft<Window>, session: Draft<Session>) => void): void =>
     mutate((d) => {
         const session = d.sessions[d.activeSessionId];
         if (!session) return;
         const win = d.windows[session.activeWindowId];
         if (!win) return;
-        fn(d as unknown as StoreState, win as Window, session as Session);
+        fn(d, win, session);
     });
 
 export function makeWindow(
@@ -78,12 +80,22 @@ const SPLITTABLE_TOOLS: ReadonlySet<PaneKind> = new Set(["git", "search"]);
  * none. `seedEditorPath` pre-opens a file so a freshly created editor hydrates
  * from the store the same way a restored session does.
  */
-export function ensureRoleWindow(role: WindowRole, kind: PaneKind, name: string, seedEditorPath?: string): void {
+/** A copy of a project: its folder, on `host` when that is not this one. */
+export interface FilesPlace {
+    cwd: string;
+    host?: string;
+}
+
+const windowHost = (win: Window | undefined): string | undefined => (win ? collectPanes(win.root)[0]?.host : undefined);
+
+export function ensureRoleWindow(kind: CorePaneKind, seedEditorPath?: string, place?: FilesPlace): void {
+    const { role, title } = CORE_PANE_KINDS[kind];
     const st = getState();
     const session = st.sessions[st.activeSessionId];
     if (!session || session.kind !== "project") return;
     const ids = st.windowsBySession[session.id] ?? [];
-    const existing = ids.find((id) => st.windows[id]?.role === role);
+    const host = place ? place.host : session.host;
+    const existing = ids.find((id) => st.windows[id]?.role === role && windowHost(st.windows[id]) === host);
     if (existing) {
         selectWindowId(existing);
         return;
@@ -100,7 +112,8 @@ export function ensureRoleWindow(role: WindowRole, kind: PaneKind, name: string,
     }
     mutate((d) => {
         const sess = d.sessions[session.id];
-        const w = makeWindow(sess.cwd, name, { kind, role });
+        const w = makeWindow(place?.cwd ?? sess.cwd, title, { kind, role });
+        if (host !== undefined) for (const pane of collectPanes(w.root)) pane.host = host;
         d.windows[w.id] = w;
         d.windowsBySession[session.id] = [...(d.windowsBySession[session.id] ?? []), w.id];
         if (seedEditorPath) d.editorViews[w.activePaneId] = { openTabs: [seedEditorPath], activePath: seedEditorPath };
@@ -109,7 +122,7 @@ export function ensureRoleWindow(role: WindowRole, kind: PaneKind, name: string,
     });
 }
 
-export function attachSession(d: StoreState, session: Session, windows: Window[]): void {
+export function attachSession(d: Draft<StoreState>, session: Session, windows: Window[]): void {
     d.sessions[session.id] = session;
     d.sessionOrder.push(session.id);
     for (const w of windows) d.windows[w.id] = w;
@@ -132,7 +145,7 @@ export function keepOpenedProjectInView(cwd: string): void {
     else setState({ projectSpaces: { ...projectSpaces, [cwd]: activeSpaceId } });
 }
 
-export function openProjectSession(d: StoreState, cwd: string): string {
+export function openProjectSession(d: Draft<StoreState>, cwd: string): string {
     const existing = projectSessionId(d, cwd);
     if (!existing) {
         const windows = [makeWindow(cwd, "Terminal", { role: "term" })];

@@ -13,11 +13,13 @@ A run is titled with its tag, so the approval names what it will publish, and it
 
 1. **Build the helpers** compiles the voice and simulator helpers (`scripts/release.sh --stage helpers`).
 2. **Sign the helpers** signs them with the Developer ID (`scripts/sign-helper.sh`). The app is compiled with their SHA-256 and refuses any other download, so they are signed before it is built.
-3. **Build the app** builds the app and the DMG around the signed helpers, ad hoc signed (`scripts/release.sh --stage app`).
+3. **Build the app** compiles the app around the signed helpers (`scripts/release.sh --stage compile`), while **Build the Mac core** compiles the core, which does not embed their hashes. **Pack the app** then builds the bundle and the DMG around both, ad hoc signed (`scripts/release.sh --stage package`, with the core handed over as `PREBUILT_CORE`).
 4. **Sign and notarize the app** signs the app on a fresh machine with Apple's tools and a Tauri CLI pinned by hash, notarizes it, packs and signs the updater archive, and puts the signed app back into the DMG (`scripts/sign-mac.sh`).
 5. **Verify the signed release** checks every signature, notarization ticket, hash, architecture and size, starts the signed CLI and helpers, and writes `latest.json` (`scripts/verify-release.sh`).
 
 Beside it, `pnpm build:linux` builds the x86_64 `.deb`, `.rpm` and `.AppImage` on Ubuntu 24.04. They carry no updater signature, because the update feed lists only macOS builds. Once the builds and the checks pass, `scripts/publish-release.sh` publishes them together. A prerelease version goes to the nightly channel and any other version to stable. Only one release runs at a time, and each run keeps its built artifacts.
+
+Every release also publishes `scripts/install.sh` as `install.sh`, the installer made for its own files, and sikemux.com/install serves the latest stable release's copy. A change to the installer therefore reaches people only with a release, never with a push to `main`. Before publishing, the host job installs the core it just built with that installer, twice, from the files laid out as the release will have them (`scripts/smoke-host-install.sh`), and stops the release if either install fails. With `SIKEMUX_CHANNEL=nightly`, the stable installer hands over to the nightly's own `install.sh`.
 
 If a release fails before it publishes, fix it and move the tag onto the fix. Only the owner can move a release tag, and moving it starts a fresh run:
 

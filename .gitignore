@@ -38,3 +38,6 @@ graphify-out/
 src-tauri/notch/.build/
 src-tauri/binaries/notch/
 src-tauri/binaries/core/
+
+# Research notes, kept local only.
+docs/research/

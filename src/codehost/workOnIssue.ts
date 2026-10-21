@@ -1,5 +1,5 @@
 import type { AgentInfo } from "../api/agents";
-import { agentSupportsChat } from "../agents/agentLaunch";
+import { agentSupportsChat } from "../agents/catalog";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { sendToAgent } from "../agents/sendToAgent";
 import { fetchResource, peekResource } from "../state/resources";
@@ -8,7 +8,7 @@ import { projectSessionId } from "../state/selectors";
 import { getState } from "../state/store";
 import { notify } from "../state/toast";
 import type { AgentType } from "../state/types";
-import { failureMessage } from "./api";
+import { errorText } from "../lib/format";
 import { loadTrackedContext } from "./tracked";
 import type { RepoRef } from "./types";
 
@@ -40,7 +40,7 @@ export async function workOnIssue(repo: RepoRef, number: number, cwd: string): P
     try {
         context = await loadTrackedContext(repo, "issue", number);
     } catch (failure) {
-        notify("error", `Could not read #${number}: ${failureMessage(failure)}`);
+        notify("error", `Could not read #${number}: ${errorText(failure)}`);
         return;
     }
     if (!sendToAgent({ newAgent: type, sessionId }, { context: [context] })) notify("error", "Could not start an agent in this project");

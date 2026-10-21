@@ -185,6 +185,7 @@ export function Sheet({
           ) : (
             <ScrollView
               style={styles.content}
+              showsVerticalScrollIndicator={false}
               scrollEnabled={overflow.content > overflow.frame}
               alwaysBounceVertical={false}
               keyboardShouldPersistTaps="handled"

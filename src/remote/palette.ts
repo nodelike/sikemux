@@ -3,7 +3,7 @@
  * phone's composer sits one step above its ground, where the Mac's sits on its
  * darkest surface, so that one is mixed here rather than read.
  */
-export const PALETTE_TOKENS: Readonly<Record<string, string>> = {
+export const PALETTE_TOKENS = {
     sunken: "var(--surface-sunken)",
     ground: "var(--surface)",
     raised: "var(--surface-raised)",
@@ -37,7 +37,10 @@ export const PALETTE_TOKENS: Readonly<Record<string, string>> = {
     toolDelete: "color-mix(in oklab, var(--git-deleted) 76%, var(--ink-dim))",
     toolRun: "color-mix(in oklab, var(--cmd) 70%, var(--ink-dim))",
     toolMcp: "color-mix(in oklab, var(--live) 66%, var(--ink-dim))",
-};
+} as const satisfies Record<string, string>;
+
+/** Every colour a host publishes to its phones: the tokens, and the pane grain's dots it works out itself. */
+export type PaletteName = keyof typeof PALETTE_TOKENS | "shaderDot";
 
 function hex(part: number): string {
     return part.toString(16).padStart(2, "0");
@@ -54,7 +57,10 @@ export function plainColor([red, green, blue, alpha]: ArrayLike<number> & Iterab
  * `color-mix()` or `color(srgb …)` a phone cannot parse, so each is painted
  * into one pixel and read back.
  */
-export function readPalette(extra: Readonly<Record<string, string>> = {}, root: HTMLElement = document.documentElement): Record<string, string> {
+export function readPalette(
+    extra: Readonly<Partial<Record<PaletteName, string>>> = {},
+    root: HTMLElement = document.documentElement,
+): Record<string, string> {
     const probe = document.createElement("span");
     probe.style.display = "none";
     root.appendChild(probe);

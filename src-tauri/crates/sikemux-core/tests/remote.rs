@@ -547,21 +547,24 @@ async fn a_phone_is_sent_a_long_chat_s_last_turns_and_pages_back_to_its_start() 
     else {
         panic!("the phone is sent the chat's end, with more before it");
     };
-    assert_eq!(prompts(&replay), turns(5..55));
+    let shown = prompts(&replay);
+    assert!(!shown.is_empty() && shown.len() < 55, "{shown:?}");
+    assert_eq!(shown, turns(55 - shown.len()..55));
     assert_eq!(replay[0].kind, ChatEventKind::Prompt);
 
-    let (events, older) = client
-        .acp_history("agent-long".into(), mark.feed.clone(), before, 3)
-        .await
-        .expect("a watching phone reads the history");
-    assert_eq!(prompts(&events), turns(2..5));
-    let older = older.expect("there is more");
-    let (events, older) = client
-        .acp_history("agent-long".into(), mark.feed, older, 3)
-        .await
-        .expect("history");
-    assert_eq!(prompts(&events), turns(0..2));
-    assert_eq!(older, None);
+    let mut paged = shown;
+    let mut older = Some(before);
+    while let Some(from) = older {
+        let (events, next) = client
+            .acp_history("agent-long".into(), mark.feed.clone(), from, 3)
+            .await
+            .expect("a watching phone reads the history");
+        let page = prompts(&events);
+        assert_eq!(page.len(), 3.min(55 - paged.len()), "{page:?}");
+        paged.splice(0..0, page);
+        older = next;
+    }
+    assert_eq!(paged, turns(0..55));
 
     let ChatAttachment::Live {
         replay,

@@ -5,36 +5,8 @@ use serde_json::{json, Map, Value};
 
 use super::super::super::states::{self, Subagent};
 use super::super::json::{self, is_js_whitespace, js_str, str_field, truthy};
+use super::failure;
 use super::tools::{self, TaskPlan};
-
-/// The transcript file for a session: search `<config_dir>/projects/*/<session_id>.jsonl` (config_dir = CLAUDE_CONFIG_DIR or ~/.claude).
-pub fn transcript_path(config_dir: &Path, session_id: &str) -> Option<PathBuf> {
-    if !is_uuid(session_id) {
-        return None;
-    }
-    let file_name = format!("{session_id}.jsonl");
-    let mut project_dirs: Vec<PathBuf> = std::fs::read_dir(config_dir.join("projects"))
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .collect();
-    project_dirs.sort();
-    project_dirs.into_iter().find_map(|dir| {
-        let candidate = dir.join(&file_name);
-        let non_empty =
-            std::fs::metadata(&candidate).is_ok_and(|meta| meta.is_file() && meta.len() > 0);
-        non_empty.then_some(candidate)
-    })
-}
-
-fn is_uuid(text: &str) -> bool {
-    let groups: Vec<&str> = text.split('-').collect();
-    groups.len() == 5
-        && groups
-            .iter()
-            .zip([8, 4, 4, 4, 12])
-            .all(|(group, len)| group.len() == len && group.bytes().all(|b| b.is_ascii_hexdigit()))
-}
 
 /// Reads the active branch of a transcript: follow parentUuid back from the LAST record that is user/assistant (and not isSidechain), producing the ordered chain of records.
 ///
@@ -1354,27 +1326,8 @@ impl Replay<'_> {
     }
 }
 
-const USAGE_LIMIT_PREFIXES: [&str; 12] = [
-    "You've hit your",
-    "You've reached your",
-    "You're out of usage credits",
-    "Your org is out of usage · add funds to continue",
-    "Your org is out of usage · contact your admin",
-    "Your seat type doesn't include usage credits",
-    "Your seat type doesn't include usage",
-    "Your usage allocation has been disabled by your admin",
-    "Your group's usage limit is set to $0",
-    "Fable 5 requires usage credits",
-    "You're out of extra usage",
-    "Your seat type doesn't include extra usage",
-];
-
-fn is_synthetic(message: &Value) -> bool {
-    str_field(message, "model") == Some("<synthetic>")
-}
-
 fn is_synthetic_login(message: &Value) -> bool {
-    if !is_synthetic(message) {
+    if !failure::is_synthetic(message) {
         return false;
     }
     match message
@@ -1384,16 +1337,15 @@ fn is_synthetic_login(message: &Value) -> bool {
     {
         Some([block]) => {
             str_field(block, "type") == Some("text")
-                && str_field(block, "text").is_some_and(|text| text.contains("Please run /login"))
+                && str_field(block, "text").is_some_and(failure::asks_sign_in)
         }
         _ => false,
     }
 }
 
 fn is_synthetic_usage_limit(message: &Value) -> bool {
-    is_synthetic(message)
-        && assistant_text(message)
-            .is_some_and(|text| USAGE_LIMIT_PREFIXES.iter().any(|p| text.starts_with(p)))
+    failure::is_synthetic(message)
+        && assistant_text(message).is_some_and(|text| failure::out_of_usage(&text))
 }
 
 fn assistant_text(message: &Value) -> Option<String> {

@@ -7,12 +7,12 @@
 //   auth      — signing in and out, and who the app is talking to GitLab as
 //   repo      — a git remote turned into group and project
 //   pulls     — merge requests, their changes, commits and approvals, and merging one
+//   review    — what reviewers asked of a merge request, and answering it
 //   notes     — the comments and events on a merge request or issue
 //   issues    — issues, releases, and the To-Do list as the inbox
 //   images    — avatars, handed to the window as data: addresses
 //   pipelines — pipelines as runs, their jobs by stage, logs, and starting one
 //   watch     — following a pipeline while it is going
-//   ratelimit — holding requests back once GitLab refuses for too many
 
 mod auth;
 mod client;
@@ -23,16 +23,19 @@ mod issues;
 mod notes;
 mod pipelines;
 mod pulls;
-mod ratelimit;
 mod repo;
+mod review;
 mod watch;
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
+use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::codehost::Resolved;
+use sikemux_plugin_api::store::Accounts;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
 use crate::error::GitlabResult;
@@ -47,42 +50,22 @@ struct Gitlab {
     manifest: Manifest,
 }
 
-fn answer<'a, I, T, F>(
-    input: Value,
-    work: impl FnOnce(I) -> F + Send + 'a,
-) -> PluginFuture<'a, Value>
-where
-    I: serde::de::DeserializeOwned + Send + 'a,
-    T: Serialize,
-    F: std::future::Future<Output = GitlabResult<T>> + Send + 'a,
-{
-    Box::pin(async move { reply(work(params(input)?).await?) })
-}
-
 #[derive(Deserialize)]
 struct RemoteQuery {
     url: String,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Resolved {
-    repo: Option<repo::Repo>,
-    slug: Option<String>,
-    same_host: bool,
-}
-
 /// A remote is GitLab's when it is on gitlab.com or on a server an account is signed in to.
 fn resolve(data_dir: &std::path::Path, query: RemoteQuery) -> Resolved {
     let found = repo::from_remote(&query.url);
-    let hosts = config::load(data_dir).hosts();
+    let hosts = config::load(data_dir).unwrap_or_default().hosts();
     Resolved {
         same_host: found.as_ref().is_some_and(|repo| {
             hosts
                 .iter()
                 .any(|host| config::same_server(host, &repo.host))
         }),
-        slug: found.as_ref().map(repo::Repo::slug),
+        slug: found.as_ref().map(repo::slug),
         repo: found,
     }
 }
@@ -103,12 +86,12 @@ async fn signed_in(
     outcome: GitlabResult<String>,
 ) -> Result<Value, PluginError> {
     let id = outcome?;
-    reply(client::as_account(Some(id), auth::status(data_dir)).await)
+    reply(as_account(Some(id), auth::status(data_dir)).await)
 }
 
 /// Whether the repository has a remote on a GitLab server an account is signed in to.
 fn works_in(data_dir: &std::path::Path, remotes: &[String]) -> bool {
-    let config = config::load(data_dir);
+    let config = config::load(data_dir).unwrap_or_default();
     remotes
         .iter()
         .filter_map(|remote| repo::from_remote(remote))
@@ -128,6 +111,7 @@ fn account_of(data_dir: &std::path::Path, input: &Value) -> Option<String> {
         return Some(account.to_string());
     }
     config::load(data_dir)
+        .ok()?
         .account_on(text("host")?)
         .map(|account| account.id)
 }
@@ -144,7 +128,7 @@ impl Plugin for Gitlab {
         input: Value,
     ) -> PluginFuture<'a, Value> {
         let account = account_of(ctx.data_dir(), &input);
-        Box::pin(client::as_account(account, dispatch(ctx, method, input)))
+        Box::pin(as_account(account, dispatch(ctx, method, input)))
     }
 
     fn stream<'a>(
@@ -155,7 +139,7 @@ impl Plugin for Gitlab {
         sink: StreamSink,
     ) -> PluginFuture<'a, ()> {
         let account = account_of(ctx.data_dir(), &input);
-        Box::pin(client::as_account(
+        Box::pin(as_account(
             account,
             dispatch_stream(ctx, method, input, sink),
         ))
@@ -170,85 +154,88 @@ impl Plugin for Gitlab {
     }
 }
 
-fn dispatch<'a>(ctx: &'a PluginContext, method: &'a str, input: Value) -> PluginFuture<'a, Value> {
+async fn dispatch(ctx: &PluginContext, method: &str, input: Value) -> Result<Value, PluginError> {
     let data_dir = ctx.data_dir();
     match method {
-        "status" => Box::pin(async move { reply(auth::status(data_dir).await) }),
-        "accounts" => Box::pin(async move { reply(auth::accounts(data_dir)) }),
-        "setDefaultAccount" => answer(input, move |q| auth::set_default(data_dir, q)),
-        "accountFor" => answer(input, move |q| auth::account_for(data_dir, q)),
-        "rateLimit" => Box::pin(async move {
-            let id = config::load(data_dir)
-                .account(client::chosen().as_deref())
+        "status" => reply(auth::status(data_dir).await),
+        "accounts" => reply(auth::accounts(data_dir)?),
+        "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
+        "accountFor" => answer(auth::account_for(data_dir, params(input)?)).await,
+        "rateLimit" => {
+            let id = config::load(data_dir)?
+                .account(chosen().as_deref())
                 .map(|account| account.id.clone())
                 .unwrap_or_default();
-            reply(ratelimit::budget(&id))
-        }),
-        "signInWithToken" => Box::pin(async move {
+            reply(client::LIMITS.budget(&id))
+        }
+        "signInWithToken" => {
             signed_in(
                 data_dir,
                 auth::sign_in_with_token(data_dir, params(input)?).await,
             )
             .await
-        }),
-        "signOut" => Box::pin(async move { reply(auth::sign_out(data_dir).await?) }),
+        }
+        "signOut" => answer(auth::sign_out(data_dir)).await,
 
-        "resolveRemote" => Box::pin(async move { reply(resolve(data_dir, params(input)?)) }),
-        "myRepos" => answer(input, move |query: MineQuery| {
-            repo::mine(data_dir, query.limit)
-        }),
-        "branches" => answer(input, move |q| repo::branches(data_dir, q)),
-        "image" => answer(input, move |q| images::image(data_dir, q)),
+        "resolveRemote" => reply(resolve(data_dir, params(input)?)),
+        "myRepos" => {
+            let query: MineQuery = params(input)?;
+            answer(repo::mine(data_dir, query.limit)).await
+        }
+        "branches" => answer(repo::branches(data_dir, params(input)?)).await,
+        "image" => answer(images::image(data_dir, params(input)?)).await,
 
-        "workflows" => answer(input, move |q| pipelines::workflows(data_dir, q)),
-        "workflowFile" => answer(input, move |q| pipelines::workflow_file(data_dir, q)),
-        "dispatch" => answer(input, move |q| pipelines::dispatch(data_dir, q)),
-        "runs" => answer(input, move |q| pipelines::list(data_dir, q)),
-        "run" => answer(input, move |q| pipelines::detail(data_dir, q)),
-        "runTiming" => answer(input, move |q| pipelines::timing(data_dir, q)),
-        "rerun" => answer(input, move |q| pipelines::rerun(data_dir, q)),
-        "rerunJob" => answer(input, move |q| pipelines::rerun_job(data_dir, q)),
-        "cancel" => answer(input, move |q| pipelines::cancel(data_dir, q)),
-        "deleteRun" => answer(input, move |q| pipelines::delete(data_dir, q)),
-        "jobLog" => answer(input, move |q| pipelines::log(data_dir, q)),
-        "jobLogExcerpt" => answer(input, move |q| pipelines::excerpt(data_dir, q)),
+        "workflows" => answer(pipelines::workflows(data_dir, params(input)?)).await,
+        "workflowFile" => answer(pipelines::workflow_file(data_dir, params(input)?)).await,
+        "dispatch" => answer(pipelines::dispatch(data_dir, params(input)?)).await,
+        "runs" => answer(pipelines::list(data_dir, params(input)?)).await,
+        "run" => answer(pipelines::detail(data_dir, params(input)?)).await,
+        "runTiming" => answer(pipelines::timing(data_dir, params(input)?)).await,
+        "rerun" => answer(pipelines::rerun(data_dir, params(input)?)).await,
+        "rerunJob" => answer(pipelines::rerun_job(data_dir, params(input)?)).await,
+        "cancel" => answer(pipelines::cancel(data_dir, params(input)?)).await,
+        "deleteRun" => answer(pipelines::delete(data_dir, params(input)?)).await,
+        "jobLog" => answer(pipelines::log(data_dir, params(input)?)).await,
+        "jobLogExcerpt" => answer(pipelines::excerpt(data_dir, params(input)?)).await,
 
-        "pulls" => answer(input, move |q| pulls::list(data_dir, q)),
-        "pull" => answer(input, move |q| pulls::get(data_dir, q)),
-        "pullFiles" => answer(input, move |q| pulls::files(data_dir, q)),
-        "pullCommits" => answer(input, move |q| pulls::commits(data_dir, q)),
-        "pullReviews" => answer(input, move |q| pulls::reviews(data_dir, q)),
-        "mergePull" => answer(input, move |q| pulls::merge(data_dir, q)),
-        "createPull" => answer(input, move |q| pulls::create(data_dir, q)),
-        "setPullState" => answer(input, move |q| pulls::set_state(data_dir, q)),
-        "reviewPull" => answer(input, move |q| pulls::review(data_dir, q)),
-        "timeline" => answer(input, move |q| notes::timeline(data_dir, q)),
-        "comments" => answer(input, move |q| notes::comments(data_dir, q)),
-        "addComment" => answer(input, move |q| notes::add_comment(data_dir, q)),
+        "pulls" => answer(pulls::list(data_dir, params(input)?)).await,
+        "pull" => answer(pulls::get(data_dir, params(input)?)).await,
+        "commitPulls" => answer(pulls::of_commit(data_dir, params(input)?)).await,
+        "reviewFeedback" => answer(review::feedback(data_dir, params(input)?)).await,
+        "answerReview" => answer(review::answer(data_dir, params(input)?)).await,
+        "pullFiles" => answer(pulls::files(data_dir, params(input)?)).await,
+        "pullCommits" => answer(pulls::commits(data_dir, params(input)?)).await,
+        "pullReviews" => answer(pulls::reviews(data_dir, params(input)?)).await,
+        "mergePull" => answer(pulls::merge(data_dir, params(input)?)).await,
+        "createPull" => answer(pulls::create(data_dir, params(input)?)).await,
+        "setPullState" => answer(pulls::set_state(data_dir, params(input)?)).await,
+        "reviewPull" => answer(pulls::review(data_dir, params(input)?)).await,
+        "timeline" => answer(notes::timeline(data_dir, params(input)?)).await,
+        "comments" => answer(notes::comments(data_dir, params(input)?)).await,
+        "addComment" => answer(notes::add_comment(data_dir, params(input)?)).await,
 
-        "issues" => answer(input, move |q| issues::list(data_dir, q)),
-        "issue" => answer(input, move |q| issues::get(data_dir, q)),
-        "createIssue" => answer(input, move |q| issues::create(data_dir, q)),
-        "setIssueState" => answer(input, move |q| issues::set_state(data_dir, q)),
-        "releases" => answer(input, move |q| issues::releases(data_dir, q)),
-        "inbox" => answer(input, move |q| issues::inbox(data_dir, q)),
-        "markRead" => answer(input, move |q| issues::mark_read(data_dir, q)),
-        "markAllRead" => Box::pin(async move { reply(issues::mark_all_read(data_dir).await?) }),
+        "issues" => answer(issues::list(data_dir, params(input)?)).await,
+        "issue" => answer(issues::get(data_dir, params(input)?)).await,
+        "createIssue" => answer(issues::create(data_dir, params(input)?)).await,
+        "setIssueState" => answer(issues::set_state(data_dir, params(input)?)).await,
+        "releases" => answer(issues::releases(data_dir, params(input)?)).await,
+        "inbox" => answer(issues::inbox(data_dir, params(input)?)).await,
+        "markRead" => answer(issues::mark_read(data_dir, params(input)?)).await,
+        "markAllRead" => answer(issues::mark_all_read(data_dir)).await,
 
-        _ => Box::pin(async move { Err(PluginError::unknown_method(method)) }),
+        _ => Err(PluginError::unknown_method(method)),
     }
 }
 
-fn dispatch_stream<'a>(
-    ctx: &'a PluginContext,
-    method: &'a str,
+async fn dispatch_stream(
+    ctx: &PluginContext,
+    method: &str,
     input: Value,
     sink: StreamSink,
-) -> PluginFuture<'a, ()> {
-    let data_dir = ctx.data_dir();
+) -> Result<(), PluginError> {
     match method {
-        "watchRun" => Box::pin(async move { watch::run(data_dir, params(input)?, sink).await }),
-        _ => Box::pin(async move { Err(PluginError::unknown_method(method)) }),
+        "watchRun" => watch::run(ctx.data_dir(), params(input)?, sink).await,
+        _ => Err(PluginError::unknown_method(method)),
     }
 }
 
@@ -270,7 +257,7 @@ mod tests {
             display_name: None,
             avatar_url: None,
         });
-        config::save(dir, &config).expect("saves");
+        sikemux_plugin_api::store::save(dir, &config).expect("saves");
     }
 
     #[test]
@@ -356,7 +343,7 @@ mod tests {
                 avatar_url: None,
             });
         }
-        config::save(&dir, &config).expect("saves");
+        sikemux_plugin_api::store::save(&dir, &config).expect("saves");
         assert_eq!(
             account_of(&dir, &json!({ "host": "git.acme.dev" })).as_deref(),
             Some("git.acme.dev:8443#2")

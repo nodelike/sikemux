@@ -18,6 +18,7 @@ function status(updateRequired: RemoteStatus["updateRequired"]): RemoteStatus {
         account: null,
         updateRequired,
         notifications: [],
+        requireApproval: false,
     };
 }
 
@@ -36,14 +37,14 @@ afterEach(() => {
 
 describe("UpdateRequiredPrompt", () => {
     it("stays out of the way while the build is new enough", async () => {
-        transport.register("remote_status", () => status(null));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status(null) }));
         render(<UpdateRequiredPrompt />);
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
 
     it("covers the app once the core says this build is too old, offering only to update or quit", async () => {
-        transport.register("remote_status", () => status(null));
+        transport.registerCoreRequest("remoteStatus", () => ({ status: status(null) }));
         render(<UpdateRequiredPrompt />);
         await new Promise((resolve) => setTimeout(resolve, 0));
         transport.emit(REMOTE_STATUS_EVENT, status({ current: "0.5.0-nightly.1", minimum: "0.5.0-nightly.4" }));

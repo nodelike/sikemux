@@ -8,11 +8,13 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
 use crate::agent_accounts::status::{self, AgentStatus};
@@ -20,15 +22,17 @@ use crate::agent_accounts::Book;
 use crate::agent_catalog::{AgentKind, AGENTS};
 use crate::cli::protocol::is_tool_agent_id;
 use crate::launch::providers::{Helper, Providers, Wiring, ROUTED_ENV};
-use crate::launch::{skills, AgentSpec};
+use crate::launch::{skills, AgentSpec, PermissionMode};
 use crate::protocol::{
     Backdrop, BackdropImage, ChatAccount, ChatInfo, ChatLaunch, ChatState, LauncherInfo,
     PinnedChat, ProjectInfo, RecentInfo, SpaceInfo, Workspace, WorkspaceAgent,
 };
 use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRef, RecentRequest};
 
+use super::changed::Topic;
 use super::chat;
 use super::connection::blocking;
+use super::kept;
 use super::model_providers::checks::Checks;
 use super::names::project_of;
 use super::wake::Wake;
@@ -42,7 +46,7 @@ pub(crate) use project::{Change, FolderSettings, ProjectRules};
 
 /// Bumped by a change to what [`Saved`] holds that an earlier file needs
 /// carried over to.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const MAX_PROJECTS: usize = 512;
 const MAX_SPACES: usize = 64;
 const MAX_PINNED: usize = 256;
@@ -60,6 +64,11 @@ const MAX_IMAGE_BYTES: usize = 3 * 1024 * 1024;
 const MAX_COLOUR_CHARS: usize = 64;
 const MAX_BUDDY_AGENTS: usize = 4096;
 const MAX_BUDDY_BOXES: usize = 512;
+/// Every buddy pack has at least this many colours, so an agent's colour
+/// number means the same slot whichever pack the person picks.
+const BUDDY_COLOURS: usize = 8;
+/// Colour numbers clients read as a buddy's own.
+const MAX_BUDDY_COLOUR: u64 = 63;
 /// How many of the newest saved chats devices can take up again.
 const RECENT_LIMIT: usize = 30;
 /// Saved chats change with every turn, so many ending at once look once.
@@ -73,9 +82,16 @@ pub(crate) struct Launcher {
     pub agent: AgentSpec,
     pub permission_mode: String,
     /// Whether the agent is ready, signed out or cannot tell, as the core last checked.
-    pub status: Option<String>,
+    pub status: Option<AgentStatus>,
     /// The program the core last found for the agent.
     pub program: Option<PathBuf>,
+}
+
+impl Launcher {
+    /// Why it cannot be started now, as the core last checked.
+    fn refusal(&self) -> Option<String> {
+        self.status.as_ref()?.refusal(&self.label)
+    }
 }
 
 /// An agent as the core keeps it: what every client sees, and the accounts
@@ -85,7 +101,6 @@ pub(crate) struct Launcher {
 pub(crate) struct Kept {
     #[serde(flatten)]
     pub agent: WorkspaceAgent,
-    #[serde(default)]
     pub account: Option<ChatAccount>,
     #[serde(default)]
     pub fallbacks: Vec<ChatAccount>,
@@ -161,11 +176,13 @@ struct Published {
     buddies: Option<Buddies>,
 }
 
-/// The characters the app draws for its agents while buddies are on, so the
-/// notch and phones draw the same ones.
+/// The characters the app draws for its agents, so the notch and phones draw
+/// the same ones.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Buddies {
+    /// Whether the person turned buddies on; a named agent wears its own either way.
+    on: bool,
     pack: String,
     shape: String,
     motion: bool,
@@ -222,13 +239,7 @@ fn named(agent: &WorkspaceAgent) -> Option<String> {
 }
 
 fn is_chat_provider(provider: &str) -> bool {
-    AGENTS
-        .iter()
-        .any(|def| def.kind == provider && def.kind != "pi")
-}
-
-fn now_ms() -> u64 {
-    super::remote::unix_ms()
+    crate::agent_catalog::agent(provider).is_some_and(|agent| agent.chat.is_some())
 }
 
 fn too_long(text: &str, chars: usize) -> bool {
@@ -258,6 +269,38 @@ fn patched<T: Serialize + for<'de> Deserialize<'de>>(
     }
     serde_json::from_value(whole)
         .map_err(|error| CoreError::from(format!("the change does not fit: {error}")))
+}
+
+fn buddy_colour(agent: &WorkspaceAgent) -> Option<usize> {
+    let colour = agent.buddy.as_ref()?.get("color")?.as_u64()?;
+    (colour <= MAX_BUDDY_COLOUR).then_some(colour as usize)
+}
+
+/// Gives an agent without a buddy colour the one its neighbours in the same
+/// folder wear least, then the one fewest agents wear, so agents side by side
+/// rarely match on any client.
+fn dress(agent: &mut WorkspaceAgent, others: &[Kept]) {
+    if buddy_colour(agent).is_some() {
+        return;
+    }
+    let mut scores = [0u32; BUDDY_COLOURS];
+    for other in others.iter().map(|kept| &kept.agent) {
+        let Some(score) = buddy_colour(other).and_then(|colour| scores.get_mut(colour)) else {
+            continue;
+        };
+        if other.id != agent.id {
+            *score += if other.cwd == agent.cwd { 1000 } else { 1 };
+        }
+    }
+    let least = (0..BUDDY_COLOURS)
+        .min_by_key(|&slot| scores[slot])
+        .unwrap_or(0);
+    let mut buddy = match agent.buddy.take() {
+        Some(Value::Object(buddy)) => buddy,
+        _ => Map::new(),
+    };
+    buddy.insert("color".into(), least.into());
+    agent.buddy = Some(Value::Object(buddy));
 }
 
 fn check_agent(agent: &WorkspaceAgent, saved: &Saved) -> CoreResult<()> {
@@ -318,7 +361,7 @@ fn check_project(project: &ProjectInfo, saved: &Saved) -> CoreResult<()> {
 pub(crate) struct Workspaces {
     published: Mutex<Published>,
     /// Where [`Saved`] is kept; nowhere for a core without a data folder.
-    path: Option<PathBuf>,
+    file: kept::Kept,
     providers: Option<Providers>,
     /// Whether models on each provider call tools the way agents need.
     pub(crate) model_checks: Checks,
@@ -326,6 +369,10 @@ pub(crate) struct Workspaces {
     data_dir: Option<PathBuf>,
     /// Counts the looks over the agents, so one that took longer never replaces a newer one.
     asked: AtomicU64,
+    /// The newest look whose result is in use.
+    applied: AtomicU64,
+    /// Why each agent the last look missed was missed, so the log says it once.
+    missed: Mutex<BTreeMap<String, String>>,
     /// Tells the core the workspace, or the launchers it offers, changed.
     pub(crate) wake: Wake,
     /// The saved chats may have changed.
@@ -363,33 +410,41 @@ fn running_now(chat: &Recent, open: &[ChatInfo]) -> bool {
 
 impl Workspaces {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
-        let path = data_dir.map(|dir| dir.join("workspace.json"));
-        let read: Value = path
-            .as_deref()
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or(Value::Null);
-        let mut saved: Saved = serde_json::from_value(read.clone()).unwrap_or_default();
+        let file = kept::Kept::new(data_dir, "workspace.json");
+        let read: Value = file.load();
+        let mut saved = if read.is_null() {
+            Saved::default()
+        } else {
+            Saved::deserialize(&read).unwrap_or_else(|error| {
+                file.set_aside(&error.to_string());
+                Saved::default()
+            })
+        };
         let upgraded = saved.version < VERSION;
-        if upgraded {
+        if saved.version < 1 {
             migrate::carry_over(&mut saved, &read, data_dir);
-            saved.version = VERSION;
         }
+        if saved.version < 2 {
+            migrate::dress_agents(&mut saved);
+        }
+        saved.version = VERSION;
         let workspaces = Self {
             published: Mutex::new(Published {
                 saved,
                 ..Published::default()
             }),
-            path,
+            file,
             providers: data_dir.map(Providers::new),
             model_checks: Checks::new(data_dir),
             data_dir: data_dir.map(Path::to_path_buf),
             asked: AtomicU64::new(0),
+            applied: AtomicU64::new(0),
+            missed: Mutex::default(),
             wake: Wake::default(),
             recent_stale: Notify::new(),
         };
         if upgraded {
-            workspaces.save(&workspaces.lock().saved);
+            workspaces.save(&workspaces.published.locked().saved);
         }
         workspaces
     }
@@ -404,27 +459,13 @@ impl Workspaces {
         self.providers.as_ref()
     }
 
-    fn lock(&self) -> MutexGuard<'_, Published> {
-        self.published
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     fn save(&self, saved: &Saved) {
-        let Some(path) = &self.path else {
-            return;
-        };
-        let written = serde_json::to_vec(saved)
-            .map_err(std::io::Error::from)
-            .and_then(|bytes| sikemux_process::files::write_atomic(path, &bytes, true));
-        if let Err(error) = written {
-            eprintln!("sikemux core: the workspace was not saved: {error}");
-        }
+        self.file.save(saved);
     }
 
     /// Changes what is saved, keeps it, and tells the core.
     fn change<T>(&self, change: impl FnOnce(&mut Saved) -> CoreResult<T>) -> CoreResult<T> {
-        let mut published = self.lock();
+        let mut published = self.published.locked();
         let changed = change(&mut published.saved)?;
         self.save(&published.saved);
         drop(published);
@@ -476,6 +517,7 @@ impl Workspaces {
                 pinned: false,
                 space: None,
                 code_hosts: Default::default(),
+                identity: None,
             };
             check_project(&project, saved)?;
             saved.projects.push(project.clone());
@@ -516,11 +558,37 @@ impl Workspaces {
                 .iter()
                 .position(|project| project.id == id)
                 .ok_or_else(|| CoreError::from("that project is not on this host"))?;
-            let project = patched(&saved.projects[index], patch, &["id", "path"])?;
+            let project = patched(&saved.projects[index], patch, &["id", "path", "identity"])?;
             check_project(&project, saved)?;
             saved.projects[index] = project.clone();
             Ok(project)
         })
+    }
+
+    /// Keeps what each project is known by, answering whether any changed.
+    pub(crate) fn set_identities(&self, identities: Vec<(PathBuf, Option<String>)>) -> bool {
+        let changed = |saved: &Saved| {
+            identities.iter().any(|(path, identity)| {
+                saved
+                    .projects
+                    .iter()
+                    .any(|project| &project.path == path && &project.identity != identity)
+            })
+        };
+        if !changed(&self.published.locked().saved) {
+            return false;
+        }
+        self.change(|saved| {
+            for project in &mut saved.projects {
+                if let Some((_, identity)) =
+                    identities.iter().find(|(path, _)| *path == project.path)
+                {
+                    project.identity = identity.clone();
+                }
+            }
+            Ok(())
+        })
+        .is_ok()
     }
 
     fn move_project(&self, id: &str, index: usize) -> CoreResult<()> {
@@ -590,7 +658,8 @@ impl Workspaces {
     }
 
     pub(crate) fn agent(&self, agent_id: &str) -> Option<WorkspaceAgent> {
-        self.lock()
+        self.published
+            .locked()
             .saved
             .kept(agent_id)
             .map(|kept| kept.agent.clone())
@@ -604,11 +673,17 @@ impl Workspaces {
             draft.insert("id".into(), Value::String(id));
         }
         if !draft.contains_key("createdAt") {
-            draft.insert("createdAt".into(), now_ms().into());
+            draft.insert("createdAt".into(), epoch_ms().into());
         }
-        let agent: WorkspaceAgent = serde_json::from_value(Value::Object(draft))
+        let mut agent: WorkspaceAgent = serde_json::from_value(Value::Object(draft))
             .map_err(|error| CoreError::from(format!("that is not an agent: {error}")))?;
         let put = self.change(|saved| {
+            if agent.buddy.is_none() {
+                agent.buddy = saved
+                    .kept(&agent.id)
+                    .and_then(|kept| kept.agent.buddy.clone());
+            }
+            dress(&mut agent, &saved.agents);
             check_agent(&agent, saved)?;
             let count = saved.agents.len();
             match saved.kept_mut(&agent.id) {
@@ -636,7 +711,8 @@ impl Workspaces {
             let current = saved
                 .kept(agent_id)
                 .ok_or_else(|| CoreError::from("that agent is not on this host"))?;
-            let agent = patched(&current.agent, patch, &["id", "createdAt"])?;
+            let mut agent = patched(&current.agent, patch, &["id", "createdAt"])?;
+            dress(&mut agent, &saved.agents);
             check_agent(&agent, saved)?;
             if let Some(kept) = saved.kept_mut(agent_id) {
                 kept.agent = agent.clone();
@@ -706,7 +782,8 @@ impl Workspaces {
 
     /// Every agent in the workspace, running or not.
     pub(crate) fn agent_ids(&self) -> std::collections::HashSet<String> {
-        self.lock()
+        self.published
+            .locked()
             .saved
             .agents
             .iter()
@@ -770,7 +847,7 @@ impl Workspaces {
             worktree,
             buddy: None,
             pty_id: None,
-            created_at: now_ms(),
+            created_at: epoch_ms(),
         };
         let Ok(Value::Object(draft)) = serde_json::to_value(agent) else {
             return;
@@ -801,7 +878,7 @@ impl Workspaces {
 
     /// How the agent's chat was last running, to start it again.
     pub(crate) fn kept_launch(&self, agent_id: &str) -> Option<Kept> {
-        self.lock().saved.kept(agent_id).cloned()
+        self.published.locked().saved.kept(agent_id).cloned()
     }
 
     /// The launcher and mode an agent runs with.
@@ -813,7 +890,7 @@ impl Workspaces {
     }
 
     pub(crate) fn accounts(&self) -> Option<Book> {
-        self.lock().saved.accounts.clone()
+        self.published.locked().saved.accounts.clone()
     }
 
     pub(crate) fn set_accounts(&self, book: Book) -> CoreResult<()> {
@@ -828,7 +905,7 @@ impl Workspaces {
 
     /// The agent `provider` on the person's account in `config_path`.
     pub(crate) fn account_spec(&self, provider: &str, config_path: Option<&str>) -> AgentSpec {
-        let published = self.lock();
+        let published = self.published.locked();
         match &published.saved.accounts {
             Some(book) => book.spec(provider, config_path),
             None => Book::default().spec(provider, config_path),
@@ -846,7 +923,7 @@ impl Workspaces {
     /// Each chat agent on each of the person's accounts, in the mode they
     /// start agents in: one launcher per profile, or one for an agent with none.
     fn offered(&self) -> Vec<Launcher> {
-        let published = self.lock();
+        let published = self.published.locked();
         let saved = &published.saved;
         let profiles = saved
             .accounts
@@ -854,13 +931,13 @@ impl Workspaces {
             .map(|book| book.profiles.as_slice())
             .unwrap_or_default();
         let mut offered = Vec::new();
-        // Pi has no chat mode of its own.
-        for def in AGENTS.iter().filter(|def| def.kind != "pi") {
+        for def in AGENTS.iter().filter(|def| def.chat.is_some()) {
             let permission_mode = match saved.permission_mode.as_deref() {
-                Some(mode) if def.bypass => mode.to_owned(),
-                None if def.bypass => "bypass".to_owned(),
-                _ => "workspace-write".to_owned(),
-            };
+                Some(mode) if def.bypass => mode,
+                None if def.bypass => PermissionMode::Bypass.as_str(),
+                _ => PermissionMode::WorkspaceWrite.as_str(),
+            }
+            .to_owned();
             let launcher = |id: String, label: String, agent: AgentSpec| Launcher {
                 id,
                 label,
@@ -891,7 +968,7 @@ impl Workspaces {
     }
 
     fn set_launchers(&self, launchers: Vec<Launcher>) {
-        self.lock().launchers = launchers;
+        self.published.locked().launchers = launchers;
         self.wake.now();
     }
 
@@ -903,13 +980,13 @@ impl Workspaces {
         config_path: Option<&str>,
         status: &AgentStatus,
     ) {
-        let mut published = self.lock();
+        let mut published = self.published.locked();
         let on_account = published.launchers.iter_mut().filter(|launcher| {
             launcher.agent.provider == provider
                 && launcher.agent.config_path.as_deref() == config_path
         });
         for launcher in on_account {
-            launcher.status = Some(status.state().to_owned());
+            launcher.status = Some(status.clone());
         }
     }
 
@@ -975,26 +1052,55 @@ impl Workspaces {
     }
 
     pub(crate) fn project_info(&self, id: &str) -> Option<ProjectInfo> {
-        self.lock().saved.project(id).cloned()
+        self.published.locked().saved.project(id).cloned()
     }
 
     pub(crate) fn project_path(&self, id: &str) -> CoreResult<PathBuf> {
-        self.lock()
+        self.published
+            .locked()
             .saved
             .project(id)
             .map(|project| project.path.clone())
             .ok_or_else(|| CoreError::from("that project is not on this host"))
     }
 
+    /// The launcher `id` names. An id with no profile, as a chat saved before
+    /// its agent had accounts asks for, means the account the person chose. One
+    /// the last look did not find is still returned, since starting it looks for
+    /// its program again and says why it failed; one whose profile is gone falls
+    /// back to its agent's own.
     pub(crate) fn launcher(&self, id: &str) -> CoreResult<Launcher> {
-        self.lock()
-            .launchers
+        let provider = id.split(':').next().unwrap_or(id);
+        let wanted = {
+            let published = self.published.locked();
+            let chosen = (provider == id)
+                .then(|| published.saved.accounts.as_ref())
+                .flatten()
+                .map(|book| format!("{provider}:{}", book.chosen(provider)));
+            let wanted: Vec<String> = std::iter::once(id.to_owned()).chain(chosen).collect();
+            let found = wanted.iter().find_map(|want| {
+                published
+                    .launchers
+                    .iter()
+                    .find(|launcher| &launcher.id == want)
+                    .cloned()
+            });
+            if let Some(found) = found {
+                return Ok(found);
+            }
+            wanted
+        };
+        let offered = self.offered();
+        wanted
             .iter()
-            .find(|launcher| launcher.id == id)
-            .cloned()
-            .ok_or_else(|| {
-                CoreError::from("that agent is not one Sikemux on this host can start; open Sikemux on the host once so it can say which it can")
+            .find_map(|want| offered.iter().find(|launcher| &launcher.id == want))
+            .or_else(|| {
+                offered
+                    .iter()
+                    .find(|launcher| launcher.agent.provider == provider)
             })
+            .cloned()
+            .ok_or_else(|| CoreError::from(format!("Sikemux has no agent called {provider}")))
     }
 
     pub(crate) fn publish_backdrop(
@@ -1010,14 +1116,15 @@ impl Workspaces {
                 return Err("the backdrop picture is larger than the core keeps".into());
             }
         }
-        let mut published = self.lock();
+        let mut published = self.published.locked();
         published.texture = texture;
         published.image = image;
         Ok(())
     }
 
     pub(crate) fn backdrop_image(&self) -> Option<String> {
-        self.lock()
+        self.published
+            .locked()
             .image
             .as_ref()
             .map(|image| image.data_url.clone())
@@ -1030,7 +1137,7 @@ impl Workspaces {
         if palette.len() > MAX_COLOURS || oversized {
             return Err("the app published more theme colours than the core keeps".into());
         }
-        self.lock().palette = palette;
+        self.published.locked().palette = palette;
         Ok(())
     }
 
@@ -1038,18 +1145,18 @@ impl Workspaces {
         if buddies.as_ref().is_some_and(Buddies::oversized) {
             return Err("the app published more buddies than the core keeps".into());
         }
-        self.lock().buddies = buddies;
+        self.published.locked().buddies = buddies;
         Ok(())
     }
 
     pub(crate) fn buddies(&self) -> Option<Buddies> {
-        self.lock().buddies.clone()
+        self.published.locked().buddies.clone()
     }
 
     /// The recent chats a device may take up again: those in a project on
     /// this host, leaving out any running now.
     pub(crate) fn recent(&self, open: &[ChatInfo]) -> Vec<RecentInfo> {
-        let published = self.lock();
+        let published = self.published.locked();
         let saved = &published.saved;
         published
             .recent
@@ -1075,7 +1182,7 @@ impl Workspaces {
     /// What to look for recent chats with: each launcher's account once, the
     /// projects, and the sessions agents here already hold.
     fn recent_requests(&self) -> Vec<(String, RecentRequest)> {
-        let published = self.lock();
+        let published = self.published.locked();
         let saved = &published.saved;
         let projects: Vec<String> = saved
             .projects
@@ -1124,7 +1231,7 @@ impl Workspaces {
     }
 
     fn set_recent(&self, recent: Vec<Recent>) -> bool {
-        let mut published = self.lock();
+        let mut published = self.published.locked();
         let changed = published.recent != recent;
         published.recent = recent;
         changed
@@ -1136,7 +1243,7 @@ impl Workspaces {
         choice: ResumeChoice,
         open: &[ChatInfo],
     ) -> CoreResult<ChatChoice> {
-        let published = self.lock();
+        let published = self.published.locked();
         let saved = &published.saved;
         let chat = published
             .recent
@@ -1173,7 +1280,8 @@ impl Workspaces {
     }
 
     pub(crate) fn project_paths(&self) -> Vec<PathBuf> {
-        self.lock()
+        self.published
+            .locked()
             .saved
             .projects
             .iter()
@@ -1193,7 +1301,8 @@ impl Workspaces {
             .get("configOptions")
             .filter(|options| options.is_array())
         {
-            self.lock()
+            self.published
+                .locked()
                 .config_options
                 .insert(provider.to_owned(), options.clone());
         }
@@ -1203,7 +1312,7 @@ impl Workspaces {
     /// agent's own unless the person renamed it, then the chat agents that are
     /// not running.
     pub(crate) fn listed(&self, mut running: Vec<ChatInfo>) -> Vec<ChatInfo> {
-        let published = self.lock();
+        let published = self.published.locked();
         let agents = &published.saved.agents;
         for chat in &mut running {
             let title = agents
@@ -1261,7 +1370,7 @@ impl Workspaces {
     }
 
     pub(crate) fn view(&self) -> Workspace {
-        let published = self.lock();
+        let published = self.published.locked();
         let saved = &published.saved;
         Workspace {
             projects: saved.projects.clone(),
@@ -1271,7 +1380,7 @@ impl Workspaces {
             permission_mode: saved
                 .permission_mode
                 .clone()
-                .unwrap_or_else(|| "bypass".into()),
+                .unwrap_or_else(|| PermissionMode::Bypass.as_str().into()),
             disabled_plugins: super::plugins::disabled(),
             launchers: published
                 .launchers
@@ -1289,7 +1398,10 @@ impl Workspaces {
                         label: launcher.label.clone(),
                         permission_mode: launcher.permission_mode.clone(),
                         config_options,
-                        status: launcher.status.clone(),
+                        status: launcher
+                            .status
+                            .as_ref()
+                            .map(|status| status.state().to_owned()),
                         model,
                         effort,
                     }
@@ -1314,16 +1426,14 @@ pub(crate) struct Lead {
 }
 
 impl Lead {
-    /// The permission mode a worker of the lead running `provider` takes, never
-    /// wider than the lead's, given `default` when the lead's is unknown.
-    pub(crate) fn worker_mode(&self, provider: &str, default: &str) -> String {
-        match self.permission_mode.as_deref() {
-            Some(mode) if self.provider == provider => mode.to_owned(),
-            Some("bypass") => "bypass".to_owned(),
-            Some(_) => "workspace-write".to_owned(),
-            None if matches!(default, "bypass" | "full-access") => "workspace-write".to_owned(),
-            None => default.to_owned(),
-        }
+    /// The permission mode a worker of the lead takes: the lead's own, or
+    /// Normal when the lead's is unknown.
+    pub(crate) fn worker_mode(&self) -> String {
+        let mode = self.permission_mode.as_deref().map(PermissionMode::parse);
+        mode.and_then(Result::ok)
+            .unwrap_or(PermissionMode::WorkspaceWrite)
+            .as_str()
+            .to_owned()
     }
 }
 
@@ -1334,10 +1444,6 @@ pub(crate) enum Paid {
     /// The provider named, or the agent's own account.
     By(Option<String>),
 }
-
-/// Agents whose chats keep a private home of their own, which a worker of
-/// theirs must not share.
-const OWN_HOME: [&str; 2] = ["hermes", "grok"];
 
 impl Workspaces {
     /// How to start an agent of `provider` for `lead` in `cwd`: on the lead's
@@ -1352,7 +1458,6 @@ impl Workspaces {
         paid: Paid,
     ) -> Result<(ChatLaunch, Option<String>), String> {
         let same = lead.provider == provider;
-        let mode = |default: &str| lead.worker_mode(provider, default);
         let lead_own = lead.launch.as_ref().filter(|_| same);
         let lead_route = lead_own.and_then(|own| own.env.get(ROUTED_ENV).cloned());
         let route = match paid {
@@ -1360,17 +1465,20 @@ impl Workspaces {
             Paid::By(route) => route,
         };
         let as_lead = route == lead_route;
-        let own = lead_own.filter(|_| as_lead && !OWN_HOME.contains(&provider));
+        let private_home = crate::agent_catalog::agent(provider)
+            .and_then(|agent| agent.home.as_ref())
+            .is_some_and(|home| home.private.is_some());
+        let own = lead_own.filter(|_| as_lead && !private_home);
         if let Some(own) = own {
             let mut launch = own.clone();
             launch.cwd = cwd.to_path_buf();
             launch.resume_id = None;
-            launch.permission_mode = mode(&own.permission_mode);
+            launch.permission_mode = lead.worker_mode();
             launch.model = model.or(launch.model);
             return Ok((launch, lead.launcher.clone()));
         }
         let launcher = {
-            let published = self.lock();
+            let published = self.published.locked();
             let launchers = &published.launchers;
             let offered: Vec<&Launcher> = launchers
                 .iter()
@@ -1398,20 +1506,8 @@ impl Workspaces {
             })?;
             (*launcher).clone()
         };
-        match launcher.status.as_deref() {
-            Some("missing") => {
-                return Err(format!("{} is not installed on this host", launcher.label))
-            }
-            Some("signedOut") => {
-                return Err(format!(
-                    "{} is signed out on this host; ask the person to sign in",
-                    launcher.label
-                ))
-            }
-            Some("broken") => {
-                return Err(format!("{} does not start on this host", launcher.label))
-            }
-            _ => {}
+        if let Some(refusal) = launcher.refusal() {
+            return Err(refusal);
         }
         let model = model.or_else(|| {
             lead_own
@@ -1425,7 +1521,7 @@ impl Workspaces {
             route.as_deref(),
             model,
         )?;
-        launch.permission_mode = mode(&launcher.permission_mode);
+        launch.permission_mode = lead.worker_mode();
         if let Some(own) = lead_own {
             launch.account = own.account.clone();
             launch.fallbacks = own.fallbacks.clone();
@@ -1436,7 +1532,7 @@ impl Workspaces {
 
 impl Workspaces {
     pub(crate) fn has_launchers(&self) -> bool {
-        !self.lock().launchers.is_empty()
+        !self.published.locked().launchers.is_empty()
     }
 
     /// How Auto starts an agent of its own in `cwd`: with the launcher the
@@ -1450,14 +1546,9 @@ impl Workspaces {
         model: Option<String>,
     ) -> Result<(ChatLaunch, String), String> {
         let chosen = {
-            let published = self.lock();
+            let published = self.published.locked();
             let launchers = &published.launchers;
-            let usable = |launcher: &&Launcher| {
-                !matches!(
-                    launcher.status.as_deref(),
-                    Some("missing" | "signedOut" | "broken")
-                )
-            };
+            let usable = |launcher: &&Launcher| launcher.refusal().is_none();
             match launcher {
                 Some(id) => launchers
                     .iter()
@@ -1471,11 +1562,8 @@ impl Workspaces {
             }
             .clone()
         };
-        match chosen.status.as_deref() {
-            Some("missing") => return Err(format!("{} is not installed", chosen.label)),
-            Some("signedOut") => return Err(format!("{} is signed out", chosen.label)),
-            Some("broken") => return Err(format!("{} does not start", chosen.label)),
-            _ => {}
+        if let Some(refusal) = chosen.refusal() {
+            return Err(refusal);
         }
         let launch = self.chat_launch(&chosen, still_there(&chosen)?, cwd, provider, model)?;
         Ok((launch, chosen.id))
@@ -1483,7 +1571,8 @@ impl Workspaces {
 
     /// The CLI the app's launcher `id` runs, such as `claude`.
     pub(crate) fn launcher_cli(&self, id: &str) -> Option<String> {
-        self.lock()
+        self.published
+            .locked()
             .launchers
             .iter()
             .find(|launcher| launcher.id == id)
@@ -1497,14 +1586,14 @@ impl Workspaces {
         chosen: Option<&str>,
         builder: Option<&str>,
     ) -> Result<Option<String>, String> {
-        let published = self.lock();
+        let published = self.published.locked();
         let other = |launcher: &&Launcher| builder != Some(launcher.agent.provider.as_str());
         let Some(id) = chosen else {
             return Ok(published
                 .launchers
                 .iter()
                 .filter(other)
-                .find(|launcher| launcher.status.as_deref() == Some("ready"))
+                .find(|launcher| matches!(launcher.status, Some(AgentStatus::Ready { .. })))
                 .map(|launcher| launcher.id.clone()));
         };
         let launcher = published
@@ -1536,9 +1625,7 @@ fn still_there(launcher: &Launcher) -> Result<PathBuf, String> {
 #[derive(Deserialize)]
 pub(crate) struct AddProjectParams {
     path: PathBuf,
-    #[serde(default)]
     name: Option<String>,
-    #[serde(default)]
     id: Option<String>,
 }
 
@@ -1564,7 +1651,7 @@ pub(crate) async fn add_project(
     .await?;
     let project = core.workspaces.add_project(path, params.name, params.id)?;
     super::git::follow_projects(core);
-    core.publish_device_view();
+    core.view_changed();
     Ok(project)
 }
 
@@ -1579,7 +1666,7 @@ pub(crate) fn remove_project(core: &Core, params: RemoveProjectParams) -> CoreRe
     core.workspaces.remove_project(&params.path)?;
     agents_closed(core, before);
     super::git::follow_projects(core);
-    core.publish_device_view();
+    core.view_changed();
     Ok(())
 }
 
@@ -1592,7 +1679,7 @@ pub(crate) struct UpdateProjectParams {
 /// Renames, pins or moves a project to a space.
 pub(crate) fn update_project(core: &Core, params: UpdateProjectParams) -> CoreResult<ProjectInfo> {
     let project = core.workspaces.update_project(&params.id, params.patch)?;
-    core.publish_device_view();
+    core.view_changed();
     Ok(project)
 }
 
@@ -1604,7 +1691,7 @@ pub(crate) struct MoveProjectParams {
 
 pub(crate) fn move_project(core: &Core, params: MoveProjectParams) -> CoreResult<()> {
     core.workspaces.move_project(&params.id, params.index)?;
-    core.publish_device_view();
+    core.view_changed();
     Ok(())
 }
 
@@ -1615,7 +1702,7 @@ pub(crate) struct SpacesParams {
 
 pub(crate) fn set_spaces(core: &Core, params: SpacesParams) -> CoreResult<()> {
     core.workspaces.set_spaces(params.spaces)?;
-    core.publish_device_view();
+    core.view_changed();
     Ok(())
 }
 
@@ -1626,7 +1713,7 @@ pub(crate) struct PinnedParams {
 
 pub(crate) fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<()> {
     core.workspaces.set_pinned(params.chats)?;
-    core.publish_device_view();
+    core.view_changed();
     Ok(())
 }
 
@@ -1648,7 +1735,7 @@ pub(crate) fn change_project(core: &Core, params: ChangeProjectParams) -> CoreRe
     core.workspaces
         .change_project(&params.project, &params.folder, params.change)?;
     core.changes
-        .changed("projectSettings", Some(&params.project), None);
+        .changed(Topic::ProjectSettings, Some(&params.project), None);
     Ok(())
 }
 
@@ -1666,7 +1753,7 @@ pub(crate) async fn set_defaults(core: &Arc<Core>, params: DefaultsParams) -> Co
     {
         refresh_launchers(core.clone()).await;
     }
-    core.publish_device_view();
+    core.view_changed();
     Ok(())
 }
 
@@ -1678,7 +1765,7 @@ pub(crate) struct CreateAgentParams {
 /// Adds an agent to the workspace, or replaces the one with its id.
 pub(crate) fn create_agent(core: &Core, params: CreateAgentParams) -> CoreResult<WorkspaceAgent> {
     let agent = core.workspaces.put_agent(params.agent)?;
-    core.publish_device_view();
+    core.view_changed();
     Ok(agent)
 }
 
@@ -1694,7 +1781,7 @@ pub(crate) fn update_agent(core: &Core, params: UpdateAgentParams) -> CoreResult
     let agent = core
         .workspaces
         .update_agent(&params.agent_id, params.patch)?;
-    core.publish_device_view();
+    core.view_changed();
     Ok(agent)
 }
 
@@ -1706,10 +1793,19 @@ pub(crate) struct CloseAgentsParams {
 
 /// Takes agents out of the workspace.
 pub(crate) fn close_agents(core: &Core, params: CloseAgentsParams) -> CoreResult<()> {
+    close(core, &params.agent_ids)
+}
+
+/// Stops the agent and takes it out of the workspace, so every app closes it.
+pub(crate) fn close_agent(core: &Core, agent_id: String) -> CoreResult<()> {
+    close(core, &[agent_id])
+}
+
+fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
     let before = core.workspaces.agent_ids();
-    core.workspaces.close_agents(&params.agent_ids)?;
+    core.workspaces.close_agents(agent_ids)?;
     agents_closed(core, before);
-    core.publish_device_view();
+    core.view_changed();
     Ok(())
 }
 
@@ -1720,17 +1816,13 @@ pub(crate) fn retitle(core: &Core, agent_id: &str, title: Option<String>, stand_
         return;
     };
     if core.workspaces.note_title(agent_id, &title, stand_in) {
-        core.publish_device_view();
+        core.view_changed();
     }
 }
 
 /// Takes out of the workspace agents that have nothing left to show.
 pub(crate) fn close_gone(core: &Core, agent_ids: &[String]) {
-    let before = core.workspaces.agent_ids();
-    if core.workspaces.close_agents(agent_ids).is_ok() {
-        agents_closed(core, before);
-        core.publish_device_view();
-    }
+    let _ = close(core, agent_ids);
 }
 
 /// What follows agents leaving the workspace, however they left: their chats
@@ -1740,14 +1832,13 @@ fn agents_closed(core: &Core, before: HashSet<String>) {
     for agent_id in before.difference(&kept) {
         core.chats.stop(agent_id);
     }
-    core.names.set_in_app(kept, core.running_agents());
+    core.names.settle(core.open_agents());
 }
 
 /// Runs whenever the workspace changes: agents in it keep their names while
 /// nothing of them runs.
 pub(crate) fn settle(core: &Arc<Core>) {
-    core.names
-        .set_in_app(core.workspaces.agent_ids(), core.running_agents());
+    core.names.settle(core.open_agents());
     super::session_watch::follow(core);
     core.agents_changed();
 }
@@ -1761,7 +1852,7 @@ pub(crate) async fn recents(core: Arc<Core>) {
         let found = blocking(move || Ok(newest(requests))).await;
         if let Ok(found) = found {
             if core.workspaces.set_recent(found) {
-                core.publish_device_view();
+                core.view_changed();
             }
         }
         core.workspaces.recent_stale.notified().await;
@@ -1804,11 +1895,17 @@ async fn refresh(core: Arc<Core>, asked: u64) {
         .into_iter()
         .map(|launcher| {
             tokio::spawn(async move {
-                let program = status::find(&launcher.agent).await.ok()?;
+                let program = match status::find(&launcher.agent).await {
+                    Ok(program) => program,
+                    Err(status::AgentStatus::Broken { reason }) => {
+                        return Err((launcher.id, reason))
+                    }
+                    Err(_) => return Err((launcher.id, "not found".to_owned())),
+                };
                 let agent = &launcher.agent;
                 let status = status::cached(&agent.provider, agent.config_path.as_deref());
-                Some(Launcher {
-                    status: status.map(|status| status.state().to_owned()),
+                Ok(Launcher {
+                    status,
                     program: Some(program),
                     ..launcher
                 })
@@ -1816,13 +1913,31 @@ async fn refresh(core: Arc<Core>, asked: u64) {
         })
         .collect();
     let mut found = Vec::with_capacity(looking.len());
+    let mut missed = BTreeMap::new();
     for looked in looking {
-        found.extend(looked.await.ok().flatten());
+        match looked.await {
+            Ok(Ok(launcher)) => found.push(launcher),
+            Ok(Err((id, reason))) => {
+                missed.insert(id, reason);
+            }
+            Err(_) => {}
+        }
     }
-    if core.workspaces.asked.load(Ordering::SeqCst) == asked {
-        core.workspaces.set_launchers(found);
-        core.publish_device_view();
+    // A newer look may finish first; an older one still lands when nothing newer has.
+    if core.workspaces.applied.fetch_max(asked, Ordering::SeqCst) >= asked {
+        return;
     }
+    {
+        let mut logged = core.workspaces.missed.locked();
+        for (id, reason) in &missed {
+            if logged.get(id) != Some(reason) {
+                eprintln!("sikemux core: {id} cannot be started here: {reason}");
+            }
+        }
+        *logged = missed;
+    }
+    core.workspaces.set_launchers(found);
+    core.view_changed();
 }
 
 #[cfg(test)]
@@ -1869,6 +1984,7 @@ mod tests {
             pinned: false,
             space: None,
             code_hosts: Default::default(),
+            identity: None,
         }
     }
 
@@ -1917,7 +2033,7 @@ mod tests {
     fn a_device_sees_whether_each_launcher_is_signed_in() {
         let workspaces = Workspaces::new(None);
         let signed_out = Launcher {
-            status: Some("signedOut".into()),
+            status: Some(AgentStatus::SignedOut),
             ..launcher()
         };
         offer(&workspaces, vec![signed_out]);
@@ -2094,6 +2210,44 @@ mod tests {
         assert!(!workspaces.note_title("agent-2", "Fix the parser", true));
         assert!(!workspaces.note_title("agent-2", "Parser fixes", false));
         assert_eq!(title("agent-2"), "Parser rewrite");
+    }
+
+    // A person on the built-in Claude account only, on 0.5.4-nightly.1 and .2:
+    // their chats ask for plain "claude", the book keeps builtin-claude as a
+    // profile, so only "claude:builtin-claude" was offered and no chat started.
+    #[test]
+    fn a_chat_with_no_profile_starts_on_the_account_the_person_chose() {
+        let builtin = crate::agent_accounts::Profile {
+            id: "builtin-claude".into(),
+            name: "Claude".into(),
+            provider: "claude".into(),
+            accent: "#fff".into(),
+            executable_path: None,
+            config_path: None,
+            environment_keys: Vec::new(),
+        };
+        let workspaces = Workspaces::new(None);
+        workspaces
+            .set_accounts(Book {
+                profiles: vec![builtin],
+                ..Book::default()
+            })
+            .unwrap();
+        assert_eq!(
+            workspaces.launcher("claude").unwrap().id,
+            "claude:builtin-claude"
+        );
+        offer(
+            &workspaces,
+            vec![Launcher {
+                id: "claude:builtin-claude".into(),
+                ..launcher()
+            }],
+        );
+        assert_eq!(
+            workspaces.launcher("claude").unwrap().id,
+            "claude:builtin-claude"
+        );
     }
 
     #[test]

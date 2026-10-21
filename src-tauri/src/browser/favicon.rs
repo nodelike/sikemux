@@ -3,27 +3,26 @@
 //! rather than passed along as an address the window could not draw.
 
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use base64::Engine;
-use futures::StreamExt;
-use reqwest::dns::{Addrs, Name, Resolve, Resolving};
-use reqwest::redirect::{Attempt, Policy};
-use reqwest::{Client, Response};
+use reqwest::redirect::Policy;
+use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, Url, Webview};
 
 use super::{BrowserManager, BLANK_URL, USER_AGENT};
+use crate::error::AppResult;
+use crate::http_client::{
+    builder, data_url, fetch_image, follow_if, names_private_address, public_client, shared,
+};
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(6);
 /// Larger than any icon a site needs, and small enough that a strip full of
 /// them still crosses to the window cheaply.
 const MAX_BYTES: usize = 64 * 1024;
 const CACHE_LIMIT: usize = 64;
-const MAX_REDIRECTS: usize = 5;
 /// The strip draws the icon at 13 points, so 32 pixels is the first size that
 /// still looks sharp on a retina screen.
 const WANTED: u32 = 32;
@@ -190,65 +189,13 @@ async fn fetch(url: &Url, page: &Url) -> Option<String> {
     } else {
         public_client()
     };
-    let response = client.get(url.clone()).send().await.ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    let bytes = read_capped(response).await?;
-    // Only the bytes get to say what they are. Icons are commonly served as
-    // octet-stream, and a "page not found" is just as commonly served with the
-    // icon's own content type on it.
-    let mime = sniff(&bytes)?;
-    Some(format!(
-        "data:{mime};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(&bytes)
-    ))
-}
-
-async fn read_capped(response: Response) -> Option<Vec<u8>> {
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_BYTES as u64)
-    {
-        return None;
-    }
-    let mut body = Vec::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.ok()?;
-        if body.len() + chunk.len() > MAX_BYTES {
-            return None;
-        }
-        body.extend_from_slice(&chunk);
-    }
-    (!body.is_empty()).then_some(body)
-}
-
-fn sniff(bytes: &[u8]) -> Option<&'static str> {
-    let head = &bytes[..bytes.len().min(64)];
-    if head.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Some("image/png");
-    }
-    if head.starts_with(b"GIF8") {
-        return Some("image/gif");
-    }
-    if head.starts_with(b"\xff\xd8\xff") {
-        return Some("image/jpeg");
-    }
-    if head.starts_with(b"\x00\x00\x01\x00") || head.starts_with(b"\x00\x00\x02\x00") {
-        return Some("image/x-icon");
-    }
-    if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WEBP") {
-        return Some("image/webp");
-    }
-    let text = String::from_utf8_lossy(head);
-    let text = text.trim_start().to_ascii_lowercase();
-    if text.starts_with("<svg")
-        || (text.starts_with("<?xml") && String::from_utf8_lossy(bytes).contains("<svg"))
-    {
-        return Some("image/svg+xml");
-    }
-    None
+    let request = client
+        .ok()?
+        .get(url.clone())
+        .timeout(FETCH_TIMEOUT)
+        .header(reqwest::header::USER_AGENT, USER_AGENT);
+    let (bytes, mime) = fetch_image(request, MAX_BYTES).await?;
+    Some(data_url(mime, &bytes))
 }
 
 fn same_host(a: &Url, b: &Url) -> bool {
@@ -257,108 +204,15 @@ fn same_host(a: &Url, b: &Url) -> bool {
 
 /// For an icon on the page's own host, which the page can already reach, as
 /// long as every redirect stays there too.
-fn own_host_client() -> &'static Client {
+fn own_host_client() -> AppResult<&'static Client> {
     static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        Client::builder()
-            .timeout(FETCH_TIMEOUT)
-            .user_agent(USER_AGENT)
-            .no_proxy()
-            .redirect(Policy::custom(|attempt| {
-                let home = attempt.previous().first().and_then(Url::host_str);
-                let stays = home.is_some() && attempt.url().host_str() == home;
-                follow_if(attempt, stays)
-            }))
-            .build()
-            .unwrap_or_default()
+    shared(&CLIENT, || {
+        builder().no_proxy().redirect(Policy::custom(|attempt| {
+            let home = attempt.previous().first().and_then(Url::host_str);
+            let stays = home.is_some() && attempt.url().host_str() == home;
+            follow_if(attempt, stays)
+        }))
     })
-}
-
-/// For an icon anywhere else. Names resolve only to public addresses and the
-/// connection goes to the address that was checked, so a name cannot be
-/// pointed at this machine between the check and the request.
-fn public_client() -> &'static Client {
-    static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        Client::builder()
-            .timeout(FETCH_TIMEOUT)
-            .user_agent(USER_AGENT)
-            .no_proxy()
-            .dns_resolver(PublicOnly)
-            .redirect(Policy::custom(|attempt| {
-                let allowed = !names_private_address(attempt.url());
-                follow_if(attempt, allowed)
-            }))
-            .build()
-            .unwrap_or_default()
-    })
-}
-
-fn follow_if(attempt: Attempt<'_>, allowed: bool) -> reqwest::redirect::Action {
-    if allowed && attempt.previous().len() <= MAX_REDIRECTS {
-        attempt.follow()
-    } else {
-        attempt.stop()
-    }
-}
-
-/// An address written straight into the URL, which skips name lookup.
-fn names_private_address(url: &Url) -> bool {
-    match url.host() {
-        Some(url::Host::Ipv4(ip)) => !is_public(IpAddr::V4(ip)),
-        Some(url::Host::Ipv6(ip)) => !is_public(IpAddr::V6(ip)),
-        Some(url::Host::Domain(_)) => false,
-        None => true,
-    }
-}
-
-struct PublicOnly;
-
-impl Resolve for PublicOnly {
-    fn resolve(&self, name: Name) -> Resolving {
-        let host = name.as_str().to_owned();
-        Box::pin(async move {
-            let public: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
-                .await?
-                .filter(|address| is_public(address.ip()))
-                .collect();
-            if public.is_empty() {
-                return Err(format!("{host} is not on the public internet").into());
-            }
-            Ok(Box::new(public.into_iter()) as Addrs)
-        })
-    }
-}
-
-fn is_public(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => {
-            let [first, second, ..] = ip.octets();
-            let shared = first == 100 && (64..128).contains(&second);
-            let benchmarking = first == 198 && (second & 0xfe) == 18;
-            !(ip.is_private()
-                || ip.is_loopback()
-                || ip.is_link_local()
-                || ip.is_unspecified()
-                || ip.is_broadcast()
-                || ip.is_multicast()
-                || ip.is_documentation()
-                || first == 0
-                || first >= 240
-                || shared
-                || benchmarking)
-        }
-        IpAddr::V6(ip) => {
-            if let Some(embedded) = ip.to_ipv4() {
-                return is_public(IpAddr::V4(embedded));
-            }
-            let first = ip.segments()[0];
-            let unique_local = (first & 0xfe00) == 0xfc00;
-            let link_local = (first & 0xffc0) == 0xfe80;
-            let site_local = (first & 0xffc0) == 0xfec0;
-            !(ip.is_loopback() || ip.is_multicast() || unique_local || link_local || site_local)
-        }
-    }
 }
 
 impl BrowserManager {
@@ -473,18 +327,6 @@ mod tests {
         assert!(parse_links("\"[]\"").is_empty());
     }
 
-    #[test]
-    fn bytes_name_themselves_and_a_page_of_html_names_nothing() {
-        assert_eq!(sniff(b"\x89PNG\r\n\x1a\n rest"), Some("image/png"));
-        assert_eq!(sniff(b"\x00\x00\x01\x00rest"), Some("image/x-icon"));
-        assert_eq!(
-            sniff(b"  <svg viewBox=\"0 0 1 1\"/>"),
-            Some("image/svg+xml")
-        );
-        assert_eq!(sniff(b"<!doctype html><html>"), None);
-        assert_eq!(sniff(b""), None);
-    }
-
     /// Answers one request with the given body and hangs up.
     async fn serve(content_type: &str, body: Vec<u8>) -> Url {
         let head = format!(
@@ -515,13 +357,7 @@ mod tests {
     async fn a_fetched_icon_comes_back_inline_under_the_name_its_bytes_give_it() {
         let png = b"\x89PNG\r\n\x1a\nbody".to_vec();
         let url = serve("application/octet-stream", png.clone()).await;
-        assert_eq!(
-            fetch(&url, &url).await,
-            Some(format!(
-                "data:image/png;base64,{}",
-                base64::engine::general_purpose::STANDARD.encode(&png)
-            ))
-        );
+        assert_eq!(fetch(&url, &url).await, Some(data_url("image/png", &png)));
     }
 
     #[tokio::test]
@@ -559,29 +395,6 @@ mod tests {
         );
         let icon = answer_once(head, Vec::new()).await;
         assert_eq!(fetch(&icon, &icon).await, None);
-    }
-
-    #[test]
-    fn only_public_addresses_count_as_the_internet() {
-        for private in [
-            "127.0.0.1",
-            "10.1.2.3",
-            "172.16.0.1",
-            "192.168.1.1",
-            "169.254.169.254",
-            "100.64.0.1",
-            "0.0.0.0",
-            "::1",
-            "::",
-            "::ffff:127.0.0.1",
-            "fe80::1",
-            "fd00::1",
-        ] {
-            assert!(!is_public(private.parse().unwrap()), "{private}");
-        }
-        for public in ["93.184.216.34", "1.1.1.1", "2606:4700:4700::1111"] {
-            assert!(is_public(public.parse().unwrap()), "{public}");
-        }
     }
 
     #[test]

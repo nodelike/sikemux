@@ -72,6 +72,8 @@ if (!releaseWorkflow.includes("run: pnpm build:linux")) fail("the Release workfl
 if (!publish.includes('"$DEB" "$RPM" "$APPIMAGE"')) fail("releases do not publish the Linux packages");
 if (!releaseWorkflow.includes("scripts/package-host.sh")) fail("the Release workflow does not build the Linux host core");
 if (!publish.includes('"$APPIMAGE" "${HOSTS[@]}"')) fail("releases do not publish the Linux host core");
+if (!publish.includes('"${HOSTS[@]}" "$INSTALLER"')) fail("releases do not publish the installer made for their files");
+if (!releaseWorkflow.includes("scripts/smoke-host-install.sh")) fail("the Release workflow does not install the host core with its own installer");
 if (JSON.stringify(sidecarConfig.bundle?.externalBin) !== JSON.stringify(["binaries/sikemux-host"])) fail("sidecar bundle mapping is incomplete");
 if (!macBuild.includes("build-voice-helper.mjs")) fail("macOS build does not build the voice helper");
 if (!macBuild.includes("build-notch-helper.mjs")) fail("macOS build does not build the notch helper");

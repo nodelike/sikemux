@@ -58,14 +58,21 @@ pub fn challenge(verifier: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
-/// Listens on both loopback addresses, since a browser may try `localhost`
-/// as either. Both are held before the browser is opened, so no other program
-/// can be listening on one of them for the code.
+/// What the browser is shown once it came back.
+pub enum Finish {
+    /// A page saying the sign-in to this service is done.
+    Page(&'static str),
+    /// Sent on to `done`, or to `refused` when the sign-in was turned down.
+    Redirect { done: String, refused: String },
+}
+
+/// Where the browser comes back to with a code.
 pub struct Callback {
     v4: TcpListener,
     v6: Option<TcpListener>,
+    redirect_uri: String,
     path: &'static str,
-    service: &'static str,
+    finish: Finish,
     relayed: Mutex<Option<UnboundedReceiver<String>>>,
 }
 
@@ -102,6 +109,9 @@ pub fn relay(landed: &str) -> LoopbackResult<()> {
 }
 
 impl Callback {
+    /// Listens on the shared port at both loopback addresses, since a browser
+    /// may try `localhost` as either. Both are held before the browser is
+    /// opened, so no other program can be listening on one of them for the code.
     pub async fn bind(path: &'static str, service: &'static str) -> LoopbackResult<Self> {
         let taken = || {
             LoopbackError(format!(
@@ -116,15 +126,51 @@ impl Callback {
             Err(error) if error.kind() == ErrorKind::AddrNotAvailable => None,
             Err(_) => return Err(taken()),
         };
-        let (sender, relayed) = unbounded_channel();
-        waiting().push((path, sender));
-        Ok(Self {
+        Ok(Self::waiting(
             v4,
             v6,
+            redirect_uri(path),
             path,
-            service,
+            Finish::Page(service),
+        ))
+    }
+
+    /// Listens on a port the system picks, for a service that takes any
+    /// port on `127.0.0.1` in its redirect.
+    pub async fn bind_any(path: &'static str, finish: Finish) -> LoopbackResult<Self> {
+        let v4 = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .map_err(|error| LoopbackError(format!("could not listen for the browser: {error}")))?;
+        let port = v4
+            .local_addr()
+            .map_err(|error| LoopbackError(error.to_string()))?
+            .port();
+        let redirect = format!("http://127.0.0.1:{port}{path}");
+        Ok(Self::waiting(v4, None, redirect, path, finish))
+    }
+
+    fn waiting(
+        v4: TcpListener,
+        v6: Option<TcpListener>,
+        redirect_uri: String,
+        path: &'static str,
+        finish: Finish,
+    ) -> Self {
+        let (sender, relayed) = unbounded_channel();
+        waiting().push((path, sender));
+        Self {
+            v4,
+            v6,
+            redirect_uri,
+            path,
+            finish,
             relayed: Mutex::new(Some(relayed)),
-        })
+        }
+    }
+
+    /// Where the service sends the browser back to.
+    pub fn redirect_uri(&self) -> &str {
+        &self.redirect_uri
     }
 
     async fn accept(&self) -> std::io::Result<TcpStream> {
@@ -168,19 +214,27 @@ impl Callback {
                 Some(Answer::Stray) => {
                     respond(&mut stream, "400 Bad Request", &not_this_sign_in().0).await
                 }
-                Some(Answer::Done(Ok(code))) => {
-                    let message = format!(
-                        "Signed in to {}. You can close this tab and go back to Sikemux.",
-                        self.service
-                    );
-                    respond(&mut stream, "200 OK", &message).await;
-                    return Ok(code);
-                }
-                Some(Answer::Done(Err(error))) => {
-                    respond(&mut stream, "400 Bad Request", &error.0).await;
-                    return Err(error);
+                Some(Answer::Done(answer)) => {
+                    self.finish(&mut stream, &answer).await;
+                    return answer;
                 }
             }
+        }
+    }
+}
+
+impl Callback {
+    async fn finish(&self, stream: &mut TcpStream, answer: &LoopbackResult<String>) {
+        match (&self.finish, answer) {
+            (Finish::Page(service), Ok(_)) => {
+                let message = format!(
+                    "Signed in to {service}. You can close this tab and go back to Sikemux."
+                );
+                respond(stream, "200 OK", &message).await;
+            }
+            (Finish::Page(_), Err(error)) => respond(stream, "400 Bad Request", &error.0).await,
+            (Finish::Redirect { done, .. }, Ok(_)) => redirect(stream, done).await,
+            (Finish::Redirect { refused, .. }, Err(_)) => redirect(stream, refused).await,
         }
     }
 }
@@ -243,6 +297,14 @@ fn answer_of(target: &str, path: &str, state: &str) -> Option<Answer> {
     Some(Answer::Done(value("code").ok_or_else(|| {
         LoopbackError("the browser came back without a code".into())
     })))
+}
+
+async fn redirect(stream: &mut TcpStream, location: &str) {
+    let reply = format!(
+        "HTTP/1.1 303 See Other\r\nlocation: {location}\r\ncontent-length: 0\r\ncache-control: no-store\r\nconnection: close\r\n\r\n"
+    );
+    stream.write_all(reply.as_bytes()).await.ok();
+    stream.shutdown().await.ok();
 }
 
 async fn respond(stream: &mut TcpStream, status: &str, message: &str) {

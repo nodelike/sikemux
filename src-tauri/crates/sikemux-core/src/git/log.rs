@@ -43,10 +43,7 @@ pub struct GitOverview {
 }
 
 pub(super) fn relative_time(secs: i64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let now = sikemux_process::clock::epoch_secs() as i64;
     let d = (now - secs).max(0);
     if d < 60 {
         return format!("{}s ago", d);

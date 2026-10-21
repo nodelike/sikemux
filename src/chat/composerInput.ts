@@ -1,8 +1,7 @@
+import { MAX_ATTACHMENTS } from "../api/generated/wire";
 import { rankBy } from "../lib/fuzzy";
 import { basename } from "../lib/paths";
 import type { AcpAvailableCommand } from "./types";
-
-export const MAX_ATTACHMENTS = 32;
 
 export function mergePaths(current: string[], incoming: readonly string[]): string[] {
     const merged = [...current];
@@ -108,4 +107,15 @@ export function entryName(entry: ProjectEntry): string {
 
 export function rankEntries(needle: string, entries: readonly ProjectEntry[], limit: number): ProjectEntry[] {
     return rankBy(needle, entries, (entry) => [entryName(entry), entry.path], limit);
+}
+
+/** How the draft names attachment `number`, counting from 1, at the place its picture belongs. */
+export const imageTag = (number: number): string => `[Image #${number}]`;
+
+/** The draft once attachment `index` is gone: its tags go, and later ones count down to keep naming theirs. */
+export function withoutAttachment(text: string, index: number): string {
+    const gone = index + 1;
+    return text
+        .replace(new RegExp(` ?\\[Image #${gone}\\]`, "g"), "")
+        .replace(/\[Image #(\d+)\]/g, (tag, number: string) => (Number(number) > gone ? imageTag(Number(number) - 1) : tag));
 }

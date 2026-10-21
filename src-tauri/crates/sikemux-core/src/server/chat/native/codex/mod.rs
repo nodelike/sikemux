@@ -11,22 +11,25 @@ mod state;
 mod subagents;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use url::Url;
+use sikemux_process::sync::Locked;
 
-use crate::acp::prompt_blocks;
 use crate::launch::providers::ROUTED_ENV;
+use crate::launch::PermissionMode;
 use crate::protocol::ChatLaunch;
 
 use super::super::Respond;
 use super::file_link;
+use super::parts::{context_text, parts, picture, Part};
+use super::pending::{Answered, Purpose};
 use super::process::{Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
-use super::session::{Backend, Opened, Prompt, Sink, TurnEnd};
+use super::servers;
+use super::session::{self, Backend, Opened, Prompt, Sink, TurnEnd};
 use approvals::Question;
 use commands::Command;
 use config::{Mode, Models};
@@ -34,11 +37,6 @@ use state::{user_input_told, Effect, Reply, Session};
 
 /// How long a finished turn waits for the subagents it started.
 const SUBAGENT_WAIT: Duration = Duration::from_secs(10 * 60);
-
-/// How many subagent threads a resumed history reads.
-const MAX_SUBAGENT_THREADS: usize = 64;
-
-const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 
 /// What the reader and the chat's loop share.
 #[derive(Clone)]
@@ -49,10 +47,6 @@ struct Driver {
 }
 
 impl Driver {
-    fn lock(&self) -> MutexGuard<'_, Session> {
-        self.session.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     fn apply(&self, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
@@ -71,7 +65,7 @@ impl Driver {
         let driver = self.clone();
         tokio::spawn(async move {
             tokio::time::sleep(SUBAGENT_WAIT).await;
-            let effects = driver.lock().subagents_waited(turn);
+            let effects = driver.session.locked().subagents_waited(turn);
             driver.apply(effects);
         });
     }
@@ -79,28 +73,26 @@ impl Driver {
     /// Asks Codex to stop the turn with this id. Codex never answers an
     /// interrupt for a turn that is not running.
     fn interrupt(&self, turn_id: String) {
-        let thread_id = self.lock().thread_id.clone();
+        let thread_id = self.session.locked().thread_id.clone();
         let _ = self.rpc.send_for(
             "turn/interrupt",
             json!({ "threadId": thread_id, "turnId": turn_id }),
-            json!({ "interrupt": turn_id }),
+            Purpose::Interrupt(turn_id),
         );
     }
 
     /// The answer to a request sent with `purpose`.
-    fn purpose_answered(&self, purpose: Value, result: Result<Value, Value>) {
-        if let Some(turn_id) = purpose["interrupt"].as_str() {
-            if result.is_ok() {
-                let effects = self.lock().interrupted(turn_id);
+    fn purpose_answered(&self, purpose: Purpose, result: Answered) {
+        if result.is_err() {
+            return;
+        }
+        match purpose {
+            Purpose::Interrupt(turn_id) => {
+                let effects = self.session.locked().interrupted(&turn_id);
                 self.apply(effects);
             }
-        } else if let Some(steer) = purpose.get("steer") {
-            if result.is_ok() {
-                let paths: Vec<String> =
-                    serde_json::from_value(steer["paths"].clone()).unwrap_or_default();
-                self.sink
-                    .prompted(steer["text"].as_str().unwrap_or_default(), &paths);
-            }
+            Purpose::Steer { text, paths } => self.sink.prompted(&text, &paths),
+            _ => {}
         }
     }
 
@@ -132,12 +124,12 @@ impl Driver {
     }
 
     fn notification(&self, method: &str, params: &Value) {
-        let effects = self.lock().handle(method, params);
+        let effects = self.session.locked().handle(method, params);
         self.apply(effects);
     }
 
     fn request(&self, id: Value, method: &str, params: &Value) {
-        let reply = self.lock().question(method, params);
+        let reply = self.session.locked().question(method, params);
         match reply {
             Reply::Answer(answer) => self.rpc.respond(id, answer),
             Reply::PutQuestion => {
@@ -148,15 +140,9 @@ impl Driver {
                 .rpc
                 .refuse(id, &format!("Sikemux does not handle {method}")),
             Reply::Ask(question) => {
-                let request = question.request.clone();
-                let reply = match serde_json::to_value(&question) {
-                    Ok(question) => json!({ "id": id, "question": question }),
-                    Err(_) => {
-                        self.rpc.respond(id, question.answer(None));
-                        return;
-                    }
-                };
-                self.sink.ask(request, reply.clone(), self.responder(reply));
+                let reply = json!({ "id": id, "question": question });
+                self.sink
+                    .ask(question.request, reply.clone(), self.responder(reply));
             }
         }
     }
@@ -175,17 +161,16 @@ impl Reads for Driver {
     }
 
     fn closed(&mut self) {
-        self.lock().gone = true;
+        self.session.locked().gone = true;
         self.rpc.close();
     }
 }
 
-/// What a Codex chat hands a core that takes it over.
+/// What a Codex chat knows of its session, as it hands it to a core that
+/// takes it over.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CodexState {
-    rpc: RpcState,
-    session: Session,
+struct Kept {
     thread_id: String,
     cwd: String,
     models: Models,
@@ -194,127 +179,92 @@ struct CodexState {
     mode: Mode,
     account: Value,
     servers: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexState {
+    rpc: RpcState,
+    session: Session,
+    #[serde(flatten)]
+    kept: Kept,
 }
 
 pub(crate) struct Codex {
     process: Process,
     driver: Driver,
     reading: Reading<Driver>,
-    thread_id: String,
-    cwd: String,
-    models: Models,
-    model: String,
-    effort: Option<String>,
-    mode: Mode,
-    account: Value,
-    servers: Vec<String>,
-}
-
-/// Why starting failed, with the last thing Codex printed when it stopped.
-fn start_error(process: &Process, error: String) -> String {
-    let stderr = process.stderr();
-    match stderr.lines().rev().find(|line| !line.trim().is_empty()) {
-        Some(line) => format!("{error}: {}", line.trim()),
-        None => error,
-    }
+    kept: Kept,
 }
 
 async fn list_models(rpc: &Rpc) -> Result<Models, String> {
-    let mut models = Vec::new();
-    let mut cursor = Value::Null;
-    loop {
-        let page = rpc
-            .request(
-                "model/list",
-                json!({ "cursor": cursor, "limit": null, "includeHidden": false }),
-            )
-            .await?;
-        models.extend(page["data"].as_array().cloned().unwrap_or_default());
-        match page["nextCursor"].as_str() {
-            Some(next) if cursor != next => cursor = Value::from(next),
-            _ => break,
-        }
-    }
-    Ok(Models(models))
+    let pages = rpc
+        .pages(
+            "model/list",
+            |cursor| json!({ "cursor": cursor, "limit": null, "includeHidden": false }),
+        )
+        .await?;
+    Ok(Models(data(pages)))
 }
 
 async fn list_turns(rpc: &Rpc, thread_id: &str) -> Result<Vec<Value>, String> {
-    let mut turns = Vec::new();
-    let mut cursor = Value::Null;
-    loop {
-        let page = rpc
-            .request(
-                "thread/turns/list",
-                json!({
-                    "threadId": thread_id,
-                    "cursor": cursor,
-                    "itemsView": "full",
-                    "sortDirection": "asc",
-                }),
-            )
-            .await?;
-        turns.extend(page["data"].as_array().cloned().unwrap_or_default());
-        match page["nextCursor"].as_str() {
-            Some(next) if cursor != next => cursor = Value::from(next),
-            _ => break,
-        }
-    }
-    Ok(turns)
+    let pages = rpc
+        .pages("thread/turns/list", |cursor| {
+            json!({
+                "threadId": thread_id,
+                "cursor": cursor,
+                "itemsView": "full",
+                "sortDirection": "asc",
+            })
+        })
+        .await?;
+    Ok(data(pages))
+}
+
+/// What each page listed, in order.
+fn data(pages: Vec<Value>) -> Vec<Value> {
+    pages
+        .into_iter()
+        .flat_map(|mut page| match page["data"].take() {
+            Value::Array(listed) => listed,
+            _ => Vec::new(),
+        })
+        .collect()
 }
 
 /// The turns of every subagent thread a history started, and theirs.
 async fn subagent_histories(rpc: &Rpc, turns: &[Value]) -> HashMap<String, Vec<Value>> {
-    let mut histories = HashMap::new();
-    let mut queue = history::subagent_threads(turns);
-    while let Some(thread) = queue.pop() {
-        if histories.contains_key(&thread) || histories.len() >= MAX_SUBAGENT_THREADS {
-            continue;
-        }
-        let turns = list_turns(rpc, &thread).await.unwrap_or_else(|error| {
+    let read = |thread: String| async move {
+        list_turns(rpc, &thread).await.unwrap_or_else(|error| {
             eprintln!("sikemux core: Codex subagent history {thread} could not be read: {error}");
             Vec::new()
-        });
-        queue.extend(history::subagent_threads(&turns));
-        histories.insert(thread, turns);
-    }
-    histories
+        })
+    };
+    session::subagent_histories(
+        history::subagent_threads(turns),
+        read,
+        history::subagent_threads,
+    )
+    .await
 }
 
-/// Codex's input for the prompt's blocks, the way Codex's adapter writes them,
-/// with attached images handed over as images when the model reads them.
-fn input(blocks: &[Value], images: bool) -> Vec<Value> {
+/// Codex's input for the prompt, the way Codex's adapter writes it, with
+/// attached pictures handed over as pictures when the model reads them.
+fn input(parts: Vec<Part>, images: bool) -> Vec<Value> {
     let text = |text: String| json!({ "type": "text", "text": text, "text_elements": [] });
-    blocks
-        .iter()
-        .filter_map(|block| match block["type"].as_str()? {
-            "text" => Some(text(block["text"].as_str()?.to_owned())),
-            "resource_link" => {
-                let uri = block["uri"].as_str()?;
-                let path = Url::parse(uri).ok().and_then(|url| url.to_file_path().ok());
-                let image = path.as_deref().filter(|path| {
-                    images
-                        && path
-                            .extension()
-                            .and_then(|extension| extension.to_str())
-                            .is_some_and(|extension| {
-                                IMAGE_EXTENSIONS.contains(&extension.to_lowercase().as_str())
-                            })
-                });
-                match image {
-                    Some(path) => Some(json!({ "type": "localImage", "path": path })),
-                    None => Some(text(file_link(block["name"].as_str(), uri))),
-                }
-            }
-            "resource" => {
-                let resource = &block["resource"];
-                let uri = resource["uri"].as_str()?;
-                let body = resource["text"].as_str()?;
-                Some(text(format!(
-                    "{}\n<context ref=\"{uri}\">\n{body}\n</context>",
-                    file_link(None, uri)
-                )))
-            }
-            _ => None,
+    parts
+        .into_iter()
+        .map(|part| match part {
+            Part::Text(said) => text(said),
+            Part::File { name, uri } => match picture(&uri).filter(|_| images) {
+                Some((path, _)) => json!({ "type": "localImage", "path": path }),
+                None => text(file_link(Some(&name), &uri)),
+            },
+            Part::Context { uri, text: body } => text(format!(
+                "{}\n{}",
+                file_link(None, &uri),
+                context_text(&uri, &body)
+            )),
         })
         .collect()
 }
@@ -323,7 +273,7 @@ impl Codex {
     /// Writes a steer to Codex now, so a stop sent after it reaches Codex
     /// after it too. None when no turn is running.
     fn send_steer(&self, prompt: &Prompt) -> Result<Option<Sent>, String> {
-        let Some(turn_id) = self.driver.lock().active_turn() else {
+        let Some(turn_id) = self.driver.session.locked().active_turn() else {
             return Ok(None);
         };
         let input = self.prompt_input(prompt)?;
@@ -331,29 +281,27 @@ impl Codex {
             .rpc
             .start_for(
                 "turn/steer",
-                json!({ "threadId": self.thread_id, "expectedTurnId": turn_id, "input": input }),
-                Some(json!({ "steer": { "text": prompt.text, "paths": prompt.paths } })),
+                json!({ "threadId": self.kept.thread_id, "expectedTurnId": turn_id, "input": input }),
+                Some(Purpose::Steer {
+                    text: prompt.text.clone(),
+                    paths: prompt.paths.clone(),
+                }),
             )
             .map(Some)
             .map_err(|error| error_text(&error))
     }
 
     fn prompt_input(&self, prompt: &Prompt) -> Result<Vec<Value>, String> {
-        let blocks = prompt_blocks(
-            prompt.text.clone(),
-            prompt.paths.clone(),
-            prompt.context.clone(),
-            true,
-        )?;
-        let blocks = serde_json::to_value(blocks).map_err(|error| error.to_string())?;
-        let blocks = blocks.as_array().cloned().unwrap_or_default();
-        Ok(input(&blocks, self.models.takes_images(&self.model)))
+        Ok(input(
+            parts(prompt)?,
+            self.kept.models.takes_images(&self.kept.model),
+        ))
     }
 
     fn say(&self, text: &str) {
         self.driver
             .sink
-            .update(&self.thread_id, items::agent_text(text, None, None));
+            .update(&self.kept.thread_id, items::agent_text(text, None, None));
     }
 
     fn answered(&self, turn: u64) {
@@ -371,7 +319,7 @@ impl Codex {
         method: &str,
         params: Value,
     ) -> Result<(), String> {
-        self.driver.lock().begin(
+        self.driver.session.locked().begin(
             turn,
             prompt.message_id.clone(),
             history::title(&prompt.text),
@@ -379,13 +327,13 @@ impl Codex {
         match self.driver.rpc.request(method, params).await {
             Ok(result) => {
                 if let Some(id) = result["turn"]["id"].as_str() {
-                    let effects = self.driver.lock().started(turn, id);
+                    let effects = self.driver.session.locked().started(turn, id);
                     self.driver.apply(effects);
                 }
                 Ok(())
             }
             Err(error) => {
-                self.driver.lock().abandon(turn);
+                self.driver.session.locked().abandon(turn);
                 Err(error)
             }
         }
@@ -393,7 +341,7 @@ impl Codex {
 
     async fn command(&self, turn: u64, prompt: &Prompt, command: Command) -> Result<(), String> {
         let rpc = &self.driver.rpc;
-        let thread = json!(self.thread_id);
+        let thread = json!(self.kept.thread_id);
         match command {
             Command::Compact => {
                 return self
@@ -418,7 +366,7 @@ impl Codex {
             }
             Command::Skills => {
                 let skills = rpc
-                    .request("skills/list", json!({ "cwds": [self.cwd] }))
+                    .request("skills/list", json!({ "cwds": [self.kept.cwd] }))
                     .await?;
                 self.say(&commands::skills_text(&skills));
             }
@@ -427,17 +375,17 @@ impl Codex {
                     .request("mcpServerStatus/list", json!({ "threadId": thread }))
                     .await?;
                 let statuses = statuses["data"].as_array().cloned().unwrap_or_default();
-                self.say(&commands::servers_text(&statuses, &self.servers));
+                self.say(&commands::servers_text(&statuses, &self.kept.servers));
             }
             Command::Status => {
-                let token_usage = self.driver.lock().token_usage.clone();
+                let token_usage = self.driver.session.locked().token_usage.clone();
                 self.say(&commands::status_text(&commands::Status {
-                    model: &self.model,
-                    cwd: &self.cwd,
-                    approval: self.mode.approval_policy(),
-                    sandbox: self.mode.sandbox_name(),
-                    account: &self.account,
-                    session: &self.thread_id,
+                    model: &self.kept.model,
+                    cwd: &self.kept.cwd,
+                    approval: self.kept.mode.approval_policy(),
+                    sandbox: self.kept.mode.sandbox_name(),
+                    account: &self.kept.account,
+                    session: &self.kept.thread_id,
                     token_usage: token_usage.as_ref(),
                 }));
             }
@@ -450,18 +398,18 @@ impl Codex {
     async fn replay_history(&self, thread: &Value) -> Result<(), String> {
         let rpc = &self.driver.rpc;
         let sink = &self.driver.sink;
-        let turns = list_turns(rpc, &self.thread_id).await?;
+        let turns = list_turns(rpc, &self.kept.thread_id).await?;
         let children = subagent_histories(rpc, &turns).await;
         if let Some(title) = history::thread_title(thread, &turns) {
             sink.update(
-                &self.thread_id,
+                &self.kept.thread_id,
                 json!({ "sessionUpdate": "session_info_update", "title": title }),
             );
-            self.driver.lock().titled = true;
+            self.driver.session.locked().titled = true;
         }
         let mut out = Vec::new();
         history::replay(
-            &self.thread_id,
+            &self.kept.thread_id,
             &turns,
             &children,
             &items::read_file,
@@ -471,7 +419,8 @@ impl Codex {
             sink.update(&session, update);
         }
         self.driver
-            .lock()
+            .session
+            .locked()
             .message_turns
             .extend(history::message_turns(&turns));
         Ok(())
@@ -481,11 +430,11 @@ impl Codex {
         let skills = self
             .driver
             .rpc
-            .request("skills/list", json!({ "cwds": [self.cwd] }))
+            .request("skills/list", json!({ "cwds": [self.kept.cwd] }))
             .await
             .unwrap_or(Value::Null);
         self.driver.sink.update(
-            &self.thread_id,
+            &self.kept.thread_id,
             json!({
                 "sessionUpdate": "available_commands_update",
                 "availableCommands": commands::available(&skills),
@@ -496,20 +445,20 @@ impl Codex {
 
 impl Backend for Codex {
     async fn start(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
-        let mode = Mode::from_app(&launch.permission_mode)?;
+        let mode = Mode::from_app(PermissionMode::parse(&launch.permission_mode)?);
         let (process, writer, lines) = Process::spawn(
             launch,
             ["app-server".to_owned()],
             Vec::<(String, String)>::new(),
         )?;
-        let rpc = Rpc::new(writer);
+        let rpc = Rpc::new(writer, false);
         let driver = Driver {
             rpc: rpc.clone(),
             sink,
             session: Arc::new(Mutex::new(Session::new(String::new()))),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
-        let failed = |error: String| start_error(&process, error);
+        let failed = |error: String| process.start_error(error);
 
         let initialized = rpc
             .request(
@@ -555,7 +504,8 @@ impl Backend for Codex {
             .await
             .map(|read| config::configured_servers(&read))
             .unwrap_or_default();
-        let session_config = config::session_config(&cwd, &launch.mcp_servers, &configured);
+        let session_config =
+            config::session_config(&cwd, &servers::tool_servers(launch), &configured);
         let servers: Vec<String> = session_config["mcp_servers"]
             .as_object()
             .map(|servers| servers.keys().cloned().collect())
@@ -580,7 +530,7 @@ impl Backend for Codex {
             .ok_or("Codex opened a thread without an id")?
             .to_owned();
         {
-            let mut session = driver.lock();
+            let mut session = driver.session.locked();
             *session = Session::new(thread_id.clone());
             session.titled = thread["name"].as_str().and_then(history::title).is_some();
             session.starting_servers = servers.iter().cloned().collect();
@@ -611,14 +561,16 @@ impl Backend for Codex {
             process,
             driver,
             reading,
-            thread_id: thread_id.clone(),
-            cwd,
-            models,
-            model,
-            effort,
-            mode,
-            account,
-            servers,
+            kept: Kept {
+                thread_id: thread_id.clone(),
+                cwd,
+                models,
+                model,
+                effort,
+                mode,
+                account,
+                servers,
+            },
         };
         if launch.resume_id.is_some() {
             codex.replay_history(thread).await?;
@@ -634,7 +586,7 @@ impl Backend for Codex {
             }),
             setup: json!({
                 "modes": config::modes(mode),
-                "configOptions": codex.models.options(&codex.model, codex.effort.as_deref()),
+                "configOptions": codex.kept.models.options(&codex.kept.model, codex.kept.effort.as_deref()),
             }),
         };
         Ok((codex, opened))
@@ -645,19 +597,21 @@ impl Backend for Codex {
         if let Some(command) = commands::parse(&prompt.text) {
             return self.command(turn, &prompt, command).await;
         }
-        let summary = if self.account["type"] == "apiKey" || !self.models.reasons(&self.model) {
+        let summary = if self.kept.account["type"] == "apiKey"
+            || !self.kept.models.reasons(&self.kept.model)
+        {
             "none"
         } else {
             "auto"
         };
         let params = json!({
-            "threadId": self.thread_id,
+            "threadId": self.kept.thread_id,
             "input": input,
-            "approvalPolicy": self.mode.approval_policy(),
+            "approvalPolicy": self.kept.mode.approval_policy(),
             "approvalsReviewer": "user",
-            "sandboxPolicy": self.mode.sandbox_policy(),
-            "model": self.model,
-            "effort": self.effort,
+            "sandboxPolicy": self.kept.mode.sandbox_policy(),
+            "model": self.kept.model,
+            "effort": self.kept.effort,
             "summary": summary,
             "serviceTier": null,
             "clientUserMessageId": prompt.message_id,
@@ -692,34 +646,43 @@ impl Backend for Codex {
     }
 
     async fn cancel(&mut self) -> Result<(), String> {
-        let effects = self.driver.lock().cancel();
+        let effects = self.driver.session.locked().cancel();
         self.driver.apply(effects);
         Ok(())
     }
 
-    async fn set_permission_mode(&mut self, mode: &str) -> Result<(), String> {
-        self.mode = Mode::from_app(mode)?;
+    async fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
+        self.kept.mode = Mode::from_app(mode);
         Ok(())
     }
 
     async fn set_config(&mut self, config_id: &str, value: &str) -> Result<Value, String> {
         match config_id {
             "model" => {
-                if !self.models.offers(value) {
+                if !self.kept.models.offers(value) {
                     return Err(format!("Codex does not offer the model {value}"));
                 }
-                self.model = value.to_owned();
-                self.effort = self.models.effort_for(value, self.effort.as_deref());
+                self.kept.model = value.to_owned();
+                self.kept.effort = self
+                    .kept
+                    .models
+                    .effort_for(value, self.kept.effort.as_deref());
             }
             "reasoning_effort" => {
-                if !self.models.supports_effort(&self.model, value) {
-                    return Err(format!("{} does not offer the effort {value}", self.model));
+                if !self.kept.models.supports_effort(&self.kept.model, value) {
+                    return Err(format!(
+                        "{} does not offer the effort {value}",
+                        self.kept.model
+                    ));
                 }
-                self.effort = Some(value.to_owned());
+                self.kept.effort = Some(value.to_owned());
             }
             _ => return Err(format!("Codex has no option {config_id}")),
         }
-        Ok(self.models.options(&self.model, self.effort.as_deref()))
+        Ok(self
+            .kept
+            .models
+            .options(&self.kept.model, self.kept.effort.as_deref()))
     }
 
     async fn stop_task(&mut self, _task_id: &str) -> Result<(), String> {
@@ -729,7 +692,8 @@ impl Backend for Codex {
     async fn rewind(&mut self, message_id: &str) -> Result<Option<String>, String> {
         let turn_id = self
             .driver
-            .lock()
+            .session
+            .locked()
             .message_turns
             .get(message_id)
             .cloned()
@@ -738,10 +702,10 @@ impl Backend for Codex {
             .rpc
             .request(
                 "thread/revert",
-                json!({ "threadId": self.thread_id, "beforeTurnId": turn_id }),
+                json!({ "threadId": self.kept.thread_id, "beforeTurnId": turn_id }),
             )
             .await?;
-        self.driver.lock().rewound(&turn_id);
+        self.driver.session.locked().rewound(&turn_id);
         Ok(None)
     }
 
@@ -758,28 +722,14 @@ impl Backend for Codex {
             process,
             driver,
             reading,
-            thread_id,
-            cwd,
-            models,
-            model,
-            effort,
-            mode,
-            account,
-            servers,
+            kept,
         } = self;
         let (_, lines) = reading.stop().await.ok_or("Codex stopped")?;
-        let session = std::mem::replace(&mut *driver.lock(), Session::new(String::new()));
+        let session = std::mem::replace(&mut *driver.session.locked(), Session::new(String::new()));
         let state = CodexState {
             rpc: driver.rpc.state(),
             session,
-            thread_id,
-            cwd,
-            models,
-            model,
-            effort,
-            mode,
-            account,
-            servers,
+            kept,
         };
         let state = serde_json::to_value(state).map_err(|error| error.to_string())?;
         let released = process.release(lines).await?;
@@ -795,7 +745,7 @@ impl Backend for Codex {
         let state: CodexState = serde_json::from_value(state).map_err(|error| error.to_string())?;
         let waiting = state.session.waiting_turn();
         let driver = Driver {
-            rpc: Rpc::restored(writer, false, state.rpc),
+            rpc: Rpc::restored(writer, state.rpc),
             sink,
             session: Arc::new(Mutex::new(state.session)),
         };
@@ -807,14 +757,7 @@ impl Backend for Codex {
             process,
             driver,
             reading,
-            thread_id: state.thread_id,
-            cwd: state.cwd,
-            models: state.models,
-            model: state.model,
-            effort: state.effort,
-            mode: state.mode,
-            account: state.account,
-            servers: state.servers,
+            kept: state.kept,
         })
     }
 
@@ -828,16 +771,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prompt_blocks_become_codex_input() {
-        let blocks = [
-            json!({ "type": "text", "text": "look" }),
-            json!({ "type": "resource", "resource": {
-                "uri": "https://github.com/o/r/issues/1", "mimeType": "text/markdown", "text": "Issue",
-            } }),
-            json!({ "type": "resource_link", "name": "a.txt", "uri": "file:///w/a.txt" }),
-            json!({ "type": "resource_link", "name": "shot.PNG", "uri": "file:///w/shot.PNG" }),
-        ];
-        let said = input(&blocks, true);
+    fn prompt_parts_become_codex_input() {
+        let parts = || {
+            vec![
+                Part::Text("look".into()),
+                Part::Context {
+                    uri: "https://github.com/o/r/issues/1".into(),
+                    text: "Issue".into(),
+                },
+                Part::File {
+                    name: "a.txt".into(),
+                    uri: "file:///w/a.txt".into(),
+                },
+                Part::File {
+                    name: "shot.PNG".into(),
+                    uri: "file:///w/shot.PNG".into(),
+                },
+            ]
+        };
+        let said = input(parts(), true);
         assert_eq!(
             said[0],
             json!({ "type": "text", "text": "look", "text_elements": [] })
@@ -852,7 +804,7 @@ mod tests {
             json!({ "type": "localImage", "path": "/w/shot.PNG" })
         );
         assert_eq!(
-            input(&blocks, false)[3]["text"],
+            input(parts(), false)[3]["text"],
             "[@shot.PNG](file:///w/shot.PNG)"
         );
     }

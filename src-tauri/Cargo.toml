@@ -1,7 +1,7 @@
 [package]
 name = "sikemux"
 version.workspace = true
-description = "A GUI terminal multiplexer"
+description = "The IDE for you and your coding agents"
 authors = ["nodelike"]
 edition = "2021"
 default-run = "sikemux"
@@ -10,7 +10,7 @@ default-run = "sikemux"
 members = ["crates/*", "plugins/*"]
 
 [workspace.package]
-version = "0.5.4-nightly.1"
+version = "0.5.4-nightly.4"
 
 # Only crates that set `lints.workspace = true` get these, which is every
 # plugin crate and not the app. A plugin that panics takes the app down.
@@ -66,11 +66,11 @@ tempfile = "3"
 thiserror = "1"
 time = { version = "0.3", features = ["formatting", "macros"] }
 uuid = { version = "1", features = ["v4", "v7"] }
-getrandom = { version = "0.3", features = ["std"] }
 futures = "0.3"
 semver = "1"
 sikemux-plugin-api = { path = "crates/sikemux-plugin-api" }
 sikemux-keychain = { path = "crates/sikemux-keychain" }
+sikemux-loopback = { path = "crates/sikemux-loopback" }
 sikemux-process = { path = "crates/sikemux-process" }
 sikemux-markdown = { path = "crates/sikemux-markdown" }
 sikemux-pty = { path = "crates/sikemux-pty" }
@@ -80,10 +80,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "ti
 reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls-no-provider", "gzip", "stream", "cookies", "multipart"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 open = "5"
-trash = "5"
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs"] }
 libc = "0.2"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { externalValue, useExternalValue } from "../lib/externalValue";
 
 /** A device an agent has attached with its simulator tools. `project` names where the agent works. */
 export interface SimulatorAttachment {
@@ -13,44 +13,36 @@ interface SimulatorAgents {
     acting: Readonly<Record<string, true>>;
 }
 
-let current: SimulatorAgents = { attachments: {}, acting: {} };
-const listeners = new Set<() => void>();
-
-function update(next: SimulatorAgents): void {
-    current = next;
-    for (const listener of listeners) listener();
-}
+const agents = externalValue<SimulatorAgents>({ attachments: {}, acting: {} });
 
 export function setSimulatorAttachments(list: readonly SimulatorAttachment[]): void {
-    update({ ...current, attachments: Object.fromEntries(list.map((attachment) => [attachment.agentId, attachment])) });
+    agents.set({ ...agents.get(), attachments: Object.fromEntries(list.map((attachment) => [attachment.agentId, attachment])) });
 }
 
 export function noteSimulatorAttached(attachment: SimulatorAttachment): void {
+    const current = agents.get();
     const project = attachment.project ?? current.attachments[attachment.agentId]?.project;
-    update({ ...current, attachments: { ...current.attachments, [attachment.agentId]: { ...attachment, ...(project ? { project } : {}) } } });
+    agents.set({ ...current, attachments: { ...current.attachments, [attachment.agentId]: { ...attachment, ...(project ? { project } : {}) } } });
 }
 
 export function noteSimulatorDetached(agentId: string): void {
+    const current = agents.get();
     const { [agentId]: _gone, ...attachments } = current.attachments;
     const { [agentId]: _idle, ...acting } = current.acting;
-    update({ attachments, acting });
+    agents.set({ attachments, acting });
 }
 
 export function noteSimulatorActing(agentId: string, acting: boolean): void {
+    const current = agents.get();
     if (!!current.acting[agentId] === acting) return;
     const { [agentId]: _was, ...rest } = current.acting;
-    update({ ...current, acting: acting ? { ...rest, [agentId]: true } : rest });
+    agents.set({ ...current, acting: acting ? { ...rest, [agentId]: true } : rest });
 }
 
-const subscribe = (listener: () => void) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-};
-
 export function useSimulatorAttachments(): Readonly<Record<string, SimulatorAttachment>> {
-    return useSyncExternalStore(subscribe, () => current.attachments);
+    return useExternalValue(agents, (current) => current.attachments);
 }
 
 export function useSimulatorActing(agentId: string): boolean {
-    return useSyncExternalStore(subscribe, () => !!current.acting[agentId]);
+    return useExternalValue(agents, (current) => !!current.acting[agentId]);
 }

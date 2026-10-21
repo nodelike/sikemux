@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 sikemux-plugin-api = { path = "../../crates/sikemux-plugin-api" }
+sikemux-process = { path = "../../crates/sikemux-process" }
 sikemux-keychain = { path = "../../crates/sikemux-keychain" }
 futures-util = { version = "0.3", default-features = false }
 mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust", "rustls-tls", "ring"] }

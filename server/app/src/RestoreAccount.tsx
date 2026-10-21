@@ -20,7 +20,7 @@ export function useAccountState(ready: boolean) {
     void (async () => {
       try {
         const token = await signedInToken(getToken, "see your account");
-        const read = await api.account(token);
+        const read = await api(token).getAccount();
         if (!current) return;
         setAccount(
           read.status === "deleting" && read.deletesAt
@@ -62,7 +62,7 @@ export function RestoreAccount({
       const token = await signedInToken(getToken, "restore your account", {
         fresh: true,
       });
-      const account = await api.restoreAccount(token);
+      const account = await api(token).restoreAccount();
       onRestored(account.restorableDays);
     } catch (error) {
       setBusy(false);

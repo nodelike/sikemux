@@ -1,6 +1,7 @@
 import type { ShareClientMessage, ShareServerMessage } from "../../server/protocol/generated/types";
 import { ShareCloseCode } from "../../server/protocol/generated/types";
-import { chatActions, recordOf } from "../chat/acpEvents";
+import { chatActions } from "../chat/acpEvents";
+import { recordOf } from "../lib/guards";
 import { messageLetters } from "../chat/agentLetters";
 import { earlierMessages, withEarlier } from "../chat/earlier";
 import { chatReducer, initialChatState } from "../chat/reducer";

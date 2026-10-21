@@ -2,10 +2,10 @@ import { useState } from "react";
 import { copyWithNotice, reportError } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconMinus, IconPlus, IconRefresh, SkeletonRows } from "../../../plugin-api/ui";
-import { databaseApi, refreshDatabase, type DatabaseProfile } from "../api";
+import { databaseApi, type DatabaseProfile } from "../api";
 import { blankDraft, draftOf } from "../profileForm";
 import { loadQuery, runQuery } from "../queryState";
-import { databaseConnectedR, databaseProfilesR } from "../resources";
+import { database, databaseConnectedR, databaseProfilesR } from "../resources";
 import { previewSql } from "../sql";
 import {
     closeConnectionTabs,
@@ -50,11 +50,11 @@ export function DatabasePane({ paneId, active }: { paneId: string; active: boole
     const actions: ExplorerActions = {
         connect: async (profile) => {
             await databaseApi.connect(profile.id);
-            refreshDatabase();
+            database.refresh();
             if (readDatabaseView(paneId).tabs.length === 0) showTab(paneId, consoleFor(readDatabaseView(paneId), profile.id));
         },
-        disconnect: (profile) => databaseApi.disconnect(profile.id).then(refreshDatabase, reportError("disconnect")),
-        refresh: () => refreshDatabase(),
+        disconnect: (profile) => databaseApi.disconnect(profile.id).then(() => database.refresh(), reportError("disconnect")),
+        refresh: () => database.refresh(),
         newConsole: (profile) => showTab(paneId, newConsole(readDatabaseView(paneId), profile.id)),
         history: (profile) => showTab(paneId, historyTab(profile.id)),
         properties: (profile) => showTab(paneId, connectionTab(profile.id)),
@@ -95,7 +95,7 @@ export function DatabasePane({ paneId, active }: { paneId: string; active: boole
                 <div className="db-sidebar-head">
                     <span className="db-heading">Explorer</span>
                     <span className="db-grow" />
-                    <button type="button" className="db-icon-button" title="Refresh" aria-label="Refresh" onClick={() => refreshDatabase()}>
+                    <button type="button" className="db-icon-button" title="Refresh" aria-label="Refresh" onClick={() => database.refresh()}>
                         <IconRefresh size={13} />
                     </button>
                     <button
@@ -142,7 +142,7 @@ export function DatabasePane({ paneId, active }: { paneId: string; active: boole
                         initial={blankDraft()}
                         saved={null}
                         onSaved={() => {
-                            refreshDatabase();
+                            database.refresh();
                             open({ editing: null });
                         }}
                         onRemoved={() => open({ editing: null })}
@@ -154,12 +154,12 @@ export function DatabasePane({ paneId, active }: { paneId: string; active: boole
                         initial={draftOf(editing)}
                         saved={editing}
                         onSaved={() => {
-                            refreshDatabase();
+                            database.refresh();
                             open({ editing: null });
                         }}
                         onRemoved={() => {
                             closeConnectionTabs(paneId, editing.id);
-                            refreshDatabase();
+                            database.refresh();
                         }}
                         onCancel={() => open({ editing: null })}
                     />

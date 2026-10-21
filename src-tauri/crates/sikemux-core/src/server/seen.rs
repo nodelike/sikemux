@@ -6,10 +6,12 @@
 //! nobody looks at can be put to sleep.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
+
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use super::connection::ClientId;
-use super::remote::unix_ms;
 
 #[derive(Default)]
 struct View {
@@ -44,7 +46,7 @@ impl State {
 
     /// Shows `client`'s agents, answering the agents no client had on screen before.
     fn show(&mut self, client: ClientId, view: View) -> Vec<String> {
-        let now = unix_ms();
+        let now = epoch_ms();
         let before = self.views.remove(&client).unwrap_or_default();
         let opened = view
             .agents
@@ -74,23 +76,17 @@ pub(crate) struct Seen {
 }
 
 impl Seen {
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// The agent went back to work, so what it last finished is old news.
     pub(crate) fn working(&self, agent_id: &str) {
-        let mut state = self.lock();
+        let mut state = self.state.locked();
         state.unread.remove(agent_id);
-        state.active_at.insert(agent_id.to_owned(), unix_ms());
+        state.active_at.insert(agent_id.to_owned(), epoch_ms());
     }
 
     /// The agent began a turn of work.
     pub(crate) fn started(&self, agent_id: &str) {
-        let mut state = self.lock();
-        let now = unix_ms();
+        let mut state = self.state.locked();
+        let now = epoch_ms();
         state.unread.remove(agent_id);
         state.active_at.insert(agent_id.to_owned(), now);
         state.started_at.insert(agent_id.to_owned(), now);
@@ -98,13 +94,16 @@ impl Seen {
 
     /// The agent did something that leaves nothing new to look at.
     pub(crate) fn active(&self, agent_id: &str) {
-        self.lock().active_at.insert(agent_id.to_owned(), unix_ms());
+        self.state
+            .locked()
+            .active_at
+            .insert(agent_id.to_owned(), epoch_ms());
     }
 
     /// The agent finished a turn or is waiting on the person.
     pub(crate) fn wants_a_look(&self, agent_id: &str) {
-        let mut state = self.lock();
-        state.active_at.insert(agent_id.to_owned(), unix_ms());
+        let mut state = self.state.locked();
+        state.active_at.insert(agent_id.to_owned(), epoch_ms());
         if !state.looked_at(agent_id) {
             state.unread.insert(agent_id.to_owned());
         }
@@ -123,38 +122,38 @@ impl Seen {
             agents: agent_ids.into_iter().collect(),
             looking,
         };
-        self.lock().show(client, view)
+        self.state.locked().show(client, view)
     }
 
     pub(crate) fn client_gone(&self, client: ClientId) {
-        self.lock().show(client, View::default());
+        self.state.locked().show(client, View::default());
     }
 
     /// Whether some client has the agent on screen.
     pub(crate) fn viewed(&self, agent_id: &str) -> bool {
-        self.lock().viewed(agent_id)
+        self.state.locked().viewed(agent_id)
     }
 
     /// Since when the agent has been neither on screen nor doing anything,
     /// as far as this core has seen.
     pub(crate) fn quiet_since(&self, agent_id: &str) -> Option<u64> {
-        let state = self.lock();
+        let state = self.state.locked();
         let viewed = state.viewed_at.get(agent_id).copied();
         let active = state.active_at.get(agent_id).copied();
         viewed.max(active)
     }
 
     pub(crate) fn unread(&self, agent_id: &str) -> bool {
-        self.lock().unread.contains(agent_id)
+        self.state.locked().unread.contains(agent_id)
     }
 
     pub(crate) fn active_at(&self, agent_id: &str) -> Option<u64> {
-        self.lock().active_at.get(agent_id).copied()
+        self.state.locked().active_at.get(agent_id).copied()
     }
 
     /// When the agent began the turn it is on or last ran.
     pub(crate) fn started_at(&self, agent_id: &str) -> Option<u64> {
-        self.lock().started_at.get(agent_id).copied()
+        self.state.locked().started_at.get(agent_id).copied()
     }
 }
 

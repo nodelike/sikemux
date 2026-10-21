@@ -4,16 +4,17 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags};
 use tokio::process::Command;
 
+use crate::agent_catalog::AgentKind;
+
 use super::apply_login_environment;
 use super::recent::{Found, Hit, Listed, PageScan};
-use super::roots::hermes_root;
 use super::search::Prose;
 use super::AgentSession;
 use super::TitleCacheStamp;
 
 // ---- hermes — `sessions` table in ~/.hermes/state.db (SQLite) -----------
 fn hermes_db() -> Option<Connection> {
-    let db = hermes_root()?.join("state.db");
+    let db = AgentKind::Hermes.home_root()?.join("state.db");
     Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
 }
 

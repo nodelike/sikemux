@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { externalValue, useExternalValue } from "../lib/externalValue";
 
 /* A picture in a transcript is a thumbnail of something worth looking at
    properly. One is open at a time, and the viewer that shows it is mounted at
@@ -12,35 +12,12 @@ export interface ShownImage {
     readonly path?: string;
 }
 
-let shown: ShownImage | null = null;
-const listeners = new Set<() => void>();
+const shown = externalValue<ShownImage | null>(null);
 
-function notify() {
-    for (const listener of listeners) listener();
-}
+export const shownImage = shown.get;
 
-function subscribe(listener: () => void) {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
-}
+export const showImage = (image: ShownImage): void => shown.set(image);
 
-export function shownImage(): ShownImage | null {
-    return shown;
-}
+export const hideImage = (): void => shown.set(null);
 
-export function showImage(image: ShownImage): void {
-    shown = image;
-    notify();
-}
-
-export function hideImage(): void {
-    if (!shown) return;
-    shown = null;
-    notify();
-}
-
-export function useShownImage(): ShownImage | null {
-    return useSyncExternalStore(subscribe, shownImage, shownImage);
-}
+export const useShownImage = (): ShownImage | null => useExternalValue(shown);

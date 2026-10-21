@@ -12,7 +12,7 @@ export function VirtualPanelRows<T>({
     getKey,
     renderRow,
 }: {
-    items: T[];
+    items: readonly T[];
     selectedIndex: number;
     focused: boolean;
     estimateSize?: number;

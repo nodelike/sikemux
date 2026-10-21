@@ -30,17 +30,6 @@ impl Default for ObservabilityConfig {
     }
 }
 
-impl ObservabilityConfig {
-    pub(super) fn normalized(mut self) -> Self {
-        self.event_capacity = self.event_capacity.max(1);
-        self.latency_sample_capacity = self.latency_sample_capacity.max(1);
-        self.metric_series_capacity = self.metric_series_capacity.max(1);
-        self.max_metadata_entries = self.max_metadata_entries.max(1);
-        self.max_string_bytes = self.max_string_bytes.max(1);
-        self
-    }
-}
-
 /// A trace identifier allocated monotonically for the lifetime of a process.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]

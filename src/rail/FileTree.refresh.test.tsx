@@ -4,7 +4,7 @@ import { FileTree } from "./FileTree";
 import { emit } from "../state/bus";
 
 const { readDirs, overview } = vi.hoisted(() => ({ readDirs: vi.fn(), overview: { data: undefined as unknown } }));
-vi.mock("../api/fs", () => ({ fsapi: { readDirs } }));
+vi.mock("../api/fs", () => ({ fsapi: {}, filesOn: () => ({ readDirs }) }));
 vi.mock("../state/resources", async (importOriginal) => ({
     ...(await importOriginal<object>()),
     useResourceEnabled: () => ({ data: overview.data, status: "ok", refresh: vi.fn() }),

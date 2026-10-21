@@ -19,7 +19,7 @@ curl -fsSL https://sikemux.com/install | SIKEMUX_CHANNEL=nightly sh
 
 ## On a server
 
-A Linux machine with no screen, such as a VPS or a spare box, can run just the core, which keeps agents working with nobody watching. Run the same line there and pick the core, or skip the question:
+A Linux machine with no screen, such as a VPS or a spare box, can run just the core, which keeps agents working with nobody watching. If you already reach it over SSH, open an SSH terminal on it in Sikemux (`⌘⇧S`), then choose **Install Sikemux here** from the **⋯** beside it under **Hosts** in the side rail: the installer runs over your SSH in a new terminal tab, where you type `sudo`'s password if the server asks for one, and the server signs in to your account by itself. Otherwise, run the same line there and pick the core, or skip the question:
 
 ```bash
 curl -fsSL https://sikemux.com/install | sh -s -- --host
@@ -27,7 +27,9 @@ curl -fsSL https://sikemux.com/install | sh -s -- --host
 
 `--app` picks the desktop app instead, and `--yes` takes every default without asking, as cloud-init and other scripts need. With no terminal attached, the installer asks nothing and installs the core on a machine with no desktop.
 
-The core works on x86_64 and arm64 and needs no WebKit. The installer asks for `sudo` once: the core goes in `/usr/local/lib/sikemux`, and the `sikemux` command that runs it in `/usr/local/bin`, or in `~/.local/bin` when you are not root. With systemd, the core then starts at boot and restarts if it crashes. Last, it offers to sign the host in and prints a code: type it at app.sikemux.com/host or in Sikemux on your phone to add the host to your account, as [Your phone](/getting-started/phone/#adding-a-host-with-a-code) describes. Then link it from your Mac under Settings → Devices → Computers.
+The core works on x86_64 and arm64 and needs no WebKit. The installer asks for `sudo` once: the core goes in `/usr/local/lib/sikemux`, and the `sikemux` command that runs it in `/usr/local/bin`, or in `~/.local/bin` when you are not root. With systemd, the core then starts at boot and restarts if it crashes. Last, it offers to sign the host in and prints a code: type it at app.sikemux.com/host or in Sikemux on your phone to add the host to your account, as [Your phone](/getting-started/phone/#adding-a-host-with-a-code) describes.
+
+Once the server is signed in, your Mac and phone reach it with no SSH and nothing to approve: every device and host on your account trusts the others. The server's projects, chats and terminals show in the app beside your Mac's, marked **on** and the server's name. A project you have on both shows once; one only the server holds gets its own row. The server has a row under **Hosts** in the side rail. Choosing it, as you choose a project, lists every chat and terminal running there, from every project, and its **⋯** starts a new one there. New chats and terminals start on the chosen host, else on the host of the chat or terminal in front, else on this one; that host's row says **here**.
 
 The core keeps the host's key and your sign-ins in `/var/lib/sikemux`, which only a `sikemux` group may open. The core runs as a member of that group and you do not, so the agents you run cannot read or change them. Keep your account out of the group, and run the core as yourself, not as root: agents run as whoever runs the core, and an agent running as root, or with `sudo` that needs no password, can read anything on the machine. The `.deb` and `.rpm` set up the same store, though their window cannot sign in to your account yet: sign the computer in with `sikemux login` in a terminal. The AppImage cannot set up the store, so it keeps no sign-ins.
 

@@ -4,9 +4,10 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, Weak};
+use std::sync::{Mutex, Weak};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use sikemux_process::sync::Locked;
 
 use crate::server::Core;
 
@@ -20,18 +21,12 @@ struct Folders {
 }
 
 impl Watch {
-    fn lock(&self) -> MutexGuard<'_, Option<Folders>> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// Watches the folder `path` is in, for as long as it is followed.
     pub(super) fn follow(&self, core: &Weak<Core>, path: &Path) {
         let Some(folder) = path.parent() else {
             return;
         };
-        let mut folders = self.lock();
+        let mut folders = self.0.locked();
         if folders.is_none() {
             let core = core.clone();
             let started =
@@ -78,7 +73,7 @@ impl Watch {
         let Some(folder) = path.parent() else {
             return;
         };
-        let mut folders = self.lock();
+        let mut folders = self.0.locked();
         let Some(folders) = folders.as_mut() else {
             return;
         };

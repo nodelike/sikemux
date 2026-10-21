@@ -1,5 +1,7 @@
 import { pluginsApi, type PluginFailure } from "../api/plugins";
+import { errorText } from "../lib/format";
 import { invalidate } from "../state/resources";
+import { resourceKind } from "./identity";
 
 export interface PluginStreamHandlers<Item> {
     readonly onItem: (item: Item) => void;
@@ -20,11 +22,11 @@ export interface PluginBackend {
 
 export interface PluginBackendOptions {
     /**
-     * The cached answers that say whether the person is signed in. A call that finds them signed out has only these
-     * read again, so the pane turns to its sign-in form. Re-reading every answer would re-read the one that just
-     * failed, which fails again, forever.
+     * Cached answers besides the plugin's own `status` that say whether the person is signed in. A call that finds
+     * them signed out has only these read again, so the pane turns to its sign-in form. Re-reading every answer would
+     * re-read the one that just failed, which fails again, forever.
      */
-    readonly signInStatus?: (kind: string) => boolean;
+    readonly alsoStatus?: readonly string[];
     /** The plugin's own failure categories that also mean the person has to sign in again. */
     readonly signedOutCategories?: readonly string[];
 }
@@ -41,13 +43,6 @@ export function isOfflineFailure(error: unknown): boolean {
     return isPluginFailure(error) && (error.category === "offline" || error.category === "timeout");
 }
 
-/** What went wrong, in words: a plugin's failure, a thrown Error or a plain string. */
-export function failureMessage(error: unknown): string {
-    if (typeof error === "string") return error;
-    const message = (error as { message?: unknown } | null | undefined)?.message;
-    return typeof message === "string" ? message : String(error);
-}
-
 /** A sign-in the service no longer takes. A 403 is not one: the person is signed in, just not allowed. */
 export function isSignedOutFailure(error: unknown, alsoSignedOut: readonly string[] = []): boolean {
     if (!isPluginFailure(error)) return false;
@@ -57,10 +52,9 @@ export function isSignedOutFailure(error: unknown, alsoSignedOut: readonly strin
 }
 
 export function createPluginBackend(pluginId: string, options: PluginBackendOptions = {}): PluginBackend {
-    const { signInStatus, signedOutCategories } = options;
-    const signedOut = () => {
-        if (signInStatus) invalidate(signInStatus);
-    };
+    const { alsoStatus = [], signedOutCategories } = options;
+    const statusKinds = [resourceKind(pluginId, "status"), ...alsoStatus];
+    const signedOut = () => invalidate((kind) => statusKinds.includes(kind));
     const noticeFailure = (error: unknown) => {
         if (isSignedOutFailure(error, signedOutCategories)) signedOut();
     };
@@ -97,7 +91,7 @@ export function createPluginBackend(pluginId: string, options: PluginBackendOpti
                         if (finished) void pluginsApi.streamStop(id);
                     },
                     (error: unknown) => {
-                        if (!finished) fail(isPluginFailure(error) ? error : { category: "ipc", message: failureMessage(error) });
+                        if (!finished) fail(isPluginFailure(error) ? error : { category: "ipc", message: errorText(error) });
                     },
                 );
             return {

@@ -16,6 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use sikemux_host::hang_reports::{autopsy_dir, is_bundle, DIRECTORY_PREFIX, REPORT_FILE};
+use sikemux_process::sync::Locked;
 
 use crate::bounded_process;
 use crate::observability::{
@@ -123,10 +124,7 @@ impl RateLimiter {
     }
 
     fn allow(&self, now: Instant) -> bool {
-        let mut last = match self.last.lock() {
-            Ok(last) => last,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut last = self.last.locked();
         if let Some(previous) = *last {
             if now.duration_since(previous) < self.min_interval {
                 return false;
@@ -183,7 +181,7 @@ impl HangListener for AutopsyWriter {
             .name("sikemux-hang-autopsy".to_owned())
             .spawn(move || announce(write_autopsy(request, capturer.as_ref())));
         if spawned.is_err() {
-            let _ = global_observability().increment_counter("autopsy.failed", 1);
+            global_observability().increment_counter("autopsy.failed", 1);
         }
     }
 }
@@ -197,12 +195,12 @@ fn announce(result: io::Result<PathBuf>) {
                 "path".to_owned(),
                 ScalarValue::String(path.to_string_lossy().into_owned()),
             );
-            let _ = observer.increment_counter("autopsy.written", 1);
+            observer.increment_counter("autopsy.written", 1);
             observer.record_event("autopsy.written", None, metadata);
         }
         Err(error) => {
             metadata.insert("error".to_owned(), ScalarValue::String(error.to_string()));
-            let _ = observer.increment_counter("autopsy.failed", 1);
+            observer.increment_counter("autopsy.failed", 1);
             observer.record_event("autopsy.failed", None, metadata);
         }
     }

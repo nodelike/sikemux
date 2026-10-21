@@ -4,6 +4,7 @@ import { onCoreChanged } from "../api/coreChanged";
 import { getIpcTransport } from "../api/transport";
 import { invalidate } from "../state/resources";
 import type { RepoRef } from "./types";
+import { swallow } from "../state/toast";
 
 /** What a CI change makes the page read again. */
 const CI_KINDS = new Set(["host.runs", "host.run", "host.jobLog"]);
@@ -29,7 +30,7 @@ function send(): void {
                   account: repo.account ?? null,
                   host: repo.host ?? null,
               }));
-        void coreCall("showCi", { repos }).catch(() => {});
+        void coreCall("showCi", { repos }).catch(swallow("show CI"));
     });
 }
 
@@ -39,9 +40,7 @@ function listen(): void {
     if (listening) return;
     listening = true;
     document.addEventListener("visibilitychange", send);
-    void getIpcTransport()
-        .subscribe("core_connected", send)
-        .catch(() => {});
+    void getIpcTransport().subscribe("core_connected", send).catch(swallow("follow the core connecting"));
     onCoreChanged("ci", ({ paths }) => {
         if (!paths?.length) return;
         invalidate((kind, args) => CI_KINDS.has(kind) && !!args[0] && paths.includes(keyOf(args[0] as RepoRef)));

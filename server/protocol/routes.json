@@ -85,11 +85,29 @@
       "method": "delete",
       "path": "/v1/devices/{key}",
       "operationId": "removeDevice",
-      "summary": "Take one of your devices off your account",
-      "auth": "session",
+      "summary": "Take one of your devices off your account, from the phone, the web app or the app on one of your hosts",
+      "auth": "sessionOrHost",
       "responses": {
         "204": {
           "description": "The device is no longer on your account."
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/devices/{key}/name",
+      "operationId": "renameDevice",
+      "summary": "Rename one of your devices or hosts, from the phone, the web app or the app on one of your hosts",
+      "auth": "sessionOrHost",
+      "request": "DeviceRename",
+      "responses": {
+        "200": {
+          "description": "The device under its new name. Every device hears device.changed.",
+          "body": "Device"
+        },
+        "404": {
+          "description": "None of your devices has that key.",
+          "body": "ApiError"
         }
       }
     },
@@ -264,6 +282,23 @@
         },
         "403": {
           "description": "The sign-in was not verified again within the error's reverifyWithinMinutes (message reverify).",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/host-sign-ins/{userCode}/approve-from-host",
+      "operationId": "approveHostSignInFromHost",
+      "summary": "Add the waiting host to your account from the app on another of your hosts, which read the code over SSH",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "Approved, naming the host. It finishes on its next ask.",
+          "body": "ApprovedHost"
+        },
+        "404": {
+          "description": "The code is unknown, was refused, or has expired.",
           "body": "ApiError"
         }
       }

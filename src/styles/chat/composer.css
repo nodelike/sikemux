@@ -182,8 +182,29 @@
     object-fit: cover;
 }
 
-.chat-attachments > .file > button,
-.chat-attachments > .image > button {
+.chat-attachments .chat-attachment-open {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    background: none;
+    cursor: zoom-in;
+}
+
+.chat-attachment-number {
+    position: absolute;
+    bottom: 3px;
+    left: 3px;
+    padding: 2px 4px;
+    border-radius: var(--radius-1);
+    background: color-mix(in srgb, var(--void) 72%, transparent);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    line-height: 1;
+    pointer-events: none;
+}
+
+.chat-attachments .chat-attachment-remove {
     position: absolute;
     top: 3px;
     right: 3px;
@@ -193,9 +214,8 @@
     transition: opacity var(--dur-1) var(--ease-out);
 }
 
-.chat-attachments > .file:hover > button,
-.chat-attachments > .image:hover > button,
-.chat-attachments button:focus-visible {
+.chat-attachments > :hover > .chat-attachment-remove,
+.chat-attachments .chat-attachment-remove:focus-visible {
     opacity: 1;
 }
 

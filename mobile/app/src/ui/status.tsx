@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 import type { AgentGroup } from '@/core/protocol';
+import { counted } from '@/devices/words';
 
 import { Icon } from './Icon';
 import { useAnimating } from './motion';
@@ -91,7 +92,7 @@ export function SubagentCount({ count }: { count: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   return (
-    <View style={styles.count} accessible accessibilityLabel={`${count} ${count === 1 ? 'subagent' : 'subagents'} running`}>
+    <View style={styles.count} accessible accessibilityLabel={`${count} ${counted('subagent', count)} running`}>
       <Icon name="IconAgent" size={11} color={colors.live} filled />
       <Text style={styles.countText}>{count}</Text>
     </View>

@@ -22,6 +22,42 @@
 .agent-glyph.term {
     color: var(--live);
 }
+.sess-icon.host-sikemux {
+    color: color-mix(in oklab, var(--acc) 80%, var(--ink-dim));
+}
+.sess-icon.host-ssh {
+    color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
+}
+/* A host's name takes only its own width, so its load sits right after it. */
+.host-row .sess-name {
+    flex: 0 1 auto;
+}
+/* How busy a host is, quiet beside its name. */
+.host-row-load {
+    flex: none;
+    margin-left: var(--space-2);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+}
+/* Where new chats and terminals start: its name in full ink and a small tag, never the chosen lift. */
+.host-row .sess-row.is-here {
+    color: var(--text-primary);
+}
+.host-row-here {
+    flex: none;
+    margin-left: var(--space-2);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+/* What a host is doing, before its dot: its agents, or that it is asleep. */
+.host-row-detail {
+    flex: none;
+    margin-left: auto;
+    padding-inline: var(--space-2) var(--space-1);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
 .sess-icon.ssh {
     color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
 }
@@ -82,6 +118,21 @@
     color: var(--text-tertiary);
     font-size: var(--text-2xs);
     font-weight: var(--weight-normal);
+}
+/* Where a chat, terminal or project runs when that is another host: as quiet as an agent's name. */
+.agent-row-host {
+    flex: none;
+    margin-left: var(--space-2);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-normal);
+    white-space: nowrap;
+}
+/* Which host the new rows start on, above them, only when it is not this one. */
+.agent-actions-host {
+    padding: var(--space-1) var(--space-2) var(--space-0);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
 }
 /* A rail row's name sits with its counts and state at the row's end, centred on the same line as them. */
 .agent-row-name {
@@ -243,44 +294,6 @@
     to {
         transform: rotate(360deg);
     }
-}
-
-.agent-dormant {
-    width: min(520px, calc(100% - 48px));
-    margin: auto;
-    align-self: center;
-    display: grid;
-    grid-template-columns: 4px 1fr;
-    gap: 8px 16px;
-    color: var(--text-secondary);
-    font-size: var(--text-xs);
-    line-height: 1.55;
-}
-.agent-dormant > :not(.agent-dormant-notch) {
-    grid-column: 2;
-}
-.agent-dormant-notch {
-    grid-row: 1 / span 5;
-    background: var(--border-strong);
-}
-.agent-dormant-kicker {
-    color: var(--live);
-    font-size: 10px;
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
-}
-.agent-dormant strong {
-    color: var(--text-primary);
-    font-size: 18px;
-    font-weight: 600;
-}
-.agent-dormant button {
-    justify-self: start;
-    margin-top: 8px;
-    padding: 7px 14px;
-    border: 1px solid var(--acc);
-    color: var(--on-accent);
-    background: var(--acc);
 }
 
 .env-dd-label {

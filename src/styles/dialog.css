@@ -118,9 +118,21 @@
 }
 /* Sentence case, not tracked-out caps. A field label names the box under it;
  * shouting it made the smallest text in the dialog the loudest. */
-.dlg-field label {
+.dlg-field label,
+.dlg-field > span:first-child {
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
+    color: var(--text-tertiary);
+}
+
+/* A form of several fields: they share the dialog's indent and sit closer together. */
+.dlg-fields {
+    display: flex;
+    flex-direction: column;
+}
+
+.dlg-field-note {
+    font-size: var(--text-2xs);
     color: var(--text-tertiary);
 }
 
@@ -133,6 +145,11 @@
     color: var(--text-primary);
     font-family: var(--ui);
     font-size: var(--text-sm);
+}
+
+.dlg-input.mono {
+    font-family: var(--mono);
+    font-size: var(--text-xs);
 }
 
 .dlg-foot {

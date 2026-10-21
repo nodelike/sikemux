@@ -328,9 +328,7 @@ describe("events never cross accounts", () => {
     await host("user_a");
     await removeAs("user_a", phoneA.key, "sess_web");
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const woken = new Set(
-      wake.mock.contexts.map((socket) => (socket as LiveSocket).userId),
-    );
+    const woken = new Set(wake.mock.calls.map(([who]) => who.userId));
     expect(woken).toEqual(new Set(["user_a"]));
 
     const fromB = [...(await b.quiet()), ...(await pb.quiet())];
@@ -511,6 +509,12 @@ describe("impersonation", () => {
       await upgradeStatus(api.url, { origin: "https://evil.example" }),
     ).toBe(403);
     expect(await upgradeStatus(api.url, { origin: APP_ORIGIN })).toBe(101);
+  });
+
+  it("lets in the phone, whose WebSocket names the API as its origin", async () => {
+    await start();
+    const { origin } = new URL(api.url.replace(/^ws/, "http"));
+    expect(await upgradeStatus(api.url, { origin })).toBe(101);
   });
 });
 

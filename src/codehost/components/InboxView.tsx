@@ -2,7 +2,8 @@ import { useState } from "react";
 import { notify, openUrl, reportError, swallow } from "../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
 import { Checkbox, EmptyState, IconCheck, SkeletonRows, StaleNotice } from "../../plugin-api/ui";
-import { failureMessage, type Notification, type RepoRef } from "../api";
+import { type Notification, type RepoRef } from "../api";
+import { errorText } from "../../lib/format";
 import { hostStatusR, inboxR } from "../resources";
 import { useAccount, useHost } from "../registry";
 import { useBusy } from "./hooks";
@@ -127,7 +128,7 @@ export function InboxList({ shownId, onOpen, active }: Props) {
         return (
             <EmptyState
                 title="Could not read notifications"
-                message={failureMessage(inbox.error)}
+                message={errorText(inbox.error)}
                 tone="error"
                 action={{ label: "Try again", onClick: () => void inbox.refresh() }}
             />

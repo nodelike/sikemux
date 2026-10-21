@@ -14,7 +14,8 @@ import { useResourceEnabled } from "../../plugin-api/resources";
 import { EmptyState, IconCopy, IconMessage, SkeletonRows } from "../../plugin-api/ui";
 import { FileReviewList } from "../../git/FileReviewList";
 import { hostFileStatus } from "../../git/gitFileStatus";
-import { failureMessage, type ChangedFile, type RepoRef } from "../api";
+import { type ChangedFile, type RepoRef } from "../api";
+import { errorText } from "../../lib/format";
 import { patchToRows } from "../patchRows";
 import { pullFilesR } from "../resources";
 
@@ -105,7 +106,7 @@ export function PullFiles({ repo, pull, cwd, active, focusPath }: Props) {
     const paths = useMemo(() => (files.data ?? []).map((file) => file.path), [files.data]);
 
     if (files.status === "loading" && !files.data) return <SkeletonRows rows={6} label="Loading files" />;
-    if (files.error && !files.data) return <EmptyState title="Could not read the files" message={failureMessage(files.error)} tone="error" />;
+    if (files.error && !files.data) return <EmptyState title="Could not read the files" message={errorText(files.error)} tone="error" />;
 
     return (
         <section className="gha-pull-files">

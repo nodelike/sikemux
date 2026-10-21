@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, SkeletonRows, StaleNotice } from "../../../plugin-api/ui";
-import { failureMessage, type ErrorGroup, type Operation, type Scope, type Series, type ServiceOverview as Overview } from "../api";
+import { errorText } from "../../../plugin-api/format";
+import { type ErrorGroup, type Operation, type Scope, type Series, type ServiceOverview as Overview } from "../api";
 import { perMinute, percent } from "../health";
 import { signozErrorGroupsR, signozOperationsR, signozOverviewR } from "../resources";
 import { addFilter, showService, updateView } from "../state";
@@ -131,7 +132,7 @@ export function ServiceOverview({ paneId, service, scope, active }: { paneId: st
     const errors = useResourceEnabled(active, signozErrorGroupsR, scope);
     const minutes = windowMinutes(scope);
 
-    if (overview.error && !overview.data) return <EmptyState tone="error" message={failureMessage(overview.error)} />;
+    if (overview.error && !overview.data) return <EmptyState tone="error" message={errorText(overview.error)} />;
     if (!overview.data) return <SkeletonRows rows={8} label={`Reading ${service}`} />;
     const data = overview.data;
     if (data.calls === 0) {
@@ -152,7 +153,7 @@ export function ServiceOverview({ paneId, service, scope, active }: { paneId: st
                 <section className="sgz-box sgz-list-card">
                     <h3 className="sgz-label">Endpoints</h3>
                     {operations.error && !operations.data ? (
-                        <div className="sgz-box-empty sgz-error">{failureMessage(operations.error)}</div>
+                        <div className="sgz-box-empty sgz-error">{errorText(operations.error)}</div>
                     ) : operations.data ? (
                         <Operations paneId={paneId} operations={operations.data} minutes={minutes} />
                     ) : (
@@ -162,7 +163,7 @@ export function ServiceOverview({ paneId, service, scope, active }: { paneId: st
                 <section className="sgz-box sgz-list-card">
                     <h3 className="sgz-label">Errors</h3>
                     {errors.error && !errors.data ? (
-                        <div className="sgz-box-empty sgz-error">{failureMessage(errors.error)}</div>
+                        <div className="sgz-box-empty sgz-error">{errorText(errors.error)}</div>
                     ) : errors.data ? (
                         <Errors paneId={paneId} service={service} groups={errors.data} />
                     ) : (

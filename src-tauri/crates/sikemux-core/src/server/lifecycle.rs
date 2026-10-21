@@ -6,12 +6,16 @@
 //! its saved session below its last screen, unless it crashes again at once.
 
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
+use tokio::sync::Notify;
+
 use crate::protocol::{Continuation, SessionId};
 
-use super::remote::unix_ms;
 use super::{launching, Core, CoreResult};
 
 /// How long a chat nobody looks at stays idle before it sleeps.
@@ -30,8 +34,10 @@ const SIGNAL_EXIT_BASE: u32 = 128;
 
 #[derive(Default)]
 pub(crate) struct Lifecycle {
-    /// Agents whose chat is starting, so two clients waking one start it once.
+    /// Agents starting, so two callers starting one start it once.
     starting: Mutex<HashSet<String>>,
+    /// An agent stopped starting, whether it started or failed.
+    started: Notify,
     /// When each terminal agent was last started again after a crash.
     resumed: Mutex<HashMap<String, Instant>>,
 }
@@ -44,15 +50,14 @@ struct Starting<'a> {
 
 impl Drop for Starting<'_> {
     fn drop(&mut self) {
-        if let Ok(mut starting) = self.lifecycle.starting.lock() {
-            starting.remove(&self.agent_id);
-        }
+        self.lifecycle.starting.locked().remove(&self.agent_id);
+        self.lifecycle.started.notify_waiters();
     }
 }
 
 impl Lifecycle {
     fn claim(&self, agent_id: &str) -> Option<Starting<'_>> {
-        let mut starting = self.starting.lock().ok()?;
+        let mut starting = self.starting.locked();
         starting.insert(agent_id.to_owned()).then(|| Starting {
             lifecycle: self,
             agent_id: agent_id.to_owned(),
@@ -60,21 +65,42 @@ impl Lifecycle {
     }
 }
 
+/// Starts the agent with `start` unless `running` finds it running already,
+/// waiting out another caller starting it, and answers what runs.
+pub(crate) async fn start_once<T, Started>(
+    core: &Core,
+    agent_id: &str,
+    running: impl Fn() -> Option<T>,
+    start: impl FnOnce() -> Started,
+) -> CoreResult<T>
+where
+    Started: Future<Output = CoreResult<T>>,
+{
+    loop {
+        if let Some(running) = running() {
+            return Ok(running);
+        }
+        let started = core.lifecycle.started.notified();
+        if let Some(_starting) = core.lifecycle.claim(agent_id) {
+            return match running() {
+                Some(running) => Ok(running),
+                None => start().await,
+            };
+        }
+        started.await;
+    }
+}
+
 /// Starts the agent's chat as its record says unless it runs already or
 /// another client is starting it, and answers once it runs.
 pub(crate) async fn ensure_running(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
-    loop {
-        if core.chats.get(agent_id).is_some() {
-            return Ok(());
-        }
-        if let Some(_starting) = core.lifecycle.claim(agent_id) {
-            if core.chats.get(agent_id).is_none() {
-                launching::start_agent(core, None, agent_id).await?;
-            }
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    start_once(
+        core,
+        agent_id,
+        || core.chats.get(agent_id).map(drop),
+        || async { launching::start_agent(core, None, agent_id).await.map(drop) },
+    )
+    .await
 }
 
 /// Wakes the sleeping agents among those a client just brought on screen.
@@ -161,9 +187,7 @@ pub(crate) fn terminal_exited(
         return;
     }
     let now = Instant::now();
-    let Ok(mut resumed) = core.lifecycle.resumed.lock() else {
-        return;
-    };
+    let mut resumed = core.lifecycle.resumed.locked();
     resumed.retain(|_, at| now.duration_since(*at) < RESUME_WINDOW);
     if resumed.insert(agent_id.to_owned(), now).is_some() {
         return;
@@ -226,13 +250,13 @@ pub(crate) fn sleep_idle(core: &Core) -> usize {
 /// Puts to sleep the chats that have sat idle off every screen long enough.
 pub(crate) async fn serve(core: Arc<Core>) {
     settle_terminals(&core);
-    let began = unix_ms();
+    let began = epoch_ms();
     let mut ticker = tokio::time::interval(CHECK_EVERY);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        for agent_id in due(&core, began, unix_ms()) {
+        for agent_id in due(&core, began, epoch_ms()) {
             sleep(&core, &agent_id);
         }
     }

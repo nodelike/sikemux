@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use git2::{BranchType, Repository, Status, StatusOptions};
 use serde::Serialize;
+use sikemux_process::sync::Locked;
 
 use super::{flight_key, git_walk_permit, open_repo, run_blocking, shared, Flights};
 
@@ -215,13 +216,11 @@ pub(super) fn cached_walk<T: Clone>(cache: &WalkCache<T>, key: &str, generation:
 
 /// The latest walk of `key` and the generation it was read at, however old.
 pub(super) fn stored_walk<T: Clone>(cache: &WalkCache<T>, key: &str) -> Option<(u64, T)> {
-    cache.lock().ok()?.get(key).cloned()
+    cache.locked().get(key).cloned()
 }
 
 pub(super) fn store_walk<T>(cache: &WalkCache<T>, key: String, generation: u64, value: T) {
-    let Ok(mut cache) = cache.lock() else {
-        return;
-    };
+    let mut cache = cache.locked();
     if cache.len() >= REPO_WALK_CACHE_REPOS && !cache.contains_key(&key) {
         cache.clear();
     }

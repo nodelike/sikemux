@@ -4,8 +4,10 @@ import type { ConnectionLike } from '@sikemux/native';
 import { unreadAnswers, waitingQuestions, type AgentQuestion, type QuestionAnswer, type SentAnswer } from '@mac/agents/agentQuestions';
 import type { ChatMessage } from '@mac/chat/types';
 
-import { hostKnows } from '@/core/hostCalls';
-import { hostOf, problem } from '@/devices/hub';
+import { useHostCall } from '@/core/hostCalls';
+import { problem } from '@/core/problem';
+
+const NONE: AgentQuestion[] = [];
 
 export type ChatQuestions = {
   /** What the agent asked the person and waits on, oldest first. */
@@ -39,32 +41,17 @@ export function useQuestions(
   messages: readonly ChatMessage[],
   onError: (problem: string) => void,
 ): ChatQuestions {
-  const [all, setAll] = useState<AgentQuestion[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [sent, setSent] = useState<SentAnswer[]>([]);
   const [writingId, setWritingId] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
 
   const [reads, setReads] = useState(0);
-
+  const read = useHostCall<AgentQuestion[]>(connection, 'questions', null, `${seen}|${reads}`);
+  const all = read.data ?? NONE;
   useEffect(() => {
-    if (!connection) return;
-    let current = true;
-    hostOf(connection)
-      .then((host) => (hostKnows(host.version, 'questions') ? connection.call('questions', 'null') : '[]'))
-      .then(
-        (text) => {
-          const list = JSON.parse(text) as AgentQuestion[];
-          if (current) setAll(list);
-        },
-        (error: unknown) => {
-          if (current) onError(`could not read this agent's questions: ${problem(error)}`);
-        },
-      );
-    return () => {
-      current = false;
-    };
-  }, [connection, agentId, seen, reads, onError]);
+    if (read.problem) onError(`could not read this agent's questions: ${read.problem}`);
+  }, [read.problem, onError]);
 
   const { open, assumed } = useMemo(() => waitingQuestions(all, agentId, sent), [all, agentId, sent]);
   const answered = useMemo(() => unreadAnswers(sent, messages), [sent, messages]);

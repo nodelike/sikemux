@@ -1,9 +1,7 @@
 import { createPluginBackend, isPluginFailure, type PluginStreamHandlers } from "../../plugin-api/backend";
-import { RUNDECK_PLUGIN_ID } from "./kinds";
+import { RUNDECK_PLUGIN } from "./kinds";
 
-export { failureMessage } from "../../plugin-api/backend";
-
-const backend = createPluginBackend(RUNDECK_PLUGIN_ID, { signInStatus: (kind) => kind === "rnd.status" });
+const backend = createPluginBackend(RUNDECK_PLUGIN.id);
 
 const FORBIDDEN_ACTION: Record<string, string> = {
     projects: "list projects",
@@ -36,12 +34,12 @@ export interface RundeckStatus {
     configured: boolean;
     url: string;
     user: string;
-    token_present: boolean;
-    rundeck_version: string | null;
+    tokenPresent: boolean;
+    rundeckVersion: string | null;
     ok: boolean;
-    auth_failed: boolean;
+    authFailed: boolean;
     message: string | null;
-    allow_insecure_private_http: boolean;
+    allowInsecurePrivateHttp: boolean;
 }
 
 export interface RundeckLoginRequest {

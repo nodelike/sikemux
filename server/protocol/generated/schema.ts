@@ -129,6 +129,16 @@ export const schema = {
       type: "string",
       enum: ["sandbox", "production"],
     },
+    ApprovedHost: {
+      description: "The host a sign-in code belonged to, once approved.",
+      type: "object",
+      properties: {
+        key: { $ref: "#/$defs/DeviceKey" },
+        name: { type: "string" },
+      },
+      required: ["key", "name"],
+      additionalProperties: false,
+    },
     AppVersion: {
       description: "A semantic version, such as 0.5.0 or 0.6.0-nightly.3.",
       type: "string",
@@ -204,6 +214,14 @@ export const schema = {
         signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
       },
       required: ["key", "role", "name", "platform", "nonce", "signature"],
+      additionalProperties: false,
+    },
+    DeviceRename: {
+      description:
+        "What a device or host is called on the account, everywhere it is shown.",
+      type: "object",
+      properties: { name: { type: "string", minLength: 1, maxLength: 64 } },
+      required: ["name"],
       additionalProperties: false,
     },
     DeviceRole: {
@@ -378,7 +396,7 @@ export const schema = {
     },
     JoinTicket: {
       description:
-        "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal.",
+        "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them.",
       type: "object",
       properties: {
         v: {
@@ -413,6 +431,16 @@ export const schema = {
             "When it stops being good, in unix seconds: ten minutes after issuedAt.",
           type: "integer",
           minimum: 0,
+        },
+        via: {
+          description:
+            "The host that added the joining app to the account, when a host did, so the host it joins can say which.",
+          $ref: "#/$defs/DeviceKey",
+        },
+        viaName: {
+          description: "What the account calls the host in via.",
+          type: "string",
+          maxLength: 64,
         },
         signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
       },
@@ -1166,7 +1194,7 @@ export const schema = {
     },
     ShareOpen: {
       description:
-        "Host only: start a share. The server answers opened or refused.",
+        "Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link.",
       type: "object",
       properties: {
         type: { const: "open" },
@@ -1174,7 +1202,7 @@ export const schema = {
         expiresAt: { type: "string", format: "date-time" },
         viewers: { $ref: "#/$defs/ShareViewerCheck" },
       },
-      required: ["type", "share", "expiresAt", "viewers"],
+      required: ["type", "share", "expiresAt"],
       additionalProperties: false,
     },
     ShareOpened: {

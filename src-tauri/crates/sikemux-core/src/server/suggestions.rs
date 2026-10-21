@@ -7,6 +7,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use super::changed::Topic;
 use super::connection::blocking;
 use super::workspace::{project::Guardrail, Change as setting};
 use super::{Core, CoreError, CoreResult};
@@ -135,7 +136,7 @@ pub(crate) fn suggest(core: &Core, request: &HarnessRequest) -> Result<Value, St
         .keep_suggestion(&request.project, suggestion)
         .map_err(|error| error.to_string())?;
     core.changes
-        .changed("suggestions", Some(&request.project), None);
+        .changed(Topic::Suggestions, Some(&request.project), None);
     Ok(json!({
         "kept": count,
         "note": "The person sees these in the project's settings and applies the ones they want; nothing changed yet.",
@@ -207,7 +208,7 @@ pub(crate) async fn answer(core: &Arc<Core>, params: AnswerParams) -> CoreResult
     core.workspaces
         .settle_suggestion(&params.project, &params.id, &applied)?;
     core.changes
-        .changed("suggestions", Some(&params.project), None);
+        .changed(Topic::Suggestions, Some(&params.project), None);
     Ok(())
 }
 
@@ -255,7 +256,8 @@ async fn apply(core: &Arc<Core>, project: &str, change: &Change) -> CoreResult<(
     };
     core.workspaces
         .change_project(project, &change.folder, setting)?;
-    core.changes.changed("projectSettings", Some(project), None);
+    core.changes
+        .changed(Topic::ProjectSettings, Some(project), None);
     Ok(())
 }
 

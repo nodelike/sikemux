@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -45,7 +45,7 @@ impl Install {
 pub struct Active<'a> {
     pub install: Install,
     pub version: &'a str,
-    pub channel: &'a str,
+    pub channel: BuildChannel,
     /// The account this host is signed in to, so one person on several hosts
     /// counts once. Only a hash of it leaves the machine.
     pub account: Option<&'a str>,
@@ -110,11 +110,6 @@ pub async fn report_host(
     channel: BuildChannel,
     account: impl Fn() -> Option<String>,
 ) {
-    let channel = match channel {
-        BuildChannel::Dev => "dev",
-        BuildChannel::Nightly => "nightly",
-        BuildChannel::Stable => "stable",
-    };
     if std::env::var_os("DO_NOT_TRACK").is_some_and(|value| !value.is_empty() && value != "0") {
         return;
     }
@@ -152,9 +147,7 @@ fn save_record(path: &Path, record: &UsageRecord) -> Result<(), String> {
 }
 
 fn utc_day(now: SystemTime) -> u64 {
-    now.duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs() / SECONDS_PER_DAY)
-        .unwrap_or(0)
+    sikemux_process::clock::epoch_ms_of(now) / 1000 / SECONDS_PER_DAY
 }
 
 fn account_hash(account: &str) -> String {
@@ -173,7 +166,7 @@ fn active_event(install_id: &str, active: &Active<'_>, platform: &Platform) -> V
             "install": active.install.name(),
             "user": active.account.map(account_hash),
             "version": active.version,
-            "update_channel": active.channel,
+            "update_channel": active.channel.name(),
             "os": platform.os,
             "os_version": platform.os_version,
             "distro": platform.distro,
@@ -260,6 +253,8 @@ fn client() -> &'static Client {
 
 #[cfg(test)]
 mod tests {
+    use std::time::UNIX_EPOCH;
+
     use super::*;
 
     #[test]
@@ -294,7 +289,7 @@ mod tests {
         let active = Active {
             install: Install::Host,
             version: "0.4.2",
-            channel: "nightly",
+            channel: BuildChannel::Nightly,
             account: Some("user-1"),
         };
         let event = active_event("install-1", &active, &platform);

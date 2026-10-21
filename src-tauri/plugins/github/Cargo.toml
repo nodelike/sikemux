@@ -5,7 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-base64 = "0.23"
 sikemux-plugin-api = { path = "../../crates/sikemux-plugin-api" }
 sikemux-keychain = { path = "../../crates/sikemux-keychain" }
 sikemux-process = { path = "../../crates/sikemux-process" }
@@ -17,7 +16,6 @@ tokio = { version = "1", features = ["macros", "rt", "time", "sync"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "gzip", "stream", "query"] }
 
 [dev-dependencies]
-http = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [lints]

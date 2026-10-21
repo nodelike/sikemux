@@ -5,8 +5,10 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
+use sikemux_process::sync::Locked;
 use tokio::sync::oneshot;
 
 use crate::protocol::{encode_control, CallId, Event, ServerMessage, WindowAnswer, WindowCall};
@@ -16,6 +18,9 @@ use super::connection::{ClientConn, ClientId};
 /// Calls the window has not answered yet, beyond which a new one is refused.
 const MAX_PENDING_CALLS: usize = 64;
 const WINDOW_GONE: &str = "Sikemux's window closed before it answered";
+/// How long an agent asked for while no window was open is still shown once
+/// one opens, which covers the app starting.
+const FOCUS_HELD: Duration = Duration::from_secs(60);
 
 pub(crate) fn not_open(purpose: &str) -> String {
     format!("Sikemux's window is not open — open Sikemux to {purpose}")
@@ -32,6 +37,7 @@ struct Pending {
 struct Inner {
     client: Option<Arc<ClientConn>>,
     calls: HashMap<CallId, Pending>,
+    focus: Option<(String, Instant)>,
 }
 
 pub(crate) struct Window {
@@ -66,24 +72,20 @@ impl Window {
     }
 
     pub(crate) fn is_window(&self, client: ClientId) -> bool {
-        self.inner.lock().is_ok_and(|inner| {
-            inner
-                .client
-                .as_ref()
-                .is_some_and(|window| window.id == client)
-        })
+        self.inner
+            .locked()
+            .client
+            .as_ref()
+            .is_some_and(|window| window.id == client)
     }
 
     /// The connection the window speaks through, while one is open.
     pub(crate) fn client_id(&self) -> Option<ClientId> {
-        self.inner
-            .lock()
-            .ok()
-            .and_then(|inner| inner.client.as_ref().map(|client| client.id))
+        self.inner.locked().client.as_ref().map(|client| client.id)
     }
 
     pub(crate) fn is_open(&self) -> bool {
-        self.inner.lock().is_ok_and(|inner| inner.client.is_some())
+        self.inner.locked().client.is_some()
     }
 
     fn fail(calls: impl IntoIterator<Item = Pending>) {
@@ -100,12 +102,7 @@ impl Window {
     /// Sends the window an event no other client hears. False when no window
     /// is open.
     pub(crate) fn tell(&self, event: Event) -> bool {
-        let Some(client) = self
-            .inner
-            .lock()
-            .ok()
-            .and_then(|inner| inner.client.clone())
-        else {
+        let Some(client) = self.inner.locked().client.clone() else {
             return false;
         };
         let Ok(frame) = encode_control(&ServerMessage::Event { event }) else {
@@ -114,50 +111,66 @@ impl Window {
         client.send(frame.into())
     }
 
+    /// Shows `agent_id` in the window, or in the next window to open. False
+    /// when no window is open now.
+    pub(crate) fn focus(&self, agent_id: String) -> bool {
+        let shown = self.tell(Event::FocusAgent {
+            agent_id: agent_id.clone(),
+        });
+        if !shown {
+            self.inner.locked().focus = Some((agent_id, Instant::now()));
+        }
+        shown
+    }
+
     pub(crate) fn register(&self, client: Arc<ClientConn>) {
-        let orphaned = match self.inner.lock() {
-            Ok(mut inner) => {
-                let previous = inner.client.replace(client.clone());
-                if previous.is_some_and(|previous| previous.id == client.id) {
-                    return;
-                }
-                let stale: Vec<CallId> = inner
-                    .calls
-                    .iter()
-                    .filter(|(_, call)| call.client != client.id)
-                    .map(|(id, _)| *id)
-                    .collect();
-                stale
-                    .into_iter()
-                    .filter_map(|id| inner.calls.remove(&id))
-                    .collect::<Vec<_>>()
+        let (orphaned, focus) = {
+            let mut inner = self.inner.locked();
+            let previous = inner.client.replace(client.clone());
+            if previous.is_some_and(|previous| previous.id == client.id) {
+                return;
             }
-            Err(_) => return,
+            let focus = inner
+                .focus
+                .take()
+                .filter(|(_, asked)| asked.elapsed() < FOCUS_HELD);
+            let stale: Vec<CallId> = inner
+                .calls
+                .iter()
+                .filter(|(_, call)| call.client != client.id)
+                .map(|(id, _)| *id)
+                .collect();
+            let orphaned = stale
+                .into_iter()
+                .filter_map(|id| inner.calls.remove(&id))
+                .collect::<Vec<_>>();
+            (orphaned, focus)
         };
         Self::fail(orphaned);
+        if let Some((agent_id, _)) = focus {
+            self.tell(Event::FocusAgent { agent_id });
+        }
     }
 
     pub(crate) fn unregister(&self, client: ClientId) {
-        let orphaned = match self.inner.lock() {
-            Ok(mut inner) => {
-                if inner
-                    .client
-                    .as_ref()
-                    .is_some_and(|current| current.id == client)
-                {
-                    inner.client = None;
-                }
-                let gone: Vec<CallId> = inner
-                    .calls
-                    .iter()
-                    .filter(|(_, call)| call.client == client)
-                    .map(|(id, _)| *id)
-                    .collect();
-                gone.into_iter()
-                    .filter_map(|id| inner.calls.remove(&id))
-                    .collect::<Vec<_>>()
+        let orphaned = {
+            let mut inner = self.inner.locked();
+            if inner
+                .client
+                .as_ref()
+                .is_some_and(|current| current.id == client)
+            {
+                inner.client = None;
             }
-            Err(_) => return,
+            let gone: Vec<CallId> = inner
+                .calls
+                .iter()
+                .filter(|(_, call)| call.client == client)
+                .map(|(id, _)| *id)
+                .collect();
+            gone.into_iter()
+                .filter_map(|id| inner.calls.remove(&id))
+                .collect::<Vec<_>>()
         };
         Self::fail(orphaned);
     }
@@ -171,10 +184,7 @@ impl Window {
         purpose: &str,
         waits: bool,
     ) -> Result<Call, String> {
-        let mut inner = self
-            .inner
-            .lock()
-            .map_err(|_| "window lock poisoned".to_string())?;
+        let mut inner = self.inner.locked();
         let client = inner.client.clone().ok_or_else(|| not_open(purpose))?;
         if inner.calls.len() >= MAX_PENDING_CALLS {
             return Err("Sikemux's window has too many tool calls waiting; retry shortly".into());
@@ -201,9 +211,7 @@ impl Window {
     }
 
     fn settle(&self, client: ClientId, id: CallId, finish: impl FnOnce(&mut Pending)) {
-        let Ok(mut inner) = self.inner.lock() else {
-            return;
-        };
+        let mut inner = self.inner.locked();
         let Some(call) = inner
             .calls
             .get_mut(&id)
@@ -239,8 +247,6 @@ impl Window {
 
     /// The caller stopped waiting.
     pub(crate) fn forget(&self, id: CallId) {
-        if let Ok(mut inner) = self.inner.lock() {
-            inner.calls.remove(&id);
-        }
+        self.inner.locked().calls.remove(&id);
     }
 }

@@ -12,16 +12,18 @@ mod linux;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use crate::protocol::SessionId;
+use crate::server::changed::Topic;
 use crate::tasks::config::{self, ConfigLoad};
 
 use super::connection::{blocking, ClientId};
-use super::remote::unix_ms;
 use super::wake::Wake;
 use super::{Core, CoreResult};
 
@@ -30,9 +32,6 @@ use darwin as system;
 #[cfg(target_os = "linux")]
 use linux as system;
 
-/// Chat agents run outside a PTY, so their root process carries its agent id
-/// in the environment it was launched with.
-const AGENT_ID_ENV: &str = "SIKEMUX_AGENT_ID";
 const MAX_ANCESTRY: usize = 64;
 const LOOK_AGAIN_MS: u64 = 5_000;
 /// A server binds its port a moment after its process starts.
@@ -115,18 +114,12 @@ pub(crate) struct Ports {
 }
 
 impl Ports {
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// A session started or ended: look now, and again once a server it
     /// started has had time to bind.
     pub(crate) fn changed(&self) {
-        if !self.lock().watchers.is_empty() {
+        if !self.state.locked().watchers.is_empty() {
             self.wake.now();
-            self.wake.at(unix_ms() + SETTLE_MS);
+            self.wake.at(epoch_ms() + SETTLE_MS);
         }
     }
 }
@@ -134,7 +127,7 @@ impl Ports {
 /// Whether a client that asked is still connected.
 fn watched(core: &Core) -> bool {
     let connected: HashSet<ClientId> = core.clients().iter().map(|client| client.id).collect();
-    let mut state = core.ports.lock();
+    let mut state = core.ports.state.locked();
     state.watchers.retain(|id| connected.contains(id));
     !state.watchers.is_empty()
 }
@@ -286,8 +279,10 @@ fn scan(core: &Core) -> Vec<ListeningPort> {
     let parents = system::descendants(core_pid);
     let all: Vec<u32> = parents.keys().copied().collect();
     let listeners = system::listeners(&all);
+    // Chat agents run outside a PTY, so their root process carries its agent id
+    // in the environment it was launched with.
     attribute(listeners, core_pid, &parents, &pids, |root| {
-        system::environment_value(root, AGENT_ID_ENV)
+        system::environment_value(root, sikemux_process::vars::AGENT_ID)
     })
     .into_iter()
     .filter_map(|(listener, found)| {
@@ -312,11 +307,11 @@ fn scan(_core: &Core) -> Vec<ListeningPort> {
 /// Looks again and tells clients when what listens changed.
 fn look(core: &Core) -> Vec<ListeningPort> {
     let found = scan(core);
-    let mut state = core.ports.lock();
+    let mut state = core.ports.state.locked();
     if state.found != found {
         state.found = found.clone();
         drop(state);
-        core.changes.changed("ports", None, None);
+        core.changes.changed(Topic::Ports, None, None);
     }
     found
 }
@@ -335,7 +330,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     tokio::task::spawn_blocking(move || {
         look(&looking);
         if anything_runs(&looking) {
-            looking.ports.wake.at(unix_ms() + LOOK_AGAIN_MS);
+            looking.ports.wake.at(epoch_ms() + LOOK_AGAIN_MS);
         }
     });
 }
@@ -385,9 +380,9 @@ pub(crate) async fn project_ports(
     client: ClientId,
     project: Option<String>,
 ) -> CoreResult<Vec<ProjectPort>> {
-    let first = core.ports.lock().watchers.insert(client);
+    let first = core.ports.state.locked().watchers.insert(client);
     if first {
-        core.ports.wake.at(unix_ms() + LOOK_AGAIN_MS);
+        core.ports.wake.at(epoch_ms() + LOOK_AGAIN_MS);
     }
     let core = core.clone();
     blocking(move || {

@@ -8,15 +8,17 @@ import { lsp } from "../../api/lsp";
 import { sshApi } from "../../api/ssh";
 import { dirname } from "../../lib/paths";
 import { sshStartup } from "../../terminal/sshStartup";
-import { getState, mutate, setState, type StoreState } from "../store";
-import { reportError } from "../toast";
+import { getState, mutate, setState } from "../store";
+import { setProjectSettingsPage } from "./ui";
+import type { ProjectSettingsPageId } from "../../settings/projectSettingsPages";
+import { reportError, swallow } from "../toast";
 import { agentIdsOf } from "../selectors";
 import { collectPanes, newId } from "../layout";
-import type { Window } from "../types";
 import {
     attachSession,
     closeAgentDesk,
     dirtyPathsForSession,
+    ensureRoleWindow,
     disposePaneState,
     guardDiscardDirty,
     guardStopAgents,
@@ -31,7 +33,7 @@ import {
 export function createProjectSession(cwd: string): void {
     keepOpenedProjectInView(cwd);
     mutate((d) => {
-        openProjectSession(d as unknown as StoreState, cwd);
+        openProjectSession(d, cwd);
     });
 }
 
@@ -48,7 +50,7 @@ export function createCommandSession(): void {
         let n = 1;
         while (used.has(n)) n += 1;
         const win = makeWindow("", String(n));
-        attachSession(d as unknown as StoreState, makeSession("command", String(n), "", win.id), [win]);
+        attachSession(d, makeSession("command", String(n), "", win.id), [win]);
     });
 }
 
@@ -73,7 +75,7 @@ export function createSshSession(alias: string): void {
             return;
         }
         const win = makeWindow("", alias, { startup: sshStartup(alias), role: "named" });
-        attachSession(d as unknown as StoreState, makeSession("ssh", alias, "", win.id), [win]);
+        attachSession(d, makeSession("ssh", alias, "", win.id), [win]);
     });
 }
 
@@ -99,7 +101,7 @@ function openSingletonPaneSession(kind: PluginKind): void {
         }
         const title = fixedSessionName(kind) ?? kind;
         const win = makeWindow("", title, { kind, role: kind, fixed: true });
-        attachSession(d as unknown as StoreState, makeSession(kind, title, "", win.id), [win]);
+        attachSession(d, makeSession(kind, title, "", win.id), [win]);
     });
 }
 
@@ -123,11 +125,20 @@ export function selectSession(id: string): void {
     mutate((d) => {
         if (!d.sessions[id]) return;
         d.activeSessionId = id;
+        d.chosenHost = null;
         d.zoomedPaneId = null;
         d.sessionSwitcher = null;
         d.pickerOpen = false;
         d.settingsOpen = false;
     });
+}
+
+/** Opens `sessionId`'s project with its settings tab in front, or the active project's, at `page` when one is given. */
+export function openProjectSettings(sessionId?: string, page?: ProjectSettingsPageId): void {
+    if (sessionId) selectSession(sessionId);
+    const project = getState().sessions[getState().activeSessionId];
+    if (page && project?.kind === "project") setProjectSettingsPage(project.cwd, page);
+    ensureRoleWindow("project-settings");
 }
 
 /** Makes a space and returns its id, or null when the name is blank. */
@@ -247,7 +258,7 @@ export function dropSession(id: string): void {
         for (const wid of winIds) {
             const w = d.windows[wid];
             if (w) {
-                for (const p of collectPanes(w.root as unknown as Window["root"])) {
+                for (const p of collectPanes(w.root)) {
                     if (d.gitModal?.ownerPaneId === p.id) d.gitModal = null;
                     disposePaneState(d, p.id);
                 }
@@ -274,7 +285,7 @@ export function dropSession(id: string): void {
         const stillOpen = Object.values(getState().sessions).some((s) => s.cwd === closingCwd);
         if (!stillOpen) {
             filesApi.evict(closingCwd);
-            void lsp.stop(closingCwd).catch(() => {});
+            void lsp.stop(closingCwd).catch(swallow("stop the language servers"));
         }
     }
 }
@@ -410,7 +421,7 @@ export async function openSshConfigEditor(): Promise<void> {
         let configSession = owner ? d.sessions[owner] : undefined;
         if (!configSession) {
             configSession = makeSession("ssh", "SSH config", sshDir, target.id);
-            attachSession(d as unknown as StoreState, configSession, [target]);
+            attachSession(d, configSession, [target]);
             owner = configSession.id;
         } else {
             d.activeSessionId = configSession.id;

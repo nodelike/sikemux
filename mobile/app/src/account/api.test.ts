@@ -1,17 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { errorCode, explain } from '@protocol/account';
 
-import {
-  accountHosts,
-  AccountProblem,
-  clearPushToken,
-  deleteAccount,
-  joinTicket,
-  registerPhone,
-  removePhone,
-  ReverifyNeeded,
-  setPushToken,
-} from './api';
-import { errorCode, explain } from './clerkErrors';
+import { accountHosts, ApiProblem, clearPushToken, deleteAccount, joinTicket, registerPhone, removePhone, setPushToken } from './api';
 
 const identity = vi.hoisted(() => ({
   deviceIdentity: vi.fn(async () => ({
@@ -82,7 +72,7 @@ describe('registerPhone', () => {
   });
 
   it('asks to sign in again without a token', async () => {
-    await expect(registerPhone(async () => null, 'user_2abc')).rejects.toBeInstanceOf(AccountProblem);
+    await expect(registerPhone(async () => null, 'user_2abc')).rejects.toBeInstanceOf(ApiProblem);
     expect(calls).toEqual([]);
   });
 });
@@ -107,28 +97,28 @@ describe('removePhone', () => {
       }),
     );
     const failure = await removePhone(token).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(AccountProblem);
-    expect((failure as AccountProblem).unreachable).toBe(true);
+    expect(failure).toBeInstanceOf(ApiProblem);
+    expect((failure as ApiProblem).unreachable).toBe(true);
   });
 
   it('reports a server failing on its side as out of reach too', async () => {
     answers.push({ status: 503, body: {} });
     const failure = await removePhone(token).catch((error: unknown) => error);
-    expect((failure as AccountProblem).unreachable).toBe(true);
+    expect((failure as ApiProblem).unreachable).toBe(true);
   });
 
   it('does not count a refused sign-in as the phone being off the account', async () => {
     answers.push({ status: 401, body: { error: { code: 'unauthorized', message: 'Sign in again.', requestId: 'r' } } });
     const failure = await removePhone(token).catch((error: unknown) => error);
-    expect((failure as AccountProblem).status).toBe(401);
+    expect((failure as ApiProblem).status).toBe(401);
   });
 
   it('reports Clerk failing to hand over a token as out of reach', async () => {
     const failure = await removePhone(async () => {
       throw new Error('network');
     }).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(AccountProblem);
-    expect((failure as AccountProblem).unreachable).toBe(true);
+    expect(failure).toBeInstanceOf(ApiProblem);
+    expect((failure as ApiProblem).unreachable).toBe(true);
     expect(calls).toEqual([]);
   });
 });
@@ -166,7 +156,7 @@ describe('clearPushToken', () => {
   it('reports a server out of reach, so signing out can ask first', async () => {
     answers.push({ status: 503, body: {} });
     const failure = await clearPushToken(token).catch((error: unknown) => error);
-    expect((failure as AccountProblem).unreachable).toBe(true);
+    expect((failure as ApiProblem).unreachable).toBe(true);
   });
 });
 
@@ -186,7 +176,7 @@ describe('deleteAccount', () => {
 
   it('asks the person to prove it is them again when the server says reverify', async () => {
     answers.push({ status: 403, body: { error: { code: 'reverify_required', message: 'reverify', requestId: 'r' } } });
-    await expect(deleteAccount(token)).rejects.toBeInstanceOf(ReverifyNeeded);
+    await expect(deleteAccount(token)).rejects.toMatchObject({ code: 'reverify_required' });
   });
 
   it('passes on any other refusal', async () => {
@@ -230,10 +220,10 @@ describe('joinTicket', () => {
   it('keeps the status of a refusal, so a host gone from the account reads differently from a busy server', async () => {
     answers.push({ status: 404, body: { error: { code: 'not_found', message: 'None of your hosts has that key.', requestId: 'r' } } });
     const gone = await joinTicket(token, 'cd'.repeat(32)).catch((error: unknown) => error);
-    expect(gone).toBeInstanceOf(AccountProblem);
-    expect((gone as AccountProblem).status).toBe(404);
+    expect(gone).toBeInstanceOf(ApiProblem);
+    expect((gone as ApiProblem).status).toBe(404);
     answers.push({ status: 429, body: { error: { code: 'rate_limited', message: 'Too many tickets.', requestId: 'r' } } });
-    expect(((await joinTicket(token, 'cd'.repeat(32)).catch((error: unknown) => error)) as AccountProblem).status).toBe(429);
+    expect(((await joinTicket(token, 'cd'.repeat(32)).catch((error: unknown) => error)) as ApiProblem).status).toBe(429);
   });
 });
 

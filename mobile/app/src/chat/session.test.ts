@@ -3,7 +3,8 @@ import { ChatAttachment, MobileError, type ConnectionLike } from '@sikemux/nativ
 
 import type { ChatInfo, ChatState } from '@/core/protocol';
 import type { ChatDelivery } from '@/devices/hub';
-import { ChatSession, type Attachment } from './session';
+import { ChatSession } from './session';
+import type { Attachment } from './uploads';
 
 const FEED = 'feed-1';
 const event = (kind: string, payload: Record<string, unknown> = {}) => ({ kind, payload });

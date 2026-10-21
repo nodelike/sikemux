@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sikemux_pty::user_shell::user_variable;
+use sikemux_process::user_environment::shell_var;
 use tokio::sync::watch;
 
 use crate::launch::providers::{self, ROUTED_ENV};
@@ -70,7 +70,7 @@ impl KeptChat {
     fn seal(&mut self) {
         let keys = providers::key_names();
         for (name, value) in std::mem::take(&mut self.launch.env) {
-            if !value.is_empty() && user_variable(&name).as_deref() == Some(value.as_str()) {
+            if !value.is_empty() && shell_var(&name).as_deref() == Some(value.as_str()) {
                 note(&mut self.from_shell, name);
             } else if keys.contains(name.as_str()) {
                 note(&mut self.keys, name);
@@ -85,7 +85,7 @@ impl KeptChat {
     pub(crate) fn unsealed(&self, core: &Core) -> Result<ChatLaunch, String> {
         let mut launch = self.launch.clone();
         for name in &self.from_shell {
-            if let Some(value) = user_variable(name) {
+            if let Some(value) = shell_var(name) {
                 launch.env.insert(name.clone(), value);
             }
         }

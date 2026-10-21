@@ -1,10 +1,10 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo, useState, type CSSProperties } from "react";
 import { useStore } from "../state/store";
 import { AgentIcon } from "../ui/Icons";
 import type { Agent } from "../state/types";
 import { buddyStateOfGroup, resolveBuddy, type BuddyPack, type BuddyShape, type BuddyState } from "./catalogue";
-import { assignBuddyColors } from "./commands";
-import { buddyMarkup } from "./render";
+import { wearsBuddy } from "./published";
+import { bodyMotion, buddyBox, buddyMarkup } from "./render";
 import "./buddies.css";
 
 let nextUid = 0;
@@ -26,11 +26,14 @@ export const BuddyArt = memo(function BuddyArt({
 }) {
     const [uid] = useState(() => `bd${++nextUid}`);
     const still = !useStore((s) => s.buddyMotion);
-    const html = useMemo(() => buddyMarkup(pack, shape, color, state, uid), [pack, shape, color, state, uid]);
+    const box = useMemo(() => buddyBox(pack, shape), [pack, shape]);
+    const html = useMemo(() => buddyMarkup(pack, shape, color, state, uid, box), [pack, shape, color, state, uid, box]);
+    const motion = bodyMotion(state);
     return (
         <span
             className={`buddy${still ? " still" : ""}${className ? ` ${className}` : ""}`}
-            style={{ width: size, height: size }}
+            data-motion={motion || undefined}
+            style={{ width: size, height: size, "--bd-side": box.split(" ")[2] } as CSSProperties}
             dangerouslySetInnerHTML={{ __html: html }}
         />
     );
@@ -57,7 +60,7 @@ export const AgentBuddy = memo(function AgentBuddy({
     );
 });
 
-/** The agent's buddy when buddies are on, otherwise its harness logo, each in its own wrapper. */
+/** The agent's buddy when buddies are on or the person named it, otherwise its harness logo, each in its own wrapper. */
 export function AgentFace({
     agent,
     size,
@@ -65,13 +68,16 @@ export function AgentFace({
     logoClass,
     buddyClass,
 }: {
-    agent: Pick<Agent, "id" | "type" | "buddy">;
+    agent: Pick<Agent, "id" | "type" | "buddy" | "name">;
     size: number;
     logoSize: number;
     logoClass: string;
     buddyClass: string;
 }) {
-    const on = useStore((s) => s.buddies);
+    const on = wearsBuddy(
+        useStore((s) => s.buddies),
+        !!agent.name,
+    );
     return on ? (
         <span className={buddyClass}>
             <AgentBuddy agent={agent} size={size} />
@@ -92,14 +98,4 @@ export function ComposerBuddy({ agent }: { agent: Pick<Agent, "id" | "buddy"> })
             <AgentBuddy agent={agent} size={40} />
         </div>
     );
-}
-
-/** Gives each new agent its colour while buddies are on. Mounted once, at the app's root. */
-export function BuddyBridge() {
-    const on = useStore((s) => s.buddies);
-    const agents = useStore((s) => s.agents);
-    useEffect(() => {
-        if (on && Object.values(agents).some((agent) => !agent.buddy)) assignBuddyColors();
-    }, [on, agents]);
-    return null;
 }

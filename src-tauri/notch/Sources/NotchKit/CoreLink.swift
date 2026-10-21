@@ -17,6 +17,9 @@ enum CoreLinkError: Error {
 final class CoreLink {
     typealias Reply = (Result<[String: Any], CoreLinkError>) -> Void
 
+    /// The kind byte and the core's largest payload, `MAX_FRAME_BYTES` in sikemux-wire.
+    private static let maxFrameLength = 1 + 16 * 1024 * 1024
+
     var onReady: (() -> Void)?
     var onEvent: (([String: Any]) -> Void)?
     var onClose: ((String?) -> Void)?
@@ -38,20 +41,9 @@ final class CoreLink {
 
     /// False when nothing listens on the socket.
     func connect() -> Bool {
+        guard var address = UnixAddress.of(socketPath) else { return false }
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { return false }
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let pathBytes = Array(socketPath.utf8)
-        let capacity = MemoryLayout.size(ofValue: address.sun_path)
-        guard pathBytes.count < capacity else {
-            Darwin.close(descriptor)
-            return false
-        }
-        withUnsafeMutableBytes(of: &address.sun_path) { raw in
-            raw.copyBytes(from: pathBytes)
-            raw[pathBytes.count] = 0
-        }
         let connected = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -117,18 +109,19 @@ final class CoreLink {
             return
         }
         buffer.append(contentsOf: chunk[0..<count])
-        while buffer.count >= 4 {
-            let length = Int(buffer[0]) << 24 | Int(buffer[1]) << 16 | Int(buffer[2]) << 8 | Int(buffer[3])
-            guard length > 0 else {
-                finish("the core sent an empty frame")
+        var offset = 0
+        while !closed, buffer.count - offset >= 4 {
+            let length = buffer[offset..<(offset + 4)].reduce(0) { $0 << 8 | Int($1) }
+            guard length > 0, length <= Self.maxFrameLength else {
+                finish("the core sent a frame of \(length) bytes, which is out of range")
                 return
             }
-            guard buffer.count >= 4 + length else { break }
-            let kind = buffer[4]
-            let payload = Data(buffer[5..<(4 + length)])
-            buffer.removeFirst(4 + length)
-            if kind == 0 { handle(payload) }
+            let end = offset + 4 + length
+            guard buffer.count >= end else { break }
+            if buffer[offset + 4] == 0 { handle(Data(buffer[(offset + 5)..<end])) }
+            offset = end
         }
+        buffer.removeFirst(offset)
     }
 
     private func handle(_ payload: Data) {
@@ -178,27 +171,89 @@ final class CoreLink {
     }
 }
 
-/// Starts the core the way the app does: the same binary, socket and
-/// arguments, in a session of its own so it outlives this process.
+enum UnixAddress {
+    /// Nil for a path too long for a socket address.
+    static func of(_ path: String) -> sockaddr_un? {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
+        withUnsafeMutableBytes(of: &address.sun_path) { raw in
+            raw.copyBytes(from: bytes)
+            raw[bytes.count] = 0
+        }
+        return address
+    }
+}
+
+/// A socket in the folder beside the core's that the core writes to whenever
+/// it starts, stops or opens a window, so the notch tries the core again then
+/// rather than on a timer.
+final class CoreWaiter {
+    private let path: String
+    private let descriptor: Int32
+    private let source: DispatchSourceRead
+
+    init?(socket: String, woken: @escaping () -> Void) {
+        let folder = socket + ".waiting"
+        mkdir(folder, 0o700)
+        path = folder + "/notch-\(getpid())"
+        unlink(path)
+        guard var address = UnixAddress.of(path) else { return nil }
+        let descriptor = Darwin.socket(AF_UNIX, SOCK_DGRAM, 0)
+        guard descriptor >= 0 else { return nil }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bound == 0 else {
+            Darwin.close(descriptor)
+            return nil
+        }
+        _ = fcntl(descriptor, F_SETFL, O_NONBLOCK)
+        self.descriptor = descriptor
+        source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: .main)
+        source.setEventHandler { [descriptor] in
+            var signal: UInt8 = 0
+            while recv(descriptor, &signal, 1, 0) > 0 {}
+            woken()
+        }
+        source.resume()
+    }
+
+    deinit {
+        source.cancel()
+        Darwin.close(descriptor)
+        unlink(path)
+    }
+}
+
+/// Starts the core with the host's `start` command, which goes through the login
+/// item when one is installed, so no second core runs beside it. `done` runs on the
+/// main queue once the command ends: the core answers by then, or `start` gave up.
 enum CoreStarter {
-    static func start(_ options: Options) {
-        guard let binary = options.coreBinary else { return }
-        var arguments = [binary, "core", "--socket", options.socket] + options.coreArgs
-        var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
-        let log = options.coreLog ?? "/dev/null"
-        posix_spawn_file_actions_addopen(&actions, 1, log, O_WRONLY | O_CREAT | O_APPEND, 0o600)
-        posix_spawn_file_actions_adddup2(&actions, 1, 2)
-        let argv = arguments.map { strdup($0) } + [nil]
-        defer { argv.forEach { free($0) } }
-        var pid: pid_t = 0
-        _ = posix_spawn(&pid, binary, &actions, &attributes, argv, environ)
-        arguments.removeAll()
+    static func start(_ options: Options, done: @escaping () -> Void) {
+        guard let binary = options.coreBinary else { return done() }
+        var environment = ProcessInfo.processInfo.environment
+        environment["SIKEMUX_CORE_SOCKET"] = options.socket
+        DispatchQueue.global(qos: .userInitiated).async {
+            let argv: [UnsafeMutablePointer<CChar>?] = [strdup(binary), strdup("start"), nil]
+            let envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+            defer { (argv + envp).forEach { free($0) } }
+            var attributes: posix_spawnattr_t?
+            posix_spawnattr_init(&attributes)
+            defer { posix_spawnattr_destroy(&attributes) }
+            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
+            var actions: posix_spawn_file_actions_t?
+            posix_spawn_file_actions_init(&actions)
+            defer { posix_spawn_file_actions_destroy(&actions) }
+            posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+            posix_spawn_file_actions_addinherit_np(&actions, 1)
+            posix_spawn_file_actions_addinherit_np(&actions, 2)
+            var pid: pid_t = 0
+            if posix_spawn(&pid, binary, &actions, &attributes, argv, envp) == 0 { waitpid(pid, nil, 0) }
+            DispatchQueue.main.async(execute: done)
+        }
     }
 }

@@ -14,8 +14,11 @@ export interface DrawnBuddy {
 
 const boxKey = (pack: BuddyPack, shape: BuddyShape) => `${pack.id}/${shape.id}`;
 
+/** Whether an agent shows its buddy rather than its agent's logo: always once the person named it, otherwise while buddies are on. */
+export const wearsBuddy = (on: boolean, named: boolean): boolean => on || named;
+
 /** Every agent's buddy, with the boxes of the shapes they wear and of every shape in the chosen pack, for buddies a phone resolves itself. */
-export function publishBuddies(agents: Iterable<Pick<Agent, "id" | "buddy">>, style: BuddyStyle, motion: boolean): PublishedBuddies {
+export function publishBuddies(agents: Iterable<Pick<Agent, "id" | "buddy">>, style: BuddyStyle, motion: boolean, on: boolean): PublishedBuddies {
     const looks: Record<string, BuddyLook> = {};
     const boxes: Record<string, string> = {};
     const measure = (pack: BuddyPack, shape: BuddyShape) => (boxes[boxKey(pack, shape)] = buddyBox(pack, shape));
@@ -26,7 +29,7 @@ export function publishBuddies(agents: Iterable<Pick<Agent, "id" | "buddy">>, st
     }
     const chosen = style.pack === EVERY_PACK ? undefined : packById(style.pack);
     if (chosen) for (const shape of chosen.shapes) measure(chosen, shape);
-    return { pack: style.pack, shape: style.shape, motion, agents: looks, boxes };
+    return { on, pack: style.pack, shape: style.shape, motion, agents: looks, boxes };
 }
 
 /** The buddy the app published for an agent, or the one the published style gives it until the app has. */

@@ -1,3 +1,4 @@
+use sikemux_core::protocol::BuildChannel;
 use sikemux_core::usage::{self, Active, Install};
 use tauri::{AppHandle, Manager, State};
 
@@ -10,13 +11,10 @@ use crate::pty::PtyManager;
 pub async fn usage_report_active(
     app: AppHandle,
     manager: State<'_, PtyManager>,
-    channel: String,
+    channel: BuildChannel,
 ) -> AppResult<()> {
     if !Install::App.reports() {
         return Ok(());
-    }
-    if channel != "stable" && channel != "nightly" {
-        return Err(AppError::BadArg("update channel must be stable or nightly"));
     }
     let data_dir = app
         .path()
@@ -33,7 +31,7 @@ pub async fn usage_report_active(
     let active = Active {
         install: Install::App,
         version: &app.package_info().version.to_string(),
-        channel: &channel,
+        channel,
         account: account.as_deref(),
     };
     usage::report_active(&data_dir, active)

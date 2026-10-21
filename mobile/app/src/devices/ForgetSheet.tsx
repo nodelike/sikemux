@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
+import { problem as problemOf } from '@/core/problem';
 import { haptics } from '@/ui/haptics';
 import { goHome } from '@/ui/navigate';
 import { Button } from '@/ui/controls';
@@ -29,7 +30,7 @@ export function useForget(device: PairedDevice | undefined, done?: () => void) {
     } catch (error) {
       busy.current = false;
       setForgetting(false);
-      setProblem(error instanceof Error ? error.message : String(error));
+      setProblem(problemOf(error));
       return;
     }
     try {

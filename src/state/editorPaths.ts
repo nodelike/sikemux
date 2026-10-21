@@ -1,4 +1,4 @@
-import { fsapi } from "../api/fs";
+import { filesOn, type FilesHost } from "../api/fs";
 import { isPathWithin, joinPath, relativePath } from "../lib/paths";
 import { emit } from "./bus";
 import { mutate } from "./store";
@@ -8,8 +8,8 @@ export function relocatedPath(path: string, src: string, dest: string): string {
     return isPathWithin(path, src) ? joinPath(dest, relativePath(path, src) ?? "") : path;
 }
 
-export async function renameEditorPath(src: string, dest: string): Promise<void> {
-    await fsapi.rename(src, dest);
+export async function renameEditorPath(src: string, dest: string, host?: FilesHost): Promise<void> {
+    await filesOn(host).rename(src, dest);
     emit({ type: "path-renamed", src, dest });
     mutate((state) => {
         for (const view of Object.values(state.editorViews)) {

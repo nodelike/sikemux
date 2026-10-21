@@ -2,7 +2,7 @@ import { agentApi } from "../api/agents";
 import { AccountSignIn } from "../agents/AccountSignIn";
 import { signInAgent } from "../agents/AgentInstall";
 import { agentLabel, loginArgs } from "../agents/catalog";
-import { accountsOf, isAccountProvider, moveChat } from "../agents/accounts";
+import { accountsOf, moveChat } from "../agents/accounts";
 import { useResource } from "../state/resources";
 import { agentAccountR } from "../state/resources.defs";
 import { useStore } from "../state/store";
@@ -28,7 +28,7 @@ export function ChatFailureActions({
     failure: ChatFailure;
     signInMethods?: readonly SignInMethod[];
 }) {
-    if (!profile || !isAccountProvider(profile.provider)) {
+    if (!profile) {
         if (failure.kind !== "signIn") return null;
         const own = { type: agent.type, command: agent.executablePath ?? agent.type, configPath: null };
         if (signInMethods.length > 0) {
@@ -87,9 +87,8 @@ export function ChatFailureActions({
 
 function ContinueElsewhere({ agent, profile }: { agent: Agent; profile: ProviderProfile }) {
     const profiles = useStore((s) => s.providerProfiles);
-    const provider = isAccountProvider(profile.provider) ? profile.provider : "claude";
-    const own = useResource(agentAccountR, provider, profile.configPath);
-    const others = accountsOf(provider, profiles).filter((other) => other.id !== profile.id);
+    const own = useResource(agentAccountR, profile.provider, profile.configPath);
+    const others = accountsOf(profile.provider, profiles).filter((other) => other.id !== profile.id);
     if (others.length === 0 || !own.data?.sessions) return null;
     return (
         <span className="chat-error-actions">
@@ -103,8 +102,7 @@ function ContinueElsewhere({ agent, profile }: { agent: Agent; profile: Provider
 /* Only an account that is signed in and keeps chats where this one does can
    take the chat over. */
 function ContinueOn({ agent, account, sessions }: { agent: Agent; account: ProviderProfile; sessions: string }) {
-    const provider = isAccountProvider(account.provider) ? account.provider : "claude";
-    const status = useResource(agentAccountR, provider, account.configPath);
+    const status = useResource(agentAccountR, account.provider, account.configPath);
     if (!status.data?.signedIn || status.data.sessions !== sessions) return null;
     return (
         <button type="button" onClick={() => moveChat(agent, account)}>

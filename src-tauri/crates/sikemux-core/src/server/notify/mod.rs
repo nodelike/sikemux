@@ -10,20 +10,23 @@ mod tests;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 use tokio::sync::mpsc;
 
 use crate::accounts::live::Push;
 use crate::accounts::protocol::PushKind;
 use crate::protocol::{Attention, Event, NotifyPrefs, NotifyWhen, PendingDevice};
 use crate::push::{self, Notification, NotificationCategory, NotificationKind, MAX_PLAINTEXT};
+use crate::text::clipped_line;
 
 pub(crate) use presence::{Presence, SystemPresence};
 
 use super::access::{self, Needs, Peer};
-use super::remote::{unix_ms, NotifyTarget};
+use super::remote::NotifyTarget;
 use super::Core;
 
 /// How often the host looks whether the person left, to send what waited
@@ -120,26 +123,15 @@ struct State {
 }
 
 impl Notifier {
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// Hands `signal` to the notifier's task. Dropped when it is not running.
     pub(crate) fn send(&self, signal: Signal) {
-        if let Ok(signals) = self.signals.lock() {
-            if let Some(signals) = signals.as_ref() {
-                let _ = signals.send(signal);
-            }
+        if let Some(signals) = self.signals.locked().as_ref() {
+            let _ = signals.send(signal);
         }
     }
 
     fn presence(&self) -> Arc<dyn Presence> {
-        let mut presence = self
-            .presence
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut presence = self.presence.locked();
         presence
             .get_or_insert_with(|| Arc::new(SystemPresence))
             .clone()
@@ -147,15 +139,12 @@ impl Notifier {
 
     #[cfg(test)]
     pub(crate) fn set_presence(&self, presence: Arc<dyn Presence>) {
-        *self
-            .presence
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(presence);
+        *self.presence.locked() = Some(presence);
     }
 
     /// When the person last went away, and whether they still are.
     pub(crate) fn absence(&self) -> (Option<u64>, bool) {
-        let state = self.lock();
+        let state = self.state.locked();
         (state.left_at, state.away)
     }
 
@@ -170,9 +159,7 @@ impl Notifier {
 /// Handles signals in order as they come, and watches for the person leaving.
 pub(crate) async fn run(core: Arc<Core>) {
     let (signals, mut received) = mpsc::unbounded_channel();
-    if let Ok(mut installed) = core.notify.signals.lock() {
-        *installed = Some(signals);
-    }
+    *core.notify.signals.locked() = Some(signals);
     let named = tokio::task::spawn_blocking(|| super::host::info().name).await;
     if let Ok(name) = named {
         let _ = core.notify.host_name.set(name);
@@ -183,12 +170,12 @@ pub(crate) async fn run(core: Arc<Core>) {
         tokio::select! {
             signal = received.recv() => match signal {
                 Some(signal) => {
-                    noted(&core, away_now(&core).await, unix_ms());
-                    apply(&core, signal, unix_ms());
+                    noted(&core, away_now(&core).await, epoch_ms());
+                    apply(&core, signal, epoch_ms());
                 }
                 None => return,
             },
-            _ = ticker.tick() => noted(&core, away_now(&core).await, unix_ms()),
+            _ = ticker.tick() => noted(&core, away_now(&core).await, epoch_ms()),
         }
     }
 }
@@ -213,7 +200,7 @@ pub(crate) fn look_around(core: &Core, now: u64) {
 /// for that: permission requests and agents still waiting for input.
 fn noted(core: &Core, away: bool, now: u64) {
     let left = {
-        let mut state = core.notify.lock();
+        let mut state = core.notify.state.locked();
         let left = away && !state.away;
         state.away = away;
         if left {
@@ -224,7 +211,14 @@ fn noted(core: &Core, away: bool, now: u64) {
     if !left {
         return;
     }
-    let pending: Vec<Attention> = core.notify.lock().pending.values().cloned().collect();
+    let pending: Vec<Attention> = core
+        .notify
+        .state
+        .locked()
+        .pending
+        .values()
+        .cloned()
+        .collect();
     for attention in pending {
         if let Some(draft) = permission(core, &attention) {
             alert_all(core, &draft, now);
@@ -232,7 +226,8 @@ fn noted(core: &Core, away: bool, now: u64) {
     }
     let questions: Vec<((String, String), Asked)> = core
         .notify
-        .lock()
+        .state
+        .locked()
         .questions
         .iter()
         .map(|(key, asked)| (key.clone(), asked.clone()))
@@ -244,7 +239,8 @@ fn noted(core: &Core, away: bool, now: u64) {
     }
     let waiting: Vec<String> = core
         .notify
-        .lock()
+        .state
+        .locked()
         .waiting_for_input
         .iter()
         .cloned()
@@ -265,7 +261,7 @@ pub(crate) fn handle(core: &Core, signal: Signal, now: u64) {
 fn apply(core: &Core, signal: Signal, now: u64) {
     match signal {
         Signal::Attention(attention) => {
-            core.notify.lock().pending.insert(
+            core.notify.state.locked().pending.insert(
                 (attention.agent_id.clone(), attention.id.clone()),
                 (*attention).clone(),
             );
@@ -275,7 +271,8 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         }
         Signal::Cleared { id, agent_id } => {
             core.notify
-                .lock()
+                .state
+                .locked()
                 .pending
                 .remove(&(agent_id.clone(), id.clone()));
             clear_all(
@@ -288,7 +285,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         }
         Signal::AgentState { agent_id, state } => {
             let was_waiting = {
-                let mut notify = core.notify.lock();
+                let mut notify = core.notify.state.locked();
                 if state == NEEDS_INPUT {
                     !notify.waiting_for_input.insert(agent_id.clone())
                 } else {
@@ -312,7 +309,8 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         } => {
             let asked = Asked { name, text, at };
             core.notify
-                .lock()
+                .state
+                .locked()
                 .questions
                 .insert((agent_id.clone(), id.clone()), asked.clone());
             if let Some(draft) = question(core, &agent_id, &id, &asked) {
@@ -321,7 +319,8 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         }
         Signal::QuestionCleared { id, agent_id } => {
             core.notify
-                .lock()
+                .state
+                .locked()
                 .questions
                 .remove(&(agent_id.clone(), id.clone()));
             clear_all(core, &agent_id, &question_card(&agent_id, &id), None, now);
@@ -329,13 +328,13 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         Signal::Pairing(device) => alert_all(core, &pairing(core, &device), now),
         Signal::PairingSettled { id } => clear_all(core, "", &pairing_card(&id), None, now),
         Signal::TurnStarted { agent_id } => {
-            core.notify.lock().turns.insert(agent_id, now);
+            core.notify.state.locked().turns.insert(agent_id, now);
         }
         Signal::TurnCompleted {
             agent_id,
             cancelled,
         } => {
-            let started = core.notify.lock().turns.remove(&agent_id);
+            let started = core.notify.state.locked().turns.remove(&agent_id);
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
             if long && !cancelled && !core.harness.questions.waits_on_answer(&agent_id) {
@@ -345,7 +344,13 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             }
         }
         Signal::Problem { agent_id, message } => {
-            if core.notify.lock().waiting_for_input.remove(&agent_id) {
+            if core
+                .notify
+                .state
+                .locked()
+                .waiting_for_input
+                .remove(&agent_id)
+            {
                 clear_all(core, &agent_id, &input_card(&agent_id), None, now);
             }
             if let Some(draft) = problem(core, &agent_id, &message, now) {
@@ -472,20 +477,6 @@ fn name(core: &Core, agent_id: &str) -> Option<Named> {
     })
 }
 
-pub(crate) fn clip(text: &str, limit: usize) -> String {
-    let line = text
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or("");
-    if line.chars().count() <= limit {
-        return line.to_owned();
-    }
-    let mut clipped: String = line.chars().take(limit.saturating_sub(1)).collect();
-    clipped.push('…');
-    clipped
-}
-
 impl Named {
     /// "Fix the tests on MacBook Pro": the chat, or its project, and the host.
     fn whereabouts(&self, core: &Core, prefer_title: bool) -> String {
@@ -518,7 +509,7 @@ impl Named {
             chat_title: self
                 .title
                 .as_deref()
-                .map(|title| clip(title, MAX_TITLE_CHARS)),
+                .map(|title| clipped_line(title, MAX_TITLE_CHARS)),
             title: String::new(),
             body: String::new(),
             detail: None,
@@ -544,16 +535,16 @@ fn permission(core: &Core, attention: &Attention) -> Option<Draft> {
         attention.at,
         PERMISSION_LIFE_MS,
     );
-    draft.title = clip(
+    draft.title = clipped_line(
         &format!("{} needs permission", named.agent),
         MAX_TITLE_CHARS,
     );
-    draft.body = clip(&named.whereabouts(core, false), MAX_BODY_CHARS);
+    draft.body = clipped_line(&named.whereabouts(core, false), MAX_BODY_CHARS);
     let choices = &attention.choices;
     draft.detail = choices
         .title
         .as_deref()
-        .map(|title| clip(title, MAX_DETAIL_CHARS));
+        .map(|title| clipped_line(title, MAX_DETAIL_CHARS));
     draft.request_id = Some(attention.id.clone());
     draft.allow_option_id = option_id(&choices.allow_once);
     draft.reject_option_id = option_id(&choices.reject);
@@ -569,9 +560,12 @@ fn question(core: &Core, agent_id: &str, id: &str, asked: &Asked) -> Option<Draf
         asked.at,
         PERMISSION_LIFE_MS,
     );
-    draft.title = clip(&format!("{} asks you", asked.name), MAX_TITLE_CHARS);
-    draft.body = clip(&asked.text, MAX_BODY_CHARS);
-    draft.detail = Some(clip(&named.whereabouts(core, true), MAX_DETAIL_CHARS));
+    draft.title = clipped_line(&format!("{} asks you", asked.name), MAX_TITLE_CHARS);
+    draft.body = clipped_line(&asked.text, MAX_BODY_CHARS);
+    draft.detail = Some(clipped_line(
+        &named.whereabouts(core, true),
+        MAX_DETAIL_CHARS,
+    ));
     Some(draft)
 }
 
@@ -584,11 +578,11 @@ fn needs_input(core: &Core, agent_id: &str, now: u64) -> Option<Draft> {
         now,
         INPUT_LIFE_MS,
     );
-    draft.title = clip(
+    draft.title = clipped_line(
         &format!("{} needs your input", named.agent),
         MAX_TITLE_CHARS,
     );
-    draft.body = clip(&named.whereabouts(core, true), MAX_BODY_CHARS);
+    draft.body = clipped_line(&named.whereabouts(core, true), MAX_BODY_CHARS);
     Some(draft)
 }
 
@@ -601,8 +595,8 @@ fn finished(core: &Core, agent_id: &str, now: u64) -> Option<Draft> {
         now,
         FINISHED_LIFE_MS,
     );
-    draft.title = clip(&format!("{} finished", named.agent), MAX_TITLE_CHARS);
-    draft.body = clip(&named.whereabouts(core, true), MAX_BODY_CHARS);
+    draft.title = clipped_line(&format!("{} finished", named.agent), MAX_TITLE_CHARS);
+    draft.body = clipped_line(&named.whereabouts(core, true), MAX_BODY_CHARS);
     Some(draft)
 }
 
@@ -615,12 +609,13 @@ fn problem(core: &Core, agent_id: &str, message: &str, now: u64) -> Option<Draft
         now,
         PROBLEM_LIFE_MS,
     );
-    draft.title = clip(
+    draft.title = clipped_line(
         &format!("{} ran into a problem", named.agent),
         MAX_TITLE_CHARS,
     );
-    draft.body = clip(&named.whereabouts(core, true), MAX_BODY_CHARS);
-    draft.detail = Some(clip(message, MAX_DETAIL_CHARS)).filter(|detail| !detail.is_empty());
+    draft.body = clipped_line(&named.whereabouts(core, true), MAX_BODY_CHARS);
+    draft.detail =
+        Some(clipped_line(message, MAX_DETAIL_CHARS)).filter(|detail| !detail.is_empty());
     Some(draft)
 }
 
@@ -637,8 +632,8 @@ fn pairing(core: &Core, device: &PendingDevice) -> Draft {
         chat: false,
         provider: String::new(),
         chat_title: None,
-        title: clip(&format!("{name} wants to connect"), MAX_TITLE_CHARS),
-        body: clip(
+        title: clipped_line(&format!("{name} wants to connect"), MAX_TITLE_CHARS),
+        body: clipped_line(
             &format!("To {}, from your Sikemux account", core.notify.host_name()),
             MAX_BODY_CHARS,
         ),
@@ -646,7 +641,7 @@ fn pairing(core: &Core, device: &PendingDevice) -> Draft {
         request_id: None,
         allow_option_id: None,
         reject_option_id: None,
-        at: unix_ms(),
+        at: epoch_ms(),
         expires_at: device.expires_at,
     }
 }
@@ -737,9 +732,9 @@ fn address(draft: &Draft, host: &str, host_name: &str, target: &NotifyTarget) ->
         collapse_id,
         thread: format!("{host}/{}", draft.agent_id),
         host_key: host.to_owned(),
-        host_name: clip(host_name, MAX_TITLE_CHARS),
+        host_name: clipped_line(host_name, MAX_TITLE_CHARS),
         agent_id: draft.agent_id.clone(),
-        provider: clip(&draft.provider, MAX_TITLE_CHARS),
+        provider: clipped_line(&draft.provider, MAX_TITLE_CHARS),
         chat_title: draft.chat_title.clone(),
         title: draft.title.clone(),
         body: draft.body.clone(),
@@ -755,7 +750,7 @@ fn address(draft: &Draft, host: &str, host_name: &str, target: &NotifyTarget) ->
     if plaintext.len() > MAX_PLAINTEXT {
         notification.detail = None;
         notification.chat_title = None;
-        notification.body = clip(&notification.body, 60);
+        notification.body = clipped_line(&notification.body, 60);
         plaintext = serde_json::to_vec(&notification).ok()?;
     }
     push::seal(&target.key, host, &target.device_id, &plaintext)
@@ -780,7 +775,7 @@ fn alert_all(core: &Core, draft: &Draft, now: u64) {
     let Some((host, targets)) = core.remote.notify_targets() else {
         return;
     };
-    let away = core.notify.lock().away;
+    let away = core.notify.state.locked().away;
     let host_name = core.notify.host_name();
     let outbox = core.remote.outbox();
     for target in targets {
@@ -814,7 +809,7 @@ fn alert_all(core: &Core, draft: &Draft, now: u64) {
 /// Whether `to` has not yet been told of this card, nor of the agent
 /// finishing or failing a moment ago.
 fn due(core: &Core, to: &str, draft: &Draft, now: u64) -> bool {
-    let state = core.notify.lock();
+    let state = core.notify.state.locked();
     let once = matches!(
         draft.kind,
         NotificationKind::Permission | NotificationKind::Input | NotificationKind::Pairing
@@ -833,7 +828,7 @@ fn due(core: &Core, to: &str, draft: &Draft, now: u64) -> bool {
 }
 
 fn sent(core: &Core, to: &str, draft: &Draft, now: u64) {
-    let mut state = core.notify.lock();
+    let mut state = core.notify.state.locked();
     let pair = (to.to_owned(), draft.agent_id.clone());
     match draft.kind {
         NotificationKind::Finished => {
@@ -851,7 +846,8 @@ fn sent(core: &Core, to: &str, draft: &Draft, now: u64) {
 /// gone out yet, otherwise followed by a `clear`.
 fn clear_all(core: &Core, agent_id: &str, card: &str, request_id: Option<String>, now: u64) {
     core.notify
-        .lock()
+        .state
+        .locked()
         .alerted
         .remove(&(APP.to_owned(), card.to_owned()));
     let Some((host, targets)) = core.remote.notify_targets() else {
@@ -861,7 +857,7 @@ fn clear_all(core: &Core, agent_id: &str, card: &str, request_id: Option<String>
     let outbox = core.remote.outbox();
     for target in targets {
         let shown = (target.device_id.clone(), card.to_owned());
-        if !core.notify.lock().alerted.remove(&shown) {
+        if !core.notify.state.locked().alerted.remove(&shown) {
             continue;
         }
         let collapse_id = target.key.collapse_id(card);

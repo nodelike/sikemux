@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub struct Account {
     pub status: AccountStatus,
     /// Only while deleting: when the account is deleted for good unless restored first.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub deletes_at: Option<String>,
     /// How many days a deleted account can still be restored: deletesAt is this long after the deletion.
     pub restorable_days: i64,
@@ -30,7 +30,7 @@ pub struct AccountDeletion {
 #[serde(rename_all = "camelCase")]
 pub struct AccountDeletionRequest {
     /// A code Sign in with Apple gave the phone moments ago. The server trades it for a token and revokes that, so Apple stops treating the person as signed in to Sikemux.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub apple_authorization_code: Option<String>,
 }
 
@@ -54,13 +54,13 @@ pub struct AccountEvent {
     pub r#type: AccountEventType,
     pub at: String,
     /// The device the event is about. Absent from account.deleted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<DeviceKey>,
     /// That device's role. Absent from account.deleted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<DeviceRole>,
     /// Only on device.revoked.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<RevokeReason>,
 }
 
@@ -159,7 +159,7 @@ pub struct Device {
     pub role: DeviceRole,
     pub name: String,
     pub platform: Platform,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub channel: Option<Channel>,
     pub created_at: String,
     pub last_seen_at: Option<String>,
@@ -182,10 +182,17 @@ pub struct DeviceRegistration {
     pub role: DeviceRole,
     pub name: String,
     pub platform: Platform,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub channel: Option<Channel>,
     pub nonce: String,
     pub signature: String,
+}
+
+/// What a device or host is called on the account, everywhere it is shown.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceRename {
+    pub name: String,
 }
 
 /// A host is a core people connect to, such as a Mac. A client connects to hosts, such as a phone.
@@ -236,7 +243,7 @@ pub struct ErrorDetail {
     /// The same as the response's x-request-id header, and how the server's logs find this request.
     pub request_id: String,
     /// Only with reverify_required: how recently the person must have proved their first factor.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reverify_within_minutes: Option<i64>,
 }
 
@@ -271,7 +278,7 @@ pub struct JoinRequest {
     pub host: DeviceKey,
 }
 
-/// The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal.
+/// The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JoinTicket {
@@ -287,6 +294,12 @@ pub struct JoinTicket {
     pub issued_at: i64,
     /// When it stops being good, in unix seconds: ten minutes after issuedAt.
     pub expires_at: i64,
+    /// The host that added the joining app to the account, when a host did, so the host it joins can say which.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<DeviceKey>,
+    /// What the account calls the host in via.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via_name: Option<String>,
     pub signature: String,
 }
 
@@ -428,13 +441,13 @@ pub struct LiveEvents {
 #[serde(rename_all = "camelCase")]
 pub struct LiveHello {
     pub role: LiveRole,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<DeviceKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub app: Option<LiveApp>,
 }
 
@@ -486,7 +499,7 @@ pub struct LiveReady {
     /// How often the server pings. A device that hears nothing for twice as long reconnects.
     pub heartbeat_ms: i64,
     /// Web only: send a fresh token in an auth message before this.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_expires_at: Option<String>,
 }
 
@@ -647,7 +660,7 @@ pub struct PushTokenRegistration {
     pub token: String,
     pub app: PushApp,
     /// Required when platform is apns, and absent otherwise.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub apns_environment: Option<ApnsEnvironment>,
     pub nonce: String,
     pub signature: String,
@@ -709,6 +722,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "DeviceKey" => through::<DeviceKey>(json),
         "DeviceList" => through::<DeviceList>(json),
         "DeviceRegistration" => through::<DeviceRegistration>(json),
+        "DeviceRename" => through::<DeviceRename>(json),
         "DeviceRole" => through::<DeviceRole>(json),
         "ErrorCode" => through::<ErrorCode>(json),
         "ErrorDetail" => through::<ErrorDetail>(json),

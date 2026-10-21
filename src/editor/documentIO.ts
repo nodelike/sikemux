@@ -1,4 +1,4 @@
-import { fsapi, type FileSnapshot } from "../api/fs";
+import { filesOn, type FileSnapshot, type FilesHost, type HostFiles } from "../api/fs";
 
 /**
  * Owns editor file versions and serializes writes for each canonical path.
@@ -6,8 +6,14 @@ import { fsapi, type FileSnapshot } from "../api/fs";
  * saves from this renderer from racing each other before they cross IPC.
  */
 export class DocumentIO {
+    private readonly files: HostFiles;
     private readonly documents = new Map<string, { version?: string }>();
     private readonly queues = new Map<string, Promise<unknown>>();
+
+    /** Files on `host`, the one holding the project's copy, or this one when it is undefined. */
+    constructor(host?: FilesHost) {
+        this.files = filesOn(host);
+    }
 
     async read(path: string): Promise<FileSnapshot> {
         const document = this.document(path);
@@ -19,7 +25,7 @@ export class DocumentIO {
     }
 
     peek(path: string): Promise<FileSnapshot> {
-        return fsapi.readFileVersioned(path);
+        return this.files.readFileVersioned(path);
     }
 
     observe(path: string, snapshot: FileSnapshot): void {
@@ -41,7 +47,7 @@ export class DocumentIO {
             if (this.documents.get(path) !== document) throw new Error(`${path} was closed before its queued save started`);
             const expectedVersion = document.version;
             if (!expectedVersion) throw new Error(`No file version is available for ${path}; reload it before saving`);
-            const result = await fsapi.writeFileVersioned(path, content, expectedVersion);
+            const result = await this.files.writeFileVersioned(path, content, expectedVersion);
             const snapshot = { content, version: result.version };
             if (this.documents.get(path) === document) document.version = snapshot.version;
             return snapshot;

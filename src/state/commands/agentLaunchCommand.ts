@@ -1,12 +1,5 @@
-import { IS_WINDOWS } from "../../lib/platform";
 import type { StoreState } from "../store";
 import type { Agent, ProviderProfile } from "../types";
-
-export function shellQuote(value: string): string {
-    if (/^[A-Za-z0-9_./:=@+-]+$/.test(value)) return value;
-    if (IS_WINDOWS) return `'${value.replace(/'/g, "''")}'`;
-    return `'${value.replace(/'/g, "'\\''")}'`;
-}
 
 /** The account an agent runs under, when it is one of the person's profiles for that provider. */
 export function profileOf(state: Pick<StoreState, "providerProfiles">, agent: Pick<Agent, "profileId" | "type">): ProviderProfile | undefined {

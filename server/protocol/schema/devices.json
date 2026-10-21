@@ -31,6 +31,15 @@
       "required": ["nonce", "expiresAt"],
       "additionalProperties": false
     },
+    "DeviceRename": {
+      "description": "What a device or host is called on the account, everywhere it is shown.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 64 }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
     "DeviceRegistration": {
       "description": "Adds a device to the signed-in account, or updates it if it is already there. The signature is the device key's Ed25519 signature over the UTF-8 text `sikemux-register|<nonce>|<user id>|<key>`.",
       "type": "object",

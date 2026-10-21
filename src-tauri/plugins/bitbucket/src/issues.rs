@@ -7,11 +7,16 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_plugin_api::codehost::{
+    Comment, Issue, IssuePage, Label, Notification, Release, TimelineItem,
+};
+use sikemux_plugin_api::store;
 
 use crate::client;
 use crate::error::{BitbucketError, BitbucketResult};
+use crate::pulls::timeline_item;
 use crate::repo::{avatar_of, login_of, Links, RepoRef, User};
 
 #[derive(Deserialize, Default)]
@@ -37,31 +42,6 @@ pub struct IssueRow {
     links: Links,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
-pub struct Label {
-    pub name: String,
-    pub color: String,
-}
-
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Issue {
-    pub number: u64,
-    pub title: String,
-    pub body: String,
-    pub state: &'static str,
-    pub state_reason: Option<String>,
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub closed_at: Option<String>,
-    pub comments: u64,
-    pub labels: Vec<Label>,
-    pub assignees: Vec<String>,
-    pub url: String,
-}
-
 /// Bitbucket's states that still need work; the rest say how an issue ended.
 const OPEN_STATES: [&str; 4] = ["new", "open", "on hold", "submitted"];
 
@@ -74,41 +54,39 @@ fn reason_of(state: &str) -> Option<&'static str> {
     }
 }
 
-impl Issue {
-    pub fn from_row(repo: &RepoRef, row: IssueRow) -> Self {
-        let open = OPEN_STATES.contains(&row.state.as_str());
-        let labels = [row.kind.as_deref(), row.priority.as_deref()]
-            .into_iter()
-            .flatten()
-            .filter(|name| !name.is_empty())
-            .map(|name| Label {
-                name: name.to_string(),
-                color: String::new(),
-            })
-            .collect();
-        Issue {
-            number: row.id,
-            title: row.title,
-            body: row
-                .content
-                .and_then(|content| content.raw)
-                .unwrap_or_default(),
-            state: if open { "open" } else { "closed" },
-            state_reason: reason_of(&row.state).map(str::to_string),
-            author: login_of(row.reporter.as_ref()),
-            avatar_url: avatar_of(row.reporter.as_ref()),
-            closed_at: (!open).then(|| row.updated_on.clone()).flatten(),
-            updated_at: row.updated_on.unwrap_or_else(|| row.created_on.clone()),
-            created_at: row.created_on,
-            comments: 0,
-            labels,
-            assignees: login_of(row.assignee.as_ref()).into_iter().collect(),
-            url: row
-                .links
-                .html
-                .href
-                .unwrap_or_else(|| repo.web(&format!("/issues/{}", row.id))),
-        }
+fn issue_of(repo: &RepoRef, row: IssueRow) -> Issue {
+    let open = OPEN_STATES.contains(&row.state.as_str());
+    let labels = [row.kind.as_deref(), row.priority.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|name| !name.is_empty())
+        .map(|name| Label {
+            name: name.to_string(),
+            color: String::new(),
+        })
+        .collect();
+    Issue {
+        number: row.id,
+        title: row.title,
+        body: row
+            .content
+            .and_then(|content| content.raw)
+            .unwrap_or_default(),
+        state: if open { "open" } else { "closed" }.into(),
+        state_reason: reason_of(&row.state).map(str::to_string),
+        author: login_of(row.reporter.as_ref()),
+        avatar_url: avatar_of(row.reporter.as_ref()),
+        closed_at: (!open).then(|| row.updated_on.clone()).flatten(),
+        updated_at: row.updated_on.unwrap_or_else(|| row.created_on.clone()),
+        created_at: row.created_on,
+        comments: 0,
+        labels,
+        assignees: login_of(row.assignee.as_ref()).into_iter().collect(),
+        url: row
+            .links
+            .html
+            .href
+            .unwrap_or_else(|| repo.web(&format!("/issues/{}", row.id))),
     }
 }
 
@@ -150,22 +128,14 @@ pub fn state_filter(state: &str) -> Option<String> {
 }
 
 #[derive(Deserialize)]
-struct IssuePage {
+struct IssueRows {
     #[serde(default)]
     values: Vec<IssueRow>,
     next: Option<String>,
     size: Option<u64>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Issues {
-    pub issues: Vec<Issue>,
-    pub total: u64,
-    pub next_page: Option<u32>,
-}
-
-pub async fn list(data_dir: &Path, input: IssueQuery) -> BitbucketResult<Issues> {
+pub async fn list(data_dir: &Path, input: IssueQuery) -> BitbucketResult<IssuePage> {
     let page = input.page.max(1);
     let mut query = vec![
         ("sort", "-updated_on".to_string()),
@@ -175,15 +145,15 @@ pub async fn list(data_dir: &Path, input: IssueQuery) -> BitbucketResult<Issues>
     if let Some(filter) = state_filter(&input.state) {
         query.push(("q", filter));
     }
-    let found: IssuePage = client::get(data_dir, &input.repo.path("/issues")?, &query)
+    let found: IssueRows = client::get(data_dir, &input.repo.path("/issues")?, &query)
         .await
         .map_err(no_tracker)?;
     let issues: Vec<Issue> = found
         .values
         .into_iter()
-        .map(|row| Issue::from_row(&input.repo, row))
+        .map(|row| issue_of(&input.repo, row))
         .collect();
-    Ok(Issues {
+    Ok(IssuePage {
         total: found.size.unwrap_or(issues.len() as u64),
         next_page: found.next.is_some().then_some(page + 1),
         issues,
@@ -208,7 +178,7 @@ pub async fn get(data_dir: &Path, input: IssueRef) -> BitbucketResult<Issue> {
     let row: IssueRow = client::get(data_dir, &input.path("")?, &[])
         .await
         .map_err(no_tracker)?;
-    let mut issue = Issue::from_row(&input.repo, row);
+    let mut issue = issue_of(&input.repo, row);
     issue.comments = comment_rows(data_dir, &input).await?.len() as u64;
     Ok(issue)
 }
@@ -234,7 +204,7 @@ pub async fn create(data_dir: &Path, input: NewIssue) -> BitbucketResult<Issue> 
     )
     .await
     .map_err(no_tracker)?;
-    Ok(Issue::from_row(&input.repo, row))
+    Ok(issue_of(&input.repo, row))
 }
 
 #[derive(Deserialize)]
@@ -291,18 +261,6 @@ async fn comment_rows(data_dir: &Path, issue: &IssueRef) -> BitbucketResult<Vec<
                 .is_some_and(|raw| !raw.trim().is_empty())
         })
         .collect())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Comment {
-    pub id: u64,
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    pub author_association: Option<String>,
-    pub body: String,
-    pub created_at: String,
-    pub url: Option<String>,
 }
 
 pub async fn comments(data_dir: &Path, input: IssueRef) -> BitbucketResult<Vec<Comment>> {
@@ -366,22 +324,6 @@ struct ChangeRow {
     changes: Changes,
 }
 
-#[derive(Serialize, Default, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct TimelineItem {
-    pub kind: &'static str,
-    pub id: Option<u64>,
-    pub actor: Option<String>,
-    pub avatar_url: Option<String>,
-    pub association: Option<String>,
-    pub at: Option<String>,
-    pub body: Option<String>,
-    pub state: Option<String>,
-    pub sha: Option<String>,
-    pub message: Option<String>,
-    pub subject: Option<String>,
-}
-
 /// A state change read as closing or reopening, saying why it closed.
 fn state_event(change: ChangeRow) -> Option<TimelineItem> {
     let new = change.changes.state?.new?;
@@ -391,13 +333,12 @@ fn state_event(change: ChangeRow) -> Option<TimelineItem> {
         "closed"
     };
     Some(TimelineItem {
-        kind,
         id: Some(change.id),
         actor: login_of(change.user.as_ref()),
         avatar_url: avatar_of(change.user.as_ref()),
         at: Some(change.created_on),
         state: reason_of(&new).map(str::to_string),
-        ..TimelineItem::default()
+        ..timeline_item(kind)
     })
 }
 
@@ -412,13 +353,12 @@ pub async fn timeline(data_dir: &Path, input: IssueRef) -> BitbucketResult<Vec<T
     let mut items: Vec<TimelineItem> = comments
         .into_iter()
         .map(|row| TimelineItem {
-            kind: "commented",
             id: Some(row.id),
             actor: login_of(row.user.as_ref()),
             avatar_url: avatar_of(row.user.as_ref()),
             at: Some(row.created_on),
             body: row.content.and_then(|content| content.raw),
-            ..TimelineItem::default()
+            ..timeline_item("commented")
         })
         .chain(changes.into_iter().filter_map(state_event))
         .collect();
@@ -446,21 +386,6 @@ struct TagRow {
     target: Option<TagTarget>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Release {
-    pub id: u64,
-    pub tag: String,
-    pub name: String,
-    pub body: String,
-    pub draft: bool,
-    pub prerelease: bool,
-    pub published_at: Option<String>,
-    pub author: Option<String>,
-    pub assets: Vec<Value>,
-    pub url: String,
-}
-
 /// A tag as a release: Bitbucket has no releases, and a tag is what a team cuts one with.
 fn release_of(repo: &RepoRef, index: usize, row: TagRow) -> Release {
     let author = row.tagger.and_then(|tagger| tagger.user).or_else(|| {
@@ -481,6 +406,7 @@ fn release_of(repo: &RepoRef, index: usize, row: TagRow) -> Release {
             .date
             .or_else(|| row.target.and_then(|target| target.date)),
         author: login_of(author.as_ref()),
+        avatar_url: None,
         assets: Vec::new(),
         url: repo.web(&format!("/src/{}", row.name)),
         tag: row.name.clone(),
@@ -501,20 +427,6 @@ pub async fn releases(data_dir: &Path, repo: RepoRef) -> BitbucketResult<Vec<Rel
         .enumerate()
         .map(|(index, row)| release_of(&repo, index, row))
         .collect())
-}
-
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Notification {
-    pub id: String,
-    pub title: String,
-    pub kind: String,
-    pub reason: String,
-    pub repo: String,
-    pub number: Option<u64>,
-    pub unread: bool,
-    pub updated_at: String,
-    pub url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -544,18 +456,12 @@ fn dismissed_path(data_dir: &Path) -> PathBuf {
     data_dir.join("inbox-done.json")
 }
 
-fn dismissed(data_dir: &Path) -> Dismissed {
-    std::fs::read(dismissed_path(data_dir))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+fn dismissed(data_dir: &Path) -> BitbucketResult<Dismissed> {
+    Ok(store::read_file(&dismissed_path(data_dir))?)
 }
 
 fn save_dismissed(data_dir: &Path, done: &Dismissed) -> BitbucketResult<()> {
-    std::fs::create_dir_all(data_dir)
-        .map_err(|error| BitbucketError::Transport(error.to_string()))?;
-    std::fs::write(dismissed_path(data_dir), serde_json::to_vec(done)?)
-        .map_err(|error| BitbucketError::Transport(error.to_string()))
+    Ok(store::write_file(&dismissed_path(data_dir), done)?)
 }
 
 fn notification(row: WaitingRow, reason: &str, done: &Dismissed) -> Option<Notification> {
@@ -606,7 +512,7 @@ pub async fn inbox(data_dir: &Path, input: InboxQuery) -> BitbucketResult<Vec<No
         &[("state", "OPEN".into()), ("pagelen", "30".into())],
     )
     .await?;
-    let done = dismissed(data_dir);
+    let done = dismissed(data_dir)?;
     let mut found: Vec<Notification> = asks
         .into_iter()
         .filter_map(Result::ok)
@@ -630,7 +536,7 @@ pub struct DoneRef {
 }
 
 pub fn mark_read(data_dir: &Path, input: DoneRef) -> BitbucketResult<()> {
-    let mut done = dismissed(data_dir);
+    let mut done = dismissed(data_dir)?;
     done.insert(input.id, now_iso());
     save_dismissed(data_dir, &done)
 }
@@ -638,7 +544,7 @@ pub fn mark_read(data_dir: &Path, input: DoneRef) -> BitbucketResult<()> {
 /// Marks done everything the inbox shows now.
 pub async fn mark_all_read(data_dir: &Path) -> BitbucketResult<()> {
     let waiting = inbox(data_dir, InboxQuery { all: false }).await?;
-    let mut done = dismissed(data_dir);
+    let mut done = dismissed(data_dir)?;
     let at = now_iso();
     for item in waiting {
         done.insert(item.id, at.clone());
@@ -674,9 +580,13 @@ mod tests {
             "created_on": "t1", "updated_on": "t2", "links": { "html": { "href": "https://bitbucket.org/team/app/issues/12" } }
         }))
         .expect("issue parses");
-        let issue = Issue::from_row(&repo(), row);
+        let issue = issue_of(&repo(), row);
         assert_eq!(
-            (issue.number, issue.state, issue.state_reason.as_deref()),
+            (
+                issue.number,
+                issue.state.as_str(),
+                issue.state_reason.as_deref()
+            ),
             (12, "closed", Some("not_planned"))
         );
         assert_eq!(issue.closed_at.as_deref(), Some("t2"));
@@ -692,9 +602,9 @@ mod tests {
         let open: IssueRow =
             serde_json::from_value(json!({ "id": 3, "state": "on hold", "created_on": "t" }))
                 .expect("parses");
-        let open = Issue::from_row(&repo(), open);
+        let open = issue_of(&repo(), open);
         assert_eq!(
-            (open.state, open.url.as_str()),
+            (open.state.as_str(), open.url.as_str()),
             ("open", "https://bitbucket.org/team/app/issues/3")
         );
     }
@@ -734,7 +644,7 @@ mod tests {
         };
         let closed = state_event(change("duplicate")).expect("event");
         assert_eq!(
-            (closed.kind, closed.state.as_deref()),
+            (closed.kind.as_str(), closed.state.as_deref()),
             ("closed", Some("not_planned"))
         );
         assert_eq!(state_event(change("open")).expect("event").kind, "reopened");

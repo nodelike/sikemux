@@ -3,9 +3,9 @@
 
 use serde_json::{json, Value};
 
-use crate::acp::account::directory_variable;
 use crate::acp::current_choice;
 use crate::agent_catalog::AgentKind;
+use crate::launch::named_account;
 use crate::protocol::{ChatEventKind, ChatStart};
 use crate::sessions::context::read_session_context;
 
@@ -52,9 +52,7 @@ impl Chat {
         ) else {
             return;
         };
-        let account = directory_variable(&launch.provider)
-            .and_then(|variable| launch.env.get(variable))
-            .cloned();
+        let account = named_account(&launch.provider, &launch.env).map(str::to_owned);
         let core = self.core.clone();
         let agent_id = self.agent_id().to_owned();
         let generation = self.generation;

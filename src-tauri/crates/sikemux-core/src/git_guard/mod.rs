@@ -28,11 +28,7 @@ pub(crate) fn refusal(command: &str, cwd: &Path, others: &Others) -> Option<Stri
         if base_name(first) != "git" {
             return None;
         }
-        let git = || {
-            let mut git = sikemux_process::user_environment::command("git");
-            git.current_dir(cwd);
-            git
-        };
+        let git = || crate::git::git_command(cwd);
         refused(args, false, &git, others)
     })
 }

@@ -6,11 +6,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 use serde::Serialize;
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 
 use super::recent::{provider_hits, Hit, PageScan, RecentProvider};
 use super::{claude, codex, grok, hermes, muse, opencode, pi, title_cache_stamp, TitleCacheStamp};
@@ -119,7 +121,7 @@ pub fn search(request: SearchRequest) -> SearchResult {
     }
     hits.sort_unstable_by_key(|(hit, _)| std::cmp::Reverse(hit.at_ms));
 
-    let now_ms = unix_ms();
+    let now_ms = epoch_ms();
     let mut scored: Vec<(SessionMatch, Option<Arc<str>>)> = Vec::new();
     let mut read = 0;
     let mut strong = 0;
@@ -173,7 +175,7 @@ pub fn search(request: SearchRequest) -> SearchResult {
 
 /// The session `session_id` of one of `providers`, in any project.
 pub fn locate(providers: &[RecentProvider], session_id: &str) -> Option<SessionMatch> {
-    let remembered = lock(remembered()).get(session_id).cloned();
+    let remembered = remembered().locked().get(session_id).cloned();
     if let Some(found) = remembered.filter(|found| {
         providers
             .iter()
@@ -211,26 +213,13 @@ fn remembered() -> &'static Mutex<HashMap<String, SessionMatch>> {
 }
 
 fn remember(matches: &[SessionMatch]) {
-    let mut found = lock(remembered());
+    let mut found = remembered().locked();
     if found.len() + matches.len() > MAX_REMEMBERED {
         found.clear();
     }
     for found_match in matches {
         found.insert(found_match.session_id.clone(), found_match.clone());
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-fn unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// The words looked for, lowercased, the whole query as a phrase, and the
@@ -568,12 +557,8 @@ struct ProseCache {
 struct SharedCache(Mutex<ProseCache>);
 
 impl SharedCache {
-    fn lock(&self) -> MutexGuard<'_, ProseCache> {
-        lock(&self.0)
-    }
-
     fn get(&self, key: &str, stamp: TitleCacheStamp) -> Option<Arc<str>> {
-        let mut cache = self.lock();
+        let mut cache = self.0.locked();
         cache.uses += 1;
         let uses = cache.uses;
         let kept = cache.kept.get_mut(key).filter(|kept| kept.stamp == stamp)?;
@@ -582,7 +567,7 @@ impl SharedCache {
     }
 
     fn put(&self, key: String, stamp: TitleCacheStamp, prose: Arc<str>) {
-        let mut cache = self.lock();
+        let mut cache = self.0.locked();
         cache.uses += 1;
         let used = cache.uses;
         cache.bytes += prose.len();
@@ -617,7 +602,7 @@ fn cache() -> &'static SharedCache {
 /// does not hold it for good.
 fn schedule_idle_drop() {
     static WAITING: AtomicBool = AtomicBool::new(false);
-    cache().lock().last_search = Some(Instant::now());
+    cache().0.locked().last_search = Some(Instant::now());
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return;
     };
@@ -628,11 +613,11 @@ fn schedule_idle_drop() {
         let mut wait = IDLE_DROP;
         loop {
             tokio::time::sleep(wait).await;
-            let mut cache = cache().lock();
+            let mut cache = cache().0.locked();
             let idle = cache.last_search.map_or(IDLE_DROP, |last| last.elapsed());
             if idle >= IDLE_DROP {
                 *cache = ProseCache::default();
-                lock(remembered()).clear();
+                remembered().locked().clear();
                 WAITING.store(false, Ordering::Release);
                 return;
             }

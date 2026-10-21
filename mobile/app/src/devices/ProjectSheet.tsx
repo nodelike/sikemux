@@ -91,7 +91,7 @@ export function ProjectSheet({ visible, onClose, device, projects, chosen, onCho
           onSubmitEditing={() => found[0] && choose(found[0].id)}
         />
       </View>
-      <ScrollView keyboardShouldPersistTaps="handled" style={styles.list}>
+      <ScrollView keyboardShouldPersistTaps="handled" style={styles.list} showsVerticalScrollIndicator={false}>
         <View style={styles.group}>
           {showAll ? (
             <Pressable

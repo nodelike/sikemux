@@ -21,6 +21,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use sikemux_process::vars;
 
 use crate::trailers::{self, PendingNote};
 
@@ -258,7 +259,7 @@ fn put_note(note_file: &Path) {
     };
     let git = || {
         let mut git = sikemux_process::user_environment::command(
-            std::env::var_os("SIKEMUX_REAL_GIT").unwrap_or_else(|| OsString::from("git")),
+            std::env::var_os(vars::REAL_GIT).unwrap_or_else(|| OsString::from("git")),
         );
         git.args(["-c", "core.fsmonitor=false"]);
         git
@@ -316,7 +317,7 @@ struct Answer {
 
 /// Where agents reach the core that started them.
 pub(super) fn endpoint() -> Option<PathBuf> {
-    std::env::var_os("SIKEMUX_CLI_ENDPOINT")
+    std::env::var_os(vars::CLI_ENDPOINT)
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
         .or_else(crate::cli::endpoint::default_endpoint_path)

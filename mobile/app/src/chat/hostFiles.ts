@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { Directory, File, Paths } from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 
-import { useLive } from '@/devices/hub';
+import { connectionOf, useLive } from '@/devices/hub';
+import { failures, hostFolder, pathOf } from '@/devices/savedFiles';
 
 /** The host whose chat is on the screen, for fetching the files its messages carried. */
 export const HostContext = createContext('');
@@ -11,16 +12,11 @@ export const SharedFilesContext = createContext<((path: string) => Promise<strin
 
 /** Fetches in flight, so a file shown twice is asked for once. */
 const fetching = new Map<string, Promise<string>>();
-/** When fetching each file last failed; rows are drawn again as the transcript scrolls, and asking each time would not help. */
-const failedAt = new Map<string, number>();
-const RETRY_FAILED_MS = 60_000;
-
-function folder(core: string): Directory {
-  return new Directory(Paths.cache, 'chat-files', core.slice(0, 16));
-}
+/** Rows are drawn again as the transcript scrolls, and asking for a file that just failed each time would not help. */
+const failed = failures();
 
 function saved(core: string, path: string): File {
-  return new File(folder(core), path.slice(path.lastIndexOf('/') + 1));
+  return new File(hostFolder(Paths.cache, 'chat-files', core), path.slice(path.lastIndexOf('/') + 1));
 }
 
 /** A file on the host, copied to this phone once and answered with where it is here. */
@@ -49,7 +45,7 @@ function useSharedFile(read: ((path: string) => Promise<string | null>) | null, 
 function useFileOnHost(path: string, wanted: boolean): string | undefined {
   const core = useContext(HostContext);
   const live = useLive(core);
-  const connection = live.status === 'open' ? live.connection : undefined;
+  const connection = connectionOf(live);
   const key = `${core}/${path}`;
   const [uri, setUri] = useState(() => {
     const file = core ? saved(core, path) : undefined;
@@ -58,25 +54,24 @@ function useFileOnHost(path: string, wanted: boolean): string | undefined {
 
   useEffect(() => {
     if (!wanted || uri || !core || !connection) return;
-    if (Date.now() - (failedAt.get(key) ?? -Infinity) < RETRY_FAILED_MS) return;
+    if (failed.recently(key)) return;
     let current = true;
     let fetch = fetching.get(key);
     if (!fetch) {
       const file = saved(core, path);
       // The Rust client decodes and writes the file, so its bytes never pass through JavaScript.
-      const target = decodeURIComponent(file.uri.replace(/^file:\/\//, ''));
       fetch = connection
-        .callToFile('chatFile', JSON.stringify({ path }), 'data', target)
+        .callToFile('chatFile', JSON.stringify({ path }), 'data', pathOf(file.uri))
         .then(() => file.uri)
         .finally(() => fetching.delete(key));
       fetching.set(key, fetch);
     }
     fetch.then(
       (found) => {
-        failedAt.delete(key);
+        failed.clear(key);
         if (current) setUri(found);
       },
-      () => failedAt.set(key, Date.now()),
+      () => failed.record(key),
     );
     return () => {
       current = false;

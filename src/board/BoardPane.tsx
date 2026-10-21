@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { cardColumn, cardQuestion, RUN_WAITS_ON_PERSON, shortTitle, type BoardCard, type BoardColumn, type CardStatus } from "../agents/agentBoard";
+import {
+    cardColumn,
+    cardQuestion,
+    COLUMN_LABELS,
+    RUN_WAITS_ON_PERSON,
+    shortTitle,
+    type BoardCard,
+    type BoardColumn,
+    type CardStatus,
+} from "../agents/agentBoard";
 import { agentBoardApi } from "../api/agentBoard";
 import * as cmd from "../state/commands";
 import { reportError } from "../state/toast";
@@ -7,19 +16,14 @@ import { useStore } from "../state/store";
 import { IconBoard, IconChevron, IconLink, IconPlus, IconSearch } from "../ui/Icons";
 import { EmptyState } from "../ui/Panel";
 import { useCardDrag } from "../ui/kanbanDrag";
-import { Segmented, Switch } from "../ui/Controls";
+import { Segmented } from "../ui/Controls";
 import { AutoPanel } from "./AutoPanel";
 import { CardPanel } from "./CardPanel";
 import { MessagesPanel } from "./MessagesPanel";
 import { Owner } from "./cardParts";
 import "../styles/board.css";
 
-const COLUMNS: readonly [BoardColumn, string][] = [
-    ["open", "Open"],
-    ["progress", "In progress"],
-    ["needs", "Needs you"],
-    ["done", "Done"],
-];
+const COLUMNS: readonly BoardColumn[] = ["open", "progress", "needs", "done"];
 
 const EMPTY: BoardCard[] = [];
 
@@ -89,11 +93,6 @@ export function BoardPane({ folder, visible }: { folder: string; visible: boolea
     const current = typeof selected === "number" ? byId.get(selected) : undefined;
     const panel = selected === "new" || selected === "auto" || selected === "messages" || current;
     const autoOn = auto?.settings.auto ?? false;
-    const setAuto = (on: boolean) =>
-        agentBoardApi
-            .settings(folder, { auto: on })
-            .then((board) => cmd.setAgentBoard(folder, board))
-            .catch(reportError(on ? "turn Auto on" : "turn Auto off"));
 
     const card = (each: BoardCard) => {
         const question = columnOf(each) === "needs" ? asking(each) : undefined;
@@ -155,7 +154,8 @@ export function BoardPane({ folder, visible }: { folder: string; visible: boolea
 
     const columns = (list: BoardCard[]) => (
         <div className="kanban-columns">
-            {COLUMNS.map(([key, name]) => {
+            {COLUMNS.map((key) => {
+                const name = COLUMN_LABELS[key];
                 const inColumn = list.filter((each) => columnOf(each) === key);
                 return (
                     <div
@@ -200,7 +200,7 @@ export function BoardPane({ folder, visible }: { folder: string; visible: boolea
 
     return (
         <div className={`board-pane${panel ? " with-card" : ""}`}>
-            <section className="kanban" aria-label="Board">
+            <section className="kanban" aria-label="Agent board">
                 <header className="kanban-head">
                     <div className="kanban-title">
                         <span className="kanban-find">
@@ -225,17 +225,20 @@ export function BoardPane({ folder, visible }: { folder: string; visible: boolea
                             onChange={setShow}
                         />
                         <span className="kanban-grow" />
-                        <span className="board-auto" title={auto?.autoNote ?? undefined}>
-                            <Switch checked={autoOn} onChange={(on) => void setAuto(on)} label="Auto" />
-                            <button type="button" aria-pressed={selected === "auto"} onClick={() => setSelected("auto")}>
-                                Auto
-                                {autoOn && auto && (
-                                    <span className="kanban-pick-count">
-                                        {auto.running} of {auto.settings.slots}
-                                    </span>
-                                )}
-                            </button>
-                        </span>
+                        <button
+                            type="button"
+                            className="kanban-pick"
+                            aria-pressed={selected === "auto"}
+                            title={auto?.autoNote ?? (autoOn ? "Auto is on" : "Auto is off")}
+                            onClick={() => setSelected("auto")}>
+                            <span className={`board-auto-dot${autoOn ? " on" : ""}`} />
+                            Auto
+                            {autoOn && auto && (
+                                <span className="kanban-pick-count">
+                                    {auto.running} of {auto.settings.slots}
+                                </span>
+                            )}
+                        </button>
                         <button
                             type="button"
                             className="kanban-pick"

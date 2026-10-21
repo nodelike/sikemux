@@ -6,8 +6,9 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
+use sikemux_plugin_api::codehost::{Comment, TimelineItem};
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};
@@ -53,34 +54,6 @@ pub struct NoteRow {
     system: bool,
 }
 
-#[derive(Serialize, Default, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct TimelineItem {
-    pub kind: &'static str,
-    pub id: Option<u64>,
-    pub actor: Option<String>,
-    pub avatar_url: Option<String>,
-    pub association: Option<String>,
-    pub at: Option<String>,
-    pub body: Option<String>,
-    pub state: Option<String>,
-    pub sha: Option<String>,
-    pub message: Option<String>,
-    pub subject: Option<String>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Comment {
-    pub id: u64,
-    pub author: Option<String>,
-    pub avatar_url: Option<String>,
-    pub author_association: Option<String>,
-    pub body: String,
-    pub created_at: String,
-    pub url: Option<String>,
-}
-
 /// What is named after `after`: `**quoted text**`, `~"a label"`, `~label` or `@name`.
 fn named(text: &str, after: &str) -> Option<String> {
     let rest = text.split_once(after)?.1.trim();
@@ -96,18 +69,30 @@ fn named(text: &str, after: &str) -> Option<String> {
     found.map(str::to_string).filter(|name| !name.is_empty())
 }
 
+fn event(kind: &str) -> TimelineItem {
+    TimelineItem {
+        kind: kind.into(),
+        id: None,
+        actor: None,
+        avatar_url: None,
+        association: None,
+        at: None,
+        body: None,
+        state: None,
+        sha: None,
+        message: None,
+        subject: None,
+        source: None,
+    }
+}
+
 /// The events a system note stands for. A note that adds commits names each one
 /// on a line of its own, so it can stand for several.
 pub fn events_of(body: &str) -> Vec<TimelineItem> {
     let first = body.lines().next().unwrap_or_default().trim();
-    let event = |kind: &'static str| TimelineItem {
-        kind,
-        ..TimelineItem::default()
-    };
-    let with_subject = |kind: &'static str, subject: Option<String>| TimelineItem {
-        kind,
+    let with_subject = |kind: &str, subject: Option<String>| TimelineItem {
         subject,
-        ..TimelineItem::default()
+        ..event(kind)
     };
     if first.starts_with("added ") && first.contains("commit") {
         return body
@@ -116,19 +101,17 @@ pub fn events_of(body: &str) -> Vec<TimelineItem> {
             .filter_map(|line| {
                 let (sha, message) = line.split_once(" - ")?;
                 Some(TimelineItem {
-                    kind: "committed",
                     sha: Some(sha.trim().to_string()),
                     message: Some(message.trim().to_string()),
-                    ..TimelineItem::default()
+                    ..event("committed")
                 })
             })
             .collect();
     }
     let item = match first {
         "approved this merge request" => TimelineItem {
-            kind: "reviewed",
             state: Some("approved".into()),
-            ..TimelineItem::default()
+            ..event("reviewed")
         },
         "merged" => event("merged"),
         "closed" => event("closed"),
@@ -178,9 +161,8 @@ pub fn timeline_of(rows: Vec<NoteRow>) -> Vec<TimelineItem> {
                 events_of(&row.body)
             } else {
                 vec![TimelineItem {
-                    kind: "commented",
                     body: Some(row.body.clone()),
-                    ..TimelineItem::default()
+                    ..event("commented")
                 }]
             };
             items.into_iter().map(move |item| TimelineItem {
@@ -254,7 +236,7 @@ pub async fn add_comment(data_dir: &Path, input: NewComment) -> GitlabResult<()>
 mod tests {
     use super::*;
 
-    fn kinds(body: &str) -> Vec<(&'static str, Option<String>)> {
+    fn kinds(body: &str) -> Vec<(String, Option<String>)> {
         events_of(body)
             .into_iter()
             .map(|item| (item.kind, item.subject))
@@ -267,34 +249,34 @@ mod tests {
             events_of("approved this merge request")[0].state.as_deref(),
             Some("approved")
         );
-        assert_eq!(kinds("merged"), [("merged", None)]);
+        assert_eq!(kinds("merged"), [("merged".into(), None)]);
         assert_eq!(
             kinds("requested review from @irwan"),
-            [("review_requested", Some("irwan".into()))]
+            [("review_requested".into(), Some("irwan".into()))]
         );
         assert_eq!(
             kinds("assigned to @ankit"),
-            [("assigned", Some("ankit".into()))]
+            [("assigned".into(), Some("ankit".into()))]
         );
         assert_eq!(
             kinds("added ~\"needs review\" label"),
-            [("labeled", Some("needs review".into()))]
+            [("labeled".into(), Some("needs review".into()))]
         );
         assert_eq!(
             kinds("added ~backend label"),
-            [("labeled", Some("backend".into()))]
+            [("labeled".into(), Some("backend".into()))]
         );
         assert_eq!(
             kinds("changed title from **Draft: fix** to **Fix the VAT rounding**"),
-            [("renamed", Some("Fix the VAT rounding".into()))]
+            [("renamed".into(), Some("Fix the VAT rounding".into()))]
         );
         assert_eq!(
             kinds("marked this merge request as **ready**"),
-            [("ready_for_review", None)]
+            [("ready_for_review".into(), None)]
         );
         assert_eq!(
             kinds("mentioned in merge request !51"),
-            [("cross-referenced", Some("merge request !51".into()))]
+            [("cross-referenced".into(), Some("merge request !51".into()))]
         );
         assert!(events_of("changed the description").is_empty());
     }
@@ -327,14 +309,14 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(
             (
-                items[0].kind,
+                items[0].kind.as_str(),
                 items[0].body.as_deref(),
                 items[0].actor.as_deref()
             ),
             ("commented", Some("Looks good, one nit"), Some("irwan"))
         );
         assert_eq!(
-            (items[1].kind, items[1].id, items[1].at.as_deref()),
+            (items[1].kind.as_str(), items[1].id, items[1].at.as_deref()),
             ("reviewed", Some(2), Some("t2"))
         );
     }

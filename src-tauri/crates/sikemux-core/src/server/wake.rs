@@ -1,13 +1,14 @@
 //! Work the core does when something it depends on changes, or when a moment
 //! it waits for comes, in place of looking every so often.
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 use tokio::time::Instant;
 
-use super::remote::unix_ms;
 use super::Core;
 
 pub(crate) struct Wake {
@@ -28,12 +29,6 @@ impl Default for Wake {
 }
 
 impl Wake {
-    fn lock(&self) -> MutexGuard<'_, Option<Instant>> {
-        self.due
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// Something the work reads changed.
     pub(crate) fn now(&self) {
         self.notify.notify_one();
@@ -42,8 +37,8 @@ impl Wake {
     /// The work runs again by `at`, in Unix milliseconds, unless it runs
     /// sooner.
     pub(crate) fn at(&self, at: u64) {
-        let at = Instant::now() + Duration::from_millis(at.saturating_sub(unix_ms()));
-        let mut due = self.lock();
+        let at = Instant::now() + Duration::from_millis(at.saturating_sub(epoch_ms()));
+        let mut due = self.due.locked();
         if due.is_none_or(|due| at < due) {
             *due = Some(at);
             drop(due);
@@ -52,7 +47,7 @@ impl Wake {
     }
 
     async fn woken(&self) {
-        let due = *self.lock();
+        let due = *self.due.locked();
         match due {
             Some(due) => {
                 tokio::select! {
@@ -62,7 +57,7 @@ impl Wake {
             }
             None => self.notify.notified().await,
         }
-        let mut due = self.lock();
+        let mut due = self.due.locked();
         if due.is_some_and(|due| due <= Instant::now()) {
             *due = None;
         }

@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { databaseApi, failureMessage, refreshDatabase, type Connected, type DatabaseProfile } from "../api";
+import { errorText } from "../../../plugin-api/format";
+import { databaseApi, type Connected, type DatabaseProfile } from "../api";
+import { database } from "../resources";
 import { defaultPort, engineLabel, isServer } from "../profileForm";
 
 /** A saved connection that is not open: where it points, and a button to connect. */
@@ -13,9 +15,9 @@ export function ProfileDetail({ profile, connected, onEdit }: { profile: Databas
         try {
             if (connected) await databaseApi.disconnect(profile.id);
             else await databaseApi.connect(profile.id);
-            refreshDatabase();
+            database.refresh();
         } catch (failure) {
-            setError(failureMessage(failure));
+            setError(errorText(failure));
         } finally {
             setBusy(false);
         }

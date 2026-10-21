@@ -2,8 +2,9 @@ import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { JoinAnswer, MobileError } from '@sikemux/native';
 
+import { problem } from '@/core/problem';
 import { inBackgroundTime } from '../../modules/background-time';
-import { AccountProblem, joinTicket, type TokenSource } from '@/account/api';
+import { ApiProblem, joinTicket, type TokenSource } from '@/account/api';
 import { whileJoining } from '@/device/identity';
 import { phoneName } from '@/device/name';
 import { rejoined, reloadDevices } from './hub';
@@ -58,14 +59,14 @@ function refusal(host: string, reason: string): JoinFailure {
 }
 
 function ticketFailure(host: string, error: unknown): JoinFailure {
-  if (error instanceof AccountProblem) {
+  if (error instanceof ApiProblem) {
     if (error.status === 404)
       return { title: `${host} is no longer on your account`, detail: 'Sign it in to this account, then try again.' };
     if (error.status === 429) return { title: 'Too many tries', detail: 'Wait a minute, then try again.' };
     if (error.unreachable) return { title: "Can't reach Sikemux", detail: 'Check the phone is online, then try again.' };
     return { title: "Sikemux couldn't invite this phone", detail: error.message };
   }
-  return { title: "Sikemux couldn't invite this phone", detail: error instanceof Error ? error.message : String(error) };
+  return { title: "Sikemux couldn't invite this phone", detail: problem(error) };
 }
 
 function dialFailure(host: string, error: unknown): JoinFailure {
@@ -73,7 +74,7 @@ function dialFailure(host: string, error: unknown): JoinFailure {
     return { title: `Can't reach ${host}`, detail: 'It may be asleep, offline, or have remote access turned off.' };
   }
   if (MobileError.Invalid.instanceOf(error)) return { title: "Sikemux's invitation didn't fit", detail: error.inner.message };
-  return { title: 'Connecting stopped', detail: error instanceof Error ? error.message : String(error) };
+  return { title: 'Connecting stopped', detail: problem(error) };
 }
 
 /**
