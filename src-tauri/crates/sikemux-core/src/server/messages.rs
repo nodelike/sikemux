@@ -103,6 +103,9 @@ pub(crate) struct Answered {
     /// The answer is a secret the agent reads from a file, so the app shows
     /// that it was answered and never the text.
     pub secret: bool,
+    /// The person skipped the question rather than answer it.
+    #[serde(default)]
+    pub skipped: bool,
 }
 
 /// A letter as it crosses to the host its agent runs on, which hands it on.
@@ -478,12 +481,13 @@ fn attribute(value: &str) -> String {
 fn wrapped(letter: &Letter) -> String {
     if let Some(answered) = &letter.answers {
         return format!(
-            "<question-answer asker=\"{}\" cli=\"{}\" question=\"{}\" note=\"{}\"{}>\n{}\n</question-answer>",
+            "<question-answer asker=\"{}\" cli=\"{}\" question=\"{}\" note=\"{}\"{}{}>\n{}\n</question-answer>",
             attribute(&answered.asker),
             attribute(&answered.cli),
             attribute(&answered.question),
             attribute(letter.note.as_deref().unwrap_or_default()),
             if answered.secret { " secret=\"true\"" } else { "" },
+            if answered.skipped { " skipped=\"true\"" } else { "" },
             letter
                 .text
                 .replace("</question-answer", "&lt;/question-answer"),
@@ -1908,4 +1912,41 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
         mailbox.state.locked().delivering.remove(&agent_id);
         mailbox.wake.now();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn answer(secret: bool, skipped: bool) -> Letter {
+        Letter {
+            kind: Kind::Answer,
+            from_id: "person".into(),
+            from_name: "the person".into(),
+            cli: "person".into(),
+            text: "The person skipped this question without answering it.".into(),
+            at: 0,
+            note: Some("Stop.".into()),
+            answers: Some(Answered {
+                question: "Ship it?".into(),
+                asker: "Maple".into(),
+                cli: "claude".into(),
+                secret,
+                skipped,
+            }),
+        }
+    }
+
+    #[test]
+    fn a_skipped_answer_says_so_where_the_app_reads_it() {
+        let skipped = wrapped(&answer(false, true));
+        assert!(
+            skipped.starts_with("<question-answer asker=\"Maple\""),
+            "{skipped}"
+        );
+        assert!(skipped.contains(" skipped=\"true\">"), "{skipped}");
+        let answered = wrapped(&answer(true, false));
+        assert!(answered.contains(" secret=\"true\">"), "{answered}");
+        assert!(!answered.contains("skipped="), "{answered}");
+    }
 }

@@ -19,8 +19,8 @@ use sikemux_core::cli::protocol::{
 };
 use sikemux_core::client::{probe, ClientEvent, CoreClient};
 use sikemux_core::protocol::{
-    encode_control, read_frame_sync, ClientMessage, Request, WindowAnswer, WindowCall, PROTOCOL,
-    PROTOCOL_VERSION,
+    encode_control, read_frame_sync, ChatEventKind, ChatLaunch, ClientMessage, Event, Request,
+    WindowAnswer, WindowCall, PROTOCOL, PROTOCOL_VERSION,
 };
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -657,4 +657,129 @@ async fn a_sikemux_json_task_runs_once_the_person_trusts_the_file_and_asks_again
         refused["error"].as_str().unwrap().contains("not approved"),
         "{refused}"
     );
+}
+
+/// What the agent said in its chat until a turn of its ended.
+async fn said_until_a_turn_ends(events: &mut UnboundedReceiver<ClientEvent>) -> String {
+    let mut said = String::new();
+    loop {
+        let event = tokio::time::timeout(WAIT, events.recv())
+            .await
+            .expect("timed out waiting for the agent")
+            .expect("the core disconnected");
+        let ClientEvent::Event(Event::Chat { event, .. }) = event else {
+            continue;
+        };
+        if event.kind == ChatEventKind::TurnCompleted {
+            return said;
+        }
+        if event.kind != ChatEventKind::SessionUpdate {
+            continue;
+        }
+        let updates = match event.payload.get("updates") {
+            Some(Value::Array(batch)) => batch.clone(),
+            _ => vec![event.payload.clone()],
+        };
+        for update in updates {
+            if update["update"]["sessionUpdate"] == "agent_message_chunk" {
+                said.push_str(
+                    update["update"]["content"]["text"]
+                        .as_str()
+                        .unwrap_or_default(),
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_skipped_question_closes_and_tells_the_agent_to_stop() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (_project_dir, project) = project_dir();
+    let core = start_core(dir.path(), &dir.path().join("data"));
+    let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
+    client
+        .acp_start(ChatLaunch {
+            agent_id: "agent-1".into(),
+            provider: "opencode".into(),
+            cwd: project.clone(),
+            program: PathBuf::from(env!("CARGO_BIN_EXE_sikemux-fake-acp-agent")),
+            args: vec!["acp".into()],
+            env: std::collections::BTreeMap::new(),
+            mcp_servers: Vec::new(),
+            resume_id: None,
+            permission_mode: "workspace-write".into(),
+            model: None,
+            effort: None,
+            account: None,
+            fallbacks: Vec::new(),
+        })
+        .await
+        .expect("start");
+
+    let ask = json!({ "question": "Ship it?", "choices": ["Yes", "No"] });
+    client
+        .acp_prompt(
+            "agent-1".into(),
+            None,
+            format!("tool agent.ask {ask}"),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .expect("prompt");
+    let said = said_until_a_turn_ends(&mut events).await;
+    let asked: Value = serde_json::from_str(
+        said.strip_prefix("tool answered: ")
+            .unwrap_or_else(|| panic!("{said}")),
+    )
+    .expect("ask answer");
+    assert_eq!(asked["askedOf"], "the person");
+    let id = asked["questionId"].as_str().expect("question id");
+    assert_eq!(
+        client
+            .call("questions", json!({}))
+            .await
+            .expect("questions")
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+
+    let skipped = client
+        .call(
+            "answerQuestions",
+            json!({ "answers": [{ "id": id, "skip": true }] }),
+        )
+        .await
+        .expect("skip");
+    assert_eq!(skipped["answered"], true);
+    assert_eq!(
+        client
+            .call("questions", json!({}))
+            .await
+            .expect("questions"),
+        json!([])
+    );
+
+    let said = said_until_a_turn_ends(&mut events).await;
+    assert!(said.starts_with("echo: <question-answer "), "{said}");
+    assert!(said.contains("question=\"Ship it?\""), "{said}");
+    assert!(said.contains(" skipped=\"true\">"), "{said}");
+    assert!(
+        said.contains("Do not go ahead with what you asked it for"),
+        "{said}"
+    );
+    assert!(
+        said.contains("The person skipped this question without answering it."),
+        "{said}"
+    );
+
+    assert!(client
+        .call(
+            "answerQuestions",
+            json!({ "answers": [{ "id": id, "choice": 0 }] })
+        )
+        .await
+        .is_err());
 }

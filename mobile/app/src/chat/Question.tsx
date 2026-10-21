@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { SECRET_ANSWERED, secretNote, viaNote, type AgentQuestion } from '@mac/agents/agentQuestions';
+import { SECRET_ANSWERED, SKIPPED, secretNote, viaNote, type AgentQuestion } from '@mac/agents/agentQuestions';
 import { Chip, Field } from '@/ui/controls';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
@@ -28,12 +28,14 @@ export function AnsweredQuestion({
   question,
   answer,
   secret,
+  skipped,
 }: {
   asker: string;
   cli: string;
   question: string;
   answer: string;
   secret: boolean;
+  skipped: boolean;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -45,7 +47,12 @@ export function AnsweredQuestion({
       <Text style={styles.prose} selectable>
         {question}
       </Text>
-      {secret ? (
+      {skipped ? (
+        <View style={styles.private}>
+          <Icon name="IconClose" size={12} color={colors.inkFaint} />
+          <Text style={styles.privateText}>{SKIPPED}</Text>
+        </View>
+      ) : secret ? (
         <View style={styles.private}>
           <Icon name="IconLock" size={12} color={colors.inkFaint} />
           <Text style={styles.privateText}>{SECRET_ANSWERED}</Text>

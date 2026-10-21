@@ -40,7 +40,11 @@ export interface AgentQuestion {
 }
 
 export type QuestionAnswer =
-    { readonly answer: string } | { readonly choice: number } | { readonly choices: readonly number[] } | { readonly fine: true };
+    | { readonly answer: string }
+    | { readonly choice: number }
+    | { readonly choices: readonly number[] }
+    | { readonly fine: true }
+    | { readonly skip: true };
 
 /** Beside the field a secret is typed into. */
 export const secretNote = (asker: string): string =>
@@ -49,12 +53,16 @@ export const secretNote = (asker: string): string =>
 /** A secret's answer once sent, in place of its text. */
 export const SECRET_ANSWERED = "Answered, kept private";
 
+/** A question the person skipped, in place of an answer. */
+export const SKIPPED = "You skipped this question";
+
 export const asksPerson = (question: AgentQuestion): boolean => question.lead === null;
 
 /** An answer sent from this app. `answer` is what the chat shows until the agent has it; none for an assumption let stand. */
 export interface SentAnswer {
     question: AgentQuestion;
     answer: string | null;
+    skipped: boolean;
 }
 
 /** The agent's questions to the person not yet answered from here: those it waits on, and those it went on without. */
@@ -70,8 +78,11 @@ export function waitingQuestions(
 }
 
 /** Answers sent from here that the agent's transcript does not hold yet. */
-export function unreadAnswers(sent: readonly SentAnswer[], messages: readonly ChatMessage[]): { question: AgentQuestion; answer: string }[] {
-    const shown = sent.flatMap(({ question, answer }) => (answer === null ? [] : [{ question, answer }]));
+export function unreadAnswers(
+    sent: readonly SentAnswer[],
+    messages: readonly ChatMessage[],
+): { question: AgentQuestion; answer: string; skipped: boolean }[] {
+    const shown = sent.flatMap(({ question, answer, skipped }) => (answer === null ? [] : [{ question, answer, skipped }]));
     if (shown.length === 0) return shown;
     const arrived = new Set(
         messages.flatMap((message) => (messageLetters(message) ?? []).flatMap((letter) => (letter.kind === "answer" ? [letter.question] : []))),

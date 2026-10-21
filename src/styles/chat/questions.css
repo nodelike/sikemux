@@ -107,7 +107,8 @@
     font-weight: 600;
 }
 
-.chat-questions-fold {
+.chat-questions-fold,
+.chat-questions-skip {
     display: grid;
     flex: none;
     place-items: center;
@@ -117,7 +118,8 @@
     color: var(--ink-faint);
 }
 
-.chat-questions-fold:hover {
+.chat-questions-fold:hover,
+.chat-questions-skip:hover:not(:disabled) {
     background: var(--surface-hover);
     color: var(--ink);
 }
@@ -332,7 +334,8 @@
 }
 
 .chat-ask-private,
-.chat-ask-answered.secret {
+.chat-ask-answered.secret,
+.chat-ask-answered.skipped {
     display: flex;
     align-items: flex-start;
     gap: 6px;
@@ -341,7 +344,8 @@
 }
 
 .chat-ask-private > svg,
-.chat-ask-answered.secret > svg {
+.chat-ask-answered.secret > svg,
+.chat-ask-answered.skipped > svg {
     flex: none;
     margin-top: 2px;
     color: var(--ink-faint);

@@ -15,7 +15,7 @@ export type ChatQuestions = {
   /** Questions the agent went on without, on an assumption. */
   assumed: AgentQuestion[];
   /** Answered from this phone, until the transcript holds the answer. */
-  answered: { question: AgentQuestion; answer: string }[];
+  answered: { question: AgentQuestion; answer: string; skipped: boolean }[];
   busy: string | null;
   /**
    * The question whatever the composer sends answers, while one is open and the person has not taken the chip off; never
@@ -64,7 +64,7 @@ export function useQuestions(
       setBusy(question.id);
       try {
         await connection.call('answerQuestion', JSON.stringify({ id: question.id, ...given }));
-        setSent((current) => [...current, { question, answer: shown }]);
+        setSent((current) => [...current, { question, answer: shown, skipped: false }]);
         setWritingId((current) => (current === question.id ? null : current));
         return true;
       } catch (error) {

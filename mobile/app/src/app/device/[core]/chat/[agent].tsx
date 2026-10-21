@@ -314,7 +314,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                             {chat.queued.length ? <Queued held={chat.queued} sentFiles={chat.sentFiles} /> : null}
                             {activity ? <Activity provider={provider} label={activity} since={chat.turnSince} /> : null}
                             {state.error ? <Text style={styles.error}>{state.error}</Text> : null}
-                            {questions.answered.map(({ question, answer }) => (
+                            {questions.answered.map(({ question, answer, skipped }) => (
                               <AnsweredQuestion
                                 key={question.id}
                                 asker={question.name}
@@ -322,6 +322,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                 question={question.asked}
                                 answer={answer}
                                 secret={question.secret}
+                                skipped={skipped}
                               />
                             ))}
                             {questions.open.map((question) => (

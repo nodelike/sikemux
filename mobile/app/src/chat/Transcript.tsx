@@ -428,6 +428,7 @@ export function Message({
               question={letter.question}
               answer={letter.text}
               secret={letter.secret}
+              skipped={letter.skipped}
             />
           ) : (
             <View key={index}>

@@ -1,8 +1,19 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { secretNote, viaNote, type AgentQuestion } from "../agents/agentQuestions";
 import { PRIMARY_SHORTCUT } from "../lib/platform";
-import { IconCheck, IconChevron, IconLock, IconPencil } from "../ui/Icons";
+import { confirmDialog } from "../state/dialog";
+import { IconCheck, IconChevron, IconClose, IconLock, IconPencil } from "../ui/Icons";
 import type { ChatQuestions } from "./useChatQuestions";
+
+/** Skips the open questions once the person confirms, so a stray click never tells the agent to stop. */
+async function skipAll(questions: ChatQuestions, asker: string, count: number): Promise<void> {
+    const yes = await confirmDialog({
+        title: count === 1 ? "Skip this question?" : `Skip these ${count} questions?`,
+        body: `${asker} is told you skipped ${count === 1 ? "it" : "them"}, and stops rather than going ahead. The chat keeps ${count === 1 ? "it" : "them"}, marked as skipped.`,
+        confirmLabel: "Skip",
+    });
+    if (yes) questions.skip();
+}
 
 /** What the person picks a question by: the agent's own short name for it, or its place. */
 export const questionTitle = (question: AgentQuestion, index: number, count: number): string =>
@@ -133,6 +144,15 @@ export function QuestionDock({
                 )}
                 <button type="button" className="chat-questions-fold" aria-label="Fold the questions away" onClick={() => questions.fold(true)}>
                     <IconChevron size={10} />
+                </button>
+                <button
+                    type="button"
+                    className="chat-questions-skip"
+                    aria-label={`Skip the ${word}`}
+                    title={`Skip the ${word}`}
+                    disabled={sending}
+                    onClick={() => void skipAll(questions, current.name, count)}>
+                    <IconClose size={10} />
                 </button>
             </div>
             <div className="chat-questions-text">

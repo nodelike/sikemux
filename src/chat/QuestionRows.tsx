@@ -30,7 +30,7 @@ function AssumedQuestion({ question, busy, onFine, onChange }: { question: Agent
 export default function QuestionRows({ questions, onWrite }: { questions: ChatQuestions; onWrite: (question: AgentQuestion) => void }) {
     return (
         <>
-            {questions.answered.map(({ question, answer }) => (
+            {questions.answered.map(({ question, answer, skipped }) => (
                 <article key={question.id} className="chat-message agent-question">
                     <div className="chat-message-content">
                         <AnsweredQuestion
@@ -41,6 +41,7 @@ export default function QuestionRows({ questions, onWrite }: { questions: ChatQu
                                 question: question.text,
                                 text: answer,
                                 secret: question.secret,
+                                skipped,
                             }}
                         />
                     </div>

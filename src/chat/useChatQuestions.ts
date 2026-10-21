@@ -20,7 +20,7 @@ export interface ChatQuestions {
     /** Questions the agent went on without, on an assumption. */
     assumed: AgentQuestion[];
     /** Answered here, until the transcript holds the answer. */
-    answered: { question: AgentQuestion; answer: string }[];
+    answered: { question: AgentQuestion; answer: string; skipped: boolean }[];
     /** The assumed question whose answer is on its way. */
     busy: string | null;
     /** The open questions' answers are on their way. */
@@ -45,6 +45,8 @@ export interface ChatQuestions {
     show: (question: AgentQuestion) => void;
     fold: (folded: boolean) => void;
     submit: () => void;
+    /** Skips every open question, telling the agent to stop rather than go ahead without the answers. */
+    skip: () => void;
     write: (question: AgentQuestion) => void;
     stopComposing: () => void;
     /** A key pressed while nothing is typed: numbers pick, arrows move, Space ticks, Enter picks, moves on or sends. True when it did something. */
@@ -92,7 +94,7 @@ export function useChatQuestions(agentId: string, messages: readonly ChatMessage
             onError(null);
             try {
                 await agentQuestionsApi.answer(question.id, given);
-                setSent((current) => [...current, { question, answer: shown }]);
+                setSent((current) => [...current, { question, answer: shown, skipped: false }]);
                 setWritingId((current) => (current === question.id ? null : current));
                 return true;
             } catch (error) {
@@ -117,7 +119,7 @@ export function useChatQuestions(agentId: string, messages: readonly ChatMessage
             agentQuestionsApi
                 .answerAll(answers.map(({ question, pick }) => ({ id: question.id, answer: pick.answer })))
                 .then(() => {
-                    setSent((current) => [...current, ...answers.map(({ question, pick }) => ({ question, answer: pick.shown }))]);
+                    setSent((current) => [...current, ...answers.map(({ question, pick }) => ({ question, answer: pick.shown, skipped: false }))]);
                     setPicks(NO_PICKS);
                     setShownId(null);
                     setCursor(null);
@@ -176,6 +178,21 @@ export function useChatQuestions(agentId: string, messages: readonly ChatMessage
         setCursor(null);
     }, []);
     const submit = useCallback(() => send(picks), [picks, send]);
+    const skip = useCallback(() => {
+        if (sending || open.length === 0) return;
+        setSending(true);
+        onError(null);
+        agentQuestionsApi
+            .answerAll(open.map((question) => ({ id: question.id, answer: { skip: true } })))
+            .then(() => {
+                setSent((current) => [...current, ...open.map((question) => ({ question, answer: "", skipped: true }))]);
+                setPicks(NO_PICKS);
+                setShownId(null);
+                setCursor(null);
+            })
+            .catch((error: unknown) => onError(errorText(error)))
+            .finally(() => setSending(false));
+    }, [onError, open, sending]);
     const firstOpen = open[0]?.id ?? null;
     const fold = useCallback((fold: boolean) => setFoldedAt(fold ? firstOpen : null), [firstOpen]);
 
@@ -243,6 +260,7 @@ export function useChatQuestions(agentId: string, messages: readonly ChatMessage
         show,
         fold,
         submit,
+        skip,
         write,
         stopComposing,
         key,

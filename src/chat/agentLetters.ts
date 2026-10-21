@@ -19,6 +19,8 @@ export interface AnswerLetter {
     text: string;
     /** The person's answer is a secret the agent reads from a file, so `text` only says where. */
     secret: boolean;
+    /** The person skipped the question rather than answer it. */
+    skipped: boolean;
 }
 
 export type AgentLetter = AgentMessageLetter | AnswerLetter;
@@ -57,6 +59,7 @@ export function agentLetters(text: string): AgentLetter[] | null {
                       question: found.question ?? "",
                       text: unclosed,
                       secret: found.secret === "true",
+                      skipped: found.skipped === "true",
                   }
                 : { kind: "message", name: found.from ?? "", agentId: found["agent-id"] ?? "", cli: found.cli ?? "", text: unclosed },
         );

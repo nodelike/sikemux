@@ -44,6 +44,8 @@ const MAX_OPEN_PER_AGENT: usize = 8;
 /// it counts as passing it over only once this long has gone by.
 const LEAD_GRACE_MS: u64 = 3_000;
 const WINDOW_ANSWER_WAIT: Duration = Duration::from_secs(10);
+/// What the agent reads as the answer to a question the person skipped.
+const SKIPPED: &str = "The person skipped this question without answering it.";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -911,6 +913,9 @@ pub(crate) struct AnswerParams {
     /// The assumption the agent went on is right.
     #[serde(default)]
     fine: bool,
+    /// The person skipped the question rather than answer it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    skip: bool,
 }
 
 /// The person's answer: the first one wins, and reaches the asker as a
@@ -957,7 +962,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
         state.open.extend(questions);
         core.harness.questions.changed(&mut state);
     };
-    let mut letters: Vec<(Question, String)> = Vec::new();
+    let mut letters: Vec<(Question, String, bool)> = Vec::new();
     for (question, given, text) in taken {
         if let Some(host) = &question.from_host {
             let params = serde_json::to_value(&given).map_err(|error| error.to_string())?;
@@ -965,14 +970,14 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
             continue;
         }
         let Some(mut text) = text else { continue };
-        if question.secret {
+        if question.secret && !given.skip {
             match core.harness.questions.keep_secret(&question, &text) {
                 Ok(path) => text = secret_note(&path),
                 Err(error) => {
                     reopen(
                         letters
                             .into_iter()
-                            .map(|(question, _)| question)
+                            .map(|(question, ..)| question)
                             .chain([question])
                             .collect(),
                     );
@@ -980,43 +985,44 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
                 }
             }
         }
-        letters.push((question, text));
+        letters.push((question, text, given.skip));
     }
     let mut askers: Vec<&str> = letters
         .iter()
-        .map(|(question, _)| question.agent_id.as_str())
+        .map(|(question, ..)| question.agent_id.as_str())
         .collect();
     askers.sort_unstable();
     askers.dedup();
     let mut failed = None;
     for asker in askers {
-        let own: Vec<&(Question, String)> = letters
+        let own: Vec<&(Question, String, bool)> = letters
             .iter()
-            .filter(|(question, _)| question.agent_id == asker)
+            .filter(|(question, ..)| question.agent_id == asker)
             .collect();
         let sent = own
             .iter()
-            .map(|(question, text)| {
-                let note = match &question.assumption {
-                    Some(assumption) => format!(
+            .map(|(question, text, skipped)| {
+                let note = match (&question.assumption, skipped) {
+                    (_, true) => "The person skipped your question rather than answer it. Do not go ahead with what you asked it for, and do not ask it again: say in a line that you have stopped, and wait for their next message.".to_owned(),
+                    (Some(assumption), false) => format!(
                         "The person answered the question you went on without. If that is not what you assumed ({assumption}), change course."
                     ),
-                    None => "The person answered the question you asked; go on with it.".to_owned(),
+                    (None, false) => "The person answered the question you asked; go on with it.".to_owned(),
                 };
-                (answered(question, &question.asked), text.clone(), note)
+                (answered(question, &question.asked, *skipped), text.clone(), note)
             })
             .collect();
         if let Err(error) = messages::answer(core, asker.to_owned(), sent).await {
             reopen(
                 own.into_iter()
-                    .map(|(question, _)| question.clone())
+                    .map(|(question, ..)| question.clone())
                     .collect(),
             );
             failed = Some(error);
             continue;
         }
-        for (question, text) in own {
-            copy_to_lead(core, question, text).await;
+        for (question, text, skipped) in own {
+            copy_to_lead(core, question, text, *skipped).await;
         }
     }
     match failed {
@@ -1026,7 +1032,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
 }
 
 /// The person's answer, copied to the lead a question went to first.
-async fn copy_to_lead(core: &Arc<Core>, question: &Question, text: &str) {
+async fn copy_to_lead(core: &Arc<Core>, question: &Question, text: &str, skipped: bool) {
     if let (
         false,
         Stage::Person {
@@ -1035,25 +1041,32 @@ async fn copy_to_lead(core: &Arc<Core>, question: &Question, text: &str) {
         },
     ) = (question.secret, &question.stage)
     {
-        let note = format!(
-            "The person answered {}'s question, which went to you first. {} has the answer too.",
-            question.name, question.name
-        );
+        let name = &question.name;
+        let note = if skipped {
+            format!("The person skipped {name}'s question, which went to you first, rather than answer it. {name} has stopped to wait for them.")
+        } else {
+            format!("The person answered {name}'s question, which went to you first. {name} has the answer too.")
+        };
         let _ = messages::answer(
             core,
             lead_id.clone(),
-            vec![(answered(question, &question.text), text.to_owned(), note)],
+            vec![(
+                answered(question, &question.text, skipped),
+                text.to_owned(),
+                note,
+            )],
         )
         .await;
     }
 }
 
-fn answered(question: &Question, question_text: &str) -> messages::Answered {
+fn answered(question: &Question, question_text: &str, skipped: bool) -> messages::Answered {
     messages::Answered {
         question: question_text.to_owned(),
         asker: question.name.clone(),
         cli: question.cli.clone(),
-        secret: question.secret,
+        secret: question.secret && !skipped,
+        skipped,
     }
 }
 
@@ -1068,6 +1081,9 @@ fn secret_note(path: &Path) -> String {
 /// What the person's answer says, or none when they only agreed with the
 /// assumption the agent went on.
 fn answer_text(question: &Question, params: &AnswerParams) -> Result<Option<String>, String> {
+    if params.skip {
+        return Ok(Some(SKIPPED.to_owned()));
+    }
     if params.fine {
         return match question.assumption {
             Some(_) => Ok(None),
@@ -1465,4 +1481,58 @@ fn tell_window(core: &Arc<Core>) {
             core.window.forget(id);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn question(secret: bool) -> Question {
+        serde_json::from_value(json!({
+            "id": "q1", "agentId": "a1", "name": "Maple", "cli": "claude", "project": "/p",
+            "asked": "Ship it?", "text": "Ship it?", "choices": [{ "label": "Yes" }],
+            "blocked": true, "assumption": null, "secret": secret, "at": 0,
+            "stage": { "stage": "person", "lead": null, "passed": false }
+        }))
+        .expect("question")
+    }
+
+    fn params(value: Value) -> AnswerParams {
+        serde_json::from_value(value).expect("answer params")
+    }
+
+    #[test]
+    fn a_skipped_question_needs_no_answer_and_tells_the_agent_so() {
+        let skipped = params(json!({ "id": "q1", "skip": true }));
+        assert_eq!(
+            answer_text(&question(false), &skipped),
+            Ok(Some(SKIPPED.to_owned()))
+        );
+        assert_eq!(
+            answer_text(&question(true), &skipped),
+            Ok(Some(SKIPPED.to_owned()))
+        );
+        let empty = params(json!({ "id": "q1" }));
+        assert!(answer_text(&question(false), &empty).is_err());
+    }
+
+    #[test]
+    fn a_skipped_secret_is_shown_as_skipped_rather_than_kept_private() {
+        let letter = answered(&question(true), "Ship it?", true);
+        assert!(letter.skipped);
+        assert!(!letter.secret);
+        let answered_secret = answered(&question(true), "Ship it?", false);
+        assert!(answered_secret.secret);
+        assert!(!answered_secret.skipped);
+    }
+
+    #[test]
+    fn skip_crosses_to_a_linked_host_only_when_set() {
+        let skipped =
+            serde_json::to_value(params(json!({ "id": "q1", "skip": true }))).expect("json");
+        assert_eq!(skipped["skip"], true);
+        let picked =
+            serde_json::to_value(params(json!({ "id": "q1", "choice": 0 }))).expect("json");
+        assert!(picked.get("skip").is_none());
+    }
 }

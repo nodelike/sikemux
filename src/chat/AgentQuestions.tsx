@@ -1,8 +1,8 @@
 import { useContext, type ReactNode } from "react";
 import { AgentMark } from "../agents/AgentMark";
-import { SECRET_ANSWERED } from "../agents/agentQuestions";
+import { SECRET_ANSWERED, SKIPPED } from "../agents/agentQuestions";
 import { useStore } from "../state/store";
-import { IconLock } from "../ui/Icons";
+import { IconClose, IconLock } from "../ui/Icons";
 import type { AnswerLetter } from "./agentLetters";
 import { ChatAgentContext } from "./chatAgent";
 
@@ -33,7 +33,12 @@ export function AnsweredQuestion({ letter }: { letter: AnswerLetter }) {
                 </AskedBy>
             )}
             <div className="chat-ask-text">{letter.question}</div>
-            {letter.secret ? (
+            {letter.skipped ? (
+                <div className="chat-ask-answered skipped">
+                    <IconClose size={12} />
+                    <span>{SKIPPED}</span>
+                </div>
+            ) : letter.secret ? (
                 <div className="chat-ask-answered secret">
                     <IconLock size={12} />
                     <span>{SECRET_ANSWERED}</span>
