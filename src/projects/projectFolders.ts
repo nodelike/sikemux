@@ -74,16 +74,32 @@ export interface ProjectFolders {
 }
 
 /** Whether an environment's name looks like production's, as the core decides it. */
-export const looksLikeProduction = (name: string): boolean => /prod|^prd$|^live$/i.test(name);
+export const looksLikeProduction = (name: string): boolean => name !== "" && /prod|^prd$|^live$/i.test(name);
 
-/** The environments a task in `cwd` can run on: those of the project root and of the folder it is in. */
-export function environmentsFor(folders: readonly ProjectFolder[], cwd: string): readonly { name: string; production: boolean }[] {
+export interface RunEnvironment {
+    /** Empty for the files every environment shares, such as `.env`. */
+    readonly name: string;
+    readonly production: boolean;
+    /** The files it reads, relative to their folder. */
+    readonly files: readonly string[];
+}
+
+/** What a task in `cwd` can run on: the shared files alone, then each environment of the project root and of its folder. */
+export function environmentsFor(folders: readonly ProjectFolder[], cwd: string): readonly RunEnvironment[] {
     const inner = cwd === "." ? null : cwd.split("/")[0];
-    const found = new Map<string, boolean>();
-    for (const folder of folders)
-        if (folder.path === "." || folder.path === inner)
-            for (const environment of folder.environments) found.set(environment.name, environment.production);
-    return [...found].map(([name, production]) => ({ name, production })).sort((a, b) => a.name.localeCompare(b.name));
+    const files = new Map<string, Set<string>>();
+    for (const folder of folders) {
+        if (folder.path !== "." && folder.path !== inner) continue;
+        for (const file of folder.envFiles) {
+            if (file.template) continue;
+            const name = file.environment ?? "";
+            files.set(name, (files.get(name) ?? new Set()).add(file.path));
+        }
+    }
+    if (![...files.keys()].some(Boolean)) return [];
+    return [...files]
+        .map(([name, read]) => ({ name, production: looksLikeProduction(name), files: [...read].sort() }))
+        .sort((a, b) => (a.name === "" ? -1 : b.name === "" ? 1 : a.name.localeCompare(b.name)));
 }
 
 /** The environment a folder loads by default: its own choice, or else the project root's. */

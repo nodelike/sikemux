@@ -6,7 +6,7 @@ import { SendToAgentMenu } from "../agents/SendToAgentMenu";
 import { environmentsFor, folderEnvironment, looksLikeProduction } from "../projects/projectFolders";
 import { projectFoldersR, useProjectSettingsSync } from "../projects/projectResources";
 import { confirmDialog } from "../state/dialog";
-import { invalidate, useResourceEnabled } from "../state/resources";
+import { useResourceEnabled } from "../state/resources";
 import { getState } from "../state/store";
 import { reportError } from "../state/toast";
 import {
@@ -22,6 +22,7 @@ import {
     IconStop,
     IconTerminal,
 } from "../ui/Icons";
+import { Dropdown, type DropdownOption } from "../ui/Dropdown";
 import { Tooltip } from "../ui/Tooltip";
 import { tasksApi, useProjectTasks, useTaskRuns, type ProjectTask, type TaskRun } from "./coreTasks";
 import { dismissPendingCheck, personRuns, runProjectTask, stopTaskRun, usePendingCheck, type PendingCheck } from "./projectTaskActions";
@@ -30,6 +31,9 @@ import { failureFixRequest, findTasksRequest, testFixRequest } from "./agentRequ
 import { FailureCard, TestResultsCard, type FinishedTestRun } from "./TestResultsCard";
 import { useNow } from "../hooks/useNow";
 import { basename } from "../lib/paths";
+
+const NO_FILES = "\u0001none";
+const SHARED_FILES = "\u0001shared";
 
 function useSecondsSince(startedAt: number | null): number {
     const now = useNow(startedAt !== null);
@@ -140,7 +144,6 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
     const [adding, setAdding] = useState(false);
     const [agentPicker, setAgentPicker] = useState<{ x: number; y: number; text: string } | null>(null);
     const [environmentPicked, setEnvironmentPicked] = useState<Readonly<Record<string, string | null>>>({});
-    const [environmentOpen, setEnvironmentOpen] = useState(false);
     useProjectSettingsSync();
     const folders = useResourceEnabled(true, projectFoldersR, project).data;
     const { running: runningRun, last } = personRuns(allRuns, project);
@@ -165,27 +168,41 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
         testRun !== null && tests !== null && tests.failed > 0 && dismissedTests !== testRun.key && !open && pendingCheck?.project !== project;
 
     const environment = environmentPicked[project] ?? null;
-    const shownEnvironment = runningRun ? (runningRun.environment ?? null) : environment;
     const environments = folders ? environmentsFor(folders.folders, selected.cwd) : [];
     const ownEnvironment = folders ? folderEnvironment(folders.settings, selected.cwd) : undefined;
+    const loads = (on: string | null) => on ?? ownEnvironment;
+    const shownEnvironment = runningRun ? (runningRun.environment ?? ownEnvironment) : loads(environment);
     const run = (task: typeof selected, on: string | null = environment) => {
-        if (!on || !looksLikeProduction(on)) return void runProjectTask(project, task, { environment: on });
+        const loaded = loads(on);
+        if (loaded === undefined || !looksLikeProduction(loaded)) return void runProjectTask(project, task, { environment: on });
         void confirmDialog({
-            title: `Run ${task.label} on ${on}?`,
-            body: `It starts with ${on}'s environment variables, so it may change live data. The folder keeps its own environment for other runs.`,
-            confirmLabel: `Run on ${on}`,
+            title: `Run ${task.label} on ${loaded}?`,
+            body: `It starts with ${loaded}'s environment variables, so it may change live data.`,
+            confirmLabel: `Run on ${loaded}`,
             destructive: true,
         }).then((ok) => {
             if (ok) void runProjectTask(project, task, { environment: on });
         });
     };
-    /* Picking another environment while the task runs restarts it there. */
-    const pickEnvironment = (name: string | null) => {
-        setEnvironmentOpen(false);
-        setEnvironmentPicked((current) => ({ ...current, [project]: name }));
-        if (running && name !== shownEnvironment) run(running, name);
+    /* Picking another environment while the task runs restarts it there; the folder's own is picked as none. */
+    const pickEnvironment = (value: string) => {
+        const name = value === NO_FILES ? undefined : value === SHARED_FILES ? "" : value;
+        const on = name === ownEnvironment ? null : (name ?? null);
+        setEnvironmentPicked((current) => ({ ...current, [project]: on }));
+        if (running && name !== shownEnvironment) run(running, on);
     };
-    const environmentLabel = shownEnvironment ?? (ownEnvironment || "default");
+    const environmentOptions: DropdownOption[] = [
+        ...(ownEnvironment === undefined ? [{ value: NO_FILES, label: "no env files", meta: "default", group: "Run on · this run only" }] : []),
+        ...environments.map((entry) => ({
+            value: entry.name === "" ? SHARED_FILES : entry.name,
+            label: entry.name === "" ? entry.files.join(", ") : entry.name,
+            detail: entry.name === "" ? "shared files only" : entry.files.join(", "),
+            meta: [entry.name === ownEnvironment ? "default" : null, entry.production ? "asks first" : null].filter(Boolean).join(" · ") || undefined,
+            className: entry.production ? "tb-run-env-prod" : undefined,
+            group: "Run on · this run only",
+        })),
+    ];
+    const environmentValue = shownEnvironment === undefined ? NO_FILES : shownEnvironment === "" ? SHARED_FILES : shownEnvironment;
     const close = () => setOpen(false);
     const showOutput = () => {
         const reveal = key ? taskTerminalReveal(getState(), sessionId, key) : null;
@@ -252,21 +269,17 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                         <IconChevron size={10} className="env-dd-chev" />
                     </button>
                     {environments.length > 0 && (
-                        <Tooltip label={running ? "Environment it runs on; pick another to restart it there" : "Environment to run on"}>
-                            <button
-                                className={`tb-run-env${shownEnvironment && looksLikeProduction(shownEnvironment) ? " prod" : ""}`}
-                                onClick={() => {
-                                    if (!environmentOpen) invalidate((kind, args) => kind === "project.folders" && args[0] === project);
-                                    setEnvironmentOpen((value) => !value);
-                                }}
-                                aria-haspopup="menu"
-                                aria-expanded={environmentOpen}
-                                aria-label={`Environment: ${environmentLabel}`}>
-                                <IconGlobe size={10} />
-                                <span>{environmentLabel}</span>
-                                <IconChevron size={10} className="env-dd-chev" />
-                            </button>
-                        </Tooltip>
+                        <Dropdown
+                            className={`tb-run-env${shownEnvironment && looksLikeProduction(shownEnvironment) ? " prod" : ""}`}
+                            label="Environment to run on"
+                            title={running ? "The environment it runs on; pick another to restart it there" : "The environment to run on"}
+                            icon={<IconGlobe size={10} />}
+                            value={environmentValue}
+                            options={environmentOptions}
+                            onChange={pickEnvironment}
+                            align="right"
+                            menuWidth={240}
+                        />
                     )}
                 </span>
                 {whyShown && (
@@ -279,40 +292,6 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                     </Tooltip>
                 )}
                 {pendingCheck?.project === project && !open && <CheckCard check={pendingCheck} />}
-                {environmentOpen && (
-                    <>
-                        <div className="env-dd-scrim" onClick={() => setEnvironmentOpen(false)} />
-                        <div
-                            className="env-dd-menu tb-run-menu tb-run-env-menu"
-                            role="menu"
-                            aria-label="Run on"
-                            data-overlay
-                            onKeyDown={(event) => {
-                                if (event.key === "Escape") setEnvironmentOpen(false);
-                            }}>
-                            <div className="tb-run-menu-head">
-                                <span>Run on</span>
-                                <span className="tb-run-menu-head-meta">this run only</span>
-                            </div>
-                            {[null, ...environments.map((entry) => entry.name)].map((name) => (
-                                <button
-                                    key={name ?? ""}
-                                    className={`env-dd-item${name === shownEnvironment ? " active" : ""}`}
-                                    role="menuitemradio"
-                                    aria-checked={name === shownEnvironment}
-                                    onClick={() => pickEnvironment(name)}>
-                                    <IconGlobe size={11} />
-                                    <span className="tb-run-label">{name ?? "Folder's environment"}</span>
-                                    {name === null ? (
-                                        <span className="tb-run-menu-meta">{ownEnvironment || "none loaded"}</span>
-                                    ) : (
-                                        looksLikeProduction(name) && <span className="tb-run-menu-meta prod">asks first</span>
-                                    )}
-                                </button>
-                            ))}
-                        </div>
-                    </>
-                )}
                 {testsCardOpen && (
                     <TestResultsCard
                         run={testRun}

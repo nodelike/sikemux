@@ -1124,14 +1124,14 @@ fn begin_start(
 }
 
 /// The environment a start names: none when it names none, so a restart keeps
-/// the last run's, and `Some(None)` when it asks for the folder's own.
+/// the last run's, and `Some(None)` when it asks for the folder's own. An empty
+/// name loads only the files every environment shares, such as `.env`.
 fn asked_environment(params: &Value) -> Result<Option<Option<String>>, String> {
     match params.get("environment") {
         None => Ok(None),
         Some(Value::Null) => Ok(Some(None)),
         Some(Value::String(name))
-            if !name.trim().is_empty()
-                && name.chars().count() <= 64
+            if name.chars().count() <= 64
                 && !name.contains(['/', '\\']) =>
         {
             Ok(Some(Some(name.trim().to_owned())))

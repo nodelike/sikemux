@@ -450,7 +450,7 @@ impl Workspaces {
             .flat_map(|folder| crate::tasks::folders::folder_at(project, folder).environments)
             .map(|found| found.name)
             .collect();
-        if !known.contains(environment) {
+        if !environment.is_empty() && !known.contains(environment) {
             let place = chain.last().map_or(".", String::as_str);
             return Err(if known.is_empty() {
                 format!("{place} has no environment files, so it cannot run on {environment}")

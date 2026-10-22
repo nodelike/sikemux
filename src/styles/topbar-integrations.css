@@ -318,30 +318,29 @@
 .tb-run-menu-meta.prod {
     color: var(--danger);
 }
-.tb-run-env {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
+.tb-run-split > .dd {
+    display: flex;
+}
+.dd-btn.tb-run-env {
+    gap: 5px;
     height: 100%;
     padding: 0 6px 0 8px;
     border: 0;
+    border-radius: 0;
     box-shadow: inset 1px 0 0 color-mix(in oklab, var(--ink) 8%, transparent);
     background: transparent;
     color: var(--ink-dim);
     font-family: var(--mono);
     font-size: var(--text-2xs);
     white-space: nowrap;
-    cursor: pointer;
 }
-.tb-run-env:hover,
-.tb-run-env[aria-expanded="true"] {
+.dd-btn.tb-run-env:hover:not(:disabled),
+.dd-btn.tb-run-env[aria-expanded="true"] {
     background: var(--surface-hover);
 }
-.tb-run-env.prod {
+.dd-btn.tb-run-env.prod,
+.tb-run-env-prod {
     color: var(--danger);
-}
-.tb-run-env-menu {
-    min-width: 200px;
 }
 .tb-run-why {
     height: 20px;
