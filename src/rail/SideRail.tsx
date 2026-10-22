@@ -502,7 +502,6 @@ function Group({
     emptyText,
     singleton,
     className,
-    toolbar,
 }: {
     label: string;
     list: Session[];
@@ -516,7 +515,6 @@ function Group({
     /** Rows drawn in place of `list`, for a group that is more than its sessions. */
     rows?: ReactNode;
     className?: string;
-    toolbar?: ReactNode;
 }) {
     return (
         <Panel variant="group" className={className}>
@@ -544,7 +542,6 @@ function Group({
                     )
                 }
             />
-            {toolbar}
             {rows ??
                 (list.length === 0 ? (
                     <EmptyState variant="inline" message={emptyText} action={add ? { label: emptyText, onClick: add } : undefined} />
@@ -807,6 +804,11 @@ export const SideRail = memo(function SideRail() {
         <RailContext.Provider value={rail}>
             <aside ref={leavingRail} className="side-rail" {...LEAVES_SETTINGS}>
                 <RailMasthead />
+                {allProjects.length > 0 && (
+                    <div className="rail-spaces">
+                        <SpaceSwitch spaces={spaces} activeSpaceId={activeSpaceId} />
+                    </div>
+                )}
                 <div className="rail-scroll">
                     <Group
                         label="Projects"
@@ -815,7 +817,6 @@ export const SideRail = memo(function SideRail() {
                         addTitle={`Open project — ${kb("project.open")}`}
                         addKbd={kb("project.open")}
                         emptyText={activeSpace ? `no projects in ${activeSpace.name}` : "no projects"}
-                        toolbar={allProjects.length > 0 && <SpaceSwitch spaces={spaces} activeSpaceId={activeSpaceId} />}
                     />
                     <Group
                         label="Hosts"

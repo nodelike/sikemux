@@ -98,6 +98,15 @@ textarea:focus,
     padding: var(--gutter-rail) var(--gutter-rail) var(--space-4);
 }
 
+/* Spaces filter the projects, so they stay in view while the list scrolls under them. */
+.rail-spaces {
+    flex: 0 0 auto;
+    padding: var(--gutter-rail) var(--gutter-rail) 0;
+}
+.rail-spaces .space-switch {
+    margin: 0;
+}
+
 /* The brand was a 62px slab: a bordered, tinted logo tile next to heavily
  * tracked caps and a version chip, all above the first thing you actually use.
  * It is a quiet single line now. */
