@@ -12,6 +12,7 @@ export * from "./editor";
 export * from "./git";
 export * from "./launch";
 export * from "./panes";
+export { goBack, goForward, placeHistory, subscribePlaceHistory, watchPlaces } from "./places";
 export * from "./search";
 export * from "./sessions";
 export * from "./sessionTransfer";

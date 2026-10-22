@@ -205,6 +205,12 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
         case "window.next":
             cmd.cycleTab(1);
             return true;
+        case "place.back":
+            cmd.goBack();
+            return true;
+        case "place.forward":
+            cmd.goForward();
+            return true;
         case "window.previous":
             cmd.cycleTab(-1);
             return true;

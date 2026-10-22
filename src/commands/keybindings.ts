@@ -259,6 +259,20 @@ const coreKeybindingActions = [
         defaultBinding: on("Meta+KeyW", "Ctrl+Shift+KeyW"),
     },
     {
+        id: "place.back",
+        label: "Go back",
+        detail: "Back to the project, tab, pane or file you were in before",
+        category: "Navigation",
+        defaultBinding: on("Ctrl+Minus", "Ctrl+Alt+Minus"),
+    },
+    {
+        id: "place.forward",
+        label: "Go forward",
+        detail: "Forward again to where going back left",
+        category: "Navigation",
+        defaultBinding: on("Ctrl+Shift+Minus", "Ctrl+Alt+Shift+Minus"),
+    },
+    {
         id: "window.previous",
         label: "Previous tab",
         detail: "Move one tab left along the strip",

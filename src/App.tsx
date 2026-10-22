@@ -737,6 +737,19 @@ export default function App() {
         [],
     );
 
+    useEffect(() => {
+        const stopPlaces = cmd.watchPlaces();
+        const onMouseUp = (event: MouseEvent) => {
+            if (event.button === 3) cmd.goBack();
+            else if (event.button === 4) cmd.goForward();
+        };
+        window.addEventListener("mouseup", onMouseUp);
+        return () => {
+            stopPlaces();
+            window.removeEventListener("mouseup", onMouseUp);
+        };
+    }, []);
+
     useEffect(watchInbox, []);
 
     useEffect(() => watchSshLinks(), []);

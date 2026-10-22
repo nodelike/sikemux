@@ -2,6 +2,7 @@ import { RunChip } from "../tasks/RunChip";
 import { useProjectRepo } from "../git/projectRepo";
 import { memo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { BuiltPlugin } from "../plugins/enabled";
+import { PlaceArrows } from "./PlaceArrows";
 import { TopBarPlace } from "./TopBarPlace";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useBattery } from "../hooks/useBattery";
@@ -202,6 +203,7 @@ export const TabRow = memo(function TabRow() {
     if (!hasSession) return null;
     return (
         <div className="tab-row" onMouseDown={startWindowDragFromTopBar} {...LEAVES_SETTINGS}>
+            <PlaceArrows />
             <WorkspaceTabs />
         </div>
     );

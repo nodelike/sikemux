@@ -177,6 +177,23 @@
     display: none;
 }
 
+.place-arrows {
+    display: flex;
+    flex: none;
+    align-items: center;
+    margin-right: var(--space-1);
+}
+
+.place-arrows .tb-btn:disabled {
+    color: var(--ink-faint);
+    background: transparent;
+    opacity: 0.5;
+}
+
+.place-back-icon {
+    transform: rotate(180deg);
+}
+
 .tb-right {
     display: flex;
     align-items: center;
