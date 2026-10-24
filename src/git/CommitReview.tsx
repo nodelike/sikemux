@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { git, type CommitOwner } from "../api/git";
-import { commitOwnedFile } from "./changeOwners";
+import { useEffect, useState, type ReactNode } from "react";
+import { git } from "../api/git";
+import { useCachedResourceEnabled } from "../state/resources";
+import { gitCommitLinesR } from "../state/resources.defs";
+import { ownedFile } from "./changeOwners";
 import { DiffEditor } from "./DiffEditor";
 import { FileReviewList } from "./FileReviewList";
 import { joinPath } from "../lib/paths";
@@ -15,7 +17,6 @@ export function CommitReview({
     head,
     range,
     focusPath,
-    owners,
     onOpenFile,
 }: {
     repo: string;
@@ -28,13 +29,11 @@ export function CommitReview({
     range?: { base: string; files: readonly string[] };
     /** Opens this file and scrolls to it. */
     focusPath?: string | null;
-    /** The agents the commit's footer names, with the lines its note gives each. */
-    owners?: CommitOwner[];
     onOpenFile: (abs: string) => void;
 }) {
     const [files, setFiles] = useState<string[]>([]);
     const rangeFiles = range?.files;
-    const owned = useMemo(() => new Map(files.map((file) => [file, commitOwnedFile(owners, file)])), [files, owners]);
+    const lines = useCachedResourceEnabled(!range, gitCommitLinesR, repo, rev).data;
 
     useEffect(() => {
         if (rangeFiles) {
@@ -81,7 +80,7 @@ export function CommitReview({
                             headRev={rev}
                             editable={false}
                             autoHeight
-                            owned={range ? undefined : owned.get(path)}
+                            owned={range ? undefined : ownedFile(lines, path)}
                         />
                     )}
                 />

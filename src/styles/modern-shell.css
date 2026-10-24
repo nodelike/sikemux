@@ -1025,7 +1025,7 @@ textarea:focus,
  * default WebKit bar, which paints a light track on the dark chrome. This is
  * the app-wide default. The terminal and CodeMirror keep their own rules.
  */
-*:not(.xterm-viewport, .cm-scroller) {
+*:not(.cm-scroller) {
     &::-webkit-scrollbar {
         width: 10px;
         height: 10px;
@@ -1485,12 +1485,6 @@ html.is-transparent .rail-peek-panel > .workspace-rail {
 /* The shell keeps the darkest tone so the gutter always reads as a recess. */
 .shell {
     background: color-mix(in srgb, var(--surface-sunken) calc(var(--window-opacity, 1) * 100%), transparent);
-}
-
-/* Transparent so the pane's surface shows through; painting it here stacked a
- * second tint over the one the pane already draws. */
-.terminal-host .xterm-viewport {
-    background-color: transparent !important;
 }
 
 /* ---- Rail typography -----------------------------------------------------

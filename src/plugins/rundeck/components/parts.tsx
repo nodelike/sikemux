@@ -2,10 +2,9 @@ import { createContext, useContext, type ReactNode } from "react";
 import { IconChevron, IconGit, IconPanelLeft, IconRefresh, Tooltip } from "../../../plugin-api/ui";
 import * as cmd from "../state";
 import type { JobRef, RundeckLevel } from "../state";
-import { groupSegments, isProdTarget } from "../shape";
+import { groupSegments } from "../shape";
 import { branchKind, statusKind } from "./branchStyle";
 import "../branch.css";
-import { useProdEnvs } from "../resources";
 
 /** The Rundeck server the pane is signed in to, as a host name. */
 export const RundeckHost = createContext<string | null>(null);
@@ -165,8 +164,7 @@ export function BranchChip({ branch }: { branch: string | null | undefined }) {
 }
 
 /** A job's folder as a path. Amber when the folder matches the production names in settings. */
-export function FolderChip({ project, group }: { project: string; group: string | null }) {
-    const prod = isProdTarget(project, group, useProdEnvs());
+export function FolderChip({ project, group, prod }: { project: string; group: string | null; prod: boolean }) {
     const path = groupSegments(group).join("/") || project;
     return <span className={`rnd-folder${prod ? " prod" : ""}`}>{path}</span>;
 }

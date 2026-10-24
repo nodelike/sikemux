@@ -46,8 +46,8 @@ A theme is one tuple in `src/themes/index.ts`; `src/themes/bus.ts` writes it on
 
 ## Things that are easy to break
 
-- **WebGL contexts.** Every terminal's renderer takes one and the page gets about
-  sixteen. Decoration may use at most two (`SURFACE_BUDGET` in
+- **WebGL contexts.** The page gets about sixteen. Terminals draw on 2D canvases
+  and take none; decoration may use at most two (`SURFACE_BUDGET` in
   `src/lib/shaderField.ts`), and the app must look finished with none.
 - **Window transparency.** Below full opacity, `html.is-transparent` clears the
   ground of every surface listed in `base.css` at once. A new opaque surface goes

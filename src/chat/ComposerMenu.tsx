@@ -2,7 +2,6 @@ import { Fragment, useLayoutEffect, useMemo, type ReactNode, type RefObject } fr
 import { AgentStateIndicator } from "../agents/AgentStateIndicator";
 import { AgentFace } from "../buddies/Buddy";
 import type { TrackedItem } from "../codehost/tracked";
-import type { RepoRef } from "../codehost/types";
 import { formatAge } from "../lib/format";
 import { dirname } from "../lib/paths";
 import { useResourceEnabled } from "../state/resources";
@@ -23,7 +22,7 @@ import {
 import { ContextMark } from "./ContextChip";
 import { earlierUri, useClosedNamed, useEarlierChats, type EarlierChat } from "./earlierChats";
 import type { TrackedMatches } from "./TrackedSource";
-import type { AcpAvailableCommand } from "./types";
+import type { ChatCommandInfo } from "./types";
 
 function matchMates(mates: readonly Mate[], needle: string, limit: number): Mate[] {
     const wanted = needle.toLowerCase();
@@ -32,11 +31,11 @@ function matchMates(mates: readonly Mate[], needle: string, limit: number): Mate
 
 /** What the person picked from the menu. */
 export type MenuPick =
-    | { kind: "command"; command: AcpAvailableCommand }
+    | { kind: "command"; command: ChatCommandInfo }
     | { kind: "mate"; mate: Mate }
     | { kind: "earlier"; earlier: EarlierChat; uri: string }
     | { kind: "entry"; entry: ProjectEntry }
-    | { kind: "tracked"; item: TrackedItem; repo: RepoRef };
+    | { kind: "tracked"; item: TrackedItem };
 
 /** How the composer's keys drive the menu while it is open. */
 export interface MenuKeys {
@@ -83,7 +82,7 @@ function trackedRows(tracked: TrackedMatches, prefix: string): MenuRow[] {
     if (tracked.state !== "ready") return [];
     return tracked.matches.map((item) => ({
         key: `${item.kind}-${item.number}`,
-        pick: { kind: "tracked", item, repo: tracked.repo },
+        pick: { kind: "tracked", item },
         content: (
             <>
                 <span className="chat-menu-mark" data-kind={item.kind}>
@@ -117,7 +116,7 @@ export default function ComposerMenu({
     token: ComposerToken;
     agentId: string;
     cwd: string;
-    commands: readonly AcpAvailableCommand[];
+    commands: readonly ChatCommandInfo[];
     mates: readonly Mate[];
     /** The uris of what the message already carries. */
     taken: readonly string[];
@@ -160,7 +159,7 @@ export default function ComposerMenu({
                               <>
                                   <code>/{command.name}</code>
                                   <span>{command.description}</span>
-                                  {command.input?.hint && <em>{command.input.hint}</em>}
+                                  {command.hint && <em>{command.hint}</em>}
                               </>
                           ),
                       })),

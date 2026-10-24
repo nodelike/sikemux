@@ -17,6 +17,7 @@ import { invalidate } from "../state/resources";
 import { getState, setState } from "../state/store";
 import type { ProjectRoot } from "../state/types";
 import { SeshPicker } from "./SeshPicker";
+import { testPreferences } from "../test/preferences";
 
 const initial = getState();
 
@@ -28,7 +29,7 @@ beforeEach(() => {
         activeSessionId: "",
         home: "/Users/friend",
         pickerMode: "projects",
-        projectRoots: [],
+        preferences: testPreferences(),
     });
     mocks.scanProjectRoots.mockImplementation(async (roots: ProjectRoot[]) =>
         roots

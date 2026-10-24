@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
@@ -7,7 +7,7 @@ import { useDevices, useLive } from '@/devices/hub';
 import { useDevicePalette } from '@/devices/palette';
 import { Crashed } from '@/screens/Crashed';
 import { BackdropContext } from '@/ui/Backdrop';
-import { BuddiesContext } from '@/ui/Buddy';
+import { FacesContext } from '@/ui/Buddy';
 import { goHome } from '@/ui/navigate';
 import { isLight, PaletteProvider } from '@/ui/theme';
 
@@ -21,7 +21,13 @@ export default function DeviceLayout() {
   const { core } = useLocalSearchParams<{ core: string }>();
   const palette = useDevicePalette(core);
   const backdrop = useDeviceBackdrop(core);
-  const buddies = useLive(core).snapshot?.inbox.buddies;
+  const snapshot = useLive(core).snapshot;
+  const agents = snapshot?.workspace.agents;
+  const style = snapshot?.faceStyle;
+  const faces = useMemo(
+    () => (agents && style ? { faces: Object.fromEntries(agents.map((agent) => [agent.id, agent.face ?? null])), style } : undefined),
+    [agents, style],
+  );
   const { devices, loaded } = useDevices();
   const paired = !loaded || devices.some((device) => device.core === core);
 
@@ -33,7 +39,7 @@ export default function DeviceLayout() {
   return (
     <PaletteProvider value={palette}>
       <BackdropContext.Provider value={backdrop}>
-        <BuddiesContext.Provider value={buddies}>
+        <FacesContext.Provider value={faces}>
           <StatusBar style={isLight(palette) ? 'dark' : 'light'} />
           <Stack screenOptions={{ headerShown: false, freezeOnBlur: true, contentStyle: { backgroundColor: palette.ground } }}>
             <Stack.Screen
@@ -41,7 +47,7 @@ export default function DeviceLayout() {
               options={({ route }) => ({ animation: (route.params as { started?: string } | undefined)?.started ? 'none' : 'default' })}
             />
           </Stack>
-        </BuddiesContext.Provider>
+        </FacesContext.Provider>
       </BackdropContext.Provider>
     </PaletteProvider>
   );

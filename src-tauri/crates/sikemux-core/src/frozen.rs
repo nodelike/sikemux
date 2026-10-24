@@ -15,10 +15,10 @@ use crate::protocol::BuildIdentity;
 
 /// The format of the state a core hands to its replacement. A core only
 /// replaces itself with a binary that reads its format.
-pub const RESUME_FORMAT: u32 = 8;
+pub const RESUME_FORMAT: u32 = 9;
 
 /// Every hand-over format a core of this build takes over from.
-pub const READS_FORMATS: [u32; 5] = [4, 5, 6, 7, RESUME_FORMAT];
+pub const READS_FORMATS: [u32; 6] = [4, 5, 6, 7, 8, RESUME_FORMAT];
 
 /// The argument that makes a core binary print its [`UpgradeInfo`].
 pub const UPGRADE_INFO_ARG: &str = "--upgrade-info";

@@ -99,7 +99,7 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
         <TerminalPane
             cwd={paneCwd(pane, session) || undefined}
             startup={pane.startup}
-            reconnect={session.kind === "ssh" ? pane.startup : undefined}
+            reconnects={session.kind === "ssh"}
             active={active}
             visible={visible}
             context={pane.host ? { ...terminalContext(session, win.id, pane.id), project: pane.cwd } : terminalContext(session, win.id, pane.id)}

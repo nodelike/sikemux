@@ -165,8 +165,8 @@ fn take_over_app_database(path: &Path) {
 impl ActivityLog {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let path = data_dir.map(|dir| dir.join(DATABASE));
-        if let Some(path) = &path {
-            take_over_app_database(path);
+        if let Some(dir) = super::from_app::app_data_dir(data_dir) {
+            take_over_app_database(&dir.join(DATABASE));
         }
         Self {
             path,
@@ -780,6 +780,30 @@ pub(crate) struct ActivityDay {
     commits: i64,
     tokens: i64,
     cost_usd: f64,
+    /// How full the calendar draws the day for each measure.
+    levels: ActivityLevels,
+}
+
+/// From 0 for nothing to 4, by which quarter of the days with anything the
+/// day falls in, so one huge day does not wash out the rest.
+#[derive(Serialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActivityLevels {
+    sessions: u8,
+    agent_ms: u8,
+    commits: u8,
+    tokens: u8,
+    cost_usd: u8,
+}
+
+/// Days in a row with any activity. A streak that reached yesterday still
+/// counts as current until today is over.
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActivityStreaks {
+    active_days: usize,
+    longest: usize,
+    current: usize,
 }
 
 #[derive(Serialize, Default, Clone)]
@@ -813,6 +837,7 @@ pub(crate) struct ActivitySummary {
     totals: ActivityTotals,
     /// Local calendar days, counted from the Unix epoch, with anything on them.
     days: Vec<ActivityDay>,
+    streaks: ActivityStreaks,
     agents: Vec<ActivityShare>,
     projects: Vec<ActivityShare>,
     /// Models by cost, then by tokens.
@@ -1016,6 +1041,28 @@ fn summarize(
 
     let mut days: Vec<ActivityDay> = days.into_values().collect();
     days.sort_by_key(|day| day.day);
+    level(
+        &mut days,
+        |day| day.sessions as f64,
+        |levels| &mut levels.sessions,
+    );
+    level(
+        &mut days,
+        |day| day.agent_ms as f64,
+        |levels| &mut levels.agent_ms,
+    );
+    level(
+        &mut days,
+        |day| day.commits as f64,
+        |levels| &mut levels.commits,
+    );
+    level(
+        &mut days,
+        |day| day.tokens as f64,
+        |levels| &mut levels.tokens,
+    );
+    level(&mut days, |day| day.cost_usd, |levels| &mut levels.cost_usd);
+    let streaks = streaks(&days, (now_ms + offset_ms).div_euclid(DAY_MS));
     let ranked = |shares: HashMap<String, ActivityShare>| {
         let mut shares: Vec<ActivityShare> = shares.into_values().collect();
         shares.sort_by(|a, b| {
@@ -1028,11 +1075,74 @@ fn summarize(
     Ok(ActivitySummary {
         totals,
         days,
+        streaks,
         agents: ranked(agents),
         projects: ranked(projects),
         models,
         pricing: prices.info.clone(),
     })
+}
+
+/// Sets each day's level of one measure.
+fn level(
+    days: &mut [ActivityDay],
+    value: impl Fn(&ActivityDay) -> f64,
+    slot: impl Fn(&mut ActivityLevels) -> &mut u8,
+) {
+    let mut sorted: Vec<f64> = days
+        .iter()
+        .map(&value)
+        .filter(|value| *value > 0.)
+        .collect();
+    sorted.sort_by(f64::total_cmp);
+    let quartiles: Vec<f64> = [0.25, 0.5, 0.75]
+        .iter()
+        .filter_map(|quantile| {
+            let at = ((quantile * sorted.len() as f64) as usize).min(sorted.len().checked_sub(1)?);
+            Some(sorted[at])
+        })
+        .collect();
+    for day in days {
+        let value = value(day);
+        let above = quartiles
+            .iter()
+            .filter(|quartile| value > **quartile)
+            .count();
+        *slot(&mut day.levels) = if value > 0. { 1 + above as u8 } else { 0 };
+    }
+}
+
+fn streaks(days: &[ActivityDay], today: i64) -> ActivityStreaks {
+    let active: Vec<i64> = days
+        .iter()
+        .filter(|day| day.sessions + day.agent_ms + day.commits + day.tokens > 0)
+        .map(|day| day.day)
+        .collect();
+    let (mut longest, mut run) = (0, 0);
+    for (index, day) in active.iter().enumerate() {
+        run = if index > 0 && active[index - 1] == day - 1 {
+            run + 1
+        } else {
+            1
+        };
+        longest = longest.max(run);
+    }
+    let last = if active.last() == Some(&today) {
+        today
+    } else {
+        today - 1
+    };
+    let current = active
+        .iter()
+        .rev()
+        .zip((0..).map(|back| last - back))
+        .take_while(|(day, expected)| **day == *expected)
+        .count();
+    ActivityStreaks {
+        active_days: active.len(),
+        longest,
+        current,
+    }
 }
 
 #[cfg(test)]
@@ -1189,5 +1299,44 @@ mod tests {
         assert_eq!(only_a.days[0].tokens, 6);
         assert_eq!(only_a.days[0].commits, 0);
         assert_eq!(only_a.projects.len(), 1);
+    }
+
+    fn active(days: &[i64]) -> Vec<ActivityDay> {
+        days.iter()
+            .map(|&day| ActivityDay {
+                day,
+                sessions: 1,
+                ..ActivityDay::default()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn days_are_graded_by_the_quartiles_of_active_days() {
+        let mut days: Vec<ActivityDay> = [0, 1, 2, 3, 4, 100]
+            .into_iter()
+            .enumerate()
+            .map(|(day, tokens)| ActivityDay {
+                day: day as i64,
+                tokens,
+                ..ActivityDay::default()
+            })
+            .collect();
+        level(
+            &mut days,
+            |day| day.tokens as f64,
+            |levels| &mut levels.tokens,
+        );
+        let levels: Vec<u8> = days.iter().map(|day| day.levels.tokens).collect();
+        assert_eq!(levels[0], 0);
+        assert_eq!(levels[1], 1);
+        assert_eq!(levels[5], 4);
+    }
+
+    #[test]
+    fn a_streak_stays_alive_until_today_is_over() {
+        let run = streaks(&active(&[90, 91, 92, 98, 99]), 100);
+        assert_eq!((run.active_days, run.current, run.longest), (5, 2, 3));
+        assert_eq!(streaks(&active(&[97, 98]), 100).current, 0);
     }
 }

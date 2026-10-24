@@ -277,10 +277,12 @@ jobs:
       - name: Setup Rust
         run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component clippy --component rustfmt --no-self-update
 
-      # release.sh refreshes Cargo.lock offline, which needs every crate already
-      # on disk; a fresh runner has none.
+      # release.sh refreshes both Cargo.locks offline, which needs every crate
+      # already on disk; a fresh runner has none.
       - name: Fetch Rust dependencies
-        run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+        run: |
+          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+          cargo fetch --manifest-path src-tauri/crates/sikemux-gpui/Cargo.toml --locked
 
       - name: Fetch helpers
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -301,7 +303,7 @@ jobs:
           flags=(--publish --stage compile)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
-          COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/compiled.tar" src-tauri/target/release/sikemux dist
+          COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/compiled.tar" src-tauri/crates/sikemux-gpui/target/release/sikemux
 
       - name: Keep the compiled app
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -340,7 +342,9 @@ jobs:
         run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
 
       - name: Fetch Rust dependencies
-        run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+        run: |
+          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+          cargo fetch --manifest-path src-tauri/crates/sikemux-gpui/Cargo.toml --locked
 
       - name: Fetch helpers
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

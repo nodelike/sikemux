@@ -54,7 +54,7 @@ pub(crate) struct Packed {
 pub(crate) struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new(name: &str) -> Self {
+    pub(crate) fn new(name: &str) -> Self {
         Self(std::env::temp_dir().join(format!("sikemux-{name}-{}", uuid::Uuid::new_v4().simple())))
     }
 
@@ -496,12 +496,12 @@ pub(crate) fn checkout(
     ))
 }
 
-/// Applies the lead's uncommitted changes and commits them on their own, so
-/// the worker's work reads apart from the lead's.
-fn apply(tree: &Path, patch: &str) -> Result<(), String> {
+/// Lays `patch`, another host's uncommitted changes, over the checkout at `tree`, leaving
+/// them uncommitted. Nothing changes when any of it does not apply.
+pub(crate) fn lay_over(tree: &Path, patch: &str) -> Result<(), String> {
     let file = Scratch::new("patch");
     std::fs::write(file.path(), patch)
-        .map_err(|error| format!("could not write the lead's changes: {error}"))?;
+        .map_err(|error| format!("could not write the changes: {error}"))?;
     git(
         tree,
         &[
@@ -511,7 +511,14 @@ fn apply(tree: &Path, patch: &str) -> Result<(), String> {
             &file.path().to_string_lossy(),
         ],
     )
-    .map_err(|error| format!("the lead's uncommitted changes do not apply here: {error}"))?;
+    .map(drop)
+    .map_err(|error| format!("the uncommitted changes do not apply here: {error}"))
+}
+
+/// Applies the lead's uncommitted changes and commits them on their own, so
+/// the worker's work reads apart from the lead's.
+fn apply(tree: &Path, patch: &str) -> Result<(), String> {
+    lay_over(tree, patch)?;
     git(tree, &["add", "--all"])?;
     let mut args = Vec::new();
     if git(tree, &["config", "user.email"]).is_err() {

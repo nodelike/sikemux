@@ -1,18 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agents/agentProfiles";
-import type { PromptContext } from "../api/acp";
+import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { agentNamesApi } from "../api/agentNames";
-import { wearBuddy } from "../buddies/commands";
 import type { RecentChat } from "../api/agents";
 import { agentSessionsApi } from "../api/agentSessions";
-import * as cmd from "../state/commands";
 import { useResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
-import { agentForChat, agentWindowId, chatKey, ownerSessionId } from "../state/selectors";
+import { agentWindowId, chatKey, ownerSessionId } from "../state/selectors";
 import { toAgentBuddy } from "../buddies/agentBuddy";
 import { getState, useStore } from "../state/store";
 import type { AgentBuddy } from "../state/types";
-import { mateNote, type Mate } from "./agentMentions";
 
 const EARLIER_LIMIT = 4;
 const EARLIER_SETTLE_MS = 150;
@@ -133,32 +129,3 @@ export function useEarlierChats(agentId: string, needle: string | null): Earlier
 /** Where a picked earlier chat points until the message is sent. */
 export const EARLIER_URI = "sikemux://earlier/";
 export const earlierUri = ({ chat }: EarlierChat) => `${EARLIER_URI}${chat.agent}/${chat.id}`;
-
-/** Where an earlier chat opened again for a message points once it has its new name. */
-export const WOKEN_URI = "sikemux://woken/";
-
-/**
- * Opens an earlier chat again in a tab behind the one in front, as opening it from Recent does, and tells the agent
- * the message goes to who it is now. It gets a new name for this run, unless the person had named the agent.
- */
-export async function wakeEarlier(earlier: EarlierChat): Promise<PromptContext> {
-    const { chat, sessionId } = earlier;
-    const state = getState();
-    const profileId = selectedProviderProfile(chat.agent, state.providerProfiles, state.selectedProviderProfileIds)?.id;
-    if (!cmd.addAgent(chat.agent, chat.id, chat.title, { sessionId, profileId, background: true })) {
-        throw new Error(`"${chat.title}" could not be opened again`);
-    }
-    const agent = agentForChat(Object.values(getState().agents), chat);
-    if (!agent) throw new Error(`"${chat.title}" could not be opened again`);
-    if (agent.launchState === "dormant") cmd.resumeAgent(agent.id);
-    let name = agent.name;
-    if (!name) {
-        const named = await agentNamesApi.name({ agentId: agent.id, cwd: agent.cwd ?? chat.project, provider: agent.type, resumeId: chat.id });
-        cmd.setAgentName(agent.id, named.name, named.parent);
-        if (named.buddy) wearBuddy(agent.id, named.buddy);
-        name = named.name;
-    }
-    const kept = name.toLowerCase() === earlier.named?.name.toLowerCase();
-    const mate: Mate = { id: agent.id, name, project: null, type: agent.type, title: chat.title, buddy: agent.buddy, display: null };
-    return { uri: `${WOKEN_URI}${agent.id}`, title: `@${name} · ${chat.title}`, text: mateNote(mate, "Starting", chat.title, kept) };
-}

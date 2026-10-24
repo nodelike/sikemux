@@ -16,7 +16,6 @@ import { ForgetSheet, useForget } from '@/devices/ForgetSheet';
 import { ProjectSheet } from '@/devices/ProjectSheet';
 import { WorkerRow, workersOf } from '@/devices/RemoteWorker';
 import { summary } from '@/devices/status';
-import { agentDisplay } from '@mac/state/agentStatus';
 import { agentIn, itemIn, projectName, projectOf } from '@/devices/words';
 import { haptics } from '@/ui/haptics';
 import { useMinute, useScrollPause } from '@/ui/motion';
@@ -89,7 +88,7 @@ function Recent({
   const [resuming, setResuming] = useState<string>();
   const [note, setNote] = useState<{ text: string; failed: boolean }>();
   const chats = snapshot.recent.filter(
-    (chat) => (!scope || chat.project === scope.id) && (provider === 'all' || chat.provider === provider),
+    (chat) => !chat.agentId && (!scope || chat.project === scope.id) && (provider === 'all' || chat.provider === provider),
   );
   const shown = all ? chats : chats.slice(0, RECENT_SHOWN);
 
@@ -262,18 +261,17 @@ function terminalDetail(session: SessionInfo): string {
 /* A host sends its whole view several times a second while an agent works; each row redraws only when its own
    item changed, which the hub keeps as the same object otherwise. */
 const ChatRow = memo(function ChatRow({ core, chat, shown, place }: { core: string; chat: ChatInfo; shown: AgentShown; place?: string }) {
-  const display = agentDisplay(shown);
   return (
     <Row
-      mark={<AgentFace agentId={chat.agentId} provider={chat.provider} group={display.group} size={20} />}
+      mark={<AgentFace agentId={chat.agentId} provider={chat.provider} group={shown.group} size={20} />}
       name={chat.name}
       title={shown.title}
       place={place}
       end={
         <>
-          {display.subagents ? <SubagentCount count={display.subagents} /> : null}
-          {display.tasks ? <ShellCount count={display.tasks} /> : null}
-          <AgentState group={display.group} />
+          {shown.subagents ? <SubagentCount count={shown.subagents} /> : null}
+          {shown.tasks ? <ShellCount count={shown.tasks} /> : null}
+          <AgentState group={shown.group} />
         </>
       }
       onPress={() => router.push(`/device/${core}/chat/${chat.agentId}`)}
@@ -293,7 +291,7 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
   place?: string;
   onOpen: () => void;
 }) {
-  const { group } = agentDisplay(shown);
+  const { group } = shown;
   return (
     <Row
       mark={<AgentFace agentId={session.agentId} provider={session.agentType ?? 'agent'} group={group} size={20} />}

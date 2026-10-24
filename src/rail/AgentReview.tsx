@@ -1,56 +1,27 @@
 import { useEffect, useState } from "react";
-import { git } from "../api/git";
 import { coreCall } from "../api/core";
 import { sendToAgent } from "../agents/sendToAgent";
 import { joinPath } from "../lib/paths";
 import * as cmd from "../state/commands";
 import { requestOpenFile } from "../state/commands/editor";
-import { agentDisplayOf } from "../state/selectors";
 import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
 import type { AgentWorktree } from "../state/types";
-import type { CorePort } from "../ports/projectPorts";
 import { IconCheck, IconClose, IconExternal } from "../ui/Icons";
-import { useInbox } from "./useInbox";
 
 const SHOWN_FILES = 6;
 
-/** One module's test results, as the core words them for agents too. */
-interface ModuleTests {
-    readonly cwd: string;
-    readonly passed: number;
-    readonly failed: number;
-    readonly skipped: number;
-    readonly failures: readonly { test: string; message: string; line?: number | null }[];
-}
-
-interface Evidence {
+/** What an agent's worktree shows of its work, as the core works it out. */
+interface Review {
     readonly changed: readonly string[];
     readonly uncommitted: number;
-    readonly tests: readonly ModuleTests[];
+    readonly summary: string | null;
+    readonly tested: boolean;
+    readonly passed: number;
+    readonly failed: number;
     readonly url: string | null;
-}
-
-/** What an agent's worktree shows about its work: changes, test results and where its server listens. */
-async function gatherEvidence(agentId: string, worktree: AgentWorktree): Promise<Evidence> {
-    const base = worktree.base ?? worktree.startSha;
-    const [compare, status, tests, listening] = await Promise.all([
-        git.compare(worktree.path, base, "HEAD").catch(() => null),
-        git.status(worktree.path).catch(() => null),
-        coreCall<ModuleTests[]>("testResults", { project: worktree.path }).catch(() => []),
-        coreCall<CorePort[]>("ports").catch(() => []),
-    ]);
-    const uncommitted = status?.files.map((file) => file.path) ?? [];
-    const changed = [...new Set([...(compare?.files.map((file) => file.path) ?? []), ...uncommitted])];
-    const port = listening.find((candidate) => candidate.owner.kind !== "terminal" && candidate.owner.agentId === agentId);
-    return { changed, uncommitted: uncommitted.length, tests, url: port ? `http://localhost:${port.port}` : null };
-}
-
-function failureReport(tests: readonly ModuleTests[]): string {
-    const lines = tests.flatMap(({ failures }) =>
-        failures.map((failure) => `- ${failure.test}: ${failure.message}${failure.line ? ` (line ${failure.line})` : ""}`),
-    );
-    return `These tests fail in your worktree:\n${lines.join("\n")}\nFix them and run the tests again.`;
+    /** What to tell the agent about the tests that fail, while some do. */
+    readonly failures: string | null;
 }
 
 export function AgentReview({
@@ -65,13 +36,12 @@ export function AgentReview({
     onClose: () => void;
 }) {
     const title = useStore((state) => state.agents[agentId]?.title || "Agent");
-    const display = useStore((state) => agentDisplayOf(state, agentId));
-    const handoff = useInbox().inbox.items.find((item) => item.agentId === agentId)?.handoff ?? null;
-    const [evidence, setEvidence] = useState<Evidence | null>(null);
+    const display = useStore((state) => state.agentStatus[agentId]);
+    const [evidence, setEvidence] = useState<Review | null>(null);
 
     useEffect(() => {
         let cancelled = false;
-        void gatherEvidence(agentId, worktree)
+        void coreCall<Review>("agentReview", { agentId })
             .then((found) => {
                 if (!cancelled) setEvidence(found);
             })
@@ -81,9 +51,7 @@ export function AgentReview({
         };
     }, [agentId, worktree]);
 
-    const passed = evidence?.tests.reduce((sum, module) => sum + module.passed, 0) ?? 0;
-    const failed = evidence?.tests.reduce((sum, module) => sum + module.failed, 0) ?? 0;
-    const summary = handoff?.result?.split("\n").find((line) => line.trim()) ?? null;
+    const { passed = 0, failed = 0, summary = null, failures = null } = evidence ?? {};
     const left = Math.min(anchor.left, window.innerWidth - 372);
 
     return (
@@ -100,7 +68,7 @@ export function AgentReview({
                 }}>
                 <div className="agent-review-head">
                     <span className="agent-review-title">{title}</span>
-                    <span className={`agent-review-state ${display.group}`}>{display.label}</span>
+                    {display && <span className={`agent-review-state ${display.group}`}>{display.label}</span>}
                     <button className="agent-review-close" onClick={onClose} aria-label="Close">
                         <IconClose size={11} />
                     </button>
@@ -129,7 +97,7 @@ export function AgentReview({
                         )}
                         <div className="agent-review-row">
                             <span className="agent-review-label">Tests</span>
-                            {evidence.tests.length === 0 ? (
+                            {!evidence.tested ? (
                                 <span className="muted">No results yet</span>
                             ) : failed ? (
                                 <span className="agent-review-bad">
@@ -170,12 +138,12 @@ export function AgentReview({
                             <IconExternal size={11} /> Open preview
                         </button>
                     )}
-                    {evidence && failed > 0 && (
+                    {failures && (
                         <button
                             className="agent-review-btn primary"
                             onClick={() => {
                                 onClose();
-                                sendToAgent({ agentId }, { text: failureReport(evidence.tests) });
+                                sendToAgent({ agentId }, { text: failures });
                             }}>
                             Send failures to agent
                         </button>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { queuedLabel, type QueuedMessage } from "./queuedMessages";
+import { queuedLabel } from "./queuedMessages";
+import type { QueuedMessage } from "./types";
 
 const queued = (id: string, text: string, paths: string[] = [], context: QueuedMessage["context"] = []): QueuedMessage => ({
     id,

@@ -1,11 +1,9 @@
-import type { Terminal } from "@xterm/xterm";
+import { DEFAULT_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE, MIN_TERMINAL_FONT_SIZE } from "../api/generated/wire";
 
-export const DEFAULT_TERMINAL_FONT_SIZE = 13;
-const MIN_TERMINAL_FONT_SIZE = 8;
-const MAX_TERMINAL_FONT_SIZE = 32;
+export { DEFAULT_TERMINAL_FONT_SIZE };
 
 interface RegisteredTerminal {
-    term: Terminal;
+    setFontSize: (size: number) => void;
     refit: () => void;
 }
 
@@ -22,7 +20,7 @@ export function currentTerminalFontSize(): number {
 }
 
 export function registerTerminalFontSize(entry: RegisteredTerminal): () => void {
-    entry.term.options.fontSize = current;
+    entry.setFontSize(current);
     terms.add(entry);
     return () => terms.delete(entry);
 }
@@ -30,8 +28,8 @@ export function registerTerminalFontSize(entry: RegisteredTerminal): () => void 
 // A new cell size needs a refit, or the shell keeps drawing to the old grid.
 export function applyTerminalFontSize(value: number): void {
     current = clampTerminalFontSize(value);
-    terms.forEach(({ term, refit }) => {
-        term.options.fontSize = current;
+    terms.forEach(({ setFontSize, refit }) => {
+        setFontSize(current);
         refit();
     });
 }

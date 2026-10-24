@@ -2,8 +2,9 @@
 //! of the core that attaches to one chat as a phone would, seals what it
 //! hears with the key in the link, and hands it to the accounts server, which
 //! passes it to the signed-in people watching. Viewers never reach the core:
-//! the one thing they may do is ask, sealed, for an older page of the chat or
-//! a picture pasted into it, and the core decides what to answer.
+//! the one thing they may do is ask, sealed, for an older page of the chat, what
+//! one of its tool calls changed and printed, or a picture pasted into it, and
+//! the core decides what to answer.
 
 mod link;
 mod seal;
@@ -79,9 +80,6 @@ struct Running {
     /// The chat the last snapshot was asked of. A chat started again under
     /// the same agent is a new one, and gets a snapshot of its own.
     chat: Option<usize>,
-    /// The permission requests the chat waits on, as viewers last heard.
-    /// Answering one is not a chat event, so viewers are told this instead.
-    waiting: Vec<String>,
 }
 
 impl Drop for Running {
@@ -225,7 +223,6 @@ fn begin(core: &Arc<Core>, inner: &mut Inner, stored: StoredShare) -> CoreResult
             seq: 0,
             feed: None,
             chat: None,
-            waiting: Vec::new(),
         },
     );
     tell(core, inner, ToLink::Open(id));
@@ -330,25 +327,8 @@ pub(crate) fn restore(core: &Arc<Core>) {
     save(core, &inner);
 }
 
-/// The permission requests a chat waits on.
-fn waiting_on(core: &Core, agent_id: &str) -> Vec<String> {
-    let mut waiting = core
-        .chats
-        .get(agent_id)
-        .map(|chat| chat.info().pending_permissions)
-        .unwrap_or_default();
-    waiting.sort();
-    waiting
-}
-
 /// The plain text of a snapshot: the chat as it stands, from its last turns.
-fn snapshot_text(
-    core: &Core,
-    agent_id: &str,
-    title: Option<String>,
-    attachment: &Value,
-    waiting: &[String],
-) -> Value {
+fn snapshot_text(core: &Core, agent_id: &str, title: Option<String>, attachment: &Value) -> Value {
     let info = core.chats.get(agent_id).map(|chat| chat.info());
     json!({
         "type": "snapshot",
@@ -361,7 +341,6 @@ fn snapshot_text(
             "home": std::env::var_os("HOME").map(PathBuf::from),
         },
         "attachment": attachment,
-        "waiting": waiting,
     })
 }
 
@@ -395,10 +374,8 @@ fn published<'a>(core: &Core, id: &str, frame: &'a [u8]) -> Option<(Cow<'a, [u8]
                 .map(str::to_owned);
             let agent_id = running.stored.agent_id.clone();
             let title = running.stored.title.clone();
-            running.waiting = waiting_on(core, &agent_id);
-            let waiting = running.waiting.clone();
             drop(inner);
-            let text = snapshot_text(core, &agent_id, title, &attachment, &waiting);
+            let text = snapshot_text(core, &agent_id, title, &attachment);
             Some((Cow::Owned(serde_json::to_vec(&text).ok()?), true))
         }
         ServerMessage::Event {
@@ -440,8 +417,17 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
     #[derive(Deserialize)]
     #[serde(tag = "type", rename_all = "camelCase")]
     enum Ask {
-        Page { feed: String, before: u64 },
-        File { path: PathBuf },
+        Page {
+            feed: String,
+            before: u64,
+        },
+        #[serde(rename_all = "camelCase")]
+        ToolDetail {
+            tool_call_id: String,
+        },
+        File {
+            path: PathBuf,
+        },
     }
     #[derive(Deserialize)]
     struct Question {
@@ -459,11 +445,14 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
     let reply = match question.ask {
         Ask::Page { feed, before } => {
             match chat::history(&core, &agent_id, &feed, before, PAGE_TURNS) {
-                Ok(crate::protocol::Response::ChatHistory {
-                    events,
-                    older_before,
-                }) => json!({ "page": { "events": events, "olderBefore": older_before } }),
+                Ok(crate::protocol::Response::ChatHistory { page }) => json!({ "page": page }),
                 Ok(_) => json!({ "error": "the host answered something else" }),
+                Err(error) => json!({ "error": error.to_string() }),
+            }
+        }
+        Ask::ToolDetail { tool_call_id } => {
+            match chat::tool_detail(&core, &agent_id, &tool_call_id) {
+                Ok(detail) => json!({ "toolDetail": detail }),
                 Err(error) => json!({ "error": error.to_string() }),
             }
         }

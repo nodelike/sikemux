@@ -1,7 +1,8 @@
 import { memo, useMemo, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { collapseDiff, type DiffLine, type ToolDiff } from '@mac/chat/diff';
+import { collapseDiff } from '@mac/chat/diff';
+import type { DiffLine, ToolDiff } from '@mac/chat/types';
 import { counted } from '@/devices/words';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
@@ -53,13 +54,27 @@ export const DiffRow = memo(function DiffRow({ line, numbered }: { line: DiffLin
   );
 });
 
-/** What an edit changed, as the Mac draws it under the call: the file, its counts, numbered lines and the unchanged runs folded. */
-export function DiffBody({ diff, fold }: { diff: ToolDiff; fold: string }) {
+const NO_LINES: DiffLine[] = [];
+
+/**
+ * What an edit changed, as the Mac draws it under the call: the file, its counts, numbered lines and the unchanged runs
+ * folded. `waiting` stands in for the lines until the host has sent them.
+ */
+export function DiffBody({
+  diff,
+  fold,
+  waiting,
+}: {
+  diff: Omit<ToolDiff, 'lines'> & { lines?: DiffLine[] };
+  fold: string;
+  waiting?: string;
+}) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const [expanded, setExpanded] = useFold(`${fold}/context`, false);
   const [whole, setWhole] = useFold(`${fold}/rows`, false);
-  const rows = useMemo(() => collapseDiff(diff.lines, expanded ? Number.MAX_SAFE_INTEGER : CONTEXT).rows, [diff.lines, expanded]);
+  const lines = diff.lines ?? NO_LINES;
+  const rows = useMemo(() => collapseDiff(lines, expanded ? Number.MAX_SAFE_INTEGER : CONTEXT).rows, [lines, expanded]);
   const shown = whole ? rows : rows.slice(0, FIRST_ROWS);
   const more = rows.length - shown.length;
   return (
@@ -72,6 +87,7 @@ export function DiffBody({ diff, fold }: { diff: ToolDiff; fold: string }) {
         <Text style={[styles.mono, styles.count, styles.addedInk]}>+{diff.adds}</Text>
         <Text style={[styles.mono, styles.count, styles.deletedInk]}>−{diff.dels}</Text>
       </View>
+      {waiting ? <Text style={[styles.mono, styles.waiting]}>{waiting}</Text> : null}
       <SidewaysRows>
         {shown.map((row, index) =>
           'gap' in row ? (
@@ -124,5 +140,6 @@ const makeStyles = (colors: Palette) =>
     deletedMark: { backgroundColor: translucent(colors.gitDeleted, 0.26) },
     gap: { height: 20, justifyContent: 'center', paddingLeft: 42 },
     gapText: { fontSize: 10.5, color: colors.inkFaint },
+    waiting: { paddingHorizontal: 9, paddingVertical: 6, fontSize: 10.5, color: colors.inkFaint },
     more: { paddingHorizontal: 9, paddingVertical: 7, borderTopWidth: 1, borderTopColor: colors.border },
   });

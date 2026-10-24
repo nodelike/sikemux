@@ -4,6 +4,12 @@
   "version": "0.1.0",
   "sikemux": ">=0.4",
   "callTimeoutSecs": 60,
+  "views": {
+    "channelsView": { "everySecs": 300 },
+    "historyView": { "everySecs": 20 },
+    "threadView": { "everySecs": 20 }
+  },
+  "writes": ["post", "setDefault"],
   "tools": [
     {
       "name": "slack_thread",

@@ -1,10 +1,8 @@
 import { formatDuration } from "../../../plugin-api/format";
 import { Tooltip } from "../../../plugin-api/ui";
-import type { RundeckExecution } from "../api";
-import { isLiveStatus } from "../shape";
-import { statusKind } from "./branchStyle";
+import type { RundeckRun } from "../types.generated";
 import { BranchChip, Status } from "./parts";
-import { byDay, clockTime, runSeconds, startedAt } from "./runStats";
+import { byDay, clockTime, runSecs } from "./runStats";
 
 const initials = (user: string | null) =>
     (user ?? "?")
@@ -15,21 +13,7 @@ const initials = (user: string | null) =>
         .join("");
 
 /** Runs grouped by day. Each bar is the run's time, with a tick at that job's usual time. */
-export function RunHistory({
-    runs,
-    branchOf,
-    usualOf,
-    now,
-    showJob,
-    onOpen,
-}: {
-    runs: RundeckExecution[];
-    branchOf: (ex: RundeckExecution) => string | null;
-    usualOf: (ex: RundeckExecution) => number | null;
-    now: number;
-    showJob: boolean;
-    onOpen: (ex: RundeckExecution) => void;
-}) {
+export function RunHistory({ runs, now, showJob, onOpen }: { runs: RundeckRun[]; now: number; showJob: boolean; onOpen: (run: RundeckRun) => void }) {
     return (
         <div className={`rnd-history${showJob ? " with-job" : ""}`} role="list">
             {byDay(runs).map(({ day, runs: dayRuns }) => (
@@ -39,17 +23,22 @@ export function RunHistory({
                         <span>{dayRuns.length}</span>
                     </div>
                     {dayRuns.map((ex) => {
-                        const seconds = runSeconds(ex, now);
-                        const usual = usualOf(ex);
+                        const seconds = runSecs(ex, now);
+                        const usual = ex.usualSecs;
                         const scale = Math.max((usual ?? seconds) * 1.7, seconds, 1);
-                        const live = isLiveStatus(ex.status);
+                        const live = ex.live;
                         return (
-                            <button key={ex.id} className="rnd-history-row" role="listitem" onClick={() => onOpen(ex)} title={`Open run #${ex.id}`}>
+                            <button
+                                key={ex.executionId}
+                                className="rnd-history-row"
+                                role="listitem"
+                                onClick={() => onOpen(ex)}
+                                title={`Open run #${ex.executionId}`}>
                                 <Status status={ex.status} label="" />
-                                <span className="rnd-history-id">#{ex.id}</span>
-                                {showJob && <span className="rnd-history-job">{ex.job?.name ?? "—"}</span>}
+                                <span className="rnd-history-id">#{ex.executionId}</span>
+                                {showJob && <span className="rnd-history-job">{ex.jobName ?? "—"}</span>}
                                 <span className="rnd-history-branch">
-                                    <BranchChip branch={branchOf(ex)} />
+                                    <BranchChip branch={ex.branch} />
                                 </span>
                                 <span className="rnd-history-who">
                                     <span className="rnd-avatar" aria-hidden="true">
@@ -57,9 +46,9 @@ export function RunHistory({
                                     </span>
                                     <span>{ex.user ?? "—"}</span>
                                 </span>
-                                <span className="rnd-history-at">{clockTime(startedAt(ex))}</span>
+                                <span className="rnd-history-at">{clockTime(ex.startedAt)}</span>
                                 <span className="rnd-dbar" aria-hidden="true">
-                                    <i className={statusKind(ex.status)} style={{ width: `${Math.min(100, (seconds / scale) * 100)}%` }} />
+                                    <i className={ex.statusKind} style={{ width: `${Math.min(100, (seconds / scale) * 100)}%` }} />
                                     {usual !== null && <b style={{ left: `${(usual / scale) * 100}%` }} />}
                                 </span>
                                 <span className={`rnd-history-took${live ? " live" : ""}`}>{live ? "running" : formatDuration(seconds * 1000)}</span>
@@ -79,17 +68,15 @@ export function DeployTimes({
     runs,
     usual,
     now,
-    branchOf,
     onOpen,
 }: {
-    runs: RundeckExecution[];
+    runs: RundeckRun[];
     usual: number | null;
     now: number;
-    branchOf: (ex: RundeckExecution) => string | null;
-    onOpen: (ex: RundeckExecution) => void;
+    onOpen: (run: RundeckRun) => void;
 }) {
     const shown = runs.slice(0, SLOTS).reverse();
-    const longest = Math.max(60, (usual ?? 0) * 1.2, ...shown.map((ex) => runSeconds(ex, now)));
+    const longest = Math.max(60, (usual ?? 0) * 1.2, ...shown.map((ex) => runSecs(ex, now)));
     const step = longest > 1200 ? 600 : longest > 480 ? 300 : longest > 180 ? 120 : 60;
     const top = Math.ceil(longest / step) * step;
     const ticks = Array.from({ length: top / step + 1 }, (_, i) => i * step);
@@ -111,15 +98,15 @@ export function DeployTimes({
                         <span key={`empty-${i}`} className="rnd-chart-col empty" />
                     ))}
                     {shown.map((ex) => {
-                        const seconds = runSeconds(ex, now);
-                        const branch = branchOf(ex);
+                        const seconds = runSecs(ex, now);
+                        const branch = ex.branch;
                         return (
                             <Tooltip
-                                key={ex.id}
+                                key={ex.executionId}
                                 side="top"
-                                label={`#${ex.id}${branch ? ` · ${branch}` : ""} · ${formatDuration(seconds * 1000)} · ${ex.user ?? ""}`}>
-                                <button className="rnd-chart-col" onClick={() => onOpen(ex)} aria-label={`Open run #${ex.id}`}>
-                                    <i className={statusKind(ex.status)} style={{ height: `${Math.max(3, (seconds / top) * 100)}%` }} />
+                                label={`#${ex.executionId}${branch ? ` · ${branch}` : ""} · ${formatDuration(seconds * 1000)} · ${ex.user ?? ""}`}>
+                                <button className="rnd-chart-col" onClick={() => onOpen(ex)} aria-label={`Open run #${ex.executionId}`}>
+                                    <i className={ex.statusKind} style={{ height: `${Math.max(3, (seconds / top) * 100)}%` }} />
                                 </button>
                             </Tooltip>
                         );

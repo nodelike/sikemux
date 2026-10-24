@@ -1,6 +1,7 @@
 import { browserSignIn, createPluginBackend } from "../../plugin-api/backend";
 import { openSignInUrl, swallow } from "../../plugin-api/host";
 import { AWS_PLUGIN } from "./kinds";
+import type { AwsLogLine } from "./types.generated";
 
 const backend = createPluginBackend(AWS_PLUGIN.id, {
     signedOutCategories: ["aws-token-expired", "aws-no-credentials", "aws-cli-missing"],
@@ -26,15 +27,6 @@ export interface AwsIdentity {
     message: string | null;
 }
 
-export type AgentProfileSource = "environment" | "project" | "default" | "automatic";
-
-/** What a project's agents start on as AWS_PROFILE, and what the person picked for it. */
-export interface AgentProfilePicks {
-    project: string | null;
-    default: string | null;
-    effective: { profile: string | null; source: AgentProfileSource } | null;
-}
-
 /** Whether the AWS CLI is installed, and whether Homebrew is there to install it. */
 export interface AwsSetup {
     cli: boolean;
@@ -45,67 +37,6 @@ export interface AwsLoginResult {
     success: boolean;
     stdout: string;
     stderr: string;
-}
-
-export interface EcsCluster {
-    name: string;
-    arn: string;
-    services_count: number | null;
-    tasks_running: number | null;
-    tasks_pending: number | null;
-    status: string | null;
-}
-
-export interface EcsService {
-    name: string;
-    arn: string;
-    desired: number | null;
-    running: number | null;
-    pending: number | null;
-    status: string | null;
-    primary_created_at: string | null;
-    primary_updated_at: string | null;
-}
-
-export interface EcsTask {
-    arn: string;
-    task_id: string;
-    status: string | null;
-    desired_status: string | null;
-    health_status: string | null;
-    cpu: string | null;
-    memory: string | null;
-    started_at: string | null;
-    last_status_change: string | null;
-    availability_zone: string | null;
-    private_ip: string | null;
-}
-
-export interface Ec2Instance {
-    instance_id: string;
-    name: string | null;
-    state: string | null;
-    instance_type: string | null;
-    private_ip: string | null;
-    public_ip: string | null;
-    launch_time: string | null;
-}
-
-export interface LambdaFn {
-    name: string;
-    runtime: string | null;
-    last_modified: string | null;
-    memory_size: number | null;
-    timeout: number | null;
-    handler: string | null;
-}
-
-export interface SqsQueue {
-    name: string;
-    url: string;
-    messages: string | null;
-    in_flight: string | null;
-    delayed: string | null;
 }
 
 export interface EcsTaskLog {
@@ -121,54 +52,39 @@ export interface EcsServiceLog {
     region: string | null;
 }
 
-export interface BillingService {
-    service: string;
-    amount: string;
-    unit: string;
-}
-
-export interface BillingMonth {
-    period_start: string;
-    period_end: string;
-    total: string;
-    unit: string;
-    is_current: boolean;
-    by_service: BillingService[];
-}
-
-export interface S3Bucket {
-    name: string;
-    created_at: string | null;
+/** Whether AWS calls work as the profile the pane shows. */
+export interface AwsSignInStatus {
+    readonly configured: boolean;
+    readonly ok: boolean;
+    readonly authFailed: boolean;
+    readonly message: string | null;
+    readonly profile: string | null;
+    readonly account: string | null;
 }
 
 export const awsApi = {
+    status: () => backend.call<AwsSignInStatus>("status"),
+    /** The profile the pane shows, which the plugin keeps. */
+    profile: () => backend.call<{ profile: string | null }>("profile"),
+    pickProfile: (profile: string | null) => backend.call<{ profile: string | null }>("setDefaultAccount", { profile }),
     profiles: () => backend.call<AwsProfile[]>("profiles", {}),
     setup: () => backend.call<AwsSetup>("setup", {}),
-    agentProfilePicks: (project: string | null) => backend.call<AgentProfilePicks>("agentProfilePicks", { project }),
-    pickAgentProfile: (project: string | null, profile: string | null) => backend.call<AgentProfilePicks>("pickAgentProfile", { project, profile }),
+    pickAgentProfile: (project: string | null, profile: string | null) => backend.call<unknown>("pickAgentProfile", { project, profile }),
     identity: (profile: string, force = false) => backend.call<AwsIdentity>("identity", { profile, force }),
-    ecsClusters: (profile: string) => backend.call<EcsCluster[]>("ecsClusters", { profile }),
-    ecsServices: (profile: string, cluster: string) => backend.call<EcsService[]>("ecsServices", { profile, cluster }),
-    ecsTasks: (profile: string, cluster: string, service: string) => backend.call<EcsTask[]>("ecsTasks", { profile, cluster, service }),
     ecsTaskLogConfig: (profile: string, cluster: string, taskArn: string) =>
         backend.call<EcsTaskLog>("ecsTaskLogConfig", { profile, cluster, taskArn }),
     ecsServiceLogConfig: (profile: string, cluster: string, service: string) =>
         backend.call<EcsServiceLog>("ecsServiceLogConfig", { profile, cluster, service }),
-    ec2Instances: (profile: string) => backend.call<Ec2Instance[]>("ec2Instances", { profile }),
-    lambdaFunctions: (profile: string) => backend.call<LambdaFn[]>("lambdaFunctions", { profile }),
-    sqsQueues: (profile: string) => backend.call<SqsQueue[]>("sqsQueues", { profile }),
-    billingMonths: (profile: string, monthsBack = 5) => backend.call<BillingMonth[]>("billingMonths", { profile, monthsBack }),
-    s3Buckets: (profile: string) => backend.call<S3Bucket[]>("s3Buckets", { profile }),
 
     /** Waits for the person to approve in their browser, so it streams rather than calls: a call would time out. */
     ssoLogin: (profile: string) =>
-        browserSignIn<AwsLoginResult>(backend, "ssoLogin", (url) => void openSignInUrl(url).catch(swallow("open AWS")), { profile }),
+        browserSignIn<AwsLoginResult>(backend, "signIn", (url) => void openSignInUrl(url).catch(swallow("open AWS")), { profile }),
 
     tailLogs: (
         params: { profile: string; logGroup: string; logStream: string | null; since: string },
-        handlers: { onLine: (line: string) => void; onEnd: () => void; onError: (message: string) => void },
+        handlers: { onLine: (line: AwsLogLine) => void; onEnd: () => void; onError: (message: string) => void },
     ) =>
-        backend.stream<string>("tailLogs", params, {
+        backend.stream<AwsLogLine>("tailLogs", params, {
             onItem: handlers.onLine,
             onEnd: handlers.onEnd,
             onError: (error) => handlers.onError(error.message),

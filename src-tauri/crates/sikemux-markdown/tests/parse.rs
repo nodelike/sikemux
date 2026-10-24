@@ -8,6 +8,7 @@ const CHAT: Options = Options {
     html_as_text: false,
     file_links: true,
     html_images: false,
+    file_paths: false,
 };
 
 fn blocks(text: &str, options: Options) -> Value {

@@ -1,339 +1,139 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 
-use sikemux_core::protocol::SessionId;
+use sikemux_core::protocol::{SessionId, StreamId};
 use sikemux_process::sync::Locked;
 use tauri::ipc::{Channel, Response};
 
-use crate::error::{AppError, AppResult};
-
-/// The core counts this many subscribers per session too, but sees the whole
-/// app as one of them.
-const MAX_CHANNELS_PER_SESSION: usize = 16;
-const MAX_SUB_ID_PROBES: usize = MAX_CHANNELS_PER_SESSION + 1;
-
-/// One attached xterm, and how many bytes it was sent but has not yet
-/// reported writing.
-struct Subscriber {
+/// One pane showing a terminal: the webview channel it draws from, and the
+/// core's stream of frames for it. The stream changes when the core comes
+/// back after an update; the pane keeps its id.
+struct Pane {
+    session: SessionId,
     channel: Channel<Response>,
-    unacked: usize,
+    stream: StreamId,
 }
 
-/// The app's side of one core session: the webview channels showing it.
 #[derive(Default)]
-struct Streams {
-    subscribers: HashMap<u32, Subscriber>,
-    pending_attaches: usize,
-    /// Whether the core sends this session's output to the app.
-    core_subscribed: bool,
-    /// What the core believes the app still owes it, so acks can be
-    /// forwarded as the slowest channel catches up.
-    core_unacked: usize,
+struct Panes {
+    panes: HashMap<u32, Pane>,
+    by_stream: HashMap<StreamId, u32>,
 }
 
-impl Streams {
-    fn slowest(&self) -> usize {
-        self.subscribers
-            .values()
-            .map(|subscriber| subscriber.unacked)
-            .max()
-            .unwrap_or(0)
-    }
-
-    fn is_unused(&self) -> bool {
-        self.subscribers.is_empty() && self.pending_attaches == 0 && !self.core_subscribed
-    }
-}
-
-/// What a caller must tell the core after a channel left.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Release {
-    Nothing,
-    Ack(usize),
-    Detach,
-}
-
-pub(crate) struct Delivery {
-    channels: Vec<(u32, Channel<Response>)>,
-}
-
-impl Delivery {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.channels.is_empty()
-    }
-
-    /// Returns the subscribers whose webview is gone.
-    pub(crate) fn send(&self, bytes: &[u8]) -> Vec<u32> {
-        self.channels
-            .iter()
-            .filter(|(_, channel)| channel.send(Response::new(bytes.to_vec())).is_err())
-            .map(|(sub_id, _)| *sub_id)
-            .collect()
-    }
-}
-
-/// Every session this app has a channel for, keyed by core session id.
+/// Every pane this app shows a terminal in, keyed by the id the page holds.
 #[derive(Default)]
 pub(crate) struct StreamTable {
-    sessions: Mutex<HashMap<SessionId, Streams>>,
-    next_sub_id: AtomicU32,
+    panes: Mutex<Panes>,
+    next_pane: AtomicU32,
 }
 
 impl StreamTable {
-    pub(crate) fn lock(&self) -> StreamGuard<'_> {
-        StreamGuard {
-            sessions: self.sessions.locked(),
-            next_sub_id: &self.next_sub_id,
+    pub(crate) fn add(
+        &self,
+        session: SessionId,
+        channel: Channel<Response>,
+        stream: StreamId,
+    ) -> u32 {
+        let mut panes = self.panes.locked();
+        let pane = loop {
+            let pane = self.next_pane.fetch_add(1, Ordering::Relaxed);
+            if pane != 0 && !panes.panes.contains_key(&pane) {
+                break pane;
+            }
+        };
+        panes.by_stream.insert(stream, pane);
+        panes.panes.insert(
+            pane,
+            Pane {
+                session,
+                channel,
+                stream,
+            },
+        );
+        pane
+    }
+
+    /// Hands a frame to the pane it is for. Answers the stream when that
+    /// pane's webview is gone, for the caller to end.
+    pub(crate) fn deliver(&self, stream: StreamId, frame: &[u8]) -> Option<StreamId> {
+        let channel = {
+            let panes = self.panes.locked();
+            let pane = panes.by_stream.get(&stream)?;
+            panes.panes.get(pane)?.channel.clone()
+        };
+        if channel.send(Response::new(frame.to_vec())).is_ok() {
+            return None;
         }
+        let mut panes = self.panes.locked();
+        let pane = panes.by_stream.remove(&stream)?;
+        panes.panes.remove(&pane);
+        Some(stream)
     }
 
-    fn with<T>(&self, work: impl FnOnce(&mut StreamGuard<'_>) -> T) -> T {
-        work(&mut self.lock())
+    pub(crate) fn stream(&self, pane: u32) -> Option<StreamId> {
+        self.panes.locked().panes.get(&pane).map(|pane| pane.stream)
     }
 
-    /// Hands one chunk of output to every channel of the session, charging it
-    /// against each one's credit.
-    pub(crate) fn output(&self, id: SessionId, bytes: &[u8]) -> Delivery {
-        let channels = self.with(|guard| {
-            let Some(streams) = guard.sessions.get_mut(&id) else {
-                return Vec::new();
-            };
-            streams.core_unacked += bytes.len();
-            streams
-                .subscribers
-                .iter_mut()
-                .map(|(sub_id, subscriber)| {
-                    subscriber.unacked += bytes.len();
-                    (*sub_id, subscriber.channel.clone())
-                })
-                .collect()
-        });
-        Delivery { channels }
+    pub(crate) fn remove(&self, pane: u32) -> Option<StreamId> {
+        let mut panes = self.panes.locked();
+        let removed = panes.panes.remove(&pane)?;
+        panes.by_stream.remove(&removed.stream);
+        Some(removed.stream)
     }
 
-    pub(crate) fn drop_dead(&self, id: SessionId, dead: &[u32]) {
-        self.with(|guard| {
-            if let Some(streams) = guard.sessions.get_mut(&id) {
-                for sub_id in dead {
-                    streams.subscribers.remove(sub_id);
-                }
-            }
-        });
+    /// The channels of every pane showing `session`.
+    pub(crate) fn channels(&self, session: SessionId) -> Vec<Channel<Response>> {
+        self.panes
+            .locked()
+            .panes
+            .values()
+            .filter(|pane| pane.session == session)
+            .map(|pane| pane.channel.clone())
+            .collect()
     }
 
-    /// Records a channel's progress. Returns how much the core can be told,
-    /// which is how far the slowest channel has come since it was last told.
-    pub(crate) fn ack(&self, id: SessionId, sub_id: u32, bytes: usize) -> Option<usize> {
-        self.with(|guard| {
-            let streams = guard.sessions.get_mut(&id)?;
-            let subscriber = streams.subscribers.get_mut(&sub_id)?;
-            subscriber.unacked = subscriber.unacked.saturating_sub(bytes);
-            guard.settle(id)
-        })
+    /// Forgets every pane, answering their channels.
+    pub(crate) fn take_all(&self) -> Vec<Channel<Response>> {
+        let mut panes = self.panes.locked();
+        panes.by_stream.clear();
+        panes.panes.drain().map(|(_, pane)| pane.channel).collect()
     }
 
-    /// Takes the channels to tell the session is gone, then forgets it if
-    /// nothing else holds it.
-    pub(crate) fn exited(&self, id: SessionId) -> Delivery {
-        let channels = self
-            .with(|guard| {
-                let streams = guard.sessions.get_mut(&id)?;
-                let channels = streams
-                    .subscribers
-                    .iter()
-                    .map(|(sub_id, subscriber)| (*sub_id, subscriber.channel.clone()))
-                    .collect();
-                guard.forget_if_unused(id);
-                Some(channels)
-            })
-            .unwrap_or_default();
-        Delivery { channels }
+    /// Forgets every pane without telling it anything, answering the streams
+    /// the core was sending.
+    pub(crate) fn release_all(&self) -> Vec<StreamId> {
+        let mut panes = self.panes.locked();
+        panes.by_stream.clear();
+        panes.panes.drain().map(|(_, pane)| pane.stream).collect()
     }
 
-    pub(crate) fn channels(&self, id: SessionId) -> Delivery {
-        let channels = self.with(|guard| {
-            guard
-                .sessions
-                .get(&id)
-                .map(|streams| {
-                    streams
-                        .subscribers
-                        .iter()
-                        .map(|(sub_id, subscriber)| (*sub_id, subscriber.channel.clone()))
-                        .collect()
-                })
-                .unwrap_or_default()
-        });
-        Delivery { channels }
+    /// Every pane and the session it shows.
+    pub(crate) fn panes(&self) -> Vec<(u32, SessionId)> {
+        self.panes
+            .locked()
+            .panes
+            .iter()
+            .map(|(id, pane)| (*id, pane.session))
+            .collect()
     }
 
-    /// Forgets every session at once, returning what must hear that their
-    /// processes are gone.
-    pub(crate) fn take_all(&self) -> Vec<Delivery> {
-        self.with(|guard| {
-            std::mem::take(&mut *guard.sessions)
-                .into_values()
-                .map(|streams| {
-                    let channels = streams
-                        .subscribers
-                        .into_iter()
-                        .map(|(sub_id, subscriber)| (sub_id, subscriber.channel))
-                        .collect();
-                    Delivery { channels }
-                })
-                .collect()
-        })
-    }
-
-    /// Forgets every session without telling anyone it ended, returning the
-    /// ones the core was streaming to the app.
-    pub(crate) fn release_all(&self) -> Vec<SessionId> {
-        self.with(|guard| {
-            std::mem::take(&mut *guard.sessions)
-                .into_iter()
-                .filter(|(_, streams)| streams.core_subscribed)
-                .map(|(id, _)| id)
-                .collect()
-        })
-    }
-
-    /// Sessions the core was streaming to the app.
-    pub(crate) fn core_subscribed(&self) -> Vec<SessionId> {
-        self.with(|guard| {
-            guard
-                .sessions
-                .iter()
-                .filter(|(_, streams)| streams.core_subscribed)
-                .map(|(id, _)| *id)
-                .collect()
-        })
-    }
-
-    /// A new connection streams the session afresh and owes nothing yet.
-    pub(crate) fn restart(&self, id: SessionId) {
-        self.with(|guard| {
-            if let Some(streams) = guard.sessions.get_mut(&id) {
-                streams.core_unacked = 0;
-            }
-        });
+    /// The pane gets its frames from `stream` now, sent the screen afresh.
+    pub(crate) fn restream(&self, pane: u32, stream: StreamId, frame: &[u8]) {
+        let mut panes = self.panes.locked();
+        let Some(entry) = panes.panes.get_mut(&pane) else {
+            return;
+        };
+        let old = std::mem::replace(&mut entry.stream, stream);
+        let channel = entry.channel.clone();
+        panes.by_stream.remove(&old);
+        panes.by_stream.insert(stream, pane);
+        drop(panes);
+        let _ = channel.send(Response::new(frame.to_vec()));
     }
 
     pub(crate) fn subscriber_count(&self) -> usize {
-        self.with(|guard| {
-            guard
-                .sessions
-                .values()
-                .map(|streams| streams.subscribers.len())
-                .sum()
-        })
-    }
-}
-
-/// Held while deciding what to ask the core, and while queueing the request,
-/// so the core sees attaches and detaches in the order they were decided.
-pub(crate) struct StreamGuard<'a> {
-    sessions: MutexGuard<'a, HashMap<SessionId, Streams>>,
-    next_sub_id: &'a AtomicU32,
-}
-
-impl StreamGuard<'_> {
-    pub(crate) fn begin_attach(&mut self, id: SessionId) -> AppResult<()> {
-        let streams = self.sessions.entry(id).or_default();
-        let full = streams.subscribers.len() + streams.pending_attaches >= MAX_CHANNELS_PER_SESSION;
-        if !full {
-            streams.pending_attaches += 1;
-            return Ok(());
-        }
-        self.forget_if_unused(id);
-        Err(AppError::Pty("PTY subscriber capacity reached".into()))
-    }
-
-    /// The core answered an attach with a replay: from here it sends every
-    /// byte after it, and owes the app nothing from before.
-    pub(crate) fn finish_attach(
-        &mut self,
-        id: SessionId,
-        channel: Channel<Response>,
-    ) -> AppResult<u32> {
-        let streams = self.sessions.entry(id).or_default();
-        streams.pending_attaches = streams.pending_attaches.saturating_sub(1);
-        streams.core_unacked = 0;
-        self.add_channel(id, channel)
-    }
-
-    pub(crate) fn cancel_attach(&mut self, id: SessionId) {
-        if let Some(streams) = self.sessions.get_mut(&id) {
-            streams.pending_attaches = streams.pending_attaches.saturating_sub(1);
-        }
-        self.forget_if_unused(id);
-    }
-
-    /// Adds a channel to a session the core already streams to the app.
-    pub(crate) fn add_channel(
-        &mut self,
-        id: SessionId,
-        channel: Channel<Response>,
-    ) -> AppResult<u32> {
-        let streams = self.sessions.entry(id).or_default();
-        if streams.subscribers.len() >= MAX_CHANNELS_PER_SESSION {
-            return Err(AppError::Pty("PTY subscriber capacity reached".into()));
-        }
-        streams.core_subscribed = true;
-        // A wrapped counter skips zero and every live id rather than replace
-        // a channel a late unsubscribe still names.
-        for _ in 0..MAX_SUB_ID_PROBES {
-            let sub_id = self.next_sub_id.fetch_add(1, Ordering::Relaxed);
-            if sub_id == 0 {
-                continue;
-            }
-            if let Entry::Vacant(entry) = streams.subscribers.entry(sub_id) {
-                entry.insert(Subscriber {
-                    channel,
-                    unacked: 0,
-                });
-                return Ok(sub_id);
-            }
-        }
-        Err(AppError::Pty("PTY subscriber id capacity exhausted".into()))
-    }
-
-    /// Removes a channel. The last one out, with no attach on its way, stops
-    /// the core streaming the session to the app.
-    pub(crate) fn unsubscribe(&mut self, id: SessionId, sub_id: u32) -> Release {
-        let Some(streams) = self.sessions.get_mut(&id) else {
-            return Release::Nothing;
-        };
-        streams.subscribers.remove(&sub_id);
-        if !streams.subscribers.is_empty() || streams.pending_attaches > 0 {
-            return self.settle(id).map_or(Release::Nothing, Release::Ack);
-        }
-        let detach = std::mem::take(&mut streams.core_subscribed);
-        streams.core_unacked = 0;
-        self.forget_if_unused(id);
-        if detach {
-            Release::Detach
-        } else {
-            Release::Nothing
-        }
-    }
-
-    fn settle(&mut self, id: SessionId) -> Option<usize> {
-        let streams = self.sessions.get_mut(&id)?;
-        let slowest = streams.slowest();
-        let forward = streams.core_unacked.checked_sub(slowest)?;
-        if forward == 0 {
-            return None;
-        }
-        streams.core_unacked = slowest;
-        Some(forward)
-    }
-
-    fn forget_if_unused(&mut self, id: SessionId) {
-        if self.sessions.get(&id).is_some_and(Streams::is_unused) {
-            self.sessions.remove(&id);
-        }
+        self.panes.locked().panes.len()
     }
 }
 
@@ -341,7 +141,7 @@ impl StreamGuard<'_> {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::{Release, StreamTable, MAX_CHANNELS_PER_SESSION};
+    use super::StreamTable;
 
     type Received = Arc<Mutex<Vec<Vec<u8>>>>;
 
@@ -357,111 +157,42 @@ mod tests {
         (channel, received)
     }
 
-    fn attached(table: &StreamTable, id: u64) -> (u32, Received) {
-        let (channel, received) = channel();
-        let mut guard = table.lock();
-        guard.begin_attach(id).expect("begin");
-        let sub_id = guard.finish_attach(id, channel).expect("finish");
-        (sub_id, received)
-    }
-
     #[test]
-    fn output_reaches_every_channel_and_acks_follow_the_slowest() {
+    fn frames_reach_the_pane_of_their_stream_and_follow_it_to_a_new_one() {
         let table = StreamTable::default();
-        let (fast, fast_bytes) = attached(&table, 7);
-        let (slow, slow_bytes) = attached(&table, 7);
-        assert!(table.output(7, b"hello").send(b"hello").is_empty());
-        for received in [fast_bytes, slow_bytes] {
-            assert_eq!(
-                received.lock().expect("bytes").as_slice(),
-                [b"hello".to_vec()]
-            );
-        }
-
-        assert_eq!(table.ack(7, fast, 5), None, "the slow channel still owes");
-        assert_eq!(table.ack(7, slow, 3), Some(3));
-        assert_eq!(table.ack(7, slow, 2), Some(2));
-        assert_eq!(table.ack(7, slow, 2), None);
-    }
-
-    #[test]
-    fn the_last_channel_out_detaches_unless_an_attach_is_on_its_way() {
-        let table = StreamTable::default();
-        let (first, _) = attached(&table, 1);
-        let (second, _) = attached(&table, 1);
-        let mut guard = table.lock();
-        assert_eq!(guard.unsubscribe(1, first), Release::Nothing);
-        guard.begin_attach(1).expect("begin");
-        assert_eq!(guard.unsubscribe(1, second), Release::Nothing);
-        assert!(guard.sessions[&1].core_subscribed);
-        let (channel, _) = channel();
-        let third = guard.finish_attach(1, channel).expect("finish");
-        assert_eq!(guard.unsubscribe(1, third), Release::Detach);
-        assert!(!guard
-            .sessions
-            .get(&1)
-            .is_some_and(|streams| streams.core_subscribed));
-        assert_eq!(guard.unsubscribe(1, third), Release::Nothing);
-    }
-
-    #[test]
-    fn a_leaving_slow_channel_releases_what_it_held() {
-        let table = StreamTable::default();
-        let (fast, _) = attached(&table, 3);
-        let (slow, _) = attached(&table, 3);
-        table.output(3, &[0; 10]);
-        assert_eq!(table.ack(3, fast, 10), None);
-        assert_eq!(table.lock().unsubscribe(3, slow), Release::Ack(10));
-    }
-
-    #[test]
-    fn releasing_everything_names_only_what_the_core_streams_to_the_app() {
-        let table = StreamTable::default();
-        let _ = attached(&table, 4);
-        assert_eq!(table.release_all(), vec![4]);
-        assert!(table.take_all().is_empty());
-    }
-
-    #[test]
-    fn a_reconnect_finds_what_the_core_streamed() {
-        let table = StreamTable::default();
-        let (fast, _) = attached(&table, 2);
-        let _ = attached(&table, 4);
-        table.output(2, &[0; 10]);
-        let mut streamed = table.core_subscribed();
-        streamed.sort_unstable();
-        assert_eq!(streamed, vec![2, 4]);
-
-        table.restart(2);
+        let (first, first_frames) = channel();
+        let (second, second_frames) = channel();
+        let pane = table.add(7, first, 11);
+        table.add(7, second, 12);
+        assert_eq!(table.deliver(11, b"a"), None);
+        assert_eq!(table.deliver(12, b"b"), None);
         assert_eq!(
-            table.ack(2, fast, 10),
-            None,
-            "a new connection is owed nothing from before it"
+            first_frames.lock().expect("frames").as_slice(),
+            [b"a".to_vec()]
         );
+        assert_eq!(
+            second_frames.lock().expect("frames").as_slice(),
+            [b"b".to_vec()]
+        );
+
+        table.restream(pane, 21, b"fresh");
+        assert_eq!(table.deliver(11, b"stale"), None);
+        assert_eq!(table.deliver(21, b"c"), None);
+        assert_eq!(
+            first_frames.lock().expect("frames").as_slice(),
+            [b"a".to_vec(), b"fresh".to_vec(), b"c".to_vec()]
+        );
+        assert_eq!(table.stream(pane), Some(21));
+        assert_eq!(table.channels(7).len(), 2);
     }
 
     #[test]
-    fn channel_capacity_counts_attaches_in_flight() {
+    fn releasing_everything_names_the_streams_and_forgets_the_panes() {
         let table = StreamTable::default();
-        let mut guard = table.lock();
-        for _ in 0..MAX_CHANNELS_PER_SESSION {
-            guard.begin_attach(5).expect("below the cap");
-        }
-        assert!(guard.begin_attach(5).is_err());
-        guard.cancel_attach(5);
-        guard.begin_attach(5).expect("a slot came back");
-    }
-
-    #[test]
-    fn wrapped_subscription_ids_skip_zero_and_live_ids() {
-        let table = StreamTable::default();
-        table
-            .next_sub_id
-            .store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
-        let mut guard = table.lock();
-        let (first, _) = channel();
-        let (second, _) = channel();
-        assert_eq!(guard.add_channel(2, first).expect("first"), u32::MAX);
-        assert_eq!(guard.add_channel(2, second).expect("second"), 1);
+        let (channel, _) = channel();
+        table.add(4, channel, 9);
+        assert_eq!(table.release_all(), vec![9]);
+        assert!(table.take_all().is_empty());
+        assert_eq!(table.subscriber_count(), 0);
     }
 }

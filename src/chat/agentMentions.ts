@@ -1,8 +1,7 @@
 import { useMemo } from "react";
-import { agentLabel } from "../agents/catalog";
 import type { PromptContext } from "../api/acp";
 import { MENTION_URI } from "./promptContext";
-import { agentDisplay, type AgentDisplay } from "../state/agentStatus";
+import type { AgentShown } from "../api/generated/wire";
 import { agentIdsOf, agentWindowId, ownerSessionId } from "../state/selectors";
 import { useStore } from "../state/store";
 import type { Agent, AgentType } from "../state/types";
@@ -17,7 +16,7 @@ export interface Mate {
     title: string;
     buddy: Agent["buddy"];
     /** How it is shown beside its name; none while it sleeps. */
-    display: AgentDisplay | null;
+    display: AgentShown | null;
 }
 
 /** The other named agents: this project's first, then every other project's, each in strip order. */
@@ -37,30 +36,14 @@ export function useMates(agentId: string): Mate[] {
             return agentIdsOf({ windows, windowsBySession }, sid).flatMap((id) => {
                 const agent = agents[id];
                 if (!agent?.name || id === agentId) return [];
-                const display = agent.launchState === "dormant" ? null : agentDisplay(status[id]);
+                const display = agent.launchState === "dormant" ? null : (status[id] ?? null);
                 return [{ id, name: agent.name, project, type: agent.type, title: agent.title, buddy: agent.buddy, display }];
             });
         });
     }, [agentId, agents, sessions, windows, windowsBySession, sessionOrder, status]);
 }
 
-export function mateNote(mate: Mate, status: string, earlier?: string, keptName = false): string {
-    return [
-        mate.project
-            ? `@${mate.name} is an agent in another project, ${mate.project}, not the person.`
-            : `@${mate.name} is another agent in this project, not the person.`,
-        ...(earlier
-            ? [`Sikemux opened its earlier chat "${earlier}" again for this message, ${keptName ? "under the name it had" : "under this new name"}.`]
-            : []),
-        `Agent id: ${mate.id}`,
-        `CLI: ${agentLabel(mate.type)}`,
-        `Status: ${status}`,
-        `Working on: ${mate.title}`,
-        `To message it, call agent_send with to "${mate.project ? mate.id : mate.name}".`,
-    ].join("\n");
-}
-
-/** What the agent is told of each agent the message names with `@`, so it knows who is meant. */
+/** Each agent the message names with `@`, by id; the core writes what the agent is told of it. */
 export function mentionContext(text: string, mates: readonly Mate[]): PromptContext[] {
     const named = new Set([...text.matchAll(/(?:^|\s)@([\p{L}][\p{L}\p{N}]*)/gu)].map((match) => match[1].toLowerCase()));
     const seen = new Set<string>();
@@ -71,5 +54,5 @@ export function mentionContext(text: string, mates: readonly Mate[]): PromptCont
             seen.add(name);
             return true;
         })
-        .map((mate) => ({ uri: `${MENTION_URI}${mate.id}`, title: `@${mate.name}`, text: mateNote(mate, mate.display?.label ?? "Asleep") }));
+        .map((mate) => ({ uri: `${MENTION_URI}${mate.id}`, title: `@${mate.name}`, text: "" }));
 }

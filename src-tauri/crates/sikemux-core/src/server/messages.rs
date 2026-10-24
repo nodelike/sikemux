@@ -99,6 +99,7 @@ struct Letter {
 pub(crate) struct Answered {
     pub question: String,
     pub asker: String,
+    pub asker_id: String,
     pub cli: String,
     /// The answer is a secret the agent reads from a file, so the app shows
     /// that it was answered and never the text.
@@ -478,8 +479,9 @@ fn attribute(value: &str) -> String {
 fn wrapped(letter: &Letter) -> String {
     if let Some(answered) = &letter.answers {
         return format!(
-            "<question-answer asker=\"{}\" cli=\"{}\" question=\"{}\" note=\"{}\"{}>\n{}\n</question-answer>",
+            "<question-answer asker=\"{}\" asker-id=\"{}\" cli=\"{}\" question=\"{}\" note=\"{}\"{}>\n{}\n</question-answer>",
             attribute(&answered.asker),
+            attribute(&answered.asker_id),
             attribute(&answered.cli),
             attribute(&answered.question),
             attribute(letter.note.as_deref().unwrap_or_default()),
@@ -579,9 +581,26 @@ pub(crate) fn logged(core: &Core, project: &str, limit: Option<usize>) -> Vec<En
     core.harness.mailbox.log.read(project, limit)
 }
 
+/// The project's messages between agents, one row each, newest first.
+pub(crate) fn logged_rows(core: &Core, project: &str) -> Value {
+    json!(log::rows(&logged(core, project, None), |id| core
+        .names
+        .name(id)))
+}
+
 /// Notes in the log of the project of agent `to` what became of messages
 /// for it.
 fn log<'a>(core: &Core, to: &str, queued: impl IntoIterator<Item = &'a Queued>, outcome: Outcome) {
+    let queued: Vec<&Queued> = queued.into_iter().collect();
+    let answers = queued.iter().any(|queued| {
+        queued
+            .origin
+            .as_ref()
+            .is_some_and(|origin| origin.kind == Kind::Answer)
+    });
+    if answers && !matches!(outcome, Outcome::Waiting | Outcome::Returned) {
+        core.harness.questions.delivered(to);
+    }
     let Some(project) = core.names.get(to).map(|named| named.project) else {
         return;
     };
@@ -695,8 +714,12 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
         else {
             continue;
         };
-        let cwd = session.project.as_deref().map(std::path::Path::new);
-        let (project, parent) = place(&agent_id, cwd);
+        let folder = session
+            .project
+            .as_deref()
+            .and_then(|id| core.workspaces.project_info(id))
+            .map(|project| project.path);
+        let (project, parent) = place(&agent_id, folder.as_deref());
         agents.push(Listed {
             name: session.agent_name,
             project,

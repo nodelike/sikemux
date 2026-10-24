@@ -1,11 +1,8 @@
 import type { ShareClientMessage, ShareServerMessage } from "../../server/protocol/generated/types";
 import { ShareCloseCode } from "../../server/protocol/generated/types";
-import { chatActions } from "../chat/acpEvents";
 import { recordOf } from "../lib/guards";
-import { messageLetters } from "../chat/agentLetters";
-import { earlierMessages, withEarlier } from "../chat/earlier";
-import { chatReducer, initialChatState } from "../chat/reducer";
-import type { AcpPermissionRequest, ChatAction, ChatMessage, ChatState } from "../chat/types";
+import { applyChanges, emptyChat, fromView, withPage } from "../chat/rows";
+import type { ChatChange, ChatPage, ChatRows, ChatView, ToolDetail } from "../chat/types";
 import type { ShareCipher } from "./cipher";
 import type { ShareLink } from "./link";
 
@@ -38,11 +35,7 @@ export interface ShareSnapshot {
     /** Milliseconds since the Unix epoch. */
     readonly expiresAt: number | null;
     readonly chat: SharedChat | null;
-    readonly agent: ChatState;
-    /** The permission requests the chat still waits on. */
-    readonly permissions: readonly AcpPermissionRequest[];
-    /** Messages rebuilt from a snapshot or an earlier page, which carry no times. */
-    readonly replayed: ReadonlySet<string>;
+    readonly agent: ChatRows;
     readonly hasEarlier: boolean;
     readonly earlier: "idle" | "loading" | "failed";
 }
@@ -53,7 +46,7 @@ export function sharedChatTitle(snapshot: ShareSnapshot): string | null {
     if (snapshot.agent.title) return snapshot.agent.title;
     const first = snapshot.agent.messages.find((message) => message.role === "user");
     const part = first?.parts.find((candidate) => candidate.kind === "text");
-    const text = (first && messageLetters(first)?.[0]?.text) ?? (part?.kind === "text" ? part.text : "");
+    const text = first?.letters?.[0]?.text ?? (part?.kind === "text" ? part.text : "");
     const words = text.split(/\s+/).filter(Boolean).join(" ");
     return words ? (words.length > 80 ? `${words.slice(0, 79)}…` : words) : null;
 }
@@ -83,9 +76,7 @@ export interface ShareSessionOptions {
     now?: () => number;
 }
 
-type Cursor = { feed: string; before: number };
-
-type Answer = { page?: { events: unknown[]; olderBefore: number | null }; file?: { data: string }; error?: string };
+type Answer = { page?: ChatPage; toolDetail?: ToolDetail; file?: { data: string }; error?: string };
 
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_CAP_MS = 60_000;
@@ -127,19 +118,10 @@ function text(value: unknown): string | null {
     return typeof value === "string" ? value : null;
 }
 
-function actionsOf(events: unknown): ChatAction[] {
-    return (Array.isArray(events) ? events : []).flatMap((event) => {
-        const record = recordOf(event);
-        const kind = text(record?.kind);
-        const payload = recordOf(record?.payload);
-        return kind && payload ? chatActions({ kind, payload }) : [];
-    });
-}
-
 /**
- * One shared chat, watched read-only through the accounts server. It rebuilds the transcript the
- * Mac's own reducer draws from the host's snapshots and events, and asks the host, sealed, for
- * the turns before them and for the pictures pasted into them.
+ * One shared chat, watched read-only through the accounts server. It holds the rows the host's
+ * snapshot sends and makes the changes that follow, and asks the host, sealed, for the turns
+ * before them, for what a tool call changed and printed, and for the pictures pasted into them.
  */
 export class ShareSession {
     private listeners = new Set<() => void>();
@@ -148,14 +130,12 @@ export class ShareSession {
     private hostOnline = false;
     private expiresAt: number | null = null;
     private chat: SharedChat | null = null;
-    private agent: ChatState = initialChatState;
-    private waiting: ReadonlySet<string> | null = null;
-    private replayed: ReadonlySet<string> = new Set();
-    private cursor: Cursor | null = null;
+    private agent: ChatRows = emptyChat;
+    /** The run of the chat's agent the rows come from, which earlier pages are asked of. */
+    private feed: string | null = null;
+    /** The last of the chat's changes made, so one the snapshot already holds is not made again. */
+    private chatSeq = 0;
     private earlier: ShareSnapshot["earlier"] = "idle";
-    private pages = 0;
-    /** Everything the chat on screen was built from, oldest first, played on to each earlier page. */
-    private held: ChatAction[] = [];
     private snap: ShareSnapshot;
 
     private socket: ShareSocket | null = null;
@@ -167,7 +147,7 @@ export class ShareSession {
     private seq: number | undefined;
     /** Frames are unsealed one after another, so they apply in the order they came. */
     private unsealing: Promise<void> = Promise.resolve();
-    private pending: ChatAction[] = [];
+    private pending: ChatChange[] = [];
     private cancelFrame: (() => void) | undefined;
     private asked = 0;
     private answers = new Map<number, (answer: Answer | null) => void>();
@@ -208,29 +188,23 @@ export class ShareSession {
 
     /** Fetches the turns before the first message shown, unless that is already under way. */
     loadEarlier = () => {
-        const cursor = this.cursor;
-        if (!cursor || this.earlier === "loading") return;
+        const { feed } = this;
+        const before = this.agent.olderBefore;
+        if (feed === null || before === null || this.earlier === "loading") return;
         this.earlier = "loading";
         this.emit();
-        void this.ask({ type: "page", feed: cursor.feed, before: cursor.before }).then((answer) => {
-            if (this.cursor !== cursor) return;
+        void this.ask({ type: "page", feed, before }).then((answer) => {
+            if (this.feed !== feed || this.agent.olderBefore !== before) return;
             const page = answer?.page;
-            if (!page) {
-                this.earlier = "failed";
-                this.emit();
-                return;
-            }
-            this.pages += 1;
-            const earlier = { number: this.pages, actions: actionsOf(page.events) };
-            const messages = earlierMessages(earlier, this.held);
-            this.held = [...earlier.actions, ...this.held];
-            this.replayed = new Set([...this.replayed, ...messages.map((message) => message.id)]);
-            this.agent = withEarlier(this.agent, messages);
-            this.cursor = page.olderBefore === null || page.olderBefore === undefined ? null : { feed: cursor.feed, before: page.olderBefore };
-            this.earlier = "idle";
+            if (page) this.agent = withPage(this.agent, page);
+            this.earlier = page ? "idle" : "failed";
             this.emit();
         });
     };
+
+    /** What a tool call changed and printed, or null when the host will not or cannot say. */
+    readToolDetail = (toolCallId: string): Promise<ToolDetail | null> =>
+        this.ask({ type: "toolDetail", toolCallId }).then((answer) => answer?.toolDetail ?? null);
 
     /** A picture pasted into the chat, as a data URL, or null when the host will not or cannot send it. */
     readImage = (path: string): Promise<string | null> => {
@@ -257,8 +231,6 @@ export class ShareSession {
     }
 
     private build(): ShareSnapshot {
-        const waiting = this.waiting;
-        const permissions = waiting ? this.agent.permissions.filter((request) => waiting.has(request.requestId)) : this.agent.permissions;
         return {
             status: this.status,
             endedBecause: this.endedBecause,
@@ -266,9 +238,7 @@ export class ShareSession {
             expiresAt: this.expiresAt,
             chat: this.chat,
             agent: this.agent,
-            permissions: permissions.length === this.agent.permissions.length ? this.agent.permissions : permissions,
-            replayed: this.replayed,
-            hasEarlier: this.cursor !== null,
+            hasEarlier: this.feed !== null && this.agent.olderBefore !== null,
             earlier: this.earlier,
         };
     }
@@ -407,29 +377,18 @@ export class ShareSession {
         this.refreshAuth(socket, expiresAt(token));
     }
 
-    /** One unsealed frame: a snapshot starts the chat over, the rest add to it. */
+    /** One unsealed frame: a snapshot starts the chat over, the rest change it. */
     private take(plain: string) {
         const frame = recordOf(JSON.parse(plain));
-        switch (frame?.type) {
-            case "snapshot":
-                return this.replace(frame);
-            case "event": {
-                // The core's own message, as its clients hear it: the chat's event is inside.
-                const event = recordOf(recordOf(frame.event)?.event);
-                const kind = text(event?.kind);
-                const payload = recordOf(event?.payload);
-                if (!kind || !payload) return;
-                this.pending.push(...chatActions({ kind, payload }));
-                this.cancelFrame ??= (this.options.frame ?? animationFrame)(this.flush);
-                return;
-            }
-            case "waiting":
-                this.waiting = new Set(Array.isArray(frame.requests) ? frame.requests.filter((id): id is string => typeof id === "string") : []);
-                this.emit();
-                return;
-            default:
-                return;
-        }
+        if (frame?.type === "snapshot") return this.replace(frame);
+        // The core's own message, as its clients hear it: the chat's changes are inside.
+        const event = frame?.type === "event" ? recordOf(frame.event) : null;
+        if (event?.kind !== "chat" || event.agentId !== this.chat?.agentId) return;
+        const seq = typeof event.seq === "number" ? event.seq : 0;
+        if (seq <= this.chatSeq || !Array.isArray(event.changes)) return;
+        this.chatSeq = seq;
+        this.pending.push(...(event.changes as ChatChange[]));
+        this.cancelFrame ??= (this.options.frame ?? animationFrame)(this.flush);
     }
 
     private flush = () => {
@@ -437,8 +396,7 @@ export class ShareSession {
         if (!this.pending.length) return;
         const batch = this.pending;
         this.pending = [];
-        this.held.push(...batch);
-        this.agent = batch.reduce(chatReducer, this.agent);
+        this.agent = applyChanges(this.agent, batch);
         this.emit();
     };
 
@@ -455,31 +413,20 @@ export class ShareSession {
             cwd: text(chat?.cwd),
             home: text(chat?.home),
         };
-        this.waiting = new Set(Array.isArray(frame.waiting) ? frame.waiting.filter((id): id is string => typeof id === "string") : []);
         const attachment = recordOf(frame.attachment);
-        if (attachment?.status !== "live") {
+        const view = recordOf(attachment?.view);
+        const mark = recordOf(attachment?.mark);
+        if (attachment?.status !== "live" || !view) {
             this.status = "missing";
-            this.agent = this.agent.messages.length ? { ...this.agent, running: false } : initialChatState;
+            this.feed = null;
+            this.agent = this.agent.messages.length ? { ...this.agent, running: false } : emptyChat;
             this.emit();
             return;
         }
-        const start = recordOf(attachment.start);
-        this.held = actionsOf(attachment.replay);
-        let agent = this.held.reduce(chatReducer, initialChatState);
-        agent = chatReducer(agent, {
-            type: "ready",
-            capabilities: recordOf(start?.capabilities) ?? {},
-            setup: recordOf(start?.setup) ?? {},
-        });
-        if (attachment.running === true) agent = chatReducer(agent, { type: "turn_started" });
-        const mark = recordOf(attachment.mark);
-        const feed = text(mark?.feed);
-        const olderBefore = typeof attachment.olderBefore === "number" ? attachment.olderBefore : null;
-        this.agent = agent;
-        this.replayed = new Set(agent.messages.map((message: ChatMessage) => message.id));
-        this.cursor = feed && olderBefore !== null ? { feed, before: olderBefore } : null;
+        this.agent = fromView(view as unknown as ChatView);
+        this.feed = text(mark?.feed);
+        this.chatSeq = typeof mark?.seq === "number" ? mark.seq : 0;
         this.earlier = "idle";
-        this.pages = 0;
         this.status = "live";
         this.emit();
     }

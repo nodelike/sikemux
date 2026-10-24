@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sikemux_process::sync::Locked;
 
+use sikemux_plugin_api::jira::{
+    Change, Comment, FieldChange, Filter, IssueSummary, Parent, Person, Project, Transition,
+};
+
 use crate::adf;
 use crate::auth;
 use crate::client::{self, Credentials};
@@ -28,83 +32,6 @@ const MAX_CHANGES: usize = 50;
 const CHANGE_VALUE_CHARS: usize = 200;
 pub(crate) const SUMMARY_FIELDS: &str =
     "summary,status,priority,assignee,issuetype,updated,parent,duedate";
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Person {
-    pub account_id: String,
-    pub name: String,
-    pub avatar_url: Option<String>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct IssueSummary {
-    pub key: String,
-    pub summary: String,
-    pub status: String,
-    /// Jira's three buckets every status belongs to: `new`, `indeterminate` or `done`.
-    pub status_category: String,
-    pub priority: Option<String>,
-    pub assignee: Option<Person>,
-    pub issue_type: Option<String>,
-    pub sprint: Option<String>,
-    pub updated: Option<String>,
-    /// The day it is due, as `2026-10-31`.
-    pub due: Option<String>,
-    /// The epic or other issue it sits under.
-    pub parent: Option<Parent>,
-    pub url: String,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Parent {
-    pub key: String,
-    pub summary: String,
-    /// Jira's name for the epic's colour, `color_1` to `color_14`, when a board says it.
-    pub color: Option<String>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Comment {
-    pub id: String,
-    pub author: String,
-    pub author_avatar_url: Option<String>,
-    pub created: String,
-    pub body: String,
-}
-
-/// One edit to an issue: who made it, when, and the fields it changed.
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Change {
-    pub id: String,
-    pub author: String,
-    pub author_avatar_url: Option<String>,
-    pub created: String,
-    pub fields: Vec<FieldChange>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldChange {
-    pub field: String,
-    /// Absent when the field was empty, or is long text such as the description.
-    pub from: Option<String>,
-    pub to: Option<String>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Transition {
-    pub id: String,
-    pub name: String,
-    /// The status the issue is in after taking it.
-    pub to: String,
-    pub to_category: String,
-}
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -1204,13 +1131,6 @@ pub struct SiteRequest {
     pub site: Option<String>,
 }
 
-#[derive(Serialize)]
-pub struct Filter {
-    pub id: String,
-    pub name: String,
-    pub jql: String,
-}
-
 /// The filters the person has starred in Jira, to list beside "assigned to me" and the sprint.
 pub async fn filters(data_dir: &Path, request: SiteRequest) -> JiraResult<Vec<Filter>> {
     let (_, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
@@ -1237,14 +1157,6 @@ pub async fn filters(data_dir: &Path, request: SiteRequest) -> JiraResult<Vec<Fi
                 .collect()
         })
         .unwrap_or_default())
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Project {
-    pub key: String,
-    pub name: String,
-    pub avatar_url: Option<String>,
 }
 
 pub fn projects_of(body: &Value) -> Vec<Project> {

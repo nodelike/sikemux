@@ -1,5 +1,3 @@
-import type { Theme } from "../themes";
-
 /** A phone draws the picture across its width at most a few times over; past this it only adds bytes. */
 const LONGEST_EDGE = 1280;
 const QUALITY = 0.82;
@@ -29,9 +27,4 @@ export function backdropPicture(image: HTMLImageElement): BackdropPicture | null
     paint.drawImage(image, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL("image/jpeg", QUALITY);
     return { id: fingerprint(dataUrl), dataUrl };
-}
-
-/** The colour the pane grain draws its dots in, as `shaderField`'s ambient preset picks it. */
-export function grainDotColor(theme: Theme): string {
-    return theme.dark ? theme.chrome.bgRaised : `color-mix(in srgb, ${theme.chrome.line} 90%, ${theme.chrome.inkMuted})`;
 }

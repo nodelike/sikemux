@@ -1,12 +1,12 @@
 import { IconShieldBolt } from "../ui/Icons";
-import type { AcpPermissionRequest } from "./types";
+import type { PermissionAsk } from "./types";
 
 export function PermissionRequest({
     request,
     busy,
     onReply,
 }: {
-    request: AcpPermissionRequest;
+    request: PermissionAsk;
     busy: boolean;
     /** Without it, as in a shared chat, the request is shown waiting on someone else. */
     onReply?: (optionId?: string) => void;

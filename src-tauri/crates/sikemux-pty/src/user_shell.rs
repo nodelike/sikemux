@@ -138,6 +138,16 @@ pub fn warm_login_shell_environment() {
 
 #[cfg(unix)]
 fn capture_login_shell() -> LoginShellCapture {
+    if sikemux_process::user_environment::search_path_only() {
+        return LoginShellCapture {
+            path: std::env::var("PATH").ok(),
+            environment: std::env::vars()
+                .filter(|(key, _)| {
+                    !sikemux_process::vars::LAUNCHING_SESSION.contains(&key.as_str())
+                })
+                .collect(),
+        };
+    }
     let shell = configured_shell();
     // `env -0` rather than newline records: a value may contain a newline, but
     // never a NUL.

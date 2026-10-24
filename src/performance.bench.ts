@@ -7,7 +7,8 @@ import { rankBy } from "./lib/fuzzy";
 import { computeLayout, splitPane } from "./state/layout";
 import { tokenizeCode } from "./chat/shikiTokens";
 import { codeThemeName } from "./themes/codeTheme";
-import { DEFAULT_THEME_ID, themeById } from "./themes";
+import { DEFAULT_THEME_ID } from "./themes";
+import { themeById } from "./test/themes";
 import type { LayoutNode, PaneNode } from "./state/types";
 
 const candidates = Array.from({ length: 5_000 }, (_, index) => `src/project-${index}/component-${index % 97}.tsx`);

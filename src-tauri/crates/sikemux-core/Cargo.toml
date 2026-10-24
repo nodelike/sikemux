@@ -4,14 +4,25 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+# Test kits only: dial hosts also at the addresses dev/host-addresses.json names, as local test
+# cores have no relay to meet through. Never on in a try-out or release.
+host-addresses-file = []
+
 [dependencies]
 sikemux-process = { path = "../sikemux-process" }
+sikemux-fold = { path = "../sikemux-fold" }
 sikemux-markdown = { path = "../sikemux-markdown" }
 agent-client-protocol = { version = "2.0.0", features = ["unstable_session_notices"] }
 hex = "0.4"
 quick-xml = "0.42"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
+ignore = "0.4"
+globset = "0.4"
+grep-matcher = "0.1"
+grep-regex = "0.1"
+grep-searcher = "0.1"
 serde_json = { version = "1", features = ["preserve_order"] }
 semver = "1"
 sha2 = "0.11"
@@ -24,8 +35,10 @@ uuid = { version = "1", features = ["v4", "v7"] }
 
 [target.'cfg(unix)'.dependencies]
 base64 = "0.22"
+minisign-verify = "0.2"
 sikemux-client = { path = "../sikemux-client" }
 sikemux-keychain = { path = "../sikemux-keychain" }
+sikemux-loopback = { path = "../sikemux-loopback" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
 hashlink = "0.12"
@@ -34,7 +47,7 @@ libc = "0.2"
 notify = "8"
 portable-pty = "0.9"
 rayon = "1"
-reqwest = { version = "0.13", default-features = false, features = ["gzip", "json", "rustls-no-provider"] }
+reqwest = { version = "0.13", default-features = false, features = ["gzip", "json", "rustls-no-provider", "stream"] }
 ring = "0.17"
 rusqlite = { version = "0.40", features = ["bundled"] }
 rustix = { version = "1", features = ["fs"] }

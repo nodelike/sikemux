@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use sikemux_pty::output_log::OutputLog;
-use sikemux_pty::screen::{replay_snapshot, restored_parser};
+use sikemux_pty::screen::Screen;
 use sikemux_pty::shell::ShellLaunchIntegration;
 use sikemux_pty::shell_protocol::{ShellMetadataSnapshot, SshLink};
 use tokio::io::unix::AsyncFd;
@@ -36,9 +36,10 @@ use crate::protocol::{BuildIdentity, SessionExit, SessionId, SessionKind};
 
 use super::agent::{self, AgentActivity, AgentRecord};
 use super::chat::{self, ChatRecord, HandOver, LiveChat};
+use super::data_format;
 use super::harness::HarnessRecord;
 use super::prepare::Owner;
-use super::session::{self, Session, SessionParts, SetupLock};
+use super::session::{self, Session, SessionParts};
 use super::{
     continue_clock, lock_path, run_core, tools, uptime_ms, Core, CoreError, CoreResult,
     ServerConfig, ServerError,
@@ -76,6 +77,10 @@ struct HandoverState {
     /// where this core stopped reading. Read one at a time, so a damaged
     /// entry costs only its own chat. Added in format 5.
     live_chats: Vec<Value>,
+    /// The documents clients held open in language servers, which the
+    /// replacement opens again and waits a while for them to claim back.
+    #[serde(default)]
+    lsp_documents: Vec<super::lsp::Carried>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -139,21 +144,13 @@ fn private_directory() -> std::io::Result<PathBuf> {
 }
 
 fn capture(session: &Session, directory: &Path) -> CoreResult<SessionRecord> {
-    let mut parser = session.parser.locked();
-    let (rows, cols) = parser.screen().size();
-    let replay = replay_snapshot(&mut parser)?;
-    let shell = parser
-        .callbacks()
-        .shell
-        .as_ref()
-        .map(|shell| shell.snapshot());
-    let ssh = parser
-        .callbacks()
-        .shell
-        .as_ref()
-        .and_then(|shell| shell.ssh());
-    let window_title = parser.callbacks().window_title.clone();
-    drop(parser);
+    let screen = session.screen.locked();
+    let (rows, cols) = screen.terminal.size();
+    let replay = screen.terminal.replay();
+    let shell = screen.shell.as_ref().map(|shell| shell.snapshot());
+    let ssh = screen.shell.as_ref().and_then(|shell| shell.ssh());
+    let window_title = screen.window_title.clone();
+    drop(screen);
     write_private(&blob_path(directory, session.id, "replay"), &replay)?;
     let task_output_end = match session.task_log() {
         Some((bytes, end)) => {
@@ -293,6 +290,7 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         harness: serde_json::to_value(core.harness.record()).unwrap_or(Value::Null),
         chats,
         live_chats,
+        lsp_documents: super::lsp::carry(),
     };
     let written = serde_json::to_vec(&state)
         .map_err(std::io::Error::other)
@@ -514,7 +512,20 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                 }
                 state["format"] = Value::from(8);
             }
-            8 => return Ok(state),
+            8 => {
+                // Format 8 cores named the client a prompt to send again came
+                // from, or none once every client had been shown it.
+                let chats = state.get_mut("liveChats").and_then(Value::as_array_mut);
+                for chat in chats.into_iter().flatten() {
+                    for prompt in ["/session/lastPrompt", "/session/failedPrompt"] {
+                        if let Some(prompt) = chat.pointer_mut(prompt) {
+                            data_format::announced_as_flag(prompt);
+                        }
+                    }
+                }
+                state["format"] = Value::from(9);
+            }
+            9 => return Ok(state),
             other => return Err(format!("it is in format {other}, not {RESUME_FORMAT}")),
         }
     }
@@ -716,7 +727,7 @@ fn adopt_session(
             kind: record.kind,
             pid: record.pid,
             owner: record.owner,
-            parser: restored_parser(
+            screen: Screen::restored(
                 rows,
                 cols,
                 &replay,
@@ -735,7 +746,7 @@ fn adopt_session(
             shell_integration: record
                 .shell_files
                 .map(|files| ShellLaunchIntegration::adopt(Some(files))),
-            setup: record.setup.then_some(SetupLock::AnyApp),
+            setup: record.setup,
         },
         io,
         Box::new(child),
@@ -767,7 +778,7 @@ fn adopt_bare(
             kind: SessionKind::Terminal,
             pid,
             owner: Owner::default(),
-            parser: restored_parser(rows, cols, &[], None, None, String::new()),
+            screen: Screen::restored(rows, cols, &[], None, None, String::new()),
             shell_protocol: false,
             last_activity_ms: uptime_ms(),
             trimmed: false,
@@ -778,7 +789,7 @@ fn adopt_bare(
             agent: None,
             shell_integration: None,
             // Nothing says whether it was setting a host up, so it stays locked to the app.
-            setup: Some(SetupLock::AnyApp),
+            setup: true,
         },
         io,
         Box::new(AdoptedChild::new(pid, None)),
@@ -895,6 +906,7 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         tools_record = state.tools;
         chats = state.chats;
         live_chats = state.live_chats;
+        super::lsp::adopt(&core, state.lsp_documents);
     }
     let carried = live_chats.len();
     for live in live_chats {
@@ -1080,14 +1092,14 @@ mod tests {
     #[test]
     fn current_state_is_left_as_it_is_and_unknown_formats_are_refused() {
         let current = json!({
-            "format": 8,
+            "format": 9,
             "chats": [{ "launch": {}, "startedBy": "phone", "launcher": "claude", "notice": null }],
             "liveChats": [],
             "harness": { "mailbox": { "waiting": {} }, "questions": { "open": [] } },
         });
         assert_eq!(migrate(current.clone()).expect("migrate"), current);
         assert!(migrate(json!({ "format": 3 })).is_err());
-        assert!(migrate(json!({ "format": 9 })).is_err());
+        assert!(migrate(json!({ "format": 10 })).is_err());
         assert!(migrate(json!({})).is_err());
     }
 
@@ -1117,6 +1129,6 @@ mod tests {
             setup,
             vec![json!(true), json!(false), json!(false), json!(false)]
         );
-        assert_eq!(migrated["format"], json!(8));
+        assert_eq!(migrated["format"], json!(9));
     }
 }

@@ -12,7 +12,6 @@ struct Options {
     /// The app bundle, or the app's executable in a dev build, to open when its window is not.
     var app: String?
     var fonts: String?
-    var settings = ""
     var stateDir = ""
 
     static let version = "sikemux-notch 1"
@@ -37,12 +36,11 @@ struct Options {
             case "--app": options.app = value
             case "--app-pid": options.appPid = pid_t(value)
             case "--fonts": options.fonts = value
-            case "--settings": options.settings = value
             case "--state-dir": options.stateDir = value
             default: return nil
             }
         }
-        guard !options.socket.isEmpty, options.protocolVersion > 0, !options.settings.isEmpty, !options.stateDir.isEmpty
+        guard !options.socket.isEmpty, options.protocolVersion > 0, !options.stateDir.isEmpty
         else { return nil }
         return options
     }

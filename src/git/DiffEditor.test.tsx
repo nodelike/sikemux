@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiffRow } from "../api/git";
-import { themeById } from "../themes";
+import { themeById } from "../test/themes";
 
 const mocks = vi.hoisted(() => ({
     fileAt: vi.fn(),

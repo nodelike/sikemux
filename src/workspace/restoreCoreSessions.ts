@@ -4,9 +4,10 @@ import type { ChatInfo, SessionInfo } from "../api/generated/wire";
 import { QUIT_AND_STOP_SHORTCUT } from "../commands/keybindings";
 import * as cmd from "../state/commands";
 import { claimedSessionIds, runningTerminalAgents, unclaimedTerminals } from "../state/coreSessionClaims";
-import { getState, setState } from "../state/store";
+import { getState } from "../state/store";
 import { notify, swallow } from "../state/toast";
 import { offerResumableSessions, spawnedThisPage } from "../terminal/sessionResume";
+import { setPreference } from "../state/preferences";
 
 /** Long enough for every pane of a restored layout to have taken its terminal back. */
 export const UNCLAIMED_GRACE_MS = 30_000;
@@ -59,8 +60,8 @@ export async function restoreCoreSessions(deps: CoreSessionRestoreDeps = default
     const terminals = earlier.filter((session) => session.kind === "terminal" && session.running && claimed.has(session.id)).length;
     const agents = getState().agents;
     const keptChats = chats.filter((chat) => agents[chat.agentId]).length;
-    if (terminals + tasks + keptChats > 0 && !getState().keptRunningNoticeShown) {
-        setState({ keptRunningNoticeShown: true });
+    if (terminals + tasks + keptChats > 0 && getState().preferences?.keptRunningNoticeShown === false) {
+        setPreference("keptRunningNoticeShown", true);
         notify("info", KEPT_RUNNING_NOTICE, { timeoutMs: 12_000 });
     }
 

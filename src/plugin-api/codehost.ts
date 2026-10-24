@@ -6,7 +6,6 @@ import type {
     Comment,
     Issue,
     IssuePage,
-    JobLog,
     Notification,
     Pull,
     PullCommit,
@@ -14,10 +13,7 @@ import type {
     RepoListing,
     Resolved,
     Review,
-    RunDetail,
     RunPage,
-    RunTick,
-    RunTiming,
     TimelineItem,
     Workflow,
     WorkflowFile,
@@ -52,7 +48,7 @@ export type CodeHostBackend = ReturnType<typeof createCodeHostBackend>;
  * whose capabilities say it can re-run a job or delete runs or their logs adds that call itself.
  */
 export function namedArgsHostApi(name: string, host: CodeHostBackend): Omit<CodeHostApi, "status" | "accounts"> {
-    const { backend, call, image, watch } = host;
+    const { backend, call, image } = host;
     const cannot = (what: string) => (): Promise<never> => Promise.reject(new Error(`${name} cannot ${what}`));
     return {
         rateLimit: (account) => backend.call<RateLimit>("rateLimit", { account }),
@@ -66,12 +62,8 @@ export function namedArgsHostApi(name: string, host: CodeHostBackend): Omit<Code
         workflows: (repo) => call<Workflow[]>("workflows", repo),
         branches: (repo) => call<string[]>("branches", repo),
         runs: (query) => call<RunPage>("runs", query),
-        run: (repo, runId) => call<RunDetail>("run", { ...repo, runId }),
-        runAttempt: cannot("show an earlier attempt of a run"),
-        jobLog: (repo, jobId) => call<JobLog>("jobLog", { ...repo, jobId }),
         annotations: () => Promise.resolve([]),
         jobSummary: () => Promise.resolve(null),
-        runTiming: (repo, runId) => call<RunTiming>("runTiming", { ...repo, runId }),
         workflowFile: (repo) => call<WorkflowFile>("workflowFile", repo),
         artifacts: () => Promise.resolve([]),
         pendingApprovals: () => Promise.resolve([]),
@@ -83,7 +75,6 @@ export function namedArgsHostApi(name: string, host: CodeHostBackend): Omit<Code
         deleteRun: cannot("delete a run"),
         reviewDeployment: cannot("approve a deployment"),
         downloadArtifact: cannot("download artifacts"),
-        watch: (repo, runId, handlers) => watch<RunTick>({ ...repo, runId }, handlers),
 
         pulls: (repo, state) => call<Pull[]>("pulls", { ...repo, state }),
         pull: (repo, number) => call<Pull>("pull", { ...repo, number }),

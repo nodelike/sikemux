@@ -44,8 +44,6 @@ const macConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.macos.conf.json", 
 const windowsConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.windows.conf.json", "utf8"));
 const linuxConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.linux.conf.json", "utf8"));
 const sidecarConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.sidecar.conf.json", "utf8"));
-const notchConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.notch.conf.json", "utf8"));
-const coreConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.core.conf.json", "utf8"));
 const macBuild = fs.readFileSync("scripts/build-mac.sh", "utf8");
 const sidecarBuild = fs.readFileSync("scripts/build-cli-sidecar.mjs", "utf8");
 const publish = fs.readFileSync("scripts/publish-release.sh", "utf8");
@@ -55,11 +53,12 @@ const fail = (message) => { throw new Error(message); };
 if (pkg.version !== config.version) fail("package.json and tauri.conf.json versions differ");
 if (config.bundle?.createUpdaterArtifacts !== true) fail("updater artifacts are not enabled");
 if (config.app?.macOSPrivateApi !== true) fail("shared macOS private API feature flag is missing");
-if (JSON.stringify(macConfig.bundle?.targets) !== JSON.stringify(["app", "dmg"])) fail("macOS bundle targets must be app and dmg");
-if (macConfig.bundle?.resources?.["icons/build/Assets.car"] !== "Assets.car") fail("Assets.car resource mapping is missing");
-if (macConfig.bundle?.macOS?.infoPlist !== "Info.plist") fail("pre-signing Info.plist merge is not configured");
+if (!macBuild.includes("cargo build --release --locked --bin sikemux")) fail("macOS build does not build the GPUI app");
+if (!macBuild.includes('/usr/bin/hdiutil convert "$LAYOUT.rw.dmg" -format ULMO')) fail("macOS build does not pack the DMG");
+if (!macBuild.includes('"$ROOT/src-tauri/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"')) fail("Assets.car is not bundled");
+if (!macBuild.includes('-c "Merge $ROOT/src-tauri/Info.plist"')) fail("pre-signing Info.plist merge is not configured");
 if (macConfig.bundle?.macOS?.minimumSystemVersion !== "11.0") fail("unexpected minimum macOS version");
-if (macConfig.bundle?.macOS?.entitlements !== "Entitlements.plist") fail("microphone entitlement is not configured");
+if (!macBuild.includes('--entitlements "$ROOT/src-tauri/Entitlements.plist"')) fail("microphone entitlement is not configured");
 if (JSON.stringify(windowsConfig.bundle?.targets) !== JSON.stringify(["nsis"])) fail("Windows bundle target must be NSIS");
 if (windowsConfig.bundle?.createUpdaterArtifacts !== false) fail("unsigned Windows builds must not require updater credentials");
 if (!windowsConfig.bundle?.icon?.includes("icons/icon.ico")) fail("Windows icon is not configured");
@@ -78,8 +77,7 @@ if (!releaseWorkflow.includes("scripts/smoke-host-install.sh")) fail("the Releas
 if (JSON.stringify(sidecarConfig.bundle?.externalBin) !== JSON.stringify(["binaries/sikemux-host"])) fail("sidecar bundle mapping is incomplete");
 if (!macBuild.includes("build-voice-helper.mjs")) fail("macOS build does not build the voice helper");
 if (!macBuild.includes("build-notch-helper.mjs")) fail("macOS build does not build the notch helper");
-if (!macBuild.includes("tauri.notch.conf.json")) fail("macOS build does not bundle the notch helper");
-if (notchConfig.bundle?.macOS?.files?.["Helpers/Sikemux Notch.app"] !== "binaries/notch/Sikemux Notch.app") fail("the macOS bundle must carry the notch helper app");
+if (!macBuild.includes('"$ROOT/src-tauri/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"')) fail("the macOS bundle must carry the notch helper app");
 if (!publish.includes('"$SIG" "$VOICE"')) fail("releases do not publish the voice helper the app downloads");
 if (!macBuild.includes("build-sim-helper.mjs")) fail("macOS build does not build the simulator helper");
 if (!publish.includes('"$VOICE" "$SIM"')) fail("releases do not publish the simulator helper the app downloads");
@@ -87,13 +85,19 @@ if (sidecarConfig.bundle?.resources?.["resources/sikemux_pi_tools.ts"] !== "sike
 if (!pkg.scripts?.["build:windows"]?.includes("build:sidecar")) fail("Windows build does not build sidecars");
 if (!pkg.scripts?.["build:windows"]?.includes("tauri.sidecar.conf.json")) fail("Windows build does not bundle the CLI sidecar");
 if (!macBuild.includes("build-cli-sidecar.mjs")) fail("macOS build does not build the CLI sidecar");
-if (!macBuild.includes("tauri.core.conf.json") || macBuild.includes("tauri.sidecar.conf.json")) fail("macOS build must bundle the core as its own app, not as a sidecar");
-if (coreConfig.bundle?.macOS?.files?.["Helpers/Sikemux Core.app"] !== "binaries/core/Helpers/Sikemux Core.app") fail("the macOS bundle must carry the core app");
-if (coreConfig.bundle?.macOS?.files?.MacOS !== "binaries/core/MacOS") fail("the macOS bundle must link Contents/MacOS/sikemux-host to the core");
+if (macBuild.includes("tauri.sidecar.conf.json")) fail("macOS build must bundle the core as its own app, not as a sidecar");
+if (!macBuild.includes('"$ROOT/src-tauri/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"')) fail("the macOS bundle must carry the core app");
+if (!macBuild.includes('ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Contents/MacOS/sikemux-host"')) fail("the macOS bundle must link Contents/MacOS/sikemux-host to the core");
 for (const profile of ["sikemux-developer-id", "sikemux-core-developer-id"]) {
   if (!fs.existsSync(`src-tauri/macos/${profile}.provisionprofile`)) fail(`src-tauri/macos/${profile}.provisionprofile is missing`);
 }
 if (!sidecarBuild.includes("smokeBrowserSidecar")) fail("sidecar build does not run the browser smoke test");
+for (const [name, text] of [["scripts/build-mac.sh", macBuild], ["scripts/build-cli-sidecar.mjs", sidecarBuild], [".github/workflows/release.yml", releaseWorkflow]]) {
+    if (/--all-features|--features[ =][^\n]*\b(drive|fake-plugins)\b/.test(text)) fail(`${name} turns on a test kit's feature`);
+}
+if (!macBuild.includes("this test kit has no answer for that") || !macBuild.includes("window driver could not listen")) {
+    fail("macOS build no longer refuses a binary built with a test kit's feature");
+}
 const endpoints = config.plugins?.updater?.endpoints;
 if (!Array.isArray(endpoints) || endpoints.length !== 1 || endpoints[0] !== "https://github.com/nodelike/sikemux/releases/latest/download/latest.json") {
   fail("updater endpoint is not the expected HTTPS latest.json URL");
@@ -106,7 +110,7 @@ if (packet.length !== 42 || packet.subarray(0, 2).toString("ascii") !== "Ed") fa
 NODE
 
 # Shipped clients resolve this exact URL, so the endpoint is a fixed contract.
-grep -Fq 'releases/download/nightly/latest.json' src-tauri/src/updates.rs || {
+grep -Fq 'releases/download/nightly/latest.json' src-tauri/crates/sikemux-core/src/server/updates.rs || {
   echo "nightly updater endpoint is missing" >&2
   exit 1
 }

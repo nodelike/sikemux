@@ -1,5 +1,8 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 
+import { outlivesFold } from '@mac/chat/transcript';
+import type { ChatMessage } from '@mac/chat/types';
+
 /**
  * Which tool groups and rows in a transcript the person opened or closed, kept outside the rows
  * so a row the list recycles comes back as it was left.
@@ -41,4 +44,27 @@ export function useFold(id: string, otherwise: boolean): [boolean, (open: boolea
   const folds = useContext(FoldsContext);
   const open = useSyncExternalStore(folds.subscribe, () => folds.isOpen(id, otherwise));
   return [open, (next) => folds.set(id, next)];
+}
+
+/** How a row of a finished turn shows: under the summary it opens with, hidden while its work is folded, or only its reply. */
+type WorkFold = NonNullable<ChatMessage['fold']>;
+
+export type RowFold = {
+  /** The fold whose summary goes above this row, its first. */
+  summary: WorkFold | null;
+  hidden: boolean;
+  /** Where the shown parts start. */
+  from: number;
+};
+
+const UNFOLDED: RowFold = { summary: null, hidden: false, from: 0 };
+
+/** `open` says whether the person opened the fold's work, by the fold's id. */
+export function rowFold(row: ChatMessage, open: (id: string) => boolean): RowFold {
+  const fold = row.fold;
+  if (!fold) return UNFOLDED;
+  const summary = row.id === fold.id ? fold : null;
+  if (open(fold.id)) return summary ? { summary, hidden: false, from: 0 } : UNFOLDED;
+  if (row.id === fold.last) return { summary, hidden: false, from: fold.from };
+  return { summary, hidden: !row.parts.some(outlivesFold), from: row.parts.length };
 }

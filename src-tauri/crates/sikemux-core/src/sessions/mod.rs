@@ -1,6 +1,7 @@
 //! The sessions each agent CLI saves on disk: listing them, their titles,
 //! paging them for the Recent list, searching them, renaming, moving and deleting them.
 
+pub mod carry;
 mod claude;
 mod codex;
 pub mod context;

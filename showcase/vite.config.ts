@@ -137,10 +137,14 @@ function shortAge(relative: string): string {
 function gitLog(name: string, count: number, head = "HEAD") {
   if (!LOCAL_ROOTS[name] || !existsSync(LOCAL_ROOTS[name])) return [];
   const format = ["%H", "%P", "%an", "%ar", "%s", "%D"].join("%x1f");
-  const out = execFileSync("git", ["log", `-n${count}`, `--format=${format}`, "--end-of-options", head], {
-    cwd: LOCAL_ROOTS[name],
-    encoding: "utf8",
-  });
+  const out = execFileSync(
+    "git",
+    ["log", `-n${count}`, `--format=${format}`, "--end-of-options", head],
+    {
+      cwd: LOCAL_ROOTS[name],
+      encoding: "utf8",
+    },
+  );
   return out
     .split("\n")
     .filter(Boolean)
@@ -212,18 +216,68 @@ function parseMarkdown(requests: unknown[]): Promise<unknown[]> {
   );
 }
 
+// Chats are folded by the core's own fold, run as a small process that answers one line per request.
+let chatFold: {
+  write: (line: string) => void;
+  stop: () => void;
+  waiting: ((line: string) => void)[];
+} | null = null;
+
+function foldChat(request: unknown): Promise<unknown> {
+  if (!chatFold) {
+    const child = spawn(
+      "cargo",
+      [
+        "run",
+        "--quiet",
+        "--manifest-path",
+        resolve(import.meta.dirname, "../src-tauri/Cargo.toml"),
+        "-p",
+        "sikemux-fold",
+        "--example",
+        "stdio",
+      ],
+      { stdio: ["pipe", "pipe", "inherit"] },
+    );
+    const waiting: ((line: string) => void)[] = [];
+    createInterface({ input: child.stdout }).on("line", (line) =>
+      waiting.shift()?.(line),
+    );
+    chatFold = {
+      write: (line) => child.stdin.write(`${line}\n`),
+      stop: () => child.kill(),
+      waiting,
+    };
+  }
+  const fold = chatFold;
+  return new Promise((resolve) => {
+    fold.waiting.push((line) => resolve(JSON.parse(line)));
+    fold.write(JSON.stringify(request));
+  });
+}
+
 // Xcode's bezel for the demo iPhone comes from the installed simulator helper, which only
 // draws it for a booted device, so the first answer is kept in showcase/out for later runs.
 const SIM_CHROME = join(import.meta.dirname, "out/simulator-chrome.json");
-const SIM_HELPER = join(homedir(), "Library/Application Support/com.nodelike.sikemux/sim/sikemux-sim");
+const SIM_HELPER = join(
+  homedir(),
+  "Library/Application Support/com.nodelike.sikemux/sim/sikemux-sim",
+);
 
 async function simulatorChrome(): Promise<unknown> {
-  if (existsSync(SIM_CHROME)) return JSON.parse(readFileSync(SIM_CHROME, "utf8"));
+  if (existsSync(SIM_CHROME))
+    return JSON.parse(readFileSync(SIM_CHROME, "utf8"));
   if (!existsSync(SIM_HELPER)) return {};
-  const listed = JSON.parse(execFileSync("xcrun", ["simctl", "list", "devices", "booted", "-j"], { encoding: "utf8" })) as {
+  const listed = JSON.parse(
+    execFileSync("xcrun", ["simctl", "list", "devices", "booted", "-j"], {
+      encoding: "utf8",
+    }),
+  ) as {
     devices: Record<string, { udid: string; name: string }[]>;
   };
-  const phone = Object.values(listed.devices).flat().find((device) => device.name.startsWith("iPhone"));
+  const phone = Object.values(listed.devices)
+    .flat()
+    .find((device) => device.name.startsWith("iPhone"));
   if (!phone) return {};
   const helper = spawn(SIM_HELPER, [], { stdio: ["pipe", "pipe", "ignore"] });
   const answers = new Map<number, Record<string, unknown>>();
@@ -233,12 +287,19 @@ async function simulatorChrome(): Promise<unknown> {
       answers.set(answer.id as number, answer);
       if (answers.size === 2) settle();
     });
-    helper.stdin.write(`${JSON.stringify({ id: 1, type: "chrome", udid: phone.udid })}\n`);
-    helper.stdin.write(`${JSON.stringify({ id: 2, type: "mask", udid: phone.udid })}\n`);
+    helper.stdin.write(
+      `${JSON.stringify({ id: 1, type: "chrome", udid: phone.udid })}\n`,
+    );
+    helper.stdin.write(
+      `${JSON.stringify({ id: 2, type: "mask", udid: phone.udid })}\n`,
+    );
     setTimeout(settle, 15_000);
   });
   helper.kill();
-  const found = { chrome: answers.get(1)?.chrome ?? null, mask: answers.get(2)?.mask ?? null };
+  const found = {
+    chrome: answers.get(1)?.chrome ?? null,
+    mask: answers.get(2)?.mask ?? null,
+  };
   if (found.chrome) writeFileSync(SIM_CHROME, JSON.stringify(found));
   return found;
 }
@@ -259,7 +320,13 @@ function gitShow(name: string, rev: string, path: string): string {
 type DiffRow = [0 | 1 | 2, number, string] | [3, number, ""];
 
 /** A real commit's change to one file, in the rows the app's diff view reads. */
-function fileDiff(name: string, path: string, base: string, head: string, full: boolean): DiffRow[] {
+function fileDiff(
+  name: string,
+  path: string,
+  base: string,
+  head: string,
+  full: boolean,
+): DiffRow[] {
   if (!LOCAL_ROOTS[name] || !existsSync(LOCAL_ROOTS[name])) return [];
   const out = execFileSync(
     "git",
@@ -335,12 +402,28 @@ let notchRender: Promise<void> | null = null;
 function renderNotch(): Promise<void> {
   const fixture = join(import.meta.dirname, "world/notch.fixture");
   const drawn = join(NOTCH_DIR, "P1-permission.png");
-  if (existsSync(drawn) && statSync(drawn).mtimeMs > statSync(fixture).mtimeMs) return Promise.resolve();
+  if (existsSync(drawn) && statSync(drawn).mtimeMs > statSync(fixture).mtimeMs)
+    return Promise.resolve();
   notchRender ??= new Promise((done, fail) => {
     const notchPackage = join(import.meta.dirname, "../src-tauri/notch");
-    spawn("swift", ["run", "--package-path", notchPackage, "notch-snapshots", NOTCH_DIR, "--bare", "--scale", "4", "--fixture", fixture], {
-      stdio: "ignore",
-    }).on("exit", (code) => {
+    spawn(
+      "swift",
+      [
+        "run",
+        "--package-path",
+        notchPackage,
+        "notch-snapshots",
+        NOTCH_DIR,
+        "--bare",
+        "--scale",
+        "4",
+        "--fixture",
+        fixture,
+      ],
+      {
+        stdio: "ignore",
+      },
+    ).on("exit", (code) => {
       if (code === 0) return done();
       notchRender = null;
       fail(new Error(`notch-snapshots exited with ${code}`));
@@ -368,7 +451,9 @@ async function snapshot(
     const page = await context.newPage();
     const island = notch ? `&notch=${notch}` : "";
     if (screenshot) {
-      await page.goto(`${origin}/showcase/twitter.html?capture&screenshot${island}`);
+      await page.goto(
+        `${origin}/showcase/twitter.html?capture&screenshot${island}`,
+      );
       await page.waitForFunction(() =>
         [...document.querySelectorAll<HTMLImageElement>(".shot")].every(
           (image) => image.complete && image.naturalWidth > 0,
@@ -393,7 +478,10 @@ async function snapshot(
     }
     await page.waitForFunction(() => {
       const image = document.querySelector<HTMLImageElement>(".notch");
-      return !image?.getAttribute("src") || (image.complete && image.naturalWidth > 0);
+      return (
+        !image?.getAttribute("src") ||
+        (image.complete && image.naturalWidth > 0)
+      );
     });
     const stamp = new Date().toLocaleString("sv").replace(/[ :]/g, "-");
     if (layout !== "thirds") {
@@ -405,7 +493,12 @@ async function snapshot(
     for (const [index, name] of names.entries()) {
       await page.screenshot({
         path: join(homedir(), "Downloads", name),
-        clip: { x: (index * STAGE.width) / 3, y: 0, width: STAGE.width / 3, height: STAGE.height },
+        clip: {
+          x: (index * STAGE.width) / 3,
+          y: 0,
+          width: STAGE.width / 3,
+          height: STAGE.height,
+        },
       });
     }
     return names;
@@ -417,6 +510,7 @@ async function snapshot(
 function serveDemoFiles(server: ViteDevServer | PreviewServer, port: number) {
   server.httpServer?.on("close", () => {
     markdownParser?.stop();
+    chatFold?.stop();
     void snapshotBrowser?.then((browser) => browser.close());
   });
   server.middlewares.use("/__showcase", async (request, response) => {
@@ -435,7 +529,10 @@ function serveDemoFiles(server: ViteDevServer | PreviewServer, port: number) {
     // The phone showcase's screens, the permission card unless a screen is named.
     const screen = request.url?.match(/^\/simulator\/frame(?:\/([\w-]+))?$/);
     if (screen) {
-      const frame = join(import.meta.dirname, `../mobile/showcase/out/${screen[1] ?? "asking"}.png`);
+      const frame = join(
+        import.meta.dirname,
+        `../mobile/showcase/out/${screen[1] ?? "asking"}.png`,
+      );
       if (!existsSync(frame)) return response.writeHead(404).end();
       response.setHeader("Content-Type", "image/png");
       return response.end(readFileSync(frame));
@@ -452,7 +549,9 @@ function serveDemoFiles(server: ViteDevServer | PreviewServer, port: number) {
     if (shownPage) {
       response.setHeader("Content-Type", "text/html");
       return response.end(
-        readFileSync(join(import.meta.dirname, "pages", `${shownPage[1]}.html`)),
+        readFileSync(
+          join(import.meta.dirname, "pages", `${shownPage[1]}.html`),
+        ),
       );
     }
     if (request.url?.split("?")[0] === "/screenshot") {
@@ -482,11 +581,7 @@ function serveDemoFiles(server: ViteDevServer | PreviewServer, port: number) {
       const input = await body(request);
       switch (request.url) {
         case "/read_dirs":
-          return send(
-            response,
-            200,
-            (input.paths as string[]).map(readDir),
-          );
+          return send(response, 200, (input.paths as string[]).map(readDir));
         case "/read_file": {
           const content = readFile(input.path as string);
           return content === null
@@ -513,7 +608,11 @@ function serveDemoFiles(server: ViteDevServer | PreviewServer, port: number) {
           return send(
             response,
             200,
-            gitLog(input.project as string, Number(input.count ?? 60), input.head as string | undefined),
+            gitLog(
+              input.project as string,
+              Number(input.count ?? 60),
+              input.head as string | undefined,
+            ),
           );
         case "/file_diff":
           return send(
@@ -531,7 +630,11 @@ function serveDemoFiles(server: ViteDevServer | PreviewServer, port: number) {
           return send(
             response,
             200,
-            gitShow(input.project as string, input.rev as string, input.path as string),
+            gitShow(
+              input.project as string,
+              input.rev as string,
+              input.path as string,
+            ),
           );
         case "/snapshot":
           return send(
@@ -545,6 +648,8 @@ function serveDemoFiles(server: ViteDevServer | PreviewServer, port: number) {
             200,
             await parseMarkdown(input.requests as unknown[]),
           );
+        case "/fold":
+          return send(response, 200, await foldChat(input));
         default:
           return send(response, 404, {
             error: "unknown showcase endpoint",
@@ -586,6 +691,4 @@ export default mergeConfig(base, {
   optimizeDeps: { rolldownOptions: { plugins: [ownTauriGlobals] } },
   cacheDir: resolve(import.meta.dirname, "../node_modules/.vite-showcase"),
   server: { port: 1471, strictPort: true },
-  // Headless Chrome's WebGL context scales xterm's glyphs twice at 2x; the DOM renderer draws the same cells.
-  define: { "import.meta.env.VITE_TERMINAL_WEBGL": JSON.stringify("0") },
 });

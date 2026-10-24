@@ -18,9 +18,9 @@ export const brunoDocuments: PluginDocuments = {
     describe(paneId, path) {
         const { collection } = useBruno.getState();
         const located = collection ? findRequest(collection.tree, path) : null;
-        const method = located?.request.method ?? "get";
+        const method = located?.method ?? "get";
         return {
-            label: located?.request.meta.name || basename(path).replace(/\.bru$/, ""),
+            label: located?.name || basename(path).replace(/\.bru$/, ""),
             title: path,
             dirty: useBrunoRuntime.getState().drafts[paneId]?.[path] != null,
             icon: <span className={`bruno-method m-${method}`}>{method.toUpperCase()}</span>,

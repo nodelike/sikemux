@@ -17,6 +17,7 @@ use crate::trailers::{self, Agent};
 use super::board::codehost;
 use super::connection::blocking;
 use super::edits::note::{self, Note, Wrote};
+use super::edits::{commit_lines, CommitLines};
 use super::edits::{footer, git};
 use super::messages::{self, Listed, Reach};
 use super::{saved, Core, CoreResult};
@@ -223,6 +224,41 @@ pub(crate) async fn call(
                 (commit, owners)
             })
             .collect())
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+pub(crate) struct CommitParams {
+    dir: PathBuf,
+    commit: String,
+}
+
+/// The `commitLines` call: which agent wrote each line `commit` changed, as its
+/// note says, with the notes to show beside them. A commit whose note gives no
+/// lines, because one agent wrote all of it or none did, has none.
+pub(crate) async fn lines(core: &Arc<Core>, params: CommitParams) -> CoreResult<CommitLines> {
+    let core = core.clone();
+    blocking(move || {
+        let CommitParams { dir, commit } = params;
+        if !is_hash(&commit) {
+            return Ok(CommitLines::default());
+        }
+        let agents = verified(&core, &dir, &commit);
+        let Some(mut note) =
+            noted(&core, &dir, std::iter::once((commit.as_str(), &agents[..]))).remove(&commit)
+        else {
+            return Ok(CommitLines::default());
+        };
+        let wrote: Vec<(String, Wrote)> = agents
+            .iter()
+            .filter_map(|agent| Some((agent.name.clone(), note.remove(agent.key())?)))
+            .collect();
+        let wrote: Vec<(&str, &Wrote)> = wrote
+            .iter()
+            .map(|(name, lines)| (name.as_str(), lines))
+            .collect();
+        Ok(commit_lines(&dir, &commit, &wrote)?)
     })
     .await
 }

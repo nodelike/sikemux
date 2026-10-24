@@ -17,8 +17,9 @@ import {
 import { type RepoRef, type Run, type Workflow } from "../api";
 import { errorText } from "../../lib/format";
 import { useHost } from "../registry";
-import { pullsR, runsR, workflowsR } from "../resources";
-import { elapsedMs, isUnfinished, outcomeOf, statusParam } from "../runStatus";
+import { workflowsR } from "../resources";
+import { pullListR, runListR } from "../lists";
+import { elapsedMs, outcomeOf, statusParam } from "../runStatus";
 import { filterBy, hostSettings, setFollowBranch, showRun, STATUS_FILTERS, updateView, type HostView, type StatusFilter } from "../state";
 import { StatusMark } from "./ActionsIcon";
 import { RunMenu } from "./RunMenu";
@@ -50,6 +51,7 @@ const RunRow = memo(function RunRow({
     repo,
     canWrite,
     run,
+    unfinished,
     workflow,
     pullTitle,
     now,
@@ -58,13 +60,14 @@ const RunRow = memo(function RunRow({
     repo: RepoRef;
     canWrite: boolean;
     run: Run;
+    unfinished: boolean;
     workflow: string | null;
     /** The title of the pull request the run belongs to, when the host has named it. */
     pullTitle: string | null;
     now: number;
 }) {
     const outcome = outcomeOf(run);
-    const finished = isUnfinished(run) ? null : run.updatedAt;
+    const finished = unfinished ? null : run.updatedAt;
     return (
         <div className="gha-run-item" data-outcome={outcome}>
             <button type="button" className="gha-run-row" onClick={() => showRun(paneId, run.id)}>
@@ -105,7 +108,7 @@ const RunRow = memo(function RunRow({
                 </span>
             </button>
             <span className="gha-run-more">
-                <RunMenu run={run} repo={repo} canWrite={canWrite} onDeleted={() => {}} />
+                <RunMenu run={run} unfinished={unfinished} repo={repo} canWrite={canWrite} onDeleted={() => {}} />
             </span>
         </div>
     );
@@ -119,6 +122,7 @@ function actionsPage(runUrl: string, workflow: Workflow | null): string {
 interface Props {
     paneId: string;
     repo: RepoRef;
+    project: string;
     view: HostView;
     /** The branch the list is narrowed to, if any. */
     branch: string | null;
@@ -129,16 +133,15 @@ interface Props {
     onDispatch: (workflowId: string) => void;
 }
 
-export function RunsList({ paneId, repo, view, branch, projectBranch, active, canWrite, onDispatch }: Props) {
+export function RunsList({ paneId, repo, project, view, branch, projectBranch, active, canWrite, onDispatch }: Props) {
     const host = useHost();
     const followBranch = hostSettings(repo.provider).useSelect((settings) => settings.followBranch);
     const workflows = useResourceEnabled(active, workflowsR, repo);
     const chosen = (workflows.data ?? []).find((workflow) => workflow.id === view.workflowId) ?? null;
-    const pulls = useResourceEnabled(active, pullsR, repo, "all");
-    const pullTitles = useMemo(() => new Map((pulls.data ?? []).map((pull) => [pull.number, pull.title])), [pulls.data]);
+    const pulls = useResourceEnabled(active, pullListR, project, "all");
+    const pullTitles = useMemo(() => new Map((pulls.data?.pulls ?? []).map(({ pull }) => [pull.number, pull.title])), [pulls.data]);
     const workflowNames = useMemo(() => new Map((workflows.data ?? []).map((workflow) => [workflow.id, workflow.name])), [workflows.data]);
-    const page = useResourceEnabled(active, runsR, {
-        ...repo,
+    const page = useResourceEnabled(active, runListR, project, {
         workflowId: view.workflowId ?? undefined,
         status: statusParam(view.statusFilter),
         branch: branch ?? undefined,
@@ -146,7 +149,7 @@ export function RunsList({ paneId, repo, view, branch, projectBranch, active, ca
         perPage: 30,
     });
     const runs = page.data?.runs ?? [];
-    const anyRunning = runs.some(isUnfinished);
+    const anyRunning = runs.some((listed) => listed.unfinished);
     const now = useNow(active && anyRunning);
 
     useCiWatch(repo, active);
@@ -228,16 +231,17 @@ export function RunsList({ paneId, repo, view, branch, projectBranch, active, ca
                 <EmptyState title="No runs" message={`Nothing matches this filter${branch ? ` on ${branch}` : ""}.`} />
             )}
             <div className="gha-run-rows">
-                {runs.map((run) => (
+                {runs.map(({ run, unfinished }) => (
                     <RunRow
                         key={run.id}
                         paneId={paneId}
                         repo={repo}
                         canWrite={canWrite}
                         run={run}
+                        unfinished={unfinished}
                         workflow={chosen ? null : (workflowNames.get(run.workflowId) ?? null)}
                         pullTitle={run.pullRequests[0] ? (pullTitles.get(run.pullRequests[0]) ?? null) : null}
-                        now={isUnfinished(run) ? now : coarse(now)}
+                        now={unfinished ? now : coarse(now)}
                     />
                 ))}
             </div>
@@ -266,7 +270,7 @@ export function RunsList({ paneId, repo, view, branch, projectBranch, active, ca
                         <button
                             type="button"
                             className="gha-link"
-                            onClick={() => void openUrl(actionsPage(runs[0].url, chosen)).catch(swallow(`open ${host.name}`))}>
+                            onClick={() => void openUrl(actionsPage(runs[0].run.url, chosen)).catch(swallow(`open ${host.name}`))}>
                             Open on {host.name}
                         </button>
                     )}

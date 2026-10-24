@@ -1,25 +1,29 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { JiraIssue, JiraIssueSummary, JiraStatus } from "../api";
+import type { JiraBoardPage, JiraIssueSummary, JiraIssueView, JiraStatus } from "../api";
 
 const api = vi.hoisted(() => ({
     status: vi.fn(),
-    search: vi.fn(),
-    issue: vi.fn(),
-    filters: vi.fn(),
     transition: vi.fn(),
     assign: vi.fn(),
     setTask: vi.fn(),
-    projects: vi.fn(),
-    boards: vi.fn(),
-    board: vi.fn(),
     moveIssue: vi.fn(),
     signIn: vi.fn(),
 }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), jiraApi: api }));
 
+const views = vi.hoisted(() => ({
+    listView: vi.fn(),
+    issueView: vi.fn(),
+    spacesView: vi.fn(),
+    boardView: vi.fn(),
+}));
+
+import { fakeViews } from "../../../plugin-api/fakeViews";
 import { JiraPane } from "./JiraPane";
 import { jira } from "../resources";
+
+const core = fakeViews(views);
 
 const signedIn: JiraStatus = {
     configured: true,
@@ -30,11 +34,11 @@ const signedIn: JiraStatus = {
     browserSignIn: false,
 };
 
-const summary = {
+const summary: JiraIssueSummary = {
     key: "ABC-12",
     summary: "Fix the login race",
     status: "In Progress",
-    statusCategory: "indeterminate" as const,
+    statusCategory: "indeterminate",
     priority: "High",
     assignee: { accountId: "a1", name: "Ana", avatarUrl: null },
     issueType: "Bug",
@@ -45,21 +49,43 @@ const summary = {
     url: "https://acme.atlassian.net/browse/ABC-12",
 };
 
-const detail: JiraIssue = {
-    ...summary,
+const detail: JiraIssueView = {
+    issue: summary,
     project: "ABC",
     reporter: { accountId: "r1", name: "Raj", avatarUrl: null },
     labels: ["auth"],
     created: null,
     description: "Steps: **open** the app",
-    comments: [{ id: "1", author: "Raj", authorAvatarUrl: null, created: "2026-10-04T09:00:00.000+0000", body: "Seen on staging" }],
-    commentCount: 1,
-    history: [],
     transitions: [{ id: "31", name: "Review", to: "In Review", toCategory: "indeterminate" }],
     subtasks: [],
     blockedBy: [],
     blocks: [],
+    commentCount: 1,
+    activity: [
+        {
+            kind: "comment",
+            comment: { id: "1", author: "Raj", authorAvatarUrl: null, created: "2026-10-04T09:00:00.000+0000", body: "Seen on staging" },
+        },
+    ],
 };
+
+const board = (issues: JiraIssueSummary[], kind = "scrum"): JiraBoardPage => ({
+    board: {
+        id: 7,
+        name: "ABC board",
+        kind,
+        sprint: kind === "scrum" ? { id: 42, name: "Sprint 5", end: null, goal: "Ship the login fix" } : null,
+        columns: [
+            { name: "To Do", statusIds: ["1"], issues: [] },
+            { name: "In Progress", statusIds: ["3"], issues },
+            { name: "Done", statusIds: ["4"], issues: [] },
+        ],
+        truncated: false,
+    },
+    people: [{ accountId: "a1", name: "Ana", avatarUrl: null, count: 1 }],
+    unassigned: 0,
+    lanes: [],
+});
 
 afterEach(() => {
     cleanup();
@@ -68,40 +94,40 @@ afterEach(() => {
 
 beforeEach(() => {
     Object.values(api).forEach((mock) => mock.mockReset());
+    Object.values(views).forEach((mock) => mock.mockReset());
     api.status.mockResolvedValue(signedIn);
-    api.search.mockResolvedValue({ issues: [summary], next: null });
-    api.filters.mockResolvedValue([{ id: "9", name: "Team bugs", jql: "type = Bug" }]);
-    api.issue.mockResolvedValue(detail);
     api.transition.mockResolvedValue({ status: "In Review", transitions: [] });
-    api.projects.mockResolvedValue([
-        { key: "ABC", name: "Alphabet" },
-        { key: "OPS", name: "Operations" },
-    ]);
-    api.boards.mockResolvedValue([{ id: 7, name: "ABC board", kind: "scrum", project: "ABC" }]);
-    api.board.mockResolvedValue({
-        id: 7,
-        name: "ABC board",
-        kind: "scrum",
-        sprint: { id: 42, name: "Sprint 5", end: null, goal: "Ship the login fix" },
-        columns: [
-            { name: "To Do", statusIds: ["1"], issues: [] },
-            { name: "In Progress", statusIds: ["3"], issues: [summary] },
-            { name: "Done", statusIds: ["4"], issues: [] },
-        ],
-        truncated: false,
-    });
     api.moveIssue.mockResolvedValue(undefined);
+    views.listView.mockReturnValue({ issues: [summary], statuses: [{ status: "In Progress", category: "indeterminate", count: 1 }] });
+    views.issueView.mockReturnValue(detail);
+    views.spacesView.mockReturnValue({
+        spaces: [
+            {
+                project: { key: "ABC", name: "Alphabet", avatarUrl: null },
+                boards: [{ id: 7, name: "ABC board", kind: "scrum", project: "ABC", projectKey: "ABC" }],
+            },
+            { project: { key: "OPS", name: "Operations", avatarUrl: null }, boards: [] },
+        ],
+        otherBoards: [],
+        filters: [{ id: "9", name: "Team bugs", jql: "type = Bug" }],
+        boardsFailed: null,
+    });
+    views.boardView.mockReturnValue(board([summary]));
 });
 
 describe("JiraPane", () => {
     it("narrows the list to the statuses picked, and shows them all again from All", async () => {
-        api.search.mockResolvedValue({
+        views.listView.mockReturnValue({
             issues: [
                 summary,
                 { ...summary, key: "ABC-13", summary: "Ship the docs", status: "Deployed", statusCategory: "done" },
                 { ...summary, key: "ABC-14", summary: "Plan the beta", status: "To Do", statusCategory: "new" },
             ],
-            next: null,
+            statuses: [
+                { status: "In Progress", category: "indeterminate", count: 1 },
+                { status: "To Do", category: "new", count: 1 },
+                { status: "Deployed", category: "done", count: 1 },
+            ],
         });
         render(<JiraPane paneId="p" active />);
         const filter = await screen.findByRole("group", { name: "Filter by status" });
@@ -119,7 +145,7 @@ describe("JiraPane", () => {
     });
 
     it("ticks a task in the description in Jira, and says so when Jira refuses", async () => {
-        api.issue.mockResolvedValue({ ...detail, description: "Acceptance:\n\n- [ ] Sends when **long**\n- [x] Keeps the 400" });
+        views.issueView.mockReturnValue({ ...detail, description: "Acceptance:\n\n- [ ] Sends when **long**\n- [x] Keeps the 400" });
         api.setTask.mockResolvedValue(undefined);
         render(<JiraPane paneId="jira-tasks" active />);
         fireEvent.click(await screen.findByRole("listitem"));
@@ -139,14 +165,13 @@ describe("JiraPane", () => {
     it("narrows a board to the people picked through Jira, and to typed words on the cards shown", async () => {
         const kiran = { ...summary, key: "ABC-20", summary: "Dossier chart", assignee: { accountId: "k1", name: "Kiran Rao", avatarUrl: null } };
         const loose = { ...summary, key: "ABC-21", summary: "Dossier picker", assignee: null };
-        const columns = (issues: JiraIssueSummary[]) => [{ name: "In Progress", statusIds: ["3"], issues }];
-        api.board.mockImplementation(async (_id: number, _site: string | undefined, picked: string[] = []) => ({
-            id: 7,
-            name: "ABC board",
-            kind: "kanban",
-            sprint: null,
-            columns: columns(picked.includes("k1") ? [kiran] : [summary, kiran, loose]),
-            truncated: false,
+        views.boardView.mockImplementation(({ people }: { people: string[] }) => ({
+            ...board(people.includes("k1") ? [kiran] : [summary, kiran, loose], "kanban"),
+            people: [
+                { accountId: "a1", name: "Ana", avatarUrl: null, count: 1 },
+                { accountId: "k1", name: "Kiran Rao", avatarUrl: null, count: 1 },
+            ],
+            unassigned: 1,
         }));
         render(<JiraPane paneId="jira-board-people" active />);
         fireEvent.click(await screen.findByRole("button", { name: "ABC board" }));
@@ -154,7 +179,10 @@ describe("JiraPane", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Kiran Rao" }));
         await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
-        expect(api.board).toHaveBeenLastCalledWith(7, "acme.atlassian.net", ["k1"]);
+        expect(core.asked.at(-1)).toEqual({
+            method: "boardView",
+            params: { id: 7, site: "acme.atlassian.net", people: ["k1"], mine: false, unassigned: false },
+        });
         expect(screen.getByRole("button", { name: "Ana" })).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole("button", { name: "Clear" }));

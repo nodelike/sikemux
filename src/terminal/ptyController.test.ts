@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { TerminalInput } from "./grid";
 import {
     PtyControllerDisposedError,
     PtyControllerExitedError,
@@ -7,13 +8,11 @@ import {
     PtySubscriptionOverflowError,
     parsePtyShellMetadataSnapshot,
     type PtyApi,
-    type PtyPasteOptions,
     type PtyAttachResult,
     type PtyChannelAdapter,
     type PtyControllerErrorEvent,
     type PtyOutputChunk,
     type PtySpawnRequest,
-    type PtyTimerAdapter,
 } from "./ptyController";
 
 type TestContext = { readonly paneId: string };
@@ -47,37 +46,20 @@ class FakeChannels implements PtyChannelAdapter<FakeChannel> {
     }
 }
 
-class FakeTimer implements PtyTimerAdapter {
-    readonly jobs = new Map<number, () => void>();
-    readonly schedule = vi.fn((callback: () => void, _delayMs: number): number => {
-        const id = this.jobs.size + 1;
-        this.jobs.set(id, callback);
-        return id;
-    });
-    readonly cancel = vi.fn((handle: unknown) => {
-        this.jobs.delete(handle as number);
-    });
-
-    runAll(): void {
-        const callbacks = Array.from(this.jobs.values());
-        this.jobs.clear();
-        callbacks.forEach((callback) => callback());
-    }
-}
-
 function fakeApi() {
     const spawn = vi.fn(async (_request: PtySpawnRequest<TestContext>) => 42);
     const write = vi.fn(async (_id: number, _data: string) => {});
-    const paste = vi.fn(async (_id: number, _text: string, _options?: PtyPasteOptions) => {});
+    const typeWhenReady = vi.fn(async (_id: number, _draft: string) => {});
+    const input = vi.fn(async (_id: number, _input: TerminalInput) => {});
     const resize = vi.fn(async (_id: number, _cols: number, _rows: number) => {});
     const kill = vi.fn(async (_id: number) => {});
     const attach = vi.fn(async (_id: number, _channel: FakeChannel): Promise<PtyAttachResult> => {
-        return { subId: 7, snapshot: new Uint8Array([1, 2]), alternateScreen: false };
+        return { subId: 7, frame: new Uint8Array([1, 2]) };
     });
     const detach = vi.fn(async (_id: number, _subId: number) => {});
-    const ack = vi.fn(async (_id: number, _subId: number, _bytes: number) => {});
-    const api = { spawn, write, paste, resize, kill, attach, detach, ack } satisfies PtyApi<FakeChannel, TestContext>;
-    return { api, spawn, write, paste, resize, kill, attach, detach, ack };
+    const ack = vi.fn(async (_id: number, _subId: number, _frame: number) => {});
+    const api = { spawn, write, typeWhenReady, input, resize, kill, attach, detach, ack } satisfies PtyApi<FakeChannel, TestContext>;
+    return { api, spawn, write, typeWhenReady, input, resize, kill, attach, detach, ack };
 }
 
 function controllerOptions(overrides: Partial<ConstructorParameters<typeof PtyLifecycleController<FakeChannel, TestContext>>[0]> = {}) {
@@ -175,7 +157,7 @@ describe("PtyLifecycleController process ownership", () => {
         await vi.waitFor(() => expect(channels.bindings).toHaveLength(1));
 
         const disposing = controller.dispose();
-        nativeAttach.resolve({ subId: 20, snapshot: new Uint8Array([1]), alternateScreen: false });
+        nativeAttach.resolve({ subId: 20, frame: new Uint8Array([1]) });
 
         await expect(attaching).rejects.toBeInstanceOf(PtyControllerDisposedError);
         await disposing;
@@ -188,9 +170,7 @@ describe("PtyLifecycleController process ownership", () => {
     it("replaces an external PTY and quarantines its stale attachment generation", async () => {
         const oldNativeAttach = deferred<PtyAttachResult>();
         const { fakes, channels, options } = controllerOptions({ existingPtyId: 76 });
-        fakes.attach
-            .mockReturnValueOnce(oldNativeAttach.promise)
-            .mockResolvedValueOnce({ subId: 22, snapshot: new Uint8Array([7, 8]), alternateScreen: false });
+        fakes.attach.mockReturnValueOnce(oldNativeAttach.promise).mockResolvedValueOnce({ subId: 22, frame: new Uint8Array([7, 8]) });
         const controller = new PtyLifecycleController(options);
         const oldListener = vi.fn();
         const oldAttaching = controller.attach(oldListener);
@@ -208,7 +188,7 @@ describe("PtyLifecycleController process ownership", () => {
         expect(newListener).toHaveBeenCalledWith([10]);
         expect(fakes.attach).toHaveBeenNthCalledWith(2, 77, expect.anything());
 
-        oldNativeAttach.resolve({ subId: 21, snapshot: new Uint8Array([1, 2]), alternateScreen: false });
+        oldNativeAttach.resolve({ subId: 21, frame: new Uint8Array([1, 2]) });
         await expect(oldAttaching).rejects.toBeInstanceOf(PtyControllerReplacedError);
         expect(fakes.detach).toHaveBeenCalledWith(76, 21);
 
@@ -222,7 +202,7 @@ describe("PtyLifecycleController process ownership", () => {
     it("recovers an exited external controller only through explicit replacement", async () => {
         const missing = Object.freeze({ category: "pty-not-found", message: "gone" });
         const { fakes, options } = controllerOptions({ existingPtyId: 78 });
-        fakes.attach.mockRejectedValueOnce(missing).mockResolvedValueOnce({ subId: 23, snapshot: new Uint8Array([3]), alternateScreen: false });
+        fakes.attach.mockRejectedValueOnce(missing).mockResolvedValueOnce({ subId: 23, frame: new Uint8Array([3]) });
         const controller = new PtyLifecycleController(options);
 
         await expect(controller.attach(vi.fn())).rejects.toBe(missing);
@@ -230,7 +210,7 @@ describe("PtyLifecycleController process ownership", () => {
         await expect(controller.adoptExistingPty(79)).resolves.toBe(79);
         const recovered = await controller.attach(vi.fn());
 
-        expect(recovered.snapshot).toEqual(new Uint8Array([3]));
+        expect(recovered.frame).toEqual(new Uint8Array([3]));
         expect(fakes.attach).toHaveBeenNthCalledWith(2, 79, expect.anything());
         expect(fakes.spawn).not.toHaveBeenCalled();
         await controller.dispose();
@@ -329,8 +309,7 @@ describe("PtyLifecycleController process ownership", () => {
 
     it("kills exactly once when disposed during a coalesced start", async () => {
         const spawned = deferred<number>();
-        const timer = new FakeTimer();
-        const { fakes, options } = controllerOptions({ initialInput: "private first task", timer });
+        const { fakes, options } = controllerOptions({ initialDraft: "private first task" });
         fakes.spawn.mockReturnValue(spawned.promise);
         const controller = new PtyLifecycleController(options);
         const starting = controller.start();
@@ -343,23 +322,20 @@ describe("PtyLifecycleController process ownership", () => {
         await disposing;
         expect(fakes.kill).toHaveBeenCalledTimes(1);
         expect(fakes.kill).toHaveBeenCalledWith(91);
-        expect(fakes.write).not.toHaveBeenCalled();
-        expect(timer.schedule).not.toHaveBeenCalled();
+        expect(fakes.typeWhenReady).not.toHaveBeenCalled();
         expect(controller.getSnapshot()).toMatchObject({ status: "disposed", attachmentCount: 0, initialInput: "cancelled" });
     });
 
     it("takes back a process that is still there instead of spawning, without sending its first input again", async () => {
-        const timer = new FakeTimer();
         const onProcess = vi.fn();
         const resume = vi.fn(async (_id: number) => true);
-        const { fakes, options } = controllerOptions({ resumePtyId: 1_759_300_000_005, initialInput: "Build it.", timer, onProcess });
+        const { fakes, options } = controllerOptions({ resumePtyId: 1_759_300_000_005, initialDraft: "Build it.", onProcess });
         const controller = new PtyLifecycleController({ ...options, api: { ...fakes.api, resume } });
 
         await expect(controller.start()).resolves.toBe(1_759_300_000_005);
-        timer.runAll();
         expect(resume).toHaveBeenCalledWith(1_759_300_000_005);
         expect(fakes.spawn).not.toHaveBeenCalled();
-        expect(fakes.write).not.toHaveBeenCalled();
+        expect(fakes.typeWhenReady).not.toHaveBeenCalled();
         expect(onProcess).toHaveBeenCalledWith(1_759_300_000_005);
         expect(controller.getSnapshot()).toMatchObject({ status: "running", processOwnership: "controller", initialInput: "none" });
 
@@ -386,98 +362,38 @@ describe("PtyLifecycleController process ownership", () => {
         expect(resume).not.toHaveBeenCalled();
     });
 
-    it("delivers initial input at most once and reports successful delivery", async () => {
-        const timer = new FakeTimer();
+    it("hands initial input to the core at most once and reports it", async () => {
         const delivered = vi.fn();
-        const { fakes, options } = controllerOptions({ initialInput: "  Build it safely.  ", timer, onInitialInputDelivered: delivered });
+        const { fakes, options } = controllerOptions({ initialDraft: "and then this", onInitialInputDelivered: delivered });
         const controller = new PtyLifecycleController(options);
 
         await controller.start();
-        expect(controller.getSnapshot().initialInput).toBe("scheduled");
-        expect(fakes.paste).not.toHaveBeenCalled();
-        timer.runAll();
         await vi.waitFor(() => expect(controller.getSnapshot().initialInput).toBe("delivered"));
-        timer.runAll();
+        await controller.start();
 
-        expect(fakes.paste).toHaveBeenCalledTimes(1);
-        expect(fakes.paste).toHaveBeenCalledWith(42, "Build it safely.", { submit: true, starting: true });
+        expect(fakes.typeWhenReady).toHaveBeenCalledOnce();
+        expect(fakes.typeWhenReady).toHaveBeenCalledWith(42, "and then this");
         expect(fakes.write).not.toHaveBeenCalled();
         expect(delivered).toHaveBeenCalledOnce();
     });
 
-    it("replays dropped paths as distinct paste events before submitting the first task", async () => {
-        const timer = new FakeTimer();
-        const delivered = vi.fn();
-        const { fakes, options } = controllerOptions({
-            initialPastes: ["'/tmp/first image.png'", "'/tmp/second image.jpg'"],
-            initialInput: "Compare these screenshots.",
-            timer,
-            onInitialInputDelivered: delivered,
-        });
-        const controller = new PtyLifecycleController(options);
-
-        await controller.start();
-        timer.runAll();
-        await vi.waitFor(() => expect(controller.getSnapshot().initialInput).toBe("delivered"));
-
-        expect(fakes.paste.mock.calls).toEqual([
-            [42, "'/tmp/first image.png'", { submit: false, starting: true }],
-            [42, "'/tmp/second image.jpg'", { submit: false, starting: true }],
-            [42, "Compare these screenshots.", { submit: true, starting: true }],
-        ]);
-        expect(delivered).toHaveBeenCalledOnce();
-    });
-
-    it("pastes a draft once without submitting it, so it waits at the prompt", async () => {
-        const timer = new FakeTimer();
-        const { fakes, options } = controllerOptions({ initialDraft: "line one\nline two\n", timer });
-        const controller = new PtyLifecycleController(options);
-
-        await controller.start();
-        expect(controller.getSnapshot().initialInput).toBe("scheduled");
-        timer.runAll();
-        await vi.waitFor(() => expect(controller.getSnapshot().initialInput).toBe("delivered"));
-        timer.runAll();
-
-        expect(fakes.paste).toHaveBeenCalledOnce();
-        expect(fakes.paste).toHaveBeenCalledWith(42, "line one\nline two", { starting: true });
-    });
-
-    it("submits the first task before pasting a draft after it", async () => {
-        const timer = new FakeTimer();
-        const { fakes, options } = controllerOptions({ initialInput: "Build it.", initialDraft: "and then this", timer });
-        const controller = new PtyLifecycleController(options);
-
-        await controller.start();
-        timer.runAll();
-        await vi.waitFor(() => expect(controller.getSnapshot().initialInput).toBe("delivered"));
-
-        expect(fakes.paste.mock.calls).toEqual([
-            [42, "Build it.", { submit: true, starting: true }],
-            [42, "and then this", { starting: true }],
-        ]);
-    });
-
     it("does not retry an ambiguous failed initial-input write", async () => {
-        const timer = new FakeTimer();
         const writeError = new Error("bridge response lost");
-        const { fakes, errors, options } = controllerOptions({ initialInput: "run once", timer });
-        fakes.paste.mockRejectedValue(writeError);
+        const { fakes, errors, options } = controllerOptions({ initialDraft: "run once" });
+        fakes.typeWhenReady.mockRejectedValue(writeError);
         const controller = new PtyLifecycleController(options);
 
         await controller.start();
-        timer.runAll();
         await vi.waitFor(() => expect(controller.getSnapshot().initialInput).toBe("failed"));
         await controller.start();
-        timer.runAll();
 
-        expect(fakes.paste).toHaveBeenCalledTimes(1);
+        expect(fakes.typeWhenReady).toHaveBeenCalledTimes(1);
         expect(errors).toContainEqual({ operation: "initial-input", error: writeError });
     });
 });
 
 describe("PtyLifecycleController renderer subscriptions", () => {
-    it("keeps atomic snapshot ordering across attach, activate, and detach", async () => {
+    it("keeps the first frame ahead of later ones across attach, activate, and detach", async () => {
         const attached = deferred<PtyAttachResult>();
         const { fakes, channels, options } = controllerOptions();
         fakes.attach.mockReturnValue(attached.promise);
@@ -488,13 +404,12 @@ describe("PtyLifecycleController renderer subscriptions", () => {
 
         const beforeResponse = [3, 4];
         channels.bindings[0].emit(beforeResponse);
-        attached.resolve({ subId: 9, snapshot: new Uint8Array([1, 2]), alternateScreen: true });
+        attached.resolve({ subId: 9, frame: new Uint8Array([1, 2]) });
         const attachment = await attaching;
         const beforeActivate = [5, 6];
         channels.bindings[0].emit(beforeActivate);
         expect(received).toEqual([]);
-        expect(attachment.snapshot).toEqual(new Uint8Array([1, 2]));
-        expect(attachment.alternateScreen).toBe(true);
+        expect(attachment.frame).toEqual(new Uint8Array([1, 2]));
 
         attachment.activate();
         expect(received).toEqual([beforeResponse, beforeActivate]);
@@ -531,7 +446,7 @@ describe("PtyLifecycleController renderer subscriptions", () => {
         expect(Array.from(chunk)).toEqual([27, 91, 75]);
     });
 
-    it("acks written bytes against the subscription and stops once detached", async () => {
+    it("acks drawn frames against the subscription and stops once detached", async () => {
         const { fakes, options } = controllerOptions();
         const controller = new PtyLifecycleController(options);
         const attachment = await controller.attach(vi.fn());
@@ -552,8 +467,7 @@ describe("PtyLifecycleController renderer subscriptions", () => {
         const { fakes, options } = controllerOptions();
         fakes.attach.mockResolvedValue({
             subId: 18,
-            snapshot: new Uint8Array([]),
-            alternateScreen: false,
+            frame: new Uint8Array([]),
             shell: { revision: 7, cwd: "/repo", phase: "prompt", lastExitCode: 0 },
         });
         const controller = new PtyLifecycleController(options);
@@ -567,8 +481,7 @@ describe("PtyLifecycleController renderer subscriptions", () => {
         const { fakes, options } = controllerOptions();
         fakes.attach.mockResolvedValue({
             subId: 18,
-            snapshot: new Uint8Array([]),
-            alternateScreen: false,
+            frame: new Uint8Array([]),
             shell: { revision: 7, cwd: "/repo", phase: "forged" as never, lastExitCode: null },
         });
         const controller = new PtyLifecycleController(options);
@@ -590,7 +503,7 @@ describe("PtyLifecycleController renderer subscriptions", () => {
         channels.bindings[0].emit([1, 2]);
         channels.bindings[0].emit([3, 4]);
         channels.bindings[0].emit([5]);
-        attached.resolve({ subId: 10, snapshot: new Uint8Array([]), alternateScreen: false });
+        attached.resolve({ subId: 10, frame: new Uint8Array([]) });
 
         await expect(attaching).rejects.toBeInstanceOf(PtySubscriptionOverflowError);
         expect(received).not.toHaveBeenCalled();
@@ -617,10 +530,10 @@ describe("PtyLifecycleController renderer subscriptions", () => {
 
     it("unsubscribes a valid native subscription when its snapshot is oversized", async () => {
         const { fakes, options } = controllerOptions({ maxSnapshotBytes: 2 });
-        fakes.attach.mockResolvedValue({ subId: 23, snapshot: new Uint8Array([1, 2, 3]), alternateScreen: false });
+        fakes.attach.mockResolvedValue({ subId: 23, frame: new Uint8Array([1, 2, 3]) });
         const controller = new PtyLifecycleController(options);
 
-        await expect(controller.attach(vi.fn())).rejects.toThrow("oversized snapshot");
+        await expect(controller.attach(vi.fn())).rejects.toThrow("oversized frame");
         expect(fakes.detach).toHaveBeenCalledOnce();
         expect(fakes.detach).toHaveBeenCalledWith(42, 23);
         expect(fakes.kill).not.toHaveBeenCalled();
@@ -665,16 +578,14 @@ describe("PtyLifecycleController renderer subscriptions", () => {
     it("retries a typed attach failure without respawning or killing the live PTY", async () => {
         const attachError = Object.freeze({ category: "pty", message: "temporary attach failure" });
         const { fakes, errors, options } = controllerOptions();
-        fakes.attach
-            .mockRejectedValueOnce(attachError)
-            .mockResolvedValueOnce({ subId: 19, snapshot: new Uint8Array([4, 5]), alternateScreen: false });
+        fakes.attach.mockRejectedValueOnce(attachError).mockResolvedValueOnce({ subId: 19, frame: new Uint8Array([4, 5]) });
         const controller = new PtyLifecycleController(options);
 
         await expect(controller.attach(vi.fn())).rejects.toBe(attachError);
         expect(controller.getSnapshot()).toMatchObject({ status: "running", failureOperation: "attach", attachmentCount: 0 });
 
         const attachment = await controller.attach(vi.fn());
-        expect(attachment.snapshot).toEqual(new Uint8Array([4, 5]));
+        expect(attachment.frame).toEqual(new Uint8Array([4, 5]));
         expect(controller.getSnapshot()).toMatchObject({ status: "running", failureOperation: null, attachmentCount: 1 });
         expect(fakes.spawn).toHaveBeenCalledOnce();
         expect(fakes.attach).toHaveBeenCalledTimes(2);
@@ -745,8 +656,7 @@ describe("PtyLifecycleController safety boundaries", () => {
     });
 
     it("exposes content-free runtime snapshots and rejects persistence", async () => {
-        const timer = new FakeTimer();
-        const { options } = controllerOptions({ initialInput: "secret first task", timer });
+        const { options } = controllerOptions({ initialDraft: "secret first task" });
         const controller = new PtyLifecycleController(options);
         await controller.start();
 

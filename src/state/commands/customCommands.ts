@@ -1,4 +1,5 @@
 import { coreCall } from "../../api/core";
+import { customCommandsOf, setPreference } from "../preferences";
 import { getState, mutate, setState } from "../store";
 import { notify, reportError } from "../toast";
 import { makePane, newId, replacePane, splitPane } from "../layout";
@@ -86,11 +87,14 @@ export function closeCommandPopup(): void {
 }
 
 export function upsertCustomCommand(command: import("../../commands/registry").CustomCommand): void {
-    setState((s) => ({ customCommands: [...s.customCommands.filter((item) => item.id !== command.id), command] }));
+    setPreference("customCommands", [...customCommandsOf(getState()).filter((item) => item.id !== command.id), command]);
 }
 
 export function deleteCustomCommand(id: string): void {
-    setState((s) => ({ customCommands: s.customCommands.filter((item) => item.id !== id) }));
+    setPreference(
+        "customCommands",
+        customCommandsOf(getState()).filter((item) => item.id !== id),
+    );
 }
 
 export function noteRecentCommand(key: string): void {

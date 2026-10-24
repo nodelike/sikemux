@@ -39,13 +39,13 @@ export function copyWithNotice(text: string, what: string): void {
 
 /** Opens a sign-in page in the browser the person chose for single sign-on in Settings. */
 export function openSignInUrl(url: string): Promise<void> {
-    const { cloudBrowser, cloudBrowserShortcut } = getState();
+    const { cloudBrowser = "", cloudBrowserShortcut = "" } = getState().preferences ?? {};
     return openUrl(url, cloudBrowser || null, cloudBrowserShortcut || null);
 }
 
 /** Brings the single sign-on browser forward, for a CLI that opens its own sign-in page. */
 export function focusSignInBrowser(): Promise<void> {
-    const { cloudBrowser, cloudBrowserShortcut } = getState();
+    const { cloudBrowser = "", cloudBrowserShortcut = "" } = getState().preferences ?? {};
     if (!cloudBrowser) return Promise.resolve();
     return invokeCommand<void>("macos_focus_app", { app: cloudBrowser, shortcut: cloudBrowserShortcut || null });
 }

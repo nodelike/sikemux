@@ -3,6 +3,8 @@
  * showcase: one Mac is already paired and answers from the demo world instead
  * of the network.
  */
+import AGENT_CATALOG from '../../src/test/agentCatalog.generated.json';
+import type { ChatMessage } from '../../src/chat/types';
 import { ChatAttachment, CoreEvent, MobileError } from '../app/test/mocks/sikemux-native';
 import {
   BOARDS,
@@ -16,9 +18,9 @@ import {
   QUESTIONS,
   RECENT,
   SESSIONS,
-  chatEvents,
+  chatHead,
+  chatRows,
   permissionPayload,
-  setupOf,
 } from './world';
 
 export { ChatAttachment, CoreEvent, MobileError };
@@ -46,6 +48,31 @@ type Listener = {
 };
 
 const projectPath = (id: string) => PROJECTS.find((project) => project.id === id)?.path ?? '/';
+
+/** The words a core shows for each group. */
+const GROUP_LABELS = { blocked: 'Needs input', working: 'Working', done: 'Done', idle: 'Idle' } as const;
+
+/** How the core shows each demo chat, in the order it lists them. */
+function shown() {
+  return CHATS.map((chat) => {
+    const asks = chat.asking || QUESTIONS.some((question) => question.agentId === chat.agentId && question.blocked);
+    const group = asks ? 'blocked' : chat.running ? 'working' : 'idle';
+    return {
+      agentId: chat.agentId,
+      cli: chat.provider,
+      title: chat.title,
+      status: group,
+      group,
+      label: GROUP_LABELS[group],
+      unread: false,
+      subagents: 0,
+      tasks: 0,
+      busy: group !== 'idle',
+      background: false,
+      activeAt: Date.now(),
+    };
+  }).sort((a, b) => Object.keys(GROUP_LABELS).indexOf(a.group) - Object.keys(GROUP_LABELS).indexOf(b.group));
+}
 
 /** The host's inbox as its core would rank the demo world. */
 function inbox() {
@@ -112,7 +139,7 @@ function inbox() {
     away: false,
     agentMessages: {},
     remoteAgents: [],
-    agents: [],
+    agents: shown(),
   };
 }
 
@@ -176,27 +203,15 @@ function view() {
   };
 }
 
-type Event = { kind: string; payload: Record<string, unknown> };
-
-/** Gives each answer its whole markdown tree, as a host sends it, read by the core's own parser. */
-async function withTrees(events: Event[]): Promise<Event[]> {
-  const answers = events.flatMap((event) => {
-    const update = event.payload.update as
-      { sessionUpdate?: string; content?: { type?: string; text?: string }; _meta?: { sikemux?: object } } | undefined;
-    const text = update?.content?.type === 'text' ? update.content.text : undefined;
-    return update &&
-      text !== undefined &&
-      (update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_thought_chunk')
-      ? [{ update, text }]
-      : [];
-  });
-  const response = await fetch('/showcase/markdown', { method: 'POST', body: JSON.stringify(answers.map(({ text }) => text)) });
+/** Gives each text its whole markdown tree, as a host sends it, read by the core's own parser. */
+async function withTrees(rows: ChatMessage[]): Promise<ChatMessage[]> {
+  const parts = rows.flatMap((row) => row.parts.flatMap((part) => (part.kind === 'text' || part.kind === 'thought' ? [part] : [])));
+  const response = await fetch('/showcase/markdown', { method: 'POST', body: JSON.stringify(parts.map((part) => part.text)) });
   const trees = (await response.json()) as unknown[][];
-  answers.forEach(({ update, text }, index) => {
-    const md = { n: text.length, o: [{ p: [], at: 0, c: trees[index] }] };
-    update._meta = { ...update._meta, sikemux: { ...update._meta?.sikemux, md } };
+  parts.forEach((part, index) => {
+    part.md = { blocks: trees[index], n: part.text.length };
   });
-  return events;
+  return rows;
 }
 
 class Connection {
@@ -223,16 +238,10 @@ class Connection {
   async attachChat(agentId: string) {
     const chat = CHATS.find((known) => known.agentId === agentId);
     if (!chat) return ChatAttachment.Missing.new({});
-    const events = await withTrees(chatEvents(chat));
+    const rows = await withTrees(chatRows(chat));
     return ChatAttachment.Live.new({
-      sessionId: `session-${chat.agentId}`,
-      capabilitiesJson: '{}',
-      setupJson: JSON.stringify(setupOf(chat)),
-      permissionMode: chat.permissionMode,
-      running: chat.running,
-      turned: false,
-      replayJson: JSON.stringify(events),
-      mark: { feed: chat.agentId, seq: BigInt(events.length) },
+      viewJson: JSON.stringify({ head: chatHead(chat), rows }),
+      mark: { feed: chat.agentId, seq: 0n },
     });
   }
 
@@ -264,11 +273,13 @@ class Connection {
       return JSON.stringify(board ?? { ...BOARDS[0], project, cards: [] });
     }
     if (method === 'questions') return JSON.stringify(QUESTIONS);
+    if (method === 'agentCatalog') return JSON.stringify(AGENT_CATALOG);
     if (method === 'agentMessages') {
       const { project } = JSON.parse(params) as { project: string };
       return JSON.stringify({ project, entries: project === BOARDS[0].project ? MESSAGES : [] });
     }
     if (method === 'digest') return JSON.stringify({ away: false, finished: [], failed: [], waiting: [] });
+    if (method === 'chatToolDetail') return '{}';
     throw new Error(`the showcase host does not know ${method}`);
   }
   async callToFile(method: string): Promise<string> {

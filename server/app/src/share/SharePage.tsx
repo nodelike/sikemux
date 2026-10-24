@@ -4,8 +4,8 @@ import { webCipher } from "@mac/share/cipher";
 import { appShareLink, parseShareLink, type ShareLink } from "@mac/share/link";
 import { ShareSession } from "@mac/share/session";
 import { SharedChat } from "@mac/share/SharedChat";
-import { DEFAULT_THEME_ID } from "@mac/themes";
-import { applyTheme } from "@mac/themes/bus";
+import { wearPicked } from "@mac/themes/bus";
+import defaultPalette from "@mac/themes/defaultPalette.json";
 import "@mac/styles.css";
 
 import { config } from "../config.ts";
@@ -25,7 +25,7 @@ export default function SharePage() {
 
   useEffect(() => {
     document.title = "Shared chat · Sikemux";
-    applyTheme(DEFAULT_THEME_ID);
+    wearPicked(defaultPalette);
   }, []);
 
   if (!link)

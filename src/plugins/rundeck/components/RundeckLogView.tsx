@@ -100,7 +100,7 @@ export function RundeckLogView({ logs, stepFilter, stepLabel, terminal, permalin
                         <span className="rnd-log-time">{row.time ?? ""}</span>
                         <span className="rnd-log-step">{row.stepctx ? row.stepctx.split(/[/@]/)[0] : ""}</span>
                         {multiNode && <span className="rnd-log-node">{row.node ?? ""}</span>}
-                        <AnsiText className="rnd-log-text" text={row.log ?? ""} />
+                        <AnsiText className="rnd-log-text" text={row.log ?? ""} runs={row.runs} />
                     </>
                 )}
             />

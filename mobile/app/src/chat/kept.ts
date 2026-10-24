@@ -1,17 +1,13 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Updates from 'expo-updates';
-import type { ChatState } from '@mac/chat/types';
+import type { ChatRows } from '@mac/chat/rows';
 
 import { writeWhole } from '@/devices/disk';
 
 /** A chat as this phone last drew it, so opening it again draws at once and asks the host only for what came after. */
 export type Kept = {
-  agent: ChatState;
-  replayed: string[];
+  chat: ChatRows;
   mark: { feed: string; seq: string };
-  cursor: { feed: string; before: string } | null;
-  replayStart: string | null;
-  pages: number;
 };
 
 export type ChatStore = { load: () => Kept | undefined; save: (kept: Kept) => void };

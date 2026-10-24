@@ -316,6 +316,22 @@ fn look(core: &Core) -> Vec<ListeningPort> {
     found
 }
 
+/// Where a server `agent_id` started listens, by itself or in a task it ran.
+pub(crate) fn agent_url(core: &Core, agent_id: &str) -> Option<String> {
+    look(core)
+        .into_iter()
+        .find(|listening| match &listening.owner {
+            PortOwner::Agent {
+                agent_id: owner, ..
+            } => owner == agent_id,
+            PortOwner::Task {
+                agent_id: owner, ..
+            } => owner.as_deref() == Some(agent_id),
+            PortOwner::Terminal { .. } => false,
+        })
+        .map(|listening| format!("http://localhost:{}", listening.port))
+}
+
 fn anything_runs(core: &Core) -> bool {
     core.running_sessions() > 0 || core.chats.count() > 0
 }

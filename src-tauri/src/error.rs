@@ -21,8 +21,8 @@ pub enum AppError {
     #[error("lsp: {0}")]
     Lsp(String),
 
-    #[error("lsp server `{bin}` for {language} not found")]
-    LspServerMissing { language: String, bin: String },
+    #[error("{0}")]
+    LspServerMissing(String),
 
     #[error("http: {0}")]
     Http(String),
@@ -45,9 +45,6 @@ pub enum AppError {
 
     #[error("pty: {0}")]
     Pty(String),
-
-    #[error("search: {0}")]
-    Search(String),
 
     #[error("fs: {0}")]
     Fs(String),
@@ -76,6 +73,15 @@ impl From<reqwest::Error> for AppError {
             return AppError::Unreachable(kind);
         }
         AppError::Http(e.to_string())
+    }
+}
+
+impl From<sikemux_core::download::DownloadError> for AppError {
+    fn from(e: sikemux_core::download::DownloadError) -> Self {
+        match e {
+            sikemux_core::download::DownloadError::Request(e) => e.into(),
+            sikemux_core::download::DownloadError::Failed(message) => AppError::Http(message),
+        }
     }
 }
 
@@ -137,13 +143,12 @@ impl AppError {
             AppError::Io(_) => "io",
             AppError::Json(_) => "json",
             AppError::Lsp(_) => "lsp",
-            AppError::LspServerMissing { .. } => "lsp-server-missing",
+            AppError::LspServerMissing(_) => "lsp-server-missing",
             AppError::Http(_) => "http",
             AppError::Unreachable(kind) => sikemux_plugin_api::network::category(*kind),
             AppError::Plugin { .. } => "plugin",
             AppError::BadArg(_) | AppError::BadArgText(_) => "bad-arg",
             AppError::Pty(_) => "pty",
-            AppError::Search(_) => "search",
             AppError::Fs(_) => "fs",
             AppError::FileConflict(_) => "file-conflict",
             AppError::NotText(_) => "not-text",
@@ -166,11 +171,7 @@ mod tests {
         // change, every `err.category === "..."` check in api/* must be
         // updated to match.
         assert_eq!(
-            AppError::LspServerMissing {
-                language: "go".into(),
-                bin: "gopls".into(),
-            }
-            .category(),
+            AppError::LspServerMissing("lsp server `gopls` for go not found".into()).category(),
             "lsp-server-missing"
         );
         assert_eq!(AppError::BadArg("x").category(), "bad-arg");

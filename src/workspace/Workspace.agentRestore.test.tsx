@@ -21,12 +21,24 @@ vi.mock("../api/acp", () => {
                 return begun
                     ? {
                           status: "live",
-                          start: begun,
-                          permissionMode: "workspace-write",
-                          running: false,
-                          turned: false,
+                          view: {
+                              head: {
+                                  ...begun,
+                                  connection: "ready",
+                                  permissionMode: "workspace-write",
+                                  running: false,
+                                  turned: false,
+                                  commands: [],
+                                  permissions: [],
+                                  tasks: [],
+                                  runningSubagents: [],
+                                  queued: [],
+                                  earlierLost: false,
+                              },
+                              rows: [],
+                          },
                           feed: "feed-1",
-                          olderBefore: null,
+                          seq: 0,
                       }
                     : { status: "missing" };
             }),

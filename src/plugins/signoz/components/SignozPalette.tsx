@@ -3,9 +3,8 @@ import { useActiveSurfacePane } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { IconSearch, rankBy, useMouseActive } from "../../../plugin-api/ui";
 import { SIGNOZ_EXPLORE } from "../kinds";
-import { signozDashboardsR, signozServicesR } from "../resources";
-import { closePalette, openDashboard, setLive, showSection, showService, signozSettings, updateView, viewOf } from "../state";
-import { mergeByService } from "../health";
+import { signozDashboardsR, useServices } from "../resources";
+import { closePalette, openDashboard, setLive, showSection, showService, updateView, viewOf } from "../state";
 import { SignozIcon } from "./SignozIcon";
 
 const TRACE_ID = /^[0-9a-f]{16,32}$/i;
@@ -54,16 +53,14 @@ export function paletteItems(query: string, services: readonly string[], dashboa
 
 export function Palette() {
     const paneId = useActiveSurfacePane(SIGNOZ_EXPLORE);
-    const minutes = signozSettings.useSelect((settings) => settings.minutes);
-    const environment = signozSettings.useSelect((settings) => settings.environment);
-    const health = useResourceEnabled(true, signozServicesR, { minutes });
+    const health = useServices(true, paneId ?? "palette");
     const dashboards = useResourceEnabled(true, signozDashboardsR);
     const [query, setQuery] = useState("");
     const [selected, setSelected] = useState(0);
     const mouseActive = useMouseActive();
     const listRef = useRef<HTMLDivElement>(null);
 
-    const services = useMemo(() => mergeByService(health.data ?? [], environment).map((row) => row.service), [environment, health.data]);
+    const services = useMemo(() => (health.data?.rows ?? []).map((row) => row.service), [health.data]);
     const items = useMemo(() => paletteItems(query, services, dashboards.data ?? []), [dashboards.data, query, services]);
 
     useEffect(() => {

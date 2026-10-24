@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use sikemux_wire::grid::{FindResult, GridPoint, TerminalInput};
 use sikemux_wire::pty::agent_detection::{DetectionExplain, ManifestReloadReport};
 use sikemux_wire::pty::output_log::{OutputPage, OutputQuery};
 use sikemux_wire::pty::shell_protocol::ShellMetadataSnapshot;
@@ -15,12 +16,12 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use sikemux_wire::protocol::{
-    decode_output, decode_snapshot, encode_control, encode_input, read_frame, AllowedDevice,
-    Attention, BackdropImage, BuildIdentity, CallId, ChatAccount, ChatAttachment, ChatContext,
-    ChatEvent, ChatInfo, ChatLaunch, ChatMark, ChatStart, ClientMessage, DeviceAccess, Event,
+    decode_grid, decode_lines, decode_snapshot, encode_control, encode_input, read_frame,
+    AllowedDevice, Attention, BackdropImage, BuildIdentity, CallId, ChatAccount, ChatAttachment,
+    ChatContext, ChatInfo, ChatLaunch, ChatMark, ChatStart, ClientMessage, DeviceAccess, Event,
     FrameKind, HostRegistration, LaunchIdentity, RemoteStatus, Request, RequestId, Response,
-    ServerMessage, SessionId, SessionInfo, SpawnTarget, WindowAnswer, WindowCall, Workspace,
-    MAX_FRAME_BYTES, OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
+    ServerMessage, SessionId, SessionInfo, SpawnTarget, StreamId, WindowAnswer, WindowCall,
+    Workspace, MAX_FRAME_BYTES, OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -65,16 +66,18 @@ pub struct CoreHello {
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ClientEvent {
-    Output { id: SessionId, bytes: Vec<u8> },
+    Grid { stream: StreamId, frame: Vec<u8> },
     Event(Event),
     WindowCall { call_id: CallId, call: WindowCall },
 }
 
 /// Receives what the core sends unasked, on the connection's reader task and
 /// in the order it was sent. Reply callbacks run on the same task, so a reply
-/// lands between exactly the output frames it was sent between.
+/// lands between exactly the frames it was sent between.
 pub trait EventSink: Send + Sync + 'static {
-    fn output(&self, id: SessionId, bytes: &[u8]);
+    /// A frame of a stream an attach started, as [`sikemux_wire::grid`]
+    /// lays it out.
+    fn grid(&self, stream: StreamId, frame: &[u8]);
     fn event(&self, event: Event);
     /// The core asks the registered window to do something. Answer with
     /// [`CoreClient::answer_window`].
@@ -83,21 +86,23 @@ pub trait EventSink: Send + Sync + 'static {
     fn closed(&self);
 }
 
-/// The replay of an attach. Live output for the session follows it on the
-/// event stream, starting with the first byte the replay does not contain.
+/// The answer to an attach: the stream's first frame, with the whole screen.
+/// The stream's next frames follow on the event stream.
 #[derive(Clone, Debug)]
 pub struct Attached {
-    pub alternate_screen: bool,
+    pub stream: StreamId,
     pub shell: Option<ShellMetadataSnapshot>,
     /// The client already heard this session exit.
     pub exited: bool,
-    pub replay: Vec<u8>,
+    pub frame: Vec<u8>,
 }
 
 #[derive(Debug)]
 pub enum Reply {
     Response(Response),
     Attached(Attached),
+    /// History lines, as [`sikemux_wire::grid`] lays them out.
+    Lines(Vec<u8>),
 }
 
 type Waiter = Box<dyn FnOnce(Result<Reply, ClientError>) + Send>;
@@ -171,10 +176,10 @@ fn device_hello_frame() -> Result<Vec<u8>, ClientError> {
 pub(crate) struct ChannelSink(pub(crate) mpsc::UnboundedSender<ClientEvent>);
 
 impl EventSink for ChannelSink {
-    fn output(&self, id: SessionId, bytes: &[u8]) {
-        let _ = self.0.send(ClientEvent::Output {
-            id,
-            bytes: bytes.to_vec(),
+    fn grid(&self, stream: StreamId, frame: &[u8]) {
+        let _ = self.0.send(ClientEvent::Grid {
+            stream,
+            frame: frame.to_vec(),
         });
     }
 
@@ -363,7 +368,7 @@ impl CoreClient {
     pub async fn request(&self, request: Request) -> Result<Response, ClientError> {
         match self.submit(request, |reply| reply)?.await?? {
             Reply::Response(response) => Ok(response),
-            Reply::Attached(_) => Err(ClientError::UnexpectedReply),
+            Reply::Attached(_) | Reply::Lines(_) => Err(ClientError::UnexpectedReply),
         }
     }
 
@@ -429,18 +434,72 @@ impl CoreClient {
             .await??
         {
             Reply::Attached(attached) => Ok(attached),
-            Reply::Response(_) => Err(ClientError::UnexpectedReply),
+            _ => Err(ClientError::UnexpectedReply),
         }
     }
 
-    /// Live output without a replay, for a client that already has the screen.
-    pub async fn subscribe(&self, id: SessionId) -> Result<(), ClientError> {
-        self.request_done(Request::Subscribe { id }).await
+    /// No frame of the stream arrives after this resolves.
+    pub async fn detach(&self, stream: StreamId) -> Result<(), ClientError> {
+        self.request_done(Request::Detach { stream }).await
     }
 
-    /// No output for the session arrives after this resolves.
-    pub async fn detach(&self, id: SessionId) -> Result<(), ClientError> {
-        self.request_done(Request::Detach { id }).await
+    pub async fn input(&self, id: SessionId, input: TerminalInput) -> Result<(), ClientError> {
+        self.request_done(Request::TerminalInput { id, input })
+            .await
+    }
+
+    /// History lines `start..start + count`, as many as the core still has.
+    pub async fn lines(
+        &self,
+        id: SessionId,
+        start: u64,
+        count: u32,
+    ) -> Result<Vec<u8>, ClientError> {
+        match self
+            .submit(Request::TerminalLines { id, start, count }, |reply| reply)?
+            .await??
+        {
+            Reply::Lines(lines) => Ok(lines),
+            _ => Err(ClientError::UnexpectedReply),
+        }
+    }
+
+    pub async fn text(
+        &self,
+        id: SessionId,
+        range: Option<(GridPoint, GridPoint)>,
+    ) -> Result<String, ClientError> {
+        match self.request(Request::TerminalText { id, range }).await? {
+            Response::TerminalText { text } => Ok(text),
+            _ => Err(ClientError::UnexpectedReply),
+        }
+    }
+
+    pub async fn find(&self, request: Request) -> Result<FindResult, ClientError> {
+        match self.request(request).await? {
+            Response::Found { result } => Ok(result),
+            _ => Err(ClientError::UnexpectedReply),
+        }
+    }
+
+    /// The first line on the terminal's screen containing `containing`, once
+    /// one shows, or none when the terminal ends first.
+    pub async fn line_shown(
+        &self,
+        id: SessionId,
+        containing: String,
+    ) -> Result<Option<String>, ClientError> {
+        match self
+            .request(Request::TerminalWaitFor { id, containing })
+            .await?
+        {
+            Response::TerminalLine { line } => Ok(line),
+            _ => Err(ClientError::UnexpectedReply),
+        }
+    }
+
+    pub async fn clear(&self, id: SessionId) -> Result<(), ClientError> {
+        self.request_done(Request::TerminalClear { id }).await
     }
 
     pub async fn reset_modes(&self, id: SessionId) -> Result<(), ClientError> {
@@ -454,9 +513,10 @@ impl CoreClient {
         }
     }
 
-    /// Reports output bytes this client has finished with. Never answered.
-    pub fn ack(&self, id: SessionId, bytes: usize) {
-        self.send(&ClientMessage::Ack { id, bytes });
+    /// Reports the last frame of a stream this client has drawn. Never
+    /// answered.
+    pub fn ack(&self, stream: StreamId, frame: u32) {
+        self.send(&ClientMessage::Ack { stream, frame });
     }
 
     pub async fn task_output(
@@ -572,15 +632,16 @@ impl CoreClient {
         }
     }
 
-    /// The chat's turns before event `before` of its run `feed`, and where
-    /// the page before them starts, for a client shown only the chat's end.
+    /// The chat's rows before event `before` of its run `feed`, a
+    /// [`sikemux_wire::chat::ChatPage`] as JSON, for a client shown only the
+    /// chat's end.
     pub async fn acp_history(
         &self,
         agent_id: String,
         feed: String,
         before: u64,
         turns: u32,
-    ) -> Result<(Vec<ChatEvent>, Option<u64>), ClientError> {
+    ) -> Result<serde_json::Value, ClientError> {
         let request = Request::AcpHistory {
             agent_id,
             feed,
@@ -588,10 +649,7 @@ impl CoreClient {
             turns,
         };
         match self.request(request).await? {
-            Response::ChatHistory {
-                events,
-                older_before,
-            } => Ok((events, older_before)),
+            Response::ChatHistory { page } => Ok(page),
             _ => Err(ClientError::UnexpectedReply),
         }
     }
@@ -842,13 +900,6 @@ impl CoreClient {
         }
     }
 
-    pub async fn publish_palette(
-        &self,
-        palette: BTreeMap<String, String>,
-    ) -> Result<(), ClientError> {
-        self.request_done(Request::PublishPalette { palette }).await
-    }
-
     pub async fn publish_on_screen(
         &self,
         agent_ids: Vec<String>,
@@ -957,22 +1008,27 @@ fn dispatch(frame: sikemux_wire::protocol::Frame, pending: &Pending, sink: &dyn 
         }
     };
     match frame.kind {
-        FrameKind::Output => {
-            if let Some((id, bytes)) = decode_output(&frame.payload) {
-                sink.output(id, bytes);
+        FrameKind::Grid => {
+            if let Some((stream, grid)) = decode_grid(&frame.payload) {
+                sink.grid(stream, grid);
             }
         }
         FrameKind::Snapshot => {
-            if let Some((request_id, _, header, replay)) = decode_snapshot(&frame.payload) {
+            if let Some(snapshot) = decode_snapshot(&frame.payload) {
                 resolve(
-                    request_id,
+                    snapshot.request_id,
                     Ok(Reply::Attached(Attached {
-                        alternate_screen: header.alternate_screen,
-                        shell: header.shell,
-                        exited: header.exited,
-                        replay: replay.to_vec(),
+                        stream: snapshot.stream,
+                        shell: snapshot.header.shell,
+                        exited: snapshot.header.exited,
+                        frame: snapshot.frame.to_vec(),
                     })),
                 );
+            }
+        }
+        FrameKind::Lines => {
+            if let Some((request_id, lines)) = decode_lines(&frame.payload) {
+                resolve(request_id, Ok(Reply::Lines(lines.to_vec())));
             }
         }
         FrameKind::Control => match serde_json::from_slice::<ServerMessage>(&frame.payload) {

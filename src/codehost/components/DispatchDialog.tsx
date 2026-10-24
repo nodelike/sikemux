@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { notify, reportError, useModalFocus, usePluginOverlay } from "../../plugin-api/host";
-import { invalidate, useResource } from "../../plugin-api/resources";
+import { useResource } from "../../plugin-api/resources";
 import { IconClose, IconPlus, IconRun } from "../../plugin-api/ui";
 import { hostApi, type RepoRef, type Workflow } from "../api";
 import { hostBranchesR } from "../resources";
@@ -59,9 +59,6 @@ export function DispatchDialog({ repo, workflow, defaultBranch, onClose }: Props
         try {
             await hostApi(repo.provider).dispatch(repo, workflow.id, gitRef.trim(), values);
             notify("success", `Started ${workflow.name} on ${gitRef.trim()}`);
-            // GitHub takes a moment to register the run, so the list is re-read
-            // once rather than immediately showing nothing new.
-            setTimeout(() => invalidate((kind) => kind === "host.runs"), 1500);
             onClose();
         } catch (error) {
             reportError(`Could not start ${workflow.name}`)(error);

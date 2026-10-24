@@ -21,9 +21,7 @@ afterEach(() => {
 
 describe("a chat that failed for want of a sign-in", () => {
     it("runs the agent's own sign-in for an agent without accounts", () => {
-        render(
-            <ChatFailureActions agent={agent("grok", "/Users/me/.grok/bin/grok")} profile={undefined} failure={{ kind: "signIn", account: null }} />,
-        );
+        render(<ChatFailureActions agent={agent("grok", "/Users/me/.grok/bin/grok")} profile={undefined} failure={{ kind: "signIn" }} />);
         fireEvent.click(screen.getByRole("button", { name: "Sign in to Grok" }));
         expect(signInAgent).toHaveBeenCalledWith({ type: "grok", command: "/Users/me/.grok/bin/grok", configPath: null }, { retry: "grok-1" });
     });
@@ -33,7 +31,7 @@ describe("a chat that failed for want of a sign-in", () => {
             <ChatFailureActions
                 agent={agent("grok", "/Users/me/.grok/bin/grok")}
                 profile={undefined}
-                failure={{ kind: "signIn", account: null }}
+                failure={{ kind: "signIn" }}
                 signInMethods={[
                     {
                         kind: "terminal",
@@ -61,11 +59,9 @@ describe("a chat that failed for want of a sign-in", () => {
     });
 
     it("offers nothing for other failures, or an agent with no sign-in to run", () => {
-        const { container, rerender } = render(
-            <ChatFailureActions agent={agent("opencode")} profile={undefined} failure={{ kind: "limit", account: null }} />,
-        );
+        const { container, rerender } = render(<ChatFailureActions agent={agent("opencode")} profile={undefined} failure={{ kind: "limit" }} />);
         expect(container).toBeEmptyDOMElement();
-        rerender(<ChatFailureActions agent={agent("muse")} profile={undefined} failure={{ kind: "signIn", account: null }} />);
+        rerender(<ChatFailureActions agent={agent("muse")} profile={undefined} failure={{ kind: "signIn" }} />);
         expect(container).toBeEmptyDOMElement();
     });
 });

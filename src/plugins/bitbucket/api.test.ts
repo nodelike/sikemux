@@ -12,7 +12,6 @@ vi.mock("../../state/resources", async (importOriginal) => ({ ...(await importOr
 
 import { errorText } from "../../plugin-api/format";
 import { bitbucketApi, bitbucketHostApi, type BitbucketStatus } from "./api";
-import type { RunTick } from "../../plugin-api/codehost";
 
 const repo = { provider: "sikemux.bitbucket", owner: "team", name: "app" };
 const refused = { category: "auth", message: "bitbucket: sign-in expired" };
@@ -124,11 +123,9 @@ describe("what Bitbucket has no counterpart for", () => {
 describe("requests", () => {
     it("names pipelines and steps by their own text ids", async () => {
         fake.call.mockResolvedValue(undefined);
-        await bitbucketHostApi.run(repo, "{uuid}");
         await bitbucketHostApi.rerun(repo, "{uuid}", true);
         await bitbucketHostApi.dispatch(repo, "custom: deploy", "main", { env: "prod" });
         expect(fake.call.mock.calls).toEqual([
-            ["run", { ...repo, runId: "{uuid}" }],
             ["rerun", { ...repo, runId: "{uuid}", failedOnly: true }],
             ["dispatch", { ...repo, workflowId: "custom: deploy", gitRef: "main", inputs: { env: "prod" } }],
         ]);
@@ -226,36 +223,5 @@ describe("signing in with the browser", () => {
         signIn.cancel();
         await expect(signIn.done).rejects.toThrow("cancelled");
         expect(flow.stop).toHaveBeenCalled();
-    });
-});
-
-describe("watching a pipeline", () => {
-    it("passes ticks through and has the sign-in status read again once it lapses", () => {
-        let deliver: (tick: RunTick) => void = () => {};
-        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<RunTick>) => {
-            deliver = handlers.onItem;
-        });
-        const seen = vi.fn();
-        bitbucketHostApi.watch(repo, "{p}", { onItem: seen });
-        expect(fake.stream).toHaveBeenCalledWith("watchRun", { ...repo, runId: "{p}" }, expect.anything());
-        const quiet: RunTick = { run: null, jobs: [], error: null, finished: false, fatal: false, signedOut: false };
-        deliver(quiet);
-        expect(fake.invalidate).not.toHaveBeenCalled();
-        deliver({ ...quiet, signedOut: true, finished: true, fatal: true });
-        expect(seen).toHaveBeenCalledTimes(2);
-        expect(recheckedSignIn()).toBe(true);
-    });
-
-    it("has it read again only when the watch fails for a lapsed sign-in", () => {
-        fake.stream.mockImplementationOnce((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) =>
-            handlers.onError?.(conflict),
-        );
-        bitbucketHostApi.watch(repo, "{p}", { onItem: vi.fn() });
-        expect(fake.invalidate).not.toHaveBeenCalled();
-        fake.stream.mockImplementationOnce((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) =>
-            handlers.onError?.(refused),
-        );
-        bitbucketHostApi.watch(repo, "{p}", { onItem: vi.fn() });
-        expect(recheckedSignIn()).toBe(true);
     });
 });

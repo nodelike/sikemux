@@ -1,6 +1,5 @@
 import { coreCall, coreRequest, type CoreRequest } from "./core";
 import { invokeCommand as invoke } from "./invoke";
-import type { PublishedBuddies } from "../buddies/published";
 import { getIpcTransport } from "./transport";
 
 import type { AllowedDevice, DeviceAccess, RemotePairing, RemoteStatus } from "./generated/wire";
@@ -31,8 +30,6 @@ export const remoteApi = {
     answerPairing: (id: string, allow: boolean, access: DeviceAccess) => remote({ op: "answerPairing", id, allow, access }),
     allowDevices: (devices: readonly AllowedDevice[]) => remote({ op: "allowDevices", devices }),
     publishOnScreen: (agentIds: readonly string[], focused: boolean) => publish({ op: "publishOnScreen", agentIds, focused }),
-    publishPalette: (palette: Readonly<Record<string, string>>) => publish({ op: "publishPalette", palette }),
-    publishBuddies: (buddies: PublishedBuddies) => publish({ op: "call", method: "publishBuddies", params: buddies }),
     publishBackdrop: (texture: boolean, image: { readonly id: string; readonly dataUrl: string } | null) =>
         publish({ op: "publishBackdrop", texture, image }),
     subscribe: (listener: (status: RemoteStatus) => void, signal: AbortSignal) =>

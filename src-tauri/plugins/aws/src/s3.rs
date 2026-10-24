@@ -6,8 +6,8 @@ use crate::common::{aws_json, Target};
 
 #[derive(Serialize, Clone)]
 pub struct S3Bucket {
-    name: String,
-    created_at: Option<String>,
+    pub(crate) name: String,
+    pub(crate) created_at: Option<String>,
 }
 
 pub(crate) async fn buckets(target: &Target) -> AwsResult<Vec<S3Bucket>> {

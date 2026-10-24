@@ -24,7 +24,6 @@ mod pipelines;
 mod pulls;
 mod repo;
 mod review;
-mod watch;
 
 use std::sync::Arc;
 
@@ -128,10 +127,7 @@ impl Plugin for Bitbucket {
         sink: StreamSink,
     ) -> PluginFuture<'a, ()> {
         let account = account_of(&input);
-        Box::pin(as_account(
-            account,
-            dispatch_stream(ctx, method, input, sink),
-        ))
+        Box::pin(as_account(account, dispatch_stream(ctx, method, sink)))
     }
 
     fn offers_agent_tools<'a>(
@@ -224,7 +220,6 @@ async fn dispatch(ctx: &PluginContext, method: &str, input: Value) -> Result<Val
 async fn dispatch_stream(
     ctx: &PluginContext,
     method: &str,
-    input: Value,
     sink: StreamSink,
 ) -> Result<(), PluginError> {
     let data_dir = ctx.data_dir();
@@ -233,7 +228,6 @@ async fn dispatch_stream(
             let id = auth::sign_in_with_browser(data_dir, &sink).await?;
             sink.send(reply(as_account(Some(id), auth::status(data_dir)).await)?)
         }
-        "watchRun" => watch::run(data_dir, params(input)?, sink).await,
         _ => Err(PluginError::unknown_method(method)),
     }
 }

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { browserApi } from "../api/browser";
-import { actionForEvent, pluginOpenedBy, pluginShortcutFor, type KeybindingActionId } from "./keybindings";
+import { actionForEvent, pluginOpenedBy, pluginShortcutFor, type KeybindingActionId, keybindingOverridesOf } from "./keybindings";
 import * as cmd from "../state/commands";
 import { activeAgentId } from "../state/selectors";
 import { getState, type StoreState } from "../state/store";
@@ -22,7 +22,7 @@ type TextSurface = "chat" | "editor" | "terminal";
 function textSurfaceFor(e: KeyboardEvent, st: StoreState): TextSurface {
     if (keyTargetIn(e, ".agent-chat-pane")) return "chat";
     if (keyTargetIn(e, ".cm-editor")) return "editor";
-    if (keyTargetIn(e, ".xterm")) return "terminal";
+    if (keyTargetIn(e, ".terminal-surface")) return "terminal";
     const paneId = st.windows[st.sessions[st.activeSessionId]?.activeWindowId ?? ""]?.activePaneId;
     const pane = paneId ? document.querySelector(`[data-pane-id="${CSS.escape(paneId)}"]`) : null;
     if (pane?.querySelector(".agent-chat-pane")) return "chat";
@@ -316,7 +316,7 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
 function typingTarget(target: Element | null): boolean {
     if (!target) return false;
     return (
-        !!target.closest(".xterm") ||
+        !!target.closest(".terminal-surface") ||
         target.matches("input, textarea, select") ||
         !!target.closest('[contenteditable="true"], [contenteditable=""], [role="textbox"], .cm-content, [data-takes-keys]')
     );
@@ -334,7 +334,7 @@ export function useKeymap(): void {
             if (target?.closest("[data-keybinding-recorder]")) return;
 
             const st = getState();
-            const action = actionForEvent(event, st.keybindingOverrides);
+            const action = actionForEvent(event, keybindingOverridesOf(st));
 
             if (st.sessionSwitcher) {
                 if (event.key === "Escape") {

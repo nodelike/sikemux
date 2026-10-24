@@ -1,6 +1,7 @@
 import { recordOf } from '@mac/lib/guards';
-import { groupTasks, runningSubagents, subagentActivity, taskDetail, workflowAgentDetail } from '@mac/chat/transcript';
-import type { AcpAsyncTask, AcpSubagent, ChatState } from '@mac/chat/types';
+import type { ChatRows } from '@mac/chat/rows';
+import { groupTasks, subagentActivity, taskDetail, workflowAgentDetail } from '@mac/chat/transcript';
+import type { AsyncTask, SubagentCard } from '@mac/chat/types';
 import { counted } from '@/devices/words';
 import type { Held } from './session';
 
@@ -21,20 +22,20 @@ export function planEntries(plan: unknown): PlanEntry[] {
 
 /** What the agent still has going besides the turn, and what waits to be sent. */
 export type LiveWork = {
-  subagents: AcpSubagent[];
-  tasks: [string, AcpAsyncTask[]][];
+  subagents: SubagentCard[];
+  tasks: [string, AsyncTask[]][];
   queued: readonly Held[];
   plan: PlanEntry[];
   /** Some step of the plan is still to do. */
   planOpen: boolean;
 };
 
-export function liveWork(state: ChatState, queued: readonly Held[]): LiveWork {
-  const plan = planEntries(state.plan);
+export function liveWork(chat: Pick<ChatRows, 'plan' | 'runningSubagents' | 'tasks' | 'queued'>): LiveWork {
+  const plan = planEntries(chat.plan);
   return {
-    subagents: runningSubagents(state.messages),
-    tasks: groupTasks(state.tasks),
-    queued,
+    subagents: chat.runningSubagents,
+    tasks: groupTasks(chat.tasks),
+    queued: chat.queued,
     plan,
     planOpen: plan.some((entry) => entry.status !== 'completed'),
   };

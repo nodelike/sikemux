@@ -6,6 +6,7 @@
 //   oauth  — signing in through the browser with a Linear account
 //   auth   — signing in with the browser or a personal API key, and each workspace's status
 //   issues — listing, reading, commenting on, changing and filing issues
+//   views  — what the pane shows, which the core keeps
 
 mod auth;
 mod client;
@@ -13,6 +14,7 @@ mod config;
 mod error;
 mod issues;
 mod oauth;
+mod views;
 
 use std::sync::Arc;
 
@@ -58,6 +60,8 @@ impl Plugin for Linear {
                 "update" => answer(issues::update(data_dir, params(input)?)).await,
                 "create" => answer(issues::create(data_dir, params(input)?)).await,
                 "teams" => answer(issues::teams(data_dir, params(input)?)).await,
+                "listView" => answer(views::list_view(data_dir, params(input)?)).await,
+                "issueView" => answer(views::issue_view(data_dir, params(input)?)).await,
                 _ => Err(PluginError::unknown_method(method)),
             }
         })

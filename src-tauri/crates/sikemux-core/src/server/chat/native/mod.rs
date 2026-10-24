@@ -79,8 +79,33 @@ fn driver(provider: &str) -> Option<&'static ChatDriver> {
 
 /// Whether a resumed chat of `provider` can show its saved history before its agent starts:
 /// only Claude's is a file the core reads itself.
-pub(crate) fn shows_saved(provider: &str) -> bool {
+fn shows_saved(provider: &str) -> bool {
     matches!(driver(provider), Some(ChatDriver::Claude))
+}
+
+/// The models and efforts `launch`'s agent offers, asked of its CLI without a session.
+/// Only Claude and Codex tell them outside one; an ACP agent offers them in `session/new`.
+pub(crate) async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
+    let mut command = tokio::process::Command::from(
+        sikemux_process::user_environment::agent_command(&launch.program),
+    );
+    command
+        .envs(&launch.env)
+        .envs(
+            launch
+                .account
+                .iter()
+                .flat_map(|account| account.env.clone()),
+        )
+        .kill_on_drop(true);
+    match driver(&launch.provider) {
+        Some(ChatDriver::Claude) => claude::read_options(command).await,
+        Some(ChatDriver::Codex) => codex::read_options(command).await,
+        _ => Err(format!(
+            "{} offers its options only in a session",
+            launch.provider
+        )),
+    }
 }
 
 /// Shows the saved history of the session a waiting chat resumes, when the core can read it.
@@ -91,8 +116,12 @@ pub(crate) fn show_saved(chat: &Arc<Chat>) {
     if !shows_saved(chat.provider()) {
         return;
     }
-    chat.saved_shown
-        .store(true, std::sync::atomic::Ordering::Release);
+    if chat
+        .saved_shown
+        .swap(true, std::sync::atomic::Ordering::AcqRel)
+    {
+        return;
+    }
     let chat = chat.clone();
     tokio::task::spawn_blocking(move || {
         let sink = session::Sink::showing(chat.clone());

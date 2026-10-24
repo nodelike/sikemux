@@ -2,8 +2,7 @@ import { useMemo } from "react";
 import { openUrl, reportError, swallow } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { signozApi, type SignozStatus } from "../api";
-import { mergeByService } from "../health";
-import { signoz, signozDashboardsR, signozServicesR } from "../resources";
+import { signoz, signozDashboardsR, useServices } from "../resources";
 import { openDashboard, showSection, showService, signozSettings, updateSettings, useExploreView, type Pin, type Section } from "../state";
 import { SectionIcon } from "./SectionIcon";
 
@@ -20,19 +19,12 @@ const SECTIONS: { id: Section; label: string }[] = [
 function Pins({ paneId, active }: { paneId: string; active: boolean }) {
     const view = useExploreView(paneId);
     const pins = signozSettings.useSelect((settings) => settings.pins);
-    const minutes = signozSettings.useSelect((settings) => settings.minutes);
-    const environment = signozSettings.useSelect((settings) => settings.environment);
     const wantsDashboards = pins.some((pin) => pin.startsWith("dashboard:"));
     const dashboards = useResourceEnabled(active && wantsDashboards, signozDashboardsR);
-    const health = useResourceEnabled(active, signozServicesR, { minutes });
+    const health = useServices(active, paneId);
     const failing = useMemo(
-        () =>
-            new Set(
-                mergeByService(health.data ?? [], environment)
-                    .filter((row) => row.errorRate >= FAILING_RATE)
-                    .map((row) => row.service),
-            ),
-        [environment, health.data],
+        () => new Set((health.data?.rows ?? []).filter((row) => row.errorRate >= FAILING_RATE).map((row) => row.service)),
+        [health.data],
     );
     if (pins.length === 0) return null;
 
@@ -68,13 +60,8 @@ function Pins({ paneId, active }: { paneId: string; active: boolean }) {
 
 export function Sidebar({ paneId, active, status }: { paneId: string; active: boolean; status: SignozStatus }) {
     const view = useExploreView(paneId);
-    const minutes = signozSettings.useSelect((settings) => settings.minutes);
     const environment = signozSettings.useSelect((settings) => settings.environment);
-    const health = useResourceEnabled(active, signozServicesR, { minutes });
-    const environments = useMemo(
-        () => [...new Set((health.data ?? []).map((row) => row.environment).filter((name): name is string => !!name))].sort(),
-        [health.data],
-    );
+    const environments = useServices(active, paneId).data?.environments ?? [];
     const host = status.url.replace(/^https?:\/\//, "");
     const signOut = () =>
         void signozApi

@@ -203,11 +203,11 @@ export function SearchPane({
                 return;
             }
             const r = await searchApi.replace(cwd, view.query, view.replace, view.options, false);
-            const verb = r.match_count === 1 ? "match" : "matches";
-            const fileWord = r.file_count === 1 ? "file" : "files";
+            const verb = r.matchCount === 1 ? "match" : "matches";
+            const fileWord = r.fileCount === 1 ? "file" : "files";
             notify(
                 r.errors.length ? "info" : "success",
-                `replaced ${r.match_count} ${verb} in ${r.file_count} ${fileWord}` + (r.errors.length ? ` · ${r.errors.length} skipped` : ""),
+                `replaced ${r.matchCount} ${verb} in ${r.fileCount} ${fileWord}` + (r.errors.length ? ` · ${r.errors.length} skipped` : ""),
             );
             const changed = new Set(r.files.map((f) => f.path));
             setFiles((prev) => prev.filter((f) => !changed.has(f.path)));
@@ -216,8 +216,8 @@ export function SearchPane({
                     ? {
                           ...prev,
                           files: prev.files.filter((f) => !changed.has(f.path)),
-                          file_count: Math.max(0, prev.file_count - r.files.length),
-                          match_count: Math.max(0, prev.match_count - r.match_count),
+                          fileCount: Math.max(0, prev.fileCount - r.files.length),
+                          matchCount: Math.max(0, prev.matchCount - r.matchCount),
                       }
                     : prev,
             );
@@ -234,11 +234,11 @@ export function SearchPane({
         if (!summary && files.length === 0) return null;
         return {
             files,
-            file_count: summary?.file_count ?? files.length,
-            match_count: summary?.match_count ?? files.reduce((n, f) => n + f.matches.length, 0),
+            fileCount: summary?.fileCount ?? files.length,
+            matchCount: summary?.matchCount ?? files.reduce((n, f) => n + f.matches.length, 0),
             truncated: summary?.truncated ?? false,
             cancelled: summary?.cancelled,
-            elapsed_ms: summary?.elapsed_ms ?? 0,
+            elapsedMs: summary?.elapsedMs ?? 0,
         };
     }, [summary, files]);
 
@@ -307,7 +307,7 @@ function Header({
     onRefresh: () => void;
 }) {
     const { query, replace, replaceOpen, options } = view;
-    const hasResults = !!results && results.match_count > 0;
+    const hasResults = !!results && results.matchCount > 0;
     const canReplace = hasResults && !replacing;
     const openReplaceAndFocus = () => {
         if (!replaceOpen) cmd.toggleGlobalSearchReplaceOpen(sessionId);
@@ -412,10 +412,10 @@ function Header({
                     )}
                     {results ? (
                         <>
-                            <strong>{results.match_count}</strong>
+                            <strong>{results.matchCount}</strong>
                             <span className="sp-stats-sep">/</span>
-                            <strong>{results.file_count}</strong>
-                            <span className="sp-stats-time">{results.elapsed_ms}ms</span>
+                            <strong>{results.fileCount}</strong>
+                            <span className="sp-stats-time">{results.elapsedMs}ms</span>
                             {results.truncated && <span className="sp-truncated">trunc</span>}
                             {results.cancelled && <span className="sp-truncated">partial</span>}
                         </>
@@ -431,7 +431,7 @@ function Header({
                         disabled={!canReplace}
                         title={
                             replacePreview
-                                ? `Commit ${replacePreview.match_count} replacements across ${replacePreview.file_count} files`
+                                ? `Commit ${replacePreview.matchCount} replacements across ${replacePreview.fileCount} files`
                                 : canReplace
                                   ? "Preview replacements"
                                   : "Run a search first"
@@ -439,8 +439,8 @@ function Header({
                         {replacing
                             ? "…"
                             : replacePreview
-                              ? `commit ${replacePreview.match_count}`
-                              : `preview${results && results.match_count > 0 ? ` ${results.match_count}` : ""}`}
+                              ? `commit ${replacePreview.matchCount}`
+                              : `preview${results && results.matchCount > 0 ? ` ${results.matchCount}` : ""}`}
                     </button>
                 )}
             </div>
@@ -863,7 +863,7 @@ function Preview({
                 if (cancelled) return;
                 const entry: WindowEntry = {
                     doc: win.doc,
-                    startLine: win.start_line,
+                    startLine: win.startLine,
                 };
                 putLru(cacheRef.current, wantedPath, entry);
                 setActive({ path: wantedPath, entry });

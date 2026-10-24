@@ -411,11 +411,8 @@ fn screen_now(core: &Core, session: &Session) -> Option<AgentDetection> {
 }
 
 pub(crate) fn screen_text(session: &Session) -> (String, String) {
-    let parser = session.parser.locked();
-    (
-        parser.screen().contents(),
-        parser.callbacks().window_title.clone(),
-    )
+    let screen = session.screen.locked();
+    (screen.terminal.contents(), screen.window_title.clone())
 }
 
 /// Reads a settled agent screen and publishes what it shows. Runs a few times

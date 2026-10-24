@@ -3,24 +3,29 @@ import { useModalFocus } from "../hooks/useModalFocus";
 import { useMouseActive } from "../hooks/useMouseActive";
 import { rankBy } from "../lib/fuzzy";
 import { leavingOverlay } from "../lib/motion";
-import { useStore } from "../state/store";
 import * as cmd from "../state/commands";
-import { THEMES, type Theme } from "../themes";
+import { DEFAULT_THEME_ID, type ThemeSummary } from "../themes";
+import { useThemeSummaries } from "../themes/summaries";
+import { usePreference } from "../state/preferences";
 import { IconSearch } from "../ui/Icons";
 
 /** Every theme by name. Moving through the list wears each one; Enter keeps it and Escape puts the old one back. */
 export function ThemePalette() {
-    const customThemes = useStore((s) => s.customThemes);
-    const keptId = useStore((s) => s.themeId);
-    const themes = useMemo(() => [...customThemes, ...THEMES], [customThemes]);
+    const keptId = usePreference("themeId") ?? DEFAULT_THEME_ID;
+    const themes = useThemeSummaries();
     const [query, setQuery] = useState("");
     const entries = useMemo(() => rankBy(query, themes, (theme) => theme.name), [query, themes]);
-    const [selected, setSelected] = useState(() =>
-        Math.max(
-            0,
-            themes.findIndex((theme) => theme.id === keptId),
-        ),
-    );
+    const [selected, setSelected] = useState(0);
+    // The list arrives from the core after the palette opens; start on the theme kept.
+    useEffect(() => {
+        setSelected(
+            Math.max(
+                0,
+                themes.findIndex((theme) => theme.id === keptId),
+            ),
+        );
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- once the list arrives, not when the kept theme changes
+    }, [themes]);
     const modalRef = useRef<HTMLDivElement>(null);
     useModalFocus(modalRef);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -43,11 +48,11 @@ export function ThemePalette() {
     }, [selected, entries]);
 
     // Held arrow keys move faster than a theme paints, so only the row the keys stopped on is worn.
-    const preview = (theme: Theme | undefined) => {
+    const preview = (theme: ThemeSummary | undefined) => {
         if (!theme) return;
         previewing.current = true;
         cancelAnimationFrame(frame.current);
-        frame.current = requestAnimationFrame(() => cmd.previewThemeDraft(theme));
+        frame.current = requestAnimationFrame(() => cmd.previewThemeById(theme.id));
     };
 
     const move = (index: number) => {
@@ -61,7 +66,7 @@ export function ThemePalette() {
         cmd.closeThemePalette();
     };
 
-    const keep = (theme: Theme | undefined) => {
+    const keep = (theme: ThemeSummary | undefined) => {
         if (!theme) return;
         cancelAnimationFrame(frame.current);
         cmd.setThemeId(theme.id);

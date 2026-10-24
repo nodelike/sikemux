@@ -1,7 +1,7 @@
 import type { ComponentType, KeyboardEvent } from "react";
-import { useResourceEnabled } from "../../../plugin-api/resources";
+import { useResource, useResourceEnabled } from "../../../plugin-api/resources";
 import { deriveAuthState, needsAuth } from "../auth";
-import { awsIdentityR } from "../resources";
+import { awsIdentityR, awsProfileR } from "../resources";
 import { AWS_SERVICES, awsSettings, setAwsService, setEcsLevel, setLambdaLogs, useAws, type AwsService } from "../state";
 import { AwsServiceNav } from "./AwsServiceNav";
 import { AwsEcsView } from "./AwsEcsView";
@@ -10,7 +10,7 @@ import { AwsEc2View, AwsLambdaView, AwsS3View, AwsSqsView } from "./AwsListViews
 import { AwsAuthEmpty } from "./AwsAuthEmpty";
 import "../aws.css";
 
-type AwsViewProps = { profile: string; active: boolean };
+type AwsViewProps = { paneId: string; profile: string; active: boolean };
 
 const AWS_VIEW: Record<AwsService, ComponentType<AwsViewProps>> = {
     ecs: AwsEcsView,
@@ -38,12 +38,14 @@ function goBack(profile: string, service: AwsService): boolean {
     return true;
 }
 
-export function AwsPane({ active }: { active: boolean }) {
-    const profile = awsSettings.useSelect((s) => s.profile);
+export function AwsPane({ paneId, active }: { paneId: string; active: boolean }) {
+    const picked = useResource(awsProfileR);
+    const profile = picked.data?.profile ?? null;
     const service = awsSettings.useSelect((s) => s.service);
     const identity = useResourceEnabled(active && !!profile, awsIdentityR, profile ?? "", false);
     const auth = deriveAuthState(profile, identity);
 
+    if (!picked.data && picked.status !== "error") return null;
     if (auth.kind === "no-profile") return <AwsAuthEmpty mode="no-profile" />;
     const signedOut = needsAuth(auth);
     const ServiceView = AWS_VIEW[service];
@@ -64,8 +66,12 @@ export function AwsPane({ active }: { active: boolean }) {
 
     return (
         <div className="aws-pane" onKeyDown={onKeyDown}>
-            <AwsServiceNav profile={auth.profile} signedIn={!signedOut} />
-            {signedOut ? <AwsAuthEmpty mode="unauthed" profile={auth.profile} /> : <ServiceView profile={auth.profile} active={active} />}
+            <AwsServiceNav paneId={paneId} profile={auth.profile} signedIn={!signedOut} active={active} />
+            {signedOut ? (
+                <AwsAuthEmpty mode="unauthed" profile={auth.profile} />
+            ) : (
+                <ServiceView paneId={paneId} profile={auth.profile} active={active} />
+            )}
         </div>
     );
 }

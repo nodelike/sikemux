@@ -1,24 +1,24 @@
 import { useState, type ReactNode } from "react";
 import { confirmDialog, copyText, notify, openUrl, reportError, swallow } from "../../plugin-api/host";
-import { invalidate } from "../../plugin-api/resources";
 import { IconCopy, IconExternal, IconRotate, IconTrash, Tooltip } from "../../plugin-api/ui";
 import { hostApi, type RepoRef, type Run } from "../api";
 import { useHost } from "../registry";
-import { isUnfinished } from "../runStatus";
 import { MoreDots } from "./ActionsIcon";
 
 interface Props {
     run: Run;
+    /** As the core says: still going, or held for approval. */
+    unfinished: boolean;
     repo: RepoRef;
     canWrite: boolean;
     onDeleted: () => void;
 }
 
-export function RunMenu({ run, repo, canWrite, onDeleted }: Props) {
+export function RunMenu({ run, unfinished, repo, canWrite, onDeleted }: Props) {
     const host = useHost();
     const { ci } = host.capabilities;
     const [open, setOpen] = useState(false);
-    const finished = !isUnfinished(run);
+    const finished = !unfinished;
 
     const act = (work: () => Promise<void>) => {
         setOpen(false);
@@ -28,10 +28,7 @@ export function RunMenu({ run, repo, canWrite, onDeleted }: Props) {
     const rerunWithDebug = () =>
         hostApi(repo.provider)
             .rerun(repo, run.id, false, true)
-            .then(() => {
-                notify("success", "Re-running everything with debug logs");
-                invalidate((kind) => kind === "host.runs" || kind === "host.run");
-            })
+            .then(() => notify("success", "Re-running everything with debug logs"))
             .catch(reportError("Could not re-run it"));
 
     const deleteLogs = async () => {
@@ -44,10 +41,7 @@ export function RunMenu({ run, repo, canWrite, onDeleted }: Props) {
         if (!sure) return;
         await hostApi(repo.provider)
             .deleteRunLogs(repo, run.id)
-            .then(() => {
-                notify("success", "Deleted the logs");
-                invalidate((kind) => kind === "host.jobLog");
-            })
+            .then(() => notify("success", "Deleted the logs"))
             .catch(reportError("Could not delete the logs"));
     };
 
@@ -64,7 +58,6 @@ export function RunMenu({ run, repo, canWrite, onDeleted }: Props) {
             .then(() => {
                 notify("success", `Deleted run #${run.runNumber}`);
                 onDeleted();
-                invalidate((kind) => kind === "host.runs");
             })
             .catch(reportError("Could not delete the run"));
     };

@@ -19,12 +19,13 @@ mod logs;
 mod metrics;
 mod s3;
 mod sqs;
+mod views;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_plugin_api::{
     answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
@@ -51,6 +52,11 @@ struct ProfileParams {
 #[derive(Deserialize)]
 struct AgentProfilePicksParams {
     project: Option<PathBuf>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PaneProfile {
+    profile: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -128,9 +134,10 @@ impl Plugin for Aws {
         Box::pin(async move {
             match method {
                 "profiles" => reply(auth::profiles().await),
-                "agentProfilePicks" => {
+                "accountView" => reply(views::account(ctx).await),
+                "agentProfileView" => {
                     let AgentProfilePicksParams { project } = params(input)?;
-                    reply(agent_profile::picks(ctx, project.as_deref()))
+                    reply(views::agent_profiles(ctx, project.as_deref()))
                 }
                 "pickAgentProfile" => {
                     let PickAgentProfileParams { project, profile } = params(input)?;
@@ -138,20 +145,17 @@ impl Plugin for Aws {
                 }
                 "identity" => {
                     let IdentityParams { profile, force } = params(input)?;
-                    reply(auth::identity(profile, force).await)
+                    reply(auth::identity(Target::named(&profile), force).await)
                 }
-                "ecsClusters" => answer(ecs::clusters(&params(input)?)).await,
-                "ecsServices" => {
-                    let ClusterParams { target, cluster } = params(input)?;
-                    answer(ecs::services(&target, &cluster)).await
-                }
-                "ecsTasks" => {
-                    let ServiceParams {
-                        target,
-                        cluster,
-                        service,
-                    } = params(input)?;
-                    answer(ecs::tasks(&target, &cluster, Some(&service), false)).await
+                "status" => reply(auth::status(ctx).await),
+                "profile" => reply(PaneProfile {
+                    profile: agent_profile::pane_profile(ctx),
+                }),
+                "setDefaultAccount" => {
+                    let PaneProfile { profile } = params(input)?;
+                    reply(PaneProfile {
+                        profile: agent_profile::pick_pane(ctx, profile)?,
+                    })
                 }
                 "ecsTaskLogConfig" => {
                     let TaskParams {
@@ -169,17 +173,30 @@ impl Plugin for Aws {
                     } = params(input)?;
                     answer(ecs::service_log_config(&target, &cluster, &service)).await
                 }
-                "ec2Instances" => answer(ec2::instances(&params(input)?)).await,
-                "lambdaFunctions" => answer(lambda::functions(&params(input)?)).await,
-                "sqsQueues" => answer(sqs::queues(&params(input)?)).await,
-                "billingMonths" => {
+                "ec2View" => answer(views::ec2(ctx, params(input)?)).await,
+                "lambdaView" => answer(views::lambda(ctx, params(input)?)).await,
+                "sqsView" => answer(views::sqs(ctx, params(input)?)).await,
+                "s3View" => answer(views::s3(ctx, params(input)?)).await,
+                "ecsClustersView" => answer(views::ecs_clusters(ctx, params(input)?)).await,
+                "ecsServicesView" => {
+                    let ClusterParams { target, cluster } = params(input)?;
+                    answer(views::ecs_services(ctx, target, cluster)).await
+                }
+                "ecsTasksView" => {
+                    let ServiceParams {
+                        target,
+                        cluster,
+                        service,
+                    } = params(input)?;
+                    answer(views::ecs_tasks(ctx, target, cluster, service)).await
+                }
+                "billingView" => {
                     let BillingParams {
                         target,
                         months_back,
                     } = params(input)?;
-                    answer(billing::months(&target, months_back)).await
+                    answer(views::billing(&target, months_back)).await
                 }
-                "s3Buckets" => answer(s3::buckets(&params(input)?)).await,
                 "setup" => reply(auth::setup()),
                 _ => match agent::call(ctx, method, input).await {
                     Some(answer) => answer,
@@ -198,7 +215,7 @@ impl Plugin for Aws {
     ) -> PluginFuture<'a, ()> {
         Box::pin(async move {
             match method {
-                "ssoLogin" => {
+                "signIn" => {
                     let ProfileParams { profile } = params(input)?;
                     sink.send(reply(auth::sso_login(profile).await)?)
                 }

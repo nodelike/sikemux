@@ -3,6 +3,8 @@
 //! Chat agents the core drives in their own protocol, through stand-ins for
 //! their binaries.
 
+mod folded;
+
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::os::unix::net::UnixStream as StdUnixStream;
@@ -10,14 +12,15 @@ use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use folded::{prompts, said, Chat, Folded};
 use serde_json::Value;
-use sikemux_core::client::{probe, ClientEvent, CoreClient};
+use sikemux_core::client::{probe, CoreClient};
 use sikemux_core::protocol::{
-    encode_control, read_frame_sync, BuildIdentity, ChatAccount, ChatAttachment, ChatEvent,
-    ChatEventKind, ChatLaunch, ClientMessage, Event, Request, PROTOCOL, PROTOCOL_VERSION,
+    encode_control, read_frame_sync, BuildIdentity, ChatAccount, ChatAttachment, ChatLaunch,
+    ClientMessage, Request, PROTOCOL, PROTOCOL_VERSION,
 };
 use sikemux_core::server::{self, ServerConfig, ServerError};
-use tokio::sync::mpsc::UnboundedReceiver;
+use sikemux_wire::chat::{ChatPage, ChatRole, FailureKind, PermissionAsk};
 
 const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
 const FAKE_CODEX: &str = env!("CARGO_BIN_EXE_sikemux-fake-codex");
@@ -57,9 +60,9 @@ impl TestCore {
         }
     }
 
-    async fn connect(&self) -> (CoreClient, Chat) {
+    async fn connect(&self, agent_id: &str) -> (CoreClient, Chat) {
         let (client, events) = CoreClient::connect(&self.socket).await.expect("connect");
-        (client, Chat::new(events))
+        (client, Chat::new(events, agent_id))
     }
 }
 
@@ -89,72 +92,28 @@ impl Drop for TestCore {
     }
 }
 
-/// Every chat event one client heard, in order.
-struct Chat {
-    events: UnboundedReceiver<ClientEvent>,
-    heard: Vec<ChatEvent>,
-    /// Waiting looks only at events after the last one waited for.
-    cursor: usize,
-}
-
-impl Chat {
-    fn new(events: UnboundedReceiver<ClientEvent>) -> Self {
-        Self {
-            events,
-            heard: Vec::new(),
-            cursor: 0,
-        }
-    }
-
-    async fn pump(&mut self) {
-        let event = tokio::time::timeout(WAIT, self.events.recv())
-            .await
-            .expect("timed out waiting for the core")
-            .expect("the core disconnected");
-        if let ClientEvent::Event(Event::Chat { event, .. }) = event {
-            self.heard.push(event);
-        }
-    }
-
-    async fn until(&mut self, mut found: impl FnMut(&ChatEvent) -> bool) -> ChatEvent {
-        loop {
-            if let Some(offset) = self.heard[self.cursor..].iter().position(&mut found) {
-                let index = self.cursor + offset;
-                self.cursor = index + 1;
-                return self.heard[index].clone();
-            }
-            self.pump().await;
-        }
-    }
-
-    async fn until_kind(&mut self, kind: ChatEventKind) -> ChatEvent {
-        self.until(|event| event.kind == kind).await
-    }
-
-    fn text(&self) -> String {
-        said(&self.heard)
-    }
-}
-
-/// Everything the agent said, read the way the chat reads it.
-fn said(events: &[ChatEvent]) -> String {
-    updates(events)
+/// The allow-once answer to the question the chat asks, and its request.
+fn allow_once(asked: &PermissionAsk) -> (String, String) {
+    let allow = asked
+        .options
         .iter()
-        .filter(|update| update["update"]["sessionUpdate"] == "agent_message_chunk")
-        .filter_map(|update| update["update"]["content"]["text"].as_str())
-        .collect()
+        .find(|option| option.kind == "allow_once")
+        .expect("an allow option");
+    (asked.request_id.clone(), allow.option_id.clone())
 }
 
-/// Streamed updates one at a time, whether they came batched or not.
-fn updates(events: &[ChatEvent]) -> Vec<Value> {
-    events
-        .iter()
-        .filter(|event| event.kind == ChatEventKind::SessionUpdate)
-        .flat_map(|event| match event.payload.get("updates") {
-            Some(Value::Array(batch)) => batch.clone(),
-            _ => vec![event.payload.clone()],
-        })
-        .collect()
+async fn until_asked(chat: &mut Chat) -> PermissionAsk {
+    chat.until(|chat| !chat.head().permissions.is_empty())
+        .await
+        .head()
+        .permissions[0]
+        .clone()
+}
+
+async fn until_failed(chat: &mut Chat) -> Folded {
+    chat.until(|chat| chat.head().failure.is_some())
+        .await
+        .clone()
 }
 
 fn claude_launch(agent_id: &str, config: &Path) -> ChatLaunch {
@@ -199,7 +158,7 @@ fn message_id() -> String {
 async fn a_claude_chat_streams_a_turn_with_its_options_and_commands() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-a").await;
     let start = client
         .acp_start(claude_launch("claude-a", config.path()))
         .await
@@ -208,20 +167,18 @@ async fn a_claude_chat_streams_a_turn_with_its_options_and_commands() {
     assert_eq!(start.setup["configOptions"][0]["id"], "model");
     assert_eq!(start.setup["configOptions"][1]["category"], "thought_level");
     assert_eq!(start.setup["configOptions"][1]["currentValue"], "high");
-    chat.until_kind(ChatEventKind::Ready).await;
+    chat.until_ready().await;
 
     prompt(&client, "claude-a", &message_id(), "stream 5").await;
-    chat.until_kind(ChatEventKind::TurnStarted).await;
-    let completed = chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(completed.payload["stopReason"], "end_turn");
+    chat.turn_started().await;
+    assert_eq!(chat.turn_ended().await.as_deref(), Some("end_turn"));
     assert_eq!(chat.text(), "w0 w1 w2 w3 w4 ");
-    let commands: Vec<Value> = updates(&chat.heard)
-        .into_iter()
-        .filter(|update| update["update"]["sessionUpdate"] == "available_commands_update")
-        .collect();
     assert_eq!(
-        commands[0]["update"]["availableCommands"][0]["name"],
-        "review"
+        chat.head()
+            .commands
+            .first()
+            .map(|command| command.name.as_str()),
+        Some("review")
     );
 }
 
@@ -229,25 +186,28 @@ async fn a_claude_chat_streams_a_turn_with_its_options_and_commands() {
 async fn a_claude_chat_says_when_claude_retries_its_request() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-retry").await;
     client
         .acp_start(claude_launch("claude-retry", config.path()))
         .await
         .expect("start");
-    chat.until_kind(ChatEventKind::Ready).await;
+    chat.until_ready().await;
     prompt(&client, "claude-retry", &message_id(), "retry 2").await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
 
-    let heard = updates(&chat.heard);
-    let attempts: Vec<Value> = heard
+    let attempts: Vec<Value> = chat
+        .heads
         .iter()
-        .filter_map(|update| update.pointer("/update/_meta/jetbrains/air/sessionFailure"))
-        .map(|notice| {
-            assert_eq!(notice["severity"], "warning");
-            notice["attempt"].clone()
-        })
+        .filter_map(|set| set.get("retrying").filter(|retrying| !retrying.is_null()))
+        .map(|retrying| retrying["attempt"].clone())
         .collect();
-    assert_eq!(attempts, [Value::from(1), Value::from(2)]);
+    assert_eq!(
+        attempts.last(),
+        Some(&Value::from(2)),
+        "the retries were never shown: {:?}",
+        chat.heads
+    );
+    assert_eq!(chat.head().retrying, None);
     assert_eq!(chat.text(), "back");
 }
 
@@ -255,23 +215,24 @@ async fn a_claude_chat_says_when_claude_retries_its_request() {
 async fn a_turn_the_network_cut_short_says_so_plainly_and_goes_again_on_retry() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-offline").await;
     client
         .acp_start(claude_launch("claude-offline", config.path()))
         .await
         .expect("start");
-    chat.until_kind(ChatEventKind::Ready).await;
+    chat.until_ready().await;
     prompt(&client, "claude-offline", &message_id(), "offline").await;
 
-    let error = chat.until_kind(ChatEventKind::Error).await;
-    assert_eq!(error.payload["failure"]["kind"], "network");
+    let head = until_failed(&mut chat).await.view.head;
+    let failure = head.failure.expect("a failure");
+    assert_eq!(failure.kind, FailureKind::Network);
     assert_eq!(
-        error.payload["message"],
-        "Lost the connection to the model provider"
+        head.error.as_deref(),
+        Some("Lost the connection to the model provider")
     );
     assert_eq!(
-        error.payload["failure"]["details"],
-        "API Error: Connection error."
+        failure.details.as_deref(),
+        Some("API Error: Connection error.")
     );
 
     client
@@ -281,40 +242,27 @@ async fn a_turn_the_network_cut_short_says_so_plainly_and_goes_again_on_retry() 
         )
         .await
         .expect("retry");
-    chat.until(|event| said(std::slice::from_ref(event)).contains("back online"))
-        .await;
+    chat.until(|chat| chat.text().contains("back online")).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_claude_tool_waits_for_the_persons_answer() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-b").await;
     let mut launch = claude_launch("claude-b", config.path());
     launch.permission_mode = "workspace-write".into();
     client.acp_start(launch).await.expect("start");
 
     prompt(&client, "claude-b", &message_id(), "ask").await;
-    let asked = chat.until_kind(ChatEventKind::PermissionRequest).await;
-    assert_eq!(asked.payload["toolCall"]["title"], "echo hi");
-    let allow = asked.payload["options"]
-        .as_array()
-        .and_then(|options| options.iter().find(|option| option["kind"] == "allow_once"))
-        .and_then(|option| option["optionId"].as_str())
-        .expect("an allow option")
-        .to_owned();
+    let asked = until_asked(&mut chat).await;
+    assert_eq!(asked.tool_call.title, "echo hi");
+    let (request, allow) = allow_once(&asked);
     client
-        .acp_permission_reply(
-            "claude-b".into(),
-            asked.payload["requestId"]
-                .as_str()
-                .expect("request id")
-                .into(),
-            Some(allow),
-        )
+        .acp_permission_reply("claude-b".into(), request, Some(allow))
         .await
         .expect("reply");
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     assert!(chat.text().ends_with("allowed"), "{}", chat.text());
 }
 
@@ -322,17 +270,15 @@ async fn a_claude_tool_waits_for_the_persons_answer() {
 async fn a_stopped_claude_turn_ends_cancelled() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-c").await;
     client
         .acp_start(claude_launch("claude-c", config.path()))
         .await
         .expect("start");
     prompt(&client, "claude-c", &message_id(), "hold 10000").await;
-    chat.until(|event| said(std::slice::from_ref(event)).contains("holding"))
-        .await;
+    chat.until(|chat| chat.text().contains("holding")).await;
     client.acp_cancel("claude-c".into()).await.expect("cancel");
-    let completed = chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(completed.payload["stopReason"], "cancelled");
+    assert_eq!(chat.turn_ended().await.as_deref(), Some("cancelled"));
     assert!(!chat.text().contains("held"));
 }
 
@@ -340,8 +286,8 @@ async fn a_stopped_claude_turn_ends_cancelled() {
 async fn an_edited_claude_message_takes_the_chat_back_to_before_it() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
-    let (watcher, mut watching) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-d").await;
+    let (watcher, mut watching) = core.connect("claude-d").await;
     client
         .acp_start(claude_launch("claude-d", config.path()))
         .await
@@ -349,11 +295,15 @@ async fn an_edited_claude_message_takes_the_chat_back_to_before_it() {
     let first = message_id();
     let second = message_id();
     prompt(&client, "claude-d", &first, "first").await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     let attached = watcher.acp_attach("claude-d".into()).await.expect("attach");
     assert!(matches!(attached, ChatAttachment::Live { .. }));
+    watching.attached(&attached);
     prompt(&client, "claude-d", &second, "second").await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
+    watching
+        .until(|chat| chat.text().contains("echo: second"))
+        .await;
 
     client
         .acp_edit(
@@ -365,28 +315,28 @@ async fn an_edited_claude_message_takes_the_chat_back_to_before_it() {
         )
         .await
         .expect("edit");
-    chat.until(|event| said(std::slice::from_ref(event)).contains("earlier"))
+    chat.until(|chat| !chat.head().running && chat.text().contains("earlier"))
         .await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
     assert!(chat.text().ends_with("1 earlier"), "{}", chat.text());
 
-    watching
-        .until(|event| {
-            updates(std::slice::from_ref(event)).iter().any(|update| {
-                update["update"]["sessionUpdate"] == "message_rewound"
-                    && update["update"]["messageId"] == second.as_str()
-            })
-        })
+    let watched = watching
+        .until(|chat| !chat.head().running && chat.text().contains("earlier"))
         .await;
-    let (late, _) = core.connect().await;
-    let ChatAttachment::Live { replay, .. } = late
+    assert_eq!(watched.prompts(), ["first", "count"]);
+    assert!(
+        !watched.text().contains("echo: second"),
+        "{}",
+        watched.text()
+    );
+    let (late, _) = core.connect("claude-d").await;
+    let ChatAttachment::Live { view, .. } = late
         .acp_attach("claude-d".into())
         .await
         .expect("attach late")
     else {
         panic!("the chat is gone");
     };
-    let replayed = said(&replay);
+    let replayed = Folded::of_view(&view).text();
     assert!(replayed.contains("echo: first"), "{replayed}");
     assert!(!replayed.contains("echo: second"), "{replayed}");
     assert!(replayed.ends_with("1 earlier"), "{replayed}");
@@ -396,26 +346,24 @@ async fn an_edited_claude_message_takes_the_chat_back_to_before_it() {
 async fn a_resumed_claude_chat_replays_what_was_said() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-e").await;
     let start = client
         .acp_start(claude_launch("claude-e", config.path()))
         .await
         .expect("start");
     prompt(&client, "claude-e", &message_id(), "hello there").await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     client.acp_stop("claude-e".into()).await.expect("stop");
 
-    let (again, mut resumed) = core.connect().await;
+    let (again, mut resumed) = core.connect("claude-f").await;
     let mut launch = claude_launch("claude-f", config.path());
     launch.resume_id = Some(start.session_id.clone());
     let restarted = again.acp_start(launch).await.expect("resume");
     assert_eq!(restarted.session_id, start.session_id);
-    resumed.until_kind(ChatEventKind::Ready).await;
-    let replayed = updates(&resumed.heard);
-    assert!(replayed.iter().any(|update| {
-        update["update"]["sessionUpdate"] == "user_message_chunk"
-            && update["update"]["content"]["text"] == "hello there"
-    }));
+    resumed
+        .until(|chat| chat.ready() && !chat.view.rows.is_empty())
+        .await;
+    assert_eq!(resumed.prompts(), ["hello there"]);
     assert_eq!(resumed.text(), "echo: hello there");
 }
 
@@ -423,17 +371,22 @@ async fn a_resumed_claude_chat_replays_what_was_said() {
 async fn a_claude_account_out_of_usage_fails_the_turn_as_a_limit() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-g").await;
     client
         .acp_start(claude_launch("claude-g", config.path()))
         .await
         .expect("start");
     prompt(&client, "claude-g", &message_id(), "limit").await;
-    let error = chat.until_kind(ChatEventKind::Error).await;
-    assert_eq!(error.payload["failure"]["kind"], "limit");
+    let head = until_failed(&mut chat).await.view.head;
     assert_eq!(
-        error.payload["failure"]["title"],
-        "You've hit your limit · resets 3pm"
+        head.failure.as_ref().map(|failure| failure.kind),
+        Some(FailureKind::Limit)
+    );
+    assert!(
+        head.error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("You've hit your limit · resets 3pm")),
+        "{head:?}"
     );
     assert!(!chat.text().contains("hit your limit"));
     let in_an_hour = std::time::SystemTime::now()
@@ -441,14 +394,13 @@ async fn a_claude_account_out_of_usage_fails_the_turn_as_a_limit() {
         .expect("clock")
         .as_millis() as u64
         + 3_600_000;
-    let resumes_at = |event: &ChatEvent| {
-        event.payload["updates"]
-            .as_array()?
-            .iter()
-            .find_map(|update| update.pointer("/update/resumesAt")?.as_u64())
+    let resumes_at = |chat: &Folded| {
+        chat.head()
+            .failure
+            .as_ref()
+            .and_then(|failure| failure.resumes_at)
     };
-    let notice = chat.until(|event| resumes_at(event).is_some()).await;
-    let resumes_at = resumes_at(&notice).expect("time");
+    let resumes_at = resumes_at(chat.until(|chat| resumes_at(chat).is_some()).await).expect("time");
     assert!(resumes_at.abs_diff(in_an_hour) < 30_000);
 }
 
@@ -456,15 +408,18 @@ async fn a_claude_account_out_of_usage_fails_the_turn_as_a_limit() {
 async fn a_claude_prompt_stopped_by_a_limit_is_answered_on_the_account_it_moves_to() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-l").await;
     let mut launch = claude_launch("claude-l", config.path());
     launch
         .env
         .insert("FAKE_CLAUDE_OUT_OF_USAGE".into(), "1".into());
     client.acp_start(launch).await.expect("start");
     prompt(&client, "claude-l", &message_id(), "hello there").await;
-    let error = chat.until_kind(ChatEventKind::Error).await;
-    assert_eq!(error.payload["failure"]["kind"], "limit");
+    let failure = until_failed(&mut chat).await.view.head.failure;
+    assert_eq!(
+        failure.map(|failure| failure.kind),
+        Some(FailureKind::Limit)
+    );
 
     let spare = ChatAccount {
         id: "spare".into(),
@@ -481,8 +436,8 @@ async fn a_claude_prompt_stopped_by_a_limit_is_answered_on_the_account_it_moves_
         .acp_switch_account("claude-l".into(), spare)
         .await
         .expect("switch");
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(chat.text(), "echo: hello there");
+    chat.until(|chat| !chat.head().running && chat.text() == "echo: hello there")
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -501,23 +456,17 @@ async fn a_codex_chat_loads_the_sikemux_skills_library() {
         library.path().to_string_lossy().into_owned(),
     );
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("codex-skills").await;
     client.acp_start(launch).await.expect("start");
-    chat.until_kind(ChatEventKind::Ready).await;
+    chat.until_ready().await;
     prompt(&client, "codex-skills", &message_id(), "hello").await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
 
-    let offered: Vec<Value> = updates(&chat.heard)
-        .into_iter()
-        .filter(|update| update["update"]["sessionUpdate"] == "available_commands_update")
-        .flat_map(|update| {
-            update["update"]["availableCommands"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default()
-        })
-        .collect();
-    assert!(offered.iter().any(|command| command["name"] == "$deploy"));
+    let offered = &chat.head().commands;
+    assert!(
+        offered.iter().any(|command| command.name == "$deploy"),
+        "{offered:?}"
+    );
 }
 
 fn codex_launch(agent_id: &str, home: &Path) -> ChatLaunch {
@@ -533,7 +482,7 @@ fn codex_launch(agent_id: &str, home: &Path) -> ChatLaunch {
 async fn a_codex_chat_streams_a_turn_with_its_options() {
     let home = tempfile::tempdir().expect("home");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("codex-a").await;
     let start = client
         .acp_start(codex_launch("codex-a", home.path()))
         .await
@@ -546,8 +495,7 @@ async fn a_codex_chat_streams_a_turn_with_its_options() {
         .any(|option| option["category"] == "thought_level" && option["currentValue"] == "high"));
 
     prompt(&client, "codex-a", &message_id(), "stream 5").await;
-    let completed = chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(completed.payload["stopReason"], "end_turn");
+    assert_eq!(chat.turn_ended().await.as_deref(), Some("end_turn"));
     assert_eq!(chat.text(), "w0 w1 w2 w3 w4 ");
 }
 
@@ -555,31 +503,18 @@ async fn a_codex_chat_streams_a_turn_with_its_options() {
 async fn a_codex_command_waits_for_the_persons_answer() {
     let home = tempfile::tempdir().expect("home");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("codex-b").await;
     let mut launch = codex_launch("codex-b", home.path());
     launch.permission_mode = "workspace-write".into();
     client.acp_start(launch).await.expect("start");
 
     prompt(&client, "codex-b", &message_id(), "ask").await;
-    let asked = chat.until_kind(ChatEventKind::PermissionRequest).await;
-    let allow = asked.payload["options"]
-        .as_array()
-        .and_then(|options| options.iter().find(|option| option["kind"] == "allow_once"))
-        .and_then(|option| option["optionId"].as_str())
-        .expect("an allow option")
-        .to_owned();
+    let (request, allow) = allow_once(&until_asked(&mut chat).await);
     client
-        .acp_permission_reply(
-            "codex-b".into(),
-            asked.payload["requestId"]
-                .as_str()
-                .expect("request id")
-                .into(),
-            Some(allow),
-        )
+        .acp_permission_reply("codex-b".into(), request, Some(allow))
         .await
         .expect("reply");
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     assert!(chat.text().ends_with("allowed"), "{}", chat.text());
 }
 
@@ -587,33 +522,31 @@ async fn a_codex_command_waits_for_the_persons_answer() {
 async fn a_stopped_codex_turn_ends_cancelled() {
     let home = tempfile::tempdir().expect("home");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("codex-c").await;
     client
         .acp_start(codex_launch("codex-c", home.path()))
         .await
         .expect("start");
     prompt(&client, "codex-c", &message_id(), "hold 10000").await;
-    chat.until(|event| said(std::slice::from_ref(event)).contains("holding"))
-        .await;
+    chat.until(|chat| chat.text().contains("holding")).await;
     client.acp_cancel("codex-c".into()).await.expect("cancel");
-    let completed = chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(completed.payload["stopReason"], "cancelled");
+    assert_eq!(chat.turn_ended().await.as_deref(), Some("cancelled"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_edited_codex_message_takes_the_thread_back_to_before_it() {
     let home = tempfile::tempdir().expect("home");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("codex-d").await;
     client
         .acp_start(codex_launch("codex-d", home.path()))
         .await
         .expect("start");
     let second = message_id();
     prompt(&client, "codex-d", &message_id(), "first").await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     prompt(&client, "codex-d", &second, "second").await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
 
     client
         .acp_edit(
@@ -625,36 +558,34 @@ async fn an_edited_codex_message_takes_the_thread_back_to_before_it() {
         )
         .await
         .expect("edit");
-    chat.until(|event| said(std::slice::from_ref(event)).contains("earlier"))
+    chat.until(|chat| !chat.head().running && chat.text().contains("earlier"))
         .await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
     assert!(chat.text().ends_with("1 earlier"), "{}", chat.text());
+    assert_eq!(chat.prompts(), ["first", "count"]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_resumed_codex_thread_replays_what_was_said() {
     let home = tempfile::tempdir().expect("home");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("codex-e").await;
     let start = client
         .acp_start(codex_launch("codex-e", home.path()))
         .await
         .expect("start");
     prompt(&client, "codex-e", &message_id(), "hello there").await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     client.acp_stop("codex-e".into()).await.expect("stop");
 
-    let (again, mut resumed) = core.connect().await;
+    let (again, mut resumed) = core.connect("codex-f").await;
     let mut launch = codex_launch("codex-f", home.path());
     launch.resume_id = Some(start.session_id.clone());
     let restarted = again.acp_start(launch).await.expect("resume");
     assert_eq!(restarted.session_id, start.session_id);
-    resumed.until_kind(ChatEventKind::Ready).await;
-    let replayed = updates(&resumed.heard);
-    assert!(replayed.iter().any(|update| {
-        update["update"]["sessionUpdate"] == "user_message_chunk"
-            && update["update"]["content"]["text"] == "hello there"
-    }));
+    resumed
+        .until(|chat| chat.ready() && !chat.view.rows.is_empty())
+        .await;
+    assert_eq!(resumed.prompts(), ["hello there"]);
     assert_eq!(resumed.text(), "echo: hello there");
 }
 
@@ -662,39 +593,37 @@ async fn a_resumed_codex_thread_replays_what_was_said() {
 async fn a_codex_account_out_of_usage_fails_the_turn_as_a_limit() {
     let home = tempfile::tempdir().expect("home");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("codex-g").await;
     client
         .acp_start(codex_launch("codex-g", home.path()))
         .await
         .expect("start");
     prompt(&client, "codex-g", &message_id(), "limit").await;
-    let error = chat.until_kind(ChatEventKind::Error).await;
-    assert_eq!(error.payload["failure"]["kind"], "limit");
+    let failure = until_failed(&mut chat).await.view.head.failure;
+    assert_eq!(
+        failure.map(|failure| failure.kind),
+        Some(FailureKind::Limit)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn changing_the_claude_model_starts_no_turn() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-model").await;
     client
         .acp_start(claude_launch("claude-model", config.path()))
         .await
         .expect("start");
-    chat.until_kind(ChatEventKind::Ready).await;
+    chat.until_ready().await;
     let options = client
         .acp_set_config("claude-model".into(), "model".into(), "small".into())
         .await
         .expect("set model");
     assert_eq!(options["configOptions"][0]["currentValue"], "small");
     prompt(&client, "claude-model", &message_id(), "after").await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
-    let turns = chat
-        .heard
-        .iter()
-        .filter(|event| event.kind == ChatEventKind::TurnStarted)
-        .count();
-    assert_eq!(turns, 1, "only the prompt started a turn");
+    chat.turn_ended().await;
+    assert_eq!(chat.turns_started, 1, "only the prompt started a turn");
     assert!(!chat.text().contains("Set model"), "{}", chat.text());
 }
 
@@ -702,7 +631,7 @@ async fn changing_the_claude_model_starts_no_turn() {
 async fn a_new_claude_chat_shows_the_model_its_settings_choose() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
-    let (client, _chat) = core.connect().await;
+    let (client, _chat) = core.connect("claude-settings").await;
     let mut launch = claude_launch("claude-settings", config.path());
     launch.effort = None;
     launch
@@ -722,7 +651,7 @@ async fn live_claude_streams_edits_and_resumes() {
     };
     let folder = tempfile::tempdir().expect("folder");
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("live").await;
     let launch = ChatLaunch {
         agent_id: "live".into(),
         provider: "claude".into(),
@@ -748,7 +677,7 @@ async fn live_claude_streams_edits_and_resumes() {
         "Reply with exactly the word: alpha",
     )
     .await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     assert!(
         chat.text().to_lowercase().contains("alpha"),
         "{}",
@@ -763,7 +692,7 @@ async fn live_claude_streams_edits_and_resumes() {
         "Reply with exactly the word: beta",
     )
     .await;
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
 
     client
         .acp_edit(
@@ -775,24 +704,20 @@ async fn live_claude_streams_edits_and_resumes() {
         )
         .await
         .expect("edit");
-    let completed = chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(completed.payload["stopReason"], "end_turn");
+    assert_eq!(chat.turn_ended().await.as_deref(), Some("end_turn"));
     let answer = chat.text();
     assert!(answer.trim_end().ends_with('1'), "{answer}");
 
     client.acp_stop("live".into()).await.expect("stop");
-    let (again, mut resumed) = core.connect().await;
+    let (again, mut resumed) = core.connect("live-again").await;
     let mut resume = launch;
     resume.agent_id = "live-again".into();
     resume.resume_id = Some(start.session_id.clone());
     again.acp_start(resume).await.expect("resume");
-    resumed.until_kind(ChatEventKind::Ready).await;
-    let replayed = updates(&resumed.heard);
-    let users: Vec<&str> = replayed
-        .iter()
-        .filter(|update| update["update"]["sessionUpdate"] == "user_message_chunk")
-        .filter_map(|update| update["update"]["content"]["text"].as_str())
-        .collect();
+    let users = resumed
+        .until(|chat| chat.ready() && !chat.view.rows.is_empty())
+        .await
+        .prompts();
     assert!(users.iter().any(|text| text.contains("alpha")), "{users:?}");
     assert!(!users.iter().any(|text| text.contains("beta")), "{users:?}");
 }
@@ -829,34 +754,48 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
     std::fs::write(project.join(format!("{session}.jsonl")), transcript).expect("transcript");
 
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("claude-long").await;
     let mut launch = claude_launch("claude-long", config.path());
     launch.resume_id = Some(session);
     client.acp_start(launch).await.expect("resume");
-    chat.until_kind(ChatEventKind::Ready).await;
-    let heard = updates(&chat.heard);
-    let answers = |updates: &[Value]| {
-        updates
-            .iter()
-            .filter(|update| update["update"]["sessionUpdate"] == "agent_message_chunk")
+    chat.until(|chat| chat.ready() && !chat.view.rows.is_empty())
+        .await;
+    let answers = |rows: &[sikemux_wire::chat::ChatMessage]| {
+        rows.iter()
+            .filter(|row| row.role == ChatRole::Assistant)
             .count()
     };
-    let shown = answers(&heard);
+    let shown = answers(&chat.view.rows);
     assert!(shown <= 50, "{shown} answers were sent at once");
-    let earlier = heard
-        .iter()
-        .find(|update| update["update"]["sessionUpdate"] == "earlier_turns")
-        .expect("where the earlier turns start");
-    let feed = earlier["update"]["feed"].as_str().unwrap().to_owned();
-    let mut before = earlier["update"]["before"].as_u64();
+    assert_eq!(said(&chat.view.rows).len(), shown * 100_000);
+    let ChatAttachment::Live { mark, .. } = client
+        .acp_attach("claude-long".into())
+        .await
+        .expect("attach")
+    else {
+        panic!("the chat is gone");
+    };
+    let mut before = chat.view.older_before;
+    assert!(
+        before.is_some(),
+        "the earlier turns were not said to be there"
+    );
     let mut paged = 0;
+    let mut asked = Vec::new();
     while let Some(from) = before {
-        let (events, older) = client
-            .acp_history("claude-long".into(), feed.clone(), from, 20)
-            .await
-            .expect("a page");
-        paged += answers(&updates(&events));
-        before = older;
+        let page: ChatPage = serde_json::from_value(
+            client
+                .acp_history("claude-long".into(), mark.feed.clone(), from, 20)
+                .await
+                .expect("a page"),
+        )
+        .expect("a chat page");
+        paged += answers(&page.rows);
+        asked.splice(0..0, prompts(&page.rows));
+        before = page.older_before;
     }
     assert_eq!(shown + paged, 200);
+    asked.extend(chat.prompts());
+    let questions: Vec<String> = (0..200).map(|turn| format!("question {turn}")).collect();
+    assert_eq!(asked, questions);
 }

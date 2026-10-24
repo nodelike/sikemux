@@ -8,8 +8,6 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::protocol::SessionId;
-
 use super::access::{Needs, Peer};
 use super::attachments;
 use super::changed::Topic;
@@ -47,6 +45,7 @@ macro_rules! calls {
                     super::git::call(&$core, &$client.peer, method, $params).await
                 }
                 method if method.starts_with("files.") => files(&$core, method, $params).await,
+                method if method.starts_with("lsp.") => super::lsp::call(&$core, $client.id, method, $params).await,
                 _ => Err(format!("this host does not know {method}").into()),
             }
         }
@@ -59,7 +58,7 @@ pub(crate) fn needs(method: &str) -> Needs {
     if method.starts_with("git.") {
         return super::git::needs(method);
     }
-    if method.starts_with("files.") {
+    if method.starts_with("files.") || method.starts_with("lsp.") {
         return Needs::Full;
     }
     rule(method).map_or(Needs::Local, |(needs, _)| needs)
@@ -77,21 +76,12 @@ pub(crate) fn for_person(method: &str) -> bool {
 
 calls! { core, client, params;
     "chatFile": Watch, any_program => answer(chat_file(&core, &client.peer, parse(params)?).await?),
+    "page": Watch, any_program => answer(page(&core, parse(params)?).await?),
     "nameAgent": Local => answer(name_agent(&core, parse(params)?).await?),
     "renameAgent": Full => answer(rename_agent(&core, parse(params)?).await?),
-    "pasteIntoTerminal": Full => answer(paste_into_terminal(&core, client, parse(params)?).await?),
-    "hostSetupTerminal": Local => {
-        let params: SetupTerminalParams = parse(params)?;
-        let id = super::connection::spawn_setup(&core, client, params.cols, params.rows, params.startup).await?;
-        answer(json!({ "id": id }))
-    },
-    "hostSetupDone": Local => {
-        let params: SetupDoneParams = parse(params)?;
-        answer(setup_done(&core, client, params.id)?)
-    },
     "closedAgents": Local => answer(closed_agents(&core, parse(params)?).await?),
-    "publishBuddies": Local => answer(core.workspaces.publish_buddies(parse(params)?)?),
     "agentNames": Watch, any_program => answer(agent_names(&core).await?),
+    "agentCatalog": Watch, any_program => answer(super::catalog::view()),
     "agentNameTheme": Full => answer(NameThemeParams { theme: core.names.theme() }),
     "setAgentNameTheme": Person => {
         let params: NameThemeParams = parse(params)?;
@@ -102,6 +92,11 @@ calls! { core, client, params;
     "stopChatIfIdle": Local => {
         let params: AgentParams = parse(params)?;
         answer(json!({ "stopped": super::lifecycle::sleep(&core, &params.agent_id) }))
+    },
+    "switchAgentView": Person => answer(super::agent_view::switch(&core, parse(params)?).await?),
+    "sleepAgent": Person => {
+        let params: AgentParams = parse(params)?;
+        answer(super::lifecycle::sleep_agent(&core, &params.agent_id)?)
     },
     "sleepIdleChats": Local => answer(json!({ "slept": super::lifecycle::sleep_idle(&core) })),
     "startTerminalAgent": Local => {
@@ -116,9 +111,10 @@ calls! { core, client, params;
         answer(())
     },
     "startChat": Local => {
-        let params: AgentParams = parse(params)?;
-        answer(super::launching::start_saved(&core, &params.agent_id).await?)
+        let params: StartParams = parse(params)?;
+        answer(super::launching::start_saved(&core, &params.agent_id, params.waits_for_person).await?)
     },
+    "resumeSession": Full => answer(super::launching::resume_session(&core, parse(params)?).await?),
     "activitySummary": Watch, any_program => answer(activity_summary(&core, parse(params)?).await?),
     "setActivityPrice": Person => {
         let params: ActivityPriceParams = parse(params)?;
@@ -133,33 +129,61 @@ calls! { core, client, params;
                 .await?,
         )
     },
+    "chatPage": Watch, any_program => {
+        let params: ChatPageParams = parse(params)?;
+        let reading = core.clone();
+        answer(blocking(move || super::chat::page(&reading, params)).await?)
+    },
+    "chatFind": Watch, any_program => {
+        let params: super::chat::find::FindParams = parse(params)?;
+        let (reading, client) = (core.clone(), client.id);
+        answer(blocking(move || super::chat::find(&reading, client, params)).await?)
+    },
+    "chatToolDetail": Watch, any_program => {
+        let params: ToolDetailParams = parse(params)?;
+        answer(super::chat::tool_detail(&core, &params.agent_id, &params.tool_call_id)?)
+    },
     "dropQueued": Full => {
         let params: QueuedParams = parse(params)?;
         answer(super::chat::queue::remove(&core, &params.agent_id, &params.ids)?)
     },
     "agentSessions": Local, any_program => answer(saved::call(&core, parse(params)?).await?),
-    "workspace": Watch, any_program => answer(core.workspaces.view()),
+    "workspace": Watch, any_program => answer(core.workspace_view()),
     "runCommand": Local => answer(super::custom_command::run(parse(params)?).await?),
+    "updateStatus": Watch => answer(core.updates.status()),
+    "updateCheck": Person => answer(super::updates::check(&core).await?),
+    "updateInstall": Person => answer(super::updates::install(&core, parse(params)?)?),
+    "updateCancel": Person => answer(super::updates::cancel(&core)),
+    "runCustomCommand": Person => answer(super::custom_command::run_custom(&core, parse(params)?).await?),
     "addProject": Person => answer(workspace::add_project(&core, parse(params)?).await?),
     "removeProject": Person => answer(workspace::remove_project(&core, parse(params)?)?),
     "updateProject": Person => answer(workspace::update_project(&core, parse(params)?)?),
     "moveProject": Person => answer(workspace::move_project(&core, parse(params)?)?),
     "setSpaces": Person => answer(workspace::set_spaces(&core, parse(params)?)?),
     "setPinnedChats": Person => answer(workspace::set_pinned_chats(&core, parse(params)?)?),
+    "pinChat": Person => answer(workspace::pin_chat(&core, parse(params)?)?),
     "setAgentDefaults": Person => answer(workspace::set_defaults(&core, parse(params)?).await?),
     "createAgent": Person => answer(workspace::create_agent(&core, parse(params)?)?),
     "updateAgent": Person => answer(workspace::update_agent(&core, parse(params)?)?),
+    "moveAgentToProject": Person => answer(super::move_agent::move_agent(&core, parse(params)?).await?),
+    "moveAgentToFolder": Person => answer(super::move_agent::move_to_folder(&core, parse(params)?).await?),
     "closeAgents": Person => answer(workspace::close_agents(&core, parse(params)?)?),
     "closeChat": Full => {
         let params: AgentParams = parse(params)?;
         answer(workspace::close_agent(&core, params.agent_id)?)
     },
     "createAgentWorktree": Person => answer(super::sandbox::for_agent(&core, parse(params)?).await?),
+    "agentReview": Watch => answer(super::agent_worktree::review(&core, parse(params)?).await?),
+    "worktreeMerged": Watch => answer(super::agent_worktree::merged(&core, parse(params)?).await?),
+    "worktreeRemoval": Person => answer(super::agent_worktree::removal(&core, parse(params)?).await?),
+    "removeAgentWorktree": Person => answer(super::agent_worktree::remove(&core, parse(params)?).await?),
     "agentWorktreeAt": Full => answer(super::sandbox::at(parse(params)?).await?),
     "savedSessions": Full, any_program => answer(saved_sessions::list(parse(params)?).await?),
     "recentSessions": Full, any_program => answer(saved_sessions::recent(parse(params)?).await?),
     "renameSession": Person => answer(saved_sessions::rename(parse(params)?).await?),
     "deleteSession": Person => answer(saved_sessions::delete(parse(params)?).await?),
+    "renameRecent": Person => answer(saved_sessions::rename_recent(&core, parse(params)?).await?),
+    "deleteRecent": Person => answer(saved_sessions::delete_recent(&core, parse(params)?).await?),
     "relocateSession": Person => answer(saved_sessions::relocate(parse(params)?).await?),
     "skillsOverview": Full, any_program => skill_library::overview(&core).await,
     "skillsAdded": Full, any_program => skill_library::added(&core).await,
@@ -169,6 +193,7 @@ calls! { core, client, params;
     "adoptSkill": Person => skill_library::adopt(&core, parse(params)?).await,
     "agentSignIns": Full, any_program => answer(agent_sign_in::pages()),
     "agentSignIn": Person => answer(agent_sign_in::sign_in(&core, parse(params)?).await?),
+    "signInLauncher": Person => answer(agent_sign_in::sign_in_launcher(&core, parse(params)?).await?),
     "agentSignInCode": Person => answer(agent_sign_in::sign_in_code(parse(params)?).await?),
     "cancelAgentSignIn": Person => {
         agent_sign_in::cancel(parse(params)?);
@@ -190,6 +215,8 @@ calls! { core, client, params;
     "setModelHelper": Person => answer(model_providers::set_helper(&core, parse(params)?).await?),
     "agentAccounts": Full, any_program => answer(core.workspaces.accounts()),
     "agentStatus": Full, any_program => answer(agent_accounts::status(&core, parse(params)?).await?),
+    "installedAgents": Full, any_program => answer(agent_accounts::installed(&core).await?),
+    "agentSetup": Full, any_program => answer(agent_accounts::setup(&core).await?),
     "agentAvailability": Full, any_program => {
         answer(agent_accounts::availability(&core, parse(params)?).await?)
     },
@@ -197,6 +224,40 @@ calls! { core, client, params;
         answer(agent_accounts::account_status(&core, parse(params)?).await?)
     },
     "agentUsage": Full, any_program => answer(agent_accounts::usage(&core, parse(params)?).await?),
+    "agentUsages": Watch, any_program => answer(agent_accounts::usages(&core).await),
+    "readAgentUsages": Full, any_program => answer(agent_accounts::read_usages(&core).await),
+    "openTab": Full => answer(super::layout::open_tab(&core, parse(params)?)?),
+    "keepTab": Full => answer(super::layout::keep_tab(&core, parse(params)?)?),
+    "closeTab": Full => answer(super::layout::close_tab(&core, parse(params)?)?),
+    "activateTab": Full => answer(super::layout::activate_tab(&core, parse(params)?)?),
+    "moveTab": Full => answer(super::layout::move_tab(&core, parse(params)?)?),
+    "closeTabs": Full => answer(super::layout::close_tabs(&core, parse(params)?)?),
+    "renameTab": Full => answer(super::layout::rename_tab(&core, parse(params)?)?),
+    "duplicateTab": Full => answer(super::layout::duplicate_tab(&core, parse(params)?).await?),
+    "activateProject": Full => answer(super::layout::activate_project(&core, parse(params)?)?),
+    "openPaths": Person => answer(super::layout::open_paths(&core, parse(params)?).await?),
+    "chooseHost": Full => answer(super::layout::choose_host(&core, parse(params)?).await?),
+    "splitPane": Full => answer(super::layout::split_pane(&core, parse(params)?)?),
+    "closePane": Full => answer(super::layout::close_pane(&core, parse(params)?)?),
+    "separatePane": Full => answer(super::layout::separate_pane(&core, parse(params)?)?),
+    "resizeSplit": Full => answer(super::layout::resize_split(&core, parse(params)?)?),
+    "account": Watch => answer(core.account.shown()),
+    "remoteImage": Watch => answer(super::remote_image::fetch(&core.remote_images, parse(params)?).await?),
+    "accountPicture": Watch => {
+        let params: AccountPictureParams = parse(params)?;
+        answer(super::account::picture(&core, &params.hash).await)
+    },
+    "accountSignIn": Person => answer(super::account::sign_in(&core, client.peer.clone()).await?),
+    "accountSignInFinish": Person => answer(super::account::sign_in_finished(&core).await?),
+    "accountSignInCancel": Person => {
+        super::account::cancel_sign_in(&core);
+        answer(Value::Null)
+    },
+    "accountSignOut": Person => answer(super::account::sign_out(&core, &client.peer).await?),
+    "sshHosts": Watch, any_program => {
+        let core = core.clone();
+        answer(blocking(move || Ok(super::ssh::hosts(&core))).await?)
+    },
     "cancelResume": Full => {
         agent_accounts::cancel_resume(&core, parse(params)?);
         answer(())
@@ -241,6 +302,13 @@ calls! { core, client, params;
     },
     "shares": Full, any_program => answer(share::list(&core)),
     "pairing": Person, any_program => answer(remote::pairing(&core)),
+    "deviceChallenge": Person => answer(super::hosts::account::device_challenge(&core).await?),
+    "approveHostSignIn": Person => {
+        answer(super::hosts::account::approve_host_sign_in(&core, parse(params)?).await?)
+    },
+    "deviceJoinTicket": Person => {
+        answer(super::hosts::account::device_join_ticket(&core, parse(params)?).await?)
+    },
     "signHostRequest": Local => {
         let request: crate::accounts::HostRequest = parse(params)?;
         answer(signed(core.remote.sign_host_request(&request)?))
@@ -251,14 +319,151 @@ calls! { core, client, params;
     },
     "answerPairing": Person => answer(remote::answer_pairing(&core, parse(params)?)?),
     "changeDevice": Person => answer(remote::change_device(&core, parse(params)?)?),
+    "projectFiles": Full => {
+        let params = parse(params)?;
+        answer(blocking(move || super::project_files::read(params).map_err(CoreError::from)).await?)
+    },
+    "searchStream": Full => answer(search_stream(&core, client, parse(params)?)?),
+    "searchReplace": Full => {
+        let params = parse(params)?;
+        answer(blocking(move || super::search::replace(params).map_err(CoreError::from)).await?)
+    },
+    "fileWindow": Full => {
+        let params = parse(params)?;
+        answer(blocking(move || super::search::window(params).map_err(CoreError::from)).await?)
+    },
+    "streamCancel": Watch => {
+        let params: StreamParams = parse(params)?;
+        core.streams.cancel(client.id, params.stream);
+        answer(Value::Null)
+    },
+    "projectRoots": Full => {
+        let params = parse(params)?;
+        answer(blocking(move || super::project_roots::scan(params).map_err(CoreError::from)).await?)
+    },
+    "resolvePath": Full => {
+        let params = parse(params)?;
+        answer(blocking(move || Ok(super::project_roots::resolve(params))).await?)
+    },
+    "sshConfigFile": Full => answer(blocking(|| super::ssh::config_file().map_err(CoreError::from)).await?),
+    "faceStyle": Watch => answer(core.faces.style()),
+    "setFaceStyle": Person => {
+        let style = core.faces.set_style(parse(params)?)?;
+        core.view_changed();
+        answer(style)
+    },
+    "preferences": Watch => answer(core.preferences.get()),
+    "drafts": Watch => {
+        let params: DraftsParams = serde_json::from_value(params).unwrap_or_default();
+        answer(core.drafts.get(params.keys.as_deref()))
+    },
+    "setDraft": Person => {
+        let params: SetDraftParams = parse(params)?;
+        core.drafts.set(&params.key, params.text, params.extra)?;
+        core.changes.changed(Topic::Drafts, None, Some(vec![params.key]));
+        answer(json!({}))
+    },
+    "setPreference": Person => {
+        let params: SetPreferenceParams = parse(params)?;
+        core.preferences.set(&params.key, params.value)?;
+        super::about::introduced(&core, &params.key)?;
+        if params.key == "notch" {
+            super::notch::follow(&core);
+        }
+        if params.key == "updateChannel" {
+            core.updates.check_soon();
+        }
+        if matches!(params.key.as_str(), "agentWorktreeDefaults" | "lastAgentType") {
+            core.view_changed();
+        }
+        let preferences = core.preferences.get();
+        core.theme_changed();
+        core.changes.changed(Topic::Preferences, None, None);
+        answer(preferences)
+    },
+    "theme": Watch, any_program => {
+        let params: ThemeParams = serde_json::from_value(params).unwrap_or_default();
+        match params.id {
+            Some(theme_id) => answer(super::themes::palette(&crate::protocol::Preferences { theme_id, ..core.preferences.get() })),
+            None => answer(core.palette()),
+        }
+    },
+    "typeWhenReady": Full => {
+        let params: TypeWhenReadyParams = parse(params)?;
+        let session = core.session(params.id).ok_or("that terminal is not on this host")?;
+        let typist = super::connection::typist(client);
+        if !session.may_type(typist) {
+            return Err(super::session::SETUP_LOCKED.into());
+        }
+        if let Some(draft) = super::session::typable(&params.draft) {
+            super::session::type_when_ready(&session, draft, typist);
+        }
+        answer(json!({}))
+    },
+    "promptDraft": Full => {
+        let params: SessionParams = parse(params)?;
+        let session = core.session(params.id).ok_or("that terminal is not on this host")?;
+        answer(json!({ "draft": super::session::prompt_draft(&session) }))
+    },
+    "reconnectSsh": Full => {
+        let params: SessionParams = parse(params)?;
+        let session = core.session(params.id).ok_or("that terminal is not on this host")?;
+        blocking(move || {
+            super::session::reconnect_ssh(&session);
+            Ok(())
+        })
+        .await?;
+        answer(json!({}))
+    },
+    "newTerminal": Full => answer(super::spare::new_terminal(&core, parse(params)?).await?),
+    "showTerminals": Full => answer(super::spare::show_terminals(&core).await?),
+    "stripShell": Full => answer(super::spare::strip_shell(&core, parse(params)?).await?),
+    "openSshTerminal": Full => answer(super::spare::open_ssh_terminal(&core, parse(params)?).await?),
+    "takeSpareShell": Local => answer(super::spare::take(&core, parse(params)?)),
+    "themes": Watch => answer(super::themes::summaries(&core.preferences.get())),
+    "themePalette": Watch => {
+        let params: ThemePaletteParams = parse(params)?;
+        answer(super::themes::palette_of(params.theme))
+    },
+    "themeFromColours": Watch => {
+        let params: ThemeFromColoursParams = parse(params)?;
+        let theme = super::themes::from_colours(&params.name, &params.colours, params.accent.as_deref());
+        answer(theme.ok_or("a theme needs 21 colours, each #rrggbb, the selection's may be empty")?)
+    },
+    "themeFromPixels": Watch => {
+        let params: super::wallpaper::PixelsParams = parse(params)?;
+        let rgba = super::wallpaper::pixels(&params)?;
+        let (colours, accent) = super::wallpaper::colours(&rgba)?;
+        let theme = super::themes::from_colours(&params.name, &colours, Some(&accent));
+        answer(theme.ok_or("the wallpaper gave no theme")?)
+    },
+    "codeHostPulls": Watch => answer(super::codehost::pulls(&core, client.id, parse(params)?).await),
+    "codeHostRuns": Watch => answer(super::codehost::runs(&core, client.id, parse(params)?).await),
+    "codeHostIssues": Watch => answer(super::codehost::issues(&core, client.id, parse(params)?).await),
+    "codeHostReleases": Watch => answer(super::codehost::releases(&core, client.id, parse(params)?).await),
+    "codeHostPull": Watch => answer(super::codehost::pull(&core, client.id, parse(params)?).await),
+    "codeHostPullFiles": Watch => answer(super::codehost::pull_files(&core, client.id, parse(params)?).await),
+    "codeHostCheckout": Person => answer(super::codehost::checkout(&core, parse(params)?).await),
+    "codeHostNewPull": Watch => answer(super::codehost::new_pull(&core, parse(params)?).await),
+    "codeHostTrackedContext": Watch => answer(super::codehost::tracked_context(&core, parse(params)?).await),
+    "codeHostWorkOn": Person => answer(super::codehost::work_on(&core, parse(params)?).await),
+    "codeHostTracked": Watch => answer(super::codehost::tracked(&core, client.id, parse(params)?).await),
+    "codeHostRun": Watch => answer(super::codehost::run(&core, client.id, parse(params)?).await),
+    "codeHostJobLog": Watch => answer(super::codehost::job_log(&core, client.id, parse(params)?).await),
+    "hosts": Watch => answer(super::hosts::rows(&core)),
+    "hostInstalledFrom": Person => answer(super::hosts::installed_from(&core, parse(params)?)?),
+    "installHost": Person => answer(super::hosts::install::install_host(&core, parse(params)?).await?),
+    "hostSetup": Person => answer(super::hosts::install::host_setup(&core, parse(params)?).await?),
     "linkHost": Person => answer(super::hosts::link_host(&core, parse(params)?).await?),
     "openOnHost": Person => answer(super::hosts::open::open_on(&core, parse(params)?).await?),
+    "sendSession": Person => answer(super::hosts::transfer::send_session(&core, parse(params)?).await?),
     "requireApproval": Person => answer(json!({ "requireApproval": core.remote.requires_approval() })),
     "setRequireApproval": Person => answer(remote::set_require_approval(&core, parse(params)?)?),
     "questions": Watch, any_program => answer(questions::views(&core)),
     "answerQuestion": Full => answer(questions::answer(&core, parse(params)?).await?),
     "answerQuestions": Full => answer(questions::answer_all(&core, parse(params)?).await?),
     "agentMessages": Watch, any_program => answer(agent_messages(&core, parse(params)?).await?),
+    "agentMessageRows": Watch, any_program => answer(agent_message_rows(&core, parse(params)?).await?),
     "boards": Watch, any_program => answer(board::boards(&core)),
     "board": Watch, any_program => answer(board::board(&core, params).await?),
     "boardAdd": Full => answer(board::person_add(&core, params).await?),
@@ -270,68 +475,91 @@ calls! { core, client, params;
     "edits": Watch, any_program => answer(edits(&core, parse(params)?).await?),
     "changeOwners": Watch, any_program => answer(change_owners(&core, parse(params)?).await?),
     "commitStaged": Person => answer(commit_staged(&core, parse(params)?).await?),
-    "personSaved": Local => {
-        only_window(&core, client)?;
-        let params: PersonSavedParams = parse(params)?;
-        core.edits.saved(params.path);
-        answer(())
-    },
     "commitOwners": Watch, any_program => answer(who_wrote::call(&core, parse(params)?).await?),
+    "commitLines": Watch, any_program => answer(who_wrote::lines(&core, parse(params)?).await?),
     "inbox": Watch, any_program => answer(inbox(&core).await?),
     "digest": Watch, any_program => answer(digest(&core, parse(params)?).await?),
-    "ports": Local => {
+    "ports": Person => {
         let params: PortsParams = parse(params)?;
         answer(super::ports::project_ports(&core, client.id, params.project).await?)
     },
-    "testResults": Local => {
+    "testResults": Person => {
         let params: ProjectParams = parse(params)?;
         answer(super::tasks::module_tests(&core, params.project).await?)
     },
-    "projectConfig": Local => {
+    "projectConfig": Person => {
         let params: ProjectParams = parse(params)?;
         answer(super::tasks::project_config(&core, params.project).await?)
     },
-    "trustProject": Local => {
-        let params: TrustProjectParams = parse(params)?;
-        answer(super::tasks::trust_project(&core, params.project, params.fingerprint).await?)
+    "startPreview": Person => {
+        let params: ProjectParams = parse(params)?;
+        answer(super::tasks::start_preview(&core, params.project).await?)
     },
-    "tasks": Local => {
+    "trustProject": Person => {
+        let params: TrustProjectParams = parse(params)?;
+        let answered_by = answered_by(&core, &client.peer);
+        answer(super::tasks::trust_project(&core, params.project, params.fingerprint, answered_by).await?)
+    },
+    "tasks": Person => {
         let params: ProjectParams = parse(params)?;
         answer(super::tasks::list(&core, params.project).await?)
     },
-    "taskRuns": Local => answer(super::tasks::runs(&core)),
-    "taskStart": Local => answer(super::tasks::start(&core, parse(params)?).await?),
-    "taskRerunFailed": Local => answer(super::tasks::rerun_failed(&core, parse(params)?).await?),
-    "taskStop": Local => {
+    "taskRuns": Person => answer(super::tasks::runs(&core)),
+    "taskStart": Person => answer(super::tasks::start(&core, parse(params)?).await?),
+    "taskRerunFailed": Person => answer(super::tasks::rerun_failed(&core, parse(params)?).await?),
+    "taskStop": Person => {
         super::harness::stop_runs(&core, parse(params)?).await;
         answer(())
     },
-    "trustAsks": Local => answer(super::tasks::asks(&core)),
+    "trustAsks": Person => answer(super::tasks::asks(&core)),
     "showCi": Watch, any_program => {
         super::ci::show(&core, client.id, parse(params)?);
         answer(())
     },
-    "answerTrust": Local => {
+    "answerTrust": Person => {
         let params: TrustAnswerParams = parse(params)?;
-        answer(super::tasks::answer_trust(&core, &params.id, params.trust)?)
+        let answered_by = answered_by(&core, &client.peer);
+        answer(super::tasks::answer_trust(&core, &params.id, params.trust, answered_by)?)
     },
-    "addTask": Local => answer(super::tasks::add(&core, parse(params)?).await?),
-    "removeTask": Local => answer(super::tasks::remove(&core, parse(params)?).await?),
-    "setCheck": Local => answer(super::tasks::set_check(&core, parse(params)?).await?),
+    "addTask": Person => {
+        let answered_by = answered_by(&core, &client.peer);
+        answer(super::tasks::add(&core, parse(params)?, answered_by).await?)
+    },
+    "removeTask": Person => answer(super::tasks::remove(&core, parse(params)?).await?),
+    "setCheck": Person => answer(super::tasks::set_check(&core, parse(params)?).await?),
     "agentModels": Local => {
         let params: AgentModelsParams = parse(params)?;
         answer(super::chat::offered::models(&params.agent))
     },
     "plugin": Person => answer(plugins::window_call(&core, parse(params)?).await),
     "pluginManifests": Person => answer(plugins::manifests()),
+    "releaseNotes": Watch => answer(super::about::release_notes(parse(params)?).await?),
+    "releaseAvatars": Watch => answer(super::about::release_avatars(parse(params)?).await),
+    "hostTools": Watch => answer(super::about::tools().await?),
+    "whatsNew": Watch => answer(super::about::whats_new(&core)),
+    "cliInstall": Watch => answer(super::cli_install::status().await?),
+    "installCli": Person => answer(super::cli_install::install().await?),
+    "renameAccountDevice": Person => answer(super::hosts::account::rename_device(&core, parse(params)?).await?),
+    "removeAccountDevice": Person => answer(super::hosts::account::remove_device(&core, parse(params)?).await?),
+    "accountPhones": Person => answer(super::hosts::account::phones(&core).await?),
+    "showFiles": Watch => {
+        super::open_files::show(&core, client.id, parse(params)?)?;
+        answer(())
+    },
+    "pluginView": Watch => answer(super::plugin_views::view(&core, client.id, parse(params)?).await),
+    "pluginViewsRead": Watch => {
+        super::plugin_views::read_again(&core, parse(params)?);
+        answer(())
+    },
+    "plugins": Watch => answer(plugins::listed().await),
     "pluginSetDisabled": Person => {
         plugins::set_disabled(&core, parse(params)?);
         answer(())
     },
-    "pluginStream": Person => answer(plugins::stream_ticket(parse(params)?)?),
+    "pluginStream": Person => answer(plugins::stream(&core, connection_of(&core, client)?, parse(params)?)?),
     "pluginSignIn": Person, any_program => {
         not_an_agent(client).await?;
-        answer(plugins::sign_in_ticket(parse(params)?)?)
+        answer(plugins::sign_in(&core, connection_of(&core, client)?, parse(params)?)?)
     },
     "signInCallback": Person, any_program => {
         not_an_agent(client).await?;
@@ -373,17 +601,56 @@ async fn not_an_agent(client: &ClientConn) -> CoreResult<()> {
     }
 }
 
-fn only_window(core: &Core, client: &ClientConn) -> CoreResult<()> {
-    if core.window.is_window(client.id) {
-        Ok(())
-    } else {
-        Err("only Sikemux's window may say the person saved a file".into())
-    }
+#[derive(Deserialize)]
+struct StreamParams {
+    /// None stops every stream on the connection, as a reloaded page does.
+    stream: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct SearchStreamParams {
+    stream: u64,
+    #[serde(flatten)]
+    search: super::search::SearchParams,
+}
+
+/// The connection a call came on, for a stream to send its parts down.
+fn connection_of(core: &Core, client: &ClientConn) -> CoreResult<Arc<ClientConn>> {
+    core.client_conn(client.id)
+        .ok_or_else(|| CoreError::from("this connection is closing"))
+}
+
+/// Starts a search whose files arrive as the client's stream `stream`.
+fn search_stream(
+    core: &Core,
+    client: &ClientConn,
+    params: SearchStreamParams,
+) -> CoreResult<Value> {
+    let stream = core
+        .streams
+        .open(connection_of(core, client)?, params.stream)?;
+    let owner = client.id.to_string();
+    tokio::task::spawn_blocking(move || {
+        let found = super::search::search(params.search, &owner, &|file| {
+            stream.push(json!({ "file": file }))
+        });
+        match found {
+            Ok(summary) => stream.finish(Some(json!({ "summary": summary }))),
+            Err(message) => stream.fail(json!({ "category": "search", "message": message })),
+        }
+    });
+    Ok(json!({ "stream": params.stream }))
 }
 
 pub(super) fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
     serde_json::from_value(params)
         .map_err(|error| CoreError::from(format!("the call's params do not fit: {error}")))
+}
+
+/// The name of the device the person acted from, when it was not this host's own window.
+fn answered_by(core: &Core, peer: &Peer) -> Option<String> {
+    let device = peer.device_id()?;
+    Some(core.remote.device_name(&device).unwrap_or(device))
 }
 
 fn answer(result: impl Serialize) -> CoreResult<Value> {
@@ -392,76 +659,6 @@ fn answer(result: impl Serialize) -> CoreResult<Value> {
 
 fn signed((key, signature): (String, String)) -> Value {
     json!({ "key": key, "signature": signature })
-}
-
-#[derive(Deserialize)]
-struct PasteParams {
-    id: SessionId,
-    text: String,
-    #[serde(default)]
-    submit: bool,
-    /// The terminal has only just started, so its program may not be ready.
-    #[serde(default)]
-    starting: bool,
-}
-
-/// How long a just-started program has to turn bracketed paste on before
-/// text pasted into it is typed on one line instead.
-const STARTING_PASTE_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// Types `text` into a terminal as one paste, then Enter when it is to be
-/// sent, answering once the terminal has taken it.
-async fn paste_into_terminal(
-    core: &Core,
-    client: &ClientConn,
-    params: PasteParams,
-) -> CoreResult<()> {
-    let session = core
-        .session(params.id)
-        .ok_or("that terminal is not on this host")?;
-    if params.starting {
-        super::session::until_pastes(&session, STARTING_PASTE_WAIT).await;
-    }
-    let mut bytes = super::session::pasted(&session, &params.text);
-    if params.submit {
-        bytes.push(b'\r');
-    }
-    let (done, typed) = tokio::sync::oneshot::channel();
-    super::connection::type_input(
-        core,
-        &session,
-        bytes,
-        super::connection::typist(client),
-        Box::new(move |result| {
-            let _ = done.send(result);
-        }),
-    );
-    typed.await.map_err(|_| "that terminal closed")??;
-    Ok(())
-}
-
-#[derive(Deserialize)]
-struct SetupTerminalParams {
-    cols: u16,
-    rows: u16,
-    startup: String,
-}
-
-#[derive(Deserialize)]
-struct SetupDoneParams {
-    id: SessionId,
-}
-
-/// The app has its sign-in code from the set-up terminal `id`, or gave up:
-/// its lock ends, if this app connection holds it.
-fn setup_done(core: &Core, client: &ClientConn, id: SessionId) -> CoreResult<()> {
-    if client.peer != Peer::App {
-        return Err(super::access::APP_ONLY.into());
-    }
-    match core.session(id) {
-        Some(session) => session.end_setup(client.id).map_err(Into::into),
-        None => Ok(()),
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -488,6 +685,58 @@ struct PortsParams {
 struct TrustProjectParams {
     project: String,
     fingerprint: String,
+}
+
+#[derive(Deserialize)]
+struct SessionParams {
+    id: crate::protocol::SessionId,
+}
+
+/// A draft to paste into a terminal once it is ready, left at the prompt for
+/// the person to send.
+#[derive(Deserialize)]
+struct TypeWhenReadyParams {
+    id: crate::protocol::SessionId,
+    draft: String,
+}
+
+/// Which theme to answer for; the person's pick when none is named.
+#[derive(Deserialize, Default)]
+struct ThemeParams {
+    id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ThemePaletteParams {
+    theme: sikemux_wire::theme::Theme,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThemeFromColoursParams {
+    name: String,
+    colours: Vec<String>,
+    accent: Option<String>,
+}
+
+/// The drafts to read: those under `keys`, else every one.
+#[derive(Deserialize, Default)]
+struct DraftsParams {
+    keys: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct SetDraftParams {
+    key: String,
+    text: String,
+    #[serde(default)]
+    extra: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct SetPreferenceParams {
+    key: String,
+    value: Value,
 }
 
 #[derive(Deserialize)]
@@ -521,6 +770,22 @@ async fn agent_messages(core: &Arc<Core>, params: AgentMessagesParams) -> CoreRe
         let project = project_of(&path, &core.workspaces.project_paths());
         let entries = messages::logged(&core, &project, params.limit);
         Ok(json!({ "project": project, "entries": entries }))
+    })
+    .await
+}
+
+/// The project's messages between agents folded into one row each, newest first.
+async fn agent_message_rows(core: &Arc<Core>, params: AgentMessagesParams) -> CoreResult<Value> {
+    let path = Path::new(&params.project);
+    if !path.is_absolute() {
+        return Err("project must be the project's absolute path".into());
+    }
+    let path = path.to_owned();
+    let core = core.clone();
+    blocking(move || {
+        let project = project_of(&path, &core.workspaces.project_paths());
+        let rows = super::messages::logged_rows(&core, &project);
+        Ok(json!({ "project": project, "rows": rows }))
     })
     .await
 }
@@ -574,6 +839,56 @@ async fn chat_file(core: &Core, peer: &Peer, params: ChatFileParams) -> CoreResu
 }
 
 #[derive(Deserialize)]
+struct PageParams {
+    id: String,
+}
+
+#[derive(Serialize)]
+struct PageHtml {
+    html: String,
+}
+
+/// A page an agent showed with `page_show`, as a chat shows it in the reply.
+async fn page(core: &Core, params: PageParams) -> CoreResult<PageHtml> {
+    if !crate::pages::is_page_id(&params.id) {
+        return Err("that is not a page's id".into());
+    }
+    let dir = core
+        .harness
+        .data_dir
+        .clone()
+        .ok_or("this core keeps no pages")?
+        .join(crate::pages::FOLDER);
+    let html = blocking(move || {
+        std::fs::read_to_string(dir.join(format!("{}.html", params.id)))
+            .map_err(|_| CoreError::from("that page is gone"))
+    })
+    .await?;
+    Ok(PageHtml { html })
+}
+
+/// A page of a chat's rows: those before or after an event, or around the row holding one.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ChatPageParams {
+    pub agent_id: String,
+    pub feed: String,
+    pub before: Option<u64>,
+    pub after: Option<u64>,
+    pub around: Option<u64>,
+    /// A subagent's rows rather than the chat's own.
+    pub session: Option<String>,
+    pub turns: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolDetailParams {
+    agent_id: String,
+    tool_call_id: String,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct NameAgentParams {
     agent_id: String,
@@ -624,6 +939,11 @@ async fn activity_summary(
     .await
 }
 
+#[derive(Deserialize)]
+struct AccountPictureParams {
+    hash: String,
+}
+
 /// Messages waiting behind an agent's turn, by id.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -638,6 +958,15 @@ struct QueuedParams {
 #[serde(rename_all = "camelCase")]
 struct AgentParams {
     agent_id: String,
+}
+
+/// A saved agent to start; one moved to another agent before it ran waits for the person.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StartParams {
+    agent_id: String,
+    #[serde(default)]
+    waits_for_person: bool,
 }
 
 #[derive(Deserialize)]
@@ -735,11 +1064,6 @@ async fn agent_names(core: &Arc<Core>) -> CoreResult<Vec<AgentName>> {
         Ok(core.names.of(&agents))
     })
     .await
-}
-
-#[derive(Deserialize)]
-struct PersonSavedParams {
-    path: PathBuf,
 }
 
 #[derive(Deserialize)]

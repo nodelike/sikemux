@@ -16,7 +16,7 @@ import { AttachSheet } from '@/chat/AttachSheet';
 import { YoloToggle } from '@/chat/Composer';
 import { ComposerInput } from '@/chat/ComposerInput';
 import { fitting, uploadEach, type Attachment } from '@/chat/uploads';
-import { MAX_ATTACHMENTS, type ConfigPicker } from '@/core/wire.generated';
+import { MAX_ATTACHMENTS } from '@/core/wire.generated';
 import type { LauncherInfo } from '@/core/protocol';
 import { problem as problemOf } from '@/core/problem';
 import { useLive } from '@/devices/hub';
@@ -27,7 +27,6 @@ import { AgentIcon, Icon } from '@/ui/Icon';
 import { type Glyph, PromptGlyph } from '@/ui/prompt';
 import { Nav, Screen, useKeyboardShown } from '@/ui/screen';
 import { Working } from '@/ui/status';
-import { Track } from '@/ui/controls';
 import { Sheet, SheetLabel } from '@/ui/Sheet';
 import { fonts, type Palette, useColors, useStyles, useType } from '@/ui/theme';
 
@@ -60,29 +59,18 @@ function sendingOf(draft: string, attachments: Attachment[]): Sending {
   };
 }
 
-const choiceLabel = (picker: ConfigPicker | undefined, value: string | undefined) =>
-  picker?.choices.find((choice) => choice.value === value)?.label;
-
 function AgentSheet({
   visible,
   onClose,
   launchers,
   chosen,
   onChoose,
-  model,
-  effort,
-  onModel,
-  onEffort,
 }: {
   visible: boolean;
   onClose: () => void;
   launchers: LauncherInfo[];
   chosen?: LauncherInfo;
   onChoose: (launcher: LauncherInfo) => void;
-  model?: string;
-  effort?: string;
-  onModel: (value: string) => void;
-  onEffort: (value: string) => void;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -108,36 +96,6 @@ function AgentSheet({
           );
         })}
       </View>
-      {chosen?.model ? (
-        <>
-          <SheetLabel>Model</SheetLabel>
-          <View style={styles.group}>
-            {chosen.model.choices.map((choice, index) => {
-              const on = choice.value === model;
-              return (
-                <Pressable
-                  key={choice.value}
-                  onPress={() => onModel(choice.value)}
-                  style={[styles.option, on && { backgroundColor: colors.active }, index > 0 && styles.optionDivided]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}>
-                  <AgentIcon provider={chosen.provider} size={18} />
-                  <Text style={[styles.optionText, on && { color: colors.ink }]} numberOfLines={1}>
-                    {choice.label}
-                  </Text>
-                  {on ? <Icon name="IconCheck" size={17} color={colors.ink} /> : null}
-                </Pressable>
-              );
-            })}
-          </View>
-        </>
-      ) : null}
-      {chosen?.effort && effort ? (
-        <>
-          <SheetLabel>Effort</SheetLabel>
-          <Track value={effort} onChange={onEffort} options={chosen.effort.choices} />
-        </>
-      ) : null}
     </Sheet>
   );
 }
@@ -198,8 +156,6 @@ export default function NewChat() {
   const workspace = live.snapshot?.workspace;
   const [launcherId, setLauncherId] = useState<string>();
   const [chosenMode, setChosenMode] = useState<string>();
-  const [chosenModel, setChosenModel] = useState<string>();
-  const [chosenEffort, setChosenEffort] = useState<string>();
   const [projectId, setProjectId] = useState<string | undefined>(linkedProject);
   const [draft, setDraft] = useState('');
   const [sheet, setSheet] = useState<'agent' | 'project' | 'attach' | 'settings'>();
@@ -222,10 +178,6 @@ export default function NewChat() {
     [workspace, projectId],
   );
   const mode = chosenMode ?? launcher?.permissionMode ?? '';
-  const model = chosenModel ?? launcher?.model?.current;
-  const effort = chosenEffort ?? launcher?.effort?.current;
-  const modelLabel = choiceLabel(launcher?.model, model);
-  const effortLabel = choiceLabel(launcher?.effort, effort);
   const room = MAX_ATTACHMENTS - attachments.length;
   const sendable = Boolean((draft.trim() || attachments.length) && launcher && project && live.status === 'open' && !starting);
   const blocked =
@@ -289,12 +241,6 @@ export default function NewChat() {
       if (!agentId) {
         agentId = await live.connection.startChat(launcher.id, project.id, chosenMode);
         setStarted(agentId);
-        for (const [picker, value] of [
-          [launcher.model, chosenModel],
-          [launcher.effort, chosenEffort],
-        ] as const) {
-          if (picker && value && value !== picker.current) await live.connection.setChatConfig(agentId, picker.id, value);
-        }
       }
       const { sent, files } = await upload(live.connection, agentId, shown.attachments);
       if (!sent) return giveBack(shown, files, 'Could not send every file to the host');
@@ -388,34 +334,16 @@ export default function NewChat() {
               ) : null}
               {launcher ? (
                 <Pressable
-                  style={[styles.picker, styles.model]}
-                  onPress={() => setSheet('agent')}
-                  disabled={Boolean(started)}
-                  hitSlop={5}
-                  accessibilityRole="button"
-                  accessibilityLabel={modelLabel ? `Agent and model, ${modelLabel}` : 'Agent'}>
-                  <AgentIcon provider={launcher.provider} size={16} />
-                  <Text style={[styles.pickerText, styles.modelText]} numberOfLines={1}>
-                    {modelLabel ?? agentLabel(launcher.provider)}
-                  </Text>
-                  <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
-                    <Icon name="IconChevron" size={10} color={colors.accent} />
-                  </View>
-                </Pressable>
-              ) : null}
-              {effortLabel ? (
-                <Pressable
                   style={styles.picker}
                   onPress={() => setSheet('agent')}
                   disabled={Boolean(started)}
                   hitSlop={5}
                   accessibilityRole="button"
-                  accessibilityLabel={`Effort, ${effortLabel}`}>
-                  <Text style={[styles.pickerText, { color: colors.inkDim }]} numberOfLines={1}>
-                    {effortLabel}
-                  </Text>
+                  accessibilityLabel="Agent">
+                  <AgentIcon provider={launcher.provider} size={16} />
+                  <Text style={styles.pickerText}>{agentLabel(launcher.provider)}</Text>
                   <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
-                    <Icon name="IconChevron" size={10} color={colors.inkDim} />
+                    <Icon name="IconChevron" size={10} color={colors.accent} />
                   </View>
                 </Pressable>
               ) : null}
@@ -442,20 +370,10 @@ export default function NewChat() {
         launchers={workspace?.launchers ?? []}
         chosen={launcher}
         onChoose={(next) => {
-          if (next.provider !== launcher?.provider) {
-            setChosenModel(undefined);
-            setChosenEffort(undefined);
-          }
           setLauncherId(next.id);
           setChosenMode(undefined);
-        }}
-        model={model}
-        effort={effort}
-        onModel={(value) => {
-          setChosenModel(value);
           setSheet(undefined);
         }}
-        onEffort={setChosenEffort}
       />
       {launcher ? (
         <SettingsSheet
@@ -515,9 +433,7 @@ const makeStyles = (colors: Palette) => {
     composer: { padding: 6, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-    picker: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 7, flexShrink: 0 },
-    model: { flexShrink: 1, maxWidth: 160 },
-    modelText: { flexShrink: 1 },
+    picker: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 7 },
     pickerText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.accent },
     more: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
     send: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },

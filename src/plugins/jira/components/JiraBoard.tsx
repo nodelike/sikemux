@@ -1,4 +1,4 @@
-import { useState, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { notify } from "../../../plugin-api/host";
 import { errorText } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
@@ -10,27 +10,27 @@ import {
     IconRefresh,
     IconSearch,
     Pending,
-    SkeletonRows,
     StaleNotice,
     useCardDrag,
     type ContextMenuItem,
 } from "../../../plugin-api/ui";
-import { jiraApi, type JiraBoardView, type JiraColumn, type JiraIssueSummary } from "../api";
-import { boardPeople, matchingCards, pickKey, swimlanes, unassignedCount } from "../boardFilter";
-import { jira, jiraBoardR, jiraIssueR, jiraSearchR } from "../resources";
+import { jiraApi, type JiraColumn, type JiraIssueSummary } from "../api";
+import { matchingCards, pickKey } from "../boardFilter";
+import { jira, jiraBoardV } from "../resources";
 import { Avatar, JiraFace } from "./JiraFace";
 import { DueChip, EpicChip, IssueKey, IssueTypeIcon, PriorityGlyph } from "./JiraGlyphs";
 
 const FACES = 6;
 
 /** Where each card sits after the moves still on their way to Jira, by issue key and column index. */
-export function withMoves(board: JiraBoardView, moves: Record<string, number>): JiraColumn[] {
+export function withMoves(columns: JiraColumn[], moves: Record<string, number>): JiraColumn[] {
     const moving = new Set(Object.keys(moves));
-    return board.columns.map((column, index) => ({
+    if (moving.size === 0) return columns;
+    return columns.map((column, index) => ({
         ...column,
         issues: [
             ...column.issues.filter((issue) => !moving.has(issue.key)),
-            ...board.columns.flatMap((other) => other.issues.filter((issue) => moves[issue.key] === index)),
+            ...columns.flatMap((other) => other.issues.filter((issue) => moves[issue.key] === index)),
         ],
     }));
 }
@@ -47,12 +47,14 @@ export function sprintLeft(end: string | null, now = Date.now()): string | null 
 }
 
 export function JiraBoard({
+    paneId,
     active,
     boardId,
     site,
     selected,
     onSelect,
 }: {
+    paneId: string;
     active: boolean;
     boardId: number;
     site: string;
@@ -63,28 +65,33 @@ export function JiraBoard({
     const [words, setWords] = useState("");
     const [everyone, setEveryone] = useState(false);
     const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
-    const whole = useResourceEnabled(active, jiraBoardR, boardId, site, "");
-    const found = useResourceEnabled(active, jiraBoardR, boardId, site, pickKey(picked));
+    const found = useResourceEnabled(active, jiraBoardV, paneId, boardId, site, pickKey(picked));
     const [moves, setMoves] = useState<Record<string, number>>({});
+    // A card moved here stays where it was dropped until the core sends the board again.
+    useEffect(() => setMoves({}), [found.data]);
+    // Picking people reads the board again; the last one stays up until it arrives.
+    const last = useRef(found.data);
+    if (found.data) last.current = found.data;
     const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
     const drag = useCardDrag((key, column) => {
         const issue = columns.flatMap((each) => each.issues).find((each) => each.key === key);
         if (issue) void move(issue, Number(column));
     });
 
-    if (!whole.data) return <Pending handle={whole} loading="Loading the board" />;
-    const board = whole.data;
-    const narrowed = picked.size === 0 ? board : found.data;
-    const columns = narrowed ? matchingCards(withMoves(narrowed, moves), words) : [];
-    const refresh = () => jira.refresh(jiraBoardR);
+    const page = found.data ?? last.current;
+    if (!page) return <Pending handle={found} loading="Loading the board" />;
+    const { board } = page;
+    const shownColumns = (columns: JiraColumn[]) => matchingCards(withMoves(columns, moves), words);
+    const columns = shownColumns(board.columns);
+    const refresh = () => void jira.readAgain("boardView");
     const toggle = (who: string) =>
         setPicked((now) => {
             const next = new Set(now);
             if (!next.delete(who)) next.add(who);
             return next;
         });
-    const nobody = unassignedCount(whole.data);
-    const people = boardPeople(whole.data);
+    const nobody = page.unassigned;
+    const people = page.people;
     const hidden = everyone ? 0 : Math.max(0, people.length - FACES);
     const faces = people.filter((person, index) => index < people.length - hidden || picked.has(person.accountId));
 
@@ -95,12 +102,8 @@ export function JiraBoard({
         setMoves((now) => ({ ...now, [issue.key]: to }));
         try {
             await jiraApi.moveIssue(issue.key, target, site || undefined);
-            refresh();
-            await found.refresh();
-            jira.refresh(jiraSearchR, jiraIssueR);
         } catch (error) {
             notify("error", `Move ${issue.key}: ${errorText(error)}`);
-        } finally {
             setMoves((now) => {
                 const next = { ...now };
                 delete next[issue.key];
@@ -110,7 +113,7 @@ export function JiraBoard({
     };
 
     const left = sprintLeft(board.sprint?.end ?? null);
-    const lanes = swimlanes(columns);
+    const lanes = page.lanes;
     const fold = (id: string) =>
         setFolded((now) => {
             const next = new Set(now);
@@ -174,7 +177,7 @@ export function JiraBoard({
                     </button>
                 </div>
                 {board.sprint?.goal && <p className="kanban-goal">{board.sprint.goal}</p>}
-                {(narrowed ?? board).truncated && (
+                {board.truncated && (
                     <p className="kanban-meta">Showing the first 300 issues. Pick people or narrow the board in Jira to see the rest.</p>
                 )}
                 <div className="kanban-filters" role="group" aria-label="Filter the board">
@@ -234,13 +237,9 @@ export function JiraBoard({
                     )}
                 </div>
             </header>
-            <StaleNotice handle={whole} />
+            <StaleNotice handle={found} />
             {board.kind === "scrum" && !board.sprint ? (
                 <EmptyState message="No sprint is running on this board." />
-            ) : found.status === "error" && picked.size > 0 ? (
-                <EmptyState message={found.error ?? "Jira could not narrow the board to those people."} tone="error" />
-            ) : !narrowed ? (
-                <SkeletonRows rows={6} label="Loading their cards" />
             ) : (
                 <div className="kanban-lanes">
                     {lanes.length === 0
@@ -257,7 +256,7 @@ export function JiraBoard({
                                       <b>{lane.person?.name ?? "Unassigned"}</b>
                                       <span className="jira-meta">({lane.count === 1 ? "1 work item" : `${lane.count} work items`})</span>
                                   </button>
-                                  {!folded.has(lane.id) && lanesOf(lane.columns)}
+                                  {!folded.has(lane.id) && lanesOf(shownColumns(lane.columns))}
                               </div>
                           ))}
                 </div>

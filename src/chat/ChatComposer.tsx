@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type Reac
 import { errorText } from "../lib/format";
 import { dialogsApi } from "../api/dialogs";
 import { ComposerPickers } from "./ComposerPickers";
-import type { SessionConfig } from "./sessionConfig";
+import type { ConfigPicker } from "../api/generated/wire";
 import { basename, joinPath } from "../lib/paths";
 import { animate } from "../lib/motion";
 import { hasPrimaryModifier, PRIMARY_SHORTCUT } from "../lib/platform";
@@ -10,7 +10,7 @@ import { registerPathDrop } from "../state/dropRegistry";
 import { registerTextInsert } from "../state/textInsertRegistry";
 import type { Agent, ProviderProfile } from "../state/types";
 import * as cmd from "../state/commands";
-import { useStore } from "../state/store";
+import { usePreference } from "../state/preferences";
 import { IconArrowUp, IconClose, IconPlus } from "../ui/Icons";
 import { FileTypeIcon } from "../ui/FileIcon";
 import { usePathRoots } from "./FileRef";
@@ -39,11 +39,10 @@ import { showImage } from "../state/imageViewer";
 import { canSwitchMode } from "../agents/agentLaunch";
 import { AgentMark } from "../agents/AgentMark";
 import { receiveForAgent } from "../agents/agentInbox";
-import type { AcpAvailableCommand, ChatState, ContextUsage } from "./types";
+import type { ChatCommandInfo, ChatRows, ContextUsage } from "./types";
 import type { OutgoingMessage } from "./queuedMessages";
 import { registerComposer } from "./draftHandoff";
 import { acpApi, type PromptContext } from "../api/acp";
-import type { RepoRef } from "../codehost/types";
 import type { TrackedItem, TrackedKind } from "../codehost/tracked";
 import type { TrackedMatches } from "./TrackedSource";
 import { ContextMark } from "./ContextChip";
@@ -101,7 +100,7 @@ interface ComposerContext {
     uri: string;
     title: string;
     text: string | null;
-    tracked: { repo: RepoRef; kind: TrackedKind; number: number } | null;
+    tracked: { project: string; kind: TrackedKind; number: number } | null;
     earlier?: EarlierChat;
     /** How it is written in the draft; it goes with the message only while that is still there. */
     tag?: string;
@@ -119,19 +118,18 @@ function mergeContext(current: ComposerContext[], incoming: readonly ComposerCon
 
 function readContext(item: ComposerContext): Promise<PromptContext> {
     if (item.text !== null) return Promise.resolve({ uri: item.uri, title: item.title, text: item.text });
-    const { earlier } = item;
-    if (earlier) return import("./earlierChats").then(({ wakeEarlier }) => wakeEarlier(earlier));
+    // The core opens an earlier chat again as the message goes, and writes what the agent is told of it.
+    if (item.earlier) return Promise.resolve({ uri: item.uri, title: item.title, text: "" });
     if (!item.tracked) return Promise.reject(new Error(`${item.title} has nothing to send`));
-    const { repo, kind, number } = item.tracked;
+    const { project, kind, number } = item.tracked;
     return import("../codehost/tracked").then(({ loadTrackedContext }) =>
-        loadTrackedContext(repo, kind, number).catch((failure: unknown) => {
+        loadTrackedContext(project, kind, number).catch((failure: unknown) => {
             throw new Error(`Could not read #${number}: ${errorText(failure)}`);
         }),
     );
 }
 
 const TrackedSource = lazy(() => import("./TrackedSource"));
-
 function Chip({
     title,
     mark,
@@ -212,7 +210,8 @@ export function ChatComposer({
     running,
     steerable,
     commands,
-    setup,
+    model,
+    effort,
     awaitingPermission,
     agentLocked,
     changingConfig,
@@ -236,11 +235,12 @@ export function ChatComposer({
     profile?: ProviderProfile;
     paneRef: RefObject<HTMLDivElement | null>;
     visible: boolean;
-    connection: ChatState["connection"];
+    connection: ChatRows["connection"];
     running: boolean;
     steerable: boolean;
-    commands: AcpAvailableCommand[];
-    setup: Record<string, unknown>;
+    commands: ChatCommandInfo[];
+    model?: ConfigPicker | null;
+    effort?: ConfigPicker | null;
     awaitingPermission: boolean;
     agentLocked: boolean;
     changingConfig: boolean;
@@ -254,7 +254,7 @@ export function ChatComposer({
     onStop: () => void;
     queuedCount: number;
     usage: ContextUsage | null;
-    onConfig: (config: SessionConfig, value: string) => void;
+    onConfig: (picker: ConfigPicker, value: string) => void;
     history: readonly string[];
     worktree?: { state: WorktreeSwitchState; toggle: () => void };
     /** The question an agent asked that whatever is sent answers. */
@@ -436,9 +436,9 @@ export function ChatComposer({
     const [trackedList, setTrackedList] = useState<TrackedMatches>({ state: "loading" });
     const menuKeys = useRef<MenuKeys | null>(null);
 
-    const selectCommand = (command: AcpAvailableCommand) => {
+    const selectCommand = (command: ChatCommandInfo) => {
         if (!token) return;
-        const spaced = Boolean(command.input?.hint) && !/^\s/.test(draft.slice(caret));
+        const spaced = Boolean(command.hint) && !/^\s/.test(draft.slice(caret));
         const written = `/${command.name}${spaced ? " " : ""}`;
         setDraft(`${draft.slice(0, token.start)}${written}${draft.slice(caret)}`);
         placeCaret(token.start + written.length);
@@ -480,14 +480,14 @@ export function ChatComposer({
         setFileTags((current) => [...current.filter((file) => file.tag !== tag), { tag, path }]);
     };
 
-    const selectTracked = (item: TrackedItem, repo: RepoRef) => {
+    const selectTracked = (item: TrackedItem) => {
         const tag = `${item.kind === "pull" ? "!" : "#"}${item.number}`;
         writeTag(tag);
         const chosen = {
             uri: item.url,
             title: `#${item.number} ${item.title}`,
             text: null,
-            tracked: { repo, kind: item.kind, number: item.number },
+            tracked: { project: cwd, kind: item.kind, number: item.number },
             tag,
         };
         setContexts((current) => mergeContext(current, [chosen]));
@@ -506,7 +506,7 @@ export function ChatComposer({
         else if (choice.kind === "mate") selectMate(choice.mate);
         else if (choice.kind === "earlier") selectEarlier(choice.earlier, choice.uri);
         else if (choice.kind === "entry") selectEntry(choice.entry);
-        else selectTracked(choice.item, choice.repo);
+        else selectTracked(choice.item);
     };
 
     const blocked = changingConfig || changingPermissions || !permissionApplied || worktree?.state.kind === "preparing";
@@ -541,7 +541,7 @@ export function ChatComposer({
     }, [stopping]);
 
     const canSteerQueued = running && steerable && queuedCount > 0;
-    const steersByDefault = useStore((s) => s.midTurnSend) === "steer";
+    const steersByDefault = usePreference("midTurnSend") !== "queue";
 
     const clear = () => {
         setDraft("");
@@ -777,7 +777,8 @@ export function ChatComposer({
                 <ComposerPickers
                     agent={agent}
                     profile={profile}
-                    setup={setup}
+                    model={model}
+                    effort={effort}
                     agentLocked={agentLocked}
                     disabled={connection !== "ready" || running || changingPermissions || changingConfig || awaitingPermission}
                     onAgent={(type, profileId, model, modelProvider) => {

@@ -1,38 +1,77 @@
-import { peekResource, useResource } from "../../plugin-api/resources";
+import { useResource } from "../../plugin-api/resources";
 import { defineService } from "../../plugin-api/service";
-import { rundeckApi, type PlanRequest, type RundeckJob } from "./api";
+import { rundeckApi } from "./api";
 import { RUNDECK_PLUGIN } from "./kinds";
+import type {
+    RundeckActivityPage,
+    RundeckDeployForm,
+    RundeckDeployTarget,
+    RundeckJobCatalog,
+    RundeckExecutionPage,
+    RundeckJobPage,
+    RundeckJobs,
+    RundeckOptionChoice,
+    RundeckPlan,
+    RundeckTree,
+} from "./types.generated";
 import { DEFAULT_BRANCH_OPTIONS, DEFAULT_PROD_ENVS } from "./shape";
 
 export const rundeck = defineService(RUNDECK_PLUGIN, rundeckApi.status);
 
-export const rndProjectsR = rundeck.resource("projects", () => rundeckApi.projects(), 5 * 60_000);
+/** The values an option may take, read from its values URL and kept by the core. */
+export const rndOptionValuesV = rundeck.view<[url: string], RundeckOptionChoice[]>("optionValues", (url) => ({ url }));
 
-export const rndJobsR = rundeck.resource("jobs", (project: string) => rundeckApi.jobs(project), 60_000);
+/** The projects' folders of jobs, kept by the core for the pane's tree. */
+export const rndTreeV = rundeck.view<[], RundeckTree>("treeView", () => ({}));
 
-export const rndJobIndexR = rundeck.resource("jobIndex", () => rundeckApi.jobIndex(), 5 * 60_000);
+/** A folder's jobs with how each last ran, kept by the core; `group` empty for the project's root. */
+export const rndJobsV = rundeck.view<[project: string, group: string], RundeckJobs>("jobsView", (project, group) => ({
+    project,
+    group: group || undefined,
+}));
 
-export const rndJobDetailR = rundeck.resource("jobDetail", (jobId: string) => rundeckApi.jobDetail(jobId), 60_000);
+/** A job with its recent runs, kept by the core and read every few seconds while one goes on. */
+export const rndJobV = rundeck.view<[jobId: string, project: string], RundeckJobPage>("jobView", (jobId, project) => ({ jobId, project }));
 
-export const rndOptionValuesR = rundeck.resource("optionValues", (url: string) => rundeckApi.optionValues(url), 60_000);
+/** A project's newest `max` runs of every job, kept by the core. */
+export const rndActivityV = rundeck.view<[project: string, max: number], RundeckActivityPage>("activityView", (project, max) => ({
+    project,
+    max,
+}));
 
-export const rndMatrixR = rundeck.resource("matrix", (project: string) => rundeckApi.branchesMatrix(project), 30_000);
-
-export const rndJobCellsR = rundeck.resource("jobCells", (jobs: RundeckJob[]) => rundeckApi.jobCells(jobs), 30_000);
-
-export const rndExecutionsR = rundeck.resource(
-    "executions",
-    (jobId: string, project: string, max: number) => rundeckApi.executions(jobId, project, max),
-    15_000,
+/** One run of a job, step by step, read every few seconds while it runs. */
+export const rndExecutionV = rundeck.view<[executionId: number, jobId: string, project: string], RundeckExecutionPage>(
+    "executionView",
+    (executionId, jobId, project) => ({ executionId, jobId, project }),
 );
 
-export const rndProjectExecutionsR = rundeck.resource(
-    "projectExecutions",
-    (project: string, max: number) => rundeckApi.projectExecutions(project, max, 0),
-    15_000,
+/** The jobs named after a project's folder, the one picked to deploy with, and how it last ran. */
+export const rndDeployTargetV = rundeck.view<[folder: string, picked: { project: string; jobId: string } | null], RundeckDeployTarget>(
+    "deployTargetView",
+    (folder, picked) => ({ folder, picked }),
 );
 
-export const rndPlanR = rundeck.resource("plan", (request: PlanRequest) => rundeckApi.plan(request), 10_000);
+/** Every job in every project, to search. */
+export const rndCatalogV = rundeck.view<[], RundeckJobCatalog>("catalogView", () => ({}));
+
+/** The form that starts a job, with the options an earlier run was given. */
+export const rndDeployV = rundeck.view<
+    [jobId: string, project: string, name: string, group: string, branch: string, given: Record<string, string>],
+    RundeckDeployForm
+>("deployView", (jobId, project, name, group, branch, given) => ({
+    jobId,
+    project,
+    name,
+    group: group || undefined,
+    branch: branch || undefined,
+    given,
+}));
+
+/** What deploying `targetBranch` would do, checked against the linked checkout at `repoPath`. */
+export const rndPlanV = rundeck.view<[jobId: string, project: string, service: string, targetBranch: string, repoPath: string], RundeckPlan>(
+    "planView",
+    (jobId, project, service, targetBranch, repoPath) => ({ jobId, project, service, targetBranch, repoPath }),
+);
 
 export const rndListsR = rundeck.resource("lists", () => rundeckApi.lists());
 
@@ -45,5 +84,3 @@ export function useBranchOptions(): string[] {
 export function useProdEnvs(): string[] {
     return useResource(rndListsR).data?.prodEnvs ?? DEFAULT_PROD_ENVS;
 }
-
-export const branchOptionsNow = (): string[] => peekResource(rndListsR)?.branchOptions ?? DEFAULT_BRANCH_OPTIONS;

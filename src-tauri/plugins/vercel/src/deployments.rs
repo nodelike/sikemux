@@ -6,8 +6,9 @@ use std::path::Path;
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use sikemux_plugin_api::vercel::{Deployment, Log, LogLine, Target};
 
-use crate::client::{at, text, Session};
+use crate::client::{at, number, some_text, text, Session};
 use crate::error::{VercelError, VercelResult};
 use crate::projects::segment;
 
@@ -18,64 +19,58 @@ const MAX_TAIL: usize = 2000;
 const GIT_PROVIDERS: [&str; 3] = ["github", "gitlab", "bitbucket"];
 
 /// A git fact from a deployment's `meta`, whichever provider it came from.
-fn git(meta: &Value, fact: &str) -> Value {
+fn git(meta: &Value, fact: &str) -> Option<String> {
     GIT_PROVIDERS
         .iter()
         .find_map(|provider| meta.get(format!("{provider}Commit{fact}")))
-        .filter(|value| value.as_str().is_some_and(|value| !value.is_empty()))
-        .cloned()
-        .unwrap_or(Value::Null)
-}
-
-fn first_line(value: Value) -> Value {
-    match value {
-        Value::String(text) => json!(text.lines().next().unwrap_or_default()),
-        other => other,
-    }
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 /// A deployment as the pane and agents read it, from the list's shape or the single one's.
-pub fn deployment(value: &Value) -> Value {
+pub fn deployment(value: &Value) -> Deployment {
     let meta = at(value, "/meta");
-    let id = value
-        .get("uid")
-        .or_else(|| value.get("id"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let url = text(value, "/url");
-    let author = match git(meta, "AuthorName") {
-        Value::Null => at(value, "/creator/username").clone(),
-        name => name,
-    };
-    json!({
-        "id": id,
-        "project": at(value, "/name"),
-        "projectId": at(value, "/projectId"),
-        "url": if url.is_empty() { Value::Null } else { json!(format!("https://{url}")) },
-        "state": value.get("state").or_else(|| value.get("readyState")).cloned().unwrap_or(Value::Null),
-        "target": match at(value, "/target").as_str() { Some("production") => "production", _ => "preview" },
-        "createdAt": value.get("created").or_else(|| value.get("createdAt")).cloned().unwrap_or(Value::Null),
-        "readyAt": at(value, "/ready"),
-        "buildMs": build_ms(value),
-        "branch": git(meta, "Ref"),
-        "commit": git(meta, "Sha"),
-        "message": first_line(git(meta, "Message")),
-        "author": author,
-        "redeployOf": at(meta, "/originalDeploymentId"),
-        "inspectorUrl": at(value, "/inspectorUrl"),
-        "aliases": at(value, "/alias"),
-        "error": value.get("errorMessage").cloned().unwrap_or(Value::Null),
-    })
+    let either =
+        |first: &str, second: &str| some_text(value, first).or_else(|| some_text(value, second));
+    Deployment {
+        id: either("/uid", "/id").unwrap_or_default(),
+        project: text(value, "/name"),
+        project_id: some_text(value, "/projectId"),
+        url: some_text(value, "/url").map(|url| format!("https://{url}")),
+        state: either("/state", "/readyState").unwrap_or_default(),
+        target: match at(value, "/target").as_str() {
+            Some("production") => Target::Production,
+            _ => Target::Preview,
+        },
+        created_at: number(value, "/created")
+            .or_else(|| number(value, "/createdAt"))
+            .unwrap_or_default(),
+        ready_at: number(value, "/ready"),
+        build_ms: build_ms(value),
+        branch: git(meta, "Ref"),
+        commit: git(meta, "Sha"),
+        message: git(meta, "Message")
+            .map(|message| message.lines().next().unwrap_or_default().to_string()),
+        author: git(meta, "AuthorName").or_else(|| some_text(value, "/creator/username")),
+        redeploy_of: some_text(meta, "/originalDeploymentId"),
+        inspector_url: some_text(value, "/inspectorUrl"),
+        aliases: at(value, "/alias").as_array().map(|aliases| {
+            aliases
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        }),
+        error: some_text(value, "/errorMessage"),
+    }
 }
 
 /// How long the build ran, from when it started building to when it finished.
-fn build_ms(value: &Value) -> Value {
-    let started = value.get("buildingAt").and_then(Value::as_u64);
-    let finished = value.get("ready").and_then(Value::as_u64);
-    match (started, finished) {
-        (Some(started), Some(finished)) if finished >= started => json!(finished - started),
-        _ => Value::Null,
-    }
+fn build_ms(value: &Value) -> Option<u64> {
+    let started = number(value, "/buildingAt")?;
+    let finished = number(value, "/ready")?;
+    finished.checked_sub(started)
 }
 
 #[derive(Deserialize)]
@@ -94,7 +89,7 @@ pub struct Listing {
     pub team: Option<String>,
 }
 
-pub async fn deployments(data_dir: &Path, input: Listing) -> VercelResult<Vec<Value>> {
+pub async fn deployments(data_dir: &Path, input: Listing) -> VercelResult<Vec<Deployment>> {
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let mut query = vec![("limit", limit.to_string())];
@@ -159,7 +154,7 @@ fn uid(raw: &Value) -> VercelResult<String> {
     segment("deployment", at(raw, "/id").as_str().unwrap_or_default())
 }
 
-pub async fn detail(data_dir: &Path, input: DeploymentRef) -> VercelResult<Value> {
+pub async fn detail(data_dir: &Path, input: DeploymentRef) -> VercelResult<Deployment> {
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     Ok(deployment(&read(&session, &input.id).await?))
 }
@@ -190,7 +185,7 @@ pub fn plain(line: &str) -> String {
 }
 
 /// The lines of a build's events, each with when it was printed and whether it went to stderr.
-pub fn log_lines(events: &Value) -> Vec<Value> {
+pub fn log_lines(events: &Value) -> Vec<LogLine> {
     events
         .as_array()
         .into_iter()
@@ -203,14 +198,18 @@ pub fn log_lines(events: &Value) -> Vec<Value> {
         })
         .flat_map(|event| {
             let kind = text(event, "/type");
-            let created = at(event, "/created").clone();
+            let created = number(event, "/created").unwrap_or_default();
             let body = at(event, "/payload/text")
                 .as_str()
                 .or_else(|| at(event, "/text").as_str())
                 .unwrap_or_default()
                 .to_string();
             body.lines()
-                .map(|line| json!({ "at": created, "kind": kind, "text": plain(line) }))
+                .map(|line| LogLine {
+                    at: created,
+                    kind: kind.clone(),
+                    text: plain(line),
+                })
                 .collect::<Vec<_>>()
         })
         .collect()
@@ -225,7 +224,7 @@ pub struct LogRef {
     pub team: Option<String>,
 }
 
-pub async fn logs(data_dir: &Path, input: LogRef) -> VercelResult<Value> {
+pub async fn logs(data_dir: &Path, input: LogRef) -> VercelResult<Log> {
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     let raw = read(&session, &input.id).await?;
     let id = uid(&raw)?;
@@ -239,14 +238,15 @@ pub async fn logs(data_dir: &Path, input: LogRef) -> VercelResult<Value> {
             ],
         )
         .await?;
-    let lines = log_lines(&events);
+    let mut lines = log_lines(&events);
     let tail = input.tail.unwrap_or(DEFAULT_TAIL).clamp(1, MAX_TAIL);
     let skipped = lines.len().saturating_sub(tail);
-    Ok(json!({
-        "deployment": deployment(&raw),
-        "lines": lines.get(skipped..).unwrap_or_default(),
-        "skipped": skipped,
-    }))
+    lines.drain(..skipped);
+    Ok(Log {
+        deployment: deployment(&raw),
+        lines,
+        skipped,
+    })
 }
 
 #[derive(Deserialize)]
@@ -258,7 +258,7 @@ pub struct Redeploy {
     pub team: Option<String>,
 }
 
-pub async fn redeploy(data_dir: &Path, input: Redeploy) -> VercelResult<Value> {
+pub async fn redeploy(data_dir: &Path, input: Redeploy) -> VercelResult<Deployment> {
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     let raw = read(&session, &input.id).await?;
     let target = input
@@ -283,7 +283,7 @@ pub async fn redeploy(data_dir: &Path, input: Redeploy) -> VercelResult<Value> {
     Ok(deployment(&created))
 }
 
-pub async fn promote(data_dir: &Path, input: DeploymentRef) -> VercelResult<Value> {
+pub async fn promote(data_dir: &Path, input: DeploymentRef) -> VercelResult<Deployment> {
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     let raw = read(&session, &input.id).await?;
     let state = text(&raw, "/readyState");
@@ -309,7 +309,7 @@ pub async fn promote(data_dir: &Path, input: DeploymentRef) -> VercelResult<Valu
     Ok(deployment(&raw))
 }
 
-pub async fn cancel(data_dir: &Path, input: DeploymentRef) -> VercelResult<Value> {
+pub async fn cancel(data_dir: &Path, input: DeploymentRef) -> VercelResult<Deployment> {
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     let raw = read(&session, &input.id).await?;
     let id = uid(&raw)?;
@@ -337,15 +337,15 @@ mod tests {
             "inspectorUrl": "https://vercel.com/acme/web/1"
         });
         let read = deployment(&raw);
-        assert_eq!(read["id"], "dpl_1");
-        assert_eq!(read["url"], "https://web-abc.vercel.app");
-        assert_eq!(read["state"], "ERROR");
-        assert_eq!(read["target"], "preview");
-        assert_eq!(read["branch"], "fix-nav");
-        assert_eq!(read["message"], "Fix the nav");
-        assert_eq!(read["author"], "Ankit");
-        assert_eq!(read["buildMs"], 45000);
-        assert_eq!(read["redeployOf"], "dpl_0");
+        assert_eq!(read.id, "dpl_1");
+        assert_eq!(read.url.as_deref(), Some("https://web-abc.vercel.app"));
+        assert_eq!(read.state, "ERROR");
+        assert_eq!(read.target, Target::Preview);
+        assert_eq!(read.branch.as_deref(), Some("fix-nav"));
+        assert_eq!(read.message.as_deref(), Some("Fix the nav"));
+        assert_eq!(read.author.as_deref(), Some("Ankit"));
+        assert_eq!(read.build_ms, Some(45000));
+        assert_eq!(read.redeploy_of.as_deref(), Some("dpl_0"));
     }
 
     #[test]
@@ -353,15 +353,11 @@ mod tests {
         let raw = json!({ "id": "dpl_2", "readyState": "READY", "target": "production", "createdAt": 3, "creator": { "username": "cli-user" }, "meta": { "gitlabCommitRef": "main" }, "errorMessage": null });
         let read = deployment(&raw);
         assert_eq!(
-            (
-                read["id"].as_str(),
-                read["state"].as_str(),
-                read["target"].as_str()
-            ),
-            (Some("dpl_2"), Some("READY"), Some("production"))
+            (read.id.as_str(), read.state.as_str(), read.target),
+            ("dpl_2", "READY", Target::Production)
         );
-        assert_eq!(read["branch"], "main");
-        assert_eq!(read["author"], "cli-user");
+        assert_eq!(read.branch.as_deref(), Some("main"));
+        assert_eq!(read.author.as_deref(), Some("cli-user"));
     }
 
     #[test]
@@ -373,12 +369,9 @@ mod tests {
             { "type": "stderr", "created": 4, "text": "Error: boom\u{7}\r" }
         ]);
         let lines = log_lines(&events);
-        let texts: Vec<&str> = lines
-            .iter()
-            .filter_map(|line| line["text"].as_str())
-            .collect();
+        let texts: Vec<&str> = lines.iter().map(|line| line.text.as_str()).collect();
         assert_eq!(texts, ["npm run build", "ok", "next", "Error: boom"]);
-        assert_eq!(lines[3]["kind"], "stderr");
+        assert_eq!(lines[3].kind, "stderr");
     }
 
     #[test]

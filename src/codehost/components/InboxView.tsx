@@ -59,6 +59,7 @@ export function InboxDetail({ item, active }: { item: Notification; active: bool
         return (
             <PullRight
                 repo={repo}
+                project={null}
                 cwd={null}
                 number={item.number}
                 tab={tab}

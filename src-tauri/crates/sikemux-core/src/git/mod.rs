@@ -277,32 +277,41 @@ fn path_in_head(repo: &str, path: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// How long the tree waits to learn which listed paths git ignores; a slow answer just leaves them undimmed.
-const IGNORED_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Which of these paths, inside the repository at `repo`, git ignores. A folder that is not in a
-/// repository, or a git that fails, ignores nothing rather than failing the listing.
+/// Which of these paths, inside the repository at `repo`, git ignores, by git's own rules read in
+/// this process rather than by asking git, so a folder of thousands lists at once. A folder's path
+/// may end in `/`, which saves looking at the disk. A file git tracks is not ignored, as git says.
+/// A folder that is not in a repository ignores nothing.
 pub fn ignored_paths(repo: &str, paths: &[String]) -> std::collections::HashSet<String> {
-    if paths.is_empty() {
+    let Ok(repository) = Repository::open(repo) else {
         return Default::default();
-    }
-    let mut input = Vec::new();
-    for path in paths {
-        input.extend_from_slice(path.as_bytes());
-        input.push(0);
-    }
-    let ignored = Git::at(repo)
-        .input(&input)
-        .timeout(IGNORED_TIMEOUT)
-        .output(&["check-ignore", "-z", "--stdin"]);
-    match ignored {
-        Ok(output) => String::from_utf8_lossy(&output.stdout)
-            .split('\0')
-            .filter(|path| !path.is_empty())
-            .map(str::to_owned)
-            .collect(),
-        Err(_) => Default::default(),
-    }
+    };
+    let root = std::path::Path::new(repo);
+    let mut index = None;
+    paths
+        .iter()
+        .filter(|path| {
+            let Ok(relative) = std::path::Path::new(path.as_str()).strip_prefix(root) else {
+                return false;
+            };
+            let folder = path.ends_with('/');
+            let asked = if folder {
+                format!("{}/", relative.to_string_lossy())
+            } else {
+                relative.to_string_lossy().into_owned()
+            };
+            if !repository.is_path_ignored(&asked).unwrap_or(false) {
+                return false;
+            }
+            if folder {
+                return true;
+            }
+            let index = index.get_or_insert_with(|| repository.index().ok());
+            index
+                .as_ref()
+                .is_none_or(|index| index.get_path(relative, 0).is_none())
+        })
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]

@@ -68,8 +68,8 @@ describe("production IPC transport", () => {
 
         mocks.invoke.mockClear();
         mocks.invoke.mockResolvedValue(undefined);
-        await getIpcTransport().invoke("integration_health");
-        expect(mocks.invoke.mock.calls[0]).toEqual(["integration_health"]);
+        await getIpcTransport().invoke("open_url");
+        expect(mocks.invoke.mock.calls[0]).toEqual(["open_url"]);
     });
 
     it("propagates cancellation and observes late invoke settlement", async () => {

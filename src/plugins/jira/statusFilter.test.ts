@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { JiraIssueSummary, StatusCategory } from "./api";
-import { statusCounts, withStatuses } from "./statusFilter";
+import type { JiraIssueSummary } from "./api";
+import { withStatuses } from "./statusFilter";
 
-const issue = (key: string, status: string, statusCategory: StatusCategory) => ({ key, status, statusCategory }) as JiraIssueSummary;
+const issue = (key: string, status: string, statusCategory: string) => ({ key, status, statusCategory }) as JiraIssueSummary;
 
 const issues = [
     issue("CIQ-1", "Deployed", "done"),
@@ -11,17 +11,6 @@ const issues = [
     issue("CIQ-4", "Deployed", "done"),
     issue("CIQ-5", "Done", "done"),
 ];
-
-describe("statusCounts", () => {
-    it("counts each status, work in progress first and finished work last", () => {
-        expect(statusCounts(issues)).toEqual([
-            { status: "In Progress", category: "indeterminate", count: 1 },
-            { status: "To Do", category: "new", count: 1 },
-            { status: "Deployed", category: "done", count: 2 },
-            { status: "Done", category: "done", count: 1 },
-        ]);
-    });
-});
 
 describe("withStatuses", () => {
     it("keeps every issue when no status is picked", () => {

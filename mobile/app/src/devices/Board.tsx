@@ -4,22 +4,18 @@ import { router } from 'expo-router';
 import type { ConnectionLike } from '@sikemux/native';
 
 import {
-  cardColumn,
   cardQuestion,
   COLUMN_LABELS,
   RUN_WAITS_ON_PERSON,
   shortTitle,
-  ticketAbove,
   type BoardCard,
   type BoardColumn,
   type ProjectBoard,
 } from '@mac/agents/agentBoard';
-import { kindLabel, messageRows, messageTone, outcomeLabel, type AgentMessageLog } from '@mac/agents/agentMessages';
-import type { AgentQuestion } from '@mac/agents/agentQuestions';
+import { kindLabel, outcomeLabel, rowKeys, whoLabel, type AgentMessageRows } from '@mac/agents/agentMessages';
 import { formatAge } from '@mac/lib/format';
-import type { ProjectInfo, Snapshot } from '@/core/protocol';
+import type { AgentQuestion, ProjectInfo, Snapshot } from '@/core/protocol';
 import { useHostCall } from '@/core/hostCalls';
-import { agentDisplay } from '@mac/state/agentStatus';
 import { projectAt, projectName } from '@/devices/words';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Row, Rows, SectionLabel } from '@/ui/list';
@@ -61,7 +57,7 @@ export function Board({
       {scope ? (
         <OneBoard core={core} connection={connection} snapshot={snapshot} scope={scope} questions={questions} seen={seen} />
       ) : (
-        <AllBoards connection={connection} snapshot={snapshot} questions={questions} seen={seen} onScope={onScope} />
+        <AllBoards connection={connection} snapshot={snapshot} seen={seen} onScope={onScope} />
       )}
     </>
   );
@@ -95,7 +91,7 @@ function OneBoard({
     <>
       {cards.length ? null : <EmptyState icon="IconBoard" text={`No cards on ${scope.name}'s board.`} />}
       {COLUMNS.map((column) => {
-        const shown = cards.filter((card) => cardColumn(card, questions) === column);
+        const shown = cards.filter((card) => card.column === column);
         if (!shown.length) return null;
         return (
           <View key={column}>
@@ -121,30 +117,29 @@ function BetweenAgents({ connection, snapshot, project }: { connection: Connecti
   const styles = useStyles(makeStyles);
   const [logged, setLogged] = useState(project);
   const latest = snapshot.inbox.agentMessages[logged] ?? 0;
-  const read = useHostCall<AgentMessageLog>(connection, 'agentMessages', { project, limit: MESSAGES_SHOWN * 5 }, String(latest));
+  const read = useHostCall<AgentMessageRows>(connection, 'agentMessageRows', { project }, String(latest));
   const answered = read.data?.project;
   if (answered && answered !== logged) setLogged(answered);
   if (read.problem) return <Problem what="the messages between agents" text={read.problem} />;
   if (!read.data) return null;
-  const agentOf = (id: string) => {
-    const chat = snapshot.chats.find((known) => known.agentId === id);
-    const terminal = snapshot.sessions.find((session) => session.agentId === id);
-    return { name: chat?.name ?? terminal?.agentName, cli: chat?.provider ?? terminal?.agentType };
-  };
-  const rows = messageRows(read.data.entries, (id) => agentOf(id).name).slice(0, MESSAGES_SHOWN);
+  const cliOf = (id: string) =>
+    snapshot.chats.find((known) => known.agentId === id)?.provider ??
+    snapshot.sessions.find((session) => session.agentId === id)?.agentType;
+  const rows = read.data.rows.slice(0, MESSAGES_SHOWN);
   if (!rows.length) return null;
+  const keys = rowKeys(rows);
   return (
     <View>
       <SectionLabel>Between agents</SectionLabel>
       <Rows>
-        {rows.map((row) => {
-          const cli = row.from ? agentOf(row.from).cli : undefined;
-          const tone = messageTone(row.outcome);
+        {rows.map((row, index) => {
+          const cli = row.from ? cliOf(row.from) : undefined;
+          const tone = row.tone;
           return (
             <Row
-              key={row.key}
+              key={keys[index]}
               mark={cli ? <AgentIcon provider={cli} size={20} /> : <Dot color={colors.rest} size={9} hollow />}
-              title={`${row.fromName} to ${row.toName}`}
+              title={`${whoLabel(row.from, row.fromName)} to ${whoLabel(row.to, row.toName)}`}
               detail={
                 <>
                   {kindLabel(row.kind)} ·{' '}
@@ -177,12 +172,12 @@ function CardRow({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const column = cardColumn(card, questions);
+  const column = card.column;
   const chat = card.owner ? snapshot.chats.find((known) => known.agentId === card.owner) : undefined;
   const terminal = card.owner ? snapshot.sessions.find((session) => session.agentId === card.owner && session.running) : undefined;
   const owner = chat?.name ?? terminal?.agentName ?? card.ownerName;
   const cli = chat?.provider ?? terminal?.agentType ?? card.ownerCli;
-  const { group } = agentDisplay(chat ?? terminal);
+  const group = snapshot.inbox.agents.find((agent) => agent.agentId === card.owner)?.group;
   const question = column === 'needs' ? cardQuestion(card, questions) : undefined;
   const handedBack = card.auto && RUN_WAITS_ON_PERSON.has(card.auto.stage) && card.status !== 'done' ? card.auto.note : null;
   const reviewing = card.auto?.stage === 'reviewing' ? card.auto.note : null;
@@ -191,7 +186,7 @@ function CardRow({
   const done = under.filter((other) => other.status === 'done').length;
   const waits = card.waitsOn.map((id) => byId.get(id)).filter((other): other is BoardCard => !!other);
   const after = waits[0] ?? (card.dependsOn.length ? byId.get(card.dependsOn[0]) : undefined);
-  const filed = card.ticket ? null : ticketAbove(card, byId);
+  const filed = card.ticket ? null : card.ticketAbove;
   const parent = card.parent === null ? undefined : byId.get(card.parent);
   const place = card.ticket ? (
     <>
@@ -251,13 +246,11 @@ function CardRow({
 function AllBoards({
   connection,
   snapshot,
-  questions,
   seen,
   onScope,
 }: {
   connection: ConnectionLike | undefined;
   snapshot: Snapshot;
-  questions: readonly AgentQuestion[];
   seen: string;
   onScope: (project: string) => void;
 }) {
@@ -274,10 +267,10 @@ function AllBoards({
         {boards.map((board) => {
           const project = projectAt(snapshot, board.project);
           const counts = COLUMNS.map((column) => {
-            const count = board.cards.filter((card) => cardColumn(card, questions) === column).length;
+            const count = board.cards.filter((card) => card.column === column).length;
             return count ? `${count} ${COLUMN_LABELS[column].toLowerCase()}` : null;
           }).filter(Boolean);
-          const needs = board.cards.some((card) => cardColumn(card, questions) === 'needs');
+          const needs = board.cards.some((card) => card.column === 'needs');
           return (
             <Row
               key={board.project}

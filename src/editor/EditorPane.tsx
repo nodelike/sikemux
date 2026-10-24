@@ -53,8 +53,9 @@ import { PaneField } from "../ui/ShaderField";
 import { basename, dirname, isPathWithin, joinPath, normalizePath } from "../lib/paths";
 import { localPath } from "../lib/imagePaths";
 import { safeWebUrl } from "../lib/urls";
-import { keybindingLabelForAction } from "../commands/keybindings";
+import { keybindingLabelForAction, keybindingOverridesOf } from "../commands/keybindings";
 import { openUrl } from "../api/system";
+import { preferencesOf } from "../state/preferences";
 
 const FileViewer = lazy(() => import("./viewers/FileViewer"));
 
@@ -252,8 +253,8 @@ export function EditorPane({
     };
 
     const view = useStore((s) => s.editorViews[paneId] ?? DEFAULT_VIEW);
-    const keybindingOverrides = useStore((s) => s.keybindingOverrides);
-    const paneShader = useStore((s) => s.paneShader);
+    const keybindingOverrides = useStore(keybindingOverridesOf);
+    const paneShader = useStore((s) => preferencesOf(s).paneShader);
     const filePaletteHint = keybindingLabelForAction(keybindingOverrides, "palette.files");
     const pendingCliOpens = useStore((s) => s.pendingEditorOpens[paneId] ?? EMPTY_CLI_OPENS);
     const tabs = view.openTabs;

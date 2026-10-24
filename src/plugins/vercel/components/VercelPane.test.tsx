@@ -7,12 +7,6 @@ const api = vi.hoisted(() => ({
     signIn: vi.fn(),
     signOut: vi.fn(),
     setTeam: vi.fn(),
-    projects: vi.fn(),
-    deployments: vi.fn(),
-    deployment: vi.fn(),
-    logs: vi.fn(),
-    domains: vi.fn(),
-    env: vi.fn(),
     redeploy: vi.fn(),
     promote: vi.fn(),
     cancel: vi.fn(),
@@ -21,9 +15,19 @@ vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>(
 const confirmDialog = vi.hoisted(() => vi.fn());
 vi.mock("../../../plugin-api/host", async (importOriginal) => ({ ...(await importOriginal<object>()), confirmDialog }));
 
-import { deploymentForAgent } from "../state";
+const views = vi.hoisted(() => ({
+    projectsView: vi.fn(),
+    deploymentsView: vi.fn(),
+    logView: vi.fn(),
+    domainsView: vi.fn(),
+    envView: vi.fn(),
+}));
+
+import { fakeViews } from "../../../plugin-api/fakeViews";
 import { VercelPane } from "./VercelPane";
 import { vercel } from "../resources";
+
+fakeViews(views);
 
 const signedIn: VercelStatus = {
     configured: true,
@@ -103,18 +107,21 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-    Object.values(api).forEach((mock) => mock.mockReset());
+    [...Object.values(api), ...Object.values(views)].forEach((mock) => mock.mockReset());
     confirmDialog.mockReset().mockResolvedValue(true);
     api.status.mockResolvedValue(signedIn);
-    api.projects.mockResolvedValue([project]);
-    api.deployments.mockResolvedValue([failed, redeploy, live, before]);
-    api.logs.mockImplementation((_team: string, id: string) =>
-        Promise.resolve({ ...log, deployment: [failed, redeploy, live, before].find((each) => each.id === id) }),
-    );
-    api.domains.mockResolvedValue([{ name: "web.acme.dev", verified: true, redirect: null, gitBranch: null }]);
-    api.env.mockResolvedValue([
-        { id: "e1", key: "DATABASE_URL", target: ["production", "preview", "development"], type: "encrypted", gitBranch: null, updatedAt: 1 },
-    ]);
+    views.projectsView.mockReturnValue({ projects: [project] });
+    views.deploymentsView.mockReturnValue({ deployments: [failed, redeploy, live, before] });
+    views.logView.mockImplementation(({ id }: { id: string }) => ({
+        log: { ...log, deployment: [failed, redeploy, live, before].find((each) => each.id === id) },
+        forAgent: `Vercel deployment ${id}`,
+    }));
+    views.domainsView.mockReturnValue({ domains: [{ name: "web.acme.dev", verified: true, redirect: null, gitBranch: null, createdAt: null }] });
+    views.envView.mockReturnValue({
+        variables: [
+            { id: "e1", key: "DATABASE_URL", target: ["production", "preview", "development"], type: "encrypted", gitBranch: null, updatedAt: 1 },
+        ],
+    });
     api.promote.mockResolvedValue(before);
     api.redeploy.mockResolvedValue(failed);
     api.setTeam.mockResolvedValue(undefined);
@@ -136,7 +143,7 @@ describe("the Vercel pane", () => {
     it("opens a project on its production deployment, as Vercel's overview does", async () => {
         renderPane();
         await openProject();
-        expect(api.projects).toHaveBeenCalledWith("team_1");
+        expect(views.projectsView).toHaveBeenCalledWith({ team: "team_1" });
         const production = await screen.findByRole("region", { name: "Production deployment" });
         expect(within(production).getByText("Ship the redesign")).toBeInTheDocument();
         expect(await within(production).findByRole("button", { name: /web\.acme\.dev/ })).toBeInTheDocument();
@@ -180,15 +187,12 @@ describe("the Vercel pane", () => {
         expect(error.closest(".vercel-log-line")).toHaveClass("error");
         expect(screen.getByText("Build Completed in /vercel/output [41s]").closest(".vercel-log-line")).not.toHaveClass("error");
         expect(screen.getByText('Command "npm run build" exited with 1')).toBeInTheDocument();
-
-        const text = deploymentForAgent(failed, log);
-        expect(text).toContain("Vercel deployment dpl_bad of web — https://web-bad.vercel.app");
-        expect(text).toContain('Error: Command "npm run build" exited with 1');
-        expect(text).toContain("vercel_logs or vercel_deployment with id dpl_bad");
     });
 
     it("says when a newer production build failed while the one before it still serves", async () => {
-        api.projects.mockResolvedValue([{ ...project, latestProduction: { id: "dpl_bad", state: "ERROR", createdAt: Date.now() - 120_000 } }]);
+        views.projectsView.mockReturnValue({
+            projects: [{ ...project, latestProduction: { id: "dpl_bad", url: null, state: "ERROR", createdAt: Date.now() - 120_000 } }],
+        });
         renderPane();
         await openProject();
         fireEvent.click(await screen.findByRole("button", { name: /latest production build is error/ }));

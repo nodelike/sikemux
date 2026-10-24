@@ -16,13 +16,12 @@ import {
     startRemoteChat,
     type HostChoice,
     type HostEntry,
+    type HostRow as CoreHostRow,
 } from "../hosts/hosts";
 import * as cmd from "../state/commands";
 import { confirmDialog, promptDialog } from "../state/dialog";
 import { getState, useStore, type StoreState } from "../state/store";
 import { reportError, swallow } from "../state/toast";
-import type { Session } from "../state/types";
-import { useSshTone } from "../terminal/sshLinks";
 import {
     IconDownload,
     IconFolder,
@@ -156,7 +155,7 @@ function AccountHostRow({ host, onMenu }: { host: HostEntry; onMenu: OpenMenu })
         const state = getState();
         const place = projectOnHost(state, host.id, state.sessions[state.activeSessionId]);
         if (!place) return;
-        void startRemoteChat(place.session.id, place.project, state.lastAgentType ?? "claude").catch(reportError(`New chat on ${host.name}`));
+        void startRemoteChat(place.session.id, place.project, cmd.lastAgentType() ?? "claude").catch(reportError(`New chat on ${host.name}`));
     };
     const files = () => {
         const state = getState();
@@ -179,9 +178,8 @@ function AccountHostRow({ host, onMenu }: { host: HostEntry; onMenu: OpenMenu })
         if (confirmed) await accountApi.removeDevice(host.id).catch(reportError(`Remove ${host.name}`));
     };
     const hasProject = useStore((s) => !!projectOnHost(s, host.id, undefined));
-    const probe = useStore((s) => (host.ssh ? s.sshProbes[host.ssh] : undefined));
-    const off = sshFoundLabel(probe);
-    const work = host.ssh && probe ? setUpFor(probe) : null;
+    const off = sshFoundLabel(host);
+    const work = host.ssh ? setUpFor(host) : null;
     const busy = useStore((s) => (host.ssh ? s.sshWork[host.ssh] : undefined));
     return (
         <HostRow
@@ -219,12 +217,14 @@ function AccountHostRow({ host, onMenu }: { host: HostEntry; onMenu: OpenMenu })
     );
 }
 
-function SshHostRow({ alias, session, onMenu }: { alias: string; session: Session | undefined; onMenu: OpenMenu }) {
-    const tone = useSshTone(session?.id ?? "");
+const SSH_TONE = { connected: "ok", connecting: "pending", failed: "failed", away: "idle" } as const;
+const SSH_LABEL = { connected: "Connected", connecting: "Connecting", failed: "Failed", away: "Not connected" } as const;
+
+function SshHostRow({ row, onMenu }: { row: CoreHostRow; onMenu: OpenMenu }) {
+    const alias = row.name;
     const choice = useMemo<HostChoice>(() => ({ kind: "ssh", alias }), [alias]);
-    const probe = useStore((s) => s.sshProbes[alias]);
-    const off = sshFoundLabel(probe);
-    const work = setUpFor(probe);
+    const off = sshFoundLabel(row);
+    const work = setUpFor(row);
     const busy = useStore((s) => s.sshWork[alias]);
     const setUp = work ? [setUpItem(alias, work, !!busy, work === "installing" ? "Install Sikemux here" : undefined)] : [];
     return (
@@ -232,12 +232,7 @@ function SshHostRow({ alias, session, onMenu }: { alias: string; session: Sessio
             kind="ssh"
             name={alias}
             detail={(busy && SSH_WORK[busy].running) ?? off}
-            status={
-                <StatusDot
-                    tone={busy ? "pending" : session ? tone : "idle"}
-                    label={busy ? SSH_WORK[busy].running : session ? tone : "Not connected"}
-                />
-            }
+            status={<StatusDot tone={busy ? "pending" : SSH_TONE[row.reach]} label={busy ? SSH_WORK[busy].running : SSH_LABEL[row.reach]} />}
             choice={choice}
             menu={async () => [
                 {
@@ -258,18 +253,17 @@ function SshHostRow({ alias, session, onMenu }: { alias: string; session: Sessio
 }
 
 /** Every host in one list: this one, every host on the account, and the SSH hosts open now (ADR 0018). */
-export function HostRows({ sshSessions, onMenu }: { sshSessions: readonly Session[]; onMenu: OpenMenu }) {
+export function HostRows({ onMenu }: { onMenu: OpenMenu }) {
     const hosts = useStore((s) => s.hosts);
-    const installed = new Set(hosts.flatMap((host) => host.ssh ?? []));
-    const sshNames = [...new Set(sshSessions.map((session) => session.name))].filter((alias) => !installed.has(alias));
+    const sshHosts = useStore((s) => s.openSshHosts);
     return (
         <>
             <ThisHostRow onMenu={onMenu} />
             {hosts.map((host) => (
                 <AccountHostRow key={host.id} host={host} onMenu={onMenu} />
             ))}
-            {sshNames.map((alias) => (
-                <SshHostRow key={alias} alias={alias} session={sshSessions.find((session) => session.name === alias)} onMenu={onMenu} />
+            {sshHosts.map((row) => (
+                <SshHostRow key={row.name} row={row} onMenu={onMenu} />
             ))}
         </>
     );

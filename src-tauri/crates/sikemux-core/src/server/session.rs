@@ -2,67 +2,65 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use portable_pty::{Child, ExitStatus, NativePtySystem, PtySize, PtySystem};
 use sikemux_process::sync::Locked;
 use sikemux_pty::output_log::OutputLog;
 use sikemux_pty::process::SpawnedChildGuard;
-use sikemux_pty::screen::{
-    attach_snapshot_with_compaction, compact_parser_for_idle, replay_snapshot, reseed_parser,
-    screen_scrollback_len, semantic_parser_with_shell, SemanticParser, IDLE_SCROLLBACK,
-    MAX_ATTACH_SNAPSHOT_BYTES, PARSER_SCROLLBACK,
-};
+use sikemux_pty::screen::Screen;
 use sikemux_pty::shell::ShellLaunchIntegration;
 use sikemux_pty::shell_protocol::ShellProtocolParser;
 use sikemux_pty::task::TaskProcessExit;
+use sikemux_pty::terminal::View;
 use sikemux_pty::validate_pty_dimensions;
+use sikemux_wire::grid::{FindOptions, FindResult, GridPoint, TerminalInput};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::{mpsc, Notify};
 
 use crate::protocol::{
-    encode_output, encode_snapshot, AttachHeader, Continuation, Event, RequestId, Response,
-    SessionExit, SessionId, SessionInfo, SessionKind,
+    encode_grid, encode_snapshot, AttachHeader, Continuation, Event, RequestId, SessionExit,
+    SessionId, SessionInfo, SessionKind, StreamId,
 };
 
 use super::agent::{self, AgentActivity};
-use super::connection::{ClientConn, ClientId};
+use super::connection::ClientConn;
 use super::prepare::{Owner, PreparedLaunch};
 use super::{uptime_ms, CapacityPermit, Core, CoreError, CoreResult};
 
 const OUTPUT_COALESCE: Duration = Duration::from_millis(2);
 const OUTPUT_BATCH_BYTES: usize = 64 * 1024;
-/// How many bytes one client may owe before the reader stops pulling from the
-/// child. The kernel PTY buffer then applies the backpressure.
-pub(crate) const MAX_UNACKED_BYTES: usize = 512 * 1024;
-/// A client that owes this long has stopped answering; its debt is written
-/// off rather than stalling the child.
-pub(crate) const FLOW_CONTROL_WAIT: Duration = Duration::from_secs(1);
+/// The shortest gap between two frames to one client. The first change after
+/// a quiet spell goes out at once, so typing shows without waiting.
+const FRAME_GAP: Duration = Duration::from_millis(8);
+/// Frames a client may have undrawn before it is sent no more. One that
+/// falls behind gets the latest screen once it catches up, never a backlog.
+const MAX_FRAMES_IN_FLIGHT: u32 = 2;
 pub(crate) const MAX_SUBSCRIBERS_PER_SESSION: usize = 16;
 const TASK_OUTPUT_NOTICE_DELAY: Duration = Duration::from_millis(50);
 
-pub(crate) struct Subscriber {
-    client: Arc<ClientConn>,
-    unacked: AtomicUsize,
+static NEXT_STREAM: AtomicU32 = AtomicU32::new(1);
+
+struct LineWaiter {
+    containing: String,
+    found: tokio::sync::oneshot::Sender<Option<String>>,
 }
 
-impl Subscriber {
-    fn new(client: Arc<ClientConn>) -> Self {
-        Self {
-            client,
-            unacked: AtomicUsize::new(0),
-        }
-    }
+pub(crate) struct Subscriber {
+    client: Arc<ClientConn>,
+    view: View,
+    in_flight: u32,
+    sent_at: Option<Instant>,
+}
 
-    fn release(&self, bytes: usize) {
-        let _ = self
-            .unacked
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |outstanding| {
-                Some(outstanding.saturating_sub(bytes))
-            });
-    }
+/// Wakes a session's frame pump, which holds the session only while it
+/// sends, so a session that goes away also ends its pump.
+#[derive(Default)]
+pub(crate) struct FrameSignal {
+    notify: Notify,
+    closed: AtomicBool,
 }
 
 pub(crate) struct InputJob {
@@ -83,12 +81,10 @@ pub(crate) struct Session {
     child: Mutex<Box<dyn Child + Send + Sync>>,
     pid: Option<u32>,
     owner: Owner,
-    pub(crate) parser: Mutex<SemanticParser>,
+    pub(crate) screen: Mutex<Screen>,
     pub(crate) shell_protocol: bool,
-    subscribers: Mutex<HashMap<ClientId, Subscriber>>,
-    flow_control: Notify,
-    /// Woken by output while the program has bracketed paste on.
-    pastes_on: Notify,
+    subscribers: Mutex<HashMap<StreamId, Subscriber>>,
+    frames: Arc<FrameSignal>,
     pub(crate) last_activity_ms: AtomicU64,
     pub(crate) trimmed: AtomicBool,
     killed: AtomicBool,
@@ -109,31 +105,28 @@ pub(crate) struct Session {
     shell_integration: Option<ShellLaunchIntegration>,
     /// A title change waits to be sent, with any that follow it soon after.
     title_pending: AtomicBool,
-    setup: Mutex<Option<SetupLock>>,
+    /// Callers waiting for a line containing some text to show on the screen.
+    line_waiters: Mutex<Vec<LineWaiter>>,
+    /// A draft to type once the shell shows its prompt, and who typed it.
+    typed_at_prompt: Mutex<Option<(String, Typist)>>,
+    /// Setting a host up over SSH: its output carries the sign-in code the core
+    /// approves for the account, so only the person's own app types into it.
+    setup: AtomicBool,
     _capacity_permit: CapacityPermit,
 }
 
-/// A terminal setting a host up over SSH, whose output carries the sign-in code
-/// the app approves for the account. Its terminal echoes what is typed, so only
-/// the app connection that opened it may type into it, or end the lock, until
-/// it is done or its process ends: nothing else can print a code of its own.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SetupLock {
-    By(ClientId),
-    /// Any app connection, once a core update dropped the one that opened it.
-    AnyApp,
-}
-
-/// Who types into a terminal: the app over one of its connections, or anyone
-/// else, the core's own typing included.
+/// Who types into a terminal: the person's own app on this host, the terminal
+/// answering its program's own queries, or anyone else, the core's own typing
+/// included.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Typist {
-    App(ClientId),
+    App,
+    Terminal,
     Other,
 }
 
 pub(crate) const SETUP_LOCKED: &str =
-    "this terminal is setting a host up, and only the app that opened it types into it";
+    "this terminal is setting a host up, and only the Sikemux window types into it";
 
 /// Programs that animate their title, such as a spinner, send at most one
 /// change per this long.
@@ -146,7 +139,7 @@ pub(crate) struct SessionParts {
     pub kind: SessionKind,
     pub pid: Option<u32>,
     pub owner: Owner,
-    pub parser: SemanticParser,
+    pub screen: Screen,
     pub shell_protocol: bool,
     pub last_activity_ms: u64,
     pub trimmed: bool,
@@ -156,7 +149,7 @@ pub(crate) struct SessionParts {
     pub task_log: Option<OutputLog>,
     pub agent: Option<AgentActivity>,
     pub shell_integration: Option<ShellLaunchIntegration>,
-    pub setup: Option<SetupLock>,
+    pub setup: bool,
 }
 
 impl Session {
@@ -179,11 +172,10 @@ impl Session {
             child: Mutex::new(child),
             pid: parts.pid,
             owner: parts.owner,
-            parser: Mutex::new(parts.parser),
+            screen: Mutex::new(parts.screen),
             shell_protocol: parts.shell_protocol,
             subscribers: Mutex::new(HashMap::new()),
-            flow_control: Notify::new(),
-            pastes_on: Notify::new(),
+            frames: Arc::default(),
             last_activity_ms: AtomicU64::new(parts.last_activity_ms),
             trimmed: AtomicBool::new(parts.trimmed),
             killed: AtomicBool::new(parts.killed),
@@ -200,37 +192,25 @@ impl Session {
             reader_frozen: AtomicBool::new(false),
             shell_integration: parts.shell_integration,
             title_pending: AtomicBool::new(false),
-            setup: Mutex::new(parts.setup),
+            line_waiters: Mutex::new(Vec::new()),
+            typed_at_prompt: Mutex::new(None),
+            setup: AtomicBool::new(parts.setup),
             _capacity_permit: capacity_permit,
         });
         (session, input_jobs)
     }
 
     pub(crate) fn may_type(&self, typist: Typist) -> bool {
-        match (*self.setup.locked(), typist) {
-            (None, _) | (Some(SetupLock::AnyApp), Typist::App(_)) => true,
-            (Some(SetupLock::By(owner)), Typist::App(client)) => owner == client,
-            (Some(_), Typist::Other) => false,
-        }
+        typist != Typist::Other || !self.in_setup()
     }
 
     pub(crate) fn in_setup(&self) -> bool {
-        self.setup.locked().is_some()
+        self.setup.load(Ordering::Acquire)
     }
 
-    /// Ends the set-up lock the app connection `client` holds. Another
-    /// connection's lock stays.
-    pub(crate) fn end_setup(&self, client: ClientId) -> Result<(), &'static str> {
-        let mut setup = self.setup.locked();
-        match *setup {
-            Some(SetupLock::By(owner)) if owner != client => {
-                Err("another app connection is setting this host up")
-            }
-            _ => {
-                *setup = None;
-                Ok(())
-            }
-        }
+    /// The core has read the sign-in code, or the set-up ended without one.
+    pub(crate) fn end_setup(&self) {
+        self.setup.store(false, Ordering::Release);
     }
 
     pub(crate) fn owner(&self) -> &Owner {
@@ -295,13 +275,31 @@ impl Session {
         !self.subscribers.locked().is_empty()
     }
 
+    /// The SSH config host an ssh terminal connects to, and how it reaches
+    /// it while ssh is up, on its way, or gave up.
+    pub(crate) fn ssh_link(
+        &self,
+    ) -> Option<(String, Option<sikemux_pty::shell_protocol::SshLink>)> {
+        let host = self.owner.ssh_host.clone()?;
+        let link = self
+            .screen
+            .locked()
+            .shell
+            .as_ref()
+            .and_then(|shell| shell.ssh_reach());
+        Some((host, link))
+    }
+
+    pub(crate) fn rail_number(&self) -> Option<u32> {
+        self.owner.rail_number
+    }
+
     pub(crate) fn info(&self) -> SessionInfo {
         let ((rows, cols), ssh, window_title) = {
-            let parser = self.parser.locked();
-            let callbacks = parser.callbacks();
-            let ssh = callbacks.shell.as_ref().and_then(|shell| shell.ssh());
-            let title = Some(callbacks.window_title.clone()).filter(|title| !title.is_empty());
-            (parser.screen().size(), ssh, title)
+            let screen = self.screen.locked();
+            let ssh = screen.shell.as_ref().and_then(|shell| shell.ssh());
+            let title = Some(screen.window_title.clone()).filter(|title| !title.is_empty());
+            (screen.terminal.size(), ssh, title)
         };
         SessionInfo {
             id: self.id,
@@ -334,7 +332,16 @@ impl Session {
             status: None,
             attention_rank: None,
             ssh,
+            ssh_alias: self.owner.ssh_host.clone(),
+            rail_name: self.owner.rail_number.map(|number| number.to_string()),
         }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.frames.closed.store(true, Ordering::Release);
+        self.frames.notify.notify_one();
     }
 }
 
@@ -364,6 +371,11 @@ impl PendingStart {
             agent::publish_start(core, agent);
         }
         tokio::spawn(write_input(Arc::downgrade(&self.session), self.input_jobs));
+        tokio::spawn(pump_frames(
+            core.clone(),
+            Arc::downgrade(&self.session),
+            self.session.frames.clone(),
+        ));
         tokio::spawn(read_output(core.clone(), self.session));
         core.ports.changed();
     }
@@ -377,6 +389,11 @@ pub(crate) fn start_adopted(
     input_jobs: mpsc::UnboundedReceiver<InputJob>,
 ) {
     tokio::spawn(write_input(Arc::downgrade(&session), input_jobs));
+    tokio::spawn(pump_frames(
+        core.clone(),
+        Arc::downgrade(&session),
+        session.frames.clone(),
+    ));
     if !session.exit_reported() {
         tokio::spawn(read_output(core.clone(), session));
     }
@@ -403,7 +420,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
         rows,
         command,
         kind,
-        owner,
+        mut owner,
         shell_integration,
         ssh,
         initial_prompt_submitted,
@@ -461,15 +478,17 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
     let io = AsyncFd::new(io_file)?;
 
     let id = core.next_session_id.fetch_add(1, Ordering::Relaxed);
+    if owner.wants_rail_number(kind) {
+        owner.rail_number = Some(core.take_rail_number());
+    }
     let agent = AgentActivity::new(
         owner.agent_id.as_deref(),
         owner.agent_type.as_deref(),
         initial_prompt_submitted,
     );
-    let mut parser =
-        semantic_parser_with_shell(rows, cols, PARSER_SCROLLBACK, shell_metadata_enabled);
+    let mut screen = Screen::new(rows, cols, shell_metadata_enabled);
     if let Some(carried) = carried.as_ref() {
-        parser.process(&carried.prelude);
+        screen.process(&carried.prelude, &core.terminal_colors());
     }
     let (session, input_jobs) = Session::assemble(
         SessionParts {
@@ -477,7 +496,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
             kind,
             pid,
             owner,
-            parser,
+            screen,
             shell_protocol: shell_metadata_enabled,
             last_activity_ms: uptime_ms(),
             trimmed: false,
@@ -523,20 +542,14 @@ fn carried_screen(core: &Core, continuation: &Continuation) -> Option<CarriedScr
     if from.is_task() || from.is_running() {
         return None;
     }
-    let mut parser = from.parser.locked();
-    parser.process(RESET_MODES);
-    parser.process(b"\x1b[r");
-    let (rows, cols) = parser.screen().size();
-    let (cursor_row, _) = parser.screen().cursor_position();
-    let last_written = parser
-        .screen()
-        .rows(0, cols)
-        .enumerate()
-        .filter(|(_, row)| !row.trim().is_empty())
-        .map(|(index, _)| index as u16)
-        .last();
-    let mut prelude = replay_snapshot(&mut parser).ok()?;
-    drop(parser);
+    let mut screen = from.screen.locked();
+    screen.process(RESET_MODES, &core.terminal_colors());
+    screen.process(b"\x1b[r", &core.terminal_colors());
+    let (rows, cols) = screen.terminal.size();
+    let cursor_row = screen.terminal.cursor().0;
+    let last_written = screen.terminal.last_written_row();
+    let mut prelude = screen.terminal.replay();
+    drop(screen);
     let row = last_written.map_or(cursor_row, |row| row.max(cursor_row));
     prelude.extend_from_slice(
         format!("\x1b[{};1H\x1b[0m\x1b[?25h\r\n\x1b[38;5;245m", row + 1).as_bytes(),
@@ -591,28 +604,21 @@ async fn write_input(session: Weak<Session>, mut jobs: mpsc::UnboundedReceiver<I
 /// markers when its program has turned bracketed paste on, else on one line,
 /// since a bare newline would send it.
 pub(crate) fn pasted(session: &Session, text: &str) -> Vec<u8> {
+    pasted_on(&session.screen.locked(), text)
+}
+
+fn pasted_on(screen: &Screen, text: &str) -> Vec<u8> {
     let plain: String = text
         .chars()
         .filter(|char| matches!(char, '\n' | '\t') || !char.is_control())
         .collect();
-    let pastes = session.parser.locked().screen().bracketed_paste();
-    if pastes {
-        format!("\x1b[200~{plain}\x1b[201~").into_bytes()
+    if screen.terminal.bracketed_paste() {
+        screen
+            .terminal
+            .encode(&TerminalInput::Paste { text: plain })
     } else {
         plain.replace('\n', " ").into_bytes()
     }
-}
-
-/// Waits up to `limit` for the program to turn bracketed paste on, as one
-/// does once it has started and is ready for a pasted draft.
-pub(crate) async fn until_pastes(session: &Session, limit: Duration) {
-    let turned_on = session.pastes_on.notified();
-    tokio::pin!(turned_on);
-    turned_on.as_mut().enable();
-    if session.parser.locked().screen().bracketed_paste() {
-        return;
-    }
-    let _ = tokio::time::timeout(limit, turned_on).await;
 }
 
 pub(crate) fn queue_input(
@@ -629,41 +635,6 @@ pub(crate) fn queue_input(
     }
     if let Err(mpsc::error::SendError(job)) = session.input.send(InputJob { bytes, reply }) {
         (job.reply)(Err(std::io::Error::other("session closed")));
-    }
-}
-
-fn over_budget(session: &Session) -> bool {
-    session
-        .subscribers
-        .locked()
-        .values()
-        .any(|subscriber| subscriber.unacked.load(Ordering::Acquire) >= MAX_UNACKED_BYTES)
-}
-
-/// Holds the reader while a client is behind. False means the wait ran out.
-async fn await_subscriber_credit(session: &Session) -> bool {
-    if !over_budget(session) {
-        return true;
-    }
-    loop {
-        let notified = session.flow_control.notified();
-        tokio::pin!(notified);
-        notified.as_mut().enable();
-        if !over_budget(session) {
-            return true;
-        }
-        if tokio::time::timeout(FLOW_CONTROL_WAIT, notified)
-            .await
-            .is_err()
-        {
-            return false;
-        }
-    }
-}
-
-fn forgive_unacked(session: &Session) {
-    for subscriber in session.subscribers.locked().values() {
-        subscriber.release(usize::MAX);
     }
 }
 
@@ -691,8 +662,8 @@ enum PumpEnd {
     Frozen,
 }
 
-/// Reads until EOF. The first byte goes out at once; after that, small writes
-/// are gathered for up to 2 ms into one parser pass and one frame.
+/// Reads until EOF. The first byte is read into the screen at once; after
+/// that, small writes are gathered for up to 2 ms into one pass.
 async fn pump_output(core: &Arc<Core>, session: &Session) -> PumpEnd {
     let mut frozen = core.frozen.subscribe();
     let _pumping = core.pumping.enter();
@@ -701,14 +672,6 @@ async fn pump_output(core: &Arc<Core>, session: &Session) -> PumpEnd {
     loop {
         if *frozen.borrow_and_update() {
             return PumpEnd::Frozen;
-        }
-        tokio::select! {
-            credit = await_subscriber_credit(session) => {
-                if !credit {
-                    forgive_unacked(session);
-                }
-            }
-            _ = frozen.changed() => continue,
         }
         batch.clear();
         let mut eof = false;
@@ -821,10 +784,10 @@ pub(crate) fn stamp_exited(session: &Session) -> Option<u64> {
 
 /// Tells every client the process is gone. Natural exit, kill and shutdown can
 /// race here; only the first one is reported. The event goes out under the
-/// parser lock, so an attach knows whether its snapshot came after it.
+/// screen lock, so an attach knows whether its snapshot came after it.
 pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitStatus>) {
     let exited_at = stamp_exited(session);
-    *session.setup.locked() = None;
+    session.end_setup();
     let (code, signal) = match status {
         Some(status) => {
             let exit = TaskProcessExit::from_status(Some(status));
@@ -832,7 +795,7 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
         }
         None => (None, None),
     };
-    let parser = session.parser.locked();
+    let screen = session.screen.locked();
     if session.exit_reported.swap(true, Ordering::AcqRel) {
         session.exited.store(true, Ordering::Release);
         return;
@@ -842,14 +805,23 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
         signal: signal.clone(),
     });
     session.exited.store(true, Ordering::Release);
+    for waiter in std::mem::take(&mut *session.line_waiters.locked()) {
+        let _ = waiter.found.send(None);
+    }
     core.broadcast_event(&Event::Exited {
         id: session.id,
         code,
         signal: signal.clone(),
         killed: session.killed.load(Ordering::Acquire),
     });
-    drop(parser);
+    drop(screen);
     core.ports.changed();
+    if let Some(number) = session.owner.rail_number {
+        core.rail_numbers.locked().remove(&number);
+    }
+    if session.owner.ssh_host.is_some() {
+        super::ssh::moved(core);
+    }
     let failed = match (&code, &signal) {
         (_, Some(signal)) => Some(format!("It stopped from signal {signal}.")),
         (Some(code), None) if *code != 0 => Some(format!("It exited with code {code}.")),
@@ -910,30 +882,28 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
     if let Some(agent) = session.agent.as_ref() {
         agent::note_output(core, agent);
     }
-    let mut parser = session.parser.locked();
+    let mut screen = session.screen.locked();
     if session.trimmed.swap(false, Ordering::AcqRel) {
-        reseed_parser(&mut parser, PARSER_SCROLLBACK);
+        screen.restore_history();
     }
-    let shell_output = parser
-        .callbacks_mut()
+    let shell_output = screen
         .shell
         .as_mut()
         .map(|shell| shell.process_for_events(bytes, output_now_ms))
         .unwrap_or_default();
-    parser.process(bytes);
-    if parser.screen().bracketed_paste() {
-        session.pastes_on.notify_waiters();
-    }
+    let replies = screen.process(bytes, &core.terminal_colors());
     if let Some(agent) = session.agent.as_ref() {
         agent.note_parsed();
     }
-    // Frames are queued under the parser lock, the same lock an attach holds
-    // while it takes its snapshot, so a client sees every byte exactly once.
-    send_to_subscribers(session, bytes);
-    let callbacks = parser.callbacks_mut();
-    callbacks.title_from_cwd();
-    let retitled = callbacks.take_title_change().is_some();
-    drop(parser);
+    screen.title_from_cwd();
+    let retitled = screen.take_title_change().is_some();
+    answer_line_waiters(session, &screen);
+    if at_prompt(&screen) {
+        type_waiting(session, &screen);
+    }
+    drop(screen);
+    session.frames.notify.notify_one();
+    reply_to_program(session, replies);
     if retitled && !session.title_pending.swap(true, Ordering::AcqRel) {
         let (core, id) = (core.clone(), session.id);
         tokio::spawn(async move {
@@ -942,7 +912,7 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
                 return;
             };
             session.title_pending.store(false, Ordering::Release);
-            let title = session.parser.locked().callbacks().window_title.clone();
+            let title = session.screen.locked().window_title.clone();
             core.broadcast_local(&Event::TerminalTitle { id, title });
         });
     }
@@ -954,34 +924,274 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
             id: session.id,
             link,
         });
+        if let Some(alias) = &session.owner.ssh_host {
+            super::ssh::moved(core);
+            if link == sikemux_pty::shell_protocol::SshLink::Connected {
+                super::hosts::probe::ask(core, alias, false);
+            }
+        }
     }
 }
 
-/// Callers hold the parser lock, which keeps frames in the order the parser
-/// saw the bytes.
-fn send_to_subscribers(session: &Session, bytes: &[u8]) {
-    let mut subscribers = session.subscribers.locked();
-    if !subscribers.is_empty() {
-        let frame: Arc<[u8]> = encode_output(session.id, bytes).into();
-        subscribers.retain(|_, subscriber| {
-            let sent = subscriber.client.send(frame.clone());
-            if sent {
-                subscriber.unacked.fetch_add(bytes.len(), Ordering::AcqRel);
-            }
-            sent
-        });
+/// What the terminal answers a program's queries with goes back to it after
+/// anything already on its way in.
+fn reply_to_program(session: &Session, replies: Vec<u8>) {
+    if !replies.is_empty() {
+        queue_input(session, replies, Typist::Terminal, Box::new(|_| ()));
     }
 }
 
 pub(crate) const RESET_MODES: &[u8] = b"\x1b>\x1b[4l\x1b[?1l\x1b[?6l\x1b[?7h\x1b[?9l\x1b[?45l\x1b[?66l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1049l";
 
-/// Sends the same reset to the screen and every subscriber under the parser
-/// lock, so no output from the program can land between the two.
-pub(crate) fn reset_modes(session: &Session) -> CoreResult<()> {
-    let mut parser = session.parser.locked();
-    parser.process(RESET_MODES);
-    send_to_subscribers(session, RESET_MODES);
+pub(crate) fn reset_modes(core: &Core, session: &Session) -> CoreResult<()> {
+    session
+        .screen
+        .locked()
+        .process(RESET_MODES, &core.terminal_colors());
+    session.frames.notify.notify_one();
     Ok(())
+}
+
+pub(crate) fn clear(core: &Core, session: &Session) {
+    session
+        .screen
+        .locked()
+        .terminal
+        .clear(&core.terminal_colors());
+    session.frames.notify.notify_one();
+}
+
+fn line_containing(contents: &str, containing: &str) -> Option<String> {
+    contents
+        .lines()
+        .find(|line| line.contains(containing))
+        .map(str::to_owned)
+}
+
+/// Callers hold the screen lock, so no output can land between a check and
+/// a waiter being added.
+fn answer_line_waiters(session: &Session, screen: &Screen) {
+    let mut waiters = session.line_waiters.locked();
+    if waiters.is_empty() {
+        return;
+    }
+    let contents = screen.terminal.contents();
+    for waiter in std::mem::take(&mut *waiters) {
+        if waiter.found.is_closed() {
+            continue;
+        }
+        match line_containing(&contents, &waiter.containing) {
+            Some(line) => {
+                let _ = waiter.found.send(Some(line));
+            }
+            None => waiters.push(waiter),
+        }
+    }
+}
+
+/// How long the core waits for a shell's prompt before typing anyway, for a
+/// prompt it never recognises.
+const PROMPT_WAIT: Duration = Duration::from_secs(5);
+/// How long a program whose prompt the core cannot see, such as an agent's
+/// own interface, gets to start before it is typed to.
+const START_WAIT: Duration = Duration::from_millis(800);
+
+/// The shell is reading a command: showing its prompt, or past it with
+/// nothing typed yet, as an older bash marks it.
+fn at_prompt(screen: &Screen) -> bool {
+    use sikemux_wire::pty::shell_protocol::ShellPhase;
+    screen
+        .shell
+        .as_ref()
+        .is_some_and(|shell| matches!(shell.phase(), ShellPhase::Prompt | ShellPhase::Input))
+}
+
+fn type_waiting(session: &Session, screen: &Screen) {
+    let draft = session.typed_at_prompt.locked().take();
+    if let Some((draft, typist)) = draft {
+        type_draft(session, screen, &draft, typist);
+    }
+}
+
+/// Types `draft` to sit at the prompt unsent: pasted when the program has
+/// turned bracketed paste on, else on one line, since a bare newline would
+/// send it.
+fn type_draft(session: &Session, screen: &Screen, draft: &str, typist: Typist) {
+    queue_input(session, pasted_on(screen, draft), typist, Box::new(|_| {}));
+}
+
+/// `draft` as it can be typed into a terminal; none when nothing is left.
+pub(crate) fn typable(draft: &str) -> Option<String> {
+    let draft = draft.replace('\0', "");
+    let draft = draft.trim();
+    (!draft.is_empty()).then(|| draft.to_owned())
+}
+
+/// Types `draft` into the session once it is ready for it: at its shell's
+/// prompt, or a moment after it starts when the core cannot see a prompt.
+/// How it is typed is decided then, by what the program has turned on.
+pub(crate) fn type_when_ready(session: &Arc<Session>, draft: String, typist: Typist) {
+    let screen = session.screen.locked();
+    if session.shell_protocol && at_prompt(&screen) {
+        return type_draft(session, &screen, &draft, typist);
+    }
+    *session.typed_at_prompt.locked() = Some((draft, typist));
+    drop(screen);
+    let wait = if session.shell_protocol {
+        PROMPT_WAIT
+    } else {
+        START_WAIT
+    };
+    let session = Arc::downgrade(session);
+    tokio::spawn(async move {
+        tokio::time::sleep(wait).await;
+        if let Some(session) = session.upgrade() {
+            type_waiting(&session, &session.screen.locked());
+        }
+    });
+}
+
+/// What is typed in the input box of the agent's TUI the session shows.
+pub(crate) fn prompt_draft(session: &Session) -> String {
+    let rows = session.screen.locked().terminal.read_rows();
+    super::prompt_draft::read(&rows.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// Connects an ssh terminal again when it has given up and sits at the local
+/// shell's prompt.
+pub(crate) fn reconnect_ssh(session: &Session) {
+    let Some(host) = session.owner.ssh_host.as_deref() else {
+        return;
+    };
+    if session.shell_at_prompt() {
+        let command = format!("{}\r", super::ssh::startup(host));
+        queue_input(
+            session,
+            command.into_bytes(),
+            Typist::Other,
+            Box::new(|_| {}),
+        );
+    }
+}
+
+/// The first line on the screen containing `containing`, once one shows,
+/// whether or not anyone watches the terminal. Nothing if it ends first.
+pub(crate) fn line_shown(
+    session: &Session,
+    containing: String,
+) -> tokio::sync::oneshot::Receiver<Option<String>> {
+    let (found, shown) = tokio::sync::oneshot::channel();
+    let screen = session.screen.locked();
+    if let Some(line) = line_containing(&screen.terminal.contents(), &containing) {
+        let _ = found.send(Some(line));
+    } else if session.exit_reported() {
+        let _ = found.send(None);
+    } else {
+        session
+            .line_waiters
+            .locked()
+            .push(LineWaiter { containing, found });
+    }
+    drop(screen);
+    shown
+}
+
+/// What the person did, as the bytes the program expects under the modes it
+/// turned on.
+pub(crate) fn encode(session: &Session, input: &TerminalInput) -> Vec<u8> {
+    session.screen.locked().terminal.encode(input)
+}
+
+pub(crate) fn lines(session: &Session, start: u64, count: u32) -> Vec<u8> {
+    session.screen.locked().terminal.lines(start, count)
+}
+
+pub(crate) fn text(session: &Session, range: Option<(GridPoint, GridPoint)>) -> String {
+    let screen = session.screen.locked();
+    match range {
+        Some((from, to)) => screen.terminal.text(from, to),
+        None => screen.terminal.all_text(),
+    }
+}
+
+pub(crate) fn find(
+    session: &Session,
+    query: &str,
+    options: &FindOptions,
+    from: Option<GridPoint>,
+    backwards: bool,
+    inclusive: bool,
+) -> CoreResult<FindResult> {
+    session
+        .screen
+        .locked()
+        .terminal
+        .find(query, options, from, backwards, inclusive)
+        .map_err(CoreError::from)
+}
+
+/// Sends each subscriber the frame that brings it up to date, unless it has
+/// too many undrawn or was sent one too recently. Answers when to try again
+/// for those that were sent one too recently.
+fn send_frames(core: &Core, session: &Session) -> Option<Instant> {
+    let now = Instant::now();
+    let mut next: Option<Instant> = None;
+    let mut screen = session.screen.locked();
+    if let Some(deadline) = screen.terminal.sync_deadline() {
+        if deadline <= now {
+            let replies = screen.end_sync(&core.terminal_colors());
+            reply_to_program(session, replies);
+        } else {
+            next = Some(deadline);
+        }
+    }
+    let mut subscribers = session.subscribers.locked();
+    subscribers.retain(|stream, subscriber| {
+        if subscriber.in_flight >= MAX_FRAMES_IN_FLIGHT {
+            return true;
+        }
+        if let Some(due) = subscriber.sent_at.map(|sent| sent + FRAME_GAP) {
+            if now < due {
+                if screen.terminal.version() != subscriber.view.version() {
+                    next = Some(next.map_or(due, |next| next.min(due)));
+                }
+                return true;
+            }
+        }
+        let Some(frame) = screen.terminal.frame(&mut subscriber.view) else {
+            return true;
+        };
+        if !subscriber.client.send(encode_grid(*stream, &frame).into()) {
+            subscriber.client.forget_stream(*stream);
+            return false;
+        }
+        subscriber.in_flight += 1;
+        subscriber.sent_at = Some(now);
+        true
+    });
+    next
+}
+
+async fn pump_frames(core: Arc<Core>, session: Weak<Session>, signal: Arc<FrameSignal>) {
+    let mut wake_at: Option<Instant> = None;
+    loop {
+        match wake_at {
+            Some(at) => {
+                tokio::select! {
+                    _ = signal.notify.notified() => {}
+                    _ = tokio::time::sleep_until(at.into()) => {}
+                }
+            }
+            None => signal.notify.notified().await,
+        }
+        if signal.closed.load(Ordering::Acquire) {
+            return;
+        }
+        let Some(session) = session.upgrade() else {
+            return;
+        };
+        wake_at = send_frames(&core, &session);
+    }
 }
 
 pub(crate) fn mark_task_output_noticed(session: &Session) {
@@ -990,110 +1200,91 @@ pub(crate) fn mark_task_output_noticed(session: &Session) {
     }
 }
 
-/// Takes the snapshot and subscribes in one step under the parser lock, then
-/// queues the snapshot frame before any later output can be queued.
+/// Starts a stream: its first frame, with the whole screen, answers the
+/// attach, queued under the screen lock before any later frame can be.
 pub(crate) fn attach(
     session: &Session,
     client: &Arc<ClientConn>,
     request_id: RequestId,
 ) -> CoreResult<()> {
-    let mut parser = session.parser.locked();
-    let alternate_screen = parser.screen().alternate_screen();
+    let mut screen = session.screen.locked();
     let mut subscribers = session.subscribers.locked();
-    if !subscribers.contains_key(&client.id) && subscribers.len() >= MAX_SUBSCRIBERS_PER_SESSION {
+    if subscribers.len() >= MAX_SUBSCRIBERS_PER_SESSION {
         return Err("pty: PTY subscriber capacity reached".into());
     }
-    let replay = attach_snapshot_with_compaction(&mut parser, MAX_ATTACH_SNAPSHOT_BYTES)?;
-    let shell = parser
-        .callbacks()
-        .shell
-        .as_ref()
-        .map(ShellProtocolParser::snapshot);
+    if session.trimmed.swap(false, Ordering::AcqRel) {
+        screen.restore_history();
+    }
+    let stream = NEXT_STREAM.fetch_add(1, Ordering::Relaxed);
+    let mut view = View::default();
+    let first = screen.terminal.frame(&mut view).unwrap_or_default();
+    let shell = screen.shell.as_ref().map(ShellProtocolParser::snapshot);
     let frame = encode_snapshot(
         request_id,
         session.id,
+        stream,
         &AttachHeader {
-            alternate_screen,
             shell,
             exited: session.exit_reported.load(Ordering::Acquire),
         },
-        &replay,
+        &first,
     )?;
     if !client.send(frame.into()) {
         return Err("client disconnected".into());
     }
-    subscribers.insert(client.id, Subscriber::new(client.clone()));
-    client.note_subscription(session.id, true);
-    drop(subscribers);
-    drop(parser);
-    session.flow_control.notify_waiters();
+    subscribers.insert(
+        stream,
+        Subscriber {
+            client: client.clone(),
+            view,
+            in_flight: 1,
+            sent_at: Some(Instant::now()),
+        },
+    );
+    client.note_stream(stream, session.id);
     Ok(())
 }
 
-/// Subscribes without a replay. The reply is queued under the parser lock,
-/// so the client knows exactly which output frames come after it.
-pub(crate) fn subscribe(
-    session: &Session,
-    client: &Arc<ClientConn>,
-    request_id: RequestId,
-) -> CoreResult<()> {
-    let parser = session.parser.locked();
-    let mut subscribers = session.subscribers.locked();
-    if !subscribers.contains_key(&client.id) && subscribers.len() >= MAX_SUBSCRIBERS_PER_SESSION {
-        return Err("pty: PTY subscriber capacity reached".into());
-    }
-    client.respond(request_id, Ok(Response::Done));
-    subscribers.insert(client.id, Subscriber::new(client.clone()));
-    client.note_subscription(session.id, true);
-    drop(subscribers);
-    drop(parser);
-    session.flow_control.notify_waiters();
-    Ok(())
-}
-
-pub(crate) fn detach(session: &Session, client: ClientId) {
+pub(crate) fn detach(session: &Session, stream: StreamId) {
     let emptied = {
         let mut subscribers = session.subscribers.locked();
-        if subscribers.remove(&client).is_none() {
+        if subscribers.remove(&stream).is_none() {
             return;
         }
         subscribers.is_empty()
     };
-    session.flow_control.notify_waiters();
     if !emptied || session.trimmed.load(Ordering::Acquire) {
         return;
     }
-    // Nobody is looking any more, so keep only what a reattach replays.
-    // Re-check under the parser lock so an attach that raced us keeps its
-    // history.
-    let mut parser = session.parser.locked();
+    // Nobody is looking any more, so keep only the newest history. Re-check
+    // under the screen lock so an attach that raced us keeps its history.
+    let mut screen = session.screen.locked();
     if session.has_subscribers() {
         return;
     }
-    if screen_scrollback_len(parser.screen_mut()) <= IDLE_SCROLLBACK {
-        return;
-    }
-    if compact_parser_for_idle(&mut parser) {
+    if screen.compact_for_idle() {
         session.trimmed.store(true, Ordering::Release);
     }
 }
 
 pub(crate) fn detach_all(session: &Session) {
     let subscribers = std::mem::take(&mut *session.subscribers.locked());
-    for subscriber in subscribers.values() {
-        subscriber.client.note_subscription(session.id, false);
+    for (stream, subscriber) in subscribers {
+        subscriber.client.forget_stream(stream);
     }
 }
 
-pub(crate) fn ack(session: &Session, client: ClientId, bytes: usize) {
+/// The client drew every frame of the stream up to `frame`.
+pub(crate) fn ack(session: &Session, stream: StreamId, frame: u32) {
     {
-        let subscribers = session.subscribers.locked();
-        let Some(subscriber) = subscribers.get(&client) else {
+        let mut subscribers = session.subscribers.locked();
+        let Some(subscriber) = subscribers.get_mut(&stream) else {
             return;
         };
-        subscriber.release(bytes);
+        let undrawn = subscriber.view.frame().wrapping_sub(frame);
+        subscriber.in_flight = subscriber.in_flight.min(undrawn);
     }
-    session.flow_control.notify_waiters();
+    session.frames.notify.notify_one();
 }
 
 pub(crate) fn resize(session: &Session, cols: u16, rows: u16) -> CoreResult<()> {
@@ -1115,7 +1306,8 @@ pub(crate) fn resize(session: &Session, cols: u16, rows: u16) -> CoreResult<()> 
     if rc != 0 {
         return Err(os_error());
     }
-    session.parser.locked().screen_mut().set_size(rows, cols);
+    session.screen.locked().terminal.resize(rows, cols);
+    session.frames.notify.notify_one();
     Ok(())
 }
 
@@ -1211,13 +1403,13 @@ pub(crate) fn trim_if_idle(session: &Session, now: u64, idle: Duration) {
     if session.trimmed.load(Ordering::Relaxed) || !quiet() || session.has_subscribers() {
         return;
     }
-    let mut parser = session.parser.locked();
-    // Output and attaches take the parser lock first, so re-checking under it
+    let mut screen = session.screen.locked();
+    // Output and attaches take the screen lock first, so re-checking under it
     // means neither can slip in between the check and the compaction.
     if !quiet() || session.has_subscribers() {
         return;
     }
-    if compact_parser_for_idle(&mut parser) {
+    if screen.compact_for_idle() {
         session.trimmed.store(true, Ordering::Release);
     }
 }
@@ -1225,7 +1417,8 @@ pub(crate) fn trim_if_idle(session: &Session, now: u64, idle: Duration) {
 #[cfg(test)]
 mod tests {
     use super::RESET_MODES;
-    use sikemux_pty::screen::{semantic_parser_with_shell, PARSER_SCROLLBACK};
+    use sikemux_pty::screen::Screen;
+    use sikemux_wire::grid::{Mods, MouseAction, MouseButton, TerminalInput};
 
     // The single-fd design rests on this: after the master is dup'd and
     // portable_pty's `MasterPty` dropped, the dup keeps the child's terminal
@@ -1283,29 +1476,32 @@ mod tests {
 
     #[test]
     fn reset_modes_disables_interaction_modes_without_losing_normal_history() {
-        let mut parser = semantic_parser_with_shell(5, 20, PARSER_SCROLLBACK, false);
+        let mut screen = Screen::new(5, 20, false);
+        let colors = sikemux_wire::grid::TerminalColors::default();
         for i in 0..20 {
-            parser.process(format!("line {i:02}\r\n").as_bytes());
+            screen.process(format!("line {i:02}\r\n").as_bytes(), &colors);
         }
-        parser.process(
+        screen.process(
             b"\x1b=\x1b[?1h\x1b[?9h\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1005h\x1b[?1006h\x1b[?2004h\x1b[?1049halt",
+            &colors,
         );
-        parser.process(RESET_MODES);
+        screen.process(RESET_MODES, &colors);
 
-        assert!(!parser.screen().alternate_screen());
-        assert!(!parser.screen().application_keypad());
-        assert!(!parser.screen().application_cursor());
-        assert!(!parser.screen().bracketed_paste());
-        assert_eq!(
-            parser.screen().mouse_protocol_mode(),
-            vt100::MouseProtocolMode::None
-        );
-        assert_eq!(
-            parser.screen().mouse_protocol_encoding(),
-            vt100::MouseProtocolEncoding::Default
-        );
-        let screen = parser.screen_mut();
-        screen.set_scrollback(usize::MAX);
-        assert!(screen.contents().contains("line 00"));
+        assert!(!screen.terminal.alternate_screen());
+        assert!(!screen.terminal.bracketed_paste());
+        let up = TerminalInput::Key {
+            key: "ArrowUp".into(),
+            mods: Mods::default(),
+        };
+        assert_eq!(screen.terminal.encode(&up), b"\x1b[A");
+        let click = TerminalInput::Mouse {
+            action: MouseAction::Press,
+            button: MouseButton::Left,
+            col: 1,
+            row: 1,
+            mods: Mods::default(),
+        };
+        assert!(screen.terminal.encode(&click).is_empty());
+        assert!(screen.terminal.all_text().contains("line 00"));
     }
 }

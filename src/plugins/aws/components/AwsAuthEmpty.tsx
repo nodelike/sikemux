@@ -1,4 +1,4 @@
-import { focusSignInBrowser, openSignInUrl, openUrl, runInTerminal, swallow } from "../../../plugin-api/host";
+import { focusSignInBrowser, openSignInUrl, openUrl, reportError, runInTerminal, swallow } from "../../../plugin-api/host";
 import { invalidate, useResource, useResourceEnabled } from "../../../plugin-api/resources";
 import { IconAws, SignInScreen, SignInWaiting, useSignInAttempt } from "../../../plugin-api/ui";
 import { awsApi, type AwsProfile } from "../api";
@@ -22,7 +22,11 @@ function ProfileList({ profiles }: { profiles: AwsProfile[] }) {
     return (
         <div className="signin-choices">
             {profiles.map((p) => (
-                <button key={p.name} type="button" className="signin-choice" onClick={() => setAwsProfile(p.name)}>
+                <button
+                    key={p.name}
+                    type="button"
+                    className="signin-choice"
+                    onClick={() => void setAwsProfile(p.name).catch(reportError("Pick an AWS profile"))}>
                     <IconAws size={14} />
                     <span className="signin-choice-name">{p.name}</span>
                     <span className="signin-choice-meta">{[p.kind === "sso" ? "SSO" : p.kind, p.region].filter(Boolean).join(" · ")}</span>

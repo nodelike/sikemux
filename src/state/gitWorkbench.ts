@@ -1,10 +1,14 @@
 import { create } from "zustand";
-import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { git } from "../api/git";
+import { coreCall } from "../api/core";
+import { onCoreChanged } from "../api/coreChanged";
+import type { Draft } from "../api/generated/wire";
+import { swallow } from "./toast";
 import { runGitCmd } from "./git";
 import { errorText } from "../lib/format";
-import { DEFAULT_AI_PROVIDER, defaultAiModel } from "../git/gitPaneConstants";
-import type { CommitMessageAgentType } from "../agents/catalog";
+import { DEFAULT_AI_PROVIDER } from "../git/gitPaneConstants";
+import type { AgentType } from "../agents/catalog";
 
 interface Operation {
     label: string;
@@ -16,58 +20,36 @@ interface Operation {
 interface GitWorkbenchState {
     drafts: Record<string, string>;
     operations: Record<string, Operation>;
-    provider: CommitMessageAgentType;
+    provider: AgentType;
     model: string;
 }
 
-/*
- * A commit message is typed one character at a time, and every character used
- * to serialise this whole slice and write it to localStorage synchronously, on
- * the thread painting the editor next to it. The draft is worth keeping across
- * a reload; it is not worth a write per keystroke.
- *
- * Losing up to half a second of typing to a crash is the trade. Leaving the
- * window flushes immediately, which covers every way of closing it.
+/** How long typing rests before a commit message is kept by the core. */
+const DRAFT_PAUSE_MS = 300;
+
+const draftKey = (repo: string) => `git:${repo}`;
+
+/** Each repository's commit message as the core last kept it. */
+const kept = new Map<string, string>();
+const pausing = new Map<string, number>();
+
+/**
+ * Commit messages this app kept itself before the core kept drafts, held in its saved
+ * state until the core has every one of them.
  */
-const DRAFT_WRITE_DELAY_MS = 500;
-
-function coalescedStorage(): StateStorage {
-    let pending: { name: string; value: string } | null = null;
-    let timer: number | null = null;
-
-    const flush = () => {
-        if (timer !== null) {
-            window.clearTimeout(timer);
-            timer = null;
-        }
-        const write = pending;
-        pending = null;
-        if (write) localStorage.setItem(write.name, write.value);
-    };
-
-    window.addEventListener("pagehide", flush);
-    window.addEventListener("blur", flush);
-
-    return {
-        getItem: (name) => (pending?.name === name ? pending.value : localStorage.getItem(name)),
-        setItem: (name, value) => {
-            pending = { name, value };
-            if (timer === null) timer = window.setTimeout(flush, DRAFT_WRITE_DELAY_MS);
-        },
-        removeItem: (name) => {
-            if (pending?.name === name) pending = null;
-            localStorage.removeItem(name);
-        },
-    };
-}
-
-const draftStorage = coalescedStorage();
+let uncarried: Record<string, string> | null = null;
 
 export const useGitWorkbench = create<GitWorkbenchState>()(
-    persist(() => ({ drafts: {}, operations: {}, provider: DEFAULT_AI_PROVIDER, model: defaultAiModel(DEFAULT_AI_PROVIDER) }), {
+    persist(() => ({ drafts: {}, operations: {}, provider: DEFAULT_AI_PROVIDER, model: "" }), {
         name: "sikemux.git.workbench",
-        partialize: ({ drafts, provider, model }) => ({ drafts, provider, model }),
-        storage: createJSONStorage(() => draftStorage),
+        partialize: ({ provider, model }) => ({ provider, model, ...(uncarried ? { drafts: uncarried } : {}) }),
+        storage: createJSONStorage(() => localStorage),
+        onRehydrateStorage: () => (state) => {
+            const saved = Object.entries(state?.drafts ?? {}).filter(
+                (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== "",
+            );
+            uncarried = saved.length ? Object.fromEntries(saved) : null;
+        },
     }),
 );
 
@@ -75,6 +57,75 @@ export function setGitDraft(repo: string, value: string | ((current: string) => 
     useGitWorkbench.setState((state) => ({
         drafts: { ...state.drafts, [repo]: typeof value === "function" ? value(state.drafts[repo] ?? "") : value },
     }));
+    window.clearTimeout(pausing.get(repo));
+    pausing.set(
+        repo,
+        window.setTimeout(() => {
+            pausing.delete(repo);
+            keepDraft(repo, useGitWorkbench.getState().drafts[repo] ?? "").catch(swallow("keep the commit message"));
+        }, DRAFT_PAUSE_MS),
+    );
+}
+
+function keepDraft(repo: string, text: string): Promise<void> {
+    const before = kept.get(repo) ?? "";
+    if (before === text) return Promise.resolve();
+    kept.set(repo, text);
+    return coreCall<void>("setDraft", { key: draftKey(repo), text }).catch((error: unknown) => {
+        if (kept.get(repo) === text) kept.set(repo, before);
+        throw error;
+    });
+}
+
+/**
+ * Takes the commit messages the core keeps. One follows the core's only while nothing
+ * was typed here since they last agreed, so words typed here are never overwritten.
+ */
+function takeDrafts(drafts: Record<string, Draft>, asked: readonly string[] | null): void {
+    const repos = new Set(asked ? [] : [...kept.keys()]);
+    for (const key of asked ?? Object.keys(drafts)) if (key.startsWith("git:")) repos.add(key.slice(4));
+    const current = useGitWorkbench.getState().drafts;
+    const next = { ...current };
+    let changed = false;
+    for (const repo of repos) {
+        const text = drafts[draftKey(repo)]?.text ?? "";
+        const before = kept.get(repo) ?? "";
+        if (before === text) continue;
+        if ((current[repo] ?? "") === before) {
+            next[repo] = text;
+            changed = true;
+        }
+        kept.set(repo, text);
+    }
+    if (changed) useGitWorkbench.setState({ drafts: next });
+}
+
+/** Hands the core the commit messages this app kept itself, once each is taken. */
+async function carry(): Promise<void> {
+    if (!uncarried) return;
+    await Promise.all(Object.entries(uncarried).map(([repo, text]) => keepDraft(repo, text)));
+    uncarried = null;
+    useGitWorkbench.setState({});
+}
+
+/** Keeps the commit messages in step with the drafts the core keeps. */
+export function watchDrafts(): () => void {
+    let alive = true;
+    const read = (keys: readonly string[] | null) =>
+        coreCall<Record<string, Draft>>("drafts", keys ? { keys } : null)
+            .then((drafts) => alive && takeDrafts(drafts, keys))
+            .catch(swallow("read the kept drafts"));
+    void carry()
+        .catch(swallow("hand the core the saved commit messages"))
+        .then(() => read(null));
+    const stop = onCoreChanged("drafts", (change) => {
+        const keys = change.paths?.filter((key) => key.startsWith("git:")) ?? null;
+        if (!keys || keys.length) void read(keys);
+    });
+    return () => {
+        alive = false;
+        stop();
+    };
 }
 
 export async function runRepositoryGit(repo: string, label: string, action: () => Promise<unknown>): Promise<boolean> {

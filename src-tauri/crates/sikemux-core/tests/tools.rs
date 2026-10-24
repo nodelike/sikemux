@@ -266,6 +266,11 @@ async fn tools_answer_without_a_window() {
     let (_project_dir, project) = project_dir();
     let core = start_core(dir.path(), &dir.path().join("data"));
     let endpoint = core.endpoint.clone();
+    let (person, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let added = person
+        .call("addProject", json!({ "path": project }))
+        .await
+        .expect("the project");
 
     assert!(!window_open(&endpoint));
     assert!(
@@ -301,7 +306,12 @@ async fn tools_answer_without_a_window() {
     assert_eq!(inspect["runs"], json!([]));
     assert_eq!(inspect["cursor"], "0");
     assert_eq!(inspect["configStatus"], "absent");
-    assert!(inspect["note"].as_str().unwrap().contains("no panes"));
+    assert_eq!(inspect["sessionId"], added["id"]);
+    assert!(inspect["windows"].is_array());
+    assert!(inspect["note"]
+        .as_str()
+        .unwrap()
+        .contains("No Sikemux window is open"));
 
     let (mut reader, _) = connect(&endpoint);
     send(
@@ -439,15 +449,16 @@ async fn a_call_waiting_on_a_window_that_leaves_fails_and_a_new_window_takes_ove
         .await
         .expect("asked");
     let (replacement, _player) = open_window(&core).await;
-    assert_eq!(
-        pending.await.unwrap(),
-        Err("Sikemux's window closed before it answered".into())
-    );
     let opened = call(&endpoint, &project, "ui.open", json!({ "kind": "diff" }))
         .await
         .unwrap();
     assert_eq!(opened["kind"], "diff");
     drop(silent);
+    drop(silent_events);
+    assert_eq!(
+        pending.await.unwrap(),
+        Err("Sikemux's window closed before it answered".into())
+    );
     assert!(
         window_open(&endpoint),
         "the old window leaving does not close the new one"

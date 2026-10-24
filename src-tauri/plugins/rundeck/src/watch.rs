@@ -4,13 +4,15 @@
 
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sikemux_plugin_api::rundeck::RunNotice;
 use sikemux_plugin_api::{reply, PluginResult, StreamSink};
 use tokio::time::sleep;
 
 use crate::client::{get_json, Session};
 use crate::error::RundeckResult;
-use crate::executions::{Execution, WorkflowState};
+use crate::executions::{Execution, JobRef, WorkflowState};
+use crate::notice::{lost_run_notice, run_notice};
 
 #[derive(Serialize, Clone)]
 pub struct WatchUpdate {
@@ -18,6 +20,20 @@ pub struct WatchUpdate {
     pub state: Option<WorkflowState>,
     pub error: Option<String>,
     pub terminal: bool,
+    /// What to tell the person, once the run has ended.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<RunNotice>,
+}
+
+/// The job a watched run belongs to, to name it when Rundeck stops saying.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedJob {
+    job_id: String,
+    name: String,
+    #[serde(default)]
+    group: Option<String>,
+    project: String,
 }
 
 /// Polls allowed after the execution ends for the step view to catch up.
@@ -44,8 +60,68 @@ fn state_is_terminal(state: &WorkflowState) -> bool {
         })
 }
 
-pub async fn watch(session: Session, execution_id: u64, sink: StreamSink) -> PluginResult<()> {
-    follow(&session, execution_id, |update| sink.send(reply(update)?)).await
+pub async fn watch(
+    session: Session,
+    execution_id: u64,
+    job: Option<WatchedJob>,
+    branch_options: Vec<String>,
+    sink: StreamSink,
+) -> PluginResult<()> {
+    follow(&session, execution_id, |mut update| {
+        if update.terminal {
+            update.notice = Some(ended_notice(
+                &update,
+                execution_id,
+                job.as_ref(),
+                &branch_options,
+            ));
+        }
+        sink.send(reply(update)?)
+    })
+    .await
+}
+
+/// The last update can lack the run itself when Rundeck stopped answering; its
+/// step state may still say how it ended.
+fn ended_notice(
+    update: &WatchUpdate,
+    execution_id: u64,
+    job: Option<&WatchedJob>,
+    branch_options: &[String],
+) -> RunNotice {
+    if let Some(execution) = &update.execution {
+        return run_notice(execution, branch_options);
+    }
+    let status = update
+        .state
+        .as_ref()
+        .and_then(|state| state.execution_state.clone());
+    match (status, job) {
+        (Some(status), job) => run_notice(
+            &Execution {
+                id: execution_id,
+                status: Some(status),
+                custom_status: None,
+                user: None,
+                project: job.map(|job| job.project.clone()),
+                date_started: None,
+                date_ended: None,
+                permalink: None,
+                job: job.map(|job| JobRef {
+                    id: Some(job.job_id.clone()),
+                    name: Some(job.name.clone()),
+                    group: job.group.clone(),
+                    project: Some(job.project.clone()),
+                    options: None,
+                }),
+                argstring: None,
+                workflow_state: None,
+            },
+            branch_options,
+        ),
+        (None, Some(job)) => lost_run_notice(&job.name, job.group.as_deref(), execution_id),
+        (None, None) => lost_run_notice(&format!("Execution #{execution_id}"), None, execution_id),
+    }
 }
 
 /// Hands `each` the execution's state on every poll until it ends.
@@ -104,6 +180,7 @@ pub async fn follow(
             state,
             error,
             terminal,
+            notice: None,
         })?;
         if terminal {
             return Ok(());
@@ -149,5 +226,50 @@ mod tests {
             completed: Some(true),
             ..WorkflowState::default()
         }));
+    }
+
+    fn job() -> WatchedJob {
+        WatchedJob {
+            job_id: "j1".to_owned(),
+            name: "api".to_owned(),
+            group: Some("staging/backend".to_owned()),
+            project: "shop".to_owned(),
+        }
+    }
+
+    fn ended(state: Option<WorkflowState>) -> WatchUpdate {
+        WatchUpdate {
+            execution: None,
+            state,
+            error: Some("502".to_owned()),
+            terminal: true,
+            notice: None,
+        }
+    }
+
+    #[test]
+    fn says_how_the_run_ended_from_its_steps_when_rundeck_stopped_returning_the_run() {
+        let state = WorkflowState {
+            execution_state: Some("FAILED".to_owned()),
+            steps: Vec::new(),
+            step_count: Some(2),
+            completed: Some(true),
+        };
+        let notice = ended_notice(&ended(Some(state)), 7, Some(&job()), &[]);
+        assert!(!notice.ok);
+        assert_eq!(notice.title, "api on staging/backend failed");
+    }
+
+    #[test]
+    fn says_it_lost_track_of_a_run_when_rundeck_stopped_answering() {
+        assert_eq!(
+            ended_notice(&ended(None), 7, Some(&job()), &[]),
+            RunNotice {
+                ok: false,
+                title: "Lost track of staging/backend/api".to_owned(),
+                body: "Rundeck stopped answering before run #7 ended. Check it in Rundeck."
+                    .to_owned(),
+            }
+        );
     }
 }

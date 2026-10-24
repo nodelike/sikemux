@@ -10,11 +10,11 @@ const ATTRIBUTE_CONCURRENCY: usize = 6;
 
 #[derive(Serialize, Clone)]
 pub struct SqsQueue {
-    name: String,
-    url: String,
-    messages: Option<String>,
-    in_flight: Option<String>,
-    delayed: Option<String>,
+    pub(crate) name: String,
+    pub(crate) url: String,
+    pub(crate) messages: Option<String>,
+    pub(crate) in_flight: Option<String>,
+    pub(crate) delayed: Option<String>,
 }
 
 #[derive(Deserialize, Default)]

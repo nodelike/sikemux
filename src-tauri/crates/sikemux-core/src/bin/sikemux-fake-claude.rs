@@ -19,6 +19,10 @@
 //!
 //! A model change is answered the way Claude Code does, with a message saying
 //! so. `FAKE_CLAUDE_SETTINGS_MODEL` names the model its settings choose.
+//!
+//! An account is its `CLAUDE_CONFIG_DIR`: `auth status --json` prints its
+//! `fake-account.json`, or a signed-out status when there is none, and a usage
+//! request answers with its `fake-usage.json`, or no limits.
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
@@ -231,6 +235,8 @@ impl Claude {
                         "retry_delay_ms": 500, "error_status": null, "error": "unknown",
                     }));
                 }
+                // Claude waits before it retries, so the chat has time to say so.
+                std::thread::sleep(std::time::Duration::from_millis(100));
                 let assistant = json!({
                     "type": "assistant",
                     "uuid": uuid::Uuid::new_v4().to_string(),
@@ -253,6 +259,60 @@ impl Claude {
                 }));
                 let allowed = answer["behavior"] == "allow";
                 self.say(&message_id, if allowed { "allowed" } else { "denied" });
+                self.finish(uuid, None);
+            }
+            "question" => {
+                let input = json!({ "questions": [
+                    { "question": "Which database should the cache use?", "header": "Cache store", "options": [
+                        { "label": "Redis (recommended)", "description": "Fast, and already running here" },
+                        { "label": "SQLite", "description": "No server to keep up" }
+                    ] },
+                    { "question": "Which checks should run before landing?", "header": "Checks", "multiSelect": true, "options": [
+                        { "label": "Unit tests" }, { "label": "Clippy" }, { "label": "Format" }
+                    ] },
+                    { "question": "What is the database password?", "header": "Password", "isSecret": true }
+                ] });
+                self.ask(json!({ "subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": input, "tool_use_id": format!("toolu-{uuid}"), "permission_suggestions": [] }));
+                self.say(&message_id, "asked");
+                self.finish(uuid, None);
+            }
+            "delegate" => {
+                let (spawner, task, read) = (
+                    format!("toolu-task-{uuid}"),
+                    format!("task-{uuid}"),
+                    format!("toolu-read-{uuid}"),
+                );
+                let assistant = |id: String, parent: Option<&str>, content: Value| {
+                    json!({ "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": parent,
+                        "message": { "id": id, "model": "fake", "role": "assistant", "content": content } })
+                };
+                let result = |parent: Option<&str>, tool: &str, said: &str| {
+                    json!({ "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": parent,
+                        "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": tool, "content": said }] } })
+                };
+                let input = json!({ "description": "Find the adapter", "prompt": "Find where the chat adapter starts\nThen report back", "subagent_type": "Explore" });
+                self.send(assistant(
+                    format!("{message_id}-task"),
+                    None,
+                    json!([{ "type": "tool_use", "id": spawner, "name": "Task", "input": input }]),
+                ));
+                self.send(json!({ "type": "system", "subtype": "task_started", "task_id": task, "tool_use_id": spawner, "description": "Find the adapter", "subagent_type": "Explore", "task_type": "local_agent" }));
+                let looking = json!([{ "type": "text", "text": "Looking at the adapter." }, { "type": "tool_use", "id": read, "name": "Read", "input": { "file_path": "/tmp/src/adapter.ts" } }]);
+                self.send(assistant(
+                    format!("{message_id}-sub"),
+                    Some(&spawner),
+                    looking,
+                ));
+                self.send(result(Some(&spawner), &read, "export function start() {}"));
+                let ms: u64 = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                std::thread::sleep(Duration::from_millis(ms));
+                self.send(json!({ "type": "system", "subtype": "task_notification", "task_id": task, "status": "completed", "summary": "Found it" }));
+                self.send(result(
+                    None,
+                    &spawner,
+                    "The adapter starts in src/adapter.ts",
+                ));
+                self.say(&message_id, "It starts in src/adapter.ts.");
                 self.finish(uuid, None);
             }
             "hold" => {
@@ -325,6 +385,8 @@ impl Claude {
             Some("get_settings") => json!({
                 "effective": { "model": std::env::var("FAKE_CLAUDE_SETTINGS_MODEL").ok() },
             }),
+            Some("get_usage") => account_file("fake-usage.json")
+                .unwrap_or_else(|| json!({ "rate_limits_available": false })),
             _ => json!({}),
         };
         self.send(json!({
@@ -334,8 +396,20 @@ impl Claude {
     }
 }
 
+/// A file of the account the process runs as, from its config folder.
+fn account_file(name: &str) -> Option<Value> {
+    let folder = PathBuf::from(std::env::var_os("CLAUDE_CONFIG_DIR")?);
+    serde_json::from_slice(&std::fs::read(folder.join(name)).ok()?).ok()
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args[1..] == ["auth", "status", "--json"] {
+        let status =
+            account_file("fake-account.json").unwrap_or_else(|| json!({ "loggedIn": false }));
+        println!("{status}");
+        return;
+    }
     let resume = flag(&args, "resume");
     let session_id = resume
         .clone()

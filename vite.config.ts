@@ -84,17 +84,12 @@ function chunkName(id: string): string | undefined {
   ) {
     return "codemirror-setup";
   }
-  // Keep the opt-in renderer out of the default startup path. The
-  // dynamic import in useXterm loads this chunk only when the WebGL
-  // feature gate is enabled.
-  if (id.includes("@xterm/addon-webgl")) return "xterm-webgl";
   // The shader runtime is fetched only when a surface in
   // src/lib/shaderField.ts asks for one, so Rolldown already splits it
   // into its own lazy chunk. Naming it here instead would make Rolldown
   // export it as a namespace object that still points at the exports it
   // tree-shook away; chunkFileNames below gives it its name.
   if (id.includes("@paper-design/shaders")) return undefined;
-  if (id.includes("@xterm")) return "xterm";
   if (
     packagePath.startsWith("react/") ||
     packagePath.startsWith("react-dom/") ||

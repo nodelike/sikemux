@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fsapi } from "../api/fs";
 import { previewUrl } from "../editor/viewers/fileKinds";
 import { useStore } from "../state/store";
+import { preferencesOf } from "../state/preferences";
 
 const loads = new Map<string, Promise<HTMLImageElement | null>>();
 const loaded = new Map<string, HTMLImageElement | null>();
@@ -73,7 +74,7 @@ function loadPaneImage(path: string): Promise<HTMLImageElement | null> {
  * way. A pane made after it has loaded gets it on its first render.
  */
 export function usePaneImageState(): { image: HTMLImageElement | null; loading: boolean } {
-    const path = useStore((s) => s.paneImage);
+    const path = useStore((s) => preferencesOf(s).paneImage);
     const [image, setImage] = useState<{ path: string; image: HTMLImageElement | null } | null>(() =>
         path && loaded.has(path) ? { path, image: loaded.get(path) ?? null } : null,
     );

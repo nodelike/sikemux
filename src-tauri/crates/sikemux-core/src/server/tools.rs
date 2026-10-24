@@ -6,7 +6,7 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::os::fd::{AsRawFd, RawFd};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,7 +25,6 @@ use crate::cli::protocol::{
 };
 use crate::protocol::WindowCall;
 
-use super::plugins::{self, Failure, Pending, Sink, StreamEvent};
 use super::{harness, Core};
 
 const MAX_CONNECTIONS: usize = 128;
@@ -35,7 +34,6 @@ const REQUEST_READ_DEADLINE: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const OPEN_ACCEPT_TIMEOUT: Duration = Duration::from_secs(60);
 /// Items a plugin stream may get ahead of the window by before it is ended.
-const STREAM_BACKLOG: usize = 1024;
 const CUT_SHORT: &str = "Sikemux started updating its background process while answering this call, so it may already have happened; check before trying it again";
 
 pub(crate) struct ToolEndpoint {
@@ -332,39 +330,6 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             }
             return;
         }
-        CliClientCommand::PluginStream {
-            protocol,
-            token,
-            ticket,
-        } => {
-            let pending = authenticate(protocol, &token, secret).and_then(|()| {
-                plugins::redeem(&ticket)
-                    .ok_or_else(|| "this plugin stream's ticket is unknown or has expired".into())
-            });
-            let pending = match pending {
-                Ok(pending) => pending,
-                Err(message) => {
-                    write(&mut writer, &CliServerResponse::Error { message }).await;
-                    return;
-                }
-            };
-            let frozen = tokio::select! {
-                () = plugin_stream(&pending, &mut writer) => false,
-                () = until_closed(&mut reader) => false,
-                () = core.until_frozen() => true,
-            };
-            if frozen {
-                write(
-                    &mut writer,
-                    &CliServerResponse::Error {
-                        message: super::upgrade::UPDATING.into(),
-                    },
-                )
-                .await;
-            }
-            plugins::tell_agents_if_theirs(&core, &pending.plugin);
-            return;
-        }
     };
     let response = response.unwrap_or_else(|message| CliServerResponse::Error { message });
     write(&mut writer, &response).await;
@@ -383,7 +348,7 @@ async fn open(
         .map_err(|error| error.to_string())
         .and_then(|request| {
             core.window
-                .call(WindowCall::Open { request }, "open files", wait)
+                .call(WindowCall::Open { request }, "open files", wait, None)
         }) {
         Ok(call) => call,
         Err(message) => {
@@ -425,60 +390,4 @@ async fn open(
         _ => CliCloseReason::AppExit,
     };
     write(writer, &CliServerResponse::Closed { request_id, reason }).await;
-}
-
-/// Writes a plugin stream's events until it ends or the window stops reading.
-async fn plugin_stream(pending: &Pending, writer: &mut OwnedWriteHalf) {
-    let (sender, mut items) = tokio::sync::mpsc::channel(STREAM_BACKLOG);
-    let overflowed = Arc::new(AtomicBool::new(false));
-    let behind = overflowed.clone();
-    let sink: Sink = Box::new(move |value| match sender.try_send(value) {
-        Ok(()) => true,
-        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-            behind.store(true, Ordering::Release);
-            false
-        }
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => false,
-    });
-    let finished = plugins::stream(pending, sink);
-    tokio::pin!(finished);
-    let outcome = loop {
-        tokio::select! {
-            Some(value) = items.recv() => {
-                if !write(writer, &stream_line(StreamEvent::Item { value })).await {
-                    return;
-                }
-            }
-            outcome = &mut finished => break outcome,
-        }
-    };
-    while let Ok(value) = items.try_recv() {
-        if !write(writer, &stream_line(StreamEvent::Item { value })).await {
-            return;
-        }
-    }
-    let last = match outcome {
-        _ if overflowed.load(Ordering::Acquire) => StreamEvent::Error {
-            error: Failure::new(
-                &pending.plugin,
-                "overflow",
-                "Sikemux's window fell behind this stream",
-            ),
-        },
-        Ok(()) => StreamEvent::End,
-        Err(error) => StreamEvent::Error { error },
-    };
-    write(writer, &stream_line(last)).await;
-}
-
-fn stream_line(event: StreamEvent) -> CliServerResponse {
-    CliServerResponse::Result {
-        value: serde_json::to_value(event).unwrap_or_default(),
-    }
-}
-
-/// Resolves once the client closes its side of the connection.
-async fn until_closed(reader: &mut BufReader<OwnedReadHalf>) {
-    let mut byte = [0u8; 1];
-    while matches!(reader.read(&mut byte).await, Ok(read) if read > 0) {}
 }

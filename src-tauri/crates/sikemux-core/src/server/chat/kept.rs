@@ -2,9 +2,11 @@
 //! starts after this one died, or after the host restarted, takes each chat
 //! up again by itself and carries on a turn that was cut short.
 
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::clock::epoch_ms;
 use sikemux_process::user_environment::shell_var;
 use tokio::sync::watch;
 
@@ -18,6 +20,7 @@ use super::Origin;
 
 /// More chats than anyone runs at once; past this the rest are not read back.
 const MAX_KEPT: usize = 1024;
+const UNREADABLE: &str = "unreadable";
 
 /// A chat as it is written down. Its launch holds no provider keys and none
 /// of the person's shell variables; those are read again as it starts.
@@ -83,6 +86,14 @@ impl KeptChat {
         }
     }
 
+    /// Whether the chat holds anything to take up: a session, or a turn to send again.
+    pub(crate) fn begun(&self) -> bool {
+        self.launch.resume_id.is_some()
+            || self.working
+            || self.prompt.is_some()
+            || self.offline.is_some()
+    }
+
     /// The launch as it ran, its keys read again from the Keychain and its
     /// shell variables from the person's shell. Blocks.
     pub(crate) fn unsealed(&self, core: &Core) -> Result<ChatLaunch, String> {
@@ -135,7 +146,7 @@ pub(crate) fn forget(dir: &Path, feed: &str) {
     let _ = std::fs::remove_file(path(dir, feed));
 }
 
-/// Every chat an earlier core wrote down. One that cannot be read is gone.
+/// Every chat an earlier core wrote down. One that cannot be read is set aside.
 pub(crate) fn read(dir: &Path) -> Vec<KeptChat> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -157,16 +168,37 @@ pub(crate) fn read(dir: &Path) -> Vec<KeptChat> {
                 "sikemux core: chat {} is past the most kept and was not taken up again",
                 chat.launch.agent_id
             ),
-            Err(error) => {
-                eprintln!(
-                    "sikemux core: a chat written down at {} could not be read: {error}",
-                    path.display()
-                );
-                let _ = std::fs::remove_file(&path);
-            }
+            Err(error) => set_aside(&path, &error),
         }
     }
     chats
+}
+
+/// Moves a chat that cannot be read into a folder beside it that no core
+/// reads chats from, so what it held is still there to look at.
+fn set_aside(path: &Path, why: &str) {
+    let moved =
+        unreadable_place(path).and_then(|aside| std::fs::rename(path, &aside).map(|()| aside));
+    eprintln!(
+        "sikemux core: a chat written down at {} could not be read ({why}); {}",
+        path.display(),
+        match moved {
+            Ok(aside) => format!("it was kept as {}", aside.display()),
+            Err(error) => format!("it could not be moved aside: {error}"),
+        }
+    );
+}
+
+/// Where what `path` held is kept once it cannot be read: a folder beside it
+/// that nothing reads from.
+pub(super) fn unreadable_place(path: &Path) -> std::io::Result<PathBuf> {
+    let folder = path.with_file_name(UNREADABLE);
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&folder)?;
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    Ok(folder.join(format!("{}-{name}", epoch_ms())))
 }
 
 /// Writes a chat down again under `feed`, as a core taking it up names it.

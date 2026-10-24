@@ -1,5 +1,4 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
-import { useResourceEnabled } from "../../../plugin-api/resources";
 import {
     ContextMenu,
     IconChevron,
@@ -18,37 +17,47 @@ import {
     type ContextMenuItem,
 } from "../../../plugin-api/ui";
 import { errorText } from "../../../plugin-api/format";
-import { type Connected, type DatabaseProfile, type DatabaseTable } from "../api";
-import { addressOf, defaultSchema, engineLabel } from "../profileForm";
-import { databaseSchemasR, databaseTableR, databaseTablesR } from "../resources";
+import type { OpenNodes } from "../resources";
+import type { DatabaseConnection, DatabaseSchema, DatabaseTableEntry, DatabaseTableGroup } from "../types.generated";
 import { DatabaseMark } from "./DatabaseMark";
-
-export type TableGroup = "tables" | "views";
 
 export const connectionKey = (profile: string) => `c:${profile}`;
 export const schemaKey = (profile: string, schema: string) => `s:${profile}:${schema}`;
-export const groupKey = (profile: string, schema: string, group: TableGroup) => `g:${profile}:${schema}:${group}`;
+export const groupKey = (profile: string, schema: string, group: string) => `g:${profile}:${schema}:${group}`;
 export const tableKey = (profile: string, schema: string, table: string) => `t:${profile}:${schema}:${table}`;
 
-const GROUP_LABEL: Record<TableGroup, string> = { tables: "tables", views: "views" };
-
-export const groupOf = (table: DatabaseTable): TableGroup => (table.kind === "table" || table.kind === "foreign-table" ? "tables" : "views");
+/** What the explorer view reads, from the nodes the explorer has open. */
+export function openNodes(expanded: readonly string[]): OpenNodes[] {
+    const ids = expanded.filter((key) => key.startsWith("c:")).map((key) => key.slice(2));
+    return ids.sort().map((id) => {
+        const schemas = expanded
+            .filter((key) => key.startsWith(`s:${id}:`))
+            .map((key) => key.slice(`s:${id}:`.length))
+            .sort();
+        const tables = schemas.flatMap((schema) =>
+            expanded
+                .filter((key) => key.startsWith(`t:${id}:${schema}:`))
+                .map((key) => ({ schema, name: key.slice(`t:${id}:${schema}:`.length) }))
+                .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+        return { id, schemas, tables };
+    });
+}
 
 export interface ExplorerActions {
-    connect: (profile: DatabaseProfile) => Promise<void>;
-    disconnect: (profile: DatabaseProfile) => Promise<void>;
-    refresh: (profile: DatabaseProfile) => void;
-    newConsole: (profile: DatabaseProfile) => void;
-    history: (profile: DatabaseProfile) => void;
-    properties: (profile: DatabaseProfile) => void;
-    edit: (profile: DatabaseProfile) => void;
-    openTable: (profile: DatabaseProfile, schema: string, table: string) => void;
-    queryTable: (profile: DatabaseProfile, schema: string, table: string, run: boolean) => void;
+    connect: (connection: DatabaseConnection) => Promise<void>;
+    disconnect: (connection: DatabaseConnection) => Promise<void>;
+    refresh: () => void;
+    newConsole: (connection: DatabaseConnection) => void;
+    history: (connection: DatabaseConnection) => void;
+    properties: (connection: DatabaseConnection) => void;
+    edit: (connection: DatabaseConnection) => void;
+    openTable: (connection: DatabaseConnection, schema: string, table: string) => void;
+    queryTable: (connection: DatabaseConnection, sql: string, run: boolean) => void;
     copy: (text: string, what: string) => void;
 }
 
 interface Tree {
-    active: boolean;
     expanded: Set<string>;
     filter: string;
     /** The table whose tab is in front, by node key. */
@@ -60,11 +69,7 @@ interface Tree {
 }
 
 /** Every saved connection as a tree: connection, schema, tables and views, then each table's columns. */
-export function Explorer({
-    profiles,
-    connected,
-    ...tree
-}: Omit<Tree, "menu" | "expanded"> & { profiles: DatabaseProfile[]; connected: Connected[]; expanded: string[] }) {
+export function Explorer({ connections, ...tree }: Omit<Tree, "menu" | "expanded"> & { connections: DatabaseConnection[]; expanded: string[] }) {
     const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
     const shared: Tree = {
         ...tree,
@@ -77,13 +82,8 @@ export function Explorer({
     return (
         <>
             <ul className="db-explorer" role="tree" aria-label="Database explorer">
-                {profiles.map((profile) => (
-                    <ConnectionNode
-                        key={profile.id}
-                        profile={profile}
-                        connected={connected.find((entry) => entry.id === profile.id) ?? null}
-                        tree={shared}
-                    />
+                {connections.map((connection) => (
+                    <ConnectionNode key={connection.id} connection={connection} tree={shared} />
                 ))}
             </ul>
             {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
@@ -139,20 +139,20 @@ function Row({
     );
 }
 
-function ConnectionNode({ profile, connected, tree }: { profile: DatabaseProfile; connected: Connected | null; tree: Tree }) {
-    const key = connectionKey(profile.id);
+function ConnectionNode({ connection, tree }: { connection: DatabaseConnection; tree: Tree }) {
+    const key = connectionKey(connection.id);
     const [connecting, setConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const open = tree.expanded.has(key) && !!connected;
-    const schemas = useResourceEnabled(tree.active && !!connected, databaseSchemasR, profile.id);
-    const usual = defaultSchema(profile);
+    const connected = connection.connected !== null;
+    const open = tree.expanded.has(key) && connected;
+    const usual = connection.defaultSchema;
 
     const connect = async () => {
         setConnecting(true);
         setError(null);
         try {
-            await tree.actions.connect(profile);
-            tree.onExpand([key, ...(usual ? [schemaKey(profile.id, usual), groupKey(profile.id, usual, "tables")] : [])]);
+            await tree.actions.connect(connection);
+            tree.onExpand([key, ...(usual ? [schemaKey(connection.id, usual), groupKey(connection.id, usual, "tables")] : [])]);
         } catch (failure) {
             setError(errorText(failure));
         } finally {
@@ -165,35 +165,35 @@ function ConnectionNode({ profile, connected, tree }: { profile: DatabaseProfile
     };
     const items: ContextMenuItem[] = [
         connected
-            ? { label: "Disconnect", icon: <IconPower size={13} />, run: () => void tree.actions.disconnect(profile) }
+            ? { label: "Disconnect", icon: <IconPower size={13} />, run: () => void tree.actions.disconnect(connection) }
             : { label: "Connect", icon: <IconPlug size={13} />, run: () => void connect() },
-        { label: "New console", icon: <IconPlus size={13} />, disabled: !connected, run: () => tree.actions.newConsole(profile) },
-        { label: "History", icon: <IconClock size={13} />, run: () => tree.actions.history(profile) },
-        { label: "Refresh", icon: <IconRefresh size={13} />, disabled: !connected, run: () => tree.actions.refresh(profile) },
+        { label: "New console", icon: <IconPlus size={13} />, disabled: !connected, run: () => tree.actions.newConsole(connection) },
+        { label: "History", icon: <IconClock size={13} />, run: () => tree.actions.history(connection) },
+        { label: "Refresh", icon: <IconRefresh size={13} />, disabled: !connected, run: () => tree.actions.refresh() },
         { sep: true },
-        { label: "Properties", icon: <IconInfo size={13} />, run: () => tree.actions.properties(profile) },
-        { label: "Edit connection…", icon: <IconPencil size={13} />, run: () => tree.actions.edit(profile) },
-        { label: "Copy name", icon: <IconCopy size={13} />, run: () => tree.actions.copy(profile.name, "name") },
+        { label: "Properties", icon: <IconInfo size={13} />, run: () => tree.actions.properties(connection) },
+        { label: "Edit connection…", icon: <IconPencil size={13} />, run: () => tree.actions.edit(connection) },
+        { label: "Copy name", icon: <IconCopy size={13} />, run: () => tree.actions.copy(connection.name, "name") },
     ];
 
     return (
-        <li role="treeitem" aria-expanded={open} aria-label={profile.name}>
+        <li role="treeitem" aria-expanded={open} aria-label={connection.name}>
             <Row
                 depth={0}
                 open={open}
                 icon={<DatabaseMark size={14} />}
-                label={profile.name}
-                count={connected && schemas.data ? String(schemas.data.length) : null}
+                label={connection.name}
+                count={open && connection.schemas ? String(connection.schemas.length) : null}
                 detail={
                     connecting ? (
                         "connecting…"
                     ) : connected ? (
-                        <span className="db-dot" title={`Connected to ${connected.version}`} aria-label="Connected" />
+                        <span className="db-dot" title={`Connected to ${connection.connected}`} aria-label="Connected" />
                     ) : null
                 }
-                title={`${engineLabel(profile.engine)} · ${addressOf(profile)}`}
+                title={`${connection.engineName} · ${connection.address}`}
                 onClick={toggle}
-                onDoubleClick={() => connected && tree.actions.newConsole(profile)}
+                onDoubleClick={() => connected && tree.actions.newConsole(connection)}
                 onContextMenu={(event) => tree.menu(event, items)}
             />
             {error && (
@@ -203,14 +203,14 @@ function ConnectionNode({ profile, connected, tree }: { profile: DatabaseProfile
             )}
             {open && (
                 <ul role="group">
-                    {schemas.status === "error" ? (
+                    {connection.failed ? (
                         <NodeNote depth={1} error>
-                            {schemas.error}
+                            {connection.failed}
                         </NodeNote>
-                    ) : !schemas.data ? (
+                    ) : !connection.schemas ? (
                         <NodeNote depth={1}>Loading schemas…</NodeNote>
                     ) : (
-                        schemas.data.map((schema) => <SchemaNode key={schema} profile={profile} schema={schema} tree={tree} />)
+                        connection.schemas.map((schema) => <SchemaNode key={schema.name} connection={connection} schema={schema} tree={tree} />)
                     )}
                 </ul>
             )}
@@ -218,57 +218,51 @@ function ConnectionNode({ profile, connected, tree }: { profile: DatabaseProfile
     );
 }
 
-function SchemaNode({ profile, schema, tree }: { profile: DatabaseProfile; schema: string; tree: Tree }) {
-    const key = schemaKey(profile.id, schema);
+function SchemaNode({ connection, schema, tree }: { connection: DatabaseConnection; schema: DatabaseSchema; tree: Tree }) {
+    const key = schemaKey(connection.id, schema.name);
     const open = tree.expanded.has(key);
-    const tables = useResourceEnabled(tree.active, databaseTablesR, profile.id, schema);
-    const groups = (["tables", "views"] as const).map((group) => ({
-        group,
-        members: (tables.data ?? []).filter((table) => groupOf(table) === group),
-    }));
     const words = tree.filter.trim().toLowerCase();
+    const groups = schema.groups;
+    const count = groups?.reduce((sum, group) => sum + group.tables.length, 0);
 
     return (
-        <li role="treeitem" aria-expanded={open} aria-label={schema}>
+        <li role="treeitem" aria-expanded={open} aria-label={schema.name}>
             <Row
                 depth={1}
                 open={open}
                 icon={<span className="db-glyph">◫</span>}
-                label={schema}
-                count={tables.data ? String(tables.data.length) : null}
+                label={schema.name}
+                count={open && count !== undefined ? String(count) : null}
                 onClick={() => tree.onToggle(key)}
                 onContextMenu={(event) =>
                     tree.menu(event, [
-                        { label: "New console", icon: <IconPlus size={13} />, run: () => tree.actions.newConsole(profile) },
-                        { label: "Refresh", icon: <IconRefresh size={13} />, run: () => tree.actions.refresh(profile) },
-                        { label: "Copy name", icon: <IconCopy size={13} />, run: () => tree.actions.copy(schema, "schema name") },
+                        { label: "New console", icon: <IconPlus size={13} />, run: () => tree.actions.newConsole(connection) },
+                        { label: "Refresh", icon: <IconRefresh size={13} />, run: () => tree.actions.refresh() },
+                        { label: "Copy name", icon: <IconCopy size={13} />, run: () => tree.actions.copy(schema.name, "schema name") },
                     ])
                 }
             />
             {open && (
                 <ul role="group">
-                    {tables.status === "error" ? (
+                    {schema.failed ? (
                         <NodeNote depth={2} error>
-                            {tables.error}
+                            {schema.failed}
                         </NodeNote>
-                    ) : !tables.data ? (
+                    ) : !groups ? (
                         <NodeNote depth={2}>Loading tables…</NodeNote>
-                    ) : tables.data.length === 0 ? (
+                    ) : groups.length === 0 ? (
                         <NodeNote depth={2}>No tables here yet.</NodeNote>
                     ) : (
-                        groups
-                            .filter(({ members }) => members.length > 0)
-                            .map(({ group, members }) => (
-                                <GroupNode
-                                    key={group}
-                                    profile={profile}
-                                    schema={schema}
-                                    group={group}
-                                    members={words ? members.filter((table) => table.name.toLowerCase().includes(words)) : members}
-                                    total={members.length}
-                                    tree={tree}
-                                />
-                            ))
+                        groups.map((group) => (
+                            <GroupNode
+                                key={group.name}
+                                connection={connection}
+                                schema={schema.name}
+                                group={group}
+                                members={words ? group.tables.filter((table) => table.name.toLowerCase().includes(words)) : group.tables}
+                                tree={tree}
+                            />
+                        ))
                     )}
                 </ul>
             )}
@@ -277,36 +271,35 @@ function SchemaNode({ profile, schema, tree }: { profile: DatabaseProfile; schem
 }
 
 function GroupNode({
-    profile,
+    connection,
     schema,
     group,
     members,
-    total,
     tree,
 }: {
-    profile: DatabaseProfile;
+    connection: DatabaseConnection;
     schema: string;
-    group: TableGroup;
-    members: DatabaseTable[];
-    total: number;
+    group: DatabaseTableGroup;
+    members: DatabaseTableEntry[];
     tree: Tree;
 }) {
-    const key = groupKey(profile.id, schema, group);
+    const key = groupKey(connection.id, schema, group.name);
     const open = tree.expanded.has(key);
+    const total = group.tables.length;
     return (
-        <li role="treeitem" aria-expanded={open} aria-label={`${schema} ${GROUP_LABEL[group]}`}>
+        <li role="treeitem" aria-expanded={open} aria-label={`${schema} ${group.name}`}>
             <Row
                 depth={2}
                 open={open}
                 icon={<IconFolder size={13} />}
-                label={GROUP_LABEL[group]}
+                label={group.name}
                 count={members.length === total ? String(total) : `${members.length} of ${total}`}
                 onClick={() => tree.onToggle(key)}
             />
             {open && (
                 <ul role="group">
                     {members.map((table) => (
-                        <TableNode key={table.name} profile={profile} schema={schema} table={table} tree={tree} />
+                        <TableNode key={table.name} connection={connection} schema={schema} table={table} tree={tree} />
                     ))}
                 </ul>
             )}
@@ -314,8 +307,8 @@ function GroupNode({
     );
 }
 
-function TableNode({ profile, schema, table, tree }: { profile: DatabaseProfile; schema: string; table: DatabaseTable; tree: Tree }) {
-    const key = tableKey(profile.id, schema, table.name);
+function TableNode({ connection, schema, table, tree }: { connection: DatabaseConnection; schema: string; table: DatabaseTableEntry; tree: Tree }) {
+    const key = tableKey(connection.id, schema, table.name);
     const open = tree.expanded.has(key);
     const { actions } = tree;
     return (
@@ -326,17 +319,17 @@ function TableNode({ profile, schema, table, tree }: { profile: DatabaseProfile;
                 current={tree.current === key}
                 icon={<span className={`db-glyph ${table.kind}`}>{table.kind === "table" ? "▦" : "◇"}</span>}
                 label={table.name}
-                title={`${schema}.${table.name}, a ${table.kind.replace("-", " ")}`}
-                onClick={() => actions.openTable(profile, schema, table.name)}
-                onDoubleClick={() => actions.queryTable(profile, schema, table.name, true)}
+                title={`${schema}.${table.name}, a ${table.kindName}`}
+                onClick={() => actions.openTable(connection, schema, table.name)}
+                onDoubleClick={() => actions.queryTable(connection, table.preview, true)}
                 onContextMenu={(event) =>
                     tree.menu(event, [
-                        { label: "Open", icon: <IconFile size={13} />, run: () => actions.openTable(profile, schema, table.name) },
-                        { label: "Preview rows", icon: <IconEye size={13} />, run: () => actions.queryTable(profile, schema, table.name, true) },
+                        { label: "Open", icon: <IconFile size={13} />, run: () => actions.openTable(connection, schema, table.name) },
+                        { label: "Preview rows", icon: <IconEye size={13} />, run: () => actions.queryTable(connection, table.preview, true) },
                         {
                             label: "Query this table",
                             icon: <IconCode size={13} />,
-                            run: () => actions.queryTable(profile, schema, table.name, false),
+                            run: () => actions.queryTable(connection, table.preview, false),
                         },
                         { label: open ? "Hide columns" : "Show columns", icon: <IconChevron size={13} />, run: () => tree.onToggle(key) },
                         { sep: true },
@@ -349,23 +342,22 @@ function TableNode({ profile, schema, table, tree }: { profile: DatabaseProfile;
                     ])
                 }
             />
-            {open && <ColumnNodes profile={profile} schema={schema} table={table.name} tree={tree} />}
+            {open && <ColumnNodes table={table} tree={tree} />}
         </li>
     );
 }
 
-function ColumnNodes({ profile, schema, table, tree }: { profile: DatabaseProfile; schema: string; table: string; tree: Tree }) {
-    const info = useResourceEnabled(tree.active, databaseTableR, profile.id, schema, table);
+function ColumnNodes({ table, tree }: { table: DatabaseTableEntry; tree: Tree }) {
     return (
         <ul role="group">
-            {info.status === "error" ? (
+            {table.failed ? (
                 <NodeNote depth={4} error>
-                    {info.error}
+                    {table.failed}
                 </NodeNote>
-            ) : !info.data ? (
+            ) : !table.columns ? (
                 <NodeNote depth={4}>Loading columns…</NodeNote>
             ) : (
-                info.data.columns.map((column) => (
+                table.columns.map((column) => (
                     <li key={column.name} role="treeitem" aria-label={column.name}>
                         <Row
                             depth={4}

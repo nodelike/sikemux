@@ -11,7 +11,7 @@ vi.mock("../../api/plugins", async () => (await import("../../plugin-api/fakeTra
 vi.mock("../../state/resources", async (importOriginal) => ({ ...(await importOriginal<object>()), invalidate: fake.invalidate }));
 
 import { errorText } from "../../plugin-api/format";
-import { actionsApi, avatarForEmail, avatarForLogin, githubHostApi, type RunTick } from "./api";
+import { actionsApi, avatarForEmail, avatarForLogin, githubHostApi } from "./api";
 
 const repo = { provider: "sikemux.github", owner: "nodelike", name: "sikemux" };
 const refused = { category: "auth", message: "github: sign-in failed: Bad credentials" };
@@ -45,18 +45,6 @@ describe("a refused token", () => {
             handlers.onError?.(refused);
         });
         await expect(githubHostApi.downloadArtifact(repo, "3", "build")).rejects.toBe(refused);
-        expect(recheckedSignIn()).toBe(true);
-    });
-
-    it("has it read again when a watched run finds the account signed out", () => {
-        let onTick: (tick: RunTick) => void = () => {};
-        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<RunTick>) => {
-            onTick = handlers.onItem;
-        });
-        const seen = vi.fn();
-        githubHostApi.watch(repo, "7", { onItem: seen });
-        onTick({ run: null, jobs: [], error: "github: not signed in", finished: true, fatal: true, signedOut: true });
-        expect(seen).toHaveBeenCalledTimes(1);
         expect(recheckedSignIn()).toBe(true);
     });
 });
@@ -182,36 +170,6 @@ describe("downloads", () => {
     it("fails when the stream ends without saving anything", async () => {
         streamOf([{ received: 1, total: 2, saved: null }]);
         await expect(githubHostApi.downloadArtifact(repo, "3", "build")).rejects.toThrow("without saving");
-    });
-});
-
-describe("watching a run", () => {
-    it("hands over ticks and keeps the views while signed in", () => {
-        let onTick: (tick: unknown) => void = () => {};
-        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) => {
-            onTick = handlers.onItem;
-        });
-        const seen = vi.fn();
-        githubHostApi.watch(repo, "7", { onItem: seen });
-        expect(fake.stream).toHaveBeenCalledWith("watchRun", { ...repo, runId: "7" }, expect.anything());
-        onTick({
-            run: { id: "7", workflowId: "1" },
-            jobs: [{ id: "5", checkRunId: "6" }],
-            error: null,
-            finished: false,
-            fatal: false,
-            signedOut: false,
-        });
-        expect(seen.mock.calls[0][0]).toMatchObject({ run: { id: "7" }, jobs: [{ id: "5", checkRunId: "6" }] });
-        expect(fake.invalidate).not.toHaveBeenCalled();
-    });
-
-    it("has the sign-in status read again when the watch fails for a refused token", () => {
-        const onError = vi.fn();
-        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) => handlers.onError?.(refused));
-        githubHostApi.watch(repo, "7", { onItem: vi.fn(), onError });
-        expect(onError).toHaveBeenCalledWith(refused);
-        expect(recheckedSignIn()).toBe(true);
     });
 });
 

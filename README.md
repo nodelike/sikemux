@@ -4,7 +4,7 @@
 
 **The IDE for you and your coding agents.**
 
-Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, logs and deploys, in one 16 MB native app.
+Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, logs and deploys, in one 22 MB native app.
 
 ![Sikemux with a Claude Code agent and its browser tab](public/screenshots/sikemux-hero.png)
 
@@ -22,7 +22,7 @@ curl -fsSL https://sikemux.com/install | sh
 
 On a Mac this puts Sikemux in `/Applications`; on Linux it asks whether you want the desktop app (x86_64: the `.deb` or `.rpm`, or the AppImage in `~/Applications`) or just the core for a server. Add `SIKEMUX_CHANNEL=nightly` before `sh` for the nightly build.
 
-Or download the latest `.dmg` from [sikemux.com](https://sikemux.com) or [Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 16 MB, needs macOS 11 or later on Apple Silicon, and keeps itself up to date.
+Or download the latest `.dmg` from [sikemux.com](https://sikemux.com) or [Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 22 MB, needs macOS 11 or later on Apple Silicon, and keeps itself up to date.
 
 On x86_64 Linux, the `.deb`, `.rpm` and `.AppImage` are in the same release:
 
@@ -105,7 +105,7 @@ You need [Rust](https://www.rust-lang.org/tools/install), Node.js 22+, and [pnpm
 git clone git@github.com:nodelike/sikemux.git
 cd sikemux
 pnpm install
-make dev     # hot reload, runs beside the installed app
+make dev     # builds and opens Sikemux Dev, beside the installed app
 make build   # Apple Silicon app and DMG
 make check   # every quality gate
 ```

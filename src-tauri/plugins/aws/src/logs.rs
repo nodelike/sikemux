@@ -6,8 +6,8 @@ use std::process::Stdio;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use sikemux_plugin_api::{PluginResult, StreamSink};
+use sikemux_plugin_api::aws::{LogLevel, LogLine};
+use sikemux_plugin_api::{reply, PluginResult, StreamSink};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -22,6 +22,8 @@ const SCANNED_EVENTS: &str = "2000";
 const MAX_MESSAGE_CHARS: usize = 2000;
 const RESULT_BUDGET: usize = 24_000;
 const SUGGESTED_GROUPS: &str = "30";
+const ERROR_WORDS: [&str; 6] = ["ERROR", "ERR", "FATAL", "CRITICAL", "PANIC", "SEVERE"];
+const WARN_WORDS: [&str; 2] = ["WARN", "WARNING"];
 
 #[derive(Serialize)]
 pub struct LogSearch {
@@ -288,21 +290,85 @@ pub(crate) async fn tail(
     loop {
         tokio::select! {
             line = out_lines.next_line() => match line {
-                Ok(Some(line)) => sink.send(Value::String(line))?,
+                Ok(Some(line)) => send(&sink, tailed(&line))?,
                 _ => break,
             },
             line = err_lines.next_line(), if stderr_open => match line {
-                Ok(Some(line)) => sink.send(Value::String(format!("[err] {line}")))?,
+                Ok(Some(line)) => send(&sink, from_cli(line))?,
                 _ => stderr_open = false,
             },
         }
     }
     while stderr_open {
         match err_lines.next_line().await {
-            Ok(Some(line)) => sink.send(Value::String(format!("[err] {line}")))?,
+            Ok(Some(line)) => send(&sink, from_cli(line))?,
             _ => stderr_open = false,
         }
     }
     let _ = child.wait().await;
     Ok(())
+}
+
+fn send(sink: &StreamSink, line: Option<LogLine>) -> PluginResult<()> {
+    match line {
+        Some(line) => sink.send(reply(line)?),
+        None => Ok(()),
+    }
+}
+
+/// A line `aws logs tail --format short` printed: its time, then the event's text.
+fn tailed(line: &str) -> Option<LogLine> {
+    if line.trim().is_empty() {
+        return None;
+    }
+    let dated = line.split_once(' ').and_then(|(stamp, text)| {
+        let (day, clock) = stamp.split_once('T')?;
+        let clock = clock.get(..8)?;
+        let shaped = |text: &str, form: &str| {
+            text.len() == form.len()
+                && text.chars().zip(form.chars()).all(|(c, f)| {
+                    if f == '9' {
+                        c.is_ascii_digit()
+                    } else {
+                        c == f
+                    }
+                })
+        };
+        (shaped(day, "9999-99-99") && shaped(clock, "99:99:99")).then_some((day, clock, text))
+    });
+    let (day, clock, text) = match dated {
+        Some((day, clock, text)) => (Some(day.to_owned()), Some(clock.to_owned()), text),
+        None => (None, None, line),
+    };
+    let text = plain(text);
+    Some(LogLine {
+        level: level_of(&text),
+        text,
+        day,
+        clock,
+    })
+}
+
+/// Something the CLI itself said, such as its sign-in having run out.
+fn from_cli(line: String) -> Option<LogLine> {
+    (!line.trim().is_empty()).then(|| LogLine {
+        day: None,
+        clock: None,
+        text: plain(&line),
+        level: Some(LogLevel::Error),
+    })
+}
+
+fn level_of(text: &str) -> Option<LogLevel> {
+    let words = || {
+        text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .map(str::to_ascii_uppercase)
+    };
+    if words().any(|word| ERROR_WORDS.contains(&word.as_str())) {
+        Some(LogLevel::Error)
+    } else if words().any(|word| WARN_WORDS.contains(&word.as_str())) {
+        Some(LogLevel::Warn)
+    } else {
+        None
+    }
 }

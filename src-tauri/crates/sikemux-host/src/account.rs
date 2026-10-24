@@ -4,14 +4,14 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use reqwest::{Client, Response};
+use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sikemux_core::accounts::host::{
     HostSignIn, HostSignInFinish, HostSignInPoll, HostSignInStart, HostSignInState,
     HostSignInStatus,
 };
-use sikemux_core::accounts::protocol::{ApiError, Device};
+use sikemux_core::accounts::protocol::Device;
 use sikemux_core::client::CoreClient;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -32,15 +32,6 @@ pub fn http() -> &'static Client {
             .build()
             .expect("build the account server's HTTP client")
     })
-}
-
-/// Why the accounts server turned a request down, in words for the person.
-pub async fn refusal(response: Response) -> String {
-    let status = response.status();
-    match response.json::<ApiError>().await {
-        Ok(body) => format!("the account server refused: {}", body.error.message),
-        Err(_) => format!("the account server answered {status}"),
-    }
 }
 
 /// Signs this host in without a browser. `show` gets the code its person
@@ -104,7 +95,7 @@ async fn post<T: DeserializeOwned>(path: &str, body: &impl Serialize) -> Result<
         .await
         .map_err(|error| error.to_string())?;
     if !response.status().is_success() {
-        return Err(refusal(response).await);
+        return Err(sikemux_core::accounts::refusal(response).await);
     }
     response.json().await.map_err(|error| error.to_string())
 }

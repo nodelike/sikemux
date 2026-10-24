@@ -36,7 +36,6 @@ mod releases;
 mod repo;
 mod review;
 mod runs;
-mod watch;
 mod workflows;
 
 use std::sync::Arc;
@@ -238,7 +237,6 @@ async fn dispatch_stream(
 ) -> Result<(), PluginError> {
     let data_dir = ctx.data_dir();
     match method {
-        "watchRun" => watch::run(data_dir, params(input)?, sink).await,
         "downloadArtifact" => artifacts::download(data_dir, params(input)?, &sink).await,
         "downloadAsset" => releases::download(data_dir, params(input)?, &sink).await,
         _ => Err(PluginError::unknown_method(method)),

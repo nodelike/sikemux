@@ -17,7 +17,7 @@ use sikemux_client::client::{ClientError, CoreClient, EventSink, Reply};
 use sikemux_client::join::{JoinHello, JoinReply};
 use sikemux_wire::accounts::protocol::{JoinTicket, Relay};
 use sikemux_wire::protocol::{
-    CallId, Event, NotifyPrefs, Request, Response, SessionId, WindowCall, MAX_ATTACHMENT_BYTES,
+    CallId, Event, NotifyPrefs, Request, Response, StreamId, WindowCall, MAX_ATTACHMENT_BYTES,
     OLDEST_PROTOCOL_VERSION, WAKE_WAIT,
 };
 use tokio::sync::mpsc;
@@ -403,7 +403,7 @@ enum Delivery {
 struct ListenerSink(mpsc::UnboundedSender<Delivery>);
 
 impl EventSink for ListenerSink {
-    fn output(&self, _id: SessionId, _bytes: &[u8]) {}
+    fn grid(&self, _stream: StreamId, _frame: &[u8]) {}
 
     fn event(&self, event: Event) {
         if let Some(event) = CoreEvent::from_core(event) {
@@ -511,7 +511,7 @@ impl Connection {
     async fn ask(&self, request: Request) -> Result<Response, MobileError> {
         match self.reply(request).await? {
             Reply::Response(response) => Ok(response),
-            Reply::Attached(_) => Err(unexpected()),
+            Reply::Attached(_) | Reply::Lines(_) => Err(unexpected()),
         }
     }
 
@@ -605,15 +605,16 @@ impl Connection {
         }
     }
 
-    /// The turns before event `before` of the chat's run `feed`, a page at a
-    /// time, for a chat the phone was sent only the end of.
+    /// The rows before event `before` of the chat's run `feed`, a page at a
+    /// time, as the core's `ChatPage` JSON, for a chat the phone was sent only
+    /// the end of.
     pub async fn chat_history(
         &self,
         agent_id: String,
         feed: String,
         before: u64,
         turns: u32,
-    ) -> Result<ChatHistory, MobileError> {
+    ) -> Result<String, MobileError> {
         let request = Request::AcpHistory {
             agent_id,
             feed,
@@ -621,13 +622,7 @@ impl Connection {
             turns,
         };
         match self.ask(request).await? {
-            Response::ChatHistory {
-                events,
-                older_before,
-            } => Ok(ChatHistory {
-                events_json: records::json(&events),
-                older_before,
-            }),
+            Response::ChatHistory { page } => Ok(records::json(&page)),
             _ => Err(unexpected()),
         }
     }
@@ -638,16 +633,18 @@ impl Connection {
     }
 
     /// `paths` are files on the host, such as those [`Self::attach_file`]
-    /// answers with.
+    /// answers with. `message_id` names the message, so the phone knows the
+    /// row the host shows it in, and so it can be edited later.
     pub async fn prompt(
         &self,
         agent_id: String,
+        message_id: Option<String>,
         text: String,
         paths: Vec<String>,
     ) -> Result<(), MobileError> {
         self.done(Request::AcpPrompt {
             agent_id,
-            message_id: None,
+            message_id,
             text,
             paths,
             context: Vec::new(),
@@ -1095,10 +1092,7 @@ mod tests {
         Event::Chat {
             agent_id: "agent".into(),
             seq,
-            event: sikemux_wire::protocol::ChatEvent {
-                kind: sikemux_wire::protocol::ChatEventKind::TurnStarted,
-                payload: serde_json::json!({}),
-            },
+            changes: serde_json::json!([]),
         }
     }
 
@@ -1124,7 +1118,7 @@ mod tests {
         let sink = ListenerSink(deliveries);
         sink.event(chat_event(1));
         sink.event(chat_event(2));
-        sink.output(7, b"ab");
+        sink.grid(7, b"ab");
         sink.event(chat_event(3));
         sink.closed();
         deliver(recorder.clone(), queue, Arc::new(AtomicBool::new(true)));

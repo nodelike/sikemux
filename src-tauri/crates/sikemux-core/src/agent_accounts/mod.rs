@@ -4,6 +4,7 @@
 //! variables it gets. Signing in runs the agent's own login; Sikemux never
 //! reads or stores a credential.
 
+pub mod defaults;
 pub mod folders;
 pub mod status;
 pub mod usage;

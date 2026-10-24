@@ -3,15 +3,16 @@
 //! sees the same account and the same limits the agent does.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::sync::Locked;
 use sikemux_pty::user_shell::login_shell_environment;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
 
 use super::{cli, key};
 use crate::agent_catalog::AgentKind;
@@ -126,15 +127,108 @@ pub async fn usage(
         Err(error) if refused(error) => REFUSED_TTL,
         Err(_) => FAILED_TTL,
     };
+    if let Ok(usage) = &lookup {
+        note_reading(&key, usage);
+    }
     usage_cache()
         .locked()
         .insert(key, (Instant::now(), ttl, lookup.clone()));
     lookup
 }
 
+/// An account's last good reading and when it was taken, in Unix milliseconds.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Reading {
+    pub read_at: u64,
+    pub usage: Value,
+}
+
+/// Each account's last good reading, kept in a file across restarts once the core names one,
+/// so the limits show at once after a restart.
+#[derive(Default)]
+struct Readings {
+    file: Option<PathBuf>,
+    by_account: BTreeMap<String, Reading>,
+}
+
+fn readings() -> &'static Mutex<Readings> {
+    static READINGS: OnceLock<Mutex<Readings>> = OnceLock::new();
+    READINGS.get_or_init(Default::default)
+}
+
+/// Keeps each account's last reading in `file`, taking up what an earlier core kept there.
+pub(crate) fn keep_readings_in(file: PathBuf) {
+    let kept = std::fs::read(&file)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    *readings().locked() = Readings {
+        file: Some(file),
+        by_account: kept,
+    };
+}
+
+fn note_reading(key: &str, usage: &Usage) {
+    let Ok(usage) = serde_json::to_value(usage) else {
+        return;
+    };
+    let read_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis() as u64);
+    let mut readings = readings().locked();
+    readings
+        .by_account
+        .insert(key.to_owned(), Reading { read_at, usage });
+    save(&readings);
+}
+
+fn save(readings: &Readings) {
+    let Some(file) = &readings.file else {
+        return;
+    };
+    let written = serde_json::to_vec(&readings.by_account)
+        .map_err(std::io::Error::other)
+        .and_then(|bytes| sikemux_process::files::write_atomic(file, &bytes, true));
+    match written {
+        Err(error) => eprintln!("sikemux core: could not keep the plan limits read: {error}"),
+        Ok(()) => {
+            static FIRST: std::sync::Once = std::sync::Once::new();
+            FIRST.call_once(|| {
+                eprintln!(
+                    "sikemux core: kept plan limits in {} (first save since start)",
+                    file.display()
+                )
+            });
+        }
+    }
+}
+
+/// The account's last good reading, however old, without asking its CLI.
+pub(crate) fn last_reading(provider: &str, config_path: Option<&str>) -> Option<Reading> {
+    readings()
+        .locked()
+        .by_account
+        .get(&key(provider, config_path))
+        .cloned()
+}
+
+/// Why the account's latest lookup failed, while that failure is remembered.
+pub(crate) fn last_problem(provider: &str, config_path: Option<&str>) -> Option<String> {
+    match usage_cache().locked().get(&key(provider, config_path)) {
+        Some((_, _, Err(problem))) => Some(problem.clone()),
+        _ => None,
+    }
+}
+
 /// Drops the usage remembered for one account, whose sign-in just changed.
 pub(crate) fn forget(provider: &str, config_path: Option<&str>) {
-    usage_cache().locked().remove(&key(provider, config_path));
+    let key = key(provider, config_path);
+    usage_cache().locked().remove(&key);
+    let mut readings = readings().locked();
+    if readings.by_account.remove(&key).is_some() {
+        save(&readings);
+    }
 }
 
 fn clean(value: &str) -> Option<String> {
@@ -167,8 +261,9 @@ fn claude_subscription_override_present() -> bool {
     })
 }
 
-const CLAUDE_STREAM_ARGS: &[&str] = &[
+pub(crate) const CLAUDE_STREAM_ARGS: &[&str] = &[
     "--print",
+    "--no-session-persistence",
     "--output-format",
     "stream-json",
     "--verbose",
@@ -218,6 +313,16 @@ async fn run(
     for key in removed_env {
         command.env_remove(key);
     }
+    ask(provider, command, args, input).await
+}
+
+/// Runs `command` once with `args`, writing `input` and answering what it printed.
+pub(crate) async fn ask(
+    provider: &str,
+    mut command: Command,
+    args: &[&str],
+    input: &str,
+) -> Result<String, String> {
     command
         .args(args)
         .stdin(std::process::Stdio::piped())
@@ -283,7 +388,17 @@ pub(super) async fn codex_app_server(
     method: &str,
     topic: &str,
 ) -> Result<Value, String> {
-    let mut command = cli("codex", executable, config_path, BTreeMap::new());
+    let command = cli("codex", executable, config_path, BTreeMap::new());
+    codex_ask(command, method, Value::Null, topic).await
+}
+
+/// Asks `command`, a `codex` program, one question as a short-lived app server.
+pub(crate) async fn codex_ask(
+    mut command: Command,
+    method: &str,
+    params: Value,
+    topic: &str,
+) -> Result<Value, String> {
     command
         .args(["app-server", "--stdio"])
         .stdin(std::process::Stdio::piped())
@@ -344,7 +459,7 @@ pub(super) async fn codex_app_server(
                 }
                 let requests = format!(
                     "{{\"method\":\"initialized\"}}\n{}\n",
-                    serde_json::json!({ "id": CODEX_USAGE_REQUEST_ID, "method": method, "params": null })
+                    serde_json::json!({ "id": CODEX_USAGE_REQUEST_ID, "method": method, "params": params })
                 );
                 stdin
                     .write_all(requests.as_bytes())
@@ -408,8 +523,9 @@ fn push_claude_usage_window(
     });
 }
 
-fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
-    let payload = text.lines().find_map(|line| {
+/// What Claude answered the control request `request_id`, among the lines it printed.
+pub(crate) fn control_answer(text: &str, request_id: &str) -> Option<Value> {
+    text.lines().find_map(|line| {
         let value: Value = serde_json::from_str(line).ok()?;
         let response = value.get("response")?;
         if value.get("type").and_then(Value::as_str) != Some("control_response")
@@ -419,7 +535,11 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
             return None;
         }
         response.get("response").cloned()
-    })?;
+    })
+}
+
+fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
+    let payload = control_answer(text, request_id)?;
 
     if !payload.get("rate_limits").is_some_and(Value::is_object)
         && payload

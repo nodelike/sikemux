@@ -1,6 +1,5 @@
 //! How devices show the open agents: the group each is in, the word beside
-//! it, and where it sits in the list. The app's own copy of the rule is
-//! `src/state/agentStatus.ts`.
+//! it, and where it sits in the list.
 
 use std::cmp::Reverse;
 
@@ -24,6 +23,37 @@ fn status(group: AgentGroup) -> AgentStatus {
         AgentGroup::Working => AgentStatus::Working,
         AgentGroup::Done => AgentStatus::Done,
         AgentGroup::Idle => AgentStatus::Idle,
+    }
+}
+
+/// The one word every client shows for an agent in `group`.
+pub(crate) fn group_label(group: AgentGroup) -> &'static str {
+    match group {
+        AgentGroup::Blocked => "Needs input",
+        AgentGroup::Working => "Working",
+        AgentGroup::Done => "Done",
+        AgentGroup::Idle => "Idle",
+    }
+}
+
+/// The group a status puts an agent in; one starting up already counts as
+/// at work.
+pub(crate) fn group_of_status(status: AgentStatus) -> AgentGroup {
+    match status {
+        AgentStatus::Blocked => AgentGroup::Blocked,
+        AgentStatus::Working | AgentStatus::Starting => AgentGroup::Working,
+        AgentStatus::Done => AgentGroup::Done,
+        AgentStatus::Idle | AgentStatus::Asleep | AgentStatus::Stopped => AgentGroup::Idle,
+    }
+}
+
+/// The word for an agent's status, where a list says more than its group.
+pub(crate) fn status_label(status: AgentStatus) -> &'static str {
+    match status {
+        AgentStatus::Asleep => "Sleeping",
+        AgentStatus::Stopped => "Stopped",
+        AgentStatus::Starting => "Starting…",
+        status => group_label(group_of_status(status)),
     }
 }
 

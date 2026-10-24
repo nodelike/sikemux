@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import { openSurface } from "../../plugin-api/host";
 import { definePluginSettings } from "../../plugin-api/settings";
+import { awsApi } from "./api";
 import { AWS_CONSOLE, AWS_PLUGIN } from "./kinds";
+import { aws, awsProfileR } from "./resources";
 
 export type AwsService = "ecs" | "ec2" | "lambda" | "sqs" | "billing" | "s3";
 export const AWS_SERVICES: AwsService[] = ["ecs", "ec2", "lambda", "sqs", "billing", "s3"];
@@ -18,7 +20,6 @@ export type EcsLevel =
       };
 
 export interface AwsSettings {
-    profile: string | null;
     service: AwsService;
 }
 
@@ -27,15 +28,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> => !!value &
 function decodeSettings(saved: unknown): AwsSettings {
     const raw = isRecord(saved) ? saved : {};
     return {
-        profile: typeof raw.profile === "string" && raw.profile ? raw.profile : null,
         service: (AWS_SERVICES as unknown[]).includes(raw.service) ? (raw.service as AwsService) : "ecs",
     };
 }
 
 export const awsSettings = definePluginSettings(AWS_PLUGIN.id, decodeSettings);
 
-export function setAwsProfile(profile: string | null): void {
-    awsSettings.update((settings) => ({ ...settings, profile }));
+/** Picks the profile the pane shows and its sign-in is checked as. */
+export async function setAwsProfile(profile: string | null): Promise<void> {
+    await awsApi.pickProfile(profile);
+    aws.refresh(awsProfileR, aws.statusR);
 }
 
 export function setAwsService(service: AwsService): void {

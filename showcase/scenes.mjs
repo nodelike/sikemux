@@ -347,7 +347,7 @@ export const SCENES = [
     setup: (page) =>
       run(page, async () => {
         const aws = await import("/src/plugins/aws/state.ts");
-        aws.setAwsProfile("acme-prod");
+        await aws.setAwsProfile("acme-prod");
         aws.setAwsService("ecs");
         aws.setEcsLevel("acme-prod", {
           kind: "service",
@@ -371,7 +371,7 @@ export const SCENES = [
     setup: (page) =>
       run(page, async () => {
         const aws = await import("/src/plugins/aws/state.ts");
-        aws.setAwsProfile("acme-prod");
+        await aws.setAwsProfile("acme-prod");
         aws.setAwsService("billing");
         aws.openAwsSession();
       }),

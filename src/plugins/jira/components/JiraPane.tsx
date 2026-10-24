@@ -31,11 +31,11 @@ import {
     type ContextMenuItem,
 } from "../../../plugin-api/ui";
 import { errorText } from "../../../plugin-api/format";
-import { jiraApi, type JiraBoard as JiraBoardInfo, type JiraIssue, type JiraIssueSummary, type JiraPerson, type JiraProject } from "../api";
-import { jira, jiraBoardsR, jiraFiltersR, jiraIssueR, jiraProjectsR, jiraSearchR } from "../resources";
+import { jiraApi, type JiraIssueSummary, type JiraIssueView, type JiraPerson, type JiraSpaces } from "../api";
+import { jira, jiraIssueV, jiraListV, jiraSpacesV } from "../resources";
 import { copyIssue, issueMenu, openIssue } from "../issueLinks";
-import { jiraSettings, jqlOf, mentions, updateJiraView, useJiraView, type JiraList } from "../state";
-import { statusCounts, withStatuses } from "../statusFilter";
+import { jiraSettings, listOf, mentions, updateJiraView, useJiraView, type JiraList } from "../state";
+import { withStatuses } from "../statusFilter";
 import { JiraBoard } from "./JiraBoard";
 import { JiraActivity } from "./JiraActivity";
 import { Avatar, ProjectAvatar } from "./JiraFace";
@@ -80,9 +80,8 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
     const view = useJiraView(paneId);
     const [jql, setJql] = useState(view.list.kind === "jql" ? view.list.jql : "");
     const site = sites.includes(view.site) ? view.site : (sites[0] ?? "");
-    const filters = useResourceEnabled(active, jiraFiltersR, site);
-    const projects = useResourceEnabled(active, jiraProjectsR, site);
-    const boards = useResourceEnabled(active, jiraBoardsR, site);
+    const spaces = useResourceEnabled(active, jiraSpacesV, paneId, site);
+    const filters = spaces.data?.filters ?? [];
     const show = (list: JiraList) => updateJiraView(paneId, { list });
     const listButton: ListButton = (list, label, Mark, title, key = label) => (
         <button key={key} type="button" className={`jira-list${sameList(view.list, list) ? " active" : ""}`} title={title} onClick={() => show(list)}>
@@ -127,18 +126,11 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
                     <div className="jira-heading">Your work</div>
                     {MY_WORK.map(([list, label, Mark]) => listButton(list, label, Mark))}
                 </div>
-                <Spaces
-                    site={site}
-                    projects={projects.data ?? []}
-                    boards={boards.data ?? []}
-                    boardsError={boards.status === "error" ? (boards.error ?? "Jira would not list the boards.") : null}
-                    current={view.list}
-                    listButton={listButton}
-                />
-                {(filters.data?.length ?? 0) > 0 && (
+                {spaces.data && <Spaces site={site} spaces={spaces.data} current={view.list} listButton={listButton} />}
+                {filters.length > 0 && (
                     <div className="jira-lists">
                         <div className="jira-heading">Starred filters</div>
-                        {filters.data?.map((filter) => listButton({ kind: "filter", ...filter }, filter.name, IconStar, filter.jql, filter.id))}
+                        {filters.map((filter) => listButton({ kind: "filter", ...filter }, filter.name, IconStar, filter.jql, filter.id))}
                     </div>
                 )}
                 <button
@@ -158,6 +150,7 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
             {view.list.kind === "board" ? (
                 <JiraBoard
                     key={view.list.id}
+                    paneId={paneId}
                     active={active}
                     boardId={view.list.id}
                     site={site}
@@ -166,10 +159,11 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
                 />
             ) : (
                 <IssueList
-                    key={jqlOf(view.list)}
+                    key={JSON.stringify(listOf(view.list))}
+                    paneId={paneId}
                     active={active}
                     empty={EMPTY[view.list.kind] ?? "No issues here."}
-                    jql={jqlOf(view.list)}
+                    list={view.list}
                     site={site}
                     selected={view.issue}
                     onSelect={(key) => updateJiraView(paneId, { issue: key })}
@@ -178,7 +172,13 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
             {view.list.kind === "board" && !view.issue ? null : (
                 <DetailSlot>
                     {view.issue ? (
-                        <IssueDetail active={active} issueKey={view.issue} site={site} onClose={() => updateJiraView(paneId, { issue: null })} />
+                        <IssueDetail
+                            paneId={paneId}
+                            active={active}
+                            issueKey={view.issue}
+                            site={site}
+                            onClose={() => updateJiraView(paneId, { issue: null })}
+                        />
                     ) : (
                         <div className="jira-detail">
                             <EmptyState message="Pick an issue to read it, comment, move it along or assign it." />
@@ -224,35 +224,18 @@ type ListButton = (list: JiraList, label: string, Mark: Icon, title?: string, ke
 const SPACES_SHOWN = 8;
 
 /** Jira's spaces: each project with its picture, opening onto its boards and its lists. */
-function Spaces({
-    site,
-    projects,
-    boards,
-    boardsError,
-    current,
-    listButton,
-}: {
-    site: string;
-    projects: JiraProject[];
-    boards: JiraBoardInfo[];
-    boardsError: string | null;
-    current: JiraList;
-    listButton: ListButton;
-}) {
+function Spaces({ site, spaces: listed, current, listButton }: { site: string; spaces: JiraSpaces; current: JiraList; listButton: ListButton }) {
     const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
     const [find, setFind] = useState("");
     const [everyone, setEveryone] = useState(false);
-    const known = new Set(projects.map((project) => project.key));
-    const homeOf = (board: JiraBoardInfo) => board.projectKey ?? board.project ?? "";
-    const boardsOf = (key: string) => boards.filter((board) => homeOf(board) === key);
-    const loose = boards.filter((board) => !known.has(homeOf(board)));
+    const { spaces, otherBoards: loose, boardsFailed } = listed;
     const activeKey =
         current.kind === "project" || current.kind === "unassigned"
             ? current.key
             : current.kind === "board"
-              ? (boards.find((board) => board.id === current.id) ?? null)?.projectKey
+              ? spaces.find((space) => space.boards.some((board) => board.id === current.id))?.project.key
               : undefined;
-    const openByDefault = activeKey ?? projects.find((project) => boardsOf(project.key).length > 0)?.key ?? projects[0]?.key;
+    const openByDefault = activeKey ?? spaces.find((space) => space.boards.length > 0)?.project.key ?? spaces[0]?.project.key;
     const isOpen = (key: string) => (key === openByDefault) !== toggled.has(key);
     const toggle = (key: string) =>
         setToggled((now) => {
@@ -261,19 +244,19 @@ function Spaces({
             return next;
         });
     const words = find.trim().toLowerCase();
-    const matching = projects.filter(
-        (project) =>
+    const matching = spaces.filter(
+        ({ project, boards }) =>
             !words ||
             project.name.toLowerCase().includes(words) ||
             project.key.toLowerCase().includes(words) ||
-            boardsOf(project.key).some((board) => board.name.toLowerCase().includes(words)),
+            boards.some((board) => board.name.toLowerCase().includes(words)),
     );
-    const shown = words || everyone ? matching : matching.filter((project, index) => index < SPACES_SHOWN || project.key === activeKey);
-    if (projects.length === 0 && boards.length === 0 && !boardsError) return null;
+    const shown = words || everyone ? matching : matching.filter(({ project }, index) => index < SPACES_SHOWN || project.key === activeKey);
+    if (spaces.length === 0 && loose.length === 0 && !boardsFailed) return null;
     return (
         <div className="jira-lists">
             <div className="jira-heading">Spaces</div>
-            {projects.length > SPACES_SHOWN && (
+            {spaces.length > SPACES_SHOWN && (
                 <input
                     className="jira-board-filter"
                     value={find}
@@ -283,7 +266,7 @@ function Spaces({
                     spellCheck={false}
                 />
             )}
-            {shown.map((project) => {
+            {shown.map(({ project, boards }) => {
                 const open = isOpen(project.key) || !!words;
                 return (
                     <div key={project.key} className="jira-space">
@@ -299,7 +282,7 @@ function Spaces({
                         </button>
                         {open && (
                             <div className="jira-space-children">
-                                {boardsOf(project.key).map((board) =>
+                                {boards.map((board) =>
                                     listButton(
                                         { kind: "board", id: board.id, name: board.name },
                                         board.name,
@@ -346,33 +329,35 @@ function Spaces({
                     )}
                 </>
             )}
-            {boardsError && <p className="jira-lists-error">{boardsError} Sign out and in again to retry.</p>}
+            {boardsFailed && <p className="jira-lists-error">{boardsFailed} Sign out and in again to retry.</p>}
         </div>
     );
 }
 
 function IssueList({
+    paneId,
     active,
     empty,
-    jql,
+    list,
     site,
     selected,
     onSelect,
 }: {
+    paneId: string;
     active: boolean;
     empty: string;
-    jql: string;
+    list: Exclude<JiraList, { kind: "board" }>;
     site: string;
     selected: string | null;
     onSelect: (key: string) => void;
 }) {
-    const found = useResourceEnabled(active, jiraSearchR, jql, site);
+    const found = useResourceEnabled(active, jiraListV, paneId, listOf(list), site);
     const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
     return (
         <div className="jira-list-pane">
             <Loaded handle={found} loading="Loading issues" rows={8} empty={(page) => (page.issues.length === 0 ? empty : null)}>
                 {(page) => {
-                    const counts = statusCounts(page.issues);
+                    const counts = page.statuses;
                     const shown = new Set([...picked].filter((status) => counts.some((each) => each.status === status)));
                     const toggle = (status: string) => {
                         const next = new Set(shown);
@@ -467,64 +452,51 @@ function useMenu(): [ReactNode, (event: MouseEvent, items: ContextMenuItem[]) =>
     ];
 }
 
-function IssueDetail({ active, issueKey, site, onClose }: { active: boolean; issueKey: string; site: string; onClose: () => void }) {
-    const found = useResourceEnabled(active, jiraIssueR, issueKey, site);
+function IssueDetail({
+    paneId,
+    active,
+    issueKey,
+    site,
+    onClose,
+}: {
+    paneId: string;
+    active: boolean;
+    issueKey: string;
+    site: string;
+    onClose: () => void;
+}) {
+    const found = useResourceEnabled(active, jiraIssueV, paneId, issueKey, site);
     if (found.data === undefined)
         return (
             <div className="jira-detail">
                 <Pending handle={found} loading={`Loading ${issueKey}`} />
             </div>
         );
-    return (
-        <IssueBody
-            key={found.data.key}
-            issue={found.data}
-            site={site}
-            refresh={() => void found.refresh()}
-            onClose={onClose}
-            notice={<StaleNotice handle={found} />}
-        />
-    );
+    return <IssueBody key={found.data.issue.key} view={found.data} site={site} onClose={onClose} notice={<StaleNotice handle={found} />} />;
 }
 
-function IssueBody({
-    issue,
-    site,
-    refresh,
-    onClose,
-    notice,
-}: {
-    issue: JiraIssue;
-    site: string;
-    refresh: () => void;
-    onClose: () => void;
-    notice: ReactNode;
-}) {
+/** An issue; after any change made here, the core reads it and the lists again and sends what moved. */
+function IssueBody({ view, site, onClose, notice }: { view: JiraIssueView; site: string; onClose: () => void; notice: ReactNode }) {
+    const { issue } = view;
     const [menu, setMenu] = useMenu();
     const [busy, setBusy] = useState(false);
     const [assigning, setAssigning] = useState(false);
     const [people, setPeople] = useState<JiraPerson[]>([]);
-    const changed = () => {
-        refresh();
-        jira.refresh();
-    };
     const toggleTask = useCallback<ToggleTask>(
         async (index, text, done) => {
             try {
                 await jiraApi.setTask(issue.key, index, text, done, site || undefined);
-                refresh();
             } catch (error) {
                 notify("error", `Update the task: ${errorText(error)}`);
                 throw error;
             }
         },
-        [issue.key, site, refresh],
+        [issue.key, site],
     );
     const run = async (label: string, work: () => Promise<unknown>) => {
         setBusy(true);
         try {
             await work();
-            changed();
             return true;
         } catch (error) {
             notify("error", `${label}: ${errorText(error)}`);
@@ -568,13 +540,13 @@ function IssueBody({
                             onClick={() =>
                                 void sendToBoard({
                                     title: issue.summary,
-                                    details: issue.description,
+                                    details: view.description,
                                     ticket: ticketOf(issue),
-                                    subtasks: issue.subtasks
+                                    subtasks: view.subtasks
                                         .filter((sub) => sub.statusCategory !== "done")
                                         .map((sub) => ({ title: sub.summary, details: "", ticket: ticketOf(sub) })),
-                                    blockedBy: issue.blockedBy,
-                                    blocks: issue.blocks,
+                                    blockedBy: view.blockedBy,
+                                    blocks: view.blocks,
                                 })
                             }>
                             <IconAgent size={12} />
@@ -594,14 +566,14 @@ function IssueBody({
                             value={issue.status}
                             title="Move this issue along its workflow"
                             className={`jira-status-button jira-status-${issue.statusCategory || "new"}`}
-                            options={issue.transitions.map((transition) => ({
+                            options={view.transitions.map((transition) => ({
                                 value: transition.id,
                                 label: transition.to,
                                 meta: transition.name.toLowerCase() === transition.to.toLowerCase() ? undefined : transition.name,
                                 className: `jira-status jira-status-${transition.toCategory || "new"}`,
                             }))}
                             onChange={(id) => void run("Move issue", () => jiraApi.transition(issue.key, id, site || undefined))}
-                            disabled={busy || issue.transitions.length === 0}
+                            disabled={busy || view.transitions.length === 0}
                         />
                         <button
                             type="button"
@@ -662,11 +634,11 @@ function IssueBody({
                                 </div>
                             )}
                         </Field>
-                        {issue.reporter && (
+                        {view.reporter && (
                             <Field label="Reporter">
                                 <span className="jira-person">
-                                    <Avatar person={issue.reporter} large />
-                                    {issue.reporter.name}
+                                    <Avatar person={view.reporter} large />
+                                    {view.reporter.name}
                                 </span>
                             </Field>
                         )}
@@ -697,10 +669,10 @@ function IssueBody({
                             </Field>
                         )}
                         {issue.sprint && <Field label="Sprint">{issue.sprint}</Field>}
-                        {issue.labels.length > 0 && (
+                        {view.labels.length > 0 && (
                             <Field label="Labels">
                                 <span className="jira-chips">
-                                    {issue.labels.map((label) => (
+                                    {view.labels.map((label) => (
                                         <span key={label} className="jira-label">
                                             {label}
                                         </span>
@@ -713,9 +685,9 @@ function IssueBody({
                 <div className="jira-detail-main">
                     <section className="jira-description" aria-label="Description">
                         <div className="jira-section-title">Description</div>
-                        {issue.description ? (
+                        {view.description ? (
                             <TaskToggleContext.Provider value={toggleTask}>
-                                <Markdown taskBox={TaskBox}>{issue.description}</Markdown>
+                                <Markdown taskBox={TaskBox}>{view.description}</Markdown>
                             </TaskToggleContext.Provider>
                         ) : (
                             <p className="jira-meta">No description.</p>
@@ -723,7 +695,7 @@ function IssueBody({
                     </section>
                     <ProjectCommits issueKey={issue.key} />
                     <JiraActivity
-                        issue={issue}
+                        issue={view}
                         busy={busy}
                         onComment={(body) => run("Comment", () => jiraApi.comment(issue.key, body, site || undefined))}
                     />

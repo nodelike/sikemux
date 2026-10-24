@@ -6,12 +6,12 @@ use crate::common::{aws_json, Target};
 
 #[derive(Serialize, Clone)]
 pub struct LambdaFn {
-    name: String,
-    runtime: Option<String>,
-    last_modified: Option<String>,
-    memory_size: Option<i64>,
-    timeout: Option<i64>,
-    handler: Option<String>,
+    pub(crate) name: String,
+    pub(crate) runtime: Option<String>,
+    pub(crate) last_modified: Option<String>,
+    pub(crate) memory_size: Option<i64>,
+    pub(crate) timeout: Option<i64>,
+    pub(crate) handler: Option<String>,
 }
 
 pub(crate) async fn functions(target: &Target) -> AwsResult<Vec<LambdaFn>> {

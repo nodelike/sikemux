@@ -16,7 +16,7 @@ enum BuddyState: String {
     }
 }
 
-/// Buddies drawn by the app's own script, so the island's are the ones the app shows.
+/// Faces drawn by the app's own script, so the island's are the ones the app shows.
 @MainActor
 final class BuddyArt {
     static let shared = BuddyArt()
@@ -24,22 +24,16 @@ final class BuddyArt {
     private lazy var draw: JSValue? = {
         let context = JSContext()
         context?.evaluateScript(buddiesScript)
-        return context?.objectForKeyedSubscript("SikemuxBuddies")?.objectForKeyedSubscript("notchBuddy")
+        return context?.objectForKeyedSubscript("SikemuxBuddies")?.objectForKeyedSubscript("notchFace")
     }()
-    private var drawn: PublishedBuddies?
-    private var published: Any = NSNull()
     private var images: [String: NSImage] = [:]
 
-    /// The agent's buddy, or nil when it shows its agent's mark instead.
-    func image(_ buddies: PublishedBuddies, agentId: String, state: BuddyState) -> NSImage? {
-        if buddies != drawn {
-            drawn = buddies
-            images = [:]
-            published = (try? JSONEncoder().encode(buddies)).flatMap { try? JSONSerialization.jsonObject(with: $0) } ?? NSNull()
-        }
-        let key = "\(agentId) \(state.rawValue)"
+    /// The face the core gave an agent, drawn in `state`.
+    func image(_ face: AgentFace, state: BuddyState) -> NSImage? {
+        let key = "\(face.pack) \(face.shape) \(face.color) \(face.box) \(state.rawValue)"
         if let image = images[key] { return image }
-        guard let drawn = draw?.call(withArguments: [published, agentId, state.rawValue]), !drawn.isNull,
+        let described: [String: Any] = ["pack": face.pack, "shape": face.shape, "color": face.color, "box": face.box]
+        guard let drawn = draw?.call(withArguments: [described, state.rawValue]), !drawn.isNull,
               let svg = drawn.toString(),
               let image = NSImage(data: Data(svg.utf8))
         else { return nil }
@@ -48,27 +42,26 @@ final class BuddyArt {
     }
 }
 
-/// An agent's buddy while the app draws buddies, otherwise its agent's mark.
-struct AgentFace: View {
-    let agentId: String?
+/// An agent's face, when the core gives it one, otherwise its agent's mark.
+struct AgentLook: View {
+    let face: AgentFace?
     let provider: String
     var mark: Mark = .idle
     var size: CGFloat = 16
-    @Environment(\.buddies) private var buddies
+    @Environment(\.faceMotion) private var moves
 
     var body: some View {
-        if let buddies, let agentId,
-           let image = BuddyArt.shared.image(buddies, agentId: agentId, state: BuddyState(mark)) {
-            BuddyImage(image: image, state: BuddyState(mark), moves: buddies.motion, size: size)
+        if let face, let image = BuddyArt.shared.image(face, state: BuddyState(mark)) {
+            BuddyImage(image: image, state: BuddyState(mark), moves: moves, size: size)
         } else {
             AgentMark(provider: provider, size: size)
         }
     }
 }
 
-extension AgentFace {
+extension AgentLook {
     init(entry: Entry, size: CGFloat) {
-        self.init(agentId: entry.item.agentId, provider: entry.provider, mark: entry.mark, size: size)
+        self.init(face: entry.agent?.face, provider: entry.provider, mark: entry.mark, size: size)
     }
 }
 
@@ -113,5 +106,5 @@ private struct BuddyImage: View {
 }
 
 extension EnvironmentValues {
-    @Entry var buddies: PublishedBuddies? = nil
+    @Entry var faceMotion = true
 }

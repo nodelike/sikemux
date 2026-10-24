@@ -5,8 +5,8 @@ import { useStore } from "../state/store";
 import { CopyButton } from "../ui/CopyButton";
 import { FileIcon } from "../ui/FileIcon";
 import { hasPrimaryModifier } from "../lib/platform";
-import { MarkdownBlocks, type MarkdownComponents } from "../markdown/Markdown";
-import { useMarkdownBlocks, warmMarkdown } from "../markdown/useMarkdownBlocks";
+import { Markdown, MarkdownBlocks, type MarkdownComponents } from "../markdown/Markdown";
+import { warmMarkdown } from "../markdown/useMarkdownBlocks";
 import { tableSource } from "../markdown/tableSource";
 import type { MarkdownOptions, MdElement } from "../markdown/types";
 import { fencedDiff } from "./diff";
@@ -14,7 +14,6 @@ import { CodeTokens, fenceLanguage, useCodeTokens, useDiffTokens } from "./codeH
 import { localImagePath } from "../lib/imagePaths";
 import { useImagePreview } from "./imagePreview";
 import { ChatFileRef, useFileRef } from "./FileRef";
-import { pathComponents, type PathGuess } from "./markdownPaths";
 import { cutLongBlocks, cutLongText, showRestLabel, useLongTextFold } from "./longText";
 import { ChatAgentContext, openLink } from "./chatAgent";
 import { ChatImage } from "./ChatImage";
@@ -43,6 +42,9 @@ function MarkedText({ mark, children }: { mark: ReactNode; children?: ReactNode 
         </>
     );
 }
+
+/** A link made from a name the message only mentioned: written plainly, or between backticks. */
+type PathGuess = "text" | "code";
 
 function ChatLink({ href, guess, children }: { href: string; guess?: PathGuess; children?: ReactNode }) {
     const imagePath = localImagePath(href);
@@ -140,10 +142,19 @@ function ChatTable({ children, table }: { children?: ReactNode; table: Extract<M
     );
 }
 
-const markdownComponents: MarkdownComponents = { link: ChatLink, fence: ChatFence, table: ChatTable, ...pathComponents(ChatLink) };
-const AGENT_MARKDOWN: MarkdownOptions = { gfm: true, htmlAsText: false, fileLinks: true };
+/* Whether the file a name points at is really there is settled when its link is drawn. */
+function ChatPath({ href, code, children }: { href: string; code: boolean; children: ReactNode }) {
+    return (
+        <ChatLink href={href} guess={code ? "code" : "text"}>
+            {children}
+        </ChatLink>
+    );
+}
+
+const markdownComponents: MarkdownComponents = { link: ChatLink, fence: ChatFence, table: ChatTable, path: ChatPath };
+const AGENT_MARKDOWN: MarkdownOptions = { gfm: true, htmlAsText: false, fileLinks: true, filePaths: true };
 /* What a person typed shows its markup as the characters they typed. */
-const TYPED_MARKDOWN: MarkdownOptions = { gfm: true, htmlAsText: true, fileLinks: true };
+const TYPED_MARKDOWN: MarkdownOptions = { gfm: true, htmlAsText: true, fileLinks: true, filePaths: true };
 
 /** Reads finished texts ahead of the transcript drawing them, in the folded form it first shows, in the order given. */
 export function warmChatMarkdown(texts: readonly { text: string; typed: boolean }[]): Promise<void> {
@@ -152,8 +163,26 @@ export function warmChatMarkdown(texts: readonly { text: string; typed: boolean 
     );
 }
 
-/* One drawing whether the core sent the answer's tree or it is read here, so
-   an answer gaining or losing its tree keeps every element it has. */
+function LiveMarkdown({ text, live, typed = false }: { text: string; live: boolean; typed?: boolean }) {
+    return <Markdown text={text} options={typed ? TYPED_MARKDOWN : AGENT_MARKDOWN} live={live} components={markdownComponents} />;
+}
+
+/** The core's tree of an answer, folded as its text would be. */
+function TreeMarkdown({ id, tree, live }: { id: string; tree: MdElement[]; live: boolean }) {
+    const { folds, expand } = useLongTextFold(id, "", live);
+    const cut = useMemo(() => (folds ? cutLongBlocks(tree) : null), [folds, tree]);
+    return (
+        <>
+            <MarkdownBlocks blocks={cut?.blocks ?? tree} components={markdownComponents} />
+            {cut && (
+                <button type="button" className="chat-show-rest" onClick={expand}>
+                    {showRestLabel(cut.hidden)}
+                </button>
+            )}
+        </>
+    );
+}
+
 export function FoldedMarkdown({
     id,
     text,
@@ -168,18 +197,15 @@ export function FoldedMarkdown({
     /** The core's tree of the text, which nothing here needs to read again. */
     tree?: MdElement[];
 }) {
-    const { cut, expand, folds } = useLongTextFold(id, tree ? "" : text, live);
-    const blocks = useMarkdownBlocks(cut?.head ?? text, typed ? TYPED_MARKDOWN : AGENT_MARKDOWN, live && !cut, tree);
-    const treeCut = useMemo(() => (tree && folds ? cutLongBlocks(tree) : null), [folds, tree]);
-    const hidden = treeCut?.hidden ?? cut?.hidden;
+    const { cut, expand } = useLongTextFold(id, tree ? "" : text, live);
+    if (tree) return <TreeMarkdown id={id} tree={tree} live={live} />;
+    if (!cut) return <LiveMarkdown text={text} live={live} typed={typed} />;
     return (
         <>
-            {blocks && <MarkdownBlocks blocks={treeCut?.blocks ?? blocks} components={markdownComponents} />}
-            {hidden !== undefined && (
-                <button type="button" className="chat-show-rest" onClick={expand}>
-                    {showRestLabel(hidden)}
-                </button>
-            )}
+            <LiveMarkdown text={cut.head} live={false} typed={typed} />
+            <button type="button" className="chat-show-rest" onClick={expand}>
+                {showRestLabel(cut.hidden)}
+            </button>
         </>
     );
 }

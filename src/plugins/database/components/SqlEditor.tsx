@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { EditorState, EditorView, Prec, auraExtensions, basicSetup, keymap, placeholder, registerView } from "../../../plugin-api/editor";
-import type { Engine } from "../api";
+import type { DatabaseEngine as Engine } from "../types.generated";
 import { statementAt } from "../sql";
 import { sqlHighlighting } from "../sqlHighlight";
 

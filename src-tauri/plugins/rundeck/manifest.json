@@ -4,6 +4,19 @@
   "version": "0.1.0",
   "sikemux": ">=0.4",
   "callTimeoutSecs": 65,
+  "views": {
+    "treeView": { "everySecs": 300 },
+    "jobsView": { "everySecs": 30 },
+    "jobView": { "everySecs": 20 },
+    "activityView": { "everySecs": 30 },
+    "deployView": { "everySecs": 60 },
+    "planView": { "everySecs": 10 },
+    "executionView": { "everySecs": 60 },
+    "deployTargetView": { "everySecs": 60 },
+    "catalogView": { "everySecs": 300 },
+    "optionValues": { "everySecs": 60 }
+  },
+  "writes": ["run", "agentRun", "abort", "setLists"],
   "tools": [
     {
       "name": "rundeck_projects",

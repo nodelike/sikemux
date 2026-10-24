@@ -17,7 +17,6 @@ vi.mock("../state/commands", () => ({ requestOpenFile: mocks.requestOpenFile, op
 vi.mock("../lib/clipboard", () => ({ copyText: mocks.copyText }));
 
 const { ChatFileRef, PathRootsProvider, useFileRef } = await import("./FileRef");
-const { pathComponents } = await import("./markdownPaths");
 const { Markdown } = await import("../markdown/Markdown");
 const { forgetPathState } = await import("./pathExistence");
 
@@ -41,8 +40,16 @@ function Link({ href, guess, children }: { href: string; guess?: "text" | "code"
     return <a href={href}>{children}</a>;
 }
 
-const components = { link: Link, ...pathComponents(Link) };
-const OPTIONS = { gfm: true, htmlAsText: false, fileLinks: true };
+function Path({ href, code, children }: { href: string; code: boolean; children: React.ReactNode }) {
+    return (
+        <Link href={href} guess={code ? "code" : "text"}>
+            {children}
+        </Link>
+    );
+}
+
+const components = { link: Link, path: Path };
+const OPTIONS = { gfm: true, htmlAsText: false, fileLinks: true, filePaths: true };
 
 /* A transcript the app draws the way the pane does: the same path links, the
    same link component, the same project root. */

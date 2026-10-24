@@ -6,13 +6,13 @@ use crate::common::{aws_json, Target};
 
 #[derive(Serialize, Clone)]
 pub struct Ec2Instance {
-    instance_id: String,
-    name: Option<String>,
-    state: Option<String>,
-    instance_type: Option<String>,
-    private_ip: Option<String>,
-    public_ip: Option<String>,
-    launch_time: Option<String>,
+    pub(crate) instance_id: String,
+    pub(crate) name: Option<String>,
+    pub(crate) state: Option<String>,
+    pub(crate) instance_type: Option<String>,
+    pub(crate) private_ip: Option<String>,
+    pub(crate) public_ip: Option<String>,
+    pub(crate) launch_time: Option<String>,
 }
 
 impl Ec2Instance {

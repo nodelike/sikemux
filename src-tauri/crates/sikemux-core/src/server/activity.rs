@@ -107,6 +107,13 @@ impl Core {
         self.view_stale.notify_one();
     }
 
+    /// Something the person did changed the view, such as the tab in front, so it goes out
+    /// at once: a window shows its tabs as the view says.
+    pub(crate) fn view_changed_now(&self) {
+        self.view_due.notify_one();
+        self.view_changed();
+    }
+
     fn journal_agent(&self, agent_id: &str, happened: Happened) {
         if let Some(named) = self.names.get(agent_id) {
             self.harness

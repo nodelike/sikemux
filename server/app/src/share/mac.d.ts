@@ -58,11 +58,12 @@ declare module "@mac/share/SharedChat" {
 }
 
 declare module "@mac/themes/bus" {
-  export function applyTheme(id: string): void;
+  export function wearPicked(palette: unknown): void;
 }
 
-declare module "@mac/themes" {
-  export const DEFAULT_THEME_ID: string;
+declare module "@mac/themes/defaultPalette.json" {
+  const palette: unknown;
+  export default palette;
 }
 
 declare module "@mac/styles.css";

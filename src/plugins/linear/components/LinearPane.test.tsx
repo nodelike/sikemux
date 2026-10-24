@@ -1,21 +1,27 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LinearIssue, LinearIssueDetail, LinearStatus } from "../api";
+import type { LinearStatus } from "../api";
+import type { LinearIssueRow, LinearIssueView } from "../types.generated";
 
 const api = vi.hoisted(() => ({
     status: vi.fn(),
     signIn: vi.fn(),
     signOut: vi.fn(),
-    search: vi.fn(),
-    issue: vi.fn(),
     comment: vi.fn(),
     update: vi.fn(),
 }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), linearApi: api }));
 
+const views = vi.hoisted(() => ({
+    listView: vi.fn(),
+    issueView: vi.fn(),
+}));
+
+import { fakeViews } from "../../../plugin-api/fakeViews";
 import { linear } from "../resources";
-import { issueForAgent } from "../state";
 import { LinearPane } from "./LinearPane";
+
+const core = fakeViews(views);
 
 const signedIn: LinearStatus = {
     configured: true,
@@ -25,33 +31,25 @@ const signedIn: LinearStatus = {
     workspaces: [{ id: "o1", name: "Acme", urlKey: "acme", user: "ankit", isDefault: true }],
 };
 
-const todo = { id: "s1", name: "Todo", type: "unstarted", color: "#e2e2e2", position: 1 };
-const review = { id: "s2", name: "In Review", type: "started", color: "#5e6ad2", position: 2 };
+const todo = { id: "s1", name: "Todo", kind: "unstarted", color: "#e2e2e2" };
+const review = { id: "s2", name: "In Review", kind: "started", color: "#5e6ad2" };
 
-const listed: LinearIssue = {
+const listed: LinearIssueRow = { id: "i1", identifier: "ENG-12", title: "Fix the login flake", state: todo };
+
+const detail: LinearIssueView = {
     id: "i1",
     identifier: "ENG-12",
     title: "Fix the login flake",
     url: "https://linear.app/acme/issue/ENG-12",
-    priority: 2,
-    priorityLabel: "High",
-    updatedAt: "2026-10-15T09:00:00Z",
-    state: todo,
-    assignee: null,
-    team: { id: "t1", key: "ENG", name: "Engineering" },
-    labels: [{ id: "l1", name: "bug", color: "#eb5757" }],
-};
-
-const detail: LinearIssueDetail = {
-    ...listed,
-    description: "It fails one run in ten.",
-    createdAt: "2026-10-14T09:00:00Z",
     branchName: "ankit/eng-12-fix-the-login-flake",
-    creator: { name: "Irwan" },
-    team: { ...listed.team, states: [review, todo] },
-    project: null,
-    cycle: null,
-    comments: [{ id: "c1", body: "Seen it on CI too.", createdAt: "2026-10-15T10:00:00Z", user: { name: "Irwan", displayName: "irwan" } }],
+    state: todo,
+    states: [todo, review],
+    assignee: null,
+    priority: "High",
+    labels: [{ name: "bug", color: "#eb5757" }],
+    description: "It fails one run in ten.",
+    comments: [{ id: "c1", author: "irwan", createdAt: "2026-10-15T10:00:00Z", body: "Seen it on CI too." }],
+    forAgent: "Linear issue ENG-12",
 };
 
 let pane = 0;
@@ -65,10 +63,15 @@ afterEach(() => {
 beforeEach(() => {
     Object.values(api).forEach((mock) => mock.mockReset());
     api.status.mockResolvedValue(signedIn);
-    api.search.mockResolvedValue([listed]);
-    api.issue.mockResolvedValue(detail);
-    api.update.mockResolvedValue(detail);
-    api.comment.mockResolvedValue({ id: "c2", url: "https://linear.app/c2" });
+    Object.values(views).forEach((mock) => mock.mockReset());
+    views.listView.mockImplementation(({ query }: { query: string }) => ({
+        heading: query ? `Matching “${query}”` : "My open issues",
+        empty: "No issue matches.",
+        issues: [listed],
+    }));
+    views.issueView.mockReturnValue(detail);
+    api.update.mockResolvedValue({ id: "i1" });
+    api.comment.mockResolvedValue({ id: "c2" });
 });
 
 describe("the Linear pane", () => {
@@ -85,11 +88,11 @@ describe("the Linear pane", () => {
         renderPane();
         expect(await screen.findByText("Fix the login flake")).toBeInTheDocument();
         expect(screen.getByText("My open issues")).toBeInTheDocument();
-        expect(api.search).toHaveBeenCalledWith("o1", "");
+        expect(core.asked.at(-1)).toEqual({ method: "listView", params: { workspace: "o1", query: "" } });
 
         fireEvent.change(screen.getByRole("textbox", { name: "Search Linear issues" }), { target: { value: "login" } });
         fireEvent.keyDown(screen.getByRole("textbox", { name: "Search Linear issues" }), { key: "Enter" });
-        await waitFor(() => expect(api.search).toHaveBeenCalledWith("o1", "login"));
+        await waitFor(() => expect(core.asked.at(-1)).toEqual({ method: "listView", params: { workspace: "o1", query: "login" } }));
         expect(await screen.findByText("Matching “login”")).toBeInTheDocument();
     });
 
@@ -105,14 +108,5 @@ describe("the Linear pane", () => {
         fireEvent.change(screen.getByRole("textbox", { name: "Comment on ENG-12" }), { target: { value: "On it" } });
         fireEvent.click(screen.getByRole("button", { name: "Comment" }));
         await waitFor(() => expect(api.comment).toHaveBeenCalledWith("o1", "ENG-12", "On it"));
-    });
-
-    it("hands an agent the issue with what it needs to update it", () => {
-        const text = issueForAgent(detail);
-        expect(text).toContain("Linear issue ENG-12: Fix the login flake — https://linear.app/acme/issue/ENG-12");
-        expect(text).toContain("State: Todo");
-        expect(text).toContain("Branch: ankit/eng-12-fix-the-login-flake");
-        expect(text).toContain("**irwan**: Seen it on CI too.");
-        expect(text).toContain("linear_update or linear_comment with id ENG-12");
     });
 });

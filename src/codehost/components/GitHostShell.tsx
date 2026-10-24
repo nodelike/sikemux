@@ -15,6 +15,7 @@ import { useStore } from "../../state/store";
 import { ShellFrameContext } from "../../git/GitColumns";
 import { PaneField } from "../../ui/ShaderField";
 import { GitShellContext } from "../shellContext";
+import { preferencesOf } from "../../state/preferences";
 
 const HostArea = lazy(() => import("./HostArea").then((module) => ({ default: module.HostArea })));
 const RepoPicker = lazy(() => import("./RepoPicker").then((module) => ({ default: module.RepoPicker })));
@@ -41,7 +42,7 @@ export function GitHostShell({ paneId, cwd, area, active, fetching, onArea, chil
     const host = found.repo ? codeHost(found.repo.provider) : undefined;
     const [picking, setPicking] = useState(false);
     const [adding, setAdding] = useState(false);
-    const paneShader = useStore((s) => s.paneShader);
+    const paneShader = useStore((s) => preferencesOf(s).paneShader);
     const hosted = !!host;
     const status = useCachedResourceEnabled(fetching && hosted, hostStatusR, found.repo?.provider ?? "", found.repo?.account ?? null);
     const signedIn = !!status.data?.ok;
@@ -52,15 +53,7 @@ export function GitHostShell({ paneId, cwd, area, active, fetching, onArea, chil
         if (!hosted) return;
         return subscribe("git-refresh", (event) => {
             if (event.repo !== cwd) return;
-            invalidate(
-                (kind) =>
-                    kind === "host.runs" ||
-                    kind === "host.pulls" ||
-                    kind === "host.pull" ||
-                    kind === "host.timeline" ||
-                    kind === "host.pullCommits" ||
-                    kind === "host.pullFiles",
-            );
+            invalidate((kind) => kind === "host.timeline" || kind === "host.pullCommits" || kind === "host.pullFiles");
         });
     }, [cwd, hosted]);
 
@@ -127,6 +120,7 @@ export function GitHostShell({ paneId, cwd, area, active, fetching, onArea, chil
                                             section={standalone}
                                             repo={repo}
                                             branch={found.branch}
+                                            project={cwd}
                                             cwd={sameRepo(found.remote, repo) ? cwd : null}
                                             active={active}
                                         />

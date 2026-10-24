@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
-import { AGENT_BRANDS, type AgentType } from '@mac/agents/catalog';
-import type { PaletteName } from '@mac/remote/palette';
+import type { AgentType } from '@mac/agents/catalog';
+import type { UiTokens } from '../core/wire.generated';
 import { Platform, type TextStyle } from 'react-native';
 
 /** Aura Noir, the Mac app's default theme, with its neutral ramp mixed the same way (DESIGN.md §3). */
@@ -46,7 +46,44 @@ export const defaultPalette = {
   shaderDot: '#19191e',
 } satisfies Palette;
 
-export type Palette = Record<PaletteName, string>;
+/** The core's colour tokens a phone draws with. */
+export type Palette = Pick<
+  UiTokens,
+  | 'sunken'
+  | 'ground'
+  | 'raised'
+  | 'overlay'
+  | 'composer'
+  | 'border'
+  | 'borderStrong'
+  | 'rest'
+  | 'ink'
+  | 'secondary'
+  | 'tertiary'
+  | 'inkDim'
+  | 'inkFaint'
+  | 'active'
+  | 'selected'
+  | 'borderSelected'
+  | 'accent'
+  | 'accentSoft'
+  | 'live'
+  | 'warn'
+  | 'danger'
+  | 'cmd'
+  | 'treeSpine'
+  | 'treeTick'
+  | 'gitAdded'
+  | 'gitModified'
+  | 'gitDeleted'
+  | 'gitRenamed'
+  | 'toolRead'
+  | 'toolEdit'
+  | 'toolDelete'
+  | 'toolRun'
+  | 'toolMcp'
+  | 'shaderDot'
+>;
 
 /** The palette a host published, over the default for any colour it left out. */
 export function paletteFrom(published: Readonly<Record<string, string>> | undefined): Palette {
@@ -118,8 +155,6 @@ export function useStyles<T>(make: (colors: Palette) => T): T {
   if (!built.has(make)) built.set(make, make(colors));
   return built.get(make) as T;
 }
-
-export const brand = AGENT_BRANDS;
 
 export type Provider = AgentType;
 

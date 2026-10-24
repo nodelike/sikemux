@@ -98,6 +98,22 @@ pub(crate) struct FileOwners {
     pub path: String,
     pub lines: Vec<Run>,
     pub removed: Vec<Removal>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<Note>,
+}
+
+/// What to say beside a changed line: who wrote it, said where its run of changed
+/// lines starts and wherever the writer changes within it, and whose lines it
+/// rewrote.
+#[derive(Serialize, Debug, PartialEq)]
+pub(crate) struct Note {
+    pub line: u64,
+    /// Whether the note names who wrote the line; `author` none when no agent did.
+    pub named: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub over: Option<usize>,
 }
 
 /// `count` lines from `start` that `author` wrote last. `over` is the agent
@@ -456,12 +472,139 @@ fn record_over(core: &Core, dir: &Path, staged: bool, diff: &Diff) -> Owners {
                     path: path.clone(),
                     lines,
                     removed,
+                    notes: Vec::new(),
                 });
             }
         }
         owners = agents.owners(core, files);
+        for file in &mut owners.files {
+            let changes: Vec<(u64, u64)> = match changed.get(&file.path) {
+                Some(hunks) => hunks.iter().map(|hunk| (hunk.start, hunk.count)).collect(),
+                None => read_text(&top.join(&file.path))
+                    .as_deref()
+                    .map(|text| vec![(1, line_count(text))])
+                    .unwrap_or_default(),
+            };
+            file.notes = notes(&changes, &file.lines);
+        }
     }
     owners
+}
+
+/// Who wrote which lines of a commit, as its note gives each of the agents its
+/// footer names, by name.
+#[derive(Serialize, Default)]
+pub(crate) struct CommitLines {
+    pub authors: Vec<Named>,
+    pub files: Vec<FileOwners>,
+}
+
+/// Agents by name; several who wrote the same lines read "Otter or Briar".
+#[derive(Serialize)]
+pub(crate) struct Named {
+    pub name: String,
+}
+
+/// Who wrote each line `commit` changed in `dir`, from `wrote`: each agent's name
+/// with the runs of lines the commit's note gives it, by path.
+pub(crate) fn commit_lines(
+    dir: &Path,
+    commit: &str,
+    wrote: &[(&str, &super::note::Wrote)],
+) -> Result<CommitLines, String> {
+    let paths: std::collections::BTreeSet<&str> = wrote
+        .iter()
+        .flat_map(|(_, lines)| lines.keys().map(String::as_str))
+        .collect();
+    if paths.is_empty() {
+        return Ok(CommitLines::default());
+    }
+    let parent = format!("{commit}^1");
+    let against = match git(dir, &["rev-parse", "--verify", "--quiet", &parent]) {
+        Ok(found) if !found.trim().is_empty() => parent,
+        _ => EMPTY_TREE.to_owned(),
+    };
+    let mut args = diff_args(false, Some(&against));
+    args.push(commit);
+    let changed = hunks(&git(dir, &args)?);
+    let mut lines = CommitLines::default();
+    let mut named: HashMap<String, usize> = HashMap::new();
+    for path in paths {
+        let mut writers: std::collections::BTreeMap<u64, Vec<&str>> = Default::default();
+        for (name, wrote) in wrote {
+            for [first, last] in wrote.get(path).into_iter().flatten() {
+                for line in *first..=*last {
+                    writers.entry(line).or_default().push(name);
+                }
+            }
+        }
+        let owned = writers.into_iter().map(|(at, names)| {
+            let name = names.join(" or ");
+            let next = lines.authors.len();
+            let author = *named.entry(name.clone()).or_insert(next);
+            if author == next {
+                lines.authors.push(Named { name });
+            }
+            Line {
+                at,
+                author,
+                over: None,
+            }
+        });
+        let runs = runs(owned.collect::<Vec<_>>());
+        let changes: Vec<(u64, u64)> = changed
+            .get(path)
+            .into_iter()
+            .flatten()
+            .map(|hunk| (hunk.start, hunk.count))
+            .collect();
+        lines.files.push(FileOwners {
+            path: path.to_owned(),
+            notes: notes(&changes, &runs),
+            lines: runs,
+            removed: Vec::new(),
+        });
+    }
+    Ok(lines)
+}
+
+/// The notes beside the lines of `changes`, each `count` changed lines from
+/// `start`, given who wrote which in `lines`. A run of changed lines no agent
+/// wrote any of gets none.
+fn notes(changes: &[(u64, u64)], lines: &[Run]) -> Vec<Note> {
+    let owner = |line: u64| {
+        let after = lines.partition_point(|run| run.start + run.count <= line);
+        lines.get(after).filter(|run| run.start <= line)
+    };
+    let mut notes = Vec::new();
+    for &(start, count) in changes.iter().filter(|(_, count)| *count > 0) {
+        let owners: Vec<Option<&Run>> = (start..start + count).map(owner).collect();
+        let writers: HashSet<Option<usize>> =
+            owners.iter().map(|run| run.map(|run| run.author)).collect();
+        if writers.len() == 1 && owners[0].is_none() {
+            continue;
+        }
+        let mixed = writers.len() > 1;
+        let mut before: Option<&Run> = None;
+        for (at, run) in owners.iter().enumerate() {
+            let author = run.map(|run| run.author);
+            let named = at == 0 || (mixed && author != before.map(|run| run.author));
+            let over = run.and_then(|run| run.over).filter(|over| {
+                Some(*over) != before.and_then(|run| run.over)
+                    || author != before.map(|run| run.author)
+            });
+            if named || over.is_some() {
+                notes.push(Note {
+                    line: start + at as u64,
+                    named,
+                    author,
+                    over,
+                });
+            }
+            before = *run;
+        }
+    }
+    notes
 }
 
 /// `agent_id` as its latest edit in `dir`'s project names it.

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { animate } from "../lib/motion";
-import type { AgentDisplay } from "../state/agentStatus";
+import type { AgentRollup } from "../api/generated/wire";
 import { IconAgent, IconCommand } from "../ui/Icons";
 
 const TWINKLE_CELLS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
@@ -11,8 +11,8 @@ const TWINKLE_CELLS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
  * dots carrying no information, since the row already says the agent exists.
  * Subagents and shells left running show as counts beside the title instead.
  */
-export function showsAgentState(display: AgentDisplay): boolean {
-    return display.group !== "idle";
+export function showsAgentState<T extends Pick<AgentRollup, "group">>(display: T | undefined): display is T {
+    return !!display && display.group !== "idle";
 }
 
 /**
@@ -61,7 +61,7 @@ function useStateChange(tone: string) {
     return mark;
 }
 
-export function AgentStateIndicator({ display, unread = false }: { display: AgentDisplay; unread?: boolean }) {
+export function AgentStateIndicator({ display, unread = false }: { display: Pick<AgentRollup, "group" | "label">; unread?: boolean }) {
     const tone = display.group;
     const mark = useStateChange(tone);
     if (tone === "working") {
@@ -106,8 +106,8 @@ function ShellCount({ count }: { count: number }) {
 }
 
 /** The subagents and shells an agent still has going, shown whatever its turn is doing. */
-export function BackgroundCounts({ display }: { display: AgentDisplay }) {
-    if (display.subagents === 0 && display.tasks === 0) return null;
+export function BackgroundCounts({ display }: { display: AgentRollup | undefined }) {
+    if (!display || (display.subagents === 0 && display.tasks === 0)) return null;
     return (
         <span className="work-counts">
             {display.subagents > 0 && <SubagentCount count={display.subagents} />}

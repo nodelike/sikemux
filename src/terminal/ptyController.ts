@@ -1,4 +1,5 @@
 import type { PtyDirectCommand } from "../state/types";
+import type { TerminalInput } from "./grid";
 import { errorCategory, errorText } from "../lib/format";
 import { isRecord } from "../lib/guards";
 import { swallow } from "../state/toast";
@@ -24,31 +25,26 @@ export interface PtySpawnRequest<Context = unknown> {
 
 export interface PtyAttachResult {
     readonly subId: number;
-    readonly snapshot: Uint8Array;
-    readonly alternateScreen: boolean;
+    /** The stream's first frame, holding the whole screen. */
+    readonly frame: Uint8Array;
     readonly shell?: PtyShellMetadataSnapshot | null;
 }
 
 export interface PtyApi<ChannelTransport, Context = unknown> {
     spawn(request: PtySpawnRequest<Context>): Promise<number>;
     write(id: number, data: string): Promise<void>;
-    /** Types `text` as one paste, as the program in the terminal takes pastes. */
-    paste(id: number, text: string, options?: PtyPasteOptions): Promise<void>;
+    /** A key, text, paste, mouse or focus change, which the core encodes for the program. */
+    input(id: number, input: TerminalInput): Promise<void>;
+    /** A draft left unsent at the program's prompt, which the core types once the program is ready for it. */
+    typeWhenReady(id: number, draft: string): Promise<void>;
     resize(id: number, cols: number, rows: number): Promise<void>;
     kill(id: number): Promise<void>;
     attach(id: number, channel: ChannelTransport): Promise<PtyAttachResult>;
     detach(id: number, subId: number): Promise<void>;
-    /** Reports bytes this subscription has finished writing to its renderer. */
-    ack(id: number, subId: number, bytes: number): Promise<void>;
+    /** Reports the last frame this subscription has drawn. */
+    ack(id: number, subId: number, frame: number): Promise<void>;
     /** Whether a process this page did not start may be taken over instead of spawning one. */
     resume?(id: number): Promise<boolean>;
-}
-
-export interface PtyPasteOptions {
-    /** Press Enter after it. */
-    readonly submit?: boolean;
-    /** The terminal has just started, so the core waits briefly for its program to be ready. */
-    readonly starting?: boolean;
 }
 
 export interface PtyChannelBinding<ChannelTransport> {
@@ -60,19 +56,15 @@ export interface PtyChannelAdapter<ChannelTransport> {
     create(onMessage: (chunk: PtyOutputChunk) => void): PtyChannelBinding<ChannelTransport>;
 }
 
-export interface PtyTimerAdapter {
-    schedule(callback: () => void, delayMs: number): unknown;
-    cancel(handle: unknown): void;
-}
-
 export type PtyControllerStatus = "idle" | "starting" | "running" | "failed" | "exited" | "disposing" | "disposed";
-export type PtyInitialInputStatus = "none" | "pending" | "scheduled" | "delivering" | "delivered" | "failed" | "cancelled";
+export type PtyInitialInputStatus = "none" | "pending" | "delivering" | "delivered" | "failed" | "cancelled";
 export type PtyProcessOwnership = "controller" | "external";
 export type PtyOperation =
     | "spawn"
     | "initial-input"
     | "initial-input-callback"
     | "write"
+    | "input"
     | "resize"
     | "attach"
     | "ack"
@@ -101,19 +93,18 @@ export interface PtyControllerErrorEvent {
 }
 
 export interface PtyAttachment {
-    /** Atomic native parser snapshot. Apply this before calling activate(). */
-    readonly snapshot: Uint8Array;
-    readonly alternateScreen: boolean;
+    /** The stream's first frame, with the whole screen. Apply this before calling activate(). */
+    readonly frame: Uint8Array;
     /** Untrusted display hint parsed from opt-in shell integration. */
     readonly shell: PtyShellMetadataSnapshot | null;
-    /** Release buffered post-snapshot deltas to the renderer in exact order. */
+    /** Release the frames that came after the first to the renderer in exact order. */
     activate(): void;
     /**
-     * Report bytes the renderer has finished writing. The native reader pauses
-     * once too many delivered bytes are outstanding, which pushes back on the
-     * child process instead of growing an unbounded queue.
+     * Report the last frame drawn. The core sends a stream only a couple of
+     * frames ahead of what was drawn; a renderer that falls behind gets the
+     * latest screen when it catches up, never a backlog.
      */
-    ack(bytes: number): void;
+    ack(frame: number): void;
     /** Drop only this renderer subscription; the headless PTY keeps running. */
     detach(): Promise<void>;
     toJSON(): never;
@@ -134,15 +125,10 @@ export interface PtyLifecycleControllerOptions<ChannelTransport, Context = unkno
     readonly context?: Context;
     readonly cols?: number;
     readonly rows?: number;
-    /** Paste payloads delivered independently before `initialInput`. */
-    readonly initialPastes?: readonly string[];
-    readonly initialInput?: string;
-    /** Pasted after any initial input and never submitted, so it waits at the prompt to be edited or sent. */
+    /** Pasted once the program starts and never submitted, so it waits at the prompt to be edited or sent. */
     readonly initialDraft?: string;
-    readonly initialInputDelayMs?: number;
     readonly onInitialInputDelivered?: () => void;
     readonly onError?: (event: PtyControllerErrorEvent) => void;
-    readonly timer?: PtyTimerAdapter;
     readonly maxPendingChunks?: number;
     readonly maxPendingBytes?: number;
     readonly maxSnapshotBytes?: number;
@@ -210,7 +196,6 @@ type PendingResize = {
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
-const DEFAULT_INITIAL_INPUT_DELAY_MS = 800;
 const DEFAULT_MAX_PENDING_CHUNKS = 256;
 const DEFAULT_MAX_PENDING_BYTES = 1024 * 1024;
 const DEFAULT_MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
@@ -220,20 +205,10 @@ const DEFAULT_MAX_ATTACHMENTS = 16;
 const MAX_SUBSCRIPTION_ID = 0xffff_ffff;
 const SHELL_PHASES = new Set<PtyShellPhase>(["unknown", "prompt", "input", "running", "finished"]);
 
-const defaultTimer: PtyTimerAdapter = {
-    schedule: (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
-    cancel: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
-};
-
 function requirePositiveInteger(name: string, value: number, max = Number.MAX_SAFE_INTEGER): number {
     if (!Number.isSafeInteger(value) || value <= 0 || value > max) {
         throw new RangeError(`${name} must be a positive integer no greater than ${max}`);
     }
-    return value;
-}
-
-function requireNonNegativeNumber(name: string, value: number): number {
-    if (!Number.isFinite(value) || value < 0) throw new RangeError(`${name} must be a non-negative finite number`);
     return value;
 }
 
@@ -287,10 +262,9 @@ export function parsePtyShellMetadataSnapshot(value: unknown): PtyShellMetadataS
 
 function validateAttachResult(result: PtyAttachResult, maxSnapshotBytes: number): PtyShellMetadataSnapshot | null {
     if (!isSubscriptionId(result.subId)) throw new TypeError("PTY attach returned an invalid subscription ID");
-    if (!(result.snapshot instanceof Uint8Array) || result.snapshot.length > maxSnapshotBytes) {
-        throw new TypeError("PTY attach returned an invalid or oversized snapshot");
+    if (!(result.frame instanceof Uint8Array) || result.frame.length > maxSnapshotBytes) {
+        throw new TypeError("PTY attach returned an invalid or oversized frame");
     }
-    if (typeof result.alternateScreen !== "boolean") throw new TypeError("PTY attach returned an invalid screen mode");
     if (result.shell === undefined || result.shell === null) return null;
     const shell = parsePtyShellMetadataSnapshot(result.shell);
     if (!shell) throw new TypeError("PTY attach returned invalid shell metadata");
@@ -318,8 +292,6 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     private readonly channels: PtyChannelAdapter<ChannelTransport>;
     private readonly spawnRequest: PtySpawnRequest<Context>;
     private readonly processOwnership: PtyProcessOwnership;
-    private readonly timer: PtyTimerAdapter;
-    private readonly initialInputDelayMs: number;
     private readonly onInitialInputDelivered?: () => void;
     private readonly onError?: (event: PtyControllerErrorEvent) => void;
     private readonly maxPendingChunks: number;
@@ -334,9 +306,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     private failureOperation: PtyOperation | null = null;
     private initialInputStatus: PtyInitialInputStatus;
     private initialDraft: string | null;
-    private initialPasteChunks: string[] | null;
     private initialInputAttempted = false;
-    private initialInputTimer: unknown | null = null;
     private externalPtyId: number | null;
     private resumePtyId: number | null;
     private readonly onProcess?: (id: number) => void;
@@ -373,8 +343,6 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
             directCommand: options.directCommand ?? null,
             context: options.context ?? null,
         });
-        this.timer = options.timer ?? defaultTimer;
-        this.initialInputDelayMs = requireNonNegativeNumber("initialInputDelayMs", options.initialInputDelayMs ?? DEFAULT_INITIAL_INPUT_DELAY_MS);
         this.maxPendingChunks = requirePositiveInteger("maxPendingChunks", options.maxPendingChunks ?? DEFAULT_MAX_PENDING_CHUNKS);
         this.maxPendingBytes = requirePositiveInteger("maxPendingBytes", options.maxPendingBytes ?? DEFAULT_MAX_PENDING_BYTES);
         this.maxSnapshotBytes = requirePositiveInteger("maxSnapshotBytes", options.maxSnapshotBytes ?? DEFAULT_MAX_SNAPSHOT_BYTES);
@@ -383,12 +351,8 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
         this.maxAttachments = requirePositiveInteger("maxAttachments", options.maxAttachments ?? DEFAULT_MAX_ATTACHMENTS);
         this.onInitialInputDelivered = options.onInitialInputDelivered;
         this.onError = options.onError;
-        const initialInput = options.initialInput?.trim() ?? "";
-        const initialPastes = (options.initialPastes ?? []).filter((value) => value.length > 0);
-        this.initialPasteChunks = [...initialPastes, ...(initialInput ? [initialInput] : [])];
-        if (this.initialPasteChunks.length === 0) this.initialPasteChunks = null;
-        this.initialDraft = options.initialDraft?.replaceAll("\0", "").trim() || null;
-        this.initialInputStatus = this.initialPasteChunks || this.initialDraft ? "pending" : "none";
+        this.initialDraft = options.initialDraft?.trim() ? options.initialDraft : null;
+        this.initialInputStatus = this.initialDraft ? "pending" : "none";
     }
 
     getSnapshot(): PtyControllerSnapshot {
@@ -448,7 +412,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
                 if (resumed) this.skipInitialInput();
                 this.emitState();
                 this.notifyProcess(id);
-                this.scheduleInitialInput(id);
+                void this.deliverInitialInput(id);
                 return id;
             })
             .catch((error: unknown) => {
@@ -482,7 +446,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     }
 
     private skipInitialInput(): void {
-        this.initialPasteChunks = null;
+        this.initialDraft = null;
         this.initialInputAttempted = true;
         if (this.initialInputStatus === "pending") this.initialInputStatus = "none";
     }
@@ -510,7 +474,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
             this.status = "running";
             this.failureOperation = null;
             this.emitState();
-            this.scheduleInitialInput(id);
+            void this.deliverInitialInput(id);
             return id;
         });
         const tracked: Promise<number> = containRejection(
@@ -553,10 +517,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
         this.startPromise = null;
         this.resizeSequence += 1;
         this.rejectPendingResizes(new PtyControllerReplacedError());
-        if (
-            lifecycleStarted &&
-            (this.initialInputStatus === "pending" || this.initialInputStatus === "scheduled" || this.initialInputStatus === "delivering")
-        ) {
+        if (lifecycleStarted && (this.initialInputStatus === "pending" || this.initialInputStatus === "delivering")) {
             this.initialInputStatus = "cancelled";
             this.cancelInitialInput();
         }
@@ -568,22 +529,37 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     }
 
     write(data: string): Promise<void> {
-        return containRejection(this.performInput((id) => this.api.write(id, data)));
+        return containRejection(this.performWrite(data));
     }
 
-    paste(text: string): Promise<void> {
-        return containRejection(this.performInput((id) => this.api.paste(id, text)));
-    }
-
-    private async performInput(send: (id: number) => Promise<void>): Promise<void> {
+    private async performWrite(data: string): Promise<void> {
         const id = await this.readyPtyId();
         this.assertRunning(id);
         try {
-            await send(id);
+            await this.api.write(id, data);
         } catch (error) {
             if (!this.disposeRequested && this.status === "running" && this.ptyId === id) {
                 this.failureOperation = "write";
                 this.reportError("write", error);
+                this.emitState();
+            }
+            throw error;
+        }
+    }
+
+    input(input: TerminalInput): Promise<void> {
+        return containRejection(this.performInput(input));
+    }
+
+    private async performInput(input: TerminalInput): Promise<void> {
+        const id = await this.readyPtyId();
+        this.assertRunning(id);
+        try {
+            await this.api.input(id, input);
+        } catch (error) {
+            if (!this.disposeRequested && this.status === "running" && this.ptyId === id) {
+                this.failureOperation = "input";
+                this.reportError("input", error);
                 this.emitState();
             }
             throw error;
@@ -700,11 +676,10 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
         }
 
         const attachment: PtyAttachment = Object.freeze({
-            snapshot: attached.snapshot,
-            alternateScreen: attached.alternateScreen,
+            frame: attached.frame,
             shell,
             activate: () => this.activateAttachment(state),
-            ack: (bytes: number) => this.ackAttachment(state, bytes),
+            ack: (frame: number) => this.ackAttachment(state, frame),
             detach: () => this.detachAttachment(state),
             toJSON: (): never => {
                 throw new TypeError("PTY attachments contain runtime output and cannot be serialized");
@@ -716,7 +691,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     dispose(): Promise<void> {
         if (this.disposePromise) return this.disposePromise;
         this.disposeRequested = true;
-        if (this.initialInputStatus === "pending" || this.initialInputStatus === "scheduled" || this.initialInputStatus === "delivering") {
+        if (this.initialInputStatus === "pending" || this.initialInputStatus === "delivering") {
             this.initialInputStatus = "cancelled";
         }
         this.cancelInitialInput();
@@ -745,7 +720,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
                     await Promise.allSettled([this.killOnce(this.ptyId)]);
                 }
                 this.ptyId = null;
-                this.initialPasteChunks = null;
+                this.initialDraft = null;
                 this.status = "disposed";
                 this.failureOperation = null;
                 this.emitState();
@@ -846,44 +821,16 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
         pending?.reject(error);
     }
 
-    private scheduleInitialInput(id: number): void {
-        if ((!this.initialPasteChunks && !this.initialDraft) || this.initialInputAttempted || this.disposeRequested) return;
-        this.initialInputStatus = "scheduled";
-        this.emitState();
-        try {
-            this.initialInputTimer = this.timer.schedule(() => {
-                this.initialInputTimer = null;
-                void this.deliverInitialInput(id);
-            }, this.initialInputDelayMs);
-        } catch (error) {
-            this.initialPasteChunks = null;
-            this.initialInputStatus = "failed";
-            this.failureOperation = "initial-input";
-            this.reportError("initial-input", error);
-            this.emitState();
-        }
-    }
-
     private async deliverInitialInput(id: number): Promise<void> {
-        if (this.initialInputAttempted || (!this.initialPasteChunks && !this.initialDraft)) return;
-        if (this.disposeRequested || this.status !== "running" || this.ptyId !== id) {
-            this.initialPasteChunks = null;
-            this.initialDraft = null;
-            return;
-        }
+        const draft = this.initialDraft;
+        if (this.initialInputAttempted || !draft) return;
+        this.initialDraft = null;
+        if (this.disposeRequested || this.status !== "running" || this.ptyId !== id) return;
         this.initialInputAttempted = true;
         this.initialInputStatus = "delivering";
-        const pasteChunks = this.initialPasteChunks;
-        const draft = this.initialDraft;
-        this.initialPasteChunks = null;
-        this.initialDraft = null;
         this.emitState();
         try {
-            const chunks = pasteChunks ?? [];
-            for (const [index, chunk] of chunks.entries()) {
-                await this.api.paste(id, chunk, { submit: index === chunks.length - 1, starting: true });
-            }
-            if (draft) await this.api.paste(id, draft, { starting: true });
+            await this.api.typeWhenReady(id, draft);
             if (this.disposeRequested || this.ptyId !== id) {
                 this.initialInputStatus = "cancelled";
                 this.emitState();
@@ -919,15 +866,6 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     }
 
     private cancelInitialInput(): void {
-        if (this.initialInputTimer !== null) {
-            try {
-                this.timer.cancel(this.initialInputTimer);
-            } catch (error) {
-                this.reportError("initial-input", error);
-            }
-            this.initialInputTimer = null;
-        }
-        this.initialPasteChunks = null;
         this.initialDraft = null;
     }
 
@@ -938,10 +876,10 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
         this.drainOutput(state);
     }
 
-    private ackAttachment(state: AttachmentState<ChannelTransport>, bytes: number): void {
+    private ackAttachment(state: AttachmentState<ChannelTransport>, frame: number): void {
         const subId = state.subId;
-        if (state.detached || subId === null || !Number.isSafeInteger(bytes) || bytes <= 0) return;
-        void callAsPromise(() => this.api.ack(state.ptyId, subId, bytes)).catch((error: unknown) => {
+        if (state.detached || subId === null || !Number.isSafeInteger(frame) || frame <= 0) return;
+        void callAsPromise(() => this.api.ack(state.ptyId, subId, frame)).catch((error: unknown) => {
             this.reportError("ack", error);
         });
     }
@@ -1064,7 +1002,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     private markExited(operation: "attach" | "exit"): void {
         if (this.status !== "running") return;
         this.cancelInitialInput();
-        if (this.initialInputStatus === "pending" || this.initialInputStatus === "scheduled" || this.initialInputStatus === "delivering") {
+        if (this.initialInputStatus === "pending" || this.initialInputStatus === "delivering") {
             this.initialInputStatus = "failed";
         }
         this.status = "exited";

@@ -1,22 +1,22 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{git_ok, open_repo, run_blocking};
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GitStash {
     /// Reflog index (0 = top). We treat this as the stable id within a
     /// single session, but it shifts whenever the user drops/pops, so
     /// the UI re-reads after every mutation.
-    index: usize,
+    pub index: usize,
     /// Stash commit id. This is the stable guard used before apply/pop/drop so
     /// external stash-list edits cannot make a stale UI row target another stash.
-    sha: String,
+    pub sha: String,
     /// `stash@{N}` — the symbolic ref form, useful for `git stash apply <ref>`.
-    refname: String,
+    pub refname: String,
     /// Branch name the stash was created from.
-    branch: String,
+    pub branch: String,
     /// Free-form message (usually `WIP on <branch>: <sha> <subject>`).
-    message: String,
+    pub message: String,
 }
 
 pub async fn git_stash_list(repo: String) -> Result<Vec<GitStash>, String> {

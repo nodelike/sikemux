@@ -59,7 +59,7 @@ let transport: MemoryIpcTransport;
 beforeEach(() => {
     setState(initial, true);
     useAccount.setState({
-        account: { signedIn: true, userId: "user_2abc", email: "contact@nodelike.com", name: null, picture: null },
+        account: { signedIn: true, email: "contact@nodelike.com", name: null, picture: null },
         phonesToAllow: [],
     });
     transport = new MemoryIpcTransport();

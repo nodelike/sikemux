@@ -8,20 +8,32 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { activityText, composerPlaceholder } from '@mac/chat/chatStatus';
 import { sentPrompts } from '@mac/chat/promptHistory';
 import { activeToolLabel } from '@mac/chat/toolLabels';
-import { outlivesFold, subagentsById, workFolds, type WorkFold } from '@mac/chat/transcript';
 import type { ChatMessage } from '@mac/chat/types';
+import { recordOf } from '@mac/lib/guards';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { ChatTitle } from '@/chat/ChatTitle';
 import { askTitle, Composer, RecentSheet } from '@/chat/Composer';
-import { FoldsContext } from '@/chat/folds';
+import { FoldsContext, rowFold } from '@/chat/folds';
 import { useTranscriptScroll } from '@/chat/transcriptScroll';
 import { HostContext } from '@/chat/hostFiles';
 import { LiveSheet, LiveStrip } from '@/chat/Live';
 import { AnsweredQuestion, AssumedQuestion, OpenQuestion } from '@/chat/Question';
 import { useQuestions } from '@/chat/questions';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
-import { stripMeta, stripOwner } from '@/chat/messageMeta';
-import { Activity, Earlier, EarlierLost, Message, ProviderContext, Queued, SubagentsContext, WorkSummary } from '@/chat/Transcript';
+import { stripOf, stripOwner } from '@/chat/messageMeta';
+import { ToolDetailContext } from '@/chat/Tools';
+import {
+  Activity,
+  Earlier,
+  EarlierLost,
+  Message,
+  AgentContext,
+  ProviderContext,
+  Queued,
+  SubagentsContext,
+  subagentsOf,
+  WorkSummary,
+} from '@/chat/Transcript';
 import { useChat } from '@/chat/useChat';
 import { retry as reconnect, useDevices, useLive, type Live } from '@/devices/hub';
 import { dismissCardsFor } from '@/notify/cards';
@@ -140,11 +152,11 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const info = live.snapshot?.chats.find((chat) => chat.agentId === agentId);
   const provider = info?.provider ?? 'agent';
   const { session, chat, connection } = useChat(core, agentId);
-  const state = chat.agent;
+  const state = chat.view;
   const request = chat.permissions[0];
   const liveId = state.running ? state.messages[state.messages.length - 1]?.id : undefined;
   const [open, setOpen] = useState<string>();
-  const openStrip = useMemo(() => (open ? stripMeta(state.messages, open) : null), [open, state.messages]);
+  const openStrip = useMemo(() => (open ? stripOf(state.messages, open) : null), [open, state.messages]);
   // The list redraws a row when what it is handed changes, so nothing it is handed changes with every word streamed.
   const messages = useRef(state.messages);
   useEffect(() => {
@@ -154,19 +166,17 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     const owner = stripOwner(messages.current, message.id);
     setOpen((shown) => (shown === owner ? undefined : owner));
   };
-  const [foldsBefore, setFoldsBefore] = useState<Map<number, WorkFold>>();
-  const folds = useMemo(() => workFolds(state.messages, state.running, foldsBefore), [state.messages, state.running, foldsBefore]);
-  if (folds !== foldsBefore) setFoldsBefore(folds);
   // The list redraws its rows when a summary opens or closes, and only then, so it watches those folds alone.
   const openWork = useSyncExternalStore(session.folds.subscribe, () => session.folds.openUnder('work/'));
   const workOpen = (id: string) => session.folds.isOpen(`work/${id}`, false);
   const toggleWork = (id: string) => session.folds.set(`work/${id}`, !workOpen(id));
   const marks = useMemo(
-    () => [chat.replayed, chat.unsent, chat.sentFiles, liveId, open, openStrip, folds, openWork],
-    [chat.replayed, chat.unsent, chat.sentFiles, liveId, open, openStrip, folds, openWork],
+    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork],
+    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork],
   );
-  const subagents = useMemo(() => subagentsById(state.messages), [state.messages]);
-  const fresh = useMemo(() => liveWork(state, chat.queued), [state, chat.queued]);
+  const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
+  const { plan, runningSubagents, tasks, queued } = state;
+  const fresh = useMemo(() => liveWork({ plan, runningSubagents, tasks, queued }), [plan, runningSubagents, tasks, queued]);
   // The strip redraws, and with it the composer, only when what it counts changes, not on every word streamed.
   const [work, setWork] = useState(fresh);
   if (liveKey(fresh) !== liveKey(work)) setWork(fresh);
@@ -176,10 +186,10 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
       recent
         ? sentPrompts(
             state.messages,
-            chat.queued.map((held) => held.text),
+            queued.map((held) => held.text),
           )
         : [],
-    [recent, state.messages, chat.queued],
+    [recent, state.messages, queued],
   );
   const [showLive, setShowLive] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -198,16 +208,14 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     idle: chat.earlier === 'idle',
     load: session.loadEarlier,
   });
-  const activity = chat.stoppingTurn
-    ? 'Stopping…'
-    : activityText({ ...state, permissions: chat.permissions }, activeToolLabel(state.messages));
+  const activity = chat.stoppingTurn ? 'Stopping…' : activityText({ ...state, permissions: chat.permissions }, activeToolLabel(state));
   const title = state.title ?? live.snapshot?.inbox.agents.find((shown) => shown.agentId === agentId)?.title ?? agentLabel(provider);
   const watchOnly = access === 'watch';
-  const steerable = state.capabilities.steering === true && state.running && !watchOnly;
+  const steerable = recordOf(state.capabilities)?.steering === true && state.running && !watchOnly;
   const liveShown = hasLiveWork(fresh) && chat.attached === 'live';
-  const recalls = !watchOnly && (chat.queued.length > 0 || state.messages.some((message) => message.role === 'user'));
+  const recalls = !watchOnly && (queued.length > 0 || state.messages.some((message) => message.role === 'user'));
   const strip = liveShown ? <LiveStrip work={work} provider={provider} onOpen={openLive} /> : null;
-  const questions = useQuestions(connection, agentId, `${info?.activeAt}|${info?.unread}|${state.running}`, state.messages, session.report);
+  const questions = useQuestions(connection, agentId, `${info?.activeAt}|${info?.unread}|${state.running}`, session.report);
   const input = useRef<TextInput>(null);
   const composing = watchOnly ? null : questions.composing;
   const unreachable = chat.attached !== 'live' && live.status === 'closed';
@@ -251,127 +259,123 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
         ) : (
           <HostContext value={core}>
             <ProviderContext value={provider}>
-              <FoldsContext value={session.folds}>
-                <SubagentsContext value={subagents}>
-                  <View style={styles.transcript}>
-                    <MaskedView style={styles.transcript} maskElement={<EdgeFades />}>
-                      <FlashList
-                        ref={list}
-                        showsVerticalScrollIndicator={false}
-                        data={state.messages}
-                        keyExtractor={(message) => message.id}
-                        getItemType={(message, index) => {
-                          const fold = folds.get(index);
-                          // Folded work draws nothing, so it is never recycled into a whole answer.
-                          return fold && index < fold.end && !workOpen(fold.id) && !message.parts.some(outlivesFold)
-                            ? 'folded'
-                            : message.role;
-                        }}
-                        extraData={marks}
-                        renderItem={({ item, index }) => {
-                          const fold = folds.get(index);
-                          const workId = fold ? fold.id : '';
-                          const folded = fold !== undefined && !workOpen(workId);
-                          const summary =
-                            fold && index === fold.start ? (
-                              <WorkSummary
-                                took={fold.took}
-                                calls={fold.calls}
-                                thought={fold.thought}
-                                open={!folded}
-                                onToggle={() => toggleWork(workId)}
-                              />
-                            ) : null;
-                          if (fold && folded && index < fold.end && !item.parts.some(outlivesFold)) return summary ?? <View />;
-                          return (
-                            <>
-                              {summary}
-                              <Message
-                                message={item}
-                                live={item.id === liveId}
-                                untimed={chat.replayed.has(item.id)}
-                                unsent={chat.unsent.get(item.id)}
-                                onRetry={session.retrySend}
-                                onTap={onTap}
-                                strip={item.id === open ? openStrip : undefined}
-                                sentFiles={chat.sentFiles}
-                                from={fold && folded ? (index < fold.end ? item.parts.length : fold.from) : 0}
-                              />
-                            </>
-                          );
-                        }}
-                        ListHeaderComponent={
-                          chat.hasEarlier ? (
-                            <Earlier
-                              failed={chat.earlier === 'failed'}
-                              loading={chat.earlier === 'loading'}
-                              onRetry={session.loadEarlier}
-                            />
-                          ) : state.earlierLost ? (
-                            <EarlierLost />
-                          ) : null
-                        }
-                        ListFooterComponent={
-                          <>
-                            {chat.queued.length ? <Queued held={chat.queued} sentFiles={chat.sentFiles} /> : null}
-                            {activity ? <Activity provider={provider} label={activity} since={chat.turnSince} /> : null}
-                            {state.error ? <Text style={styles.error}>{state.error}</Text> : null}
-                            {questions.answered.map(({ question, answer }) => (
-                              <AnsweredQuestion
-                                key={question.id}
-                                asker={question.name}
-                                cli={question.cli}
-                                question={question.asked}
-                                answer={answer}
-                                secret={question.secret}
-                              />
-                            ))}
-                            {questions.open.map((question) => (
-                              <OpenQuestion
-                                key={question.id}
-                                question={question}
-                                canAnswer={!watchOnly}
-                                writing={questions.writing && composing?.id === question.id}
-                                onChoose={(choice) => void questions.answer(question, { choice }, question.choices[choice]?.label ?? '')}
-                                onWrite={() => {
-                                  questions.write(question);
-                                  input.current?.focus();
-                                }}
-                                onSecret={(text) => questions.answer(question, { answer: text }, '')}
-                              />
-                            ))}
-                            {questions.assumed.map((question) => (
-                              <AssumedQuestion
-                                key={question.id}
-                                question={question}
-                                canAnswer={!watchOnly}
-                                onFine={() => void questions.answer(question, { fine: true }, null)}
-                                onChange={() => {
-                                  questions.write(question);
-                                  input.current?.focus();
-                                }}
-                              />
-                            ))}
-                          </>
-                        }
-                        contentContainerStyle={styles.content}
-                        {...scroll.listProps}
-                        keyboardDismissMode="interactive"
-                      />
-                    </MaskedView>
-                    {scroll.away ? (
-                      <Pressable
-                        onPress={scroll.toEnd}
-                        style={styles.jump}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Jump to latest message">
-                        <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </SubagentsContext>
-              </FoldsContext>
+              <AgentContext value={agentId}>
+                <FoldsContext value={session.folds}>
+                  <SubagentsContext value={subagents}>
+                    <ToolDetailContext value={session.toolDetail}>
+                      <View style={styles.transcript}>
+                        <MaskedView style={styles.transcript} maskElement={<EdgeFades />}>
+                          <FlashList
+                            ref={list}
+                            showsVerticalScrollIndicator={false}
+                            data={state.messages}
+                            keyExtractor={(message) => message.id}
+                            // Folded work draws nothing, so it is never recycled into a whole answer.
+                            getItemType={(message) => (rowFold(message, workOpen).hidden ? 'folded' : message.role)}
+                            extraData={marks}
+                            renderItem={({ item }) => {
+                              const { summary: fold, hidden, from } = rowFold(item, workOpen);
+                              const summary = fold ? (
+                                <WorkSummary
+                                  took={fold.took}
+                                  calls={fold.calls}
+                                  thought={fold.thought}
+                                  open={workOpen(fold.id)}
+                                  onToggle={() => toggleWork(fold.id)}
+                                />
+                              ) : null;
+                              if (hidden) return summary ?? <View />;
+                              return (
+                                <>
+                                  {summary}
+                                  <Message
+                                    message={item}
+                                    live={item.id === liveId}
+                                    unsent={chat.unsent.get(item.id)}
+                                    onRetry={session.retrySend}
+                                    onTap={onTap}
+                                    strip={item.id === open ? openStrip : undefined}
+                                    sentFiles={chat.sentFiles}
+                                    from={from}
+                                  />
+                                </>
+                              );
+                            }}
+                            ListHeaderComponent={
+                              chat.hasEarlier ? (
+                                <Earlier
+                                  failed={chat.earlier === 'failed'}
+                                  loading={chat.earlier === 'loading'}
+                                  onRetry={session.loadEarlier}
+                                />
+                              ) : state.earlierLost ? (
+                                <EarlierLost />
+                              ) : null
+                            }
+                            ListFooterComponent={
+                              <>
+                                {queued.length ? <Queued held={queued} sentFiles={chat.sentFiles} /> : null}
+                                {activity ? <Activity provider={provider} label={activity} since={chat.turnSince} /> : null}
+                                {state.error ? <Text style={styles.error}>{state.error}</Text> : null}
+                                {questions.answered.map((question) => (
+                                  <AnsweredQuestion
+                                    key={question.id}
+                                    own={question.agentId === agentId}
+                                    asker={question.name}
+                                    cli={question.cli}
+                                    question={question.asked}
+                                    answer={question.answer ?? ''}
+                                    secret={question.secret}
+                                  />
+                                ))}
+                                {questions.open.map((question) => (
+                                  <OpenQuestion
+                                    key={question.id}
+                                    question={question}
+                                    canAnswer={!watchOnly}
+                                    writing={questions.writing && composing?.id === question.id}
+                                    onChoose={(choice) => void questions.answer(question, { choice })}
+                                    onWrite={() => {
+                                      questions.write(question);
+                                      input.current?.focus();
+                                    }}
+                                    onSecret={(text) => questions.answer(question, { answer: text })}
+                                  />
+                                ))}
+                                {questions.assumed.map((question) => (
+                                  <AssumedQuestion
+                                    key={question.id}
+                                    question={question}
+                                    canAnswer={!watchOnly}
+                                    onFine={() => void questions.answer(question, { fine: true })}
+                                    onChange={() => {
+                                      questions.write(question);
+                                      input.current?.focus();
+                                    }}
+                                  />
+                                ))}
+                              </>
+                            }
+                            contentContainerStyle={styles.content}
+                            {...scroll.listProps}
+                            keyboardDismissMode="interactive"
+                          />
+                        </MaskedView>
+                        {scroll.away ? (
+                          <Pressable
+                            onPress={scroll.toEnd}
+                            style={styles.jump}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel="Jump to latest message">
+                            <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </ToolDetailContext>
+                  </SubagentsContext>
+                </FoldsContext>
+              </AgentContext>
             </ProviderContext>
           </HostContext>
         )}
@@ -383,7 +387,8 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
               session={session}
               provider={provider}
               running={state.running && !chat.stoppingTurn}
-              setup={state.setup}
+              model={state.model}
+              effort={state.effort}
               usage={state.usage}
               commands={state.commands}
               requests={chat.permissions}
@@ -413,7 +418,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   cli: composing.cli,
                   text: composing.text,
                   onRemove: questions.stopComposing,
-                  onAnswer: (text) => questions.answer(composing, { answer: text }, text, () => session.setDraft(text)),
+                  onAnswer: (text) => questions.answer(composing, { answer: text }, () => session.setDraft(text)),
                 }
               }
             />

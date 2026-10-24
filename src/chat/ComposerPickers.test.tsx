@@ -1,20 +1,21 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerPickers } from "./ComposerPickers";
-import { effortConfig, sessionConfigs } from "./sessionConfig";
+import type { ConfigChoice } from "../api/generated/wire";
 import { getState, setState } from "../state/store";
 
 const mocks = vi.hoisted(() => ({ onAgent: vi.fn() }));
 const codexAgent = { id: "a", type: "codex" as const, title: "Codex", startup: "codex" };
 
-function modelSetup(currentValue: string, options: { value: string; name: string; description?: string }[]) {
-    return { configOptions: [{ id: "model", type: "select", currentValue, options }] };
+function picker(current: string, choices: ConfigChoice[], id = "model") {
+    return { id, current, choices };
 }
 
-const threeModels = modelSetup("sonnet", [
-    { value: "sonnet", name: "Sonnet" },
-    { value: "opus", name: "Opus" },
-    { value: "haiku", name: "Haiku", description: "Fastest" },
+const noEffort = picker("", [], "effort");
+const threeModels = picker("sonnet", [
+    { value: "sonnet", label: "Sonnet" },
+    { value: "opus", label: "Opus" },
+    { value: "haiku", label: "Haiku", description: "Fastest" },
 ]);
 const initial = getState();
 afterEach(() => {
@@ -24,56 +25,9 @@ afterEach(() => {
 });
 
 describe("composer pickers", () => {
-    it("flattens provider model groups without changing their identifiers", () => {
-        expect(
-            sessionConfigs({
-                configOptions: [
-                    {
-                        id: "model",
-                        type: "select",
-                        currentValue: "custom/model",
-                        options: [{ group: "custom", name: "Custom provider", options: [{ value: "custom/model", name: "My model" }] }],
-                    },
-                ],
-            })[0].options,
-        ).toEqual([{ value: "custom/model", label: "My model", description: "Custom provider" }]);
-    });
-
-    it("names a model with the release number its description carries", () => {
-        expect(
-            sessionConfigs({
-                configOptions: [
-                    {
-                        id: "model",
-                        type: "select",
-                        currentValue: "opus[1m]",
-                        options: [
-                            { value: "default", name: "Default (recommended)", description: "Opus (1M context)" },
-                            {
-                                value: "opus[1m]",
-                                name: "Opus (1M context)",
-                                description: "Opus 5 with 1M context · Best for everyday, complex tasks",
-                            },
-                            { value: "sonnet", name: "Sonnet", description: "Sonnet 5 · Efficient for routine tasks" },
-                            { value: "haiku", name: "Haiku", description: "Haiku 4.5 · Fastest for quick answers" },
-                        ],
-                    },
-                ],
-            })[0].options.map((option) => option.label),
-        ).toEqual(["Default (recommended)", "Opus 5 (1M context)", "Sonnet 5", "Haiku 4.5"]);
-    });
-
     it("selects the harness for the existing empty chat", () => {
         setState({ providerProfiles: [{ id: "work", name: "Work Claude", provider: "claude", accent: "#fff" }] });
-        render(
-            <ComposerPickers
-                agent={{ id: "a", type: "codex", title: "Codex" }}
-                onAgent={mocks.onAgent}
-                setup={{}}
-                disabled={false}
-                onConfig={() => {}}
-            />,
-        );
+        render(<ComposerPickers agent={{ id: "a", type: "codex", title: "Codex" }} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} />);
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         fireEvent.click(screen.getByRole("button", { name: "Claude" }));
         expect(mocks.onAgent).toHaveBeenCalledWith("claude", "work");
@@ -82,33 +36,21 @@ describe("composer pickers", () => {
     it("keeps the menu open through an agent switch and fills in the new agent's models", () => {
         const codex = { id: "a", type: "codex" as const, title: "Codex", startup: "codex" };
         const claude = { ...codex, type: "claude" as const, title: "Claude" };
-        const models = (value: string, name: string) => ({
-            configOptions: [{ id: "model", type: "select", currentValue: value, options: [{ value, name }] }],
-        });
-        const codexSetup = models("astra", "GPT-6 Astra");
+        const models = (value: string, label: string) => picker(value, [{ value, label }]);
+        const codexModel = models("astra", "GPT-6 Astra");
         const props = { onAgent: mocks.onAgent, onConfig: () => {} };
-        const { rerender } = render(<ComposerPickers {...props} agent={codex} setup={codexSetup} disabled={false} />);
+        const { rerender } = render(<ComposerPickers {...props} agent={codex} model={codexModel} disabled={false} />);
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         fireEvent.click(screen.getByRole("button", { name: /Claude/ }));
         expect(mocks.onAgent).toHaveBeenCalledWith("claude", expect.anything());
-        rerender(<ComposerPickers {...props} agent={claude} setup={codexSetup} disabled={false} />);
+        rerender(<ComposerPickers {...props} agent={claude} model={codexModel} disabled={false} />);
         expect(screen.getByText("Loading models…")).toBeInTheDocument();
-        rerender(<ComposerPickers {...props} agent={claude} setup={{}} disabled />);
+        rerender(<ComposerPickers {...props} agent={claude} disabled />);
         expect(screen.getByText("Loading models…")).toBeInTheDocument();
-        rerender(<ComposerPickers {...props} agent={claude} setup={models("opus", "Opus")} disabled={false} />);
+        rerender(<ComposerPickers {...props} agent={claude} model={models("opus", "Opus")} disabled={false} />);
         expect(screen.queryByText("Loading models…")).not.toBeInTheDocument();
         expect(screen.getByRole("option", { name: /Opus/ })).toBeInTheDocument();
         expect(screen.getByRole("button", { name: /Claude/ })).toHaveAttribute("aria-pressed", "true");
-    });
-
-    it("finds effort by its category whatever the agent calls it", () => {
-        const configs = sessionConfigs({
-            configOptions: [
-                { id: "model", category: "model", type: "select", currentValue: "m", options: [] },
-                { id: "thinking", category: "thought_level", type: "select", currentValue: "auto", options: [{ value: "auto", name: "Auto" }] },
-            ],
-        });
-        expect(effortConfig(configs)?.id).toBe("thinking");
     });
 
     it("offers no effort picker to an agent whose model has none", () => {
@@ -118,7 +60,7 @@ describe("composer pickers", () => {
                 onAgent={mocks.onAgent}
                 disabled={false}
                 onConfig={() => {}}
-                setup={{ configOptions: [{ id: "model", type: "select", currentValue: "m", options: [{ value: "m", name: "M" }] }] }}
+                model={picker("m", [{ value: "m", label: "M" }])}
             />,
         );
         expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument();
@@ -126,15 +68,7 @@ describe("composer pickers", () => {
     });
 
     it("lists a harness once when its built-in profile is the default", () => {
-        render(
-            <ComposerPickers
-                agent={{ id: "a", type: "codex", title: "Codex" }}
-                onAgent={mocks.onAgent}
-                setup={{}}
-                disabled={false}
-                onConfig={() => {}}
-            />,
-        );
+        render(<ComposerPickers agent={{ id: "a", type: "codex", title: "Codex" }} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} />);
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         const agents = screen.getByRole("group", { name: "Agent" }).querySelectorAll("button");
         expect(Array.from(agents, (button) => button.textContent)).toEqual(["Claude", "Codex"]);
@@ -149,18 +83,8 @@ describe("composer pickers", () => {
                 disabled={false}
                 agentLocked
                 onConfig={() => {}}
-                setup={{
-                    configOptions: [
-                        { id: "model", type: "select", currentValue: "model", options: [{ value: "model", name: "My model" }] },
-                        {
-                            id: "reasoning_effort",
-                            category: "thought_level",
-                            type: "select",
-                            currentValue: "high",
-                            options: [{ value: "high", name: "High" }],
-                        },
-                    ],
-                }}
+                model={picker("model", [{ value: "model", label: "My model" }])}
+                effort={picker("high", [{ value: "high", label: "High" }], "reasoning_effort")}
             />,
         );
         expect(screen.getByRole("button", { name: "Model" }).querySelector(".agent-glyph.codex")).not.toBeNull();
@@ -178,19 +102,10 @@ describe("composer pickers", () => {
                 onAgent={mocks.onAgent}
                 disabled={false}
                 onConfig={onConfig}
-                setup={{
-                    configOptions: [
-                        {
-                            id: "model",
-                            type: "select",
-                            currentValue: "sonnet",
-                            options: [
-                                { value: "sonnet", name: "Sonnet", description: "Sonnet 5 · Efficient for routine tasks" },
-                                { value: "opus", name: "Opus" },
-                            ],
-                        },
-                    ],
-                }}
+                model={picker("sonnet", [
+                    { value: "sonnet", label: "Sonnet 5", description: "Sonnet 5 · Efficient for routine tasks" },
+                    { value: "opus", label: "Opus" },
+                ])}
             />,
         );
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
@@ -209,7 +124,7 @@ describe("composer pickers", () => {
                 onAgent={mocks.onAgent}
                 disabled={false}
                 onConfig={() => {}}
-                setup={{ configOptions: [{ id: "model", type: "select", currentValue: "model", options: [{ value: "model", name: "My model" }] }] }}
+                model={picker("model", [{ value: "model", label: "My model" }])}
             />,
         );
         const trigger = screen.getByRole("button", { name: "Model" });
@@ -219,62 +134,9 @@ describe("composer pickers", () => {
         expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     });
 
-    it("reads only well-formed select options from what the agent reports", () => {
-        expect(sessionConfigs({})).toEqual([]);
-        expect(sessionConfigs({ configOptions: "model" })).toEqual([]);
-        expect(
-            sessionConfigs({
-                configOptions: [
-                    null,
-                    ["nested"],
-                    { id: "mode", type: "toggle", currentValue: "on" },
-                    { type: "select", currentValue: "x" },
-                    { id: "model", type: "select", currentValue: 3 },
-                    {
-                        id: "effort",
-                        type: "select",
-                        category: "thought_level",
-                        currentValue: "high",
-                        options: [null, { value: "high", name: "High" }, { value: 1, name: "Bad" }, { value: "low" }],
-                    },
-                    { id: "speed", name: "Speed", type: "select", currentValue: "fast", options: "fast" },
-                    { id: "model", type: "select", currentValue: "m", options: [{ options: [{ value: "m", name: "M" }] }] },
-                ],
-            }),
-        ).toEqual([
-            {
-                id: "effort",
-                name: "effort",
-                category: "thought_level",
-                currentValue: "high",
-                options: [{ value: "high", label: "High", description: undefined }],
-            },
-            { id: "speed", name: "Speed", currentValue: "fast", options: [] },
-            { id: "model", name: "model", currentValue: "m", options: [{ value: "m", label: "M", description: undefined }] },
-        ]);
-    });
-
-    it("leaves a model's name alone when its description names another family or the number is already there", () => {
-        const labels = sessionConfigs(
-            modelSetup("a", [
-                { value: "a", name: "Sonnet", description: "Opus 5 behind the scenes" },
-                { value: "b", name: "Opus 5", description: "Opus 5 with 1M context" },
-                { value: "c", name: "Haiku", description: "fast and cheap" },
-            ]),
-        )[0].options.map((option) => option.label);
-
-        expect(labels).toEqual(["Sonnet", "Opus 5", "Haiku"]);
-    });
-
-    it("finds no effort option for an agent that does not chat unless one is tagged", () => {
-        const configs = sessionConfigs({ configOptions: [{ id: "effort", type: "select", currentValue: "high", options: [] }] });
-
-        expect(effortConfig(configs)).toBeUndefined();
-    });
-
     it("moves through models with the arrow keys, wrapping at each end, and picks one with Enter", () => {
         const onConfig = vi.fn();
-        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} setup={threeModels} />);
+        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} model={threeModels} />);
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         const search = screen.getByRole("combobox", { name: "Search model" });
         expect(search).toHaveFocus();
@@ -293,7 +155,7 @@ describe("composer pickers", () => {
 
     it("filters models by name, value or description and says when nothing matches", () => {
         const onConfig = vi.fn();
-        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} setup={threeModels} />);
+        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} model={threeModels} />);
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         const search = screen.getByRole("combobox", { name: "Search model" });
 
@@ -312,7 +174,7 @@ describe("composer pickers", () => {
 
     it("does not re-send the model that is already chosen", () => {
         const onConfig = vi.fn();
-        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} setup={threeModels} />);
+        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} model={threeModels} />);
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         const current = screen.getByRole("option", { name: /Sonnet/ });
 
@@ -323,7 +185,7 @@ describe("composer pickers", () => {
 
     it("does not pick while an IME is still composing", () => {
         const onConfig = vi.fn();
-        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} setup={threeModels} />);
+        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} model={threeModels} />);
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         const search = screen.getByRole("combobox", { name: "Search model" });
         fireEvent.keyDown(search, { key: "ArrowDown" });
@@ -337,7 +199,7 @@ describe("composer pickers", () => {
         render(
             <>
                 <button type="button">Elsewhere</button>
-                <ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} setup={threeModels} />
+                <ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} model={threeModels} />
             </>,
         );
         const trigger = screen.getByRole("button", { name: "Model" });
@@ -367,7 +229,7 @@ describe("composer pickers", () => {
                 onAgent={mocks.onAgent}
                 disabled={false}
                 onConfig={() => {}}
-                setup={{}}
+                effort={noEffort}
             />,
         );
 
@@ -379,18 +241,18 @@ describe("composer pickers", () => {
 
     it("shows a current value the option list does not name, and the generic labels otherwise", () => {
         const { rerender } = render(
-            <ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} setup={modelSetup("mystery", [])} />,
+            <ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} model={picker("mystery", [])} />,
         );
         expect(screen.getByRole("button", { name: "Model" })).toHaveAttribute("title", "mystery");
 
-        rerender(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} setup={{}} agentLocked />);
+        rerender(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} effort={noEffort} agentLocked />);
         expect(screen.getByRole("button", { name: "Model" })).toHaveAttribute("title", "Model");
         expect(screen.getByRole("button", { name: "Model" })).toBeDisabled();
         expect(screen.getByRole("button", { name: "Reasoning effort" })).toHaveAttribute("title", "Effort");
     });
 
     it("ignores a click on the agent that is already running", () => {
-        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} setup={threeModels} />);
+        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} model={threeModels} />);
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         fireEvent.click(screen.getByRole("button", { name: /Codex/ }));
 
@@ -400,7 +262,7 @@ describe("composer pickers", () => {
 
     it("keeps the picker disabled while the agent switch is still waiting and never picks while loading", () => {
         const onConfig = vi.fn();
-        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} setup={threeModels} />);
+        render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={onConfig} model={threeModels} />);
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         fireEvent.click(screen.getByRole("button", { name: /Claude/ }));
         const search = screen.getByRole("combobox", { name: "Search model" });

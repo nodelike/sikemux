@@ -16,6 +16,7 @@ publish = false
 ### BEGIN HAKARI SECTION
 [dependencies]
 aho-corasick = { version = "1" }
+bitflags = { version = "2", default-features = false, features = ["serde"] }
 crc32fast = { version = "1" }
 crossbeam-utils = { version = "0.8" }
 derive_more = { version = "2", features = ["display", "from"] }
@@ -27,6 +28,7 @@ futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-io = { version = "0.3" }
 futures-sink = { version = "0.3" }
+futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
@@ -38,7 +40,7 @@ percent-encoding = { version = "2" }
 phf = { version = "0.13", features = ["macros"] }
 phf_shared = { version = "0.13", default-features = false, features = ["std"] }
 regex-automata = { version = "0.4" }
-reqwest = { version = "0.13", default-features = false, features = ["cookies", "form", "gzip", "json", "multipart", "query", "rustls-no-provider", "stream", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["cookies", "form", "gzip", "json", "multipart", "query", "rustls-no-provider", "stream"] }
 rusqlite = { version = "0.40", features = ["bundled", "column_decltype"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
@@ -54,6 +56,7 @@ time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["serde", "v4", "v7"] }
+vte = { version = "0.15", features = ["ansi", "serde"] }
 
 [build-dependencies]
 aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
@@ -93,7 +96,7 @@ url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [target.aarch64-apple-darwin.dependencies]
-bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
+bitflags = { version = "2", default-features = false, features = ["std"] }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["rand_core"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
 data-encoding = { version = "2" }
@@ -102,24 +105,21 @@ digest = { version = "0.11", default-features = false, features = ["rand_core"] 
 dispatch2 = { version = "0.3" }
 errno = { version = "0.3" }
 flate2 = { version = "1" }
-futures-task = { version = "0.3", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1"] }
 idna = { version = "1" }
 objc2 = { version = "0.6", features = ["disable-encoding-assertions", "exception"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAccessibilityProtocols", "NSAlert", "NSAnimation", "NSAppearance", "NSApplication", "NSAttributedString", "NSBitmapImageRep", "NSBox", "NSButton", "NSCell", "NSColor", "NSColorPanel", "NSControl", "NSController", "NSDragging", "NSEvent", "NSFont", "NSGlassEffectView", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSInputManager", "NSKeyValueBinding", "NSLayoutManager", "NSMenu", "NSMenuItem", "NSOpenGLView", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSPopover", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSRunningApplication", "NSSavePanel", "NSScreen", "NSSpellProtocol", "NSText", "NSTextContainer", "NSTextContent", "NSTextField", "NSTextFinder", "NSTextInputClient", "NSTextView", "NSUserActivity", "NSUserInterfaceItemIdentification", "NSUserInterfaceValidation", "NSView", "NSViewController", "NSVisualEffectView", "NSWindow", "NSWorkspace", "block2", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core", "std"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAccessibilityProtocols", "NSAlert", "NSAnimation", "NSAppearance", "NSApplication", "NSAttributedString", "NSBitmapImageRep", "NSBox", "NSButton", "NSCell", "NSColor", "NSControl", "NSDragging", "NSEvent", "NSFont", "NSGlassEffectView", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSMenu", "NSMenuItem", "NSOpenGLView", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSPopover", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSRunningApplication", "NSSavePanel", "NSScreen", "NSTextField", "NSTextFinder", "NSTextView", "NSUserActivity", "NSUserInterfaceItemIdentification", "NSUserInterfaceValidation", "NSView", "NSViewController", "NSVisualEffectView", "NSWindow", "NSWorkspace", "block2", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core", "std"] }
 objc2-core-foundation = { version = "0.3", features = ["CFBase"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGBitmapContext", "CGColor", "CGColorSpace", "CGContext", "CGDirectDisplay", "CGEventTypes", "CGFont", "CGImage", "CGPath", "objc2", "std"] }
 objc2-foundation = { version = "0.3" }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["CADisplayLink", "CALayer", "CAMediaTiming", "CAMediaTimingFunction", "CAOpenGLLayer", "CAShapeLayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics", "std"] }
 objc2-system-configuration = { version = "0.3" }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["WKContentWorld", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKHTTPCookieStore", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKOpenPanelParameters", "WKPDFConfiguration", "WKPreferences", "WKScriptMessage", "WKScriptMessageHandler", "WKSecurityOrigin", "WKSnapshotConfiguration", "WKUIDelegate", "WKURLSchemeHandler", "WKURLSchemeTask", "WKUserContentController", "WKUserScript", "WKWebView", "WKWebViewConfiguration", "WKWebpagePreferences", "WKWebsiteDataStore", "WKWindowFeatures", "block2", "objc2-app-kit", "objc2-core-foundation", "std"] }
-rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
+rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "termios", "time"] }
 security-framework = { version = "3", features = ["OSX_10_15"] }
 security-framework-sys = { version = "2", features = ["OSX_10_15"] }
 simd-adler32 = { version = "0.3" }
-simdutf8 = { version = "0.1", default-features = false, features = ["aarch64_neon", "public_imp", "std"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new"] }
 subtle = { version = "2", default-features = false, features = ["const-generics"] }

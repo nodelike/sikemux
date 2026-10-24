@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState, type Dispatch, type RefObject } from "react";
+import { useCallback, useEffect, useState, type RefObject } from "react";
 import { errorText } from "../lib/format";
 import { acpApi } from "../api/acp";
 import type { Agent } from "../state/types";
 import { unknownCommand } from "./composerInput";
-import type { OutgoingMessage, QueuedMessage } from "./queuedMessages";
-import type { AcpAvailableCommand, ChatAction, ChatState } from "./types";
+import type { OutgoingMessage } from "./queuedMessages";
+import type { QueuedMessage } from "./types";
+import type { ChatCommandInfo, ChatRows } from "./types";
 
 /**
  * Sends what the person writes. Written mid-turn, a message waits in the core's queue, which every app shows and the
@@ -16,40 +17,34 @@ export function usePromptQueue({
     cwd,
     connection,
     running,
-    replaying,
     queued,
     commands,
     steerable,
-    dispatch,
+    show,
+    unshow,
     onError,
     onSent,
 }: {
     agentRef: RefObject<Agent>;
     agentId: string;
     cwd: string;
-    connection: ChatState["connection"];
+    connection: ChatRows["connection"];
     running: boolean;
-    replaying: boolean;
     queued: QueuedMessage[];
-    commands: AcpAvailableCommand[];
+    commands: ChatCommandInfo[];
     steerable: boolean;
-    dispatch: Dispatch<ChatAction>;
+    /** Shows a message until the core shows it back, answering the id it goes out with. */
+    show: (text: string, paths: string[], context: OutgoingMessage["context"]) => string;
+    unshow: (messageId: string) => void;
     onError: (message: string | null) => void;
     onSent: () => void;
 }) {
-    /* Only the first shows before the agent can take it, and not while the chat it takes up is still replaying. */
+    /* Only the first shows before the agent can take it. */
     const [early, setEarly] = useState<{ message: OutgoingMessage; messageId?: string }[]>([]);
 
     useEffect(() => setEarly([]), [agentId, cwd]);
 
-    const showPrompt = useCallback(
-        ({ text, paths, context }: OutgoingMessage) => {
-            const messageId = crypto.randomUUID();
-            dispatch({ type: "local_prompt", text, paths, context, messageId });
-            return messageId;
-        },
-        [dispatch],
-    );
+    const showPrompt = useCallback(({ text, paths, context }: OutgoingMessage) => show(text, paths, context), [show]);
 
     const deliver = useCallback(
         async ({ text, paths, context }: OutgoingMessage, messageId?: string) => {
@@ -57,10 +52,11 @@ export function usePromptQueue({
                 await acpApi.prompt(agentRef.current.id, text, paths, context, messageId);
                 onSent();
             } catch (error) {
-                dispatch({ type: "error", message: errorText(error) });
+                if (messageId) unshow(messageId);
+                onError(errorText(error));
             }
         },
-        [agentRef, dispatch, onSent],
+        [agentRef, unshow, onError, onSent],
     );
 
     useEffect(() => {
@@ -71,7 +67,7 @@ export function usePromptQueue({
         void rest.reduce((before, { message }) => before.then(() => deliver(message)), sent);
     }, [connection, early, deliver, showPrompt]);
 
-    const failed = (error: unknown) => dispatch({ type: "error", message: errorText(error) });
+    const failed = (error: unknown) => onError(errorText(error));
 
     /* Steering puts messages into what the agent has in flight, so a message only goes this way when it is asked to. */
     const steer = (messages: QueuedMessage[], message?: OutgoingMessage) =>
@@ -103,7 +99,7 @@ export function usePromptQueue({
             void deliver(outgoing, showPrompt(outgoing));
             return true;
         }
-        const shown = early.length === 0 && !replaying;
+        const shown = early.length === 0;
         setEarly([...early, { message: outgoing, ...(shown && { messageId: showPrompt(outgoing) }) }]);
         return true;
     };

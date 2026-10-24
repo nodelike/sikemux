@@ -1,6 +1,6 @@
 import { coreCall, coreRequest, onHost, type CoreRequest } from "./core";
 import { getState } from "../state/store";
-import type { ChatInfo } from "./generated/wire";
+import type { ChatChange, ChatInfo, ChatPage, ChatView, ToolDetail } from "./generated/wire";
 import { invokeCommand as invoke } from "./invoke";
 import { getIpcTransport, type IpcUnsubscribe } from "./transport";
 import type { AgentPermissionMode, AgentType } from "../state/types";
@@ -18,28 +18,16 @@ export interface AcpStartResponse {
     setup: Record<string, unknown>;
 }
 
-/** Whether the background core still runs a chat for the agent. A live one
-    replays what it said so far as `acp_event`s before any new event. */
+/** Whether the background core still runs a chat for the agent: a live one is the chat as the core folded it, and changes numbered past `seq` follow as `acp_event`s. */
 export type AcpAttachment =
     | {
           status: "live";
-          start: AcpStartResponse;
-          permissionMode: AgentPermissionMode;
-          running: boolean;
-          /** A turn ran in this session, so the provider keeps it. */
-          turned: boolean;
+          view: ChatView;
           /** The core's run of this chat, which paging back names. */
           feed: string;
-          /** Set when the replay holds only the chat's last turns: `history` pages back from it. */
-          olderBefore: number | null;
+          seq: number;
       }
     | { status: "missing" };
-
-/** Turns from before what the page shows, and where the page before them starts. */
-export interface AcpHistory {
-    events: { kind: string; payload: Record<string, unknown> }[];
-    olderBefore: number | null;
-}
 
 /** Something read elsewhere and handed to the agent whole, such as an issue and its comments. */
 export interface PromptContext {
@@ -48,24 +36,13 @@ export interface PromptContext {
     text: string;
 }
 
-export interface AcpEvent {
-    agentId: string;
-    /** `reattach`: the core came back with this chat still running, so take it up again. */
-    /** `prompt`: what someone on another device sent the agent. */
-    kind:
-        | "status"
-        | "ready"
-        | "session_update"
-        | "prompt"
-        | "turn_started"
-        | "turn_completed"
-        | "permission_request"
-        | "permission_cleared"
-        | "error"
-        | "reattach";
-    /** A `session_update` carries `updates`: a frame's worth of them at once. */
-    payload: Record<string, unknown>;
-}
+export type AcpEvent =
+    /** What changed in the chat, numbered by `seq`. */
+    | { agentId: string; kind: "changes"; seq: number; payload: ChatChange[] }
+    /** The core came back with this chat still running, so take it up again. */
+    | { agentId: string; kind: "reattach"; seq?: undefined; payload: unknown }
+    /** The core came back without it. */
+    | { agentId: string; kind: "stopped"; seq?: undefined; payload: unknown };
 
 /** The host a chat runs on, which every request about it goes to. */
 function hostOf(agentId: string): string | undefined {
@@ -92,8 +69,10 @@ export const acpApi = {
         whose core predates this does not know the call, which nobody needs to hear. */
     composing: (agentId: string): Promise<void> => call<void>("composing", { agentId }).catch(() => undefined),
     attach: (agentId: string): Promise<AcpAttachment> => invoke<AcpAttachment>("acp_attach", onHost({ agentId }, hostOf(agentId))),
-    history: (agentId: string, feed: string, before: number, turns: number): Promise<AcpHistory> =>
-        ask<AcpHistory>({ op: "acpHistory", agentId, feed, before, turns }),
+    history: (agentId: string, feed: string, before: number, turns: number): Promise<{ page: ChatPage }> =>
+        ask<{ page: ChatPage }>({ op: "acpHistory", agentId, feed, before, turns }),
+    /** A tool call's change line by line and what it printed, for a row opened to show them. */
+    toolDetail: (agentId: string, toolCallId: string): Promise<ToolDetail> => call<ToolDetail>("chatToolDetail", { agentId, toolCallId }),
     list: () => coreRequest<{ chats: ChatInfo[] }>({ op: "acpList" }).then(({ chats }) => chats),
     setPermissionMode: (agentId: string, mode: AgentPermissionMode): Promise<void> => done({ op: "acpSetPermissionMode", agentId, mode }),
     setConfig: (agentId: string, configId: string, value: string): Promise<Record<string, unknown>> =>

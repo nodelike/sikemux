@@ -1,6 +1,7 @@
 import { invalidate, resource, useResource, type ResourceDef } from "../state/resources";
 import { resourceKind, type PluginIdentity } from "./identity";
 import { signInOf, type PluginSignIn } from "./signInState";
+import { pluginView, readViewsAgain } from "./views";
 
 export interface PluginResources {
     resource<Args extends unknown[], T>(name: string, fetch: (...args: Args) => Promise<T>, staleAfterMs?: number): ResourceDef<Args, T>;
@@ -32,6 +33,10 @@ export interface Service<Status extends ServiceStatus> extends PluginIdentity, P
     /** Read again whenever a call finds the person signed out. */
     readonly statusR: ResourceDef<[], Status>;
     useSignIn(): PluginSignIn;
+    /** A view the manifest names, kept by the core for the pane in its first argument. */
+    view<Args extends unknown[], T>(method: string, params: (...args: Args) => unknown): ResourceDef<[slot: string, ...Args], T>;
+    /** Has the core read the views again now, as after a change made outside Sikemux. */
+    readAgain(method?: string): Promise<void>;
 }
 
 /** A plugin's cached reads of a service the person signs in to, starting with whether they are. */
@@ -42,6 +47,8 @@ export function defineService<Status extends ServiceStatus>(plugin: PluginIdenti
         ...plugin,
         ...resources,
         statusR,
+        view: (method, params) => pluginView(plugin, method, params),
+        readAgain: (method) => readViewsAgain(plugin, method),
         useSignIn: function useServiceSignIn() {
             return signInOf(useResource(statusR));
         },

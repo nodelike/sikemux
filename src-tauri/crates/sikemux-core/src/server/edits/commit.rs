@@ -871,6 +871,7 @@ mod tests {
                 over: None,
             }],
             removed: Vec::new(),
+            notes: Vec::new(),
         }
     }
 

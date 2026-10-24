@@ -2,12 +2,10 @@ mod account;
 mod acp;
 mod agent_notification;
 mod agent_questions;
-mod agents;
 #[cfg(target_os = "macos")]
 mod app_menu;
 mod autopsy;
 mod browser;
-mod cli_install;
 mod cli_open;
 mod core_call;
 mod deep_link;
@@ -16,51 +14,36 @@ mod diff;
 mod document_preview;
 mod error;
 mod external;
-mod file_serving;
-mod files;
 mod frame_rate;
 mod fs;
 mod grammars;
 mod harness;
 mod hosts;
-mod http_client;
 mod inbox;
-mod lsp;
 mod markdown;
-mod notch;
 pub mod observability;
 mod pages;
 mod plugins;
 mod preview;
 mod pty;
 mod relaunch;
-mod release_credits;
 mod remote;
-mod search;
-mod settings;
 mod share;
-mod sim;
 mod simulator;
-mod ssh;
 mod state;
 mod system;
 mod transparency;
-mod updates;
-mod usage;
 mod voice;
-mod voice_models;
 mod wallpaper;
 mod wheel;
 
-use sikemux_host::{build_identity, cli_client, cli_paths, install_tls_crypto, login_item};
+use sikemux_host::{build_identity, cli_paths, install_tls_crypto, login_item};
 
 use acp::AcpManager;
 use browser::BrowserManager;
 use observability::UiWatchdogState;
-use plugins::PluginStreams;
 use pty::PtyManager;
 use sikemux_process as bounded_process;
-use sim::SimManager;
 use simulator::SimulatorManager;
 use tauri::Manager;
 use voice::VoiceManager;
@@ -132,8 +115,20 @@ pub fn run() {
         }))
         .plugin(main_window_navigation_guard())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
+            // The core sends agents' window calls, such as their browser's, to
+            // whichever Sikemux window the person brought forward last.
+            if let tauri::WindowEvent::Focused(true) = event {
+                use tauri::Manager;
+                if let Some(client) = window
+                    .try_state::<PtyManager>()
+                    .and_then(|manager| manager.current_client())
+                {
+                    tauri::async_runtime::spawn(async move {
+                        let _ = client.register_window().await;
+                    });
+                }
+            }
             // Terminals, terminal agents, tasks and chat agents live in the
             // core and keep running after the window closes; the next launch
             // reattaches them.
@@ -151,10 +146,6 @@ pub fn run() {
                 if let Some(browser) = window.try_state::<BrowserManager>() {
                     browser.drain("the window closed");
                 }
-                if let Some(plugins) = window.try_state::<PluginStreams>() {
-                    plugins.drain();
-                }
-                lsp::drain_all();
             }
         })
         .on_page_load(|webview, payload| {
@@ -184,23 +175,18 @@ pub fn run() {
                 if let Some(browser) = webview.try_state::<BrowserManager>() {
                     browser.drain(&format!("the window started loading {}", payload.url()));
                 }
-                if let Some(plugins) = webview.try_state::<PluginStreams>() {
-                    plugins.drain();
+                if let Some(simulators) = webview.try_state::<SimulatorManager>() {
+                    simulators.sim().drop_watches();
                 }
-                if let Some(sim) = webview.try_state::<SimManager>() {
-                    sim.drop_watches();
-                }
-                lsp::drain_all();
             }
         })
         .setup(|_app| {
+            sikemux_core::runtime::set(tauri::async_runtime::handle().inner().clone());
+            _app.manage(browser::engine(_app.handle()));
             _app.manage(UiWatchdogState::start()?);
-            _app.manage(PluginStreams::default());
-            let sim = SimManager::default();
-            _app.manage(sim.clone());
-            _app.manage(SimulatorManager::for_app(_app.handle().clone(), sim));
+            _app.manage(simulator::engine(_app.handle()));
             relaunch::restore(_app.handle());
-            tauri::async_runtime::spawn_blocking(simulator::offered);
+            tauri::async_runtime::spawn_blocking(sikemux_simulator::offered);
             wheel::watch(_app.handle());
             _app.state::<PtyManager>().start(_app.handle());
             _app.state::<hosts::Hosts>().start(_app.handle());
@@ -225,7 +211,14 @@ pub fn run() {
                 if std::env::var_os("SIKEMUX_RUN_WHEN_COVERED").is_some() {
                     if let Some(webview) = _app.get_webview("main") {
                         let _ = webview.with_webview(|platform| {
-                            browser::macos::keep_shown_page_running_when_covered(platform.inner())
+                            // SAFETY: Tauri runs this on the main thread with the main
+                            // window's live WKWebView.
+                            let main = unsafe {
+                                platform.inner().cast::<objc2_web_kit::WKWebView>().as_ref()
+                            };
+                            if let Some(main) = main {
+                                browser::macos::keep_shown_page_running_when_covered(main);
+                            }
                         });
                     }
                 }
@@ -235,13 +228,11 @@ pub fn run() {
         .manage(deep_link::DeepLinks::default())
         .manage(PtyManager::default())
         .manage(hosts::Hosts::default())
-        .manage(account::PendingSignIn::default())
         .manage(harness::HarnessBroker::default())
         .manage(cli_open::CliOpens::default())
         .manage(AcpManager::default())
         .manage(remote::Published::default())
         .manage(agent_notification::WaitingFocus::default())
-        .manage(BrowserManager::default())
         .manage(VoiceManager::default())
         .manage(preview::Previews::default())
         .register_asynchronous_uri_scheme_protocol(preview::SCHEME, preview::handle)
@@ -255,31 +246,25 @@ pub fn run() {
             pty::commands::pty_unsubscribe,
             pty::commands::pty_ack,
             pty::commands::pty_attach,
+            pty::commands::pty_input,
+            pty::commands::pty_lines,
+            pty::commands::pty_text,
+            pty::commands::pty_find,
+            pty::commands::pty_clear,
             pty::commands::pty_write,
-            pty::commands::pty_paste,
+            pty::commands::pty_call,
             pty::commands::pty_resize,
             pty::commands::pty_reset_modes,
             pty::commands::pty_kill,
             pty::commands::pty_sessions,
-            hosts::hosts_list,
             hosts::install::host_install,
             hosts::install::host_sign_in,
             hosts::install::host_update,
             hosts::install::host_start,
-            hosts::probe::host_probe,
-            account::account_remove_device,
-            account::account_rename_device,
-            account::account_status,
-            account::account_refresh_profile,
-            account::account_sign_in,
-            account::account_cancel_sign_in,
-            account::account_phones,
-            account::account_sign_out,
             share::share_access,
             share::share_viewer_hello,
             core_call::core_call,
             core_call::core_request,
-            notch::notch_configure,
             remote::remote_publish,
             pty::commands::app_quit_and_stop_everything,
             pty::commands::agent_detection_explain,
@@ -300,68 +285,34 @@ pub fn run() {
             system::boot_init,
             system::battery_status,
             system::runtime_diagnostics,
-            system::integration_health,
             observability::observability_ui_heartbeat,
             observability::observability_ui_activity,
-            updates::update_check,
-            updates::update_install,
-            pty::commands::update_blockers,
             pty::commands::update_force_core,
-            usage::usage_report_active,
-            release_credits::release_avatars,
-            release_credits::release_notes,
+            relaunch::update_restart,
             grammars::grammar_load,
             state::state_save,
-            agents::executable::available_agents,
-            fs::files_call,
             fs::keep_dropped_paths,
-            fs::read_text_file_limited,
             fs::open_in_default_app,
             preview::preview_file,
             pages::page_theme,
             pages::page_shown,
             document_preview::document_preview_show,
             document_preview::document_preview_hide,
-            fs::copy_into_dir,
             fs::downloads_dir,
             fs::chat_attachment_dir,
             fs::save_clipboard_image,
-            fs::save_base64_into_dir,
             fs::reveal_in_finder,
-            lsp::lsp_languages,
-            lsp::lsp_install_server,
-            lsp::lsp_start,
-            lsp::lsp_stop,
-            lsp::lsp_open,
-            lsp::lsp_change,
-            lsp::lsp_change_incremental,
-            lsp::lsp_save,
-            lsp::lsp_close,
-            lsp::lsp_locations,
-            lsp::lsp_document_symbols,
             diff::diff_hunks,
             markdown::markdown_parse,
-            files::list_project_files_snapshot,
-            settings::scan_project_roots,
-            settings::expand_path,
-            settings::is_directory,
             wallpaper::wallpaper_image,
             agent_notification::post_notification,
             agent_notification::focus_claim,
             dialogs::pick_paths,
             dialogs::pick_save_path,
-            search::project_search,
-            search::project_search_cancel,
-            search::project_search_replace,
-            search::read_file_window,
-            ssh::ssh_hosts,
-            ssh::ssh_config_ensure,
             external::open_url,
             external::macos_focus_app,
             transparency::set_window_blur,
             plugins::plugin_call,
-            plugins::plugin_stream_start,
-            plugins::plugin_stream_stop,
             harness::harness_resolve_path,
             harness::harness_claim,
             harness::harness_reply,
@@ -370,20 +321,18 @@ pub fn run() {
             cli_open::cli_open_result,
             cli_open::cli_editor_tabs_closed,
             deep_link::take_deep_links,
-            cli_install::cli_install_status,
-            cli_install::cli_install,
             voice::voice_status,
             voice::voice_prepare,
             voice::voice_start,
             voice::voice_stop,
             voice::voice_cancel,
             voice::voice_shutdown,
-            sim::sim_status,
-            sim::sim_prepare,
-            sim::sim_call,
-            sim::sim_watch,
-            sim::sim_unwatch,
-            sim::sim_watch_read,
+            simulator::sim_status,
+            simulator::sim_prepare,
+            simulator::sim_call,
+            simulator::sim_watch,
+            simulator::sim_unwatch,
+            simulator::sim_watch_read,
             simulator::simulator_set_enabled,
             simulator::simulator_setup,
             simulator::simulator_attachments,
@@ -425,9 +374,6 @@ pub fn run() {
                 if let Some(browser) = app_handle.try_state::<BrowserManager>() {
                     browser.drain("Sikemux is quitting");
                 }
-                if let Some(plugins) = app_handle.try_state::<PluginStreams>() {
-                    plugins.drain();
-                }
                 if let Some(voice) = app_handle.try_state::<VoiceManager>() {
                     voice.drain();
                 }
@@ -437,11 +383,8 @@ pub fn run() {
                     } else {
                         simulators.drain();
                     }
+                    simulators.sim().drain();
                 }
-                if let Some(sim) = app_handle.try_state::<SimManager>() {
-                    sim.drain();
-                }
-                lsp::drain_all();
             }
         });
 }
@@ -513,7 +456,8 @@ mod ipc_command_boundary_tests {
         let app = mock_builder()
             .manage(UiWatchdogState::start().expect("start managed watchdog state"))
             .invoke_handler(tauri::generate_handler![
-                crate::files::list_project_files_snapshot,
+                crate::fs::keep_dropped_paths,
+                crate::fs::reveal_in_finder,
                 crate::observability::observability_ui_heartbeat,
             ])
             .build(mock_context(noop_assets()))
@@ -522,48 +466,28 @@ mod ipc_command_boundary_tests {
             .build()
             .expect("build mock webview");
 
-        let snapshot = get_ipc_response(
+        let path = repo.path().join("src").join("main.rs");
+        let kept = get_ipc_response(
             &webview,
             request(
-                "list_project_files_snapshot",
-                json!({ "repo": repo.path().to_string_lossy() }),
+                "keep_dropped_paths",
+                json!({ "paths": [path.to_string_lossy()] }),
             ),
         )
         .expect("filesystem command must cross the IPC boundary successfully")
         .deserialize::<Value>()
         .expect("filesystem response must be JSON");
-
-        let scan_id = snapshot
-            .get("scanId")
-            .and_then(Value::as_u64)
-            .expect("response must expose the frontend camelCase scanId field");
-        assert!(scan_id > 0);
-        assert!(snapshot.get("scan_id").is_none());
-        let mut files = snapshot["files"]
-            .as_array()
-            .expect("response files must be an array")
-            .iter()
-            .map(|path| {
-                path.as_str()
-                    .expect("response paths must be strings")
-                    .replace('\\', "/")
-            })
-            .collect::<Vec<_>>();
-        files.sort_unstable();
-        assert_eq!(files, ["README.md", "src/main.rs"]);
+        assert_eq!(kept, json!([path.to_string_lossy()]));
 
         let error = get_ipc_response(
             &webview,
             request(
-                "list_project_files_snapshot",
-                json!({ "repo": "relative-path-is-rejected" }),
+                "reveal_in_finder",
+                json!({ "path": repo.path().join("missing.txt").to_string_lossy() }),
             ),
         )
         .expect_err("command errors must cross the IPC error callback");
-        assert_eq!(
-            error,
-            json!("repository path must be an absolute path of at most 4096 bytes")
-        );
+        assert!(!error.is_null());
 
         let heartbeat = get_ipc_response(
             &webview,

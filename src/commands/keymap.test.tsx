@@ -12,6 +12,7 @@ import { useKeymap } from "./keymap";
 import { getKeybindingAction, type CoreKeybindingActionId } from "./keybindings";
 import { activeAgentId, agentWindowId } from "../state/selectors";
 import { withAgents } from "../test/agents";
+import { testPreferences } from "../test/preferences";
 
 vi.mock("../projects/projectState", () => ({ activeProject: vi.fn(() => null) }));
 vi.mock("../state/commands", async (importOriginal) => ({
@@ -78,7 +79,7 @@ beforeEach(() => {
         activeSessionId: "one",
         sessionSwitcher: null,
         zoomedPaneId: "zoomed",
-        keybindingOverrides: {},
+        preferences: testPreferences(),
     });
 });
 
@@ -117,7 +118,7 @@ describe("agent shortcuts", () => {
 
     it("starts the agent launched last, from any tab of the project", async () => {
         const available = vi.spyOn(agentApi, "available").mockResolvedValue([{ ...codex, type: "claude", label: "Claude" }, codex]);
-        setState({ lastAgentType: "codex" });
+        setState({ preferences: testPreferences({ lastAgentType: "codex" }) });
         render(<KeymapHarness />);
 
         pressAction("agent.new");
@@ -151,7 +152,7 @@ describe("agent shortcuts", () => {
 });
 
 describe("terminal and browser shortcuts", () => {
-    it("opens a terminal tab with Command+T, not a chooser or a browser tab", () => {
+    it("opens a terminal tab with Command+T, not a chooser or a browser tab", async () => {
         const open = vi.spyOn(browserApi, "newTab").mockResolvedValue("browser-tab");
         lookAtAgent("one", "agent-one");
         const before = getState().windowsBySession.one?.length ?? 0;
@@ -159,8 +160,7 @@ describe("terminal and browser shortcuts", () => {
 
         pressAction("terminal.new");
 
-        const windows = getState().windowsBySession.one ?? [];
-        expect(windows).toHaveLength(before + 1);
+        await waitFor(() => expect(getState().windowsBySession.one ?? []).toHaveLength(before + 1));
         expect(getState().windows[getState().sessions.one.activeWindowId].role).toBe("term");
         expect(getState().newTabPaletteOpen).toBe(false);
         expect(open).not.toHaveBeenCalled();
@@ -197,7 +197,7 @@ describe("Option in text", () => {
     function TerminalHarness() {
         useKeymap();
         return (
-            <div className="xterm">
+            <div className="terminal-surface">
                 <textarea aria-label="Terminal input" />
             </div>
         );
@@ -206,7 +206,7 @@ describe("Option in text", () => {
     afterEach(cleanup);
 
     it("reaches the shell even when someone bound an Option chord", () => {
-        setState({ keybindingOverrides: { "pane.zoom": "Alt+KeyZ" } });
+        setState({ preferences: testPreferences({ keybindingOverrides: { "pane.zoom": "Alt+KeyZ" } }) });
         render(<TerminalHarness />);
 
         fireEvent.keyDown(screen.getByRole("textbox", { name: "Terminal input" }), { code: "KeyZ", key: "Ω", altKey: true });
@@ -217,7 +217,7 @@ describe("Option in text", () => {
     });
 
     it("reaches the simulator's screen, which types into the device", () => {
-        setState({ keybindingOverrides: { "pane.zoom": "Alt+KeyZ" } });
+        setState({ preferences: testPreferences({ keybindingOverrides: { "pane.zoom": "Alt+KeyZ" } }) });
         function SimulatorHarness() {
             useKeymap();
             return <canvas aria-label="Device screen" tabIndex={0} data-takes-keys />;
@@ -409,7 +409,7 @@ describe("text size shortcuts", () => {
     }
 
     beforeEach(() => {
-        setState({ terminalFontSize: 13, chatTextScale: 1, editorTextScale: 1 });
+        setState({ preferences: testPreferences() });
     });
 
     it("resizes the terminal when the press lands outside a chat", () => {
@@ -417,8 +417,8 @@ describe("text size shortcuts", () => {
 
         press("Equal", window);
 
-        expect(getState().terminalFontSize).toBe(14);
-        expect(getState().chatTextScale).toBe(1);
+        expect(getState().preferences?.terminalFontSize).toBe(14);
+        expect(getState().preferences?.chatTextScale).toBe(1);
     });
 
     function EditorHarness() {
@@ -435,9 +435,9 @@ describe("text size shortcuts", () => {
 
         press("Equal", screen.getByRole("button", { name: "In editor" }));
 
-        expect(getState().editorTextScale).toBe(1.1);
-        expect(getState().terminalFontSize).toBe(13);
-        expect(getState().chatTextScale).toBe(1);
+        expect(getState().preferences?.editorTextScale).toBe(1.1);
+        expect(getState().preferences?.terminalFontSize).toBe(13);
+        expect(getState().preferences?.chatTextScale).toBe(1);
     });
 
     it("resizes the transcript when the press lands inside a chat", () => {
@@ -445,8 +445,8 @@ describe("text size shortcuts", () => {
 
         press("Equal", screen.getByRole("button", { name: "In chat" }));
 
-        expect(getState().chatTextScale).toBe(1.1);
-        expect(getState().terminalFontSize).toBe(13);
+        expect(getState().preferences?.chatTextScale).toBe(1.1);
+        expect(getState().preferences?.terminalFontSize).toBe(13);
     });
 
     it("shrinks and resets the transcript it is focused in", () => {
@@ -454,10 +454,10 @@ describe("text size shortcuts", () => {
         const inChat = screen.getByRole("button", { name: "In chat" });
 
         press("Minus", inChat);
-        expect(getState().chatTextScale).toBe(0.9);
+        expect(getState().preferences?.chatTextScale).toBe(0.9);
 
         press("Digit0", inChat);
-        expect(getState().chatTextScale).toBe(1);
+        expect(getState().preferences?.chatTextScale).toBe(1);
     });
 
     it("resizes the active pane's transcript when focus has fallen to the page", () => {
@@ -476,7 +476,7 @@ describe("text size shortcuts", () => {
 
         press("Equal", document.body);
 
-        expect(getState().chatTextScale).toBe(1.1);
-        expect(getState().terminalFontSize).toBe(13);
+        expect(getState().preferences?.chatTextScale).toBe(1.1);
+        expect(getState().preferences?.terminalFontSize).toBe(13);
     });
 });

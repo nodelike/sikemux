@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetResourcesForTests } from "../state/resources";
 import { getState, setState } from "../state/store";
 import { ProjectStrip } from "./ProjectStrip";
+import { testPreferences } from "../test/preferences";
 
 const mocks = vi.hoisted(() => ({
     move: vi.fn(),
@@ -13,7 +14,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../state/commands", () => ({ moveAgentToProject: mocks.move }));
-vi.mock("../api/git", () => ({ git: { overview: async () => ({ status: { branch: "main" } }) } }));
+vi.mock("../api/git", () => ({
+    git: {
+        overview: async () => ({ status: { branch: "main" } }),
+        projectRepo: async (project: string) => ({ repo: project, repos: null }),
+    },
+}));
 vi.mock("../api/settings", () => ({ settingsApi: { scanProjectRoots: mocks.scan } }));
 
 const initial = getState();
@@ -41,7 +47,7 @@ beforeEach(() => {
         {
             ...initial,
             home: "/home/me",
-            projectRoots: [{ path: "/work", depth: 1 }],
+            preferences: testPreferences({ projectRoots: [{ path: "/work", depth: 1, selfIndex: false }] }),
             sessions: {
                 a: { id: "a", name: "app", kind: "project", cwd: "/work/app", pinned: false, activeWindowId: "" },
                 s: { id: "s", name: "site", kind: "project", cwd: "/work/site", pinned: false, activeWindowId: "" },

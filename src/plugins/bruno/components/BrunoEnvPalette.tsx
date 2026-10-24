@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useActiveSurfacePane } from "../../../plugin-api/host";
-import { useResourceEnabled } from "../../../plugin-api/resources";
 import { IconCheck, IconSearch, rankBy, useMouseActive } from "../../../plugin-api/ui";
 import { BRUNO_CLIENT } from "../kinds";
 import { findRequest } from "../lib/resolve";
-import { brunoCollectionR, brunoSelectEnv, brunoSettings, closePalettes, useBrunoView } from "../state";
+import { brunoSelectEnv, brunoSettings, closePalettes, useBruno, useBrunoView } from "../state";
 import "../bruno.css";
 
 const NO_ENV = "__none__";
@@ -19,7 +18,6 @@ interface EnvRow {
 
 export function BrunoEnvPalette() {
     const paneId = useActiveSurfacePane(BRUNO_CLIENT);
-    const collectionPath = brunoSettings.useSelect((settings) => settings.collectionPath);
     const selectedEnvs = brunoSettings.useSelect((settings) => settings.selectedEnvs);
     const view = useBrunoView(paneId ?? "");
 
@@ -29,8 +27,7 @@ export function BrunoEnvPalette() {
     const listRef = useRef<HTMLDivElement>(null);
     const mouseActive = useMouseActive();
 
-    const coll = useResourceEnabled(!!collectionPath, brunoCollectionR, collectionPath);
-    const collection = coll.data;
+    const collection = useBruno((state) => state.collection);
 
     // Scope environments to the open request's collection, matching the header picker.
     const reqCollPath = useMemo(() => {
@@ -110,9 +107,7 @@ export function BrunoEnvPalette() {
                 </div>
 
                 <div className="picker-list" ref={listRef}>
-                    {items.length === 0 && (
-                        <div className="picker-empty">{coll.status === "loading" && !collection ? "loading…" : "no environments"}</div>
-                    )}
+                    {items.length === 0 && <div className="picker-empty">{collection ? "no environments" : "loading…"}</div>}
                     {items.map((row, i) => {
                         const current = row.id === selectedEnvId;
                         return (

@@ -198,7 +198,7 @@ export function finishDictationInto(element: HTMLElement | null): boolean {
 
 /** Click once to start dictating into `into`, and again to type what was said. */
 export function toggleDictation(into: HTMLElement): void {
-    if (!useStore.getState().voiceDictation) {
+    if (!useStore.getState().preferences?.voiceDictation) {
         setVoiceDictation(true);
         notify("info", "Dictation is on. The speech model downloads once, about 600 MB, then click the microphone again.");
         return;
@@ -227,7 +227,7 @@ export function onVoiceKeyUp(event: KeyboardEvent): void {
 
 /** Hold right Option to dictate into the focused agent or terminal. */
 export function useVoiceDictation(): void {
-    const enabled = useStore((s) => s.voiceDictation);
+    const enabled = useStore((s) => s.preferences?.voiceDictation === true);
 
     useEffect(() => {
         if (!enabled) return;

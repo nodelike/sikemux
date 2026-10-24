@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commitGitDraft, generateGitDraft, runRepositoryGit, setGitDraft, useGitWorkbench } from "./gitWorkbench";
 import { git } from "../api/git";
+import { coreCall } from "../api/core";
 vi.mock("../api/git", () => ({ git: { status: vi.fn(), commit: vi.fn(), aiMessage: vi.fn() } }));
+vi.mock("../api/core", () => ({ coreCall: vi.fn(() => Promise.resolve()) }));
 vi.mock("./git", () => ({ runGitCmd: (_label: string, action: () => Promise<unknown>) => action() }));
 beforeEach(() => {
     vi.clearAllMocks();
@@ -86,30 +88,20 @@ describe("repository Git work", () => {
     });
 });
 
-describe("draft persistence", () => {
+describe("drafts kept by the core", () => {
     beforeEach(() => {
-        // Earlier tests may have left a write waiting on a real timer.
-        window.dispatchEvent(new Event("pagehide"));
-        localStorage.clear();
         vi.useFakeTimers();
     });
     afterEach(() => {
         vi.useRealTimers();
     });
 
-    it("writes once for a burst of typing rather than once per character", () => {
-        const write = vi.spyOn(Storage.prototype, "setItem");
+    it("keeps a burst of typing as one draft, once typing pauses", () => {
         for (const draft of ["f", "fi", "fix", "fix:"]) setGitDraft("/a", draft);
-        expect(write).not.toHaveBeenCalled();
+        expect(coreCall).not.toHaveBeenCalled();
 
-        vi.advanceTimersByTime(600);
-        expect(write).toHaveBeenCalledTimes(1);
-        expect(JSON.parse(write.mock.calls[0][1] as string).state.drafts["/a"]).toBe("fix:");
-    });
-
-    it("flushes the draft when the window goes away", () => {
-        setGitDraft("/a", "unflushed");
-        window.dispatchEvent(new Event("pagehide"));
-        expect(JSON.parse(localStorage.getItem("sikemux.git.workbench")!).state.drafts["/a"]).toBe("unflushed");
+        vi.advanceTimersByTime(300);
+        expect(coreCall).toHaveBeenCalledTimes(1);
+        expect(coreCall).toHaveBeenCalledWith("setDraft", { key: "git:/a", text: "fix:" });
     });
 });

@@ -12,9 +12,7 @@ pub fn cli_endpoint_path() -> Option<PathBuf> {
 
 /// The endpoint file Sikemux handed to the terminal or agent it started.
 pub fn handed_endpoint() -> Option<PathBuf> {
-    std::env::var_os(sikemux_process::vars::CLI_ENDPOINT)
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
+    sikemux_process::paths::handed_cli_endpoint()
 }
 
 /// The endpoint file a command the person runs reads: the one Sikemux handed
@@ -30,8 +28,7 @@ pub fn endpoint_to_read() -> Result<PathBuf, String> {
 /// it, so an app started from one would run another build's sidecar. Tests
 /// point the app elsewhere with `SIKEMUX_SIDECAR_PATH`.
 pub fn cli_executable_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("SIKEMUX_SIDECAR_PATH") {
-        let path = PathBuf::from(path);
+    if let Some(path) = sikemux_process::paths::env_path("SIKEMUX_SIDECAR_PATH") {
         if path.is_file() {
             return Some(path);
         }

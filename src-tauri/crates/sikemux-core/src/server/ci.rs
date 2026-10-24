@@ -37,7 +37,7 @@ pub(crate) struct Shown {
 
 impl Shown {
     /// What a `ci` change names it by.
-    fn key(&self) -> String {
+    pub(crate) fn key(&self) -> String {
         format!("{}:{}/{}", self.provider, self.owner, self.name)
     }
 }
@@ -91,7 +91,9 @@ async fn serve(core: Arc<Core>) {
         let due = {
             let connected: HashSet<ClientId> =
                 core.clients().iter().map(|client| client.id).collect();
-            let waiting = super::board::waiting_on_ci(&core);
+            let waiting = super::board::waiting_on_ci(&core)
+                .into_iter()
+                .chain(super::git::pending_pulls(&core));
             let mut state = core.ci.0.locked();
             state.shown.retain(|client, _| connected.contains(client));
             let shown: HashSet<Shown> = state
@@ -158,5 +160,7 @@ async fn check(core: &Arc<Core>, repo: Shown) {
         core.changes
             .changed(Topic::Ci, None, Some(vec![repo.key()]));
         super::board::ci_moved(core, &repo);
+        super::git::ci_moved(core, &repo);
+        super::codehost::ci_moved(core, &repo.key());
     }
 }

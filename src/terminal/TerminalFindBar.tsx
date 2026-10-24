@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import type { ISearchResultChangeEvent } from "@xterm/addon-search";
-import type { TerminalController } from "./useXterm";
+import type { TerminalController } from "./useTerminal";
+import type { SearchResults } from "./view";
 import type { TerminalSearchOptions } from "./interactions";
 import { IconArrowDown, IconArrowUp, IconClose } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
@@ -19,7 +19,7 @@ export function TerminalFindBar({
     onQueryChange: (query: string) => void;
     options: TerminalSearchOptions;
     onOptionsChange: (options: TerminalSearchOptions) => void;
-    result: ISearchResultChangeEvent;
+    result: SearchResults;
     onClose: () => void;
 }) {
     const inputRef = useRef<HTMLInputElement>(null);
@@ -30,11 +30,11 @@ export function TerminalFindBar({
     }, []);
 
     useEffect(() => {
-        controller.find(query, "next", options, true);
+        void controller.find(query, "next", options, true);
     }, [controller, query, options]);
 
     const move = (direction: "next" | "previous") => {
-        if (query) controller.find(query, direction, options);
+        if (query) void controller.find(query, direction, options);
     };
     const toggle = (key: keyof TerminalSearchOptions) => onOptionsChange({ ...options, [key]: !options[key] });
     const resultLabel = result.resultCount > 0 && result.resultIndex >= 0 ? `${result.resultIndex + 1}/${result.resultCount}` : "0/0";

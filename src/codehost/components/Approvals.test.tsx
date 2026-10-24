@@ -2,13 +2,13 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingApproval } from "../api";
 
-const api = vi.hoisted(() => ({ pendingApprovals: vi.fn(), reviewDeployment: vi.fn() }));
+const api = vi.hoisted(() => ({ reviewDeployment: vi.fn() }));
 
 import { invalidate } from "../../plugin-api/resources";
 import { acceptDialog, dismissDialog, useDialogs } from "../../state/dialog";
 import { useToasts } from "../../state/toast";
 import { InHost, registerTestHost, TEST_HOST } from "../testHost";
-import { Approvals, mayBeWaiting } from "./Approvals";
+import { Approvals } from "./Approvals";
 
 const host = registerTestHost(api);
 const repo = { provider: TEST_HOST, owner: "nodelike", name: "sikemux" };
@@ -30,11 +30,10 @@ function answerDialog(yes: boolean) {
     act(() => (yes ? acceptDialog(dialog.id) : dismissDialog(dialog.id)));
 }
 
-async function renderApprovals(found: PendingApproval[], status = "waiting", conclusion: string | null = null) {
-    api.pendingApprovals.mockResolvedValue(found);
+async function renderApprovals(found: PendingApproval[]) {
     const view = render(
         <InHost host={host}>
-            <Approvals repo={repo} runId="7" status={status} conclusion={conclusion} active />
+            <Approvals repo={repo} runId="7" pending={found} />
         </InHost>,
     );
     await act(async () => {});
@@ -44,26 +43,14 @@ async function renderApprovals(found: PendingApproval[], status = "waiting", con
 beforeEach(() => {
     invalidate(() => true);
     useToasts.setState({ toasts: [] });
-    api.pendingApprovals.mockReset();
     api.reviewDeployment.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(cleanup);
 
-describe("mayBeWaiting", () => {
-    it("only counts a run GitHub is holding", () => {
-        expect(mayBeWaiting("waiting", null)).toBe(true);
-        expect(mayBeWaiting("action_required", null)).toBe(true);
-        expect(mayBeWaiting("completed", "action_required")).toBe(true);
-        expect(mayBeWaiting("in_progress", null)).toBe(false);
-        expect(mayBeWaiting("completed", "success")).toBe(false);
-    });
-});
-
 describe("Approvals", () => {
-    it("does not ask about a run nobody is holding", async () => {
-        const view = await renderApprovals([pending()], "in_progress");
-        expect(api.pendingApprovals).not.toHaveBeenCalled();
+    it("shows nothing while nothing waits", async () => {
+        const view = await renderApprovals([]);
         expect(view.container.textContent).toBe("");
     });
 

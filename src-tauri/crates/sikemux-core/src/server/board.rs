@@ -748,10 +748,56 @@ struct CardView {
     created_by_name: String,
     result: Option<String>,
     ticket: Option<Ticket>,
+    /// The ticket of the nearest card above it that has one, which it is filed under.
+    ticket_above: Option<String>,
+    column: Column,
     auto: Option<RunView>,
     recordings: Vec<Recording>,
     at: u64,
     updated_at: u64,
+}
+
+/// Where a board shows a card: `needs` holds the cards waiting on the person.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Column {
+    Open,
+    Progress,
+    Needs,
+    Done,
+}
+
+/// The column a card shows in: done once done, else waiting on the person while its run
+/// is back with them or its owner asked them something it waits on.
+fn column_of(core: &Core, card: &Card) -> Column {
+    let waits_on_person = card
+        .auto
+        .as_ref()
+        .is_some_and(|run| matches!(run.stage, Stage::Review | Stage::Held))
+        || (card.status == Status::Progress
+            && card
+                .owner
+                .as_deref()
+                .is_some_and(|owner| core.harness.questions.blocks_on_person(owner)));
+    match card.status {
+        Status::Done => Column::Done,
+        _ if waits_on_person => Column::Needs,
+        Status::Open => Column::Open,
+        Status::Progress => Column::Progress,
+    }
+}
+
+/// The ticket of the nearest card above `card` that has one.
+fn ticket_above(board: &Board, card: &Card) -> Option<String> {
+    let mut above = card.parent;
+    for _ in 0..board.cards.len() {
+        let parent = board.cards.iter().find(|known| Some(known.id) == above)?;
+        if let Some(ticket) = &parent.ticket {
+            return Some(ticket.key.clone());
+        }
+        above = parent.parent;
+    }
+    None
 }
 
 /// A board as the app and devices read it.
@@ -794,6 +840,8 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         created_by_name: card.creator_name(core),
         result: card.result.clone(),
         ticket: card.ticket.clone(),
+        ticket_above: ticket_above(board, card),
+        column: column_of(core, card),
         auto: card.auto.as_ref().map(Run::view),
         recordings: card.recordings.clone(),
         at: card.at,

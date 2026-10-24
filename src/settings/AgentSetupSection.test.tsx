@@ -8,12 +8,16 @@ vi.mock("../state/resources", () => ({
         status: "ok",
         data: [
             { type: "opencode", label: "OpenCode", command: "opencode", available: true, status: { state: "ready", account: "apiKey" } },
+            { type: "claude", label: "Claude", command: "claude", available: false, status: { state: "missing" } },
             { type: "codex", label: "Codex", command: "codex", available: true, status: { state: "signedOut" } },
             { type: "hermes", label: "Hermes", command: "hermes", available: false, status: { state: "broken", reason: "hermes --help exited 1" } },
+            { type: "pi", label: "Pi", command: "pi", available: false, status: { state: "missing" } },
+            { type: "omp", label: "OMP", command: "omp", available: false, status: { state: "missing" } },
+            { type: "grok", label: "Grok", command: "grok", available: false, status: { state: "missing" } },
         ],
     }),
 }));
-vi.mock("../state/resources.defs", () => ({ agentCatalogR: { kind: "agents.catalog" } }));
+vi.mock("../state/resources.defs", () => ({ agentSetupR: { kind: "agents.setup" } }));
 
 import { AgentSetupSection } from "./AgentSetupSection";
 
@@ -23,7 +27,7 @@ afterEach(() => {
 });
 
 describe("Agents on this machine", () => {
-    it("lists every agent, ready ones first, installs the missing and signs in the signed out", () => {
+    it("lists the agents as the core orders them, installs the missing and signs in the signed out", () => {
         render(<AgentSetupSection />);
         const rows = screen.getAllByRole("listitem");
         expect(rows.map((row) => row.querySelector("b")?.textContent)).toEqual(["OpenCode", "Claude", "Codex", "Hermes", "Pi", "OMP", "Grok"]);

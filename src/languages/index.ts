@@ -1,7 +1,7 @@
 import { GRAMMAR_ALIASES, GRAMMARS } from "./generated/grammars";
 
 /** Files known by their whole name rather than by an extension. */
-const FILE_NAMES: Readonly<Record<string, string>> = {
+export const FILE_NAMES: Readonly<Record<string, string>> = {
     ".editorconfig": "ini",
     ".env": "dotenv",
     "cmakelists.txt": "cmake",
@@ -15,7 +15,7 @@ const FILE_NAMES: Readonly<Record<string, string>> = {
 };
 
 /** Extensions that are neither a grammar's name nor one of its aliases. */
-const EXTENSIONS: Readonly<Record<string, string>> = {
+export const EXTENSIONS: Readonly<Record<string, string>> = {
     bazel: "python",
     bib: "bibtex",
     bicepparam: "bicep",

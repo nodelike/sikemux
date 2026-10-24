@@ -4,7 +4,8 @@ import { useResourceEnabled } from "../../plugin-api/resources";
 import { Tooltip } from "../../plugin-api/ui";
 import { openGitArea } from "../../state/commands";
 import { useHostRepo } from "../project";
-import { hostStatusR, runsR } from "../resources";
+import { hostStatusR } from "../resources";
+import { runListR } from "../lists";
 import { outcomeOf, OUTCOME_LABEL } from "../runStatus";
 import { StatusMark } from "./ActionsIcon";
 import { useCiWatch } from "../ciWatch";
@@ -16,12 +17,11 @@ function HostCiGlyph({ hostId, projectCwd }: PluginTopBarProps & { hostId: strin
     const repo = found.repo?.provider === hostId ? found.repo : null;
     const status = useResourceEnabled(!!repo, hostStatusR, hostId, repo?.account ?? null);
     const signedIn = !!status.data?.ok;
-    const runs = useResourceEnabled(signedIn && !!repo, runsR, {
-        ...(repo ?? { provider: hostId, owner: "", name: "" }),
+    const runs = useResourceEnabled(signedIn && !!repo && !!projectCwd, runListR, projectCwd ?? "", {
         branch: found.branch ?? undefined,
         perPage: 1,
     });
-    const latest = runs.data?.runs[0] ?? null;
+    const latest = runs.data?.runs[0]?.run ?? null;
     useCiWatch(repo, signedIn);
 
     if (!repo || !latest) return null;

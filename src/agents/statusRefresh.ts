@@ -24,7 +24,7 @@ export function statusRefresher(deps: StatusRefreshDeps = defaultDeps): () => Pr
         if (now - last < REFRESH_AT_MOST_EVERY_MS) return;
         last = now;
         await deps.refresh();
-        deps.invalidate((kind) => kind === "agents.catalog" || kind === "agents.account");
+        deps.invalidate((kind) => kind === "agents.catalog" || kind === "agents.setup" || kind === "agents.account");
     };
 }
 

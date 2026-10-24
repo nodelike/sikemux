@@ -11,6 +11,7 @@ import { agentWindowId } from "../state/selectors";
 import { withAgents } from "../test/agents";
 import { isResumableSession, noteSpawnedSession, takeResumableSession } from "../terminal/sessionResume";
 import { KEPT_RUNNING_NOTICE, UNCLAIMED_GRACE_MS, offerSavedSessions, restoreCoreSessions, type CoreSessionRestoreDeps } from "./restoreCoreSessions";
+import { testPreferences } from "../test/preferences";
 
 const initial = getState();
 
@@ -49,6 +50,7 @@ function layoutWithSessions() {
 
 beforeEach(() => {
     setState(initial, true);
+    setState({ preferences: testPreferences() });
     useToasts.setState({ toasts: [] });
 });
 
@@ -85,7 +87,7 @@ describe("restoring what the core kept", () => {
         layoutWithSessions();
         await restoreCoreSessions(deps([terminal(101)]).restore);
         expect(useToasts.getState().toasts.map((toast) => toast.text)).toEqual([KEPT_RUNNING_NOTICE]);
-        expect(getState().keptRunningNoticeShown).toBe(true);
+        expect(getState().preferences?.keptRunningNoticeShown).toBe(true);
 
         useToasts.setState({ toasts: [] });
         await restoreCoreSessions(deps([terminal(101)]).restore);
@@ -96,7 +98,7 @@ describe("restoring what the core kept", () => {
         layoutWithSessions();
         await restoreCoreSessions(deps([terminal(104)]).restore);
         expect(useToasts.getState().toasts).toEqual([]);
-        expect(getState().keptRunningNoticeShown).toBe(false);
+        expect(getState().preferences?.keptRunningNoticeShown).toBe(false);
     });
 
     it("leaves alone a terminal this page started, such as a popup opened right after launch", async () => {

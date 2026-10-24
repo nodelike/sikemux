@@ -3,7 +3,6 @@ import { confirmDialog, copyWithNotice, notify, openUrl, swallow } from "../../.
 import { errorText, formatAgo } from "../../../plugin-api/format";
 import type { ContextMenuItem } from "../../../plugin-api/ui";
 import { vercelApi, type VercelDeployment } from "../api";
-import { vercel, vercelDeploymentsR, vercelLogR, vercelProjectsR } from "../resources";
 
 const STATE_LABELS: Record<string, string> = {
     READY: "Ready",
@@ -158,8 +157,6 @@ export function Avatar({ name }: { name: string | null }) {
 
 export const Ago = ({ at }: { at: number }) => <span className="vercel-muted">{formatAgo(at)}</span>;
 
-const changed = () => vercel.refresh(vercelProjectsR, vercelDeploymentsR, vercelLogR);
-
 /** What can be done to a deployment, each asking the person first, as Vercel's own menu offers them. */
 export function useDeploymentActions(team: string) {
     const [busy, setBusy] = useState(false);
@@ -169,7 +166,6 @@ export function useDeploymentActions(team: string) {
         try {
             await run();
             notify("success", done);
-            changed();
         } catch (error) {
             notify("error", `${confirm.confirmLabel}: ${errorText(error)}`);
         } finally {

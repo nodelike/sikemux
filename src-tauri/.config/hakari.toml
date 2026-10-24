@@ -15,7 +15,7 @@ unify-target-host = "none"
 # and what it links stays out of workspace-hack so desktop dependencies never
 # change the phone's native code.
 [traversal-excludes]
-workspace-members = ["sikemux-client", "sikemux-mobile", "sikemux-wire"]
+workspace-members = ["sikemux-client", "sikemux-linked", "sikemux-mobile", "sikemux-wire"]
 
 # Tests turn on test-only features of these; unifying them would ship those
 # features in the app.

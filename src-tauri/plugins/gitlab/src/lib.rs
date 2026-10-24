@@ -25,7 +25,6 @@ mod pipelines;
 mod pulls;
 mod repo;
 mod review;
-mod watch;
 
 use std::sync::Arc;
 
@@ -35,7 +34,7 @@ use sikemux_plugin_api::account::{as_account, chosen};
 use sikemux_plugin_api::codehost::Resolved;
 use sikemux_plugin_api::store::Accounts;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
 };
 
 use crate::error::GitlabResult;
@@ -131,20 +130,6 @@ impl Plugin for Gitlab {
         Box::pin(as_account(account, dispatch(ctx, method, input)))
     }
 
-    fn stream<'a>(
-        &'a self,
-        ctx: &'a PluginContext,
-        method: &'a str,
-        input: Value,
-        sink: StreamSink,
-    ) -> PluginFuture<'a, ()> {
-        let account = account_of(ctx.data_dir(), &input);
-        Box::pin(as_account(
-            account,
-            dispatch_stream(ctx, method, input, sink),
-        ))
-    }
-
     fn offers_agent_tools<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -223,18 +208,6 @@ async fn dispatch(ctx: &PluginContext, method: &str, input: Value) -> Result<Val
         "markRead" => answer(issues::mark_read(data_dir, params(input)?)).await,
         "markAllRead" => answer(issues::mark_all_read(data_dir)).await,
 
-        _ => Err(PluginError::unknown_method(method)),
-    }
-}
-
-async fn dispatch_stream(
-    ctx: &PluginContext,
-    method: &str,
-    input: Value,
-    sink: StreamSink,
-) -> Result<(), PluginError> {
-    match method {
-        "watchRun" => watch::run(ctx.data_dir(), params(input)?, sink).await,
         _ => Err(PluginError::unknown_method(method)),
     }
 }

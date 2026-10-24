@@ -3,14 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetResourcesForTests } from "../state/resources";
 import { setState } from "../state/store";
 import type { Agent, AgentWorktree } from "../state/types";
+import type { AcpAttachment } from "../api/acp";
 import { AgentChatPane } from "./AgentChatPane";
+import type { ChatView } from "./types";
 import type { PreparedWorktree } from "./useChatWorktree";
 import { draftOf, typeDraft } from "../test/draft";
+import { testPreferences } from "../test/preferences";
 
 const mocks = vi.hoisted(() => ({
     prompt: vi.fn(async () => {}),
-    start: vi.fn(async (_agentId: string) => ({ sessionId: "session-1", capabilities: {}, setup: {} })),
-    started: null as { sessionId: string; capabilities: object; setup: object } | null,
+    start: vi.fn(async (_agentId: string) => {}),
+    started: false,
     create: vi.fn(),
     setAgentWorktree: vi.fn(),
     setAgentWorktreeDefault: vi.fn(),
@@ -22,7 +25,13 @@ vi.mock("../api/fs", () => {
     const fsapi = { pathKinds: async (paths: string[]) => paths.map(() => null) };
     return { fsapi, filesOn: () => fsapi };
 });
-vi.mock("../api/git", () => ({ git: { worktrees: mocks.worktrees, overview: async () => ({ status: { branch: "main" } }) } }));
+vi.mock("../api/git", () => ({
+    git: {
+        worktrees: mocks.worktrees,
+        overview: async () => ({ status: { branch: "main" } }),
+        projectRepo: async (project: string) => ({ repo: project, repos: null }),
+    },
+}));
 vi.mock("../api/core", async (importOriginal) => {
     const original = await importOriginal<typeof import("../api/core")>();
     return {
@@ -31,15 +40,16 @@ vi.mock("../api/core", async (importOriginal) => {
 });
 vi.mock("../api/acp", () => ({
     acpApi: {
-        composing: vi.fn(async () => {}),
         subscribe: vi.fn(async () => () => {}),
-        attach: vi.fn(async (agentId: string) => {
-            const start = mocks.started ?? (await mocks.start(agentId));
-            mocks.started = null;
-            return { status: "live", start, permissionMode: "workspace-write", running: false, turned: false, feed: "feed-1", olderBefore: null };
+        composing: vi.fn(async () => {}),
+        attach: vi.fn(async (agentId: string): Promise<AcpAttachment> => {
+            if (!mocks.started) await mocks.start(agentId);
+            mocks.started = false;
+            return { status: "live", view: readyChat, feed: "feed-1", seq: 0 };
         }),
         startChat: vi.fn(async (agentId: string) => {
-            mocks.started = await mocks.start(agentId);
+            await mocks.start(agentId);
+            mocks.started = true;
         }),
         setPermissionMode: vi.fn(async () => {}),
         setConfig: vi.fn(),
@@ -56,7 +66,6 @@ vi.mock("../state/commands", () => ({
     setAgentWorktree: mocks.setAgentWorktree,
     setAgentWorktreeDefault: mocks.setAgentWorktreeDefault,
     setAgentPermissionMode: vi.fn(),
-    setAgentModelPreferences: vi.fn(),
     setAgentTitle: vi.fn(),
     titleAgentFromPrompt: vi.fn(),
     toggleAgentSkipPermissions: vi.fn(),
@@ -76,6 +85,25 @@ const worktree: AgentWorktree = {
     branch: "sikemux/fix-the-flaky-pty-test",
     base: "main",
     startSha: "abc",
+};
+
+const readyChat: ChatView = {
+    head: {
+        sessionId: "session-1",
+        connection: "ready",
+        running: false,
+        turned: false,
+        permissionMode: "workspace-write",
+        commands: [],
+        capabilities: {},
+        setup: {},
+        permissions: [],
+        tasks: [],
+        runningSubagents: [],
+        queued: [],
+        earlierLost: false,
+    },
+    rows: [],
 };
 
 let resolveCreate: (prepared: PreparedWorktree) => void = () => {};
@@ -103,9 +131,9 @@ async function sendFirstMessage(text: string): Promise<HTMLElement> {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    mocks.started = null;
+    mocks.started = false;
     resetResourcesForTests();
-    setState({ agentWorktreeDefaults: {} });
+    setState({ preferences: testPreferences() });
     mocks.create.mockImplementation(
         () =>
             new Promise<PreparedWorktree>((resolve) => {

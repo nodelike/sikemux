@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { errorText } from "../../plugin-api/format";
-import { databaseApi, type QueryOutcome } from "./api";
-import { database, databaseConnectedR, databaseHistoryR } from "./resources";
+import { databaseApi } from "./api";
+import type { DatabaseQueryOutcome } from "./types.generated";
 
 export const ROW_LIMITS = [100, 500, 1000, 5000] as const;
 export const DEFAULT_ROW_LIMIT = 500;
@@ -11,7 +11,7 @@ export interface QueryState {
     sql: string;
     limit: number;
     running: boolean;
-    outcome: QueryOutcome | null;
+    outcome: DatabaseQueryOutcome | null;
     error: string | null;
     /** The SQL of the last run, shown beside its outcome. */
     ran: string | null;
@@ -44,7 +44,6 @@ export async function runQuery(id: string, profile: string, sql: string): Promis
         updateQuery(id, { outcome: null, error: errorText(failure) });
     } finally {
         updateQuery(id, { running: false, run: null });
-        database.refresh(databaseHistoryR, databaseConnectedR);
     }
 }
 

@@ -42,6 +42,9 @@ fn push_agent_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
 
 fn automatic_candidates(def: &AgentEntry) -> Vec<PathBuf> {
     let mut candidates = user_environment::find_executables(def.command);
+    if user_environment::search_path_only() {
+        return candidates;
+    }
     let home = sikemux_process::paths::home().unwrap_or_default();
     for candidate in [
         home.join(".local/bin").join(def.command),

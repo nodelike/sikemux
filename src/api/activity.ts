@@ -27,6 +27,23 @@ export interface ActivityDay {
     commits: number;
     tokens: number;
     costUsd: number;
+    /** How full the calendar draws the day for each measure, 0 to 4. */
+    levels: ActivityLevels;
+}
+
+export interface ActivityLevels {
+    sessions: number;
+    agentMs: number;
+    commits: number;
+    tokens: number;
+    costUsd: number;
+}
+
+/** Days in a row with any activity; a streak that reached yesterday still counts as current. */
+export interface ActivityStreaks {
+    activeDays: number;
+    longest: number;
+    current: number;
 }
 
 export interface ActivityShare {
@@ -67,6 +84,7 @@ export interface PriceOverride {
 export interface ActivitySummary {
     totals: ActivityTotals;
     days: ActivityDay[];
+    streaks: ActivityStreaks;
     agents: ActivityShare[];
     projects: ActivityShare[];
     models: ActivityModel[];

@@ -22,8 +22,8 @@ use super::access::Peer;
 /// The window's executable, beside the core's own in a build.
 const APP: &str = "sikemux";
 const BUNDLED_APP: &str = "Contents/MacOS/sikemux";
-const BUNDLED_NOTCH: &str = "Contents/Helpers/Sikemux Notch.app";
-const NOTCH_EXECUTABLE: &str = "Contents/MacOS/sikemux-notch";
+pub(super) const BUNDLED_NOTCH: &str = "Contents/Helpers/Sikemux Notch.app";
+pub(super) const NOTCH_EXECUTABLE: &str = "Contents/MacOS/sikemux-notch";
 /// The programs beside a dev build's own binary that act as its app.
 const DEV_PROGRAMS: [&str; 3] = [
     "Sikemux Notch Dev.app",

@@ -7,16 +7,22 @@ const api = vi.hoisted(() => ({
     signIn: vi.fn(),
     signOut: vi.fn(),
     setDefault: vi.fn(),
-    channels: vi.fn(),
-    history: vi.fn(),
-    thread: vi.fn(),
     threadOf: vi.fn(),
     reply: vi.fn(),
 }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), slackApi: api }));
 
+const views = vi.hoisted(() => ({
+    channelsView: vi.fn(),
+    historyView: vi.fn(),
+    threadView: vi.fn(),
+}));
+
+import { fakeViews } from "../../../plugin-api/fakeViews";
 import { SlackPane } from "./SlackPane";
 import { slack } from "../resources";
+
+fakeViews(views);
 
 const signedIn: SlackStatus = {
     configured: true,
@@ -47,20 +53,25 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-    Object.values(api).forEach((mock) => mock.mockReset());
+    [...Object.values(api), ...Object.values(views)].forEach((mock) => mock.mockReset());
     api.status.mockResolvedValue(signedIn);
-    api.channels.mockResolvedValue([
-        { id: "C9", name: "deploys", kind: "channel", updated: null },
-        { id: "D1", name: "Irwan", kind: "dm", updated: null },
-    ]);
-    api.history.mockResolvedValue([message("100.000001", "Irwan", "Deploy failed on staging", 2), message("101.000001", "Vikas", "ok")]);
-    api.thread.mockResolvedValue({
-        workspace: "T1",
-        channel: "C9",
-        ts: "100.000001",
-        permalink: "https://acme.slack.com/archives/C9/p100000001",
-        truncated: false,
-        messages: [message("100.000001", "Irwan", "Deploy failed on staging", 2), message("100.000002", "Ankit", "Looking now")],
+    views.channelsView.mockReturnValue({
+        rooms: [{ id: "C9", name: "deploys", kind: "channel", updated: null }],
+        people: [{ id: "D1", name: "Irwan", kind: "dm", updated: null }],
+    });
+    views.historyView.mockReturnValue({
+        messages: [message("100.000001", "Irwan", "Deploy failed on staging", 2), message("101.000001", "Vikas", "ok")],
+    });
+    views.threadView.mockReturnValue({
+        thread: {
+            workspace: "T1",
+            channel: "C9",
+            ts: "100.000001",
+            permalink: "https://acme.slack.com/archives/C9/p100000001",
+            truncated: false,
+            messages: [message("100.000001", "Irwan", "Deploy failed on staging", 2), message("100.000002", "Ankit", "Looking now")],
+        },
+        forAgent: "Slack thread in #deploys",
     });
     api.reply.mockResolvedValue({ channel: "C9", ts: "100.000003", permalink: null });
 });
@@ -79,7 +90,7 @@ describe("SlackPane", () => {
         expect(within(sidebar).getByText("Direct messages")).toBeInTheDocument();
         fireEvent.click(await within(sidebar).findByText("deploys"));
         expect(await screen.findByText("Deploy failed on staging")).toBeInTheDocument();
-        expect(api.history).toHaveBeenCalledWith("T1", "C9");
+        expect(views.historyView).toHaveBeenCalledWith({ workspace: "T1", channel: "C9" });
         expect(screen.getByRole("button", { name: "2 replies" })).toBeInTheDocument();
     });
 
@@ -89,7 +100,7 @@ describe("SlackPane", () => {
         fireEvent.click(await screen.findByRole("button", { name: "2 replies" }));
         const thread = await screen.findByRole("complementary", { name: "Thread" });
         expect(await within(thread).findByText("Looking now")).toBeInTheDocument();
-        expect(api.thread).toHaveBeenCalledWith("T1", "C9", "100.000001");
+        expect(views.threadView).toHaveBeenCalledWith({ workspace: "T1", channel: "C9", ts: "100.000001" });
         fireEvent.change(within(thread).getByRole("textbox", { name: "Reply in the thread" }), { target: { value: " On it " } });
         await act(async () => fireEvent.click(within(thread).getByRole("button", { name: "Reply" })));
         expect(api.reply).toHaveBeenCalledWith("T1", "C9", "100.000001", "On it");

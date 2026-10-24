@@ -8,13 +8,14 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sikemux_process::sync::Locked;
 
+use super::changed::Topic;
+use super::connection::ClientConn;
 use super::{Core, CoreError, CoreResult};
 
 /// How a plugin call failed, as the window shows it.
@@ -133,10 +134,19 @@ pub(crate) struct WindowCall {
 /// plugin offers agents, so they are told to list their tools again.
 pub(crate) async fn window_call(core: &Core, call: WindowCall) -> Outcome {
     let outcome = match plugins(&call.plugin) {
-        Ok(plugins) => plugins.call(&call.plugin, &call.method, call.params).await,
+        Ok(plugins) => {
+            plugins
+                .call(&call.plugin, &call.method, call.params.clone())
+                .await
+        }
         Err(failure) => Err(failure),
     };
+    if let (true, Some(core)) = (outcome.is_ok(), core.arc()) {
+        super::codehost::wrote(&core, &call.plugin, &call.method, &call.params);
+        super::plugin_views::wrote(&core, &call.plugin, &call.method);
+    }
     tell_agents_if_theirs(core, &call.plugin);
+    sign_in_moved(core, &call.plugin, &call.method);
     match outcome {
         Ok(value) => Outcome::Value(value),
         Err(failure) => Outcome::Failed(failure),
@@ -168,23 +178,36 @@ pub(crate) fn set_disabled(core: &Core, disabled: Disabled) {
     if let Some(plugins) = PLUGINS.get() {
         plugins.set_disabled(disabled.ids);
         core.harness.plugins_changed();
+        core.changes.changed(Topic::Plugins, None, None);
         core.view_changed();
     }
 }
 
 #[derive(Deserialize)]
 pub(crate) struct SignIn {
+    stream: u64,
     plugin: String,
 }
 
-/// A stream ticket for the plugin's browser sign-in, which sends the address
-/// to open and ends once the person has signed in.
-pub(crate) fn sign_in_ticket(sign_in: SignIn) -> CoreResult<Ticket> {
-    stream_ticket(WindowCall {
-        plugin: sign_in.plugin,
-        method: "signInWithBrowser".into(),
-        params: Value::Null,
-    })
+/// The plugin's browser sign-in as the client's stream, which sends the
+/// address to open and ends once the person has signed in.
+pub(crate) fn sign_in(
+    core: &Arc<Core>,
+    connection: Arc<ClientConn>,
+    sign_in: SignIn,
+) -> CoreResult<Value> {
+    stream(
+        core,
+        connection,
+        StreamCall {
+            stream: sign_in.stream,
+            call: WindowCall {
+                plugin: sign_in.plugin,
+                method: "signInWithBrowser".into(),
+                params: Value::Null,
+            },
+        },
+    )
 }
 
 #[derive(Deserialize)]
@@ -205,6 +228,64 @@ pub(crate) fn sign_in_callback(landed: Landed) -> CoreResult<()> {
         .map_err(CoreError::from)
 }
 
+/// A plugin as the rail lists it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Listed {
+    id: String,
+    name: String,
+    enabled: bool,
+    /// Whether its sign-in works; none for a plugin with no sign-in, or one
+    /// switched off.
+    signed_in: Option<bool>,
+}
+
+/// Every plugin built in, each with whether its sign-in works, asked of its
+/// service now.
+pub(crate) async fn listed() -> Vec<Listed> {
+    let disabled = disabled();
+    let asked = manifests().into_iter().filter_map(|manifest| {
+        let id = manifest["id"].as_str()?.to_owned();
+        let name = manifest["name"].as_str().unwrap_or(&id).to_owned();
+        let enabled = !disabled.contains(&id);
+        Some(async move {
+            let signed_in = if enabled {
+                match call(&id, "status", Value::Null).await {
+                    Ok(status) => Some(
+                        status["configured"] == Value::Bool(true)
+                            && status["authFailed"] != Value::Bool(true),
+                    ),
+                    Err(failure) if failure.category == "unknown-method" => None,
+                    Err(_) => Some(false),
+                }
+            } else {
+                None
+            };
+            Listed {
+                id,
+                name,
+                enabled,
+                signed_in,
+            }
+        })
+    });
+    futures_util::future::join_all(asked).await
+}
+
+/// A plugin's call may have signed it in or out, or picked another account,
+/// so clients read the plugins again.
+pub(crate) fn sign_in_moved(core: &Core, plugin: &str, method: &str) {
+    if method.starts_with("signIn")
+        || method.starts_with("signOut")
+        || method.starts_with("login")
+        || method == "logout"
+        || method == "setDefaultAccount"
+    {
+        core.changes.changed(Topic::Plugins, None, None);
+        super::plugin_views::signed(core, plugin);
+    }
+}
+
 /// The plugins the person switched off, which every client shows.
 pub(crate) fn disabled() -> Vec<String> {
     PLUGINS
@@ -213,64 +294,47 @@ pub(crate) fn disabled() -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// A stream the window asked for and has yet to collect from the tool
-/// endpoint, by the ticket it was given.
-pub(crate) struct Pending {
-    pub(crate) plugin: String,
-    pub(crate) method: String,
-    pub(crate) params: Value,
+#[derive(Deserialize)]
+pub(crate) struct StreamCall {
+    /// The client's number for the stream its items arrive as.
+    stream: u64,
+    #[serde(flatten)]
+    call: WindowCall,
 }
 
-const TICKET_LIFETIME: Duration = Duration::from_secs(30);
-const MAX_TICKETS: usize = 64;
-
-static TICKETS: Mutex<Vec<(String, Instant, Pending)>> = Mutex::new(Vec::new());
-
-#[derive(Serialize)]
-pub(crate) struct Ticket {
-    ticket: String,
-}
-
-/// Holds a stream for the window to collect over the tool endpoint, which
-/// only it may ask for, though anyone holding the endpoint's token may connect.
-pub(crate) fn stream_ticket(call: WindowCall) -> CoreResult<Ticket> {
-    let mut tickets = TICKETS.locked();
-    tickets.retain(|(_, made, _)| made.elapsed() < TICKET_LIFETIME);
-    if tickets.len() >= MAX_TICKETS {
-        return Err(CoreError::from(
-            "too many plugin streams are starting at once",
-        ));
-    }
-    let ticket = crate::cli::auth::new_nonce();
-    tickets.push((
-        ticket.clone(),
-        Instant::now(),
-        Pending {
-            plugin: call.plugin,
-            method: call.method,
-            params: call.params,
+/// Runs a plugin's stream, its items arriving as the client's stream on
+/// `connection`. A stream that signs the plugin in or out changes what it
+/// offers agents and what the rail shows, so both hear of it when it ends.
+pub(crate) fn stream(
+    core: &Arc<Core>,
+    connection: Arc<ClientConn>,
+    call: StreamCall,
+) -> CoreResult<Value> {
+    let StreamCall {
+        stream: id,
+        call: WindowCall {
+            plugin,
+            method,
+            params,
         },
-    ));
-    Ok(Ticket { ticket })
-}
-
-pub(crate) fn redeem(ticket: &str) -> Option<Pending> {
-    let mut tickets = TICKETS.locked();
-    let at = tickets.iter().position(|(held, made, _)| {
-        crate::cli::auth::same_secret(held, ticket) && made.elapsed() < TICKET_LIFETIME
-    })?;
-    Some(tickets.swap_remove(at).2)
-}
-
-pub(crate) async fn stream(pending: &Pending, sink: Sink) -> Result<(), Failure> {
-    plugins(&pending.plugin)?
-        .stream(
-            &pending.plugin,
-            &pending.method,
-            pending.params.clone(),
-            sink,
-        )
-        .await
+    } = call;
+    let stream = core.streams.open(connection, id)?;
+    let core = core.clone();
+    tokio::spawn(async move {
+        let items = stream.clone();
+        let sink: Sink = Box::new(move |value| items.push(value));
+        let ended = match plugins(&plugin) {
+            Ok(plugins) => plugins.stream(&plugin, &method, params, sink).await,
+            Err(failure) => Err(failure),
+        };
+        match ended {
+            Ok(()) => stream.finish(None),
+            Err(failure) => stream.fail(serde_json::to_value(failure).unwrap_or_default()),
+        }
+        tell_agents_if_theirs(&core, &plugin);
+        sign_in_moved(&core, &plugin, &method);
+    });
+    Ok(json!({ "stream": id }))
 }
 
 /// The tools an agent working in `project` is offered.

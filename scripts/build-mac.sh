@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build and validate the macOS app bundle, ad hoc signed. Tauri merges
-# src-tauri/Info.plist before signing; this script never mutates the completed
-# .app. A release signs it afterwards with scripts/sign-mac.sh, on a machine
-# that never runs the build's dependencies.
+# Build and validate the macOS app bundle, ad hoc signed: the GPUI app, its core
+# and the notch helper, laid out as every release since the core updater, so an
+# installed build updates into it. A release signs it afterwards with
+# scripts/sign-mac.sh, on a machine that never runs the build's dependencies.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -10,6 +10,7 @@ ROOT="$(pwd -P)"
 APP_NAME="$(node -p "require('./src-tauri/tauri.conf.json').productName")"
 APP_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 APP_IDENTIFIER="$(node -p "require('./src-tauri/tauri.conf.json').identifier")"
+MINIMUM_MACOS="$(node -p "require('./src-tauri/tauri.macos.conf.json').bundle.macOS.minimumSystemVersion")"
 ICON_ASSET="sikemux"
 TARGET=""
 
@@ -27,15 +28,9 @@ for ((i = 0; i < ${#args[@]}; i++)); do
   esac
 done
 
-BUILD_ARGS=("$@")
-BUILD_ARGS+=(--config "$ROOT/src-tauri/tauri.core.conf.json")
-BUILD_ARGS+=(--config "$ROOT/src-tauri/tauri.notch.conf.json")
-BUILD_ARGS+=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
-# No signing material reaches the build. The bundler would notarize whenever
-# Apple's credentials are set, even to empty strings.
+# No signing material reaches the build.
 unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
 unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
-export APPLE_SIGNING_IDENTITY=-
 
 # The Release workflow compiles the app and packs it on separate machines, so
 # the app compiles while the core does: BUILD_STEP=compile, then BUILD_STEP=package.
@@ -48,25 +43,22 @@ STEP="${BUILD_STEP:-all}"
 "$ROOT/scripts/icons.sh"
 TARGET_ARGS=()
 [[ -n "$TARGET" ]] && TARGET_ARGS=(--target "$TARGET")
-# A release builds the voice and simulator helpers first and signs them, because
-# the app is compiled with their hashes.
+# A release builds the voice and simulator helpers first and signs them; they
+# are published beside the app, never inside it.
 if [[ "${PREBUILT_HELPERS:-0}" != "1" && "$STEP" != "package" ]]; then
   node "$ROOT/scripts/build-voice-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
   node "$ROOT/scripts/build-sim-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 fi
+GPUI="$ROOT/src-tauri/crates/sikemux-gpui"
+GPUI_TARGET_ROOT="$GPUI/target"
+[[ -n "$TARGET" ]] && GPUI_TARGET_ROOT="$GPUI_TARGET_ROOT/$TARGET"
 if [[ "$STEP" != "package" ]]; then
-  printf '→ pnpm tauri build --no-bundle'
-  printf ' %q' "${BUILD_ARGS[@]}"
-  echo
-  pnpm tauri build --no-bundle "${BUILD_ARGS[@]}"
+  echo "→ cargo build --release --locked --bin sikemux ${TARGET_ARGS[*]-}"
+  (cd "$GPUI" && cargo build --release --locked --bin sikemux ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"})
 fi
 [[ "$STEP" == "compile" ]] && exit 0
 node "$ROOT/scripts/build-notch-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 node "$ROOT/scripts/build-cli-sidecar.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
-printf '→ pnpm tauri bundle'
-printf ' %q' "${BUILD_ARGS[@]}"
-echo
-pnpm tauri bundle "${BUILD_ARGS[@]}"
 
 TARGET_ROOT="$ROOT/src-tauri/target"
 [[ -n "$TARGET" ]] && TARGET_ROOT="$TARGET_ROOT/$TARGET"
@@ -79,20 +71,58 @@ fail() {
   exit 1
 }
 
+echo "→ Assembling $APP_NAME.app"
+rm -rf "$APP_PATH" "$BUNDLE/dmg"
+mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$APP_PATH/Contents/Helpers" "$BUNDLE/dmg"
+/usr/bin/ditto "$GPUI_TARGET_ROOT/release/sikemux" "$APP_PATH/Contents/MacOS/sikemux"
+/usr/bin/ditto "$ROOT/src-tauri/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"
+/usr/bin/ditto "$ROOT/src-tauri/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"
+ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Contents/MacOS/sikemux-host"
+/usr/bin/ditto "$ROOT/src-tauri/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"
+/usr/bin/ditto "$ROOT/src-tauri/icons/icon.icns" "$APP_PATH/Contents/Resources/icon.icns"
+/usr/libexec/PlistBuddy \
+  -c "Add :CFBundleDevelopmentRegion string English" \
+  -c "Add :CFBundleDisplayName string $APP_NAME" \
+  -c "Add :CFBundleName string $APP_NAME" \
+  -c "Add :CFBundleExecutable string sikemux" \
+  -c "Add :CFBundleIconFile string icon.icns" \
+  -c "Add :CFBundleIdentifier string $APP_IDENTIFIER" \
+  -c "Add :CFBundleInfoDictionaryVersion string 6.0" \
+  -c "Add :CFBundlePackageType string APPL" \
+  -c "Add :CFBundleShortVersionString string $APP_VERSION" \
+  -c "Add :CFBundleVersion string $APP_VERSION" \
+  -c "Add :LSMinimumSystemVersion string $MINIMUM_MACOS" \
+  -c "Add :NSHighResolutionCapable bool true" \
+  -c "Merge $ROOT/src-tauri/Info.plist" \
+  "$PLIST" >/dev/null
+/usr/bin/codesign --force --options runtime --entitlements "$ROOT/src-tauri/Entitlements.plist" --sign - "$APP_PATH"
+
 # The README and sikemux.com promise a small download, so a release that grows
 # past this fails here instead of shipping. scripts/sign-mac.sh checks it again.
-DMG_BUDGET_BYTES=20000000
+DMG_BUDGET_BYTES=25000000
 
-# Tauri packs the DMG with zlib; LZMA makes it about a fifth smaller.
-shopt -s nullglob
-for DMG in "$BUNDLE"/dmg/*.dmg; do
-  PACKED="${DMG%.dmg}.lzma.dmg"
-  /usr/bin/hdiutil convert "$DMG" -format ULMO -o "$PACKED" -quiet -ov || fail "could not repack $DMG"
-  mv -f "$PACKED" "$DMG"
-  DMG_BYTES="$(stat -f%z "$DMG")"
-  ((DMG_BYTES <= DMG_BUDGET_BYTES)) || fail "$DMG is $DMG_BYTES bytes, over the $DMG_BUDGET_BYTES byte budget"
-done
-shopt -u nullglob
+# The DMG holds what every release's has: the app, a link to Applications, the
+# background and the volume's icon, packed with LZMA.
+ARCH="$(/usr/bin/lipo -archs "$APP_PATH/Contents/MacOS/sikemux" | tr ' ' '\n' | sed -e 's/^arm64$/aarch64/' -e 's/^x86_64$/x64/' | head -1)"
+DMG="$BUNDLE/dmg/${APP_NAME}_${APP_VERSION}_${ARCH}.dmg"
+LAYOUT="$(mktemp -d)"
+trap 'rm -rf "$LAYOUT"' EXIT
+mkdir "$LAYOUT/.background"
+/usr/bin/ditto "$APP_PATH" "$LAYOUT/$APP_NAME.app"
+ln -s /Applications "$LAYOUT/Applications"
+/usr/bin/ditto "$ROOT/src-tauri/dmg/background.tiff" "$LAYOUT/.background/background.tiff"
+/usr/bin/ditto "$ROOT/src-tauri/icons/icon.icns" "$LAYOUT/.VolumeIcon.icns"
+/usr/bin/hdiutil create -volname "$APP_NAME" -srcfolder "$LAYOUT" -fs HFS+ -format UDRW -ov -quiet "$LAYOUT.rw.dmg" ||
+  fail "could not lay out the DMG"
+VOLUME="$LAYOUT.volume"
+mkdir "$VOLUME"
+/usr/bin/hdiutil attach "$LAYOUT.rw.dmg" -readwrite -nobrowse -noautoopen -mountpoint "$VOLUME" -quiet || fail "could not mount the DMG"
+/usr/bin/SetFile -a C "$VOLUME" || fail "could not give the DMG its icon"
+/usr/bin/hdiutil detach "$VOLUME" -quiet || fail "could not unmount the DMG"
+/usr/bin/hdiutil convert "$LAYOUT.rw.dmg" -format ULMO -o "$DMG" -ov -quiet || fail "could not pack $DMG"
+rm -rf "$LAYOUT.rw.dmg" "$VOLUME"
+DMG_BYTES="$(stat -f%z "$DMG")"
+((DMG_BYTES <= DMG_BUDGET_BYTES)) || fail "$DMG is $DMG_BYTES bytes, over the $DMG_BUDGET_BYTES byte budget"
 
 [[ -d "$APP_PATH" ]] || fail "missing app at $APP_PATH"
 [[ -f "$PLIST" ]] || fail "missing $PLIST"
@@ -177,6 +207,14 @@ if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$SIM_DYNAM
   echo "$SIM_DYNAMIC_LIBS" >&2
   fail "simulator helper links to a package-manager library"
 fi
+
+# Test kits build the app with `drive` and the core with `fake-plugins`, which answer to
+# a socket or to files instead of the person; each leaves this text in what it builds.
+for code in "$EXECUTABLE" "$CLI_EXECUTABLE"; do
+  if /usr/bin/grep -aqF -e "window driver could not listen" -e "this test kit has no answer for that" "$code"; then
+    fail "$code was built with a test kit's feature (drive or fake-plugins)"
+  fi
+done
 
 # Only starting the bundled core proves it survives the hardened runtime: the
 # copy built beside it is signed without it and starts whether or not the

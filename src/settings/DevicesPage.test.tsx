@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REMOTE_STATUS_EVENT, type RemoteStatus } from "../api/remote";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
 import { useAccount } from "../account/account";
+import type { AccountInfo } from "../api/generated/wire";
 import { getState, setState } from "../state/store";
 import { DevicesPage, PHONE_URL, seenLabel } from "./DevicesPage";
 
@@ -29,16 +30,23 @@ function status(overrides: Partial<RemoteStatus> = {}): RemoteStatus {
 
 let transport: MemoryIpcTransport;
 
-const SIGNED_OUT = { signedIn: false, userId: null, email: null, name: null, picture: null };
-const SIGNED_IN = { signedIn: true, userId: "user_2abc", email: "me@example.com", name: null, picture: null };
-let account: typeof SIGNED_OUT | typeof SIGNED_IN;
+const SIGNED_IN: AccountInfo = { name: null, email: "me@example.com", pictureHash: null };
+let account: AccountInfo | null;
+/** The core's methods each test answers, by name. */
+let calls: Record<string, () => unknown>;
 
 beforeEach(() => {
     transport = new MemoryIpcTransport();
     installIpcTransportForTests(transport);
-    account = SIGNED_OUT;
-    transport.register("account_status", () => account);
-    transport.register("account_refresh_profile", () => account);
+    account = null;
+    calls = { account: () => account, accountSignIn: () => ({ url: "https://accounts.example/sign-in" }) };
+    transport.register("core_call", (args) => {
+        const { method } = args as { method: string };
+        const answer = calls[method];
+        if (!answer) throw new Error(`unexpected core call ${method}`);
+        return answer();
+    });
+    transport.register("open_url", () => undefined);
     useAccount.setState({ account: null });
 });
 
@@ -133,7 +141,7 @@ describe("DevicesPage and the account", () => {
         render(<DevicesPage />);
 
         expect(await screen.findByText("me@example.com")).toBeInTheDocument();
-        account = SIGNED_OUT;
+        account = null;
         transport.emit(REMOTE_STATUS_EVENT, status({ account: { state: "removed", reason: "account_deleted", since: 3 } }));
 
         expect(await screen.findByText("Your account was deleted. Phones already allowed stay allowed.")).toBeInTheDocument();
@@ -144,18 +152,20 @@ describe("DevicesPage and the account", () => {
         const user = userEvent.setup();
         transport.registerCoreRequest("remoteStatus", () => ({ status: status({ enabled: false }) }));
         let finish: (value: unknown) => void = () => {};
-        transport.register("account_sign_in", () => new Promise((resolve) => (finish = resolve)));
-        transport.register("account_sign_out", () => SIGNED_OUT);
+        calls.accountSignInFinish = () => new Promise((resolve) => (finish = resolve));
+        calls.accountSignOut = () => undefined;
         render(<DevicesPage />);
 
         await user.click(await screen.findByRole("button", { name: "Sign in" }));
         expect(await screen.findByText("Finish signing in in your browser")).toBeInTheDocument();
         setState({ settingsOpen: false, settingsPage: "general" });
+        account = SIGNED_IN;
         finish(SIGNED_IN);
 
         expect(await screen.findByText("me@example.com")).toBeInTheDocument();
         expect(getState().settingsOpen).toBe(true);
         expect(getState().settingsPage).toBe("devices");
+        account = null;
         await user.click(screen.getByRole("button", { name: "Sign out" }));
         expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
     });
@@ -164,11 +174,11 @@ describe("DevicesPage and the account", () => {
         const user = userEvent.setup();
         transport.registerCoreRequest("remoteStatus", () => ({ status: status() }));
         let fail: (error: unknown) => void = () => {};
-        transport.register("account_sign_in", () => new Promise((_, reject) => (fail = reject)));
+        calls.accountSignInFinish = () => new Promise((_, reject) => (fail = reject));
         const cancel = vi.fn(() => {
             fail(new Error("sign-in was cancelled"));
         });
-        transport.register("account_cancel_sign_in", cancel);
+        calls.accountSignInCancel = cancel;
         render(<DevicesPage />);
 
         await user.click(await screen.findByRole("button", { name: "Sign in" }));

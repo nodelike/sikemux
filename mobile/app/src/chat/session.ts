@@ -1,18 +1,14 @@
 import { ChatAttachment, MobileError, type ChatMark, type ConnectionLike } from '@sikemux/native';
+import { randomUUID } from 'expo-crypto';
 import { File } from 'expo-file-system';
 
-import { chatActions } from '@mac/chat/acpEvents';
-import { recordOf } from '@mac/lib/guards';
-import { earlierMessages, type EarlierPage, PAGE_TURNS, withEarlier } from '@mac/chat/earlier';
-import type { QueuedMessage } from '@mac/chat/queuedMessages';
 import { answerText } from '@mac/chat/answerText';
-import { chatReducer, initialChatState } from '@mac/chat/reducer';
-import type { AcpPermissionRequest, ChatAction, ChatState } from '@mac/chat/types';
+import { applyChanges, emptyChat, fromView, withPage, type ChatRows } from '@mac/chat/rows';
+import type { ChatChange, ChatMessage, ChatPage, ChatView, PermissionAsk, QueuedMessage, ToolDetail } from '@mac/chat/types';
 
 import { problem as problemOf } from '@/core/problem';
-import type { ChatInfo, CoreChatEvent } from '@/core/protocol';
+import type { ChatInfo } from '@/core/protocol';
 import type { ChatDelivery } from '@/devices/hub';
-import { parsed } from './chatEvents';
 import { Folds } from './folds';
 import type { ChatStore, Kept } from './kept';
 import { fitting, pathsOf, uploadEach, type Attachment } from './uploads';
@@ -22,17 +18,14 @@ export type Attached = 'attaching' | 'live' | 'missing';
 /** A message this phone wrote that the host has not taken yet. */
 export type Unsent = { state: 'sending' | 'failed'; problem?: string };
 
-/** A message waiting behind the running turn. */
 /** A message waiting in the host's queue behind the running turn. */
 export type Held = QueuedMessage;
 
 export type ChatSnapshot = {
-  /** The chat as the host tells it, with what this phone sent added in place. */
-  agent: ChatState;
+  /** The chat as the host folded it, with what this phone sent and the host does not show yet after it. */
+  view: ChatRows;
   /** The permission requests still waiting on the host. */
-  permissions: AcpPermissionRequest[];
-  /** Messages rebuilt from a replay or an earlier page, which carry no times. */
-  replayed: ReadonlySet<string>;
+  permissions: PermissionAsk[];
   attached: Attached;
   /** Why the chat could not be opened, in the host's words. */
   problem: string | null;
@@ -40,8 +33,6 @@ export type ChatSnapshot = {
   notice: string | null;
   /** By message id. */
   unsent: ReadonlyMap<string, Unsent>;
-  /** The host's queue, then what this phone sent behind the turn that the host has not queued yet. */
-  queued: readonly Held[];
   /** Picked for the next message. */
   attachments: readonly Attachment[];
   /** What this phone sent, by the path the host keeps it at. */
@@ -57,12 +48,12 @@ export type ChatSnapshot = {
   changingMode: boolean;
   hasEarlier: boolean;
   earlier: 'idle' | 'loading' | 'failed';
-  /** When this phone saw the running turn begin. */
+  /** When the running turn began. */
   turnSince: number;
 };
 
 type Options = {
-  /** Hands over this host's chat events as they arrive. */
+  /** Hands over this host's chat changes as they arrive. */
   listen: (take: (deliveries: ChatDelivery[]) => void) => () => void;
   /** Runs once before the next frame is drawn; returns how to call that off. */
   frame?: (run: () => void) => () => void;
@@ -88,10 +79,19 @@ export type OpenTimes = {
 };
 
 /**
- * `shown` names each file as the transcript draws it, the host's path once it is there and this phone's copy before.
- * `waiting` is a message shown before the chat was attached, sent once it is.
+ * `sent` is taken by the host and not shown by it yet. Its `files` go up behind it, each named in the row by the
+ * host's path once it is there and by this phone's copy before. `waiting` was sent before the chat was attached,
+ * and goes out once it is.
  */
-type Outgoing = { key: number; messageId: string; text: string; shown: string[]; files: Attachment[]; waiting?: boolean } & Unsent;
+type Outgoing = {
+  messageId: string;
+  text: string;
+  files: Attachment[];
+  at: number;
+  state: Unsent['state'] | 'sent';
+  problem?: string;
+  waiting?: boolean;
+};
 
 /** A message sent behind the running turn, shown in the queue until the host's own queue holds it. */
 type Holding = Held & { key: number; taken: boolean };
@@ -109,13 +109,11 @@ function notQueued(holding: readonly Holding[], host: readonly Held[]): Holding[
   });
 }
 
-/** Where the host's history of this run of the chat goes on before what the phone holds. */
-type Cursor = { feed: string; before: bigint };
+/** Turns of earlier rows asked for at a time. */
+const PAGE_TURNS = 20;
 
-/** Earlier pages a fallen-back replay left a gap above, kept until the turns between are fetched. */
-type Bridge = { until: bigint; pages: EarlierPage[]; cursor: Cursor | null };
-
-const TOO_LONG = 'This chat is too long for the phone. Open it on the host.';
+/** Finished calls whose change and output are kept once read, so a row opened again shows them at once. */
+const KEPT_DETAILS = 40;
 
 /**
  * A permission request that just arrived is shown before the host's list of waiting requests,
@@ -132,59 +130,57 @@ function animationFrame(run: () => void): () => void {
   return () => cancelAnimationFrame(frame);
 }
 
-/** Adds a message from this phone without saying a turn has begun, for one the host has not taken. */
-function withMessage(state: ChatState, text: string, paths: string[]): ChatState {
-  const next = chatReducer(state, { type: 'local_prompt', text, paths });
-  return { ...next, running: state.running, suppressUserEcho: state.suppressUserEcho };
+function ownRow(outgoing: Outgoing): ChatMessage {
+  return {
+    id: outgoing.messageId,
+    role: 'user',
+    promptId: outgoing.messageId,
+    parts: outgoing.text.trim() ? [{ kind: 'text', id: `${outgoing.messageId}/text`, text: outgoing.text }] : [],
+    attachments: outgoing.files.map(shownPath),
+    sentAt: outgoing.at,
+  };
 }
 
+const sameItems = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((item, index) => item === b[index]);
+
 /**
- * One chat on one host, kept outside React so it outlives the screen: what the host said, where
- * its events got to, what this phone sent and what it still means to send.
+ * One chat on one host, kept outside React so it outlives the screen: the chat as the host folds it,
+ * where its changes got to, what this phone sent and what it still means to send.
  */
 export class ChatSession {
   readonly folds = new Folds();
   private listeners = new Set<() => void>();
-  private agent: ChatState = initialChatState;
-  private replayed: ReadonlySet<string> = new Set();
+  private chat: ChatRows = emptyChat;
   private attached: Attached = 'attaching';
   private problem: string | null = null;
   private notice: string | null = null;
   private outbox: Outgoing[] = [];
   private holding: Holding[] = [];
+  private held = 0;
   /** Messages reach the host in the order they were sent, however long their files take. */
   private line: Promise<void> = Promise.resolve();
   private stoppingTurn = false;
-  private sent = 0;
+  /** Model and effort picks this phone made, by picker id, shown until the host says what it runs on. */
+  private chosen: ReadonlyMap<string, string> = new Map();
   private attachments: Attachment[] = [];
   private sentFiles: ReadonlyMap<string, Attachment> = new Map();
   private answering: ReadonlySet<string> = new Set();
   private stopping: ReadonlySet<string> = new Set();
-  private hostMode: string | undefined;
+  /** The mode this phone set, until the host says another. */
   private mode: string | null = null;
   private changingMode = false;
   private draft = '';
+  /** When this phone saw the running turn begin, for a turn the host has no time for. */
   private turnSince: number;
-  /** A turn this phone started is taken as running until the host says otherwise. */
-  private optimistic = false;
 
-  /** The last event the transcript holds; a reconnect asks only for what comes after it. */
+  /** The last change the chat holds; a reconnect asks only for what comes after it. */
   private mark: ChatMark | undefined;
-  /** The last event taken, drawn or not yet. */
+  /** The last change taken, applied or not yet. */
   private taken: bigint | undefined;
-  private pending: ChatAction[] = [];
+  private pending: ChatChange[] = [];
   private cancelFrame: (() => void) | undefined;
-
-  private cursor: Cursor | null = null;
   private earlier: ChatSnapshot['earlier'] = 'idle';
-  /** Where the replay on screen begins, to tell whether earlier pages still join on to it. */
-  private replayStart: bigint | undefined;
-  /** Oldest first. */
-  private earlierShown: EarlierPage[] = [];
-  /** What the replay and everything since added to the transcript, played on to each earlier page. */
-  private since: ChatAction[] = [];
-  private bridge: Bridge | undefined;
-  private pages = 0;
+  private details = new Map<string, Promise<ToolDetail>>();
 
   /** What the host lists as waiting, or null before it has said. */
   private onHost: ReadonlySet<string> | null = null;
@@ -197,7 +193,7 @@ export class ChatSession {
   private run = 0;
   private stopRun: (() => void) | undefined;
   private snap: ChatSnapshot;
-  private keptAgent: ChatState | undefined;
+  private keptChat: ChatRows | undefined;
   private restoreTook: number | null = null;
 
   constructor(
@@ -218,28 +214,17 @@ export class ChatSession {
   keep = () => {
     const store = this.options.store;
     const mark = this.mark;
-    if (!store || !mark || this.agent === this.keptAgent) return;
-    this.keptAgent = this.agent;
-    store.save({
-      agent: this.agent,
-      replayed: [...this.replayed],
-      mark: { feed: mark.feed, seq: String(mark.seq) },
-      cursor: this.cursor && { feed: this.cursor.feed, before: String(this.cursor.before) },
-      replayStart: this.replayStart === undefined ? null : String(this.replayStart),
-      pages: this.pages,
-    });
+    if (!store || !mark || this.chat === this.keptChat) return;
+    this.keptChat = this.chat;
+    store.save({ chat: this.chat, mark: { feed: mark.feed, seq: String(mark.seq) } });
   };
 
   /** Draws the chat as this phone last kept it; the first attach asks only for what came after. */
   private restore(kept: Kept) {
-    this.agent = kept.agent;
-    this.keptAgent = kept.agent;
-    this.replayed = new Set(kept.replayed);
+    this.chat = kept.chat;
+    this.keptChat = kept.chat;
     this.mark = { feed: kept.mark.feed, seq: BigInt(kept.mark.seq) };
     this.taken = this.mark.seq;
-    this.cursor = kept.cursor && { feed: kept.cursor.feed, before: BigInt(kept.cursor.before) };
-    this.replayStart = kept.replayStart === null ? undefined : BigInt(kept.replayStart);
-    this.pages = kept.pages;
     this.attached = 'live';
   }
 
@@ -285,11 +270,6 @@ export class ChatSession {
     const up = info !== undefined && info.state === 'ready' && !info.asleep;
     const cameBack = this.hostUp === false && up;
     this.hostUp = up;
-    if (info && info.permissionMode !== this.hostMode) {
-      this.hostMode = info.permissionMode;
-      this.mode = null;
-      this.emit();
-    }
     const next = waiting ? new Set(waiting) : null;
     const same = next && this.onHost && next.size === this.onHost.size && [...next].every((id) => this.onHost?.has(id));
     if (!same && (next || this.onHost)) {
@@ -328,6 +308,11 @@ export class ChatSession {
     return true;
   };
 
+  /** Shows a message begun on another screen at once, with its files already on the host, and sends it once the chat is attached. */
+  sendWhenAttached = (text: string, uploaded: Attachment[]) => {
+    this.deliver(text, uploaded, true);
+  };
+
   /**
    * Answers a question with `text` and the files picked for it, named in the answer once they are all on the
    * host. The files stay in the composer when the answer did not go out.
@@ -342,15 +327,10 @@ export class ChatSession {
     return false;
   };
 
-  /** Shows a message begun on another screen at once, with its files already on the host, and sends it once the chat is attached. */
-  sendWhenAttached = (text: string, uploaded: Attachment[]) => {
-    this.deliver(text, uploaded, true);
-  };
-
   retrySend = (messageId: string) => {
     const entry = this.outbox.find((outgoing) => outgoing.messageId === messageId);
     if (!entry || entry.state !== 'failed') return;
-    this.update(entry, { state: 'sending', problem: undefined });
+    this.update(messageId, { state: 'sending', problem: undefined });
     this.push(entry);
   };
 
@@ -371,7 +351,7 @@ export class ChatSession {
 
   /** Stops the running turn. Messages waiting behind it go back to the composer rather than out. */
   cancel = () => {
-    const queued = this.agent.queued;
+    const queued = this.chat.queued;
     if (queued.length) {
       const text = queued.map((held) => held.text).filter(Boolean);
       const paths = [...new Set(queued.flatMap((held) => held.paths))];
@@ -383,7 +363,7 @@ export class ChatSession {
       this.attachments = [...sent, ...this.attachments];
     }
     this.notice = null;
-    if (this.agent.running) this.stoppingTurn = true;
+    if (this.chat.running) this.stoppingTurn = true;
     this.emit();
     this.ask(
       (connection) => connection.cancel(this.agentId),
@@ -404,7 +384,7 @@ export class ChatSession {
       (connection) => connection.answerPermission(this.agentId, requestId, optionId ?? undefined),
       'The answer did not reach the host',
       () => {
-        this.agent = chatReducer(this.agent, { type: 'permission_cleared', requestId });
+        this.chat = { ...this.chat, permissions: this.chat.permissions.filter((request) => request.requestId !== requestId) };
       },
     ).finally(() => {
       this.answering = new Set([...this.answering].filter((id) => id !== requestId));
@@ -457,23 +437,20 @@ export class ChatSession {
     return stopped;
   };
 
+  /** Shows the pick at once, and goes back to what the host runs on if it refuses it. */
   setConfig = (configId: string, value: string) => {
     this.notice = null;
-    const before = this.agent.setup.configOptions;
-    const chosen = Array.isArray(before)
-      ? before.map((option: unknown) => (recordOf(option)?.id === configId ? { ...recordOf(option), currentValue: value } : option))
-      : undefined;
-    if (chosen) this.agent = chatReducer(this.agent, { type: 'config', options: chosen });
+    this.chosen = new Map(this.chosen).set(configId, value);
     this.emit();
     this.ask(
       (connection) => connection.setChatConfig(this.agentId, configId, value),
       'Could not change the setting',
-      (json) => {
-        const options = recordOf(JSON.parse(json))?.configOptions;
-        if (options) this.agent = chatReducer(this.agent, { type: 'config', options });
-      },
+      undefined,
       () => {
-        if (chosen && this.agent.setup.configOptions === chosen) this.agent = chatReducer(this.agent, { type: 'config', options: before });
+        if (this.chosen.get(configId) !== value) return;
+        const chosen = new Map(this.chosen);
+        chosen.delete(configId);
+        this.chosen = chosen;
       },
     );
   };
@@ -489,37 +466,51 @@ export class ChatSession {
     this.emit();
   };
 
-  /** Fetches the turns before the first message shown, unless that is already under way. */
+  /** Fetches the rows before the first one shown, unless that is already under way. */
   loadEarlier = () => {
     const connection = this.connection;
-    const cursor = this.cursor;
-    if (!cursor || !connection || this.earlier === 'loading') return;
+    const before = this.chat.olderBefore;
+    const feed = this.mark?.feed;
+    if (before === null || feed === undefined || !connection || this.earlier === 'loading') return;
     this.earlier = 'loading';
     this.emit();
     const run = this.run;
     connection
-      .chatHistory(this.agentId, cursor.feed, cursor.before, PAGE_TURNS)
-      .then((page) => {
+      .chatHistory(this.agentId, feed, BigInt(before), PAGE_TURNS)
+      .then((json) => {
         if (run !== this.run) return;
-        this.pages += 1;
-        this.showEarlier([{ number: this.pages, actions: parsed(page.eventsJson) }]);
-        this.cursor = page.olderBefore === undefined ? null : { feed: cursor.feed, before: page.olderBefore };
+        this.chat = withPage(this.chat, JSON.parse(json) as ChatPage);
         this.earlier = 'idle';
-        this.crossBridge(page.olderBefore);
         this.emit();
-        if (this.bridge) this.loadEarlier();
       })
       .catch((error: unknown) => {
         if (run !== this.run) return;
-        this.bridge = undefined;
         if (MobileError.Refused.instanceOf(error)) {
-          this.cursor = null;
+          this.chat = { ...this.chat, olderBefore: null };
           this.earlier = 'idle';
         } else {
           this.earlier = 'failed';
         }
         this.emit();
       });
+  };
+
+  /** A call's whole change and what it printed, which rows carry only counts of. `done` calls are read once. */
+  toolDetail = (toolCallId: string, done: boolean): Promise<ToolDetail> => {
+    const kept = this.details.get(toolCallId);
+    if (kept) return kept;
+    const connection = this.connection;
+    const reading = Promise.resolve()
+      .then(() => {
+        if (!connection?.isOpen()) throw new Error('the host is not connected');
+        return connection.call('chatToolDetail', JSON.stringify({ agentId: this.agentId, toolCallId }));
+      })
+      .then((json) => JSON.parse(json) as ToolDetail);
+    if (!done) return reading;
+    this.details.set(toolCallId, reading);
+    reading.catch(() => this.details.delete(toolCallId));
+    if (this.details.size > KEPT_DETAILS) this.details.delete(this.details.keys().next().value as string);
+    return reading;
   };
 
   /** Opens the chat again from the start, after it could not be opened. */
@@ -546,32 +537,59 @@ export class ChatSession {
     const now = this.now();
     const onHost = this.onHost;
     const answering = this.answering;
-    const permissions = this.agent.permissions.filter(
+    const all = this.chat.permissions;
+    const permissions = all.filter(
       (request) =>
         !answering.has(request.requestId) &&
         (!onHost || onHost.has(request.requestId) || now - (this.arrived.get(request.requestId) ?? -Infinity) < PERMISSION_GRACE_MS),
     );
-    const holding = this.holding.length ? notQueued(this.holding, this.agent.queued) : [];
     return {
-      agent: this.agent,
-      permissions: permissions.length === this.agent.permissions.length ? this.agent.permissions : permissions,
-      replayed: this.replayed,
+      view: this.view(),
+      permissions: permissions.length === all.length ? all : permissions,
       attached: this.attached,
       problem: this.problem,
       notice: this.notice,
       unsent: this.unsentView(),
-      queued: holding.length ? [...this.agent.queued, ...holding] : this.agent.queued,
       attachments: this.attachments,
       sentFiles: this.sentFiles,
       answering: this.answering,
       stopping: this.stopping,
       stoppingTurn: this.stoppingTurn,
-      permissionMode: this.mode ?? this.hostMode ?? null,
+      permissionMode: this.mode ?? (this.chat.permissionMode || null),
       changingMode: this.changingMode,
-      hasEarlier: this.cursor !== null,
+      hasEarlier: this.chat.olderBefore !== null,
       earlier: this.earlier,
-      turnSince: this.turnSince,
+      turnSince: this.since(),
     };
+  }
+
+  private viewOf:
+    { chat: ChatRows; outbox: Outgoing[]; holding: Holding[]; chosen: ReadonlyMap<string, string>; view: ChatRows } | undefined;
+
+  /** The chat as the host folds it, with what this phone sent and picked that the host does not show yet. */
+  private view(): ChatRows {
+    const { chat, outbox, holding, chosen } = this;
+    const kept = this.viewOf;
+    if (kept?.chat === chat && kept.outbox === outbox && kept.holding === holding && kept.chosen === chosen) return kept.view;
+    const waiting = outbox.filter((outgoing) => outgoing.state !== 'failed');
+    const behind = holding.length ? notQueued(holding, chat.queued) : [];
+    const picked = (picker: ChatRows['model']) => {
+      const value = picker && chosen.get(picker.id);
+      return picker && value !== undefined ? { ...picker, current: value } : picker;
+    };
+    const view =
+      outbox.length || behind.length || chosen.size
+        ? {
+            ...chat,
+            messages: outbox.length ? [...chat.messages, ...outbox.map(ownRow)] : chat.messages,
+            running: chat.running || waiting.length > 0,
+            queued: behind.length ? [...chat.queued, ...behind] : chat.queued,
+            model: picked(chat.model),
+            effort: picked(chat.effort),
+          }
+        : chat;
+    this.viewOf = { chat, outbox, holding, chosen, view };
+    return view;
   }
 
   private unsentFrom: Outgoing[] | undefined;
@@ -580,9 +598,23 @@ export class ChatSession {
   private unsentView(): ReadonlyMap<string, Unsent> {
     if (this.unsentFrom !== this.outbox) {
       this.unsentFrom = this.outbox;
-      this.unsentMap = new Map(this.outbox.map(({ messageId, state, problem }) => [messageId, { state, problem }]));
+      this.unsentMap = new Map(
+        this.outbox.flatMap(({ messageId, state, problem }) => (state === 'sent' ? [] : [[messageId, { state, problem }]])),
+      );
     }
     return this.unsentMap;
+  }
+
+  /** When the running turn began: as the host timed it, or else as this phone saw it. */
+  private since(): number {
+    const { turnOpening, messages } = this.view();
+    if (turnOpening?.at) return turnOpening.at;
+    for (let at = messages.length - 1; at >= 0; at -= 1) {
+      const row = messages[at];
+      if (row.role === 'user') return row.sentAt ?? this.turnSince;
+      if (row.opensTurn) return row.opensTurn.at ?? this.turnSince;
+    }
+    return this.turnSince;
   }
 
   private uploading() {
@@ -606,24 +638,57 @@ export class ChatSession {
     }
   }
 
-  private busy() {
-    return this.agent.running || this.outbox.some((outgoing) => outgoing.state === 'sending');
+  /** Puts each of `files` the host does not have yet on it, answering them all with their paths or throwing why one did not get there. */
+  private async putFiles(
+    connection: ConnectionLike | undefined,
+    files: readonly Attachment[],
+    mark: (id: string, change: Partial<Attachment>) => void,
+  ): Promise<Attachment[]> {
+    let why = '';
+    const sent = await uploadEach(
+      files,
+      async (attachment) => {
+        if (!connection?.isOpen()) throw new Error('the host is not connected');
+        const bytes = await (this.options.read ?? readFile)(attachment.uri);
+        const path = await connection.attachFile(this.agentId, attachment.name, attachment.mime, bytes);
+        this.sentFiles = new Map([...this.sentFiles, [path, attachment]]);
+        return path;
+      },
+      mark,
+      (error) => {
+        why ||= problemOf(error);
+        return problemOf(error);
+      },
+    );
+    if (!sent) throw new Error(why);
+    return sent;
   }
 
-  private apply(batch: ChatAction[]) {
-    this.since.push(...batch);
-    for (const action of batch) {
-      const was = this.agent.running;
-      const queued = this.agent.queued;
-      this.agent = chatReducer(this.agent, action);
-      if (action.type === 'turn_started' || action.type === 'turn_completed' || action.type === 'error') {
-        this.optimistic = false;
-        this.dropTaken();
+  private showFiles(files: readonly Attachment[]) {
+    if (files.length) this.sentFiles = new Map([...this.sentFiles, ...files.map((file) => [shownPath(file), file] as const)]);
+  }
+
+  private busy() {
+    return this.chat.running || this.outbox.some((outgoing) => outgoing.state !== 'failed');
+  }
+
+  /** Lays the host's changes over the chat, and lets go of what this phone sent once the host shows it. */
+  private apply(change: (chat: ChatRows) => ChatRows, live = false) {
+    const before = this.chat;
+    this.chat = change(before);
+    if (!before.running && this.chat.running) this.turnSince = this.now();
+    if (!this.chat.running) this.stoppingTurn = false;
+    if (this.chat.permissionMode !== before.permissionMode) this.mode = null;
+    if (this.chat.queued !== before.queued || this.chat.running !== before.running) this.dropTaken();
+    if (this.chosen.size && (this.chat.model !== before.model || this.chat.effort !== before.effort)) this.chosen = new Map();
+    if (live && this.chat.permissions !== before.permissions) {
+      for (const request of this.chat.permissions) {
+        if (before.permissions.some((held) => held.requestId === request.requestId)) continue;
+        this.arrived.set(request.requestId, this.now());
+        setTimeout(() => this.emit(), PERMISSION_GRACE_MS);
       }
-      if (this.agent.queued !== queued) this.dropTaken();
-      if (!was && this.agent.running) this.turnSince = this.now();
     }
-    if (!this.agent.running) this.stoppingTurn = false;
+    this.settleOutbox(before.running && !this.chat.running);
   }
 
   /** Lets go of queued messages the host has taken, now that its own queue or turn says where they went. */
@@ -631,23 +696,37 @@ export class ChatSession {
     if (this.holding.some((held) => held.taken)) this.holding = this.holding.filter((held) => !held.taken);
   }
 
+  /** Of `ids`, the ones in the host's queue rather than still on their way to it. */
   private onHostQueue(ids: readonly string[]) {
     return ids.filter((id) => !this.holding.some((held) => held.id === id));
+  }
+
+  /* The host shows a message as the row that carries its id; one that met a running turn waits in
+     the host's queue instead, under an id of the host's own. Once a turn has ended, nothing the host took is still to come. */
+  private settleOutbox(turnEnded = false) {
+    if (!this.outbox.some((outgoing) => outgoing.state === 'sent')) return;
+    if (turnEnded) {
+      this.outbox = this.outbox.filter((outgoing) => outgoing.state !== 'sent');
+      return;
+    }
+    const shown = new Set(this.chat.messages.flatMap((row) => (row.promptId ? [row.promptId] : [])));
+    const queued = this.chat.queued;
+    const kept = this.outbox.filter(
+      (outgoing) =>
+        outgoing.state !== 'sent' ||
+        (!shown.has(outgoing.messageId) &&
+          !queued.some((held) => held.text === outgoing.text && sameItems(held.paths, pathsOf(outgoing.files)))),
+    );
+    if (kept.length !== this.outbox.length) this.outbox = kept;
   }
 
   private take(deliveries: ChatDelivery[]) {
     for (const delivery of deliveries) {
       if (this.taken !== undefined && delivery.seq <= this.taken) continue;
-      const taken = chatActions(JSON.parse(delivery.eventJson) as CoreChatEvent);
-      for (const action of taken) {
-        if (action.type !== 'permission_requested') continue;
-        this.arrived.set(action.request.requestId, this.now());
-        setTimeout(() => this.emit(), PERMISSION_GRACE_MS);
-      }
-      this.pending.push(...taken);
+      this.pending.push(...(JSON.parse(delivery.changesJson) as ChatChange[]));
       this.taken = delivery.seq;
     }
-    // A stream of tokens is drawn once a frame, not once an event.
+    // A stream of tokens is drawn once a frame, not once a change.
     this.cancelFrame ??= (this.options.frame ?? animationFrame)(this.flush);
   }
 
@@ -655,18 +734,17 @@ export class ChatSession {
     this.applyPending();
   };
 
-  /** Draws what was taken, and only then moves the mark past it. */
-  private applyPending(): boolean {
+  /** Applies what was taken, and only then moves the mark past it. */
+  private applyPending() {
     this.cancelFrame?.();
     this.cancelFrame = undefined;
     const advanced = this.mark && this.taken !== undefined && this.taken !== this.mark.seq;
-    if (!this.pending.length && !advanced) return false;
+    if (!this.pending.length && !advanced) return;
     const batch = this.pending;
     this.pending = [];
-    this.apply(batch);
+    if (batch.length) this.apply((chat) => applyChanges(chat, batch), true);
     if (this.mark && this.taken !== undefined) this.mark = { ...this.mark, seq: this.taken };
     this.emit();
-    return true;
   }
 
   private restart() {
@@ -695,13 +773,13 @@ export class ChatSession {
       if (run !== this.run) return;
       const mine = deliveries.filter((delivery) => delivery.agentId === agentId);
       if (!mine.length) return;
-      // Until the attach answer says where the replay ends, events wait.
+      // Until the attach answer says where the chat it sends stands, changes wait.
       if (held) held.push(...mine);
       else this.take(mine);
     });
     this.stopRun = () => {
       off();
-      // What arrived but was not drawn yet goes into the transcript now, so the next attach picks up after it.
+      // What arrived but was not applied yet goes into the chat now, so the next attach picks up after it.
       this.applyPending();
       if (connection.isOpen()) connection.detachChat(agentId).catch(() => {});
     };
@@ -731,21 +809,24 @@ export class ChatSession {
           );
         };
         if (ChatAttachment.Live.instanceOf(attachment)) {
-          this.replace(attachment.inner);
-          timed('live', attachment.inner.replayJson.length);
-        } else if (ChatAttachment.Resumed.instanceOf(attachment)) {
-          this.apply(parsed(attachment.inner.eventsJson));
+          const view = JSON.parse(attachment.inner.viewJson) as ChatView;
+          this.pending = [];
+          this.apply(() => fromView(view));
           this.mark = attachment.inner.mark;
-          this.taken = attachment.inner.mark.seq;
-          timed('resumed', attachment.inner.eventsJson.length);
+          timed('live', attachment.inner.viewJson.length);
+        } else if (ChatAttachment.Resumed.instanceOf(attachment)) {
+          const changes = JSON.parse(attachment.inner.changesJson) as ChatChange[];
+          this.apply((chat) => applyChanges(chat, changes));
+          this.mark = attachment.inner.mark;
+          timed('resumed', attachment.inner.changesJson.length);
         } else {
-          this.problem = ChatAttachment.Restart.instanceOf(attachment) ? TOO_LONG : null;
           this.attached = 'missing';
-          this.failWaiting(this.problem ?? 'the chat is gone from the host');
+          this.failWaiting('the chat is gone from the host');
           this.emit();
           timed('missing', 0);
           return;
         }
+        this.taken = this.mark.seq;
         this.hostUp = true;
         const waiting = held ?? [];
         held = undefined;
@@ -763,130 +844,34 @@ export class ChatSession {
       });
   }
 
-  private replace(live: {
-    replayJson: string;
-    capabilitiesJson: string;
-    setupJson: string;
-    running: boolean;
-    mark: ChatMark;
-    olderBefore?: bigint;
-  }) {
-    const replay = parsed(live.replayJson);
-    const rebuilt = replay.reduce(chatReducer, initialChatState);
-    const replayed = new Set(rebuilt.messages.map((message) => message.id));
-    const wasRunning = this.agent.running;
-    let agent = chatReducer(rebuilt, {
-      type: 'ready',
-      capabilities: recordOf(JSON.parse(live.capabilitiesJson)) ?? {},
-      setup: recordOf(JSON.parse(live.setupJson)) ?? {},
-    });
-    // A turn the replay already opened goes on: starting it again would cut the answer streaming into it in two.
-    if (live.running && !rebuilt.running) agent = chatReducer(agent, { type: 'turn_started' });
-    if (live.running && !wasRunning) this.turnSince = this.now();
-
-    // The replay has what the host took; what it did not take is put back after it.
-    this.outbox = this.outbox.map((outgoing) => {
-      agent = withMessage(agent, outgoing.text, outgoing.shown);
-      return { ...outgoing, messageId: agent.messages[agent.messages.length - 1].id };
-    });
-
-    const sameFeed = this.mark?.feed === live.mark.feed;
-    const before = this.earlierShown;
-    const start = this.replayStart;
-    const kept = { pages: before, cursor: this.cursor };
-    this.earlierShown = [];
-    this.since = replay;
-    this.bridge = undefined;
-    this.cursor = live.olderBefore === undefined ? null : { feed: live.mark.feed, before: live.olderBefore };
-    this.agent = agent;
-    this.replayed = replayed;
-    if (sameFeed && before.length && start !== undefined && live.olderBefore !== undefined) {
-      if (live.olderBefore === start) {
-        this.showEarlier(before);
-        this.cursor = kept.cursor;
-      } else if (live.olderBefore > start) {
-        this.bridge = { ...kept, until: start };
-      }
-    }
-
-    this.replayStart = live.olderBefore;
-    this.optimistic = false;
-    this.dropTaken();
-    if (!live.running) this.stoppingTurn = false;
-    this.pending = [];
-    this.mark = live.mark;
-    this.taken = live.mark.seq;
-    if (this.bridge) queueMicrotask(this.loadEarlier);
-  }
-
-  /** Puts `pages`, oldest first and all from before what is shown, above the chat. */
-  private showEarlier(pages: EarlierPage[]) {
-    let later = [...this.earlierShown.flatMap((page) => page.actions), ...this.since];
-    for (const page of [...pages].reverse()) {
-      const messages = earlierMessages(page, later);
-      this.replayed = new Set([...this.replayed, ...messages.map((message) => message.id)]);
-      this.agent = withEarlier(this.agent, messages);
-      later = [...page.actions, ...later];
-    }
-    this.earlierShown = [...pages, ...this.earlierShown];
-  }
-
-  /** Once the fetched pages reach the ones a fallen-back replay set aside, those go back above them. */
-  private crossBridge(reached: bigint | undefined) {
-    const bridge = this.bridge;
-    if (!bridge) return;
-    if (reached === bridge.until) {
-      this.showEarlier(bridge.pages);
-      this.cursor = bridge.cursor;
-      this.bridge = undefined;
-    } else if (reached === undefined || reached < bridge.until) {
-      this.bridge = undefined;
-    }
-  }
-
-  private showFiles(files: readonly Attachment[]) {
-    if (files.length) this.sentFiles = new Map([...this.sentFiles, ...files.map((file) => [shownPath(file), file] as const)]);
+  private prompt(connection: ConnectionLike, messageId: string, text: string, paths: string[]) {
+    return connection.prompt(this.agentId, messageId, text, paths);
   }
 
   private deliver(text: string, files: Attachment[], waiting = false) {
-    const shown = files.map(shownPath);
     this.showFiles(files);
-    this.apply([{ type: 'local_prompt', text, paths: shown }]);
-    this.optimistic = true;
-    const entry: Outgoing = {
-      key: (this.sent += 1),
-      messageId: this.agent.messages[this.agent.messages.length - 1].id,
-      text,
-      shown,
-      files,
-      state: 'sending',
-      waiting,
-    };
+    const entry: Outgoing = { messageId: randomUUID(), text, files, at: this.now(), state: 'sending', waiting };
     this.outbox = [...this.outbox, entry];
     this.emit();
     if (!waiting) this.push(entry);
   }
 
-  /** Sends what was shown before the chat was attached, after the replay so the host's echo of it is not drawn twice. */
+  /** Sends what was shown before the chat was attached, now that it is. */
   private pushWaiting() {
     const waiting = this.outbox.filter((outgoing) => outgoing.waiting);
     if (!waiting.length) return;
     this.outbox = this.outbox.map((outgoing) => (outgoing.waiting ? { ...outgoing, waiting: false } : outgoing));
-    this.agent = { ...this.agent, running: true, suppressUserEcho: true };
-    this.optimistic = true;
-    for (const entry of waiting) this.push(entry);
+    waiting.forEach((entry) => this.push(entry));
   }
 
   private failWaiting(problem: string) {
     if (!this.outbox.some((outgoing) => outgoing.waiting)) return;
-    this.optimistic = false;
-    this.agent = { ...this.agent, running: false };
     this.outbox = this.outbox.map((outgoing) => (outgoing.waiting ? { ...outgoing, waiting: false, state: 'failed', problem } : outgoing));
   }
 
   /** Sends the message behind the running turn, showing it queued at once; when it does not go, it goes back to the composer. */
   private queue(text: string, files: Attachment[]) {
-    const key = (this.sent += 1);
+    const key = (this.held += 1);
     this.showFiles(files);
     this.holding = [...this.holding, { id: `phone-${key}`, key, text, paths: files.map(shownPath), context: [], taken: false }];
     this.emit();
@@ -894,11 +879,11 @@ export class ChatSession {
     this.inOrder(async () => {
       if (!connection?.isOpen()) throw new Error('the host is not connected');
       const sent = await this.putFiles(connection, files, () => {});
-      await connection.prompt(this.agentId, text, pathsOf(sent));
+      await this.prompt(connection, randomUUID(), text, pathsOf(sent));
     })
       .then(() => {
         const held = this.holding.find((holding) => holding.key === key);
-        if (held && !notQueued([held], this.agent.queued).length) this.holding = this.holding.filter((holding) => holding !== held);
+        if (held && !notQueued([held], this.chat.queued).length) this.holding = this.holding.filter((holding) => holding !== held);
         else this.holding = this.holding.map((holding) => (holding.key === key ? { ...holding, taken: true } : holding));
         this.emit();
       })
@@ -911,32 +896,6 @@ export class ChatSession {
       });
   }
 
-  /** Puts each of `files` the host does not have yet on it, answering them all with their paths or throwing why one did not get there. */
-  private async putFiles(
-    connection: ConnectionLike | undefined,
-    files: readonly Attachment[],
-    mark: (id: string, change: Partial<Attachment>) => void,
-  ) {
-    let why = '';
-    const sent = await uploadEach(
-      files,
-      async (attachment) => {
-        if (!connection?.isOpen()) throw new Error('the host is not connected');
-        const bytes = await (this.options.read ?? readFile)(attachment.uri);
-        const path = await connection.attachFile(this.agentId, attachment.name, attachment.mime, bytes);
-        this.sentFiles = new Map([...this.sentFiles, [path, attachment]]);
-        return path;
-      },
-      mark,
-      (error) => {
-        why ||= problemOf(error);
-        return problemOf(error);
-      },
-    );
-    if (!sent) throw new Error(why);
-    return sent;
-  }
-
   private inOrder(work: () => Promise<void>): Promise<void> {
     const next = this.line.then(work);
     this.line = next.catch(() => {});
@@ -945,34 +904,31 @@ export class ChatSession {
 
   private push(entry: Outgoing) {
     const connection = this.connection;
-    const key = entry.key;
+    const id = entry.messageId;
     this.inOrder(async () => {
       if (!connection?.isOpen()) throw new Error('the host is not connected');
-      const files = this.outbox.find((outgoing) => outgoing.key === key)?.files ?? entry.files;
-      const sent = await this.putFiles(connection, files, (id, change) => {
+      const files = this.outbox.find((outgoing) => outgoing.messageId === id)?.files ?? entry.files;
+      const sent = await this.putFiles(connection, files, (fileId, change) => {
         this.outbox = this.outbox.map((outgoing) =>
-          outgoing.key === key
-            ? { ...outgoing, files: outgoing.files.map((file) => (file.id === id ? { ...file, ...change } : file)) }
+          outgoing.messageId === id
+            ? { ...outgoing, files: outgoing.files.map((file) => (file.id === fileId ? { ...file, ...change } : file)) }
             : outgoing,
         );
       });
-      return connection.prompt(this.agentId, entry.text, pathsOf(sent));
+      await this.prompt(connection, id, entry.text, pathsOf(sent));
     })
       .then(() => {
-        this.outbox = this.outbox.filter((outgoing) => outgoing.key !== entry.key);
+        this.update(id, { state: 'sent' });
+        this.settleOutbox();
         this.emit();
       })
       .catch((error: unknown) => {
-        if (this.optimistic) {
-          this.optimistic = false;
-          this.agent = { ...this.agent, running: false };
-        }
-        this.update(entry, { state: 'failed', problem: problemOf(error) });
+        this.update(id, { state: 'failed', problem: problemOf(error) });
       });
   }
 
-  private update(entry: Outgoing, change: Unsent) {
-    this.outbox = this.outbox.map((outgoing) => (outgoing.key === entry.key ? { ...outgoing, ...change } : outgoing));
+  private update(messageId: string, change: Partial<Outgoing>) {
+    this.outbox = this.outbox.map((outgoing) => (outgoing.messageId === messageId ? { ...outgoing, ...change } : outgoing));
     this.emit();
   }
 

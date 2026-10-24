@@ -4,6 +4,17 @@
   "version": "0.1.0",
   "sikemux": ">=0.4",
   "environment": ["SIGNOZ_URL", "SIGNOZ_API_KEY"],
+  "views": {
+    "servicesView": { "everySecs": 30 },
+    "serviceView": { "everySecs": 30 },
+    "logsView": { "everySecs": 10 },
+    "volumeView": { "everySecs": 15 },
+    "tracesView": { "everySecs": 30 },
+    "traceView": { "everySecs": 300 },
+    "dashboardsView": { "everySecs": 300 },
+    "dashboardView": { "everySecs": 300 },
+    "panelView": { "everySecs": 30 }
+  },
   "tools": [
     {
       "name": "signoz_services",

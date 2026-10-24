@@ -53,7 +53,7 @@ pub struct MultipartField {
     pub is_file: bool,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct BruTrust {
     #[serde(default)]
     pub allow_private_network: bool,

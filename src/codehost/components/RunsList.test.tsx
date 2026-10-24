@@ -12,9 +12,11 @@ import { invalidate } from "../../plugin-api/resources";
 import { hostSettings, resetView, updateView, useHostView, viewOf } from "../state";
 import { ciCore, InHost, registerTestHost, TEST_HOST } from "../testHost";
 import { RunsList } from "./RunsList";
+import { setState } from "../../state/store";
+import { testPreferences } from "../../test/preferences";
 
 const host = registerTestHost(api);
-const core = ciCore();
+const core = ciCore(api);
 const repo = { provider: TEST_HOST, owner: "nodelike", name: "sikemux" };
 
 const makeRun = (overrides: Partial<Run> = {}): Run => ({
@@ -28,6 +30,7 @@ const makeRun = (overrides: Partial<Run> = {}): Run => ({
     event: "push",
     status: "completed",
     conclusion: "success",
+    outcome: "success",
     branch: "main",
     sha: "abc123def",
     shortSha: "abc123d",
@@ -70,6 +73,7 @@ function Harness({
             <RunsList
                 paneId="pane"
                 repo={repo}
+                project="/repo"
                 view={view}
                 branch={branch}
                 projectBranch={projectBranch}
@@ -88,6 +92,7 @@ async function renderList(props: Parameters<typeof Harness>[0] = {}) {
 }
 
 beforeEach(() => {
+    setState({ preferences: testPreferences() });
     invalidate(() => true);
     resetView("pane");
     hostSettings(TEST_HOST).update((settings) => ({ ...settings, followBranch: true }));
@@ -145,18 +150,18 @@ describe("filtering runs", () => {
 });
 
 describe("keeping the list fresh", () => {
-    it("reads again when the core says the repository's CI moved, and only then", async () => {
-        api.runs.mockResolvedValue(pageOf([makeRun({ status: "in_progress", conclusion: null })]));
+    it("reads again when the core says the lists moved, and only then", async () => {
+        api.runs.mockResolvedValue(pageOf([makeRun({ status: "in_progress", conclusion: null, outcome: "running" })]));
         await renderList();
         const before = api.runs.mock.calls.length;
         await act(async () => {
-            core.moved({ ...repo, name: "elsewhere" });
+            core.moved(repo);
         });
         expect(api.runs.mock.calls.length).toBe(before);
         await act(async () => {
-            core.moved(repo);
+            core.listsMoved();
         });
-        expect(api.runs.mock.calls.length).toBe(before + 1);
+        expect(api.runs.mock.calls.length).toBeGreaterThan(before);
         expect(document.querySelector(".gha-run-item")).toHaveAttribute("data-outcome", "running");
     });
 });

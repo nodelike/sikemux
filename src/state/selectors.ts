@@ -1,6 +1,5 @@
 import { pluginDocuments } from "../plugins/documents";
 import type { Agent, PaneNode, Session, TabRef, Window, WindowRole } from "./types";
-import { agentDisplay, type AgentDisplay } from "./agentStatus";
 import type { StoreState } from "./store";
 import { collectPanes, openSides } from "./layout";
 import { relativePath } from "../lib/paths";
@@ -50,11 +49,6 @@ export function* openAgents(state: OpenAgentsState): Generator<OpenAgent> {
     }
 }
 
-/** How one agent is shown: its turn state plus the subagents and shells it still has going. */
-export function agentDisplayOf(state: Pick<StoreState, "agentStatus">, agentId: string): AgentDisplay {
-    return agentDisplay(state.agentStatus[agentId]);
-}
-
 /**
  * The agents a session holds, in strip order. An agent is a window whose one
  * pane carries its id, so this is a read over the windows, not a second list.
@@ -83,8 +77,8 @@ export function agentPaneId(win: Window): string | null {
  * title, else the name it opened with. A renamed tab's name belongs to the terminal it opened with.
  */
 export function terminalLabel(win: Window | undefined, pane: PaneNode, titles: Readonly<Record<string, string | undefined>>): string {
-    /* The title such a terminal reports is the local shell that runs its command, not anything a person named. */
-    if (pane.startup) return win?.customName || win?.name || pane.title;
+    /* The title a named tab's terminal reports is the local shell that runs its command, such as ssh, not anything a person named. */
+    if (pane.startup || win?.role === "named") return win?.customName || win?.name || pane.title;
     const home = win?.role === "term" ? collectPanes(win.root).find((candidate) => candidate.kind === "terminal") : undefined;
     if (win?.customName && home?.id === pane.id) return win.customName;
     return (pane.ptyId !== undefined ? titles[pane.ptyId] : undefined) || pane.title || win?.name || "Terminal";

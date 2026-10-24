@@ -31,9 +31,9 @@ const board: JiraBoardView = {
 
 describe("the Jira board", () => {
     it("shows a card in the column it is being moved to before Jira answers", () => {
-        const columns = withMoves(board, { "A-1": 1 });
+        const columns = withMoves(board.columns, { "A-1": 1 });
         expect(columns.map((column) => column.issues.map((issue) => issue.key))).toEqual([["A-2"], ["A-3", "A-1"]]);
-        expect(withMoves(board, {})).toEqual(board.columns);
+        expect(withMoves(board.columns, {})).toBe(board.columns);
     });
 
     it("says how long a sprint has left", () => {

@@ -103,6 +103,15 @@ fn through<T: serde::de::DeserializeOwned + serde::Serialize>(json: &str) -> Rou
     serde_json::to_value(serde_json::from_str::<T>(json)?)
 }
 
+/// Why the accounts server turned a request down, in words for the person.
+pub async fn refusal(response: reqwest::Response) -> String {
+    let status = response.status();
+    match response.json::<protocol::ApiError>().await {
+        Ok(body) => format!("the account server refused: {}", body.error.message),
+        Err(_) => format!("the account server answered {status}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;

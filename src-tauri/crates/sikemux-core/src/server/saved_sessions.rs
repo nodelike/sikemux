@@ -2,13 +2,15 @@
 //! renaming, deleting or moving one to another project the way each
 //! provider's own commands do.
 
+use std::sync::Arc;
+
 use serde::Deserialize;
 
 use crate::agent_catalog::AgentKind;
 use crate::sessions::{self, recent::RecentRequest};
 
 use super::connection::blocking;
-use super::CoreResult;
+use super::{Core, CoreResult};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,4 +101,49 @@ pub(super) async fn relocate(moved: Moved) -> CoreResult<()> {
         moved.config_path,
     )
     .await?)
+}
+
+/// A recent chat, named as the workspace lists it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RecentChat {
+    recent: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RecentRenamed {
+    recent: String,
+    title: String,
+}
+
+/// Renames a recent chat in its CLI's own history, as the launcher that found it signs in.
+pub(super) async fn rename_recent(core: &Arc<Core>, renamed: RecentRenamed) -> CoreResult<()> {
+    let session = core.workspaces.recent_session(&renamed.recent)?;
+    sessions::rename::rename(
+        session.agent,
+        session.cwd,
+        session.session_id,
+        renamed.title,
+        session.program,
+        session.config_path,
+    )
+    .await?;
+    core.workspaces.recent_stale();
+    Ok(())
+}
+
+/// Deletes a recent chat from its CLI's own history, for good.
+pub(super) async fn delete_recent(core: &Arc<Core>, chat: RecentChat) -> CoreResult<()> {
+    let session = core.workspaces.recent_session(&chat.recent)?;
+    sessions::delete::delete(
+        session.agent,
+        session.cwd,
+        session.session_id,
+        session.program,
+        session.config_path,
+    )
+    .await?;
+    core.workspaces.recent_stale();
+    Ok(())
 }

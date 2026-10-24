@@ -1,0 +1,200 @@
+[package]
+name = "sikemux-gpui"
+version = "0.5.4-nightly.6"
+edition = "2021"
+publish = false
+description = "The desktop UI on GPUI, a client of the core"
+
+# Its own workspace, so GPUI stays out of the app's lockfile and workspace-hack.
+[workspace]
+members = ["crates/*"]
+
+# The core trusts the program named this beside it as its app.
+[[bin]]
+name = "sikemux"
+path = "src/main.rs"
+
+[features]
+# The test bundle's kit: drives the window from step files, and dials hosts at the addresses its
+# dev/host-addresses.json names. Never on in the try-out or a release.
+drive = ["sikemux-linked/host-addresses-file"]
+# Counts the transcript's drawing work, which the stress example prints beside a slow frame.
+# Never on in the try-out or a release.
+counts = ["gpui-transcript/counts"]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png"] }
+jpeg-decoder = { version = "0.3", default-features = false }
+tempfile = "3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+flate2 = "1"
+libc = "0.2"
+# The same GPUI as GPUI Kit's, named `gpui` for the macros that expand to it.
+gpui = { package = "gpui-pre", version = "=0.3.9" }
+gpui-kit = { version = "=0.8.0", default-features = false, features = ["component"] }
+gpui-native-view = { path = "crates/gpui-native-view" }
+gpui-terminal-grid = { path = "crates/gpui-terminal-grid" }
+gpui-transcript = { path = "crates/gpui-transcript", features = ["fork"] }
+lsp-types = "0.97"
+memchr = "2"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+percent-encoding = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+smallvec = "1"
+sikemux-browser = { path = "../sikemux-browser" }
+sikemux-simulator = { path = "../sikemux-simulator" }
+sikemux-core = { path = "../sikemux-core" }
+sikemux-host = { path = "../sikemux-host", default-features = false }
+sikemux-markdown = { path = "../sikemux-markdown" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-client = { path = "../sikemux-client" }
+sikemux-keychain = { path = "../sikemux-keychain" }
+sikemux-linked = { path = "../sikemux-linked" }
+sikemux-wire = { path = "../sikemux-wire" }
+sikemux-voice = { path = "../sikemux-voice" }
+textmate-highlight = { path = "crates/textmate-highlight" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+url = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+objc2 = "0.6"
+objc2-core-foundation = "0.3"
+raw-window-handle = "0.6"
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBuffer", "CVImageBuffer", "CVPixelBuffer"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSDockTile", "NSScreen", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSDictionary", "NSObject", "NSString", "NSURL", "NSUserNotification"] }
+
+[build-dependencies]
+# The same naga as GPUI's wgpu, only to translate the shaders while building.
+naga = { git = "https://github.com/gfx-rs/wgpu", rev = "3b3506ea31154edc04de64debda0e780cba2639c", features = ["wgsl-in", "msl-out"] }
+
+[dev-dependencies]
+sikemux-fold = { path = "../sikemux-fold" }
+gpui = { package = "gpui-pre", version = "=0.3.9", features = ["test-support"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = ["test-support", "bench-support"] }
+# So the shot can read what the window drew, such as an open menu's items.
+gpui-base = { version = "=0.8.0", features = ["test-support"] }
+gpui-component = { version = "=0.8.0", default-features = false, features = ["test-support"] }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+# Layout and drawing run every frame.
+[profile.release.package.gpui-pre]
+opt-level = 3
+[profile.release.package.gpui-pre-apple]
+opt-level = 3
+[profile.release.package.gpui-pre-macos]
+opt-level = 3
+[profile.release.package.taffy]
+opt-level = 3
+[profile.release.package.gpui-transcript]
+opt-level = 3
+
+# Terminal output, serialization and search stay at full speed, as in src-tauri's profile.
+[profile.release.package.sikemux-pty]
+opt-level = 3
+[profile.release.package.sikemux-wire]
+opt-level = 3
+[profile.release.package.vte]
+opt-level = 3
+[profile.release.package.unicode-width]
+opt-level = 3
+[profile.release.package.arrayvec]
+opt-level = 3
+[profile.release.package.itoa]
+opt-level = 3
+[profile.release.package.memchr]
+opt-level = 3
+[profile.release.package.serde]
+opt-level = 3
+[profile.release.package.serde_core]
+opt-level = 3
+[profile.release.package.serde_json]
+opt-level = 3
+[profile.release.package.ryu]
+opt-level = 3
+[profile.release.package.zmij]
+opt-level = 3
+[profile.release.package.indexmap]
+opt-level = 3
+[profile.release.package.hashbrown]
+opt-level = 3
+[profile.release.package.tokio]
+opt-level = 3
+[profile.release.package.bytes]
+opt-level = 3
+[profile.release.package.mio]
+opt-level = 3
+[profile.release.package.regex]
+opt-level = 3
+[profile.release.package.regex-automata]
+opt-level = 3
+[profile.release.package.aho-corasick]
+opt-level = 3
+[profile.release.package.grep-searcher]
+opt-level = 3
+[profile.release.package.grep-regex]
+opt-level = 3
+[profile.release.package.grep-matcher]
+opt-level = 3
+[profile.release.package.ignore]
+opt-level = 3
+[profile.release.package.globset]
+opt-level = 3
+[profile.release.package.bstr]
+opt-level = 3
+[profile.release.package.portable-pty]
+opt-level = 3
+[profile.release.package.ring]
+opt-level = 3
+[profile.release.package.base64]
+opt-level = 3
+[profile.release.package.rayon]
+opt-level = 3
+[profile.release.package.rayon-core]
+opt-level = 3
+[profile.release.package.crossbeam-deque]
+opt-level = 3
+[profile.release.package.crossbeam-epoch]
+opt-level = 3
+[profile.release.package.crossbeam-utils]
+opt-level = 3
+
+# GPUI from our fork of sonorahq/gpui, published under the gpui-pre names GPUI Kit pins.
+[patch.crates-io]
+gpui-pre = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-apple = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-collections = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-derive-refineable = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-http-client = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-linux = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-macos = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-macros = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-platform = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-refineable = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-scheduler = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-shared-string = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-sum-tree = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-util = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-wgpu = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-windows = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-ztracing = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+gpui-pre-ztracing-macro = { git = "https://github.com/sikemux/gpui", rev = "1e1498a6219cadf1750af1c407bb1f50ba1a62c4" }
+# irosashi with C Oniguruma and Shiki's injection rules, until frostybee/irosashi takes them.
+irosashi = { git = "https://github.com/sikemux/irosashi", rev = "8ddf7a2ddbae78ec13c1db43e4c6bdaf09e7269a" }

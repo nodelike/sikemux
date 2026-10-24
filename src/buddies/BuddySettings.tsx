@@ -35,10 +35,7 @@ function MixedSample() {
 }
 
 export function BuddySettings() {
-    const pack = useStore((s) => s.buddyPack);
-    const shape = useStore((s) => s.buddyShape);
-    const motion = useStore((s) => s.buddyMotion);
-    const on = useStore((s) => s.buddies);
+    const { pack, shape, motion, on } = useStore((s) => s.faceStyle);
     const chosen = packById(pack);
 
     return (

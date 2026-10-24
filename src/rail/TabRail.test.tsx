@@ -513,16 +513,14 @@ describe("tab rail", () => {
     });
 
     it("starts new chats on another account from the account menu and reads its limits and chats", async () => {
-        mocks.available.mockImplementation(async (profiles: { type: string; configPath?: string }[]) => [
-            {
-                type: "codex",
-                label: "Codex",
-                command: "codex",
-                configPath: profiles.find((profile) => profile.type === "codex")?.configPath ?? null,
-                defaultModel: null,
-                defaultEffort: null,
-            },
-        ]);
+        mocks.available.mockImplementation(async () => {
+            const { getState } = await import("../state/store");
+            const state = getState();
+            const chosen = state.providerProfiles.find((profile) => profile.id === state.selectedProviderProfileIds.codex);
+            return [
+                { type: "codex", label: "Codex", command: "codex", configPath: chosen?.configPath ?? null, defaultModel: null, defaultEffort: null },
+            ];
+        });
         setState((state) => ({
             providerProfiles: [
                 ...state.providerProfiles,

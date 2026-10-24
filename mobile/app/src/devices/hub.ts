@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { CoreEvent, MobileError, type ConnectionLike, type CoreListener } from '@sikemux/native';
 
 import { problem } from '@/core/problem';
+import { setAgentCatalog, type CatalogAgent } from '@mac/agents/catalog';
 import { keepUnchanged, readHost, readView, type HostInfo, type Snapshot } from '@/core/protocol';
 import { goOffline, thisDevice } from '@/device/identity';
 import { onNetworkChange } from '@/network/connectivity';
@@ -20,8 +21,8 @@ export type Live =
 /** Which side needs a newer Sikemux before the two can talk. */
 export type Outdated = 'host' | 'phone';
 
-/** One of a chat's events as the host numbered it. */
-export type ChatDelivery = { agentId: string; seq: bigint; eventJson: string };
+/** What changed in a chat, as the host numbered it: a list of the core's `ChatChange` as JSON. */
+export type ChatDelivery = { agentId: string; seq: bigint; changesJson: string };
 
 /** A device nobody is looking at keeps its connection this long, for a quick return. */
 const LINGER_MS = 30_000;
@@ -55,6 +56,11 @@ type Entry = {
   retrying?: ReturnType<typeof setTimeout>;
   lingering?: ReturnType<typeof setTimeout>;
   chats: Set<(deliveries: ChatDelivery[]) => void>;
+  /** The host's agent catalog was read once, so its views can show. */
+  catalogRead?: boolean;
+  /** The view that arrived before the catalog, and what shows it once the catalog is in. */
+  heldView?: string;
+  takeView?: (viewJson: string) => void;
 };
 
 const CONNECTING: Live = { status: 'connecting' };
@@ -193,6 +199,16 @@ function drop(core: string, reason: string, error?: unknown) {
 function listener(core: string, found: Entry, attempt: object): CoreListener {
   const current = () => found.current === attempt && entries.get(core) === found;
   let fresh = true;
+  const take = (viewJson: string) => {
+    const view = keepUnchanged(found.live.snapshot, readView(viewJson));
+    // The host sends its view as soon as it lets the phone in, which can be before `connect` answers.
+    set(core, found, { ...found.live, snapshot: view });
+    reconcileCards(core, view, fresh);
+    fresh = false;
+  };
+  found.takeView = (viewJson) => {
+    if (current()) take(viewJson);
+  };
   return {
     events(events) {
       if (!current()) return;
@@ -213,11 +229,8 @@ function listener(core: string, found: Entry, attempt: object): CoreListener {
         });
       }
       if (viewJson === undefined) return;
-      const view = keepUnchanged(found.live.snapshot, readView(viewJson));
-      // The host sends its view as soon as it lets the phone in, which can be before `connect` answers.
-      set(core, found, { ...found.live, snapshot: view });
-      reconcileCards(core, view, fresh);
-      fresh = false;
+      if (found.catalogRead) take(viewJson);
+      else found.heldView = viewJson;
     },
     closed() {
       if (!current() || found.live.status !== 'open') return;
@@ -263,6 +276,7 @@ async function connect(core: string, found: Entry) {
   set(core, found, { status: 'open', connection, snapshot: found.live.snapshot });
   if (AppState.currentState !== 'active') connection.setForeground(false).catch(() => {});
   shareKey(core, connection).then(() => withdrawIfForgotten(core));
+  readCatalog(found, connection);
   hostOf(connection)
     .then((host) => {
       const known = devices.find((device) => device.core === core);
@@ -270,6 +284,20 @@ async function connect(core: string, found: Entry) {
       return updateDevice(core, { name: host.name, model: host.model, channel: host.channel }).then(reloadDevices);
     })
     .catch(() => {});
+}
+
+/** Takes the agents the host can run, which every screen names and draws agents from, then shows the view that waited on them. */
+function readCatalog(found: Entry, connection: ConnectionLike) {
+  connection
+    .call('agentCatalog', '{}')
+    .then((json) => setAgentCatalog(JSON.parse(json) as CatalogAgent[]))
+    .catch(() => {})
+    .finally(() => {
+      found.catalogRead = true;
+      const held = found.heldView;
+      found.heldView = undefined;
+      if (held !== undefined) found.takeView?.(held);
+    });
 }
 
 const hosts = new WeakMap<ConnectionLike, Promise<HostInfo>>();

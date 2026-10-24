@@ -1,21 +1,11 @@
-import { normaliseNotchSettings } from "../notch/notchSettings";
 import { invokeCommand as invoke } from "../api/invoke";
 import { fixedSessionName } from "./sessionNames";
-import { sshStartup } from "../terminal/sshStartup";
-import { clampTerminalFontSize } from "../terminal/fontSize";
-import { clampChatTextScale } from "../chat/textScale";
-import { clampEditorTextScale } from "../editor/textScale";
-import { isTheme } from "../themes";
 import { parseReleaseCredits } from "../api/releases";
 import type { AgentAccountBook } from "../api/agents";
 import type { ProjectInfo, Workspace } from "../api/generated/wire";
-import { normaliseKeybindingOverrides } from "../commands/keybindings";
-import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
-import { registerCustomThemes } from "../themes/bus";
-import { ACCOUNT_AGENT_TYPES, AGENT_TYPES, hasAccounts, isAgentType, type AccountAgentType } from "../agents/catalog";
+import { accountAgentTypes, agentTypes, hasAccounts, isAgentType } from "../agents/catalog";
 import { clampRailWidth } from "../lib/railWidths";
 import { mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
-import { clampPaneStrength } from "./commands/settings";
 import { agentFromCore, sharedFromCore } from "./coreWorkspace";
 import { agentInWindow, agentPaneId, chatKey } from "./selectors";
 import { collectPanes, newId, removePane } from "./layout";
@@ -43,7 +33,7 @@ import type {
     Window,
 } from "./types";
 
-export const VERSION = 21;
+export const VERSION = 22;
 const MIN_SUPPORTED_VERSION = 4;
 const ONBOARDING_MIGRATION_VERSION = 6;
 const ITEM_STATES_MIGRATION_VERSION = 7;
@@ -57,9 +47,9 @@ const RUNDECK_GROUPS_MIGRATION_VERSION = 15;
 const DESK_MIGRATION_VERSION = 16;
 const GITHUB_IN_GIT_PANE_MIGRATION_VERSION = 17;
 const CORE_SESSION_MIGRATION_VERSION = 18;
-const SSH_LOOP_MIGRATION_VERSION = 18;
 const PANE_TITLE_MIGRATION_VERSION = 20;
 const TAB_RAIL_MIGRATION_VERSION = 21;
+const SSH_LOOP_MIGRATION_VERSION = 22;
 const RETRY_MS = 1500;
 let lastSaved = "";
 let activeSnapshot: string | null = null;
@@ -72,8 +62,6 @@ let persistenceReady = false;
 type Read<T> = (saved: unknown, current: T) => T;
 
 const flag: Read<boolean> = (saved, current) => (typeof saved === "boolean" ? saved : current);
-const text: Read<string> = (saved, current) => (typeof saved === "string" ? saved : current);
-const shortName: Read<string> = (saved, current) => boundedOptionalString(saved, 40) ?? current;
 const finite =
     (clamp: (value: number) => number = (value) => value): Read<number> =>
     (saved, current) =>
@@ -82,21 +70,6 @@ const oneOf =
     <T extends string | number>(...values: readonly T[]): Read<T> =>
     (saved, current) =>
         values.includes(saved as T) ? (saved as T) : current;
-
-function booleansByPath(value: unknown): Record<string, boolean> {
-    if (!isRecord(value)) return {};
-    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
-}
-
-function stringsByPath(value: unknown): Record<string, string> {
-    if (!isRecord(value)) return {};
-    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-}
-
-function normalisePluginSettings(value: unknown): Record<string, unknown> {
-    if (!isRecord(value)) return {};
-    return Object.fromEntries(Object.entries(value).filter(([id]) => isPluginId(id)));
-}
 
 function readReleaseNotes(saved: unknown): StoreState["lastReleaseNotes"] {
     if (!isRecord(saved) || typeof saved.version !== "string") return null;
@@ -110,56 +83,17 @@ function readReleaseNotes(saved: unknown): StoreState["lastReleaseNotes"] {
 
 /** Each setting this window saves, and how a saved value reads back: one it cannot read keeps the store's default. */
 const PREFS = {
-    projectRoots: (saved, current) => (Array.isArray(saved) ? normaliseProjectRoots(saved) : current),
-    themeId: text,
-    customThemes: (saved, current) => (Array.isArray(saved) ? saved.filter(isTheme) : current),
-    uiTextScale: oneOf<number>(1, 1.1, 1.25),
-    paneShader: flag,
-    buddies: flag,
-    buddyPack: shortName,
-    buddyShape: shortName,
-    buddyMotion: flag,
-    paneImage: (saved, current) => (typeof saved === "string" || saved === null ? saved : current),
-    paneStrength: finite(clampPaneStrength),
-    terminalFontSize: finite(clampTerminalFontSize),
-    chatTextScale: finite(clampChatTextScale),
-    editorTextScale: finite(clampEditorTextScale),
-    windowOpacity: finite(),
-    windowBlur: finite(),
-    cloudBrowser: text,
-    cloudBrowserShortcut: text,
-    keybindingOverrides: (saved) => normaliseKeybindingOverrides(saved),
     sideRailOpen: flag,
     tabRailOpen: flag,
     sideRailWidth: finite((width) => clampRailWidth("start", width)),
     tabRailWidth: finite((width) => clampRailWidth("end", width)),
-    pluginSettings: (saved) => normalisePluginSettings(saved),
-    restoreAgentTabs: flag,
     activeSpaceId: (saved, current) => (typeof saved === "string" ? saved : current),
-    agentNotifications: flag,
-    notch: (saved) => normaliseNotchSettings(saved),
-    voiceDictation: flag,
-    iosSimulator: flag,
-    simulatorFrame: flag,
-    notificationsIntroduced: flag,
-    keptRunningNoticeShown: flag,
-    railDensity: oneOf("comfortable", "compact"),
-    midTurnSend: oneOf("steer", "queue"),
     tabRailAllAgents: flag,
     tabRailScope: oneOf("project", "all"),
     tabRailPage: oneOf("agents", "terminals", "files"),
-    onboardingComplete: flag,
-    lastSeenVersion: text,
-    customCommands: (saved) => normaliseCustomCommands(saved),
-    updateChannel: oneOf("stable", "nightly"),
-    shareUsageData: flag,
     lastReleaseNotes: (saved) => readReleaseNotes(saved),
     recentCommandKeys: (saved, current) =>
         Array.isArray(saved) ? saved.filter((value): value is string => typeof value === "string").slice(0, 20) : current,
-    lastAgentType: (saved, current) => (isAgentType(saved) ? saved : current),
-    languageServerTrust: (saved) => booleansByPath(saved),
-    agentWorktreeDefaults: (saved) => booleansByPath(saved),
-    defaultGitRepos: (saved) => stringsByPath(saved),
 } satisfies { [K in keyof StoreState]?: Read<StoreState[K]> };
 
 type PrefKey = keyof typeof PREFS;
@@ -195,7 +129,11 @@ function packPrefs(s: StoreState): PersistedPrefs {
     return Object.fromEntries(PREF_KEYS.map((key) => [key, s[key]])) as PersistedPrefs;
 }
 
+/* Saved settings this window no longer reads, kept as they were until the core copies them over on its next start. */
+let unreadPrefs: Record<string, unknown> = {};
+
 function readPrefs(saved: Record<string, unknown>, current: StoreState): PersistedPrefs {
+    unreadPrefs = Object.fromEntries(Object.entries(saved).filter(([key]) => !(key in PREFS)));
     return Object.fromEntries(PREF_KEYS.map((key) => [key, (PREFS[key] as Read<unknown>)(saved[key], current[key])])) as PersistedPrefs;
 }
 
@@ -214,31 +152,6 @@ export interface PersistedSnapshot {
     itemStates: Record<string, PersistedWorkbenchItemEnvelope>;
     /** The chats open here that run on other hosts, which this host's core does not keep. */
     hostAgents?: Agent[];
-}
-
-const COMMAND_PLACEMENTS = new Set<CustomCommandPlacement>(["background", "terminal", "split", "popup", "replace"]);
-
-function normaliseCustomCommands(value: unknown): CustomCommand[] {
-    if (!Array.isArray(value)) return [];
-    const seen = new Set<string>();
-    const commands: CustomCommand[] = [];
-    for (const row of value) {
-        if (!isRecord(row) || typeof row.id !== "string" || !row.id || seen.has(row.id)) continue;
-        if (typeof row.title !== "string" || !row.title.trim() || typeof row.command !== "string" || !row.command.trim()) continue;
-        if (!COMMAND_PLACEMENTS.has(row.placement as CustomCommandPlacement)) continue;
-        const contexts = Array.isArray(row.contexts) ? row.contexts.filter((v): v is CommandContext => isSessionKind(v)) : [];
-        seen.add(row.id);
-        commands.push({
-            id: row.id.slice(0, 100),
-            title: row.title.trim().slice(0, 120),
-            detail: typeof row.detail === "string" ? row.detail.trim().slice(0, 240) : "",
-            command: row.command.slice(0, 8_000),
-            contexts,
-            placement: row.placement as CustomCommandPlacement,
-        });
-        if (commands.length >= 100) break;
-    }
-    return commands;
 }
 
 function isLayout(value: unknown): value is Window["root"] {
@@ -326,7 +239,7 @@ function normaliseProviderProfiles(value: unknown, fallback: ProviderProfile[]):
         const profile: ProviderProfile = {
             id,
             name: row.name.trim().slice(0, 100),
-            provider: row.provider as AccountAgentType,
+            provider: row.provider as string,
             accent: row.accent.toLowerCase(),
         };
         const executablePath = boundedOptionalString(row.executablePath, 4096);
@@ -352,7 +265,7 @@ function normaliseProviderProfiles(value: unknown, fallback: ProviderProfile[]):
 function normaliseAccountAutoSwitch(value: unknown): StoreState["accountAutoSwitch"] {
     const saved = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
     const result: StoreState["accountAutoSwitch"] = {};
-    for (const provider of ACCOUNT_AGENT_TYPES) if (saved[provider] === true) result[provider] = true;
+    for (const provider of accountAgentTypes()) if (saved[provider] === true) result[provider] = true;
     return result;
 }
 
@@ -364,7 +277,7 @@ function normaliseProviderProfileSelection(
     if (!isRecord(value)) return { ...fallback };
     const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
     const selection: ProviderProfileSelection = {};
-    for (const type of AGENT_TYPES) {
+    for (const type of agentTypes()) {
         const selected = value[type];
         if (typeof selected !== "string") continue;
         const profile = profilesById.get(selected);
@@ -461,7 +374,7 @@ function snapshot(): string {
         sessionOrder: sessions.map((s) => s.id),
         activeSessionId: s.activeSessionId,
         recent: s.recent,
-        prefs: packPrefs(s),
+        prefs: { ...unreadPrefs, ...packPrefs(s) },
         itemStates,
         hostAgents: Object.values(s.agents).filter((agent) => agent.host),
     };
@@ -568,8 +481,8 @@ function foldPinnedProjectsIntoRoots(decoded: Record<string, unknown>): void {
     decoded.prefs = { ...rest, projectRoots: mergePinnedIntoRoots(roots, pinnedProjects) };
 }
 
-/** Before v18 an SSH tab ran `ssh` itself, or a reconnect loop in the login shell; it runs the loop under /bin/sh now. */
-function upgradeSshStartups(decoded: Record<string, unknown>): void {
+/** Before v22 an SSH tab saved the command it ran; the core builds it from the host now. */
+function forgetSshStartups(decoded: Record<string, unknown>): void {
     const sessions = Array.isArray(decoded.sessions) ? decoded.sessions : [];
     const aliases = new Map(
         sessions.flatMap((row) => (isRecord(row) && row.kind === "ssh" && typeof row.name === "string" ? [[row.id, row.name]] : [])),
@@ -577,7 +490,7 @@ function upgradeSshStartups(decoded: Record<string, unknown>): void {
     eachSavedPane(decoded, (pane, session) => {
         const alias = aliases.get(session);
         if (alias === undefined || pane.kind !== "terminal" || typeof pane.startup !== "string") return;
-        if (pane.startup === `ssh ${alias}` || pane.startup.includes("sikemux_ssh_retries")) pane.startup = sshStartup(alias);
+        if (pane.startup === `ssh ${alias}` || pane.startup.includes("sikemux_ssh_retries")) delete pane.startup;
     });
 }
 
@@ -861,9 +774,9 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null, wo
     if (decoded.version < DESK_MIGRATION_VERSION) moveBrowserPanesOntoDesks(decoded);
     if (decoded.version < GITHUB_IN_GIT_PANE_MIGRATION_VERSION) closeGithubSessions(decoded);
     if (decoded.version < CORE_SESSION_MIGRATION_VERSION) forgetCoreSessions(decoded);
-    if (decoded.version < SSH_LOOP_MIGRATION_VERSION) upgradeSshStartups(decoded);
     if (decoded.version < PANE_TITLE_MIGRATION_VERSION) capitalisePaneTitles(decoded);
     if (decoded.version < TAB_RAIL_MIGRATION_VERSION) renameAgentRailPrefs(decoded);
+    if (decoded.version < SSH_LOOP_MIGRATION_VERSION) forgetSshStartups(decoded);
 
     const projects = new Map((workspace?.projects ?? []).map((project) => [project.id, project]));
     const sessions: Record<string, Session> = {};
@@ -905,7 +818,7 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null, wo
     const shared = workspace ? sharedFromCore(workspace) : null;
     const placed = new Set(Object.values(windows).flatMap((win) => (win.role === "agent" ? (agentPaneId(win) ?? []) : [])));
     const claimedResumeIds = new Set<string>();
-    if (prefs.restoreAgentTabs) {
+    if (cur.preferences?.restoreAgentTabs) {
         for (const record of workspace?.agents ?? []) {
             const saved = agentFromCore(record);
             if (!saved || agents[saved.id] || sessions[record.project]?.kind !== "project") continue;
@@ -988,6 +901,7 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null, wo
         sessionOrder,
         windowsBySession,
         agentStatus: {},
+        projectStatus: {},
         activeSessionId,
         recent: Array.isArray(decoded.recent) ? decoded.recent.filter(isRecent) : [],
         editorViews,
@@ -1001,7 +915,6 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null, wo
         disabledPlugins: [...new Set((workspace?.disabledPlugins ?? []).filter(isPluginId))],
     });
     pruneOnDemandWindows();
-    registerCustomThemes(getState().customThemes);
     // The disk still holds `raw`, so the first save after a migration rewrites it in the current form.
     lastSaved = raw;
     lastSlices = takeSlices(getState());
@@ -1049,4 +962,5 @@ export function resetPersistenceForTests(): void {
     saveLoop = null;
     lastSlices = null;
     persistenceReady = false;
+    unreadPrefs = {};
 }

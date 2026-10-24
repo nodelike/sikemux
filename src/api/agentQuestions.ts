@@ -1,5 +1,10 @@
-import type { AgentQuestion, QuestionAnswer } from "../agents/agentQuestions";
+import type { AgentQuestion } from "./generated/wire";
 import { coreCall } from "./core";
+
+export type { AgentQuestion, QuestionChoice } from "./generated/wire";
+
+export type QuestionAnswer =
+    { readonly answer: string } | { readonly choice: number } | { readonly choices: readonly number[] } | { readonly fine: true };
 
 /** Sent by the window whenever the open questions change. */
 export const AGENT_QUESTIONS_EVENT = "agent_questions";

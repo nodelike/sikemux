@@ -13,6 +13,11 @@ export function coreCall<T>(method: string, params: unknown = null, host?: HostI
     return invoke<T>("core_call", onHost({ method, params }, host));
 }
 
+/** One of the core's methods about the terminal `ptyId`, sent to whichever host runs it. */
+export function ptyCall<T = void>(ptyId: number, method: string, params: Record<string, unknown> = {}): Promise<T> {
+    return invoke<T>("pty_call", { id: ptyId, method, params });
+}
+
 /** One of the core's requests: `op` names it and the rest are its fields. */
 export type CoreRequest = { readonly op: string } & Readonly<Record<string, unknown>>;
 

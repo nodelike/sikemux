@@ -541,30 +541,6 @@ fn session(descriptor: &CliEndpointDescriptor) -> Result<BufReader<TcpStream>, S
     }
 }
 
-/// A connection to the core's tool endpoint at `endpoint` collecting the
-/// plugin stream `ticket` names, which carries the stream's events line by line.
-pub fn open_plugin_stream(endpoint: &Path, ticket: String) -> Result<TcpStream, String> {
-    let descriptor = read_endpoint(endpoint)?;
-    let mut reader = session(&descriptor)?;
-    if !reader.buffer().is_empty() {
-        return Err("Sikemux sent more than its proof".into());
-    }
-    write_command(
-        reader.get_mut(),
-        &CliClientCommand::PluginStream {
-            protocol: CLI_PROTOCOL_VERSION,
-            token: descriptor.token,
-            ticket,
-        },
-    )?;
-    let stream = reader.into_inner();
-    stream
-        .set_read_timeout(None)
-        .and_then(|()| stream.set_write_timeout(None))
-        .map_err(|error| format!("cannot configure CLI connection: {error}"))?;
-    Ok(stream)
-}
-
 const STALE_ENDPOINT: &str =
     "the program on Sikemux's CLI port is not Sikemux; the endpoint file may be stale";
 

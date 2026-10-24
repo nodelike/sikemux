@@ -6,18 +6,20 @@
 //! each other, and the worker's commits come back to a branch in the lead's
 //! checkout.
 
+mod folded;
+
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use folded::Chat;
 use serde_json::{json, Value};
 use sikemux_core::accounts::protocol::JoinTicket;
-use sikemux_core::client::{probe, ClientEvent, CoreClient};
-use sikemux_core::protocol::{ChatEventKind, Event, RemoteStatus};
+use sikemux_core::client::{probe, CoreClient};
+use sikemux_core::protocol::RemoteStatus;
 use sikemux_core::remote::SecretKey;
 use sikemux_core::server::{self, ServerConfig, ServerError};
-use tokio::sync::mpsc::UnboundedReceiver;
 
 const WAIT: Duration = Duration::from_secs(90);
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_sikemux-fake-acp-agent");
@@ -189,31 +191,6 @@ fn ticket(host: &str, joiner: &str) -> JoinTicket {
     ticket
 }
 
-/// Collects what `agent` says until it says `needle`, and answers all of it.
-async fn until_said(
-    events: &mut UnboundedReceiver<ClientEvent>,
-    agent: &str,
-    needle: &str,
-) -> String {
-    let mut said = String::new();
-    while !said.contains(needle) {
-        let event = tokio::time::timeout(WAIT, events.recv())
-            .await
-            .unwrap_or_else(|_| panic!("never heard {needle:?}; heard {said}"))
-            .expect("the app's connection closed");
-        let ClientEvent::Event(Event::Chat {
-            agent_id, event, ..
-        }) = event
-        else {
-            continue;
-        };
-        if agent_id == agent && event.kind == ChatEventKind::SessionUpdate {
-            said.push_str(&event.payload.to_string());
-        }
-    }
-    said
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -244,7 +221,7 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
 
     let lead_core = start_core(&dir.path().join("lead/core"));
     let studio_core = start_core(&dir.path().join("studio/core"));
-    let (lead_app, mut lead_events) = CoreClient::connect(&lead_core.socket)
+    let (lead_app, lead_events) = CoreClient::connect(&lead_core.socket)
         .await
         .expect("lead app");
     let (studio_app, _studio_events) = CoreClient::connect(&studio_core.socket)
@@ -283,7 +260,9 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
         .start_chat("opencode:fake".into(), "widget".into(), None)
         .await
         .expect("the lead starts");
-    lead_app.acp_attach(lead.clone()).await.expect("attach");
+    let mut said = Chat::new(lead_events, &lead);
+    said.wait = WAIT;
+    said.attached(&lead_app.acp_attach(lead.clone()).await.expect("attach"));
     let spawn = json!({
         "host": "studio",
         "cli": "opencode",
@@ -299,14 +278,9 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
         )
         .await
         .expect("prompt the lead");
-    let answered = until_said(&mut lead_events, &lead, "tool ").await;
+    let answered = said.until_said("tool ").await;
     assert!(answered.contains("on studio"), "{answered}");
-    let reported = until_said(
-        &mut lead_events,
-        &lead,
-        "Its commits came back to the branch",
-    )
-    .await;
+    let reported = said.until_said("Its commits came back to the branch").await;
     assert!(
         reported.contains("not committed"),
         "the worker saw the lead's uncommitted file: {reported}"
@@ -344,7 +318,7 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
         )
         .await
         .expect("prompt the lead");
-    let list = until_said(&mut lead_events, &lead, "tool answered").await;
+    let list = said.until_said("tool answered").await;
     assert!(list.contains("studio"), "{list}");
 
     let worker_name = branch.rsplit('/').next().expect("worker name").to_owned();
@@ -359,7 +333,7 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
         )
         .await
         .expect("prompt the lead");
-    let read = until_said(&mut lead_events, &lead, "tool answered").await;
+    let read = said.until_said("tool answered").await;
     assert!(read.contains("not committed"), "{read}");
 
     let send = json!({ "to": format!("{worker_name} on studio"), "text": "run echo second-task" });
@@ -373,5 +347,5 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
         )
         .await
         .expect("prompt the lead");
-    until_said(&mut lead_events, &lead, "second-task").await;
+    said.until_said("second-task").await;
 }

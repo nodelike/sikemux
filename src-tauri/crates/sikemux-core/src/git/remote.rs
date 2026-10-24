@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{default_remote, git_ok, open_repo, run_blocking};
 
@@ -160,7 +160,7 @@ pub async fn pull_request_url(repo: String) -> Result<String, String> {
     .await
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct GitRemote {
     pub name: String,
     /// Fetch URL — the one we display + use for cloning context.
@@ -281,7 +281,7 @@ fn plain_ref_part(part: &str) -> bool {
             .any(|c| c.is_whitespace() || c.is_control() || "~^?*[\\".contains(c))
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct GitRemoteBranch {
     /// Branch name WITHOUT the remote prefix (`main` not `origin/main`).
     pub name: String,

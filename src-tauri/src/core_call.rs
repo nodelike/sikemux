@@ -29,19 +29,8 @@ pub async fn core_request(
     manager: State<'_, PtyManager>,
     hosts: State<'_, Hosts>,
     host: Option<String>,
-    mut request: Request,
+    request: Request,
 ) -> AppResult<Response> {
-    if let Request::ShellAtPrompt { id } = &mut request {
-        if let Some((host, core_id)) = hosts.of_session(*id)? {
-            *id = core_id;
-            return host
-                .client()
-                .await?
-                .request(request)
-                .await
-                .map_err(core_error);
-        }
-    }
     let client = hosts::client(&manager, &hosts, host.as_deref()).await?;
     client.request(request).await.map_err(core_error)
 }

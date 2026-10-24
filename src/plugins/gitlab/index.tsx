@@ -12,7 +12,6 @@ registerCodeHost({
     icon: (size) => <GitlabMark size={size} />,
     capabilities: gitlabCapabilities,
     api: gitlabHostApi,
-    pullHeadRef: (number) => `merge-requests/${number}/head`,
     SignIn: GitlabSignIn,
 });
 

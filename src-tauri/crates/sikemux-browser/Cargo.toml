@@ -1,0 +1,42 @@
+[package]
+name = "sikemux-browser"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The browser engine: tabs, their pages and the agents' tools, with no UI toolkit"
+
+[dependencies]
+base64 = "0.23"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sikemux-core = { path = "../sikemux-core" }
+sikemux-process = { path = "../sikemux-process" }
+tokio = { version = "1", features = ["rt", "sync", "time", "io-util", "net"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls-no-provider", "gzip", "stream", "cookies", "multipart"] }
+
+[dev-dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+objc2 = "0.6"
+dispatch2 = "0.3"
+libc = "0.2"
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAlert", "NSApplication", "NSBitmapImageRep", "NSControl", "NSEvent", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSResponder", "NSSavePanel", "NSScreen", "NSTextField", "NSView", "NSWindow", "NSWorkspace", "block2", "objc2-core-graphics"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSDictionary", "NSError", "NSGeometry", "NSJSONSerialization", "NSKeyValueCoding", "NSObject", "NSProcessInfo", "NSString", "NSThread", "NSURL", "NSURLRequest", "NSURLResponse", "NSValue"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["WKContentWorld", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKOpenPanelParameters", "WKPDFConfiguration", "WKScriptMessage", "WKScriptMessageHandler", "WKSecurityOrigin", "WKSnapshotConfiguration", "WKPreferences", "WKUIDelegate", "WKUserContentController", "WKUserScript", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKWindowFeatures", "block2", "objc2-app-kit"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColor", "CGColorSpace", "CGContext", "CGImage", "CGPath"] }
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVAssetWriter", "AVAssetWriterInput", "AVMediaFormat", "AVVideoSettings", "block2", "objc2-core-media", "objc2-core-video"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFString"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMTime"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferPool", "CVReturn"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAShapeLayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "0.18", features = ["v3_24"] }
+wry = { version = "0.57", default-features = false, features = ["os-webview", "linux-body"] }

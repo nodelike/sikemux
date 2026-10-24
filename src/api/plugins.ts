@@ -1,5 +1,5 @@
-import { Channel } from "@tauri-apps/api/core";
 import { coreCall } from "./core";
+import { cancelCoreStream, coreStream } from "./coreStream";
 import { invokeCommand as invoke } from "./invoke";
 
 export interface PluginManifest {
@@ -24,11 +24,14 @@ export const pluginsApi = {
 
     call: <T>(plugin: string, method: string, params: unknown) => invoke<T>("plugin_call", { plugin, method, params }),
 
-    streamStart: (plugin: string, method: string, params: unknown, onEvent: (event: PluginStreamEvent) => void) => {
-        const channel = new Channel<PluginStreamEvent>();
-        channel.onmessage = onEvent;
-        return invoke<number>("plugin_stream_start", { plugin, method, params, onEvent: channel });
+    streamStart: async (plugin: string, method: string, params: unknown, onEvent: (event: PluginStreamEvent) => void) => {
+        const { stream, done } = await coreStream("pluginStream", { plugin, method, params }, (value) => onEvent({ kind: "item", value }));
+        done.then(
+            () => onEvent({ kind: "end" }),
+            (error: unknown) => onEvent({ kind: "error", error: error as PluginFailure }),
+        );
+        return stream;
     },
 
-    streamStop: (streamId: number) => invoke<void>("plugin_stream_stop", { streamId }),
+    streamStop: (streamId: number) => cancelCoreStream(streamId),
 };

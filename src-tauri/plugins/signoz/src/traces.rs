@@ -8,6 +8,7 @@ use crate::client;
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Scope;
 use crate::query::{self, quote, round_ms, View};
+pub use sikemux_plugin_api::signoz::{Trace, TracePage, TraceSpan, TraceSummary};
 
 const MAX_SPANS: u32 = 5_000;
 const DEFAULT_LOOKBACK_MINUTES: u32 = 24 * 60;
@@ -36,25 +37,6 @@ pub struct TraceSearch {
     pub order: TraceOrder,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct TraceSummary {
-    pub trace_id: String,
-    pub timestamp: String,
-    pub service: String,
-    pub name: String,
-    pub duration_ms: f64,
-    pub error: bool,
-    pub status_code: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TracePage {
-    pub traces: Vec<TraceSummary>,
-    pub next_offset: Option<u32>,
 }
 
 fn search_expression(search: &TraceSearch) -> SignozResult<Option<String>> {
@@ -165,34 +147,6 @@ struct RawSpan {
     error: bool,
     status: Option<String>,
     kind: Option<String>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct TraceSpan {
-    pub span_id: String,
-    pub parent_id: Option<String>,
-    pub name: String,
-    pub service: String,
-    pub depth: usize,
-    pub offset_ms: f64,
-    pub duration_ms: f64,
-    pub error: bool,
-    pub status: Option<String>,
-    pub kind: Option<String>,
-}
-
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Trace {
-    pub trace_id: String,
-    pub start: String,
-    pub duration_ms: f64,
-    pub error_count: usize,
-    pub services: Vec<String>,
-    /// In the order a waterfall draws them: each span followed by its children, earliest first.
-    pub spans: Vec<TraceSpan>,
-    pub truncated: bool,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -479,7 +433,7 @@ pub async fn trace(data_dir: &Path, request: TraceRequest) -> SignozResult<Trace
     })
 }
 
-async fn whole_trace(data_dir: &Path, request: TraceRequest) -> SignozResult<Trace> {
+pub async fn whole_trace(data_dir: &Path, request: TraceRequest) -> SignozResult<Trace> {
     let trace_id = request.trace_id.trim().to_string();
     if trace_id.is_empty() || !trace_id.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(SignozError::BadArg("a trace id is hexadecimal".into()));

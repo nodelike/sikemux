@@ -7,7 +7,7 @@ import AppKit
 public func runNotch(_ arguments: [String]) -> Never {
     guard let options = Options.parse(arguments) else {
         FileHandle.standardError.write(Data("""
-        usage: sikemux-notch --socket PATH --protocol-version N --settings PATH --state-dir DIR
+        usage: sikemux-notch --socket PATH --protocol-version N --state-dir DIR
                [--core-binary PATH] [--app PATH] [--fonts DIR]
                [--dev [--app-pid PID]]
 

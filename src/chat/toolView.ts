@@ -1,43 +1,32 @@
 import { durationLabel, elapsedLabel } from "./durationLabel";
-import { toolDescription } from "./toolOutput";
-import { toolKind, toolLabel, toolRunning } from "./toolLabels";
-import { sikemuxToolRow, type ToolRowIcon } from "./toolRows";
-import type { AcpToolCall, ChatPart } from "./types";
+import { toolKind, toolRunning } from "./toolLabels";
+import type { ToolRowIcon } from "./toolRows";
+import type { ChatPart, ToolAction, ToolCall } from "./types";
 
 type ToolPart = Extract<ChatPart, { kind: "tool" }>;
 
-/** Our own tools take the kind they declare, like the built-in ones; another MCP call is named for the server it went to. */
-export function toolRowKind(tool: AcpToolCall): string | undefined {
-    return sikemuxToolRow(tool)?.kind ?? (toolLabel(tool.title).scope !== undefined ? "mcp" : tool.kind);
+/** What the row's colour follows. */
+export function toolRowKind(tool: ToolCall): ToolAction {
+    return tool.row.action;
 }
 
 export type ToolIconName = ToolRowIcon | "agent" | "command" | "file" | "move" | "pencil" | "plug" | "trash" | "warning" | "wrench";
 
+const ACTION_ICONS: Partial<Record<ToolAction, ToolIconName>> = {
+    mcp: "plug",
+    read: "file",
+    search: "search",
+    edit: "pencil",
+    move: "move",
+    delete: "trash",
+    execute: "command",
+    fetch: "globe",
+};
+
 /** The icon a call's row shows. Each side draws the name with its own icon. */
-export function toolIconName(tool: AcpToolCall): ToolIconName {
+export function toolIconName(tool: ToolCall): ToolIconName {
     if (tool.status === "failed") return "warning";
-    const row = sikemuxToolRow(tool);
-    if (row) return row.icon;
-    switch (toolRowKind(tool)) {
-        case "mcp":
-            return "plug";
-        case "read":
-            return "file";
-        case "search":
-            return "search";
-        case "edit":
-            return "pencil";
-        case "move":
-            return "move";
-        case "delete":
-            return "trash";
-        case "execute":
-            return "command";
-        case "fetch":
-            return "globe";
-        default:
-            return toolKind(tool) === "toolsearch" ? "wrench" : "agent";
-    }
+    return (tool.row.icon as ToolIconName | undefined) ?? ACTION_ICONS[tool.row.action] ?? "agent";
 }
 
 /* A call the turn cut off has a duration, but printing it would read as a call
@@ -70,7 +59,7 @@ export function toolGroupSummary(tools: readonly ToolPart[]): ToolGroupSummary {
     );
     return {
         current,
-        said: current ? toolDescription(current.tool) : null,
+        said: current?.tool.description ?? null,
         spent,
         kindWidth: Math.min(16, Math.max(4, ...tools.map((part) => toolKind(part.tool).length))),
     };

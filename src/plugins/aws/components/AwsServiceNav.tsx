@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useResource, useResourceEnabled } from "../../../plugin-api/resources";
+import { reportError } from "../../../plugin-api/host";
 import { IconChevron, IconUser } from "../../../plugin-api/ui";
 import { awsIdentityR, awsProfilesR } from "../resources";
 import { AWS_SERVICES, awsSettings, setAwsProfile, setAwsService, useAws, type AwsService } from "../state";
@@ -16,14 +17,14 @@ const META: Record<AwsService, { label: string; hint: string }> = {
     s3: { label: "S3", hint: "Buckets" },
 };
 
-export function AwsServiceNav({ profile, signedIn }: { profile: string; signedIn: boolean }) {
-    const active = awsSettings.useSelect((s) => s.service);
+export function AwsServiceNav({ paneId, profile, signedIn, active }: { paneId: string; profile: string; signedIn: boolean; active: boolean }) {
+    const current = awsSettings.useSelect((s) => s.service);
     const counts = useAws((s) => s.counts[profile]);
     return (
         <nav className="aws-nav" aria-label="AWS services">
             <div className="aws-nav-label">Services</div>
             {AWS_SERVICES.map((s, i) => {
-                const sel = signedIn && active === s;
+                const sel = signedIn && current === s;
                 return (
                     <button
                         key={s}
@@ -40,7 +41,7 @@ export function AwsServiceNav({ profile, signedIn }: { profile: string; signedIn
                     </button>
                 );
             })}
-            <AwsAgentProfile />
+            <AwsAgentProfile paneId={paneId} active={active} />
             <Account profile={profile} />
         </nav>
     );
@@ -106,7 +107,7 @@ function Account({ profile }: { profile: string }) {
                                 autoFocus={on}
                                 onClick={() => {
                                     setOpen(false);
-                                    if (!on) setAwsProfile(p.name);
+                                    if (!on) void setAwsProfile(p.name).catch(reportError("Switch AWS profile"));
                                 }}>
                                 <span className="tree-ctx-icon">
                                     <IconUser size={13} />

@@ -25,6 +25,8 @@ export function sessionInfo(fields: Partial<SessionInfo> & Pick<SessionInfo, "id
         group: null,
         status: null,
         attentionRank: null,
+        sshAlias: null,
+        railName: null,
         ...fields,
     };
 }

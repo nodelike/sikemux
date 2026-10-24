@@ -18,11 +18,15 @@ final class NotchStore {
     @ObservationIgnored let options: Options
     @ObservationIgnored private var link: CoreLink?
     @ObservationIgnored private var startedCore = false
+    /// The core said it was stopping on purpose, so the island waits for one to start rather
+    /// than starting it again; a core that dies without a word is started.
+    @ObservationIgnored private var coreStopped = false
     @ObservationIgnored private var waiter: CoreWaiter?
     @ObservationIgnored private var questions: [AgentQuestion] = []
     @ObservationIgnored private var heard = false
     @ObservationIgnored private var errorTimer: DispatchWorkItem?
     @ObservationIgnored var onPeek: ((Peek) -> Void)?
+    @ObservationIgnored var onSettings: (() -> Void)?
 
     enum Peek {
         case ask(String)
@@ -32,14 +36,19 @@ final class NotchStore {
 
     init(options: Options) {
         self.options = options
-        settings = NotchSettings.load(options.settings)
+        settings = NotchSettings()
         Haptics.enabled = settings.haptics
     }
 
-    func reloadSettings() {
-        let fresh = NotchSettings.load(options.settings)
-        Haptics.enabled = fresh.haptics
-        if fresh != settings { settings = fresh }
+    private func readSettings() {
+        link?.request(["op": "call", "method": "preferences", "params": [String: Any]()]) { [weak self] result in
+            guard let self, case .success(let response) = result else { return }
+            let fresh = NotchSettings.of(preferences: response["result"])
+            Haptics.enabled = fresh.haptics
+            guard fresh != self.settings else { return }
+            self.settings = fresh
+            self.onSettings?()
+        }
     }
 
     // MARK: Connection
@@ -48,7 +57,17 @@ final class NotchStore {
         guard link == nil, waitForCore() else { return }
         let link = CoreLink(socket: options.socket, protocolVersion: options.protocolVersion)
         link.onReady = { [weak self, weak link] in
-            link?.request(["op": "watchView"])
+            link?.request(["op": "call", "method": "agentCatalog", "params": [String: Any]()]) { result in
+                if case .success(let response) = result, let raw = response["result"],
+                   let data = try? JSONSerialization.data(withJSONObject: raw),
+                   let agents = try? JSONDecoder().decode([CatalogAgent].self, from: data)
+                {
+                    AgentCatalog.names = Dictionary(agents.map { ($0.type, $0.label) }, uniquingKeysWith: { _, last in last })
+                }
+                link?.request(["op": "watchView"])
+            }
+            self?.coreStopped = false
+            self?.readSettings()
             link?.request(["op": "remoteStatus"]) { result in
                 if case .success(let response) = result { self?.receiveRemote(response["status"]) }
             }
@@ -68,7 +87,7 @@ final class NotchStore {
             waiter = nil
             return
         }
-        if !startedCore {
+        if !startedCore, !coreStopped {
             startedCore = true
             CoreStarter.start(options) { [weak self] in self?.connect() }
         }
@@ -84,6 +103,14 @@ final class NotchStore {
     }
 
     private func receive(_ event: [String: Any]) {
+        if event["kind"] as? String == "changed", event["topic"] as? String == "stopping" {
+            coreStopped = true
+            return
+        }
+        if event["kind"] as? String == "changed", event["topic"] as? String == "preferences" {
+            readSettings()
+            return
+        }
         if event["kind"] as? String == "remote" {
             receiveRemote(event["status"])
             return
@@ -326,8 +353,8 @@ final class NotchStore {
         let counts: [(Rollup, Int)] = [
             (.mark(.needs), entries.filter { $0.mark == .needs }.count),
             (.mark(.working), view.inbox.working),
-            (.subagents, view.inbox.agents.reduce(0) { $0 + $1.subagents }),
-            (.shells, view.inbox.agents.reduce(0) { $0 + $1.tasks }),
+            (.subagents, view.inbox.rollup?.subagents ?? 0),
+            (.shells, view.inbox.rollup?.tasks ?? 0),
             (.mark(.done), entries.filter { $0.mark == .done || $0.mark == .failed }.count),
         ]
         return counts.filter { $0.1 > 0 }.map { (mark: $0.0, count: $0.1) }

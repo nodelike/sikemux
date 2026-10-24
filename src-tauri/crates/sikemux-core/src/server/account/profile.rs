@@ -1,0 +1,277 @@
+//! The signed-in account's name and picture, kept on disk so clients can show
+//! them offline. The picture is downloaded here and handed to clients inline,
+//! since the app window's security policy blocks remote images.
+
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use url::Url;
+
+use crate::accounts::protocol::AccountProfile;
+use crate::http::{fetch_image, names_private_address, public_client, sniff};
+
+const PROFILE_FILE: &str = "profile.json";
+const PICTURE_PREFIX: &str = "picture-";
+const MAX_PICTURE_BYTES: usize = 1024 * 1024;
+/// Google hands Clerk pictures of over a megabyte, so a larger one is fetched and shrunk.
+const MAX_DOWNLOAD_BYTES: usize = 8 * 1024 * 1024;
+const SHRUNK_SIZE: &str = "256";
+const SHRINK_TIMEOUT: Duration = Duration::from_secs(10);
+const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
+pub const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Profile {
+    pub user_id: String,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub picture: Option<String>,
+    pub checked_at: u64,
+}
+
+impl Profile {
+    pub fn is_stale(&self, now: u64) -> bool {
+        now.saturating_sub(self.checked_at) >= CHECK_EVERY.as_secs()
+    }
+}
+
+pub fn from_account(account: AccountProfile, user_id: String, now: u64) -> Profile {
+    Profile {
+        user_id,
+        name: account
+            .name
+            .map(|name| name.trim().to_owned())
+            .filter(|name| !name.is_empty()),
+        email: account.email,
+        picture: account.image_url.filter(|url| picture_url(url).is_some()),
+        checked_at: now,
+    }
+}
+
+pub fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default()
+}
+
+/// Only a public https address, so an account's picture cannot have this
+/// machine or its network fetched.
+fn picture_url(url: &str) -> Option<Url> {
+    Url::parse(url)
+        .ok()
+        .filter(|url| url.scheme() == "https" && !names_private_address(url))
+}
+
+/// What names the picture cached for `url`, which changes with it.
+pub fn cache_key(url: &str) -> String {
+    hex::encode(Sha256::digest(url.as_bytes()).get(..16).unwrap_or_default())
+}
+
+pub fn picture_path(dir: &Path, url: &str) -> PathBuf {
+    dir.join(format!("{PICTURE_PREFIX}{}", cache_key(url)))
+}
+
+/// The picture's type, or nothing if it is too large or not an image made
+/// of pixels; a drawing could carry script.
+fn image_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() > MAX_PICTURE_BYTES {
+        return None;
+    }
+    sniff(bytes).filter(|mime| mime.starts_with("image/") && *mime != "image/svg+xml")
+}
+
+pub async fn read(dir: &Path) -> Option<Profile> {
+    let text = tokio::fs::read(dir.join(PROFILE_FILE)).await.ok()?;
+    serde_json::from_slice(&text).ok()
+}
+
+/// The cached picture `hash` names, and its type.
+pub async fn picture(dir: &Path, hash: &str) -> Option<(&'static str, Vec<u8>)> {
+    if !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let bytes = tokio::fs::read(dir.join(format!("{PICTURE_PREFIX}{hash}")))
+        .await
+        .ok()?;
+    Some((image_type(&bytes)?, bytes))
+}
+
+/// Saves the profile and fetches its picture if it is not cached yet. A picture
+/// that fails to download is left out until the next check.
+pub async fn save(dir: &Path, profile: &Profile) -> std::io::Result<()> {
+    tokio::fs::create_dir_all(dir).await?;
+    tokio::fs::write(dir.join(PROFILE_FILE), serde_json::to_vec(profile)?).await?;
+    let keep = profile.picture.as_deref().map(|url| picture_path(dir, url));
+    if let (Some(url), Some(path)) = (profile.picture.as_deref(), keep.as_deref()) {
+        if tokio::fs::metadata(path).await.is_err() {
+            if let Some(bytes) = download(url).await {
+                if let Some(bytes) = fit(dir, bytes).await {
+                    tokio::fs::write(path, bytes).await?;
+                }
+            }
+        }
+    }
+    let mut entries = tokio::fs::read_dir(dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        let is_picture = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(PICTURE_PREFIX));
+        if is_picture && Some(&path) != keep.as_ref() {
+            let _ = tokio::fs::remove_file(path).await;
+        }
+    }
+    Ok(())
+}
+
+pub async fn forget(dir: &Path) -> std::io::Result<()> {
+    match tokio::fs::remove_dir_all(dir).await {
+        Err(error) if error.kind() != ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    }
+}
+
+async fn download(url: &str) -> Option<Vec<u8>> {
+    let url = picture_url(url)?;
+    let request = public_client().ok()?.get(url).timeout(FETCH_TIMEOUT);
+    let (bytes, _) = fetch_image(request, MAX_DOWNLOAD_BYTES).await?;
+    Some(bytes)
+}
+
+/// The picture small enough to hand to the window, shrunk with macOS's `sips` when it is not.
+async fn fit(dir: &Path, bytes: Vec<u8>) -> Option<Vec<u8>> {
+    if image_type(&bytes).is_some() {
+        return Some(bytes);
+    }
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let original = dir.join(format!("{PICTURE_PREFIX}download"));
+    let shrunk = dir.join(format!("{PICTURE_PREFIX}shrunk.png"));
+    tokio::fs::write(&original, &bytes).await.ok()?;
+    let (input, output) = (original.clone(), shrunk.clone());
+    let result = tokio::task::spawn_blocking(move || {
+        let mut sips = sikemux_process::user_environment::command("/usr/bin/sips");
+        sips.args(["-Z", SHRUNK_SIZE, "-s", "format", "png"])
+            .arg(&input)
+            .arg("--out")
+            .arg(&output);
+        let ran = sikemux_process::run(&mut sips, None, SHRINK_TIMEOUT, 64 * 1024, None);
+        match ran {
+            Ok(done) if done.status.success() => std::fs::read(&output).ok(),
+            _ => None,
+        }
+    })
+    .await
+    .ok()
+    .flatten();
+    let _ = tokio::fs::remove_file(&original).await;
+    let _ = tokio::fs::remove_file(&shrunk).await;
+    result.filter(|bytes| image_type(bytes).is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
+
+    /// A real 1x1 PNG, which `sips` can open, unlike the bare signature above.
+    const TINY_PNG: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
+        0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8,
+        0x0f, 0x04, 0x00, 0x09, 0xfb, 0x03, 0xfd, 0xfb, 0x5e, 0x6b, 0x2b, 0x00, 0x00, 0x00, 0x00,
+        0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_picture_too_large_for_the_window_is_shrunk() {
+        let dir = tempfile::tempdir().expect("dir");
+        let mut large = TINY_PNG.to_vec();
+        large.resize(MAX_PICTURE_BYTES + 1, 0);
+        assert!(image_type(&large).is_none());
+        let shrunk = fit(dir.path(), large).await.expect("shrunk");
+        assert!(image_type(&shrunk).is_some());
+        let left: Vec<_> = std::fs::read_dir(dir.path()).expect("dir").collect();
+        assert!(left.is_empty(), "the working files are removed");
+    }
+
+    #[tokio::test]
+    async fn a_picture_that_already_fits_is_kept_as_it_is() {
+        let dir = tempfile::tempdir().expect("dir");
+        assert_eq!(
+            fit(dir.path(), TINY_PNG.to_vec()).await.as_deref(),
+            Some(TINY_PNG)
+        );
+    }
+
+    #[test]
+    fn only_https_pictures_are_fetched() {
+        assert!(picture_url("https://img.clerk.com/abc").is_some());
+        assert!(picture_url("http://img.clerk.com/abc").is_none());
+        assert!(picture_url("file:///etc/passwd").is_none());
+        assert!(picture_url("data:image/png;base64,AAAA").is_none());
+        assert!(picture_url("not a url").is_none());
+    }
+
+    #[test]
+    fn a_picture_must_be_a_known_image_under_the_size_cap() {
+        assert_eq!(image_type(PNG), Some("image/png"));
+        assert_eq!(image_type(b"<svg onload=alert(1)>"), None);
+        let mut huge = PNG.to_vec();
+        huge.resize(MAX_PICTURE_BYTES + 1, 0);
+        assert_eq!(image_type(&huge), None);
+    }
+
+    #[tokio::test]
+    async fn the_cache_keeps_only_the_current_picture_and_is_forgotten_on_sign_out() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("account");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let current = "https://img.clerk.com/new";
+        tokio::fs::write(picture_path(&dir, current), PNG)
+            .await
+            .unwrap();
+        tokio::fs::write(picture_path(&dir, "https://img.clerk.com/old"), PNG)
+            .await
+            .unwrap();
+        let profile = Profile {
+            user_id: "user_1".into(),
+            picture: Some(current.into()),
+            ..Profile::default()
+        };
+        save(&dir, &profile).await.unwrap();
+
+        assert_eq!(read(&dir).await, Some(profile.clone()));
+        assert_eq!(
+            picture(&dir, &cache_key(current))
+                .await
+                .map(|(mime, _)| mime),
+            Some("image/png")
+        );
+        let mut names = Vec::new();
+        let mut entries = tokio::fs::read_dir(&dir).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            names.push(entry.file_name().into_string().unwrap());
+        }
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                format!("{PICTURE_PREFIX}{}", cache_key(current)),
+                PROFILE_FILE.to_owned()
+            ]
+        );
+
+        forget(&dir).await.unwrap();
+        assert!(read(&dir).await.is_none());
+        forget(&dir).await.unwrap();
+    }
+}

@@ -5,7 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 /* The script an agent's browser tools run inside a tab. jsdom has no layout,
    so each element's box comes from its data-rect="left,top,width,height" and
    the topmost box under a point is the last one in the document. */
-const PAGE_SCRIPT = readFileSync(resolve(__dirname, "../../src-tauri/src/browser/page.js"), "utf8");
+const PAGE_SCRIPT = readFileSync(resolve(__dirname, "../../src-tauri/crates/sikemux-browser/src/page.js"), "utf8");
 
 interface Changes {
     elements?: string;

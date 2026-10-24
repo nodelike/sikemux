@@ -11,7 +11,8 @@ import { useResource, useResourceEnabled } from "../state/resources";
 import { remoteRepoR } from "../codehost/project";
 import { codeHost } from "../codehost/registry";
 import { projectRootsScanR, sshHostsR } from "../state/resources.defs";
-import { useStore } from "../state/store";
+import { getState, useStore } from "../state/store";
+import { sessionName, useRailNames } from "../terminal/railNames";
 import { reportError } from "../state/toast";
 import type { SshHost } from "../api/ssh";
 import { useMouseActive } from "../hooks/useMouseActive";
@@ -20,6 +21,7 @@ import { enabledFrontendPlugins } from "../plugins/enabled";
 import { pluginSurface } from "../plugins/registry";
 import { IconClose, IconFolder, IconSearch, IconServer, IconTerminal } from "../ui/Icons";
 import { leavingOverlay } from "../lib/motion";
+import { pluginSettingsOf, projectRootsOf } from "../state/preferences";
 
 type Item =
     | { kind: "session"; id: string; name: string; sub: string; sk: SessionKind; cwd: string | null }
@@ -53,9 +55,10 @@ export function SeshPicker() {
     const sessionsById = useStore((s) => s.sessions);
     const sessionOrder = useStore((s) => s.sessionOrder);
     const sessions = sessionOrder.map((id) => sessionsById[id]);
+    const railNames = useRailNames();
     const home = useStore((s) => s.home);
-    const projectRoots = useStore((s) => s.projectRoots);
-    const pluginSettings = useStore((s) => s.pluginSettings);
+    const projectRoots = useStore(projectRootsOf);
+    const pluginSettings = useStore(pluginSettingsOf);
     const disabledPlugins = useStore((s) => s.disabledPlugins);
     const mode = useStore((s) => s.pickerMode);
     const moving = useStore((s) => (s.pickerMovingAgentId ? s.agents[s.pickerMovingAgentId] : undefined));
@@ -87,7 +90,7 @@ export function SeshPicker() {
             .map((s) => ({
                 kind: "session",
                 id: s.id,
-                name: s.kind === "project" ? projectLabel(s.cwd, s.name, projectRoots, home) : s.name,
+                name: s.kind === "project" ? projectLabel(s.cwd, s.name, projectRoots, home) : sessionName(getState(), s, railNames),
                 sub: s.kind === "project" ? pretty(s.cwd) : s.kind === "ssh" ? "SSH" : isPluginKind(s.kind) ? "plugin" : "terminal",
                 sk: s.kind,
                 cwd: s.kind === "project" ? s.cwd : null,
@@ -141,7 +144,22 @@ export function SeshPicker() {
         };
         return groups.flatMap(finalize);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- plugin settings change which plugins enabledFrontendPlugins returns
-    }, [sessions, projects, hosts, pluginSettings, disabledPlugins, query, home, mode, moving, projectRoots, showProjects, showPlugins, showSsh]);
+    }, [
+        sessions,
+        railNames,
+        projects,
+        hosts,
+        pluginSettings,
+        disabledPlugins,
+        query,
+        home,
+        mode,
+        moving,
+        projectRoots,
+        showProjects,
+        showPlugins,
+        showSsh,
+    ]);
 
     useEffect(() => {
         setSel((s) => Math.min(s, Math.max(0, items.length - 1)));

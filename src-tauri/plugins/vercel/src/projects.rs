@@ -3,9 +3,10 @@
 use std::path::Path;
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
+use sikemux_plugin_api::vercel::{Domain, Production, Project, Variable};
 
-use crate::client::{at, text, Session};
+use crate::client::{at, number, some_text, text, Session};
 use crate::error::{VercelError, VercelResult};
 
 /// A name or id as one part of an address, so it can never reach another endpoint.
@@ -25,7 +26,7 @@ pub fn segment(what: &str, value: &str) -> VercelResult<String> {
     Ok(value.to_string())
 }
 
-fn repo_of(link: &Value) -> Value {
+fn repo_of(link: &Value) -> Option<String> {
     let owner = ["/org", "/projectNamespace", "/owner", "/workspaceSlug"]
         .iter()
         .map(|path| text(link, path))
@@ -35,9 +36,9 @@ fn repo_of(link: &Value) -> Value {
         .map(|path| text(link, path))
         .find(|name| !name.is_empty());
     match (owner, name) {
-        (Some(owner), Some(name)) => json!(format!("{owner}/{name}")),
-        (None, Some(name)) => json!(name),
-        _ => Value::Null,
+        (Some(owner), Some(name)) => Some(format!("{owner}/{name}")),
+        (None, Some(name)) => Some(name),
+        _ => None,
     }
 }
 
@@ -53,36 +54,31 @@ pub fn shortest_alias(deployment: &Value) -> Option<String> {
 }
 
 /// A deployment serving, or meant to serve, production: where it answers and how it stands.
-fn production_of(deployment: &Value) -> Value {
-    let url = shortest_alias(deployment).or_else(|| {
-        deployment
-            .get("url")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    });
-    json!({
-        "id": at(deployment, "/id"),
-        "url": url.map(|url| format!("https://{url}")),
-        "state": at(deployment, "/readyState"),
-        "createdAt": at(deployment, "/createdAt"),
-    })
+fn production_of(deployment: &Value) -> Production {
+    let url = shortest_alias(deployment).or_else(|| some_text(deployment, "/url"));
+    Production {
+        id: text(deployment, "/id"),
+        url: url.map(|url| format!("https://{url}")),
+        state: text(deployment, "/readyState"),
+        created_at: number(deployment, "/createdAt").unwrap_or_default(),
+    }
 }
 
 /// A project as the pane and agents read it.
-pub fn project(value: &Value) -> Value {
+pub fn project(value: &Value) -> Project {
     let production = at(value, "/targets/production");
     let link = at(value, "/link");
-    json!({
-        "id": at(value, "/id"),
-        "name": at(value, "/name"),
-        "framework": at(value, "/framework"),
-        "updatedAt": at(value, "/updatedAt"),
-        "repo": repo_of(link),
-        "gitProvider": at(link, "/type"),
-        "productionBranch": at(link, "/productionBranch"),
-        "production": if production.is_null() { Value::Null } else { production_of(production) },
-        "latestProduction": Value::Null,
-    })
+    Project {
+        id: text(value, "/id"),
+        name: text(value, "/name"),
+        framework: some_text(value, "/framework"),
+        updated_at: number(value, "/updatedAt").unwrap_or_default(),
+        repo: repo_of(link),
+        git_provider: some_text(link, "/type"),
+        production_branch: some_text(link, "/productionBranch"),
+        production: (!production.is_null()).then(|| production_of(production)),
+        latest_production: None,
+    }
 }
 
 /// The production domain people visit: verified, and neither a redirect nor a branch's.
@@ -102,7 +98,7 @@ fn production_domain(domains: &Value) -> Option<String> {
 /// The deployment the production domain answers with. Vercel names the newest
 /// production build as the project's production one even while it builds or after
 /// it fails, though the domain still serves the build before it.
-async fn serving(session: &Session, project_id: &str) -> Option<Value> {
+async fn serving(session: &Session, project_id: &str) -> Option<Production> {
     let project_id = segment("project", project_id).ok()?;
     let domains = session
         .get(&format!("/v9/projects/{project_id}/domains"), &[])
@@ -121,11 +117,10 @@ async fn serving(session: &Session, project_id: &str) -> Option<Value> {
         .get(&format!("/v13/deployments/{id}"), &[])
         .await
         .ok()?;
-    let mut serving = production_of(&deployment);
-    if let Some(object) = serving.as_object_mut() {
-        object.insert("url".into(), json!(format!("https://{domain}")));
-    }
-    Some(serving)
+    Some(Production {
+        url: Some(format!("https://{domain}")),
+        ..production_of(&deployment)
+    })
 }
 
 #[derive(Deserialize)]
@@ -136,7 +131,7 @@ pub struct Listing {
     pub team: Option<String>,
 }
 
-pub async fn projects(data_dir: &Path, input: Listing) -> VercelResult<Vec<Value>> {
+pub async fn projects(data_dir: &Path, input: Listing) -> VercelResult<Vec<Project>> {
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     let mut query = vec![("limit", "100".to_string())];
     if let Some(words) = input
@@ -148,7 +143,7 @@ pub async fn projects(data_dir: &Path, input: Listing) -> VercelResult<Vec<Value
         query.push(("search", words.to_string()));
     }
     let data = session.get("/v9/projects", &query).await?;
-    let listed: Vec<Value> = at(&data, "/projects")
+    let listed: Vec<Project> = at(&data, "/projects")
         .as_array()
         .into_iter()
         .flatten()
@@ -164,18 +159,16 @@ pub async fn projects(data_dir: &Path, input: Listing) -> VercelResult<Vec<Value
 
 /// Swaps in the deployment actually serving when the newest production build is not ready,
 /// keeping that build as the latest one.
-async fn with_serving(session: &Session, mut project: Value) -> Value {
-    let state = text(&project, "/production/state");
-    if state.is_empty() || state == "READY" {
+async fn with_serving(session: &Session, mut project: Project) -> Project {
+    if project
+        .production
+        .as_ref()
+        .is_none_or(|production| production.state.is_empty() || production.state == "READY")
+    {
         return project;
     }
-    let Some(serving) = serving(session, &text(&project, "/id")).await else {
-        return project;
-    };
-    if let Some(object) = project.as_object_mut() {
-        if let Some(latest) = object.insert("production".into(), serving) {
-            object.insert("latestProduction".into(), latest);
-        }
+    if let Some(serving) = serving(session, &project.id).await {
+        project.latest_production = project.production.replace(serving);
     }
     project
 }
@@ -187,7 +180,7 @@ pub struct ProjectRef {
     pub team: Option<String>,
 }
 
-pub async fn domains(data_dir: &Path, input: ProjectRef) -> VercelResult<Vec<Value>> {
+pub async fn domains(data_dir: &Path, input: ProjectRef) -> VercelResult<Vec<Domain>> {
     let project = segment("project", &input.project)?;
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     let data = session
@@ -200,36 +193,38 @@ pub async fn domains(data_dir: &Path, input: ProjectRef) -> VercelResult<Vec<Val
         .as_array()
         .into_iter()
         .flatten()
-        .map(|domain| {
-            json!({
-                "name": at(domain, "/name"),
-                "verified": at(domain, "/verified"),
-                "redirect": at(domain, "/redirect"),
-                "gitBranch": at(domain, "/gitBranch"),
-                "createdAt": at(domain, "/createdAt"),
-            })
+        .map(|domain| Domain {
+            name: text(domain, "/name"),
+            verified: at(domain, "/verified").as_bool().unwrap_or(false),
+            redirect: some_text(domain, "/redirect"),
+            git_branch: some_text(domain, "/gitBranch"),
+            created_at: number(domain, "/createdAt"),
         })
         .collect())
 }
 
 /// An environment variable without its value, which never leaves Vercel through here.
-pub fn variable(value: &Value) -> Value {
+pub fn variable(value: &Value) -> Variable {
     let target = match at(value, "/target") {
-        Value::String(one) => json!([one]),
-        Value::Array(many) => json!(many),
-        _ => json!([]),
+        Value::String(one) => vec![one.clone()],
+        Value::Array(many) => many
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+        _ => Vec::new(),
     };
-    json!({
-        "id": at(value, "/id"),
-        "key": at(value, "/key"),
-        "target": target,
-        "type": at(value, "/type"),
-        "gitBranch": at(value, "/gitBranch"),
-        "updatedAt": at(value, "/updatedAt"),
-    })
+    Variable {
+        id: text(value, "/id"),
+        key: text(value, "/key"),
+        target,
+        kind: text(value, "/type"),
+        git_branch: some_text(value, "/gitBranch"),
+        updated_at: number(value, "/updatedAt"),
+    }
 }
 
-pub async fn env(data_dir: &Path, input: ProjectRef) -> VercelResult<Vec<Value>> {
+pub async fn env(data_dir: &Path, input: ProjectRef) -> VercelResult<Vec<Variable>> {
     let project = segment("project", &input.project)?;
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     let data = session
@@ -245,6 +240,8 @@ pub async fn env(data_dir: &Path, input: ProjectRef) -> VercelResult<Vec<Value>>
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -255,13 +252,14 @@ mod tests {
             "targets": { "production": { "id": "dpl_9", "url": "web-abc.vercel.app", "alias": ["web-git-main-acme.vercel.app", "web.acme.dev", "web-acme.vercel.app"], "readyState": "READY", "createdAt": 4 } }
         });
         let read = project(&raw);
-        assert_eq!(read["repo"], "acme/web");
-        assert_eq!(read["productionBranch"], "main");
-        assert_eq!(read["production"]["url"], "https://web.acme.dev");
-        assert_eq!(read["production"]["state"], "READY");
+        assert_eq!(read.repo.as_deref(), Some("acme/web"));
+        assert_eq!(read.production_branch.as_deref(), Some("main"));
+        let production = read.production.expect("serves production");
+        assert_eq!(production.url.as_deref(), Some("https://web.acme.dev"));
+        assert_eq!(production.state, "READY");
         assert_eq!(
-            project(&json!({ "id": "prj_2", "name": "empty" }))["production"],
-            Value::Null
+            project(&json!({ "id": "prj_2", "name": "empty" })).production,
+            None
         );
     }
 
@@ -281,12 +279,14 @@ mod tests {
     fn a_variable_never_carries_its_value() {
         let raw = json!({ "id": "env_1", "key": "DATABASE_URL", "value": "postgres://secret", "target": ["production", "preview"], "type": "encrypted" });
         let read = variable(&raw);
-        assert_eq!(read["key"], "DATABASE_URL");
-        assert_eq!(read["target"], json!(["production", "preview"]));
-        assert!(!read.to_string().contains("secret"));
+        assert_eq!(read.key, "DATABASE_URL");
+        assert_eq!(read.target, ["production", "preview"]);
+        assert!(!serde_json::to_string(&read)
+            .expect("serializes")
+            .contains("secret"));
         assert_eq!(
-            variable(&json!({ "key": "A", "target": "preview" }))["target"],
-            json!(["preview"])
+            variable(&json!({ "key": "A", "target": "preview" })).target,
+            ["preview"]
         );
     }
 

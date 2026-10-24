@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { Filter, IconCopy, Seg } from "../../../plugin-api/ui";
-import type { Ec2Instance, LambdaFn, S3Bucket, SqsQueue } from "../api";
-import { ec2InstancesR, lambdaFnsR, s3BucketsR, sqsQueuesR } from "../resources";
+import { ec2V, lambdaV, s3V, sqsV } from "../resources";
 import { selectAws, setLambdaLogs, useAws } from "../state";
+import type { AwsLambdaFunction, AwsS3Bucket } from "../types.generated";
 import { AwsLogTailView } from "./AwsLogTailView";
 import { IconLogs } from "./icons";
 import {
@@ -24,45 +24,32 @@ import {
     matches,
     useRegion,
     useReportCount,
-    type Health,
 } from "./parts";
 import { formatAgo, formatDuration } from "../../../plugin-api/format";
 
 interface ViewProps {
+    paneId: string;
     profile: string;
     active: boolean;
 }
 
 /* ── EC2 ─────────────────────────────────────────────── */
 
-const EC2_STATE: Record<string, [Health, string]> = {
-    running: ["ok", "Running"],
-    pending: ["warn", "Starting"],
-    stopping: ["warn", "Stopping"],
-    "shutting-down": ["warn", "Shutting down"],
-    stopped: ["off", "Stopped"],
-    terminated: ["off", "Terminated"],
-};
-
-function ec2State(i: Ec2Instance): [Health, string] {
-    return EC2_STATE[i.state ?? ""] ?? ["off", i.state ?? "Unknown"];
-}
-
-export function AwsEc2View({ profile, active }: ViewProps) {
+export function AwsEc2View({ paneId, profile, active }: ViewProps) {
     const region = useRegion(profile);
-    const handle = useResourceEnabled(active, ec2InstancesR, profile);
+    const handle = useResourceEnabled(active, ec2V, paneId, profile);
     const [state, setState] = useState<"all" | "running" | "stopped">("all");
     const [query, setQuery] = useState("");
     const picked = useAws((s) => s.selection[profile]?.ec2);
-    const all = handle.data;
+    const all = handle.data?.instances;
     useReportCount(profile, "ec2", all?.length);
-    const running = all?.filter((i) => i.state === "running").length ?? 0;
+    const running = handle.data?.running ?? 0;
     const rows = (all ?? []).filter(
         (i) =>
             (state === "all" || (state === "running" ? i.state === "running" : i.state !== "running")) &&
-            matches(query, i.name, i.instance_id, i.private_ip, i.public_ip, i.instance_type),
+            matches(query, i.name, i.id, i.privateIp, i.publicIp, i.instanceType),
     );
-    const selected = all?.find((i) => i.instance_id === picked) ?? rows[0];
+    const selected = all?.find((i) => i.id === picked) ?? rows[0];
 
     return (
         <>
@@ -91,10 +78,10 @@ export function AwsEc2View({ profile, active }: ViewProps) {
                     <Table
                         label="Instances"
                         rows={rows}
-                        rowKey={(i) => i.instance_id}
-                        selected={selected?.instance_id}
-                        onSelect={(i) => selectAws(profile, "ec2", i.instance_id)}
-                        rowClass={(i) => (i.state === "stopped" || i.state === "terminated" ? "dim" : undefined)}
+                        rowKey={(i) => i.id}
+                        selected={selected?.id}
+                        onSelect={(i) => selectAws(profile, "ec2", i.id)}
+                        rowClass={(i) => (i.idle ? "dim" : undefined)}
                         columns={[
                             {
                                 header: "Instance",
@@ -102,15 +89,15 @@ export function AwsEc2View({ profile, active }: ViewProps) {
                                 cell: (i) => (
                                     <span className="aws-two">
                                         <span className={i.name ? "aws-name" : "aws-name-dim"}>{i.name ?? "unnamed"}</span>
-                                        <span className="aws-sub aws-mono">{i.instance_id}</span>
+                                        <span className="aws-sub aws-mono">{i.id}</span>
                                     </span>
                                 ),
                             },
-                            { header: "State", width: "14%", cell: (i) => <State health={ec2State(i)[0]} label={ec2State(i)[1]} /> },
-                            { header: "Type", width: "13%", cell: (i) => <Cell>{i.instance_type ?? "—"}</Cell> },
-                            { header: "Private IP", width: "14%", cell: (i) => <Cell>{i.private_ip ?? "—"}</Cell> },
-                            { header: "Public IP", width: "15%", cell: (i) => <Cell dim={!i.public_ip}>{i.public_ip ?? "—"}</Cell> },
-                            { header: "Launched", width: "12%", cell: (i) => <Cell dim>{formatAgo(i.launch_time)}</Cell> },
+                            { header: "State", width: "14%", cell: (i) => <State health={i.health} label={i.stateLabel} /> },
+                            { header: "Type", width: "13%", cell: (i) => <Cell>{i.instanceType ?? "—"}</Cell> },
+                            { header: "Private IP", width: "14%", cell: (i) => <Cell>{i.privateIp ?? "—"}</Cell> },
+                            { header: "Public IP", width: "15%", cell: (i) => <Cell dim={!i.publicIp}>{i.publicIp ?? "—"}</Cell> },
+                            { header: "Launched", width: "12%", cell: (i) => <Cell dim>{formatAgo(i.launchedAt)}</Cell> },
                         ]}
                     />
                 )}
@@ -119,16 +106,14 @@ export function AwsEc2View({ profile, active }: ViewProps) {
                 <Inspector>
                     <InspectorHead
                         title={selected.name ?? "unnamed"}
-                        badge={<State health={ec2State(selected)[0]} label={ec2State(selected)[1]} />}
-                        sub={selected.instance_id}
+                        badge={<State health={selected.health} label={selected.stateLabel} />}
+                        sub={selected.id}
                         actions={
                             <>
-                                <ConsoleButton
-                                    url={`https://${region}.console.aws.amazon.com/ec2/home?region=${region}#InstanceDetails:instanceId=${selected.instance_id}`}
-                                />
+                                <ConsoleButton url={selected.consoleUrl} />
                                 <button
                                     className="aws-btn aws-icon-btn"
-                                    onClick={() => copy(selected.instance_id, "instance ID")}
+                                    onClick={() => copy(selected.id, "instance ID")}
                                     title="Copy instance ID"
                                     aria-label="Copy instance ID">
                                     <IconCopy size={14} />
@@ -138,14 +123,14 @@ export function AwsEc2View({ profile, active }: ViewProps) {
                     />
                     <Facts
                         items={[
-                            { label: "Type", value: selected.instance_type, copy: true },
-                            { label: "Private IP", value: selected.private_ip, copy: true },
-                            { label: "Public IP", value: selected.public_ip, copy: true },
+                            { label: "Type", value: selected.instanceType, copy: true },
+                            { label: "Private IP", value: selected.privateIp, copy: true },
+                            { label: "Public IP", value: selected.publicIp, copy: true },
                             {
                                 label: "Launched",
-                                value: selected.launch_time ? `${formatAgo(selected.launch_time)} · ${selected.launch_time.slice(0, 10)}` : null,
+                                value: selected.launchedAt ? `${formatAgo(selected.launchedAt)} · ${selected.launchedAt.slice(0, 10)}` : null,
                             },
-                            { label: "Instance ID", value: selected.instance_id, copy: true },
+                            { label: "Instance ID", value: selected.id, copy: true },
                         ]}
                     />
                 </Inspector>
@@ -158,61 +143,27 @@ export function AwsEc2View({ profile, active }: ViewProps) {
 
 /* ── Lambda ──────────────────────────────────────────── */
 
-const DEPRECATED_RUNTIMES = new Set([
-    "python3.7",
-    "python3.8",
-    "python3.9",
-    "nodejs12.x",
-    "nodejs14.x",
-    "nodejs16.x",
-    "nodejs18.x",
-    "go1.x",
-    "java8",
-    "dotnet6",
-    "ruby2.7",
-]);
-
-function runtimeFamily(runtime: string | null): string {
-    if (!runtime) return "other";
-    const family = ["nodejs", "python", "java", "go", "dotnet", "ruby", "provided"].find((f) => runtime.startsWith(f));
-    return family ?? "other";
+function timeout(secs: number | null): string {
+    return secs ? formatDuration(secs * 1000) : "—";
 }
 
-function memory(mb: number | null): string {
-    if (!mb) return "—";
-    return mb >= 1024 ? `${+(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
-}
-
-export function AwsLambdaView({ profile, active }: ViewProps) {
+export function AwsLambdaView({ paneId, profile, active }: ViewProps) {
     const logsFor = useAws((s) => s.lambdaLogs[profile] ?? null);
-    if (logsFor) return <LambdaLogs profile={profile} active={active} fn={logsFor} />;
-    return <LambdaList profile={profile} active={active} />;
+    if (logsFor) return <LambdaLogs paneId={paneId} profile={profile} active={active} fn={logsFor} />;
+    return <LambdaList paneId={paneId} profile={profile} active={active} />;
 }
 
-function LambdaList({ profile, active }: ViewProps) {
+function LambdaList({ paneId, profile, active }: ViewProps) {
     const region = useRegion(profile);
-    const handle = useResourceEnabled(active, lambdaFnsR, profile);
+    const handle = useResourceEnabled(active, lambdaV, paneId, profile);
     const [family, setFamily] = useState("all");
     const [query, setQuery] = useState("");
     const picked = useAws((s) => s.selection[profile]?.lambda);
-    const all = handle.data;
+    const all = handle.data?.functions;
+    const families = handle.data?.families ?? [];
     useReportCount(profile, "lambda", all?.length);
-
-    const families = new Map<string, number>();
-    for (const f of all ?? []) families.set(runtimeFamily(f.runtime), (families.get(runtimeFamily(f.runtime)) ?? 0) + 1);
-    const familyLabel: Record<string, string> = {
-        nodejs: "Node",
-        python: "Python",
-        java: "Java",
-        go: "Go",
-        dotnet: ".NET",
-        ruby: "Ruby",
-        provided: "Custom",
-        other: "Other",
-    };
-    const rows = (all ?? []).filter((f) => (family === "all" || runtimeFamily(f.runtime) === family) && matches(query, f.name, f.runtime, f.handler));
+    const rows = (all ?? []).filter((f) => (family === "all" || f.family === family) && matches(query, f.name, f.runtime, f.handler));
     const selected = all?.find((f) => f.name === picked) ?? rows[0];
-    const maxMemory = Math.max(1024, ...(all ?? []).map((f) => f.memory_size ?? 0));
 
     return (
         <>
@@ -222,12 +173,12 @@ function LambdaList({ profile, active }: ViewProps) {
                     title="Functions"
                     count={all?.length}
                     aside={
-                        families.size > 1 ? (
+                        families.length > 1 ? (
                             <Seg
                                 label="Runtime"
                                 options={[
                                     { value: "all", label: "All", count: all?.length ?? 0 },
-                                    ...[...families].sort((a, b) => b[1] - a[1]).map(([f, n]) => ({ value: f, label: familyLabel[f], count: n })),
+                                    ...families.map((f) => ({ value: f.key, label: f.label, count: f.count })),
                                 ]}
                                 value={family}
                                 onChange={setFamily}
@@ -253,9 +204,9 @@ function LambdaList({ profile, active }: ViewProps) {
                                 width: "24%",
                                 cell: (f) => (
                                     <span className="aws-runtime">
-                                        <i className={`rt-${runtimeFamily(f.runtime)}`} />
+                                        <i className={`rt-${f.family}`} />
                                         <Cell>{f.runtime ?? "—"}</Cell>
-                                        {f.runtime && DEPRECATED_RUNTIMES.has(f.runtime) && <Tag tone="warn">deprecated</Tag>}
+                                        {f.deprecated && <Tag tone="warn">deprecated</Tag>}
                                     </span>
                                 ),
                             },
@@ -264,9 +215,9 @@ function LambdaList({ profile, active }: ViewProps) {
                                 width: "17%",
                                 cell: (f) => (
                                     <span className="aws-bar-cell">
-                                        <Cell>{memory(f.memory_size)}</Cell>
+                                        <Cell>{f.memoryLabel}</Cell>
                                         <span className="aws-mini">
-                                            <b style={{ width: `${((f.memory_size ?? 0) / maxMemory) * 100}%` }} />
+                                            <b style={{ width: `${f.memoryRatio * 100}%` }} />
                                         </span>
                                     </span>
                                 ),
@@ -275,52 +226,46 @@ function LambdaList({ profile, active }: ViewProps) {
                                 header: "Timeout",
                                 width: "11%",
                                 align: "right",
-                                cell: (f) => <Cell>{f.timeout ? formatDuration(f.timeout * 1000) : "—"}</Cell>,
+                                cell: (f) => <Cell>{timeout(f.timeoutSecs)}</Cell>,
                             },
-                            { header: "Modified", width: "13%", align: "right", cell: (f) => <Cell dim>{formatAgo(f.last_modified)}</Cell> },
+                            { header: "Modified", width: "13%", align: "right", cell: (f) => <Cell dim>{formatAgo(f.modifiedAt)}</Cell> },
                         ]}
                     />
                 )}
             </div>
-            {selected ? (
-                <LambdaInspector profile={profile} fn={selected} region={region} />
-            ) : (
-                <InspectorEmpty text={all ? "No function selected" : ""} />
-            )}
+            {selected ? <LambdaInspector profile={profile} fn={selected} /> : <InspectorEmpty text={all ? "No function selected" : ""} />}
         </>
     );
 }
 
-function LambdaInspector({ profile, fn, region }: { profile: string; fn: LambdaFn; region: string }) {
+function LambdaInspector({ profile, fn }: { profile: string; fn: AwsLambdaFunction }) {
     return (
         <Inspector>
             <InspectorHead
                 title={fn.name}
-                sub={`/aws/lambda/${fn.name}`}
+                sub={fn.logGroup}
                 actions={
                     <>
                         <button className="aws-btn primary" onClick={() => setLambdaLogs(profile, fn.name)}>
                             <IconLogs />
                             Tail logs
                         </button>
-                        <ConsoleButton
-                            url={`https://${region}.console.aws.amazon.com/lambda/home?region=${region}#/functions/${encodeURIComponent(fn.name)}`}
-                        />
+                        <ConsoleButton url={fn.consoleUrl} />
                     </>
                 }
             />
             <Stats
                 items={[
-                    { label: "Memory", value: memory(fn.memory_size) },
-                    { label: "Timeout", value: fn.timeout ? formatDuration(fn.timeout * 1000) : "—" },
+                    { label: "Memory", value: fn.memoryLabel },
+                    { label: "Timeout", value: timeout(fn.timeoutSecs) },
                 ]}
             />
             <Facts
                 items={[
                     { label: "Runtime", value: fn.runtime },
                     { label: "Handler", value: fn.handler, copy: true },
-                    { label: "Modified", value: fn.last_modified ? `${formatAgo(fn.last_modified)} · ${fn.last_modified.slice(0, 10)}` : null },
-                    { label: "Log group", value: `/aws/lambda/${fn.name}`, copy: true },
+                    { label: "Modified", value: fn.modifiedAt ? `${formatAgo(fn.modifiedAt)} · ${fn.modifiedAt.slice(0, 10)}` : null },
+                    { label: "Log group", value: fn.logGroup, copy: true },
                 ]}
             />
         </Inspector>
@@ -357,28 +302,21 @@ function LambdaLogs({ profile, active, fn }: ViewProps & { fn: string }) {
 
 /* ── SQS ─────────────────────────────────────────────── */
 
-const count = (value: string | null) => {
-    const n = Number(value);
-    return value !== null && Number.isFinite(n) ? n : null;
-};
-const isDeadLetter = (q: SqsQueue) => /(?:-|_)(?:dlq|dead-?letter)(?:\.fifo)?$/i.test(q.name);
-
 function Count({ n, tone }: { n: number | null; tone?: "warn" }) {
     return <span className={`aws-num${n ? "" : " zero"}${n && tone ? ` ${tone}` : ""}`}>{n === null ? "—" : n.toLocaleString()}</span>;
 }
 
-export function AwsSqsView({ profile, active }: ViewProps) {
+export function AwsSqsView({ paneId, profile, active }: ViewProps) {
     const region = useRegion(profile);
-    const handle = useResourceEnabled(active, sqsQueuesR, profile);
+    const handle = useResourceEnabled(active, sqsV, paneId, profile);
     const [kind, setKind] = useState<"all" | "dlq">("all");
     const [query, setQuery] = useState("");
     const picked = useAws((s) => s.selection[profile]?.sqs);
-    const all = handle.data;
+    const all = handle.data?.queues;
     useReportCount(profile, "sqs", all?.length);
-    const dlqs = all?.filter(isDeadLetter).length ?? 0;
-    const rows = (all ?? []).filter((q) => (kind === "all" || isDeadLetter(q)) && matches(query, q.name));
+    const dlqs = handle.data?.deadLetters ?? 0;
+    const rows = (all ?? []).filter((q) => (kind === "all" || q.deadLetter) && matches(query, q.name));
     const selected = all?.find((q) => q.name === picked) ?? rows[0];
-    const most = Math.max(1, ...(all ?? []).map((q) => count(q.messages) ?? 0));
 
     return (
         <>
@@ -418,35 +356,31 @@ export function AwsSqsView({ profile, active }: ViewProps) {
                                 cell: (q) => (
                                     <span className="aws-name-row">
                                         <span className="aws-name">{q.name}</span>
-                                        {q.name.endsWith(".fifo") && <Tag>fifo</Tag>}
-                                        {isDeadLetter(q) && <Tag tone={count(q.messages) ? "warn" : undefined}>dead-letter</Tag>}
+                                        {q.fifo && <Tag>fifo</Tag>}
+                                        {q.deadLetter && <Tag tone={q.needsLook ? "warn" : undefined}>dead-letter</Tag>}
                                     </span>
                                 ),
                             },
                             {
                                 header: "Available",
                                 width: "22%",
-                                cell: (q) => {
-                                    const n = count(q.messages);
-                                    const alarm = isDeadLetter(q) && !!n;
-                                    return (
-                                        <span className="aws-bar-cell">
-                                            <span className="aws-bar-num">
-                                                <Count n={n} tone={alarm ? "warn" : undefined} />
-                                            </span>
-                                            <span className={`aws-mini wide${alarm ? " warn" : ""}`}>
-                                                <b style={{ width: `${n ? Math.max(3, Math.sqrt(n / most) * 100) : 0}%` }} />
-                                            </span>
+                                cell: (q) => (
+                                    <span className="aws-bar-cell">
+                                        <span className="aws-bar-num">
+                                            <Count n={q.available} tone={q.needsLook ? "warn" : undefined} />
                                         </span>
-                                    );
-                                },
+                                        <span className={`aws-mini wide${q.needsLook ? " warn" : ""}`}>
+                                            <b style={{ width: `${q.ratio * 100}%` }} />
+                                        </span>
+                                    </span>
+                                ),
                             },
-                            { header: "In flight", width: "11%", align: "right", cell: (q) => <Count n={count(q.in_flight)} /> },
-                            { header: "Delayed", width: "11%", align: "right", cell: (q) => <Count n={count(q.delayed)} /> },
+                            { header: "In flight", width: "11%", align: "right", cell: (q) => <Count n={q.inFlight} /> },
+                            { header: "Delayed", width: "11%", align: "right", cell: (q) => <Count n={q.delayed} /> },
                             {
                                 header: "",
                                 width: "15%",
-                                cell: (q) => (isDeadLetter(q) && count(q.messages) ? <State health="warn" label="Needs a look" /> : null),
+                                cell: (q) => (q.needsLook ? <State health="warn" label="Needs a look" /> : null),
                             },
                         ]}
                     />
@@ -456,13 +390,11 @@ export function AwsSqsView({ profile, active }: ViewProps) {
                 <Inspector>
                     <InspectorHead
                         title={selected.name}
-                        badge={selected.name.endsWith(".fifo") ? <Tag>fifo</Tag> : undefined}
+                        badge={selected.fifo ? <Tag>fifo</Tag> : undefined}
                         sub={selected.url}
                         actions={
                             <>
-                                <ConsoleButton
-                                    url={`https://${region}.console.aws.amazon.com/sqs/v3/home?region=${region}#/queues/${encodeURIComponent(selected.url)}`}
-                                />
+                                <ConsoleButton url={selected.consoleUrl} />
                                 <button
                                     className="aws-btn aws-icon-btn"
                                     onClick={() => copy(selected.url, "queue URL")}
@@ -477,26 +409,26 @@ export function AwsSqsView({ profile, active }: ViewProps) {
                         items={[
                             {
                                 label: "Available",
-                                value: count(selected.messages)?.toLocaleString() ?? "—",
-                                tone: isDeadLetter(selected) && count(selected.messages) ? "warn" : count(selected.messages) ? undefined : "zero",
+                                value: selected.available?.toLocaleString() ?? "—",
+                                tone: selected.needsLook ? "warn" : selected.available ? undefined : "zero",
                             },
                             {
                                 label: "In flight",
-                                value: count(selected.in_flight)?.toLocaleString() ?? "—",
-                                tone: count(selected.in_flight) ? undefined : "zero",
+                                value: selected.inFlight?.toLocaleString() ?? "—",
+                                tone: selected.inFlight ? undefined : "zero",
                             },
                             {
                                 label: "Delayed",
-                                value: count(selected.delayed)?.toLocaleString() ?? "—",
-                                tone: count(selected.delayed) ? undefined : "zero",
+                                value: selected.delayed?.toLocaleString() ?? "—",
+                                tone: selected.delayed ? undefined : "zero",
                             },
                         ]}
                     />
                     <Facts
                         items={[
                             { label: "URL", value: selected.url, copy: true },
-                            { label: "Type", value: selected.name.endsWith(".fifo") ? "FIFO" : "Standard" },
-                            { label: "Role", value: isDeadLetter(selected) ? "Dead-letter queue" : "Queue" },
+                            { label: "Type", value: selected.fifo ? "FIFO" : "Standard" },
+                            { label: "Role", value: selected.deadLetter ? "Dead-letter queue" : "Queue" },
                         ]}
                     />
                 </Inspector>
@@ -509,15 +441,15 @@ export function AwsSqsView({ profile, active }: ViewProps) {
 
 /* ── S3 ──────────────────────────────────────────────── */
 
-export function AwsS3View({ profile, active }: ViewProps) {
+export function AwsS3View({ paneId, profile, active }: ViewProps) {
     const region = useRegion(profile);
-    const handle = useResourceEnabled(active, s3BucketsR, profile);
+    const handle = useResourceEnabled(active, s3V, paneId, profile);
     const [query, setQuery] = useState("");
     const picked = useAws((s) => s.selection[profile]?.s3);
-    const all = handle.data;
+    const all = handle.data?.buckets;
     useReportCount(profile, "s3", all?.length);
     const rows = (all ?? []).filter((b) => matches(query, b.name));
-    const selected: S3Bucket | undefined = all?.find((b) => b.name === picked) ?? rows[0];
+    const selected: AwsS3Bucket | undefined = all?.find((b) => b.name === picked) ?? rows[0];
 
     return (
         <>
@@ -539,8 +471,8 @@ export function AwsS3View({ profile, active }: ViewProps) {
                         onSelect={(b) => selectAws(profile, "s3", b.name)}
                         columns={[
                             { header: "Bucket", width: "62%", cell: (b) => <span className="aws-name">{b.name}</span> },
-                            { header: "Created", width: "20%", cell: (b) => <Cell>{b.created_at?.slice(0, 10) ?? "—"}</Cell> },
-                            { header: "Age", width: "16%", align: "right", cell: (b) => <Cell dim>{formatAgo(b.created_at)}</Cell> },
+                            { header: "Created", width: "20%", cell: (b) => <Cell>{b.createdAt?.slice(0, 10) ?? "—"}</Cell> },
+                            { header: "Age", width: "16%", align: "right", cell: (b) => <Cell dim>{formatAgo(b.createdAt)}</Cell> },
                         ]}
                     />
                 )}
@@ -549,13 +481,13 @@ export function AwsS3View({ profile, active }: ViewProps) {
                 <Inspector>
                     <InspectorHead
                         title={selected.name}
-                        sub={`arn:aws:s3:::${selected.name}`}
+                        sub={selected.arn}
                         actions={
                             <>
-                                <ConsoleButton url={`https://s3.console.aws.amazon.com/s3/buckets/${encodeURIComponent(selected.name)}`} />
+                                <ConsoleButton url={selected.consoleUrl} />
                                 <button
                                     className="aws-btn aws-icon-btn"
-                                    onClick={() => copy(`s3://${selected.name}`, "S3 URI")}
+                                    onClick={() => copy(selected.uri, "S3 URI")}
                                     title="Copy s3:// URI"
                                     aria-label="Copy S3 URI">
                                     <IconCopy size={14} />
@@ -565,11 +497,11 @@ export function AwsS3View({ profile, active }: ViewProps) {
                     />
                     <Facts
                         items={[
-                            { label: "URI", value: `s3://${selected.name}`, copy: true },
-                            { label: "ARN", value: `arn:aws:s3:::${selected.name}`, copy: true },
+                            { label: "URI", value: selected.uri, copy: true },
+                            { label: "ARN", value: selected.arn, copy: true },
                             {
                                 label: "Created",
-                                value: selected.created_at ? `${selected.created_at.slice(0, 10)} · ${formatAgo(selected.created_at)}` : null,
+                                value: selected.createdAt ? `${selected.createdAt.slice(0, 10)} · ${formatAgo(selected.createdAt)}` : null,
                             },
                         ]}
                     />

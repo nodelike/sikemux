@@ -7,10 +7,10 @@ import { worktreeSwitchState } from "./worktreeSwitch";
 import * as cmd from "../state/commands";
 import { useResourceEnabled } from "../state/resources";
 import { gitWorktreesR } from "../state/resources.defs";
-import { useStore } from "../state/store";
+import { usePreference } from "../state/preferences";
 import type { Agent, AgentWorktree } from "../state/types";
 import type { OutgoingMessage } from "./queuedMessages";
-import type { ChatState } from "./types";
+import type { ChatRows } from "./types";
 
 /** The checkout the core cut for an agent and moved it into. */
 export interface PreparedWorktree {
@@ -47,12 +47,12 @@ export function useChatWorktree({
     cwd: string;
     visible: boolean;
     started: boolean;
-    connection: ChatState["connection"];
+    connection: ChatRows["connection"];
     running: boolean;
     send: (message: OutgoingMessage, steerNow: boolean) => boolean;
     onError: (message: string | null) => void;
 }) {
-    const projectDefault = useStore((s) => s.agentWorktreeDefaults[cwd] === true);
+    const projectDefault = usePreference("agentWorktreeDefaults")?.[cwd] === true;
     const [choice, setChoice] = useState<{ cwd: string; on: boolean } | null>(null);
     const on = choice?.cwd === cwd ? choice.on : projectDefault;
     const [step, setStep] = useState<string | null>(null);

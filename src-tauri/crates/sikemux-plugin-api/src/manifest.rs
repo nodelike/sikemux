@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -23,6 +25,21 @@ pub struct Manifest {
     /// the Dock starts without them, so the host copies them in from the login shell.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environment: Vec<String>,
+    /// The reads a pane shows, by method, which the core keeps and reads again
+    /// while a pane shows one.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub views: BTreeMap<String, View>,
+    /// The methods that change what the views show, so the core reads them
+    /// again after one succeeds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct View {
+    /// How often it is read again while shown, in seconds.
+    pub every_secs: u64,
 }
 
 /// A plugin method that agents may call as a tool. Only methods named here are

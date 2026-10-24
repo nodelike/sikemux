@@ -1,0 +1,96 @@
+//! The desktop UI on GPUI, a client of the core.
+
+pub mod account_picker;
+mod accounts;
+mod add_task;
+mod agent_card;
+mod agent_menu;
+mod agent_palette;
+pub mod agent_review;
+mod agent_setup;
+mod agents;
+mod avatars;
+mod battery;
+mod board;
+mod board_panels;
+mod boot;
+mod buddy_picker;
+mod chat;
+pub mod codehost;
+mod command_popup;
+mod commands;
+pub mod composer;
+pub mod console;
+pub mod core;
+mod desk;
+mod diagnostics;
+mod drag;
+#[cfg(feature = "drive")]
+pub mod drive;
+pub mod editor;
+mod experience;
+mod faces;
+pub mod file_icons;
+mod files;
+mod finder;
+mod fuzzy;
+pub mod git;
+mod home;
+pub mod hosts;
+pub mod icons;
+pub mod install_pane;
+mod keymap;
+mod links;
+pub mod model_picker;
+mod motion;
+mod new_tab;
+pub mod notifications;
+mod opening;
+mod pairing;
+mod palette;
+mod panes;
+mod picker;
+mod picture;
+mod places;
+mod plugin_pane;
+mod ports;
+mod project_settings;
+pub mod project_switcher;
+mod rail;
+mod retry;
+mod run_check;
+pub mod search;
+mod see_through;
+mod send_to;
+pub mod settings;
+mod share;
+mod sim_frame;
+mod sim_pane;
+#[cfg(target_os = "macos")]
+mod sim_screen;
+#[cfg(not(target_os = "macos"))]
+#[path = "sim_screen_elsewhere.rs"]
+mod sim_screen;
+mod space_editor;
+mod swipe;
+mod switcher;
+pub mod syntax;
+mod tabs;
+pub mod terminal;
+mod test_card;
+pub mod theme;
+mod theme_palette;
+mod thread_priority;
+pub mod toast;
+mod top_place;
+mod track;
+mod ui;
+pub mod voice;
+mod welcome;
+mod whats_new;
+pub mod workbench;
+mod worktree_head;
+pub mod worktree_switch;
+
+/// The window's size when it first opens.
+pub const WINDOW_SIZE: (f32, f32) = (1340., 880.);

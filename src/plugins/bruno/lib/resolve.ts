@@ -1,34 +1,21 @@
-// Helpers tying a request to its place in the collection: locating a request by
-// path (collecting the folder scopes above it) and assembling the variable scope
-// used for {{interpolation}}.
+// Helpers tying a request to its place in the collection: finding its tree row by path, and
+// assembling the variable scope used for {{interpolation}}.
 
 import { mergeScope, type Scope } from "./interpolate";
-import type { BruCollection, BruEnv, BruRequest, BruScope, BruTreeNode, KeyVal } from "./types";
+import type { BruEnv, BruRequest, BruScope, BruTreeNode, KeyVal } from "./types";
 
-export interface LocatedRequest {
-    request: BruRequest;
-    /** ancestor folder scopes, root-first */
-    folderScopes: BruScope[];
-    /** collection root the request belongs to */
-    collectionPath: string;
-}
+export type BruTreeRequest = Extract<BruTreeNode, { type: "request" }>;
 
-export function findRequest(nodes: BruTreeNode[], path: string, acc: BruScope[] = []): LocatedRequest | null {
-    for (const n of nodes) {
-        if (n.type === "request") {
-            if (n.path === path) return { request: n.request, folderScopes: acc, collectionPath: n.collectionPath };
+export function findRequest(nodes: BruTreeNode[], path: string): BruTreeRequest | null {
+    for (const node of nodes) {
+        if (node.type === "request") {
+            if (node.path === path) return node;
         } else {
-            const found = findRequest(n.children, path, n.scope ? [...acc, n.scope] : acc);
+            const found = findRequest(node.children, path);
             if (found) return found;
         }
     }
     return null;
-}
-
-function varsOf(scope: BruScope | null): Scope {
-    const m: Scope = {};
-    if (scope) for (const v of scope.vars.req) if (v.enabled && v.name) m[v.name] = v.value;
-    return m;
 }
 
 function varsOfRows(rows: KeyVal[]): Scope {
@@ -37,27 +24,16 @@ function varsOfRows(rows: KeyVal[]): Scope {
     return m;
 }
 
-function envVars(env: BruEnv | undefined): Scope {
-    const m: Scope = {};
-    if (env) for (const v of env.vars) if (v.enabled && v.name) m[v.name] = v.value;
-    return m;
-}
-
-/** Variable scope, precedence high→low: secrets, environment, folders(leaf→root), collection. */
-export function buildScope(opts: {
-    collection: BruCollection;
-    env: BruEnv | undefined;
-    secretVars: Record<string, string>;
-    folderScopes: BruScope[];
-}): Scope {
-    const folderLayers = [...opts.folderScopes].reverse().map(varsOf);
-    return mergeScope(opts.secretVars, envVars(opts.env), ...folderLayers, varsOf(opts.collection.config));
+/** Variable scope, precedence high→low: secrets, environment, then the scopes from the request's folder out to the collection. */
+export function buildScope(opts: { env: BruEnv | undefined; secretVars: Record<string, string>; scopes: BruScope[] }): Scope {
+    const layers = [...opts.scopes].reverse().map((scope) => varsOfRows(scope.vars.req));
+    return mergeScope(opts.secretVars, varsOfRows(opts.env?.vars ?? []), ...layers);
 }
 
 export function requestVars(request: BruRequest | null | undefined): Scope {
     return request ? varsOfRows(request.vars.req) : {};
 }
 
-export function selectedEnvOf(collection: BruCollection, id: string | null): BruEnv | undefined {
-    return id ? collection.envs.find((e) => e.id === id) : undefined;
+export function selectedEnvOf(envs: BruEnv[], id: string | null): BruEnv | undefined {
+    return id ? envs.find((e) => e.id === id) : undefined;
 }

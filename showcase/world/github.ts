@@ -1,3 +1,5 @@
+import { parseAnsi } from "../../src/lib/ansi";
+
 type Params = Record<string, unknown>;
 
 const iso = (minutesAgo: number) =>
@@ -381,6 +383,7 @@ const run = (id: number, overrides: Record<string, unknown>) => ({
   event: "push",
   status: "completed",
   conclusion: "success",
+  outcome: "success",
   branch: "v0.4.2-nightly.3",
   sha: SHA,
   shortSha: SHA.slice(0, 7),
@@ -405,6 +408,7 @@ const RUNS = [
     event: "pull_request",
     branch: "feat/github-actions-plugin",
     conclusion: "failure",
+    outcome: "failure",
     createdAt: iso(42),
     startedAt: iso(42),
     updatedAt: iso(33),
@@ -423,6 +427,7 @@ const RUNS = [
     branch: "main",
     status: "in_progress",
     conclusion: null,
+    outcome: "running",
     createdAt: iso(4),
     startedAt: iso(4),
     updatedAt: iso(1),
@@ -442,6 +447,7 @@ const step = (
   name,
   status: "completed",
   conclusion,
+  outcome: conclusion,
   startedAt: at(from, after),
   completedAt: at(from, after + seconds),
 });
@@ -458,6 +464,7 @@ const job = (
   name,
   status: "completed",
   conclusion,
+  outcome: conclusion,
   startedAt: at(from),
   completedAt: at(from, minutes * 60),
   runner: "GitHub Actions 12",
@@ -649,6 +656,171 @@ function stepLog(name: string, conclusion: string): string[] {
 
 function jobsFor(runId: number) {
   return runId === 36316470001 ? CI_JOBS : RELEASE_JOBS;
+}
+
+const box = (id: string, title: string | null, jobs: [number, string][]) => ({
+  id,
+  title,
+  jobs: jobs.map(([job, label]) => ({
+    job: String(job),
+    label,
+    skipped: false,
+  })),
+});
+
+const edges = (...pairs: string[]) =>
+  pairs.map((pair) => {
+    const [from, to] = pair.split(">");
+    return { from, to };
+  });
+
+/** Each run's jobs as the core lays them out from its workflow files. */
+const RUN_GRAPHS: Record<number, unknown> = {
+  36316473434: {
+    columns: [
+      [box("checks/changes", null, [[108612011312, "Checks / What changed"]])],
+      [
+        box("checks/frontend", null, [
+          [108612011313, "Checks / Frontend quality, build, and tests"],
+          [108612011314, "Checks / Rust formatting, lint and tests"],
+          [108612011315, "Checks / macOS launched smoke test"],
+        ]),
+      ],
+      [
+        box("build", null, [[108612011316, "Build, verify, and publish"]]),
+        box("build-host", "Build the Linux host core", [
+          [108612011317, "x86_64"],
+          [108612011318, "aarch64"],
+        ]),
+      ],
+    ],
+    edges: edges(
+      "checks/changes>checks/frontend",
+      "checks/frontend>build",
+      "checks/frontend>build-host",
+    ),
+  },
+  36316470001: {
+    columns: [
+      [
+        box("frontend", null, [
+          [208612011001, "Frontend"],
+          [208612011002, "Rust"],
+        ]),
+      ],
+      [box("package", null, [[208612011003, "Package"]])],
+    ],
+    edges: edges("frontend>package"),
+  },
+};
+
+/** A run as the core opens it. */
+export function openRun(runId: number) {
+  const { run, jobs } = GITHUB.run({ runId }) as {
+    run: { id: number; status: string };
+    jobs: ReturnType<typeof job>[];
+  };
+  const unfinished = run.status !== "completed";
+  const failed = jobs.filter((each) => each.outcome === "failure");
+  return {
+    run,
+    jobs: jobs.map((each) => ({
+      job: { ...each, id: String(each.id) },
+      stoppedAt:
+        (each.steps as ReturnType<typeof step>[]).find(
+          (one) => one.outcome === "failure",
+        )?.name ?? null,
+    })),
+    attempts: 1,
+    unfinished,
+    done: jobs.filter((each) => each.status === "completed").length,
+    failed: failed.length,
+    failedJob: failed[0] ? String(failed[0].id) : null,
+    graph: RUN_GRAPHS[run.id] ?? {
+      columns: [
+        jobs.map((each) => box(`job:${each.id}`, null, [[each.id, each.name]])),
+      ],
+      edges: [],
+    },
+    timing: unfinished ? null : GITHUB.runTiming({}),
+    summaries: unfinished
+      ? []
+      : jobs
+          .filter((each) => each.conclusion !== "skipped")
+          .map((each) => String(each.id)),
+  };
+}
+
+const MARKUP =
+  /^##\[(group|endgroup|section|command|error|warning|notice|debug)\]/;
+
+const colour = (color: number | string | null) =>
+  color === null
+    ? undefined
+    : typeof color === "number"
+      ? { kind: "palette", index: color }
+      : { kind: "rgb", hex: color };
+
+/** A job's log as the core splits it into its steps. */
+export function openJobLog(jobId: string) {
+  const found = [...RELEASE_JOBS, ...CI_JOBS].find(
+    (each) => String(each.id) === jobId,
+  );
+  const steps = (found?.steps ?? []) as ReturnType<typeof step>[];
+  const texts: string[] = steps.length === 0 ? [...LOG_LINES] : [];
+  const sections =
+    steps.length === 0
+      ? [{ step: null, from: 0, to: texts.length }]
+      : steps.map((each) => {
+          const from = texts.length;
+          if (each.conclusion !== "skipped")
+            texts.push(...stepLog(each.name, each.conclusion));
+          return { step: each.number, from, to: texts.length };
+        });
+  const lines = texts.map((raw, index) => {
+    const mark = MARKUP.exec(raw)?.[1] ?? null;
+    const runs = parseAnsi(raw.replace(MARKUP, ""));
+    const styled = runs.some(
+      (run) => run.fg !== null || run.bg !== null || run.bold || run.dim,
+    );
+    return {
+      number: index + 1,
+      text: runs.map((run) => run.text).join(""),
+      spans: styled
+        ? runs.map((run) => ({
+            text: run.text,
+            fg: colour(run.fg),
+            bg: colour(run.bg),
+            bold: run.bold,
+            dim: run.dim,
+            italic: run.italic,
+            underline: run.underline,
+          }))
+        : [],
+      mark,
+      script: false,
+    };
+  });
+  for (const { from, to } of sections) {
+    let running = false;
+    for (const line of lines.slice(from, to)) {
+      if (line.mark === "group" && line.text.startsWith("Run ")) running = true;
+      else if (
+        running &&
+        (line.mark === "endgroup" || line.text.startsWith("shell: "))
+      )
+        running = false;
+      else if (running) line.script = true;
+    }
+  }
+  return {
+    lines,
+    from: 0,
+    total: lines.length,
+    sections,
+    expired: false,
+    truncated: false,
+  };
 }
 
 const PULL_TIMELINE = [

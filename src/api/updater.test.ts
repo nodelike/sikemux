@@ -1,44 +1,51 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getState, setState, type PendingUpdate } from "../state/store";
 import { useToasts } from "../state/toast";
+import type { UpdateStatus } from "./generated/wire";
 import { MemoryIpcTransport, installIpcTransportForTests, resetIpcTransportForTests } from "./transport";
-import { checkForUpdate, checkForUpdateNow, installPendingUpdate, parseUpdateInstallProgress, updateDownloadPercent } from "./updater";
-
-const mocks = vi.hoisted(() => ({ relaunch: vi.fn(() => Promise.resolve()) }));
-
-vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: mocks.relaunch }));
-vi.mock("@tauri-apps/api/core", () => {
-    class TestChannel<T> {
-        onmessage: (message: T) => void = () => undefined;
-    }
-    return { Channel: TestChannel };
-});
+import { checkForUpdate, checkForUpdateNow, installPendingUpdate, updateDownloadPercent } from "./updater";
 
 const initial = getState();
 let transport: MemoryIpcTransport;
+let core: Record<string, (params: unknown) => Promise<unknown>>;
+let restarts: ReturnType<typeof vi.fn<() => Promise<void>>>;
 
-function availableUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdate {
+function status(overrides: Partial<UpdateStatus> = {}): UpdateStatus {
     return {
-        version: "0.2.1",
-        currentVersion: "0.2.0",
-        notes: "Fix updater progress",
-        date: "2026-08-14T00:00:00Z",
-        credits: null,
-        state: "available",
+        updates: true,
+        current: "0.2.0",
+        checked: { at: 1, channel: "stable", error: null },
+        available: null,
+        state: "idle",
         error: null,
+        blockers: [],
         downloadedBytes: 0,
         totalBytes: null,
+        forced: false,
         ...overrides,
     };
+}
+
+const release = { version: "0.2.1", notes: "Fix updater progress", date: "2026-08-14T00:00:00Z", credits: null };
+
+function availableUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdate {
+    return { ...release, currentVersion: "0.2.0", state: "available", error: null, downloadedBytes: 0, totalBytes: null, ...overrides };
 }
 
 beforeEach(() => {
     resetIpcTransportForTests();
     transport = new MemoryIpcTransport();
     installIpcTransportForTests(transport);
+    core = { updateStatus: () => Promise.resolve(status()) };
+    transport.register("core_call", (args) => {
+        const { method, params } = args as { method: string; params: unknown };
+        const answer = core[method];
+        return answer ? answer(params) : Promise.reject(new Error(`no ${method}`));
+    });
+    restarts = vi.fn<() => Promise<void>>(() => Promise.resolve());
+    transport.register("update_restart", restarts);
     setState(initial, true);
     useToasts.setState({ toasts: [] });
-    mocks.relaunch.mockClear();
 });
 
 afterEach(() => {
@@ -47,122 +54,66 @@ afterEach(() => {
 });
 
 describe("updater progress", () => {
-    it("validates progress payloads and clamps percentages", () => {
-        expect(parseUpdateInstallProgress({ phase: "downloading", downloadedBytes: 50, totalBytes: 100 })).toEqual({
-            phase: "downloading",
-            downloadedBytes: 50,
-            totalBytes: 100,
-        });
-        expect(parseUpdateInstallProgress({ phase: "other", downloadedBytes: 0, totalBytes: null })).toBeNull();
-        expect(parseUpdateInstallProgress({ phase: "downloading", downloadedBytes: -1, totalBytes: null })).toBeNull();
+    it("clamps percentages", () => {
         expect(updateDownloadPercent(availableUpdate({ downloadedBytes: 51, totalBytes: 100 }))).toBe(51);
         expect(updateDownloadPercent(availableUpdate({ downloadedBytes: 110, totalBytes: 100 }))).toBe(100);
         expect(updateDownloadPercent(availableUpdate())).toBeNull();
     });
 
-    it("does not let polling erase an active installation", async () => {
-        setState({ pendingUpdate: availableUpdate({ state: "downloading", downloadedBytes: 25, totalBytes: 100 }) });
-
-        await checkForUpdate();
-
-        expect(getState().pendingUpdate).toMatchObject({ state: "downloading", downloadedBytes: 25 });
-    });
-
-    it("discards a stale polling response that returns after installation starts", async () => {
-        let resolveCheck!: (value: unknown) => void;
-        const response = new Promise<unknown>((resolve) => {
-            resolveCheck = resolve;
-        });
-        transport.register("update_check", () => response);
+    it("shows the core's download and restarts once the update is ready", async () => {
         setState({ pendingUpdate: availableUpdate() });
-
-        const checking = checkForUpdate();
-        setState({ pendingUpdate: availableUpdate({ state: "downloading", downloadedBytes: 25, totalBytes: 100 }) });
-        resolveCheck({
-            version: "0.2.2",
-            currentVersion: "0.2.0",
-            notes: "stale response",
-            date: null,
-        });
-        await checking;
-
-        expect(getState().pendingUpdate).toMatchObject({
-            version: "0.2.1",
-            state: "downloading",
-            downloadedBytes: 25,
-        });
-    });
-
-    it("streams download progress, separates installation, and relaunches", async () => {
-        setState({ pendingUpdate: availableUpdate() });
-        const installHandler = vi.fn(async (args: unknown) => {
-            const { onProgress } = args as { onProgress: { onmessage: (message: unknown) => void } };
-            onProgress.onmessage({ phase: "downloading", downloadedBytes: 25, totalBytes: 100 });
-            expect(getState().pendingUpdate).toMatchObject({ state: "downloading", downloadedBytes: 25, totalBytes: 100 });
-            onProgress.onmessage({ phase: "installing", downloadedBytes: 100, totalBytes: 100 });
-            expect(getState().pendingUpdate).toMatchObject({ state: "installing", downloadedBytes: 100 });
-            onProgress.onmessage({ phase: "installed", downloadedBytes: 100, totalBytes: 100 });
-            return {
-                version: "0.2.1",
-                currentVersion: "0.2.0",
-                notes: "Fix updater progress",
-                date: "2026-08-14T00:00:00Z",
-            };
-        });
-        transport.register("update_install", installHandler);
+        core.updateInstall = () => Promise.resolve(status({ available: release, state: "downloading", downloadedBytes: 25, totalBytes: 100 }));
 
         await installPendingUpdate();
+        expect(getState().pendingUpdate).toMatchObject({ state: "downloading", downloadedBytes: 25, totalBytes: 100 });
+        expect(restarts).not.toHaveBeenCalled();
 
-        expect(installHandler).toHaveBeenCalledOnce();
-        expect(mocks.relaunch).toHaveBeenCalledOnce();
-        expect(getState().pendingUpdate).toMatchObject({ state: "restarting", downloadedBytes: 100, totalBytes: 100 });
-        expect(getState().lastReleaseNotes).toEqual({
-            version: "0.2.1",
-            notes: "Fix updater progress",
-            date: "2026-08-14T00:00:00Z",
-        });
+        core.updateCheck = () => Promise.resolve(status({ available: release, state: "ready", downloadedBytes: 100, totalBytes: 100 }));
+        await checkForUpdate();
+
+        expect(restarts).toHaveBeenCalledOnce();
+        expect(getState().pendingUpdate).toMatchObject({ state: "restarting", downloadedBytes: 100 });
+        expect(getState().lastReleaseNotes).toEqual({ version: "0.2.1", notes: "Fix updater progress", date: "2026-08-14T00:00:00Z", credits: null });
     });
 
-    it("deduplicates concurrent installs and exposes native failure for retry", async () => {
+    it("deduplicates concurrent installs and exposes the core's failure for retry", async () => {
         setState({ pendingUpdate: availableUpdate() });
-        const installHandler = vi.fn(async () => {
-            throw new Error("download timed out");
-        });
-        transport.register("update_install", installHandler);
+        const install = vi.fn(() => Promise.reject(new Error("download timed out")));
+        core.updateInstall = install;
 
         const first = installPendingUpdate();
         const second = installPendingUpdate();
         expect(second).toBe(first);
         await first;
 
-        expect(installHandler).toHaveBeenCalledOnce();
-        expect(mocks.relaunch).not.toHaveBeenCalled();
+        expect(install).toHaveBeenCalledOnce();
+        expect(restarts).not.toHaveBeenCalled();
         expect(getState().pendingUpdate).toMatchObject({ state: "error", error: "download timed out" });
     });
 });
 
 describe("update checks", () => {
-    it("records a silent background failure without a toast", async () => {
-        transport.register("update_check", () => Promise.reject(new Error("update check: network unreachable")));
+    it("shows a failed background check without a toast", async () => {
+        core.updateCheck = () => Promise.reject(new Error("update check: network unreachable"));
+        core.updateStatus = () => Promise.resolve(status({ checked: { at: 1, channel: "stable", error: "network unreachable" } }));
 
         await checkForUpdate();
 
         expect(getState().pendingUpdate).toBeNull();
-        expect(getState().lastUpdateCheck).toMatchObject({ channel: "stable", error: "update check: network unreachable" });
+        expect(getState().lastUpdateCheck).toMatchObject({ channel: "stable", error: "network unreachable" });
         expect(useToasts.getState().toasts).toEqual([]);
     });
 
     it("reports a user-initiated failure so a broken feed is not mistaken for being current", async () => {
-        transport.register("update_check", () => Promise.reject(new Error("update check: 404 Not Found")));
+        core.updateCheck = () => Promise.reject(new Error("update check: 404 Not Found"));
 
         await checkForUpdateNow();
 
-        expect(getState().lastUpdateCheck).toMatchObject({ error: "update check: 404 Not Found" });
         expect(useToasts.getState().toasts).toMatchObject([{ kind: "error", text: "update check: update check: 404 Not Found" }]);
     });
 
     it("tells a person who checks by hand that they are offline, not that something broke", async () => {
-        transport.register("update_check", () => Promise.reject({ category: "offline", message: "Can't reach the server. Check your connection." }));
+        core.updateCheck = () => Promise.reject({ category: "offline", message: "Can't reach the server. Check your connection." });
 
         await checkForUpdateNow();
 
@@ -172,7 +123,7 @@ describe("update checks", () => {
     });
 
     it("confirms an up-to-date result only when the check actually succeeded", async () => {
-        transport.register("update_check", () => Promise.resolve(null));
+        core.updateCheck = () => Promise.resolve(status());
 
         await checkForUpdateNow();
 
@@ -182,14 +133,16 @@ describe("update checks", () => {
     });
 
     it("announces an available update and deduplicates concurrent manual checks", async () => {
-        const handler = vi.fn(() => Promise.resolve({ version: "0.3.0", currentVersion: "0.2.3", notes: null, date: null }));
-        transport.register("update_check", handler);
+        const check = vi.fn(() =>
+            Promise.resolve(status({ current: "0.2.3", available: { version: "0.3.0", notes: null, date: null, credits: null } })),
+        );
+        core.updateCheck = check;
 
         const first = checkForUpdateNow();
         expect(checkForUpdateNow()).toBe(first);
         await first;
 
-        expect(handler).toHaveBeenCalledOnce();
+        expect(check).toHaveBeenCalledOnce();
         expect(getState().pendingUpdate).toMatchObject({ version: "0.3.0", state: "available" });
         expect(useToasts.getState().toasts).toMatchObject([{ kind: "success", text: "Update v0.3.0 is ready to install." }]);
     });

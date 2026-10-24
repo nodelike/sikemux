@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::super::Core;
 use super::link::{Answer, Received};
-use super::{answered, code, introduction, not_linked, open, route, spawn};
+use super::{answered, code, introduction, not_linked, open, route, spawn, transfer};
 
 pub(super) async fn answer(
     core: &Arc<Core>,
@@ -33,6 +33,7 @@ pub(super) async fn answer(
         }
         "spawn" => spawn::start_here(core, host, params, body).await,
         "openProject" => open::open_here(core, params, body).await,
+        "takeSession" => transfer::take_here(core, params, body).await,
         "hire" => answered(route::hire_here(core, host, params)),
         "forget" => answered(route::forget_here(core, host, params)),
         "deliver" => route::deliver_here(core, host, params).await,

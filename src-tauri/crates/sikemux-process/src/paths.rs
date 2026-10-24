@@ -27,9 +27,41 @@ pub fn expand_home(path: &str) -> PathBuf {
     }
 }
 
-/// `~/.config/sikemux`, where Sikemux keeps its own files.
+/// The folder a try-out build of the GPUI app keeps its secrets in, fixed when it is built.
+/// Such a build keeps every file of its own in `~/.config/sikemux-gpui`, and takes no path
+/// from the environment, so nothing can point it at the person's own Sikemux.
+pub const TRYOUT_SECRETS: Option<&str> = option_env!("SIKEMUX_TRYOUT_SECRETS");
+pub const TRYOUT: bool = TRYOUT_SECRETS.is_some();
+
+/// The path the environment variable `name` holds, which a try-out build never reads.
+pub fn env_path(name: &str) -> Option<PathBuf> {
+    if TRYOUT {
+        return None;
+    }
+    std::env::var_os(name)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+}
+
+/// `~/.config/sikemux`, where Sikemux keeps its own files, or the folder `SIKEMUX_CONFIG_DIR`
+/// names for a Sikemux kept apart from the person's own. A try-out build keeps its own.
 pub fn config_dir() -> Option<PathBuf> {
+    if TRYOUT {
+        return Some(home()?.join(".config").join("sikemux-gpui"));
+    }
+    if let Some(dir) = env_path(crate::vars::CONFIG_DIR) {
+        return Some(dir);
+    }
     Some(home()?.join(".config").join("sikemux"))
+}
+
+/// The endpoint file of the core that started this program, when one handed it over. A
+/// try-out build takes only one inside its own folder, never the person's own core's.
+pub fn handed_cli_endpoint() -> Option<PathBuf> {
+    std::env::var_os(crate::vars::CLI_ENDPOINT)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| !TRYOUT || config_dir().is_some_and(|own| path.starts_with(own)))
 }
 
 /// A file in `~/.config/sikemux`, named `<stem>.dev.<extension>` in debug builds so a

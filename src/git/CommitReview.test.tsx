@@ -2,8 +2,11 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { commitFiles } = vi.hoisted(() => ({ commitFiles: vi.fn() }));
-vi.mock("../api/git", () => ({ git: { commitFiles } }));
+const { commitFiles, commitLines } = vi.hoisted(() => ({
+    commitFiles: vi.fn(),
+    commitLines: vi.fn(() => Promise.resolve({ authors: [], files: [] })),
+}));
+vi.mock("../api/git", () => ({ git: { commitFiles, commitLines } }));
 vi.mock("./DiffEditor", () => ({
     DiffEditor: ({ path, baseRev, headRev }: { path: string; baseRev: string; headRev: string }) => (
         <div>{`diff of ${path} from ${baseRev} to ${headRev}`}</div>

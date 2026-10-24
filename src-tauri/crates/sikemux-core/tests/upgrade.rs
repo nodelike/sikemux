@@ -3,6 +3,8 @@
 //! A core replacing itself with another binary in the same process. These run
 //! the standalone core binary, since the core under test has to `exec`.
 
+mod folded;
+
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, TcpStream};
@@ -12,6 +14,7 @@ use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use folded::Folded;
 use serde_json::{json, Value};
 use sikemux_core::cli::auth::new_nonce;
 use sikemux_core::cli::protocol::{
@@ -22,9 +25,10 @@ use sikemux_core::client::{
     await_deferred_upgrade, await_upgrade, frozen_request, probe, ClientEvent, CoreClient,
 };
 use sikemux_core::frozen::{FrozenReply, FrozenRequest};
+use sikemux_core::grid::{decode_frame, Screen};
 use sikemux_core::protocol::{
-    BuildIdentity, ChatAttachment, ChatEvent, ChatEventKind, ChatLaunch, Event, LaunchIdentity,
-    SessionId, SpawnTarget, TerminalSpawn, BUILD_ID_OVERRIDE_ENV,
+    BuildIdentity, ChatAttachment, ChatLaunch, ChatMark, Event, LaunchIdentity, SessionId,
+    SpawnTarget, StreamId, TerminalSpawn, BUILD_ID_OVERRIDE_ENV,
 };
 use sikemux_pty::output_log::OutputQuery;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -186,20 +190,39 @@ fn alive(pid: u32) -> bool {
 
 struct Stream {
     events: UnboundedReceiver<ClientEvent>,
+    /// What each attached session shows now.
     output: HashMap<SessionId, Vec<u8>>,
+    screens: HashMap<StreamId, (SessionId, Screen)>,
     exits: HashMap<SessionId, Option<u32>>,
 }
 
+fn screen_of(frame: &[u8]) -> Screen {
+    let mut screen = Screen::default();
+    screen.apply(decode_frame(frame).expect("a frame"));
+    screen
+}
+
 impl Stream {
+    async fn attach(&mut self, client: &CoreClient, id: SessionId) {
+        let attached = client.attach(id).await.expect("attach");
+        let screen = screen_of(&attached.frame);
+        client.ack(attached.stream, screen.header.frame);
+        self.output.insert(id, screen.text().into_bytes());
+        self.screens.insert(attached.stream, (id, screen));
+    }
+
     async fn pump(&mut self, client: &CoreClient) {
         let event = tokio::time::timeout(WAIT, self.events.recv())
             .await
             .expect("timed out waiting for the core")
             .expect("the core disconnected");
         match event {
-            ClientEvent::Output { id, bytes } => {
-                client.ack(id, bytes.len());
-                self.output.entry(id).or_default().extend_from_slice(&bytes);
+            ClientEvent::Grid { stream, frame } => {
+                if let Some((id, screen)) = self.screens.get_mut(&stream) {
+                    screen.apply(decode_frame(&frame).expect("a frame"));
+                    client.ack(stream, screen.header.frame);
+                    self.output.insert(*id, screen.text().into_bytes());
+                }
             }
             ClientEvent::Event(Event::Exited { id, code, .. }) => {
                 self.exits.insert(id, code);
@@ -233,6 +256,7 @@ async fn connect(core: &CoreProcess) -> (CoreClient, Stream) {
         Stream {
             events,
             output: HashMap::new(),
+            screens: HashMap::new(),
             exits: HashMap::new(),
         },
     )
@@ -329,7 +353,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
 
     let (client, mut stream) = connect(&core).await;
     let shell = spawn_shell(&client).await;
-    client.attach(shell).await.expect("attach");
+    stream.attach(&client, shell).await;
     client
         .write(shell, b"echo before-$((6*7))\r")
         .await
@@ -406,11 +430,10 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
             .collect::<Vec<_>>()
     );
     let attached = client.attach(shell).await.expect("attach after the update");
-    assert!(
-        String::from_utf8_lossy(&attached.replay).contains("before-42"),
-        "{:?}",
-        String::from_utf8_lossy(&attached.replay)
-    );
+    let text = screen_of(&attached.frame).text();
+    assert!(text.contains("before-42"), "{text:?}");
+    client.detach(attached.stream).await.expect("detach");
+    stream.attach(&client, shell).await;
     client
         .write(shell, b"echo after-$((6*7))\r")
         .await
@@ -574,7 +597,7 @@ async fn a_damaged_hand_over_keeps_the_sessions_it_can_adopt() {
     let core = CoreProcess::start("first");
     let (client, mut stream) = connect(&core).await;
     let shell = spawn_shell(&client).await;
-    client.attach(shell).await.expect("attach");
+    stream.attach(&client, shell).await;
     client.write(shell, b"echo kept\r").await.expect("write");
     stream.until_output(&client, shell, "kept").await;
     let shell_pid = client
@@ -606,7 +629,7 @@ async fn a_damaged_hand_over_keeps_the_sessions_it_can_adopt() {
         .expect("the shell was kept");
     assert_eq!(kept.pid, Some(shell_pid));
     assert!(kept.running);
-    client.attach(shell).await.expect("attach");
+    stream.attach(&client, shell).await;
     client
         .write(shell, b"echo still-$((2*21))\r")
         .await
@@ -641,23 +664,6 @@ fn chat_launch(core: &CoreProcess, agent_id: &str) -> ChatLaunch {
         account: None,
         fallbacks: Vec::new(),
     }
-}
-
-fn said(events: &[ChatEvent]) -> String {
-    events
-        .iter()
-        .filter(|event| event.kind == ChatEventKind::SessionUpdate)
-        .flat_map(|event| match event.payload.get("updates") {
-            Some(Value::Array(batch)) => batch.clone(),
-            _ => vec![event.payload.clone()],
-        })
-        .filter_map(|update| {
-            update["update"]["content"]["text"]
-                .as_str()
-                .map(str::to_owned)
-        })
-        .collect::<Vec<_>>()
-        .join("|")
 }
 
 const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
@@ -702,30 +708,50 @@ fn children(pid: u32) -> Vec<u32> {
     pids
 }
 
-/// Waits until `found` has seen what it wants from every chat it names.
+/// Folds what each of `chats` says until `found` accepts every one of them.
 async fn until_chats(
     events: &mut UnboundedReceiver<ClientEvent>,
-    mut waiting: Vec<String>,
-    mut found: impl FnMut(&str, &ChatEvent) -> bool,
-) -> HashMap<String, ChatEvent> {
-    let mut seen = HashMap::new();
+    chats: &mut HashMap<String, Folded>,
+    mut found: impl FnMut(&str, &Folded) -> bool,
+) {
+    let mut waiting: Vec<String> = chats
+        .iter()
+        .filter(|(agent_id, chat)| !found(agent_id, chat))
+        .map(|(agent_id, _)| agent_id.clone())
+        .collect();
     while !waiting.is_empty() {
         let event = tokio::time::timeout(WAIT, events.recv())
             .await
             .unwrap_or_else(|_| panic!("timed out waiting for {waiting:?}"))
             .expect("the core disconnected");
         let ClientEvent::Event(Event::Chat {
-            agent_id, event, ..
+            agent_id, changes, ..
         }) = event
         else {
             continue;
         };
-        if waiting.contains(&agent_id) && found(&agent_id, &event) {
+        let Some(chat) = chats.get_mut(&agent_id) else {
+            continue;
+        };
+        chat.apply(&changes);
+        if found(&agent_id, chat) {
             waiting.retain(|waiting| *waiting != agent_id);
-            seen.insert(agent_id, event);
         }
     }
-    seen
+}
+
+/// The chat a client attaching is sent, when it is still running there.
+async fn attached(client: &CoreClient, agent_id: &str, since: Option<ChatMark>) -> Option<Folded> {
+    let attachment = client
+        .acp_attach_since(agent_id.into(), since)
+        .await
+        .expect("attach");
+    if !matches!(attachment, ChatAttachment::Live { .. }) {
+        return None;
+    }
+    let mut chat = Folded::default();
+    chat.attached(&attachment);
+    Some(chat)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -763,17 +789,18 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
             .await
             .expect("prompt");
     }
-    let asked = until_chats(
-        &mut events,
-        asking.iter().chain(&holding).cloned().collect(),
-        |agent_id, event| {
-            if asking.iter().any(|asking| asking == agent_id) {
-                event.kind == ChatEventKind::PermissionRequest
-            } else {
-                said(std::slice::from_ref(event)).contains("holding")
-            }
-        },
-    )
+    let mut asked: HashMap<String, Folded> = asking
+        .iter()
+        .chain(&holding)
+        .map(|agent_id| (agent_id.clone(), Folded::default()))
+        .collect();
+    until_chats(&mut events, &mut asked, |agent_id, chat| {
+        if asking.iter().any(|asking| asking == agent_id) {
+            !chat.head().permissions.is_empty()
+        } else {
+            chat.text().contains("holding")
+        }
+    })
     .await;
     let agents = children(core.pid());
     assert_eq!(agents.len(), 6, "{agents:?}");
@@ -797,66 +824,46 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
             chat.agent_id
         );
     }
+    let mut carried = HashMap::new();
     for agent_id in asking.iter().chain(&holding) {
-        let ChatAttachment::Live {
-            running, replay, ..
-        } = client.acp_attach(agent_id.clone()).await.expect("attach")
-        else {
-            panic!("{agent_id} was not carried over\n{}", core.log());
-        };
-        assert!(running, "{agent_id}");
+        let chat = attached(&client, agent_id, None)
+            .await
+            .unwrap_or_else(|| panic!("{agent_id} was not carried over\n{}", core.log()));
+        assert!(chat.head().running, "{agent_id}");
         if holding.contains(agent_id) {
-            assert!(said(&replay).contains("holding"), "{}", said(&replay));
+            assert!(chat.text().contains("holding"), "{}", chat.text());
         } else {
             assert!(
-                replay
-                    .iter()
-                    .any(|event| event.kind == ChatEventKind::PermissionRequest),
+                !chat.head().permissions.is_empty(),
                 "{agent_id} lost its question"
             );
         }
+        carried.insert(agent_id.clone(), chat);
     }
     for agent_id in &asking {
-        let request = &asked[agent_id].payload;
-        let allow = request["options"]
-            .as_array()
-            .and_then(|options| options.iter().find(|option| option["kind"] == "allow_once"))
-            .and_then(|option| option["optionId"].as_str())
+        let request = &asked[agent_id].head().permissions[0];
+        let allow = request
+            .options
+            .iter()
+            .find(|option| option.kind == "allow_once")
             .expect("an allow option")
-            .to_owned();
+            .option_id
+            .clone();
         client
-            .acp_permission_reply(
-                agent_id.clone(),
-                request["requestId"].as_str().expect("request id").into(),
-                Some(allow),
-            )
+            .acp_permission_reply(agent_id.clone(), request.request_id.clone(), Some(allow))
             .await
             .unwrap_or_else(|error| panic!("{agent_id}: {error}\n{}", core.log()));
     }
-    let mut text: HashMap<String, String> = HashMap::new();
-    let ended = until_chats(
-        &mut events,
-        asking.iter().chain(&holding).cloned().collect(),
-        |agent_id, event| {
-            text.entry(agent_id.to_owned())
-                .or_default()
-                .push_str(&said(std::slice::from_ref(event)));
-            event.kind == ChatEventKind::TurnCompleted
-        },
-    )
-    .await;
-    for (agent_id, event) in &ended {
-        assert_eq!(event.payload["stopReason"], "end_turn", "{agent_id}");
+    until_chats(&mut events, &mut carried, |_, chat| chat.turns_ended() >= 1).await;
+    for (agent_id, chat) in &carried {
+        assert_eq!(chat.ends[0].as_deref(), Some("end_turn"), "{agent_id}");
     }
     for agent_id in &holding {
-        assert!(
-            text[agent_id].contains("held"),
-            "{agent_id}: {}",
-            text[agent_id]
-        );
+        let text = carried[agent_id].text();
+        assert!(text.contains("held"), "{agent_id}: {text}");
     }
     for agent_id in &asking {
-        let answer = &text[agent_id];
+        let answer = carried[agent_id].text();
         assert!(
             answer.contains("allow"),
             "{agent_id} was not told the answer: {answer}"
@@ -890,8 +897,12 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
             .await
             .expect("prompt");
     }
-    until_chats(&mut events, chats.clone(), |_, event| {
-        said(std::slice::from_ref(event)).contains("holding")
+    let mut holding: HashMap<String, Folded> = chats
+        .iter()
+        .map(|agent_id| (agent_id.clone(), Folded::default()))
+        .collect();
+    until_chats(&mut events, &mut holding, |_, chat| {
+        chat.text().contains("holding")
     })
     .await;
     let mut marks = HashMap::new();
@@ -933,39 +944,31 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
 
     let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
     for agent_id in &chats {
-        let ChatAttachment::Live {
-            running, replay, ..
-        } = client
-            .acp_attach_since(agent_id.clone(), marks.remove(agent_id))
+        let chat = attached(&client, agent_id, marks.remove(agent_id))
             .await
-            .expect("attach")
-        else {
-            panic!("{agent_id} was not taken up again\n{}", core.log());
-        };
-        assert!(!running, "{agent_id}");
-        let text = said(&replay);
+            .unwrap_or_else(|| panic!("{agent_id} was not taken up again\n{}", core.log()));
+        let head = chat.head();
+        assert!(!head.running, "{agent_id}");
+        let text = chat.text();
         assert_eq!(
             text.matches("holding").count(),
             1,
-            "{agent_id}: {replay:?}\n{}",
+            "{agent_id}: {:#?}\n{}",
+            chat.view,
             core.log()
         );
         assert!(text.contains("Sikemux restarted"), "{agent_id}: {text}");
-        let prompts = replay
-            .iter()
-            .filter(|event| event.kind == ChatEventKind::Prompt)
-            .count();
-        assert_eq!(prompts, 1, "{agent_id}: {replay:?}");
-        let ends: Vec<&Value> = replay
-            .iter()
-            .filter(|event| event.kind == ChatEventKind::TurnCompleted)
-            .map(|event| &event.payload["stopReason"])
-            .collect();
-        assert_eq!(ends, ["cancelled", "end_turn"], "{agent_id}");
-        let notice = serde_json::to_string(&replay).unwrap_or_default();
         assert_eq!(
-            notice
-                .matches("Sikemux restarted while this agent was working")
+            chat.prompts(),
+            ["hold 600000"],
+            "{agent_id}: {:#?}",
+            chat.view
+        );
+        assert_eq!(head.stop_reason.as_deref(), Some("end_turn"), "{agent_id}");
+        assert_eq!(
+            chat.notices()
+                .iter()
+                .filter(|title| *title == "Sikemux restarted while this agent was working")
                 .count(),
             1,
             "{agent_id}"
@@ -973,8 +976,8 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
     }
 }
 
-/// A new chat still waiting for the person, when its core crashes, waits again once the
-/// core is back: nothing starts its agent but the person.
+/// A chat shown on its saved session, still waiting for the person when its core crashes,
+/// waits again once the core is back: nothing starts its agent but the person.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
     let mut core = CoreProcess::start("first");
@@ -997,10 +1000,36 @@ async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
         .call("addProject", project)
         .await
         .expect("the project");
-    let (agent_id, _) = client
-        .start_chat("opencode:fake".into(), "held".into(), None)
+    let agent_id = "agent-held".to_owned();
+    let agent = json!({
+        "id": agent_id,
+        "provider": "opencode",
+        "project": "held",
+        "cwd": core.project,
+        "title": "Saved",
+        "renamed": true,
+        "permissionMode": "bypass",
+        "profileId": "fake",
+        "resumeId": "ses-saved",
+        "asleep": true,
+    });
+    client
+        .call("createAgent", json!({ "agent": agent }))
         .await
-        .expect("a new chat");
+        .expect("the agent");
+    assert!(
+        matches!(
+            client.acp_attach(agent_id.clone()).await,
+            Ok(ChatAttachment::Live { .. })
+        ),
+        "the asleep chat is shown\n{}",
+        core.log()
+    );
+    assert_eq!(
+        children(core.pid()),
+        Vec::<u32>::new(),
+        "showing it started nothing"
+    );
     drop(client);
     // A crash loses what the chat wrote down in its last second.
     tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -1101,10 +1130,10 @@ async fn after_deferred_update(core: &CoreProcess) -> BuildIdentity {
 
 /// The update notice a chat shows when it was started again rather than
 /// carried over.
-fn restarted(replay: &[ChatEvent]) -> bool {
-    serde_json::to_string(replay)
-        .unwrap_or_default()
-        .contains("Sikemux restarted this agent")
+fn restarted(chat: &Folded) -> bool {
+    chat.notices()
+        .iter()
+        .any(|title| title.contains("Sikemux restarted this agent"))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1132,12 +1161,10 @@ async fn an_update_waits_for_a_starting_chat_and_then_carries_it_over() {
     assert_eq!(after_deferred_update(&core).await.commit, "second");
 
     let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let ChatAttachment::Live { replay, .. } =
-        client.acp_attach("slow".into()).await.expect("attach")
-    else {
-        panic!("the chat was lost\n{}", core.log());
-    };
-    assert!(!restarted(&replay), "{}", core.log());
+    let chat = attached(&client, "slow", None)
+        .await
+        .unwrap_or_else(|| panic!("the chat was lost\n{}", core.log()));
+    assert!(!restarted(&chat), "{}", core.log());
     assert!(
         core.log().contains("1 of them still running"),
         "{}",
@@ -1167,12 +1194,10 @@ async fn a_forced_update_restarts_a_starting_chat_and_says_so() {
     let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
     let deadline = Instant::now() + WAIT;
     loop {
-        let ChatAttachment::Live { replay, .. } =
-            client.acp_attach("slow".into()).await.expect("attach")
-        else {
-            panic!("the chat was not started again\n{}", core.log());
-        };
-        if restarted(&replay) {
+        let chat = attached(&client, "slow", None)
+            .await
+            .unwrap_or_else(|| panic!("the chat was not started again\n{}", core.log()));
+        if restarted(&chat) {
             return;
         }
         assert!(
@@ -1189,7 +1214,7 @@ async fn a_core_takes_over_from_the_oldest_hand_over_a_stable_release_wrote() {
     let core = CoreProcess::start("first");
     let (client, mut stream) = connect(&core).await;
     let shell = spawn_shell(&client).await;
-    client.attach(shell).await.expect("attach");
+    stream.attach(&client, shell).await;
     client
         .write(shell, b"echo older-$((3*3))\r")
         .await
@@ -1205,6 +1230,6 @@ async fn a_core_takes_over_from_the_oldest_hand_over_a_stable_release_wrote() {
     assert!(!core.log().contains("DAMAGED"), "{}", core.log());
 
     let (client, _stream) = connect(&core).await;
-    let replay = client.attach(shell).await.expect("attach").replay;
-    assert!(String::from_utf8_lossy(&replay).contains("older-9"));
+    let frame = client.attach(shell).await.expect("attach").frame;
+    assert!(screen_of(&frame).text().contains("older-9"));
 }

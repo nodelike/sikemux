@@ -14,11 +14,10 @@ import {
     type RefObject,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { keybindingLabelForAction, type KeybindingActionId } from "../commands/keybindings";
+import { keybindingLabelForAction, type KeybindingActionId, keybindingOverridesOf } from "../commands/keybindings";
 import type { Agent, Session, SessionKind, Window } from "../state/types";
 import * as cmd from "../state/commands";
 import { animate, EASE_IN, EASE_PAN, EASE_POP, EASE_SWAP, foldedFrames, leavingRef, prefersReducedMotion } from "../lib/motion";
-import { agentDisplay, rollupAgentDisplays } from "../state/agentStatus";
 import { getState, useStore } from "../state/store";
 import { useShallow } from "zustand/react/shallow";
 import { AgentFace } from "../buddies/Buddy";
@@ -40,6 +39,7 @@ import { PROJECT_SURFACE_ORDER, PROJECT_SURFACES, type ProjectSurfaceRole } from
 import { pluginSurface, type FrontendPlugin } from "../plugins/registry";
 import type { PluginSignIn } from "../plugin-api/signInState";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
+import { useSessionName } from "../terminal/railNames";
 import { useSshTone } from "../terminal/sshLinks";
 import { useInstalledPlugins } from "../plugins/installed";
 import { railGroupOf, type RailGroup } from "../state/railGroups";
@@ -150,9 +150,10 @@ function useRail(): RailContextValue {
 }
 
 function SessionCloseButton({ session }: { session: Session }) {
+    const name = useSessionName(session);
     return (
-        <Tooltip label={`Close ${session.name}`}>
-            <button type="button" className="row-x" aria-label={`Close ${session.name}`} onClick={() => cmd.closeSession(session.id)}>
+        <Tooltip label={`Close ${name}`}>
+            <button type="button" className="row-x" aria-label={`Close ${name}`} onClick={() => cmd.closeSession(session.id)}>
                 <IconClose size={11} />
             </button>
         </Tooltip>
@@ -162,13 +163,14 @@ function SessionCloseButton({ session }: { session: Session }) {
 function SimpleRow({ s, status }: { s: Session; status?: ReactNode }) {
     const { activeSessionId } = useRail();
     const active = s.id === activeSessionId;
+    const name = useSessionName(s);
     return (
         <div className="session-row-shell">
             <button className={`sess-row${active ? " active" : ""}`} onClick={() => cmd.selectSession(s.id)}>
                 <span className={`sess-icon ${s.kind}`}>
                     <span className="sess-icon-glyph">{kindIcon(s.kind)}</span>
                 </span>
-                <span className="sess-name">{s.name}</span>
+                <span className="sess-name">{name}</span>
             </button>
             {status && <span className="row-status">{status}</span>}
             <SessionCloseButton session={s} />
@@ -250,8 +252,7 @@ const ProjectBlock = memo(function ProjectBlock({ s }: { s: Session }) {
         useShallow((st) => (st.windowsBySession[s.id] ?? []).flatMap((id): Window[] => (st.windows[id] ? [st.windows[id]] : []))),
     );
     const agents = useStore(useShallow((st) => agentIdsOf(st, s.id).flatMap((id): Agent[] => (st.agents[id] ? [st.agents[id]] : []))));
-    const statuses = useStore(useShallow((st) => agents.map((agent) => st.agentStatus[agent.id])));
-    const rollup = rollupAgentDisplays(statuses.map((status) => agentDisplay(status)));
+    const rollup = useStore((st) => st.projectStatus[s.id]);
 
     const visibleAgents = agents.slice(0, MAX_BADGE_ICONS);
     const agentOverflow = agents.length - visibleAgents.length;
@@ -272,7 +273,7 @@ const ProjectBlock = memo(function ProjectBlock({ s }: { s: Session }) {
                     {agentOverflow > 0 && <span className="proj-child-icons-more">+{agentOverflow}</span>}
                 </span>
             )}
-            {rollup && showsAgentState(rollup) && (
+            {showsAgentState(rollup) && (
                 <span className="proj-row-status">
                     <AgentStateIndicator display={rollup} />
                 </span>
@@ -568,7 +569,7 @@ export const SideRail = memo(function SideRail() {
     const sessionOrder = useStore((s) => s.sessionOrder);
     const rawActiveSessionId = useStore((s) => s.activeSessionId);
     const settingsOpen = useStore((s) => s.settingsOpen);
-    const keybindingOverrides = useStore((s) => s.keybindingOverrides);
+    const keybindingOverrides = useStore(keybindingOverridesOf);
     const activeSessionId = settingsOpen ? "" : rawActiveSessionId;
     const kb = (id: KeybindingActionId) => keybindingLabelForAction(keybindingOverrides, id);
     const sessions = sessionOrder.map((id) => sessionsById[id]);
@@ -829,7 +830,7 @@ export const SideRail = memo(function SideRail() {
                     <Group
                         label="Hosts"
                         list={sshs}
-                        rows={<HostRows sshSessions={sshs} onMenu={openMenu} />}
+                        rows={<HostRows onMenu={openMenu} />}
                         add={() => cmd.openPicker("ssh")}
                         addTitle={`Find a host — ${kb("ssh.open")}`}
                         addKbd={kb("ssh.open")}
@@ -869,7 +870,7 @@ const MORE = 22;
 function FittedIcons({ icons }: { icons: ReactNode[] }) {
     const ref = useRef<HTMLSpanElement>(null);
     const [room, setRoom] = useState(Infinity);
-    const step = useStore((s) => (s.buddies ? MARK_STEP.buddies : MARK_STEP.logos));
+    const step = useStore((s) => (s.faceStyle.on ? MARK_STEP.buddies : MARK_STEP.logos));
     useLayoutEffect(() => {
         const el = ref.current;
         if (!el) return;

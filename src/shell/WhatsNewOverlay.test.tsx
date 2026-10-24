@@ -30,9 +30,16 @@ function release(overrides: Partial<ReleaseNotes> = {}): ReleaseNotes {
     };
 }
 
+/** Answers a command, or a core call by its method. */
 function answer(handlers: Record<string, (args: Record<string, unknown>) => unknown>) {
-    invoke.mockImplementation(async (command: string, args: Record<string, unknown>) => handlers[command]?.(args));
+    invoke.mockImplementation(async (command: string, args: { method?: string; params?: Record<string, unknown> } & Record<string, unknown>) =>
+        command === "core_call" ? handlers[args.method ?? ""]?.(args.params ?? {}) : handlers[command]?.(args),
+    );
 }
+
+/** What the window asked the core for with `method`. */
+const asked = (method: string) =>
+    invoke.mock.calls.filter(([command, args]) => command === "core_call" && args.method === method).map(([, args]) => args.params);
 
 beforeEach(() => {
     invoke.mockReset();
@@ -49,7 +56,7 @@ afterEach(() => {
 describe("WhatsNewOverlay", () => {
     it("fetches the notes of the running build when nothing is waiting to install", async () => {
         const notes = vi.fn(() => release());
-        answer({ release_notes: notes, release_avatars: () => ({}) });
+        answer({ releaseNotes: notes, releaseAvatars: () => ({}) });
         setState({ whatsNewOpen: true, pendingUpdate: null, lastReleaseNotes: null });
 
         render(<WhatsNewOverlay />);
@@ -65,7 +72,7 @@ describe("WhatsNewOverlay", () => {
 
     it("falls back to the notes saved at install time when GitHub cannot be reached", async () => {
         answer({
-            release_notes: () => {
+            releaseNotes: () => {
                 throw new Error("offline");
             },
         });
@@ -78,13 +85,13 @@ describe("WhatsNewOverlay", () => {
         render(<WhatsNewOverlay />);
 
         expect(await screen.findByText("Saved offline.")).toBeInTheDocument();
-        await waitFor(() => expect(invoke.mock.calls.some(([command]) => command === "release_notes")).toBe(true));
+        await waitFor(() => expect(asked("releaseNotes").length > 0).toBe(true));
         expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
     });
 
     it("says so when the notes cannot be loaded", async () => {
         answer({
-            release_notes: () => {
+            releaseNotes: () => {
                 throw new Error("GitHub has no release notes for v0.4.0 (404 Not Found)");
             },
         });
@@ -122,9 +129,9 @@ describe("WhatsNewOverlay", () => {
 
         expect(screen.getByText("12")).toBeInTheDocument();
         expect(container.querySelector("img.wn-avatar")).toHaveAttribute("src", "data:image/png;base64,AA==");
-        await waitFor(() => expect(invoke.mock.calls.some(([command]) => command === "release_avatars")).toBe(true));
-        expect(invoke.mock.calls.some(([command]) => command === "release_notes")).toBe(false);
-        expect(invoke.mock.calls.find(([command]) => command === "release_avatars")?.[1]).toEqual({
+        await waitFor(() => expect(asked("releaseAvatars").length > 0).toBe(true));
+        expect(asked("releaseNotes").length > 0).toBe(false);
+        expect(asked("releaseAvatars")[0]).toEqual({
             urls: ["https://avatars.githubusercontent.com/octocat"],
         });
     });
@@ -134,8 +141,8 @@ describe("WhatsNewOverlay", () => {
         const opened = vi.fn();
         const notes = vi.fn(() => release({ version: "0.4.1" }));
         answer({
-            release_notes: notes,
-            release_avatars: () => ({ "https://avatars.githubusercontent.com/nodelike": "data:image/png;base64,AA==" }),
+            releaseNotes: notes,
+            releaseAvatars: () => ({ "https://avatars.githubusercontent.com/nodelike": "data:image/png;base64,AA==" }),
             open_url: opened,
         });
         setState({
@@ -167,7 +174,7 @@ describe("WhatsNewOverlay", () => {
     it("keeps a long contributor list to a wall of faces with the rest behind a count", async () => {
         const user = userEvent.setup();
         const people = Array.from({ length: 40 }, (_, i) => person(`dev${i}`, 40 - i));
-        answer({ release_notes: () => release({ contributors: people }), release_avatars: () => ({}) });
+        answer({ releaseNotes: () => release({ contributors: people }), releaseAvatars: () => ({}) });
         setState({ whatsNewOpen: true, pendingUpdate: null, lastReleaseNotes: null });
 
         render(<WhatsNewOverlay />);

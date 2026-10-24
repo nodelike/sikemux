@@ -19,6 +19,8 @@ export type MdElement =
     | { t: "a"; href: string; title?: string; c: MdNode[] }
     | { t: "img"; src: string; alt: string; title?: string }
     | { t: "fnref"; n: number }
+    /** A name that could be a file, holding the words as written, between backticks when `code`. */
+    | { t: "path"; href: string; code?: boolean; c: MdNode[] }
     /** A `<details>` fold from embedded HTML. */
     | { t: "details"; summary: string; open?: boolean; c: MdNode[] };
 
@@ -48,4 +50,6 @@ export interface MarkdownOptions {
     readonly fileLinks: boolean;
     /** Keeps the pictures in embedded `<img>` tags while the rest of the markup is dropped. */
     readonly htmlImages?: boolean;
+    /** Marks the words outside links and code blocks that name a file, as `path` nodes. */
+    readonly filePaths?: boolean;
 }

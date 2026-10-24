@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { prettyPath } from "../lib/paths";
 import * as cmd from "../state/commands";
-import { useStore } from "../state/store";
+import { getState, useStore } from "../state/store";
+import { sessionName, useRailNames } from "../terminal/railNames";
 import type { SessionKind } from "../state/types";
 import { modifierGlyph } from "../commands/keybindings";
 import { pluginSurface } from "../plugins/registry";
@@ -19,6 +20,7 @@ export function SessionSwitcher() {
     const switcher = useStore((s) => s.sessionSwitcher);
     const sessionsById = useStore((s) => s.sessions);
     const home = useStore((s) => s.home);
+    const railNames = useRailNames();
     if (!switcher) return null;
 
     const sessions = switcher.sessionIds.map((id) => sessionsById[id]).filter(Boolean);
@@ -46,7 +48,7 @@ export function SessionSwitcher() {
                                 onClick={() => cmd.selectSession(session.id)}>
                                 <span className={`session-switcher-icon ${session.kind}`}>{kindIcon(session.kind)}</span>
                                 <span className="session-switcher-copy">
-                                    <span className="session-switcher-name">{session.name}</span>
+                                    <span className="session-switcher-name">{sessionName(getState(), session, railNames)}</span>
                                     <span className="session-switcher-sub">{sub}</span>
                                 </span>
                             </button>

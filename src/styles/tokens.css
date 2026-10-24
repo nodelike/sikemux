@@ -57,7 +57,7 @@
      * the ramp was painting them charcoal.
      *
      * The fallback matters: `--bg` is written by the theme bus at runtime, so
-     * before the first `applyTheme` the ramp resolves against base.css's
+     * before the core's theme is worn the ramp resolves against base.css's
      * static panel colour instead of collapsing to black.
      */
     --gray-base: var(--bg, var(--pane));

@@ -3,5 +3,11 @@
   "name": "Bruno",
   "version": "0.1.0",
   "sikemux": ">=0.4",
-  "callTimeoutSecs": 150
+  "callTimeoutSecs": 150,
+  "views": {
+    "collectionView": { "everySecs": 60 },
+    "requestView": { "everySecs": 30 },
+    "workspacesView": { "everySecs": 300 }
+  },
+  "writes": ["saveRequest", "newRequest", "newFolder", "renameRequest", "deletePath"]
 }

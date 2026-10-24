@@ -4,11 +4,12 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::client;
 use crate::error::{SignozError, SignozResult};
+pub use sikemux_plugin_api::signoz::FieldKey;
 
 const SUGGESTIONS: u32 = 50;
 
@@ -46,14 +47,6 @@ pub struct ValueQuery {
     pub name: String,
     #[serde(default)]
     pub search: String,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct FieldKey {
-    pub name: String,
-    pub context: String,
-    pub data_type: String,
 }
 
 fn query_string(pairs: &[(&str, &str)]) -> String {

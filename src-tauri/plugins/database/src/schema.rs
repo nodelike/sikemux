@@ -3,23 +3,15 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum TableKind {
-    Table,
-    View,
-    MaterializedView,
-    ForeignTable,
-}
+pub use sikemux_plugin_api::database::{Column as ColumnInfo, TableKind};
 
-impl TableKind {
-    pub fn from_postgres(relkind: &str) -> Self {
-        match relkind {
-            "v" => Self::View,
-            "m" => Self::MaterializedView,
-            "f" => Self::ForeignTable,
-            _ => Self::Table,
-        }
+/// A table's kind from PostgreSQL's `relkind` letter.
+pub fn postgres_kind(relkind: &str) -> TableKind {
+    match relkind {
+        "v" => TableKind::View,
+        "m" => TableKind::MaterializedView,
+        "f" => TableKind::ForeignTable,
+        _ => TableKind::Table,
     }
 }
 
@@ -28,17 +20,6 @@ impl TableKind {
 pub struct Table {
     pub name: String,
     pub kind: TableKind,
-}
-
-#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ColumnInfo {
-    pub name: String,
-    #[serde(rename = "type")]
-    pub type_name: String,
-    pub nullable: bool,
-    pub default: Option<String>,
-    pub primary_key: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -72,13 +53,6 @@ pub struct TableInfo {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct SchemaRequest {
-    pub id: String,
-    #[serde(default)]
-    pub schema: Option<String>,
-}
-
-#[derive(Deserialize, Debug)]
 pub struct TableRequest {
     pub id: String,
     #[serde(default)]
@@ -103,11 +77,11 @@ mod tests {
 
     #[test]
     fn postgres_relation_kinds_are_named() {
-        assert_eq!(TableKind::from_postgres("r"), TableKind::Table);
-        assert_eq!(TableKind::from_postgres("p"), TableKind::Table);
-        assert_eq!(TableKind::from_postgres("v"), TableKind::View);
-        assert_eq!(TableKind::from_postgres("m"), TableKind::MaterializedView);
-        assert_eq!(TableKind::from_postgres("f"), TableKind::ForeignTable);
+        assert_eq!(postgres_kind("r"), TableKind::Table);
+        assert_eq!(postgres_kind("p"), TableKind::Table);
+        assert_eq!(postgres_kind("v"), TableKind::View);
+        assert_eq!(postgres_kind("m"), TableKind::MaterializedView);
+        assert_eq!(postgres_kind("f"), TableKind::ForeignTable);
         assert_eq!(
             serde_json::to_value(TableKind::MaterializedView).unwrap(),
             "materialized-view"

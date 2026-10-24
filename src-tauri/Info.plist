@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- Merged by Tauri before bundle signing. Never patch the signed .app. -->
+  <!-- Merged by scripts/build-mac.sh before signing. Never patch the signed .app. -->
   <key>CFBundleIconName</key>
   <string>sikemux</string>
   <key>CFBundleDocumentTypes</key>

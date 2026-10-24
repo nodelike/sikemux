@@ -197,6 +197,24 @@ pub(crate) struct Codex {
     kept: Kept,
 }
 
+/// The models Codex offers, asked of a short-lived app server with no thread.
+pub(crate) async fn read_options(command: tokio::process::Command) -> Result<Value, String> {
+    let params = json!({ "cursor": null, "limit": null, "includeHidden": false });
+    let listed =
+        crate::agent_accounts::usage::codex_ask(command, "model/list", params, "models").await?;
+    let models = config::Models(listed["data"].as_array().cloned().unwrap_or_default());
+    let model = models
+        .0
+        .iter()
+        .find(|entry| entry["isDefault"] == true)
+        .or_else(|| models.0.first())
+        .and_then(|entry| entry["id"].as_str())
+        .ok_or("Codex named no models")?
+        .to_owned();
+    let effort = models.effort_for(&model, None);
+    Ok(models.options(&model, effort.as_deref()))
+}
+
 async fn list_models(rpc: &Rpc) -> Result<Models, String> {
     let pages = rpc
         .pages(

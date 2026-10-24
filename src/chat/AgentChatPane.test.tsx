@@ -1,31 +1,37 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { acpApi, type AcpEvent } from "../api/acp";
+import { acpApi, type AcpAttachment, type AcpEvent } from "../api/acp";
+import type { ChatHead } from "../api/generated/wire";
 import { IS_MACOS } from "../lib/platform";
 import { dispatchPathDrop } from "../state/dropRegistry";
 import type { Agent } from "../state/types";
 import { AgentChatPane } from "./AgentChatPane";
 import { shownImage } from "../state/imageViewer";
 import { forgetPathState } from "./pathExistence";
+import type { ChatChange, ChatMessage, ChatPart, ChatView, SubagentCard, ToolCall, ToolDetail } from "./types";
 import { draftOf, draftSelection, selectDraft, typeDraft } from "../test/draft";
 
 const mocks = vi.hoisted(() => ({
     eventListener: null as ((event: AcpEvent) => void) | null,
-    prompt: vi.fn(async () => {}),
+    /* The number of the last change the core sent. */
+    seq: 0,
+    prompt: vi.fn(async (..._args: unknown[]) => {}),
     retryFailed: vi.fn(async () => {}),
     discardFailed: vi.fn(async () => {}),
     edit: vi.fn(async () => {}),
     steer: vi.fn(async () => "injected"),
     steerQueued: vi.fn(async () => {}),
     dropQueued: vi.fn(async () => {}),
-    setPermissionMode: vi.fn(async () => {}),
+    setPermissionMode: vi.fn(async (_agentId: string, _mode: string) => {}),
     stopTask: vi.fn(async () => {}),
     setConfig: vi.fn(),
-    setAgentModelPreferences: vi.fn(),
+    toolDetail: vi.fn(async (_agentId: string, _toolCallId: string): Promise<ToolDetail> => ({})),
     setAgentPermissionMode: vi.fn(),
-    /* Stands for the core starting the chat; the pane takes it up by attaching once. */
-    start: vi.fn(async (_agentId: string) => ({ sessionId: "session-1", capabilities: {}, setup: {} })),
-    started: null as { sessionId: string; capabilities: object; setup: object } | null,
+    /* Stands for the core starting the chat, answering how its head stands; the pane takes it up by attaching once. */
+    start: vi.fn(async (_agentId: string): Promise<Partial<ChatHead>> => ({})),
+    started: null as { head: Partial<ChatHead>; seq: number } | null,
+    /* How many times the pane has taken a live chat up. */
+    attached: 0,
     pathKinds: vi.fn(async (paths: string[]): Promise<(string | null)[]> => paths.map(() => null)),
     revealInFinder: vi.fn(async () => {}),
     requestOpenFile: vi.fn(),
@@ -50,23 +56,30 @@ vi.mock("../api/fs", () => {
 
 vi.mock("../api/acp", () => ({
     acpApi: {
-        composing: vi.fn(async () => {}),
         subscribe: vi.fn(async (listener: (event: AcpEvent) => void) => {
             mocks.eventListener = listener;
             return () => {
                 mocks.eventListener = null;
             };
         }),
-        attach: vi.fn(async (agentId: string) => {
-            const start = mocks.started ?? (await mocks.start(agentId));
+        composing: vi.fn(async () => {}),
+        attach: vi.fn(async (agentId: string): Promise<AcpAttachment> => {
+            let started = mocks.started;
+            if (!started) {
+                const seq = mocks.seq;
+                started = { head: await mocks.start(agentId), seq };
+            }
             mocks.started = null;
-            return { status: "live", start, permissionMode: "workspace-write", running: false, turned: false, feed: "feed-1", olderBefore: null };
+            mocks.attached += 1;
+            return { status: "live", view: chatView(started.head), feed: "feed-1", seq: started.seq };
         }),
         startChat: vi.fn(async (agentId: string) => {
-            mocks.started = await mocks.start(agentId);
+            const seq = mocks.seq;
+            mocks.started = { head: await mocks.start(agentId), seq };
         }),
         setPermissionMode: mocks.setPermissionMode,
         setConfig: mocks.setConfig,
+        toolDetail: mocks.toolDetail,
         stop: vi.fn(async () => {}),
         prompt: mocks.prompt,
         edit: mocks.edit,
@@ -86,7 +99,6 @@ vi.mock("../state/commands", () => ({
     openUrlOnDesk: mocks.openUrlOnDesk,
     openFileOnDesk: mocks.openFileOnDesk,
     setAgentPermissionMode: mocks.setAgentPermissionMode,
-    setAgentModelPreferences: mocks.setAgentModelPreferences,
     setAgentTitle: vi.fn(),
     titleAgentFromPrompt: vi.fn(),
     toggleAgentSkipPermissions: vi.fn(),
@@ -102,22 +114,72 @@ const agent: Agent = {
 
 const shortcutKey = { key: "Enter", modifier: IS_MACOS ? { metaKey: true } : { ctrlKey: true } };
 
-function emit(kind: AcpEvent["kind"], payload: Record<string, unknown>): void {
-    // Streamed updates arrive a frame's worth at a time.
-    act(() => mocks.eventListener?.({ agentId: agent.id, kind, payload: kind === "session_update" ? { updates: [payload] } : payload }));
+/* What the core sends: a view of the chat to open on, then numbered changes to it. */
+function chatView(head: Partial<ChatHead> = {}, rows: ChatMessage[] = []): ChatView {
+    return {
+        head: {
+            sessionId: "session-1",
+            connection: "ready",
+            running: false,
+            turned: false,
+            permissionMode: "workspace-write",
+            commands: [],
+            capabilities: {},
+            setup: {},
+            permissions: [],
+            tasks: [],
+            runningSubagents: [],
+            queued: [],
+            earlierLost: false,
+            ...head,
+        },
+        rows,
+    };
+}
+
+const text = (id: string, said: string): ChatPart => ({ kind: "text", id, text: said });
+
+const toolPart = (id: string, tool: Partial<ToolCall>, summary: Partial<Extract<ChatPart, { kind: "tool" }>> = {}): ChatPart => ({
+    kind: "tool",
+    id,
+    tool: { toolCallId: id, title: "", status: "pending", row: { action: "other", target: "" }, ...tool },
+    ...summary,
+});
+
+const listIssues = { action: "mcp", target: "list issues", server: "github", activity: "list issues" } as const;
+const searchPty = { action: "search", target: "usePty" } as const;
+
+const subagentPart = (card: SubagentCard): ChatPart => ({ kind: "subagent", id: `sub-${card.sessionId}`, subagent: card });
+
+const message = (id: string, parts: ChatPart[], role: ChatMessage["role"] = "assistant"): ChatMessage => ({ id, role, parts });
+
+const head = (set: Partial<ChatHead> | Record<string, unknown>): ChatChange => ({ op: "head", set });
+const putRow = (row: ChatMessage, within?: string): ChatChange => ({ op: "row", row, ...(within ? { in: within } : {}) });
+const putPart = (row: string, part: ChatPart): ChatChange => ({ op: "part", row, part });
+const append = (row: string, part: string, said: string): ChatChange => ({ op: "text", row, part, text: said });
+
+function send(...changes: ChatChange[]): void {
+    mocks.seq += 1;
+    const seq = mocks.seq;
+    act(() => mocks.eventListener?.({ agentId: agent.id, kind: "changes", seq, payload: changes }));
 }
 
 /** The host's queue of messages waiting behind the running turn. */
 function queue(...texts: string[]): void {
-    emit("session_update", {
-        sessionId: "session-1",
-        update: { sessionUpdate: "queued_messages", messages: texts.map((text, index) => ({ id: `q${index + 1}`, text, paths: [], context: [] })) },
-    });
+    send(head({ queued: texts.map((said, index) => ({ id: `q${index + 1}`, text: said, paths: [], context: [] })) }));
 }
 
-function emitBatch(updates: Record<string, unknown>[]): void {
-    act(() => mocks.eventListener?.({ agentId: agent.id, kind: "session_update", payload: { updates } }));
+/* The core shows the person's last message back as its own row, with the turn it started running. */
+function showPromptBack(id = "u1"): void {
+    const [, said, paths, , messageId] = mocks.prompt.mock.calls.at(-1) as [string, string, string[], unknown, string];
+    send(
+        putRow({ ...message(id, [text(`${id}.0`, said)], "user"), promptId: messageId, ...(paths.length ? { attachments: paths } : {}) }),
+        head({ running: true }),
+    );
 }
+
+/** Waits for the pane to have taken the chat up `times` times. */
+const connected = (times = 1) => waitFor(() => expect(mocks.attached).toBe(times));
 
 // jsdom reports no sizes and never fires a resize, so a scroller and the
 // observer watching it both have to be played by hand. Callbacks are kept per
@@ -190,8 +252,15 @@ beforeEach(() => {
     // Nothing a transcript names is a real file unless a test says it is.
     forgetPathState();
     mocks.pathKinds.mockImplementation(async (paths: string[]) => paths.map(() => null));
+    /* The core takes the new mode up and says so in the chat's head. */
+    mocks.setPermissionMode.mockImplementation(async (_agentId: string, mode: string) => {
+        await Promise.resolve();
+        send(head({ permissionMode: mode }));
+    });
     mocks.eventListener = null;
     mocks.started = null;
+    mocks.seq = 0;
+    mocks.attached = 0;
     resizeCallbacks.clear();
     globalThis.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver;
 });
@@ -206,6 +275,8 @@ async function openTranscript(prompt = "Look at the styles"): Promise<void> {
     await waitFor(() => expect(editor.getAttribute("aria-placeholder")).toContain("Ask about this project"));
     typeDraft(editor, prompt);
     fireEvent.keyDown(editor, { key: "Enter" });
+    await waitFor(() => expect(mocks.prompt).toHaveBeenCalled());
+    showPromptBack();
     const scroller = document.querySelector(".chat-scroll") as HTMLElement;
     fakeScroller(scroller, 400);
     Object.defineProperty(scroller, "offsetWidth", { configurable: true, get: () => 600 });
@@ -216,20 +287,13 @@ async function openTranscript(prompt = "Look at the styles"): Promise<void> {
 
 async function openWithCompactCommand(): Promise<HTMLElement> {
     render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
-    await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-    emit("ready", { capabilities: {}, setup: {} });
-    emit("session_update", {
-        sessionId: "session-1",
-        update: {
-            sessionUpdate: "available_commands_update",
-            availableCommands: [{ name: "compact", description: "Compact context", input: { hint: "focus" } }],
-        },
-    });
+    await connected();
+    send(head({ commands: [{ name: "compact", description: "Compact context", hint: "focus" }] }));
     await act(async () => window.requestAnimationFrame(() => {}));
     return screen.getByRole("textbox", { name: "Message agent" });
 }
 
-function findToolRow(selector: string): Promise<HTMLElement> {
+function findElement(selector: string): Promise<HTMLElement> {
     return waitFor(() => {
         const row = document.querySelector<HTMLElement>(selector);
         expect(row).not.toBeNull();
@@ -237,18 +301,31 @@ function findToolRow(selector: string): Promise<HTMLElement> {
     });
 }
 
+const stageLines: NonNullable<ToolDetail["diff"]>["lines"] = [
+    { sign: " ", text: ".stage {", oldLine: 1, newLine: 1 },
+    { sign: "-", text: "    background: var(--pane);", oldLine: 2, mark: [16, 27] },
+    { sign: "+", text: "    background: transparent;", newLine: 2, mark: [16, 27] },
+    { sign: " ", text: "}", oldLine: 3, newLine: 3 },
+];
+
 describe("AgentChatPane", () => {
     it("keeps receiving hidden session updates while freezing transcript rendering", async () => {
         const props = { agent, cwd: "/repo", active: true, visible: true, onBusyChange: () => {} };
         const { rerender } = render(<AgentChatPane {...props} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
+        await connected();
         rerender(<AgentChatPane {...props} visible={false} />);
-        emit("permission_request", {
-            requestId: "hidden-request",
-            sessionId: "session-1",
-            toolCall: { toolCallId: "tool-1" },
-            options: [{ optionId: "allow", name: "Allow hidden tool", kind: "allow_once" }],
-        });
+        send(
+            head({
+                permissions: [
+                    {
+                        requestId: "hidden-request",
+                        sessionId: "session-1",
+                        toolCall: { toolCallId: "tool-1", title: "Touch a file" },
+                        options: [{ optionId: "allow", name: "Allow hidden tool", kind: "allow_once" }],
+                    },
+                ],
+            }),
+        );
         expect(screen.queryByRole("button", { name: "Allow hidden tool" })).not.toBeInTheDocument();
         expect(acpApi.stop).not.toHaveBeenCalled();
 
@@ -261,11 +338,8 @@ describe("AgentChatPane", () => {
         await waitFor(() => expect(screen.getByRole("button", { name: "Model" })).toBeEnabled());
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         expect(screen.getByRole("group", { name: "Agent" })).toBeInTheDocument();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "Existing message" } },
-        });
-        emit("ready", { capabilities: {}, setup: {} });
+        await connected();
+        send(putRow(message("u0", [text("u0.0", "Existing message")], "user")));
         await waitFor(() => expect(screen.queryByRole("group", { name: "Agent" })).not.toBeInTheDocument());
     });
 
@@ -311,36 +385,25 @@ describe("AgentChatPane", () => {
         }
     });
 
-    it("changes the model live and persists only the confirmed configuration", async () => {
-        const configs = (model: string) => [
-            {
-                id: "model",
-                name: "Model",
-                type: "select",
-                currentValue: model,
-                options: [
-                    { value: "astra", name: "GPT-6 Astra" },
-                    { value: "sol", name: "GPT-5.6 Sol" },
-                ],
-            },
-            {
-                id: "reasoning_effort",
-                name: "Effort",
-                category: "thought_level",
-                type: "select",
-                currentValue: "high",
-                options: [{ value: "high", name: "High" }],
-            },
-        ];
-        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: {}, setup: { configOptions: configs("astra") } });
-        mocks.setConfig.mockResolvedValueOnce({ configOptions: configs("sol") });
+    it("changes the model live without restarting the chat", async () => {
+        const model = (current: string) => ({
+            id: "model",
+            current,
+            choices: [
+                { value: "astra", label: "GPT-6 Astra" },
+                { value: "sol", label: "GPT-5.6 Sol" },
+            ],
+        });
+        const effort = { id: "reasoning_effort", current: "high", choices: [{ value: "high", label: "High" }] };
+        mocks.start.mockResolvedValueOnce({ model: model("astra"), effort });
+        mocks.setConfig.mockResolvedValueOnce({});
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
         await waitFor(() => expect(screen.getByRole("button", { name: "Model" })).toBeEnabled());
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         fireEvent.change(screen.getByRole("combobox", { name: "Search model" }), { target: { value: "Sol" } });
         fireEvent.keyDown(screen.getByRole("combobox", { name: "Search model" }), { key: "Enter" });
         await waitFor(() => expect(mocks.setConfig).toHaveBeenCalledWith(agent.id, "model", "sol"));
-        await waitFor(() => expect(mocks.setAgentModelPreferences).toHaveBeenCalledWith(agent.id, "sol", "high"));
+        send(head({ model: model("sol") }));
         expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("GPT-5.6 Sol");
         expect(mocks.start).toHaveBeenCalledTimes(1);
         expect(acpApi.stop).not.toHaveBeenCalled();
@@ -385,6 +448,7 @@ describe("AgentChatPane", () => {
         await waitFor(() => expect(complete).toBeDefined());
         rerender(<AgentChatPane {...props} />);
         await act(async () => complete());
+        send(head({ permissionMode: "bypass" }));
         await waitFor(() => expect(mocks.setPermissionMode).toHaveBeenLastCalledWith(agent.id, "workspace-write"));
         expect(mocks.setPermissionMode).toHaveBeenCalledTimes(2);
         expect(mocks.start).toHaveBeenCalledTimes(1);
@@ -441,11 +505,15 @@ describe("AgentChatPane", () => {
         fireEvent.keyDown(editor, { key: "Enter" });
         await waitFor(() => expect(mocks.prompt).toHaveBeenCalledTimes(1));
 
-        emit("turn_completed", { stopReason: "end_turn" });
-        emit("error", {
-            message: "Lost the connection to the model provider",
-            failure: { kind: "network", title: "Lost the connection to the model provider", details: "API Error: Connection error.", account: null },
-        });
+        showPromptBack();
+        send(
+            head({
+                running: false,
+                stopReason: "end_turn",
+                error: "Lost the connection to the model provider",
+                failure: { kind: "network", details: "API Error: Connection error." },
+            }),
+        );
         expect(await screen.findByText(/Lost connection to OpenAI/)).toBeInTheDocument();
         await new Promise((resolve) => setTimeout(resolve, 30));
         expect(mocks.prompt).toHaveBeenCalledTimes(1);
@@ -545,19 +613,16 @@ describe("AgentChatPane", () => {
     });
 
     it("writes a sent message again and takes the chat back to before it", async () => {
-        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: { editing: true }, setup: {} });
+        mocks.start.mockResolvedValueOnce({ capabilities: { editing: true } });
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
         const composer = screen.getByRole("textbox", { name: "Message agent" });
-        await waitFor(() => expect(composer).toBeEnabled());
+        await connected();
         typeDraft(composer, "First try");
         fireEvent.keyDown(composer, { key: "Enter" });
         await waitFor(() => expect(mocks.prompt).toHaveBeenCalledTimes(1));
-        const messageId = (mocks.prompt.mock.calls[0] as unknown[])[4];
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "agent_message_chunk", messageId: "a1", content: { type: "text", text: "The old answer" } },
-        });
-        emit("turn_completed", {});
+        const messageId = (mocks.prompt.mock.calls[0] as unknown[])[4] as string;
+        showPromptBack();
+        send(putRow(message("a1", [text("a1.0", "The old answer")])), head({ running: false }));
 
         fireEvent.click(await screen.findByRole("button", { name: "Edit message" }));
         const field = screen.getByRole("textbox", { name: "Edit message" });
@@ -567,7 +632,13 @@ describe("AgentChatPane", () => {
         await waitFor(() => expect(mocks.edit).toHaveBeenCalledWith(agent.id, messageId, "Second try", [], []));
         expect(screen.queryByText("The old answer")).not.toBeInTheDocument();
         expect(screen.queryByText("First try")).not.toBeInTheDocument();
-        expect(screen.getByText("Second try")).toBeInTheDocument();
+
+        send(
+            { op: "drop", from: "u1" },
+            putRow({ ...message("u2", [text("u2.0", "Second try")], "user"), promptId: messageId }),
+            head({ running: true }),
+        );
+        expect(await screen.findByText("Second try")).toBeInTheDocument();
     });
 
     it("offers no edit while the agent cannot take one back", async () => {
@@ -576,8 +647,10 @@ describe("AgentChatPane", () => {
         await waitFor(() => expect(composer).toBeEnabled());
         typeDraft(composer, "Hello");
         fireEvent.keyDown(composer, { key: "Enter" });
-        emit("turn_completed", {});
         await waitFor(() => expect(mocks.prompt).toHaveBeenCalled());
+        showPromptBack();
+        send(putRow(message("a1", [text("a1.0", "Hi")])), head({ running: false }));
+        await screen.findByText("Hi");
         expect(screen.queryByRole("button", { name: "Edit message" })).not.toBeInTheDocument();
     });
 
@@ -641,7 +714,7 @@ describe("AgentChatPane", () => {
     });
 
     it("puts a queued message into the running turn when its steer is asked for", async () => {
-        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: { steering: true }, setup: {} });
+        mocks.start.mockResolvedValueOnce({ capabilities: { steering: true } });
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
         const editor = screen.getByRole("textbox", { name: "Message agent" });
         await waitFor(() => expect(editor).toBeEnabled());
@@ -655,7 +728,7 @@ describe("AgentChatPane", () => {
     });
 
     it("steers straight from the composer on Enter, with whatever waits in the queue", async () => {
-        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: { steering: true }, setup: {} });
+        mocks.start.mockResolvedValueOnce({ capabilities: { steering: true } });
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
         const editor = screen.getByRole("textbox", { name: "Message agent" });
         await waitFor(() => expect(editor).toBeEnabled());
@@ -672,7 +745,7 @@ describe("AgentChatPane", () => {
     });
 
     it("steers every queued message, from the queue's own button or the shortcut", async () => {
-        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: { steering: true }, setup: {} });
+        mocks.start.mockResolvedValueOnce({ capabilities: { steering: true } });
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
         const editor = screen.getByRole("textbox", { name: "Message agent" });
         await waitFor(() => expect(editor).toBeEnabled());
@@ -694,30 +767,28 @@ describe("AgentChatPane", () => {
         typeDraft(editor, "Check the tests");
         fireEvent.keyDown(editor, { key: "Enter" });
         expect(await screen.findByRole("status")).toHaveTextContent("Thinking…");
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalled());
+        showPromptBack();
 
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "tool_call", toolCallId: "tool-1", title: "mcp__github__list_issues", status: "in_progress" },
-        });
+        send(
+            putRow(message("a1", [toolPart("tool-1", { title: "mcp__github__list_issues", status: "in_progress", row: listIssues })])),
+            head({ activeTool: "tool-1" }),
+        );
         await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("list issues"));
 
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed" },
-        });
+        send(
+            putPart("a1", toolPart("tool-1", { title: "mcp__github__list_issues", status: "completed", row: listIssues })),
+            head({ activeTool: null }),
+        );
         await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Thinking…"));
 
-        emit("turn_completed", { stopReason: "end_turn" });
+        send(head({ running: false, stopReason: "end_turn" }));
         await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
     });
 
-    it("reads every update in one streamed frame", async () => {
+    it("reads every change in one streamed frame", async () => {
         await openTranscript();
-        emitBatch([
-            { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "One " } } },
-            { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "two " } } },
-            { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "three" } } },
-        ]);
+        send(putRow(message("a1", [text("a1.0", "One ")])), append("a1", "a1.0", "two "), append("a1", "a1.0", "three"));
         expect(await screen.findByText("One two three")).toBeInTheDocument();
     });
 
@@ -727,56 +798,50 @@ describe("AgentChatPane", () => {
         await waitFor(() => expect(editor).toBeEnabled());
         typeDraft(editor, "Check the styles");
         fireEvent.keyDown(editor, { key: "Enter" });
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalled());
+        showPromptBack();
 
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-1",
-                kind: "execute",
-                title: 'grep -n "is-transparent" -A12 src/styles/base.css | head -40',
-                status: "in_progress",
-            },
-        });
+        send(
+            putRow(
+                message("a1", [
+                    toolPart("tool-1", {
+                        kind: "execute",
+                        title: 'grep -n "is-transparent" -A12 src/styles/base.css | head -40',
+                        status: "in_progress",
+                        row: { action: "execute", target: 'grep -n "is-transparent" -A12 src/styles/base.css | head -40' },
+                    }),
+                ]),
+            ),
+            head({ activeTool: "tool-1" }),
+        );
         await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Running a command…"));
         expect(screen.getByRole("status")).not.toHaveTextContent("is-transparent");
     });
 
     it("holds a run of tool calls open through the gaps between them, and folds it once the turn ends", async () => {
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Weighing the two options" } },
-        });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "tool_call", toolCallId: "tool-1", kind: "read", title: "src/styles/chat.css", status: "in_progress" },
-        });
+        const read = (id: string, file: string, status: string) =>
+            toolPart(id, { kind: "read", title: `src/styles/${file}`, status, row: { action: "read", target: file, path: `src/styles/${file}` } });
+        send(
+            putRow(message("a1", [{ kind: "thought", id: "a1.0", text: "Weighing the two options" }, read("tool-1", "chat.css", "in_progress")])),
+            head({ activeTool: "tool-1" }),
+        );
 
         expect(await screen.findByText("Weighing the two options")).toBeVisible();
         const run = await screen.findByRole("button", { name: /1 tool call/ });
         expect(run).toHaveAttribute("aria-expanded", "true");
 
         // The turn is still going, so the wait for the next call is not a fold.
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed" },
-        });
+        send(putPart("a1", read("tool-1", "chat.css", "completed")), head({ activeTool: null }));
         expect(run).toHaveAttribute("aria-expanded", "true");
 
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "tool_call", toolCallId: "tool-2", kind: "read", title: "src/styles/base.css", status: "in_progress" },
-        });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "tool_call_update", toolCallId: "tool-2", status: "completed" },
-        });
+        send(putPart("a1", read("tool-2", "base.css", "in_progress")), head({ activeTool: "tool-2" }));
+        send(putPart("a1", read("tool-2", "base.css", "completed")), head({ activeTool: null }));
         const finished = await screen.findByRole("button", { name: /2 tool calls/ });
         expect(finished).toHaveAttribute("aria-expanded", "true");
         expect(document.querySelectorAll(".chat-tool")).toHaveLength(2);
 
-        emit("turn_completed", { stopReason: "end_turn" });
+        send(head({ running: false, stopReason: "end_turn" }));
         await waitFor(() => expect(finished).toHaveAttribute("aria-expanded", "false"));
         expect(document.querySelectorAll(".chat-tool")).toHaveLength(0);
 
@@ -787,16 +852,19 @@ describe("AgentChatPane", () => {
 
     it("opens the page a fetch names from its row", async () => {
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-1",
-                kind: "fetch",
-                title: "Fetch https://docs.livekit.io/home/self-hosting/deployment/",
-                status: "in_progress",
-            },
-        });
+        send(
+            putRow(
+                message("a1", [
+                    toolPart("tool-1", {
+                        kind: "fetch",
+                        title: "Fetch https://docs.livekit.io/home/self-hosting/deployment/",
+                        status: "in_progress",
+                        row: { action: "fetch", target: "Fetch https://docs.livekit.io/home/self-hosting/deployment/" },
+                    }),
+                ]),
+            ),
+            head({ activeTool: "tool-1" }),
+        );
 
         const link = await screen.findByRole("link", { name: "https://docs.livekit.io/home/self-hosting/deployment/" });
         fireEvent.click(link);
@@ -805,10 +873,7 @@ describe("AgentChatPane", () => {
 
     it("finds text across the conversation with the find shortcut", async () => {
         await openTranscript("Look at the styles");
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "The styles are in chat.css" } },
-        });
+        send(putRow(message("a1", [text("a1.0", "The styles are in chat.css")])));
         await screen.findByText("The styles are in chat.css");
 
         fireEvent.keyDown(window, { key: "f", code: "KeyF", metaKey: IS_MACOS, ctrlKey: !IS_MACOS });
@@ -834,14 +899,12 @@ describe("AgentChatPane", () => {
 
     it("builds a subagent's transcript only once it is opened", async () => {
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "subagent_spawned", subagentSessionId: "subagent-1", name: "Explorer", task: "Read the styles" },
-        });
-        emit("session_update", {
-            sessionId: "subagent-1",
-            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Found the pane" } },
-        });
+        const card: SubagentCard = { sessionId: "subagent-1", name: "Explorer", task: "Read the styles", state: "running", calls: 0 };
+        send(
+            putRow(message("a1", [subagentPart(card)])),
+            putRow(message("s1", [text("s1.0", "Found the pane")]), "subagent-1"),
+            head({ runningSubagents: [card] }),
+        );
 
         await waitFor(() => expect(document.querySelector("details.chat-subagent")).not.toBeNull());
         const folded = document.querySelector("details.chat-subagent") as HTMLDetailsElement;
@@ -857,42 +920,45 @@ describe("AgentChatPane", () => {
 
     it("folds a finished run away when the agent moves on to something else in the same turn", async () => {
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "tool_call", toolCallId: "tool-1", kind: "read", title: "src/styles/chat.css", status: "completed" },
-        });
+        send(
+            putRow(
+                message("a1", [
+                    toolPart("tool-1", {
+                        kind: "read",
+                        title: "src/styles/chat.css",
+                        status: "completed",
+                        row: { action: "read", target: "chat.css", path: "src/styles/chat.css" },
+                    }),
+                ]),
+            ),
+        );
         const run = await screen.findByRole("button", { name: /1 tool call/ });
         expect(run).toHaveAttribute("aria-expanded", "true");
 
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "The pane paints no background" } },
-        });
+        send(putPart("a1", text("a1.1", "The pane paints no background")));
         await waitFor(() => expect(run).toHaveAttribute("aria-expanded", "false"));
     });
 
     it("hangs each call off the run as a kind, a target and how long it took", async () => {
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-1",
-                kind: "execute",
-                title: "pnpm vitest run src/lib/shaderField.test.ts",
-                status: "in_progress",
-            },
-        });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-2",
-                kind: "read",
-                title: "src/components/browser/BrowserPane.tsx",
-                status: "completed",
-            },
-        });
+        send(
+            putRow(
+                message("a1", [
+                    toolPart("tool-1", {
+                        kind: "execute",
+                        title: "pnpm vitest run src/lib/shaderField.test.ts",
+                        status: "in_progress",
+                        row: { action: "execute", target: "pnpm vitest run src/lib/shaderField.test.ts" },
+                    }),
+                    toolPart("tool-2", {
+                        kind: "read",
+                        title: "src/components/browser/BrowserPane.tsx",
+                        status: "completed",
+                        row: { action: "read", target: "BrowserPane.tsx", path: "src/components/browser/BrowserPane.tsx" },
+                    }),
+                ]),
+            ),
+        );
 
         const rows = await waitFor(() => {
             const found = [...document.querySelectorAll<HTMLElement>(".chat-tool")];
@@ -908,25 +974,24 @@ describe("AgentChatPane", () => {
     it("puts the file a call touched on the desk, opens it in the editor on a double click, and still opens what the call did", async () => {
         mocks.pathKinds.mockImplementation(async (paths: string[]) => paths.map(() => "file"));
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-1",
-                kind: "edit",
-                title: "src/styles/stage.css",
-                status: "completed",
-                locations: [{ path: "/repo/src/styles/stage.css", line: 2 }],
-                content: [
-                    {
-                        type: "diff",
-                        path: "src/styles/stage.css",
-                        oldText: ".stage {\n    background: var(--pane);\n}\n",
-                        newText: ".stage {\n    background: transparent;\n}\n",
-                    },
-                ],
-            },
-        });
+        mocks.toolDetail.mockResolvedValue({ diff: { path: "src/styles/stage.css", adds: 1, dels: 1, lines: stageLines } });
+        send(
+            putRow(
+                message("a1", [
+                    toolPart(
+                        "tool-1",
+                        {
+                            kind: "edit",
+                            title: "src/styles/stage.css",
+                            status: "completed",
+                            path: "/repo/src/styles/stage.css:2",
+                            row: { action: "edit", target: "stage.css", path: "/repo/src/styles/stage.css:2" },
+                        },
+                        { diff: { path: "src/styles/stage.css", adds: 1, dels: 1 } },
+                    ),
+                ]),
+            ),
+        );
 
         const file = await waitFor(() => {
             const chip = document.querySelector(".chat-file-ref");
@@ -942,47 +1007,45 @@ describe("AgentChatPane", () => {
 
         fireEvent.click(screen.getByRole("button", { name: /Show what the call did/ }));
         await waitFor(() => expect(document.querySelector(".chat-diff-line.add")).not.toBeNull());
+        expect(mocks.toolDetail).toHaveBeenCalledWith(agent.id, "tool-1");
     });
 
     it("opens an edit onto the hunk it wrote, and a failure onto why", async () => {
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-1",
-                kind: "edit",
-                title: "src/styles/stage.css",
-                status: "completed",
-                content: [
-                    {
-                        type: "diff",
-                        path: "src/styles/stage.css",
-                        oldText: ".stage {\n    background: var(--pane);\n}\n",
-                        newText: ".stage {\n    background: transparent;\n}\n",
-                    },
-                ],
-            },
-        });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-2",
-                kind: "execute",
-                title: "pnpm vitest run",
-                status: "failed",
-                rawOutput: { output: "1 failed · expected rgba(26,22,36,.72)" },
-            },
-        });
+        mocks.toolDetail.mockImplementation(async (_agentId, toolCallId) =>
+            toolCallId === "tool-1"
+                ? { diff: { path: "src/styles/stage.css", adds: 1, dels: 1, lines: stageLines } }
+                : { output: { text: "1 failed · expected rgba(26,22,36,.72)", cut: false } },
+        );
+        send(
+            putRow(
+                message("a1", [
+                    toolPart(
+                        "tool-1",
+                        {
+                            kind: "edit",
+                            title: "src/styles/stage.css",
+                            status: "completed",
+                            row: { action: "edit", target: "stage.css", path: "src/styles/stage.css" },
+                        },
+                        { diff: { path: "src/styles/stage.css", adds: 1, dels: 1 } },
+                    ),
+                    toolPart(
+                        "tool-2",
+                        { kind: "execute", title: "pnpm vitest run", status: "failed", row: { action: "execute", target: "pnpm vitest run" } },
+                        { output: { lines: 1, cut: false, image: false } },
+                    ),
+                ]),
+            ),
+        );
 
-        const edit = await findToolRow(".chat-tool[data-kind='edit']");
+        const edit = await findElement(".chat-tool[data-kind='edit']");
         expect(edit).toHaveTextContent("+1");
         expect(edit).toHaveTextContent("−1");
         expect(screen.queryByText(/background: transparent;/)).not.toBeInTheDocument();
 
         fireEvent.click(edit);
-        const added = await waitFor(() => document.querySelector(".chat-diff-line.add") as HTMLElement);
+        const added = await findElement(".chat-diff-line.add");
         expect(added).toHaveTextContent("background: transparent;");
         // Only the part that changed is marked, not the whole line.
         expect(added.querySelector("mark")).toHaveTextContent("transparent");
@@ -994,26 +1057,22 @@ describe("AgentChatPane", () => {
 
     it("says what a running command is for while it runs, and counts the run again once it ends", async () => {
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-1",
+        const build = (status: string) =>
+            toolPart("tool-1", {
                 kind: "execute",
                 title: "pnpm build",
-                status: "in_progress",
-                rawInput: { command: "pnpm build", description: "Build the site" },
-            },
-        });
+                status,
+                rawInput: { command: "pnpm build" },
+                description: "Build the site",
+                row: { action: "execute", target: "pnpm build" },
+            });
+        send(putRow(message("a1", [build("in_progress")])), head({ activeTool: "tool-1" }));
 
         const header = await screen.findByRole("button", { name: /Build the site/ });
         expect(header).toHaveClass("live");
         expect(document.querySelector(".chat-tool.live")).not.toBeNull();
 
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed", rawOutput: "built in 2.9s" },
-        });
+        send(putPart("a1", build("completed")), head({ activeTool: null }));
         const finished = await screen.findByRole("button", { name: /1 tool call/ });
         expect(finished).not.toHaveClass("live");
         expect(document.querySelector(".chat-tool.live")).toBeNull();
@@ -1022,25 +1081,32 @@ describe("AgentChatPane", () => {
     it("opens a command onto the whole of it and what it printed, folding a long output", async () => {
         await openTranscript();
         const printed = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join("\n");
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-1",
-                kind: "execute",
-                title: "python3 - <<'EOF'\nprint('hi')\nEOF",
-                status: "completed",
-                rawOutput: printed,
-            },
-        });
+        mocks.toolDetail.mockResolvedValue({ output: { text: printed, cut: false } });
+        send(
+            putRow(
+                message("a1", [
+                    toolPart(
+                        "tool-1",
+                        {
+                            kind: "execute",
+                            title: "python3 - <<'EOF'\nprint('hi')\nEOF",
+                            status: "completed",
+                            row: { action: "execute", target: "python3 - <<'EOF'" },
+                        },
+                        { output: { lines: 20, cut: false, image: false } },
+                    ),
+                ]),
+            ),
+        );
 
-        const row = await findToolRow(".chat-tool");
+        const row = await findElement(".chat-tool");
         expect(row).toHaveTextContent("python3 - <<'EOF'");
         expect(row).not.toHaveTextContent("print('hi')");
 
         fireEvent.click(row);
-        const terminal = await waitFor(() => document.querySelector(".chat-tool-terminal") as HTMLElement);
+        const terminal = await findElement(".chat-tool-terminal");
         expect(terminal.querySelector(".chat-tool-command pre")).toHaveTextContent("print('hi')");
+        await waitFor(() => expect(terminal.querySelector(".chat-tool-output pre")).not.toBeNull());
         expect(screen.getByRole("button", { name: "Copy command" })).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "Copy output" })).toBeInTheDocument();
         expect(terminal.querySelector(".chat-tool-output pre")).toHaveTextContent("line 12");
@@ -1052,13 +1118,7 @@ describe("AgentChatPane", () => {
 
     it("opens a picture an agent sent, with a name to save it under", async () => {
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "image", mimeType: "image/png", data: "SEVMTE8=" },
-            },
-        });
+        send(putRow(message("a1", [{ kind: "content", id: "a1.0", content: { type: "image", mimeType: "image/png", data: "SEVMTE8=" } }])));
 
         const picture = await screen.findByRole("img", { name: "attachment.png" });
         expect(picture).toHaveAttribute("src", "data:image/png;base64,SEVMTE8=");
@@ -1069,10 +1129,7 @@ describe("AgentChatPane", () => {
 
     it("shows markup the person pasted, and still drops markup the agent wrote", async () => {
         await openTranscript('Use this: “<svg viewBox="0 0 16 16"><path d="M0 0h16"/></svg>”\n\n<div>own line</div>');
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done <b>quietly</b>" } },
-        });
+        send(putRow(message("a1", [text("a1.0", "Done <b>quietly</b>")])));
 
         const typed = await screen.findByText(/Use this:/);
         expect(typed.textContent).toBe('Use this: “<svg viewBox="0 0 16 16"><path d="M0 0h16"/></svg>”');
@@ -1083,9 +1140,9 @@ describe("AgentChatPane", () => {
 
     it("draws an answer as it streams: a fence still open, then the table after it", async () => {
         await openTranscript();
-        const chunk = (text: string) =>
-            emit("session_update", { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
+        const chunk = (said: string) => send(append("a1", "a1.0", said));
 
+        send(putRow(message("a1", [text("a1.0", "")])));
         chunk("Here is the fix:\n\n```ts\nconst a = 1;\n");
         const code = await waitFor(() => {
             const found = document.querySelector(".chat-markdown pre code.language-ts");
@@ -1099,7 +1156,7 @@ describe("AgentChatPane", () => {
         expect((await screen.findByText("batch")).tagName).toBe("TD");
         expect(screen.getByText("Here is the fix:")).toBe(intro);
 
-        emit("turn_completed", { stopReason: "end_turn" });
+        send(head({ running: false, stopReason: "end_turn" }));
         await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
         expect(screen.getByText("Here is the fix:")).toBe(intro);
         expect(document.querySelectorAll(".chat-markdown pre")).toHaveLength(1);
@@ -1107,33 +1164,26 @@ describe("AgentChatPane", () => {
 
     it("titles a fence whose name is not valid percent-encoding with the name as written", async () => {
         await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "```100%\nfull\n```\n" },
-            },
-        });
+        send(putRow(message("a1", [text("a1.0", "```100%\nfull\n```\n")])));
 
         await waitFor(() => expect(document.querySelector(".chat-code-title")).toHaveTextContent("100%"));
     });
 
     it("keeps a subagent over the composer past a cancelled turn and settles its card when it stops", async () => {
         await openTranscript();
-        emit("turn_started", {});
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "subagent_spawned",
-                subagentSessionId: "subagent-1",
-                name: "Explore",
-                task: "You are implementing performance fixes\nin the sikemux desktop app repo",
-            },
-        });
-        emit("session_update", {
+        const explorer: SubagentCard = {
             sessionId: "subagent-1",
-            update: { sessionUpdate: "tool_call", toolCallId: "tool-1", kind: "search", title: "usePty", status: "in_progress" },
-        });
+            name: "Explore",
+            task: "You are implementing performance fixes\nin the sikemux desktop app repo",
+            state: "running",
+            calls: 1,
+            lastTool: { toolCallId: "tool-1", kind: "search", title: "usePty", status: "in_progress", row: searchPty },
+        };
+        send(
+            putRow(message("a1", [subagentPart(explorer)])),
+            putRow(message("s1", [toolPart("tool-1", { kind: "search", title: "usePty", status: "in_progress", row: searchPty })]), "subagent-1"),
+            head({ runningSubagents: [explorer] }),
+        );
 
         const strip = await screen.findByLabelText("1 subagent");
         expect(strip).toHaveTextContent("Explore");
@@ -1146,13 +1196,15 @@ describe("AgentChatPane", () => {
         expect(card).toHaveTextContent("You are implementing performance fixes");
         expect(card).not.toHaveTextContent("in the sikemux desktop app repo");
 
-        emit("turn_completed", { stopReason: "cancelled" });
+        send(head({ running: false, stopReason: "cancelled" }));
         expect(screen.getByLabelText("1 subagent")).toBeInTheDocument();
 
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "subagent_state_update", subagentSessionId: "subagent-1", state: "cancelled" },
-        });
+        const stopped: SubagentCard = { ...explorer, state: "cancelled" };
+        send(
+            putPart("a1", subagentPart(stopped)),
+            putPart("s1", toolPart("tool-1", { kind: "search", title: "usePty", status: "cancelled", row: searchPty })),
+            head({ runningSubagents: [] }),
+        );
 
         await waitFor(() => expect(screen.queryByLabelText("1 subagent")).not.toBeInTheDocument());
         expect(document.querySelector('.chat-subagent [role="img"][aria-label="stopped"]')).not.toBeNull();
@@ -1161,12 +1213,11 @@ describe("AgentChatPane", () => {
 
     it("shows the agent starting and waits to be asked before starting a failed agent again", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
+        await connected();
 
-        emit("status", { state: "starting" });
+        send(head({ connection: "starting" }));
         expect(document.querySelector(".chat-welcome")).not.toBeNull();
-        emit("status", { state: "error", reason: "failed", message: "agent failed" });
-        emit("error", { message: "agent failed" });
+        send(head({ connection: "error", error: "agent failed", ended: { reason: "failed", message: "agent failed" } }));
         expect(screen.getByText("Structured session unavailable.")).toBeInTheDocument();
         expect(mocks.start).toHaveBeenCalledTimes(1);
 
@@ -1179,22 +1230,21 @@ describe("AgentChatPane", () => {
 
         async function openReady(chatAgent: Agent) {
             render(<AgentChatPane agent={chatAgent} cwd="/repo" active visible profile={undefined} onBusyChange={() => {}} />);
-            await waitFor(() => expect(mocks.eventListener).not.toBeNull());
             await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(1));
-            emit("ready", { capabilities: {}, setup: {} });
+            await connected();
         }
 
         it("shows one the core gave up starting again, with the detail and a retry", async () => {
             let resumed!: () => void;
-            mocks.start.mockImplementationOnce(async () => ({ sessionId: "session-1", capabilities: {}, setup: {} }));
+            mocks.start.mockImplementationOnce(async () => ({}));
             mocks.start.mockImplementationOnce(
                 () =>
                     new Promise((resolve) => {
-                        resumed = () => resolve({ sessionId: "session-1", capabilities: {}, setup: {} });
+                        resumed = () => resolve({});
                     }),
             );
             await openReady(saved);
-            emit("status", { state: "error", reason: "exited", message: "Process exited with 1: out of memory" });
+            send(head({ connection: "error", running: false, ended: { reason: "exited", message: "Process exited with 1: out of memory" } }));
             expect(screen.getByText("Couldn't resume this chat")).toBeInTheDocument();
             expect(screen.getByText("Process exited with 1: out of memory")).toHaveClass("chat-recovery-detail");
             await act(async () => {});
@@ -1210,19 +1260,19 @@ describe("AgentChatPane", () => {
 
         it("never offers to resume a stop that was asked for", async () => {
             await openReady(saved);
-            emit("status", { state: "stopped", reason: "requested" });
+            send(head({ connection: "stopped", running: false, ended: { reason: "requested" } }));
             await act(async () => {});
             expect(mocks.start).toHaveBeenCalledTimes(1);
             expect(screen.queryByText("Couldn't resume this chat")).not.toBeInTheDocument();
         });
 
         it("says so when a retry fails to start", async () => {
-            mocks.start.mockImplementationOnce(async () => ({ sessionId: "session-1", capabilities: {}, setup: {} }));
+            mocks.start.mockImplementationOnce(async () => ({}));
             mocks.start.mockImplementationOnce(async () => {
                 throw new Error("session not found");
             });
             await openReady(saved);
-            emit("status", { state: "stopped", reason: "exited" });
+            send(head({ connection: "stopped", running: false, ended: { reason: "exited" } }));
             fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
             expect(await screen.findByText("session not found")).toBeInTheDocument();
@@ -1232,7 +1282,7 @@ describe("AgentChatPane", () => {
 
         it("cannot resume a chat with no saved session, and retries with a fresh one", async () => {
             await openReady(agent);
-            emit("status", { state: "stopped", reason: "exited" });
+            send(head({ connection: "stopped", running: false, ended: { reason: "exited" } }));
             expect(screen.getByText("Couldn't resume this chat")).toBeInTheDocument();
             await act(async () => {});
             expect(mocks.start).toHaveBeenCalledTimes(1);
@@ -1243,7 +1293,7 @@ describe("AgentChatPane", () => {
 
         it("sends a message written while it resumes once it is back", async () => {
             await openReady(saved);
-            emit("status", { state: "stopped", reason: "exited" });
+            send(head({ connection: "stopped", running: false, ended: { reason: "exited" } }));
             fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
             const editor = screen.getByRole("textbox", { name: "Message agent" });
@@ -1254,60 +1304,61 @@ describe("AgentChatPane", () => {
         });
     });
 
-    it("shows permission requests even when the adapter omits the optional tool title", async () => {
+    it("shows permission requests even when the tool has no title", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-        emit("permission_request", {
-            requestId: "request-1",
-            sessionId: "session-1",
-            toolCall: { toolCallId: "tool-1" },
-            options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
-        });
+        await connected();
+        send(
+            head({
+                permissions: [
+                    {
+                        requestId: "request-1",
+                        sessionId: "session-1",
+                        toolCall: { toolCallId: "tool-1", title: "" },
+                        options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+                    },
+                ],
+            }),
+        );
         fireEvent.click(await screen.findByRole("button", { name: "Allow once" }));
         await waitFor(() => expect(acpApi.permissionReply).toHaveBeenCalledWith(agent.id, "request-1", "allow"));
     });
 
     it("lists a background task until it ends, and stops it on request", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-        emit("ready", { capabilities: {}, setup: {} });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "async_task_spawned",
-                asyncTaskId: "task-1",
-                name: "pnpm test",
-                taskType: "shell",
-                description: "Run the suite",
-                canStop: true,
-            },
-        });
+        await connected();
+        send(
+            head({
+                tasks: [
+                    { asyncTaskId: "task-1", name: "pnpm test", taskType: "shell", description: "Run the suite", state: "running", canStop: true },
+                ],
+            }),
+        );
         expect(await screen.findByRole("button", { name: "Stop pnpm test" })).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole("button", { name: "Stop pnpm test" }));
         await waitFor(() => expect(mocks.stopTask).toHaveBeenCalledWith("agent-1", "task-1"));
 
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "async_task_state_update", asyncTaskId: "task-1", state: "stopped" },
-        });
+        send(head({ tasks: [] }));
         await waitFor(() => expect(screen.queryByRole("button", { name: "Stop pnpm test" })).not.toBeInTheDocument());
     });
 
     it("says a background task's name once when its description repeats it", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-        emit("ready", { capabilities: {}, setup: {} });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "async_task_spawned",
-                asyncTaskId: "task-1",
-                name: "push gate failures",
-                description: "push gate failures",
-                taskType: "shell",
-            },
-        });
+        await connected();
+        send(
+            head({
+                tasks: [
+                    {
+                        asyncTaskId: "task-1",
+                        name: "push gate failures",
+                        description: "push gate failures",
+                        taskType: "shell",
+                        state: "running",
+                        canStop: false,
+                    },
+                ],
+            }),
+        );
 
         const chip = await screen.findByLabelText("1 shell");
         expect(chip).toHaveTextContent("push gate failures");
@@ -1383,20 +1434,17 @@ describe("AgentChatPane", () => {
         Reflect.deleteProperty(document, "elementFromPoint");
     });
 
-    it("shows a resumed chat's history once it is all in", async () => {
-        let answer: (response: { sessionId: string; capabilities: object; setup: object }) => void = () => {};
+    it("holds what changes before the chat is taken up, and shows it once it is", async () => {
+        let answer: (head: Partial<ChatHead>) => void = () => {};
         mocks.start.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
         render(<AgentChatPane agent={{ ...agent, resumeId: "old-session" }} cwd="/repo" active visible onBusyChange={() => {}} />);
         await waitFor(() => expect(mocks.start).toHaveBeenCalled());
 
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "Earlier question" } },
-        });
+        send(putRow(message("u0", [text("u0.0", "Earlier question")], "user")));
         await nextFrame();
         expect(screen.queryByText("Earlier question")).not.toBeInTheDocument();
 
-        await act(async () => answer({ sessionId: "session-1", capabilities: {}, setup: {} }));
+        await act(async () => answer({}));
         expect(await screen.findByText("Earlier question")).toBeInTheDocument();
     });
 
@@ -1422,9 +1470,7 @@ describe("AgentChatPane", () => {
         document.body.append(elsewhere);
         elsewhere.focus();
         render(<AgentChatPane agent={agent} cwd="/repo" active visible onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-
-        emit("ready", { capabilities: {}, setup: {} });
+        await connected();
         await nextFrame();
         expect(elsewhere).toHaveFocus();
         elsewhere.remove();
@@ -1432,8 +1478,7 @@ describe("AgentChatPane", () => {
 
     it("routes native path drops into prompt attachments", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-        emit("ready", { capabilities: {}, setup: {} });
+        await connected();
 
         const editor = screen.getByRole("textbox", { name: "Message agent" });
         expect(dispatchPathDrop(editor, ["/repo/src/App.tsx"])).toBe(true);

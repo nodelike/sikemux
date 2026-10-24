@@ -12,6 +12,7 @@ mod backoff;
 pub mod cli;
 #[cfg(unix)]
 pub mod client;
+pub mod download;
 #[cfg(unix)]
 pub mod files;
 mod flights;
@@ -21,13 +22,17 @@ pub mod git;
 #[cfg(unix)]
 pub mod git_guard;
 pub mod harness;
+pub mod http;
 #[cfg(unix)]
 pub mod join;
 #[cfg(unix)]
 pub mod launch;
+pub use sikemux_wire::grid;
 pub use sikemux_wire::protocol;
 #[cfg(unix)]
 pub mod push;
+pub mod releases;
+pub mod runtime;
 #[cfg(unix)]
 pub use sikemux_client::device;
 #[cfg(unix)]
@@ -53,8 +58,8 @@ pub const SOCKET_ENV: &str = "SIKEMUX_CORE_SOCKET";
 /// `~/.config/sikemux/core.sock`, or `core.dev.sock` in debug builds, unless
 /// `SIKEMUX_CORE_SOCKET` names another path.
 pub fn default_socket_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os(SOCKET_ENV).filter(|path| !path.is_empty()) {
-        return Some(PathBuf::from(path));
+    if let Some(path) = sikemux_process::paths::env_path(SOCKET_ENV) {
+        return Some(path);
     }
     sikemux_process::paths::config_file("core", "sock")
 }

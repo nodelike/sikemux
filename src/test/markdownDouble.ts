@@ -27,7 +27,13 @@ function load(): Fixture[] {
 let fixtures: Fixture[] | null = null;
 
 function sameOptions(a: MarkdownOptions, b: MarkdownOptions): boolean {
-    return a.gfm === b.gfm && a.htmlAsText === b.htmlAsText && a.fileLinks === b.fileLinks && !!a.htmlImages === !!b.htmlImages;
+    return (
+        a.gfm === b.gfm &&
+        a.htmlAsText === b.htmlAsText &&
+        a.fileLinks === b.fileLinks &&
+        !!a.htmlImages === !!b.htmlImages &&
+        !!a.filePaths === !!b.filePaths
+    );
 }
 
 /* A text with no fixture, such as a message caught halfway through arriving,

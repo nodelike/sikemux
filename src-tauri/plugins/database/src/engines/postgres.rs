@@ -13,7 +13,7 @@ use tokio_postgres::{Client, Config, SimpleQueryMessage};
 use super::{tls, Unfinished};
 use crate::error::{DatabaseError, DatabaseResult};
 use crate::profiles::{Server, Tls, POSTGRES_PORT};
-use crate::schema::{ColumnInfo, ForeignKey, Index, Table, TableInfo, TableKind};
+use crate::schema::{postgres_kind, ColumnInfo, ForeignKey, Index, Table, TableInfo};
 use crate::values::{self, Column, ResultSet};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -404,7 +404,7 @@ impl Session {
             .iter()
             .map(|row| Table {
                 name: row.get(0),
-                kind: TableKind::from_postgres(row.get(1)),
+                kind: postgres_kind(row.get(1)),
             })
             .collect())
     }
@@ -437,7 +437,7 @@ impl Session {
         Ok(TableInfo {
             schema: schema.to_string(),
             name: table.to_string(),
-            kind: TableKind::from_postgres(kind.get(0)),
+            kind: postgres_kind(kind.get(0)),
             columns: columns
                 .iter()
                 .map(|row| ColumnInfo {
@@ -484,6 +484,7 @@ impl Session {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::schema::TableKind;
 
     /// A server to test against, from `SIKEMUX_TEST_POSTGRES` as `host:port/database/user`.
     /// Without it the tests that need a live server pass without running.

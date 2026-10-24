@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitCompare } from "../../api/git";
 
-const api = vi.hoisted(() => ({ branches: vi.fn() }));
+const start = vi.hoisted(() => vi.fn());
 const localGit = vi.hoisted(() => ({ compare: vi.fn(), push: vi.fn() }));
 vi.mock("../../api/git", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api/git")>()), git: localGit }));
 vi.mock("../../git/CommitReview", () => ({
@@ -19,10 +19,12 @@ import { invalidate } from "../../plugin-api/resources";
 import { setState } from "../../state/store";
 import { useToasts } from "../../state/toast";
 import type { CodeHost } from "../registry";
-import { InHost, registerTestHost, TEST_HOST } from "../testHost";
+import { ciCore, InHost, registerTestHost, TEST_HOST } from "../testHost";
 import { NewPullForm } from "./NewPullForm";
 
-const host = registerTestHost(api);
+const host = registerTestHost({});
+ciCore({}, () => null, { codeHostNewPull: start });
+const startOn = (head: string | null, pushed = true) => ({ head, base: "main", branches: ["main", "develop", "feat/x"], pushed });
 const repo = { provider: TEST_HOST, owner: "nodelike", name: "sikemux" };
 
 const commitOf = (hash: string, subject: string) => ({
@@ -48,12 +50,12 @@ const comparison = (extra: Partial<GitCompare> = {}): GitCompare =>
         ...extra,
     }) as GitCompare;
 
-function form({ head = "feat/x" as string | null, cwd = "/repo" as string | null, on = host as CodeHost } = {}) {
+function form({ cwd = "/repo" as string | null, on = host as CodeHost } = {}) {
     const onCreated = vi.fn();
     const onCancel = vi.fn();
     render(
         <InHost host={on}>
-            <NewPullForm paneId="p-new" repo={repo} cwd={cwd} head={head} active onCreated={onCreated} onCancel={onCancel} />
+            <NewPullForm paneId="p-new" repo={repo} project="/repo" cwd={cwd} active onCreated={onCreated} onCancel={onCancel} />
         </InHost>,
     );
     return { onCreated, onCancel, title: () => screen.getByLabelText("Title") as HTMLInputElement };
@@ -67,7 +69,7 @@ beforeEach(() => {
     invalidate(() => true);
     setState({ gitViews: {} });
     useToasts.setState({ toasts: [] });
-    api.branches.mockReset().mockResolvedValue(["main", "develop", "feat/x"]);
+    start.mockReset().mockReturnValue(startOn("feat/x"));
     localGit.compare.mockReset().mockResolvedValue(comparison());
     localGit.push.mockReset().mockResolvedValue(undefined);
 });
@@ -84,15 +86,16 @@ describe("NewPullForm", () => {
     });
 
     it("starts from no branch when the project is on a usual base", async () => {
-        form({ head: "main" });
-        await waitFor(() => expect(api.branches).toHaveBeenCalled());
+        start.mockReturnValue(startOn(null));
+        form();
+        await waitFor(() => expect(start).toHaveBeenCalledWith({ project: "/repo" }));
         expect(await within(right()).findByText("Choose the branch to open a pull request from.")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "The branch with the changes" })).toHaveTextContent("Choose a branch");
         expect(localGit.compare).not.toHaveBeenCalled();
     });
 
     it("offers to push a branch the host does not have yet, then compares again", async () => {
-        api.branches.mockResolvedValueOnce(["main"]).mockResolvedValue(["main", "feat/x"]);
+        start.mockReturnValueOnce(startOn("feat/x", false));
         form();
         expect(await screen.findByText("Not on Test host yet")).toBeInTheDocument();
         await waitFor(() => expect(localGit.compare).toHaveBeenCalledTimes(1));

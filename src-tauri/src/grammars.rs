@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, AppResult};
-use crate::http_client::client;
+use sikemux_core::http::client;
 
 const MIRRORS: [&str; 2] = [
     "https://cdn.jsdelivr.net/npm/@shikijs/langs@",

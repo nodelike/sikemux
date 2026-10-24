@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendTestNotification } from "../agents/agentNotifications";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
-import { invokeCommand as invoke } from "../api/invoke";
+import { coreCall } from "../api/core";
 import { simApi, type SimSetup } from "../api/sim";
 import { simUsable, useSimStatus } from "../sim/simStatus";
 import {
@@ -16,6 +16,7 @@ import {
     resolvedKeybinding,
     type KeybindingActionId,
     type KeybindingOverrides,
+    keybindingOverridesOf,
 } from "../commands/keybindings";
 import { settingsApi } from "../api/settings";
 import { agentNamesApi, type AgentNameTheme } from "../api/agentNames";
@@ -27,8 +28,11 @@ import { IS_MACOS, PRIMARY_SHORTCUT } from "../lib/platform";
 import { notify, reportError, swallow } from "../state/toast";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
-import { cloneTheme, newCustomThemeId, THEME_GROUPS, THEMES, themeFromColours, type Theme, type ThemeGroupKey } from "../themes";
-import { wallpaperPixels, wallpaperTheme } from "../themes/wallpaper";
+import { customCommandsOf, setPreference, updateChannelOf, usePreference, projectRootsOf, preferencesOf } from "../state/preferences";
+import type { MidTurnSend } from "../api/generated/wire";
+import { cloneTheme, DEFAULT_THEME_ID, newCustomThemeId, NO_THEMES, THEME_GROUPS, type Theme, type ThemeGroupKey } from "../themes";
+import { themeById, useThemeSummaries } from "../themes/summaries";
+import { pixelsBase64, wallpaperPixels } from "../themes/wallpaper";
 import { ThemePicker, type PictureSource } from "./ThemePicker";
 import { useLeaveSettingsOnNavigation } from "./leaveSettings";
 import {
@@ -58,7 +62,7 @@ import { PaneField } from "../ui/ShaderField";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import type { ProjectRoot, ProviderProfile } from "../state/types";
 import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agents/agentLaunch";
-import { ACCOUNT_AGENT_TYPES, agentBrand, agentLabel, hasAccounts, type AccountAgentType } from "../agents/catalog";
+import { accountAgentTypes, agentBrand, agentLabel, hasAccounts } from "../agents/catalog";
 import {
     searchSettings,
     SETTINGS_GROUPS,
@@ -112,15 +116,15 @@ function isFindShortcut(event: KeyboardEvent): boolean {
 }
 
 export function SettingsPanel() {
-    const projectRoots = useStore((s) => s.projectRoots);
-    const themeId = useStore((s) => s.themeId);
-    const windowOpacity = useStore((s) => s.windowOpacity);
-    const windowBlur = useStore((s) => s.windowBlur);
-    const cloudBrowser = useStore((s) => s.cloudBrowser);
-    const cloudBrowserShortcut = useStore((s) => s.cloudBrowserShortcut);
-    const keybindingOverrides = useStore((s) => s.keybindingOverrides);
+    const projectRoots = useStore(projectRootsOf);
+    const themeId = usePreference("themeId") ?? DEFAULT_THEME_ID;
+    const windowOpacity = useStore((s) => preferencesOf(s).windowOpacity);
+    const windowBlur = useStore((s) => preferencesOf(s).windowBlur);
+    const cloudBrowser = usePreference("cloudBrowser") ?? "";
+    const cloudBrowserShortcut = usePreference("cloudBrowserShortcut") ?? "";
+    const keybindingOverrides = useStore(keybindingOverridesOf);
     const home = useStore((s) => s.home);
-    const paneShader = useStore((s) => s.paneShader);
+    const paneShader = useStore((s) => preferencesOf(s).paneShader);
     const page = useStore((s) => s.settingsPage);
     const target = useStore((s) => s.settingsTarget);
     const settingsBinding = resolvedKeybinding(keybindingOverrides, "settings.toggle");
@@ -389,7 +393,7 @@ function blankCommand(): CustomCommand {
 }
 
 function ActionsPage() {
-    const commands = useStore((s) => s.customCommands);
+    const commands = useStore(customCommandsOf);
     const pluginManifests = useStore((s) => s.pluginManifests);
     const contextOptions = useMemo(
         () => [
@@ -510,10 +514,10 @@ function ActionsPage() {
 }
 
 function AgentsPage() {
-    const restore = useStore((s) => s.restoreAgentTabs);
-    const notifications = useStore((s) => s.agentNotifications);
-    const density = useStore((s) => s.railDensity);
-    const midTurnSend = useStore((s) => s.midTurnSend);
+    const restore = usePreference("restoreAgentTabs") === true;
+    const notifications = usePreference("agentNotifications") === true;
+    const density = useStore((s) => preferencesOf(s).railDensity);
+    const midTurnSend = usePreference("midTurnSend");
     const profiles = useStore((s) => s.providerProfiles);
     const defaultPermissionMode = useStore((s) => s.defaultAgentPermissionMode);
     const [draft, setDraft] = useState<ProviderProfile>(
@@ -598,10 +602,8 @@ function AgentsPage() {
                                     label="provider"
                                     value={draft.provider}
                                     disabled={draft.id.startsWith("builtin-")}
-                                    options={ACCOUNT_AGENT_TYPES.map((type) => ({ value: type, label: agentLabel(type) }))}
-                                    onChange={(value) =>
-                                        setDraft({ ...draft, provider: value as AccountAgentType, accent: agentBrand(value as AccountAgentType) })
-                                    }
+                                    options={accountAgentTypes().map((type) => ({ value: type, label: agentLabel(type) }))}
+                                    onChange={(value) => setDraft({ ...draft, provider: value, accent: agentBrand(value) })}
                                 />
                             </SettingsRow>
                             <SettingsRow label="Executable path" desc="Empty uses PATH." wide>
@@ -683,12 +685,12 @@ function AgentsPage() {
                         <Dropdown
                             className="settings-dd"
                             label="sending while an agent works"
-                            value={midTurnSend}
+                            value={midTurnSend ?? ""}
                             options={[
                                 { value: "steer", label: "Steer", detail: "The agent reads it in the running turn" },
                                 { value: "queue", label: "Queue", detail: "It waits until the turn ends" },
                             ]}
-                            onChange={(value) => cmd.setMidTurnSend(value as "steer" | "queue")}
+                            onChange={(value) => setPreference("midTurnSend", value as MidTurnSend)}
                         />
                     </SettingsRow>
                     <SettingsRow label="Rail density" desc="Compact fits more sessions while keeping every state symbol visible." wide>
@@ -736,7 +738,7 @@ interface CliInstallStatus {
 function CliPage() {
     const [status, setStatus] = useState<CliInstallStatus | null>(null);
     const [busy, setBusy] = useState(false);
-    const refresh = useCallback(() => invoke<CliInstallStatus>("cli_install_status").then(setStatus).catch(reportError("CLI status")), []);
+    const refresh = useCallback(() => coreCall<CliInstallStatus>("cliInstall").then(setStatus).catch(reportError("CLI status")), []);
 
     useEffect(() => {
         refresh();
@@ -745,12 +747,12 @@ function CliPage() {
     const install = async () => {
         setBusy(true);
         try {
-            const next = await invoke<CliInstallStatus>("cli_install");
+            const next = await coreCall<CliInstallStatus>("installCli");
             setStatus(next);
             notify("success", next.pathConfigured ? "Sikemux CLI is ready" : "Sikemux CLI installed; add its directory to PATH");
         } catch (error) {
             reportError("CLI install")(error);
-            await invoke<CliInstallStatus>("cli_install_status").then(setStatus).catch(swallow("read the CLI install status"));
+            await coreCall<CliInstallStatus>("cliInstall").then(setStatus).catch(swallow("read the CLI install status"));
         } finally {
             setBusy(false);
         }
@@ -808,10 +810,10 @@ function CliPage() {
 }
 
 function AboutPage() {
-    const updateChannel = useStore((s) => s.updateChannel);
+    const updateChannel = useStore(updateChannelOf);
     const lastUpdateCheck = useStore((s) => s.lastUpdateCheck);
     const pendingUpdate = useStore((s) => s.pendingUpdate);
-    const shareUsageData = useStore((s) => s.shareUsageData);
+    const shareUsageData = usePreference("shareUsageData") === true;
     return (
         <SettingsPage>
             <SettingsSection title="Updates">
@@ -909,13 +911,12 @@ function GeneralPage({ projectRoots, home, pretty }: GeneralPageProps) {
     const [draftSelfIndex, setDraftSelfIndex] = useState(false);
 
     const resolveDirectory = async (raw: string) => {
-        const expanded = await settingsApi.expandPath(raw);
-        const ok = await settingsApi.isDirectory(expanded);
-        if (!ok) {
-            notify("error", `settings: not a directory: ${pretty(expanded)}`);
+        const { path, kind } = await settingsApi.resolvePath(raw);
+        if (kind !== "dir") {
+            notify("error", `settings: not a directory: ${pretty(path)}`);
             return null;
         }
-        return expanded;
+        return path;
     };
 
     const commitDraft = async () => {
@@ -1237,12 +1238,13 @@ interface ThemeEdit {
 }
 
 function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePageProps) {
-    const uiTextScale = useStore((state) => state.uiTextScale);
-    const paneShader = useStore((state) => state.paneShader);
-    const paneImage = useStore((state) => state.paneImage);
-    const paneStrength = useStore((state) => state.paneStrength);
+    const uiTextScale = usePreference("uiTextScale");
+    const paneShader = useStore((state) => preferencesOf(state).paneShader);
+    const paneImage = useStore((state) => preferencesOf(state).paneImage);
+    const paneStrength = useStore((state) => preferencesOf(state).paneStrength);
     const home = useStore((state) => state.home);
-    const customThemes = useStore((s) => s.customThemes);
+    const customThemes = usePreference("customThemes") ?? NO_THEMES;
+    const summaries = useThemeSummaries();
     const [edit, setEdit] = useState<ThemeEdit | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
 
@@ -1270,7 +1272,7 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
         setReadingPicture(source);
         try {
             const picture = await read();
-            const theme = themeFromColours(wallpaperTheme(picture.pixels, picture.name));
+            const theme = await cmd.themeFromPixels(picture.name, pixelsBase64(picture.pixels));
             openEditor({ theme: cloneTheme(theme, { id: newCustomThemeId() }), original: cloneTheme(theme), isNew: true, baseName: theme.name });
         } catch (error) {
             reportError(source === "wallpaper" ? "Theme from wallpaper" : "Theme from pane image")(error);
@@ -1310,13 +1312,14 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
         <SettingsPage>
             <SettingsSection
                 title="Theme"
-                meta={`${THEMES.length} built-in · ${customThemes.length} custom`}
+                meta={`${summaries.length - customThemes.length} built-in · ${customThemes.length} custom`}
                 sub="Applies instantly to chrome, editor and terminal. Arrow keys in the search step through the list.">
                 <ThemePicker
+                    summaries={summaries}
                     themeId={themeId}
                     customThemes={customThemes}
                     editingId={edit?.theme.id}
-                    onCustomize={customizeFrom}
+                    onCustomize={(id) => void themeById(id).then(customizeFrom).catch(reportError("Customize theme"))}
                     onEdit={editCustom}
                     onFromWallpaper={fromWallpaper}
                     onFromPaneImage={paneImage ? () => fromPaneImage(paneImage) : undefined}
@@ -1353,7 +1356,7 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
                         <Dropdown
                             className="settings-dd"
                             label="Interface text size"
-                            value={String(uiTextScale)}
+                            value={uiTextScale === undefined ? "" : String(uiTextScale)}
                             options={[
                                 { value: "1", label: "100% · Default" },
                                 { value: "1.1", label: "110% · Larger" },
@@ -1722,7 +1725,7 @@ function AgentNamesRow() {
 }
 
 function VoiceSection() {
-    const enabled = useStore((s) => s.voiceDictation);
+    const enabled = usePreference("voiceDictation") === true;
     const voice = useVoice();
     return (
         <SettingsSection title="Voice">
@@ -1747,11 +1750,12 @@ function VoiceSection() {
 }
 
 function NotchSection() {
-    const notch = useStore((s) => s.notch);
+    const notch = usePreference("notch");
+    if (!notch) return null;
     const choice =
         <K extends "displays" | "openWith" | "fullScreen" | "peeks">(key: K) =>
         (value: string) =>
-            cmd.setNotch({ [key]: value } as Partial<typeof notch>);
+            cmd.setNotch({ [key]: value });
     return (
         <SettingsSection
             title="Notch"
@@ -1882,8 +1886,8 @@ function xcodeDescription(path: string | null): string {
 }
 
 function SimulatorSection() {
-    const enabled = useStore((s) => s.iosSimulator);
-    const frame = useStore((s) => s.simulatorFrame);
+    const enabled = usePreference("iosSimulator") === true;
+    const frame = useStore((s) => preferencesOf(s).simulatorFrame);
     const status = useSimStatus();
     const [setup, setSetup] = useState<SimSetup | "unread" | null>(null);
     const usable = simUsable(status);

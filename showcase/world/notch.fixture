@@ -29,6 +29,7 @@
   "attentions": [
     { "id": "p1", "agentId": "a1", "choices": { "allowOnce": "o1", "allowAlways": "o2", "reject": "o3", "command": "pnpm test src/rail --run", "title": "Run tests" } }
   ],
+  "faceStyle": {"motion": true},
   "inbox": {
     "working": 2,
     "items": [

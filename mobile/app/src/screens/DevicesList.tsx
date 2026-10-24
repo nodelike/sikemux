@@ -13,7 +13,6 @@ import { retryHosts, useAccountHosts } from '@/account/session';
 import { reloadDevices, retry, useHostStatus, useLive } from '@/devices/hub';
 import { channelLabel, deviceKind, deviceName, type PairedDevice } from '@/devices/paired';
 import { summary } from '@/devices/status';
-import { agentDisplay } from '@mac/state/agentStatus';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, DeviceIcon, Icon } from '@/ui/Icon';
 import { Button, IconButton } from '@/ui/controls';
@@ -32,10 +31,10 @@ function DeviceCard({ device }: { device: PairedDevice }) {
   const away = !status.online && !(status.connecting && !status.problem);
   const snapshot = status.online ? live.snapshot : undefined;
   const needs = snapshot?.inbox.items[0]?.tier === 'needs' ? snapshot.inbox.items[0] : undefined;
-  const displays = (snapshot?.chats ?? []).map((chat) => ({ chat, display: agentDisplay(chat) }));
   const working = snapshot?.inbox.working ?? 0;
-  const background = displays.reduce((sum, { display }) => sum + display.subagents + display.tasks, 0);
-  const busy = displays.filter(({ display }) => display.group === 'working' || display.subagents + display.tasks).map(({ chat }) => chat);
+  const rollup = snapshot?.inbox.rollup;
+  const background = (rollup?.subagents ?? 0) + (rollup?.tasks ?? 0);
+  const busy = (snapshot?.inbox.agents ?? []).filter((agent) => agent.group === 'working' || agent.background);
   const work = [working ? `${working} working` : null, background ? `${background} in the background` : null].filter(Boolean).join(' · ');
   const channel = channelLabel(device.channel);
   const meta = snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
@@ -77,9 +76,9 @@ function DeviceCard({ device }: { device: PairedDevice }) {
       {busy.length ? (
         <View style={styles.work}>
           <View style={styles.faces}>
-            {busy.slice(0, 4).map((chat, index) => (
-              <View key={chat.agentId} style={[styles.face, index > 0 && styles.faceAfter]}>
-                <AgentIcon provider={chat.provider} size={18} />
+            {busy.slice(0, 4).map((agent, index) => (
+              <View key={agent.agentId} style={[styles.face, index > 0 && styles.faceAfter]}>
+                <AgentIcon provider={agent.cli} size={18} />
               </View>
             ))}
           </View>

@@ -14,6 +14,7 @@ use serde_json::json;
 use sikemux_core::accounts::network;
 use sikemux_core::accounts::protocol::Relay;
 use sikemux_core::client::{probe, ClientEvent, CoreClient};
+use sikemux_core::grid::{decode_frame, Screen};
 use sikemux_core::protocol::{
     BuildIdentity, DeviceAccess, LaunchIdentity, SpawnTarget, TerminalSpawn,
 };
@@ -162,16 +163,18 @@ async fn a_phone_reaches_a_core_through_the_relay_alone() {
         )
         .await
         .expect("the phone starts a terminal");
-    client.attach(id).await.expect("the phone attaches");
-    let mut seen = Vec::new();
-    while !String::from_utf8_lossy(&seen).contains("through-the-relay") {
+    let attached = client.attach(id).await.expect("the phone attaches");
+    let mut screen = Screen::default();
+    screen.apply(decode_frame(&attached.frame).expect("a frame"));
+    client.ack(attached.stream, screen.header.frame);
+    while !screen.text().contains("through-the-relay") {
         let event = tokio::time::timeout(WAIT, events.recv())
             .await
             .expect("output in time")
             .expect("the connection stayed open");
-        if let ClientEvent::Output { id: from, bytes } = event {
-            client.ack(from, bytes.len());
-            seen.extend_from_slice(&bytes);
+        if let ClientEvent::Grid { stream, frame } = event {
+            screen.apply(decode_frame(&frame).expect("a frame"));
+            client.ack(stream, screen.header.frame);
         }
     }
     client.kill(id).await.expect("the phone ends the terminal");

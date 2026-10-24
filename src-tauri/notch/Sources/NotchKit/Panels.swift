@@ -36,7 +36,6 @@ final class Panels {
     private var swipes: [CGDirectDisplayID: SwipeTracker] = [:]
     private var monitors: [Any] = []
     private var dragCount = 0
-    private var settingsWatcher: SettingsWatcher?
     private var pointerScreen: CGDirectDisplayID?
 
     init(store: NotchStore) {
@@ -45,10 +44,7 @@ final class Panels {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.rebuild() }
-        settingsWatcher = SettingsWatcher(path: store.options.settings) { [weak self] in
-            self?.store.reloadSettings()
-            self?.rebuild()
-        }
+        store.onSettings = { [weak self] in self?.rebuild() }
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
         watchDrags()
         rebuild()

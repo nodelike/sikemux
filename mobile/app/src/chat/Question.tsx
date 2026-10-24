@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { SECRET_ANSWERED, secretNote, viaNote, type AgentQuestion } from '@mac/agents/agentQuestions';
+import { SECRET_ANSWERED } from '@mac/chat/agentLetters';
+import type { AgentQuestion } from '@/core/protocol';
 import { Chip, Field } from '@/ui/controls';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
@@ -23,12 +24,15 @@ function AskedBy({ cli, ticket, children }: { cli: string; ticket?: string; chil
 
 /** A question as it reads once answered: its words, and the answer in one line, or only that it was answered when the answer is a secret. */
 export function AnsweredQuestion({
+  own,
   asker,
   cli,
   question,
   answer,
   secret,
 }: {
+  /** This chat's own agent asked, so who asked goes without saying. */
+  own: boolean;
   asker: string;
   cli: string;
   question: string;
@@ -39,9 +43,11 @@ export function AnsweredQuestion({
   const styles = useStyles(makeStyles);
   return (
     <View>
-      <AskedBy cli={cli}>
-        <Text style={styles.name}>{asker}</Text> asked you
-      </AskedBy>
+      {own ? null : (
+        <AskedBy cli={cli}>
+          <Text style={styles.name}>{asker}</Text> asked you
+        </AskedBy>
+      )}
       <Text style={styles.prose} selectable>
         {question}
       </Text>
@@ -90,7 +96,7 @@ function SecretAnswer({ question, onSend }: { question: AgentQuestion; onSend: (
       </View>
       <View style={styles.private}>
         <Icon name="IconLock" size={12} color={colors.inkFaint} />
-        <Text style={styles.privateText}>{secretNote(question.name)}</Text>
+        <Text style={styles.privateText}>{question.secretNote}</Text>
       </View>
     </View>
   );
@@ -118,7 +124,7 @@ export function OpenQuestion({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const via = viaNote(question);
+  const via = question.viaNote;
   const row = (key: string | number, number: number, label: string, detail: string | undefined, other: boolean, onPress: () => void) => (
     <Pressable
       key={key}

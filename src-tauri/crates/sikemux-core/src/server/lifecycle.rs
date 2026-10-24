@@ -16,7 +16,8 @@ use tokio::sync::Notify;
 
 use crate::protocol::{Continuation, SessionId};
 
-use super::{launching, Core, CoreResult};
+use super::agent::AgentActivity;
+use super::{launching, session, Core, CoreError, CoreResult};
 
 /// How long a chat nobody looks at stays idle before it sleeps.
 const IDLE_SLEEP_MS: u64 = 10 * 60_000;
@@ -93,29 +94,17 @@ where
 
 /// Starts the agent's chat as its record says unless it runs already or
 /// another client is starting it, and answers once it runs.
-pub(crate) async fn ensure_running(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
+pub(crate) async fn ensure_running(
+    core: &Arc<Core>,
+    agent_id: &str,
+    waits_for_person: bool,
+) -> CoreResult<()> {
     start_once(
         core,
         agent_id,
         || core.chats.get(agent_id).map(drop),
         || async {
-            launching::start_agent(core, None, agent_id, false)
-                .await
-                .map(drop)
-        },
-    )
-    .await
-}
-
-/// Takes up the agent's chat to be shown unless it is there already or another client is
-/// starting it; its agent starts only once the person writes in it or sends to it.
-pub(crate) async fn ensure_shown(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
-    start_once(
-        core,
-        agent_id,
-        || core.chats.get(agent_id).map(drop),
-        || async {
-            launching::start_agent(core, None, agent_id, true)
+            launching::start_agent(core, None, agent_id, waits_for_person)
                 .await
                 .map(drop)
         },
@@ -132,11 +121,44 @@ pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
         core.workspaces.note_stopping(chat);
     }
     let stopped = core.chats.stop_if_idle(agent_id);
-    if stopped && chat.is_some() {
+    if let Some(chat) = chat.filter(|_| stopped) {
+        core.chats.rest(&chat);
         core.workspaces.set_asleep(agent_id, true);
         core.note_agent_gone(agent_id);
     }
     stopped
+}
+
+/// Puts the agent to sleep at the person's word: a chat as [`sleep`] does, and
+/// a terminal agent by ending its terminal, to start again on its saved
+/// session when next shown.
+pub(crate) fn sleep_agent(core: &Core, agent_id: &str) -> CoreResult<()> {
+    let agent = core
+        .workspaces
+        .agent(agent_id)
+        .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
+    if core.chats.get(agent_id).is_some() {
+        return match sleep(core, agent_id) {
+            true => Ok(()),
+            false => Err("the agent is at work; it can sleep once its turn ends".into()),
+        };
+    }
+    let Some(terminal) = agent.pty_id.and_then(|pty| core.session(pty)) else {
+        return Ok(());
+    };
+    if agent.resume_id.is_none() {
+        return Err("this agent has no saved session to wake on".into());
+    }
+    let state = terminal.agent.as_ref().and_then(AgentActivity::state_label);
+    if matches!(state, Some("working" | "blocked")) {
+        return Err("the agent is at work; it can sleep once its turn ends".into());
+    }
+    session::kill(core, &terminal);
+    let patch = serde_json::Map::from_iter([("ptyId".to_owned(), serde_json::Value::Null)]);
+    core.workspaces.update_agent(agent_id, patch)?;
+    core.note_agent_gone(agent_id);
+    core.view_changed();
+    Ok(())
 }
 
 /// Whether a terminal agent's process ended the way a crash does, rather than

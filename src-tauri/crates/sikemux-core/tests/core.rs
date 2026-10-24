@@ -9,11 +9,14 @@ use std::sync::{Arc, Once};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use sikemux_core::client::{ensure_running, probe, ClientEvent, CoreClient, EventSink, Reply};
+use sikemux_core::client::{
+    ensure_running, probe, Attached, ClientEvent, CoreClient, EventSink, Reply,
+};
+use sikemux_core::grid::{decode_frame, Screen, MODE_ALT_SCREEN, MODE_MOUSE_ANY};
 use sikemux_core::protocol::{
     encode_control, read_frame_sync, AgentStateEvent, BuildIdentity, ClientMessage, Continuation,
     Event, LaunchIdentity, Request, Response, ServerMessage, SessionExit, SessionId, SpawnTarget,
-    TerminalSpawn, PROTOCOL, PROTOCOL_VERSION,
+    StreamId, TerminalSpawn, PROTOCOL, PROTOCOL_VERSION,
 };
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use sikemux_pty::launch::PtyContext;
@@ -129,7 +132,9 @@ impl Drop for TestCore {
 
 struct Stream {
     events: UnboundedReceiver<ClientEvent>,
+    /// What each attached session shows now.
     output: HashMap<SessionId, Vec<u8>>,
+    screens: HashMap<StreamId, (SessionId, Screen)>,
     exits: HashMap<SessionId, Event>,
     task_notices: Vec<SessionId>,
     agent_states: Vec<AgentStateEvent>,
@@ -140,6 +145,7 @@ impl Stream {
         Self {
             events,
             output: HashMap::new(),
+            screens: HashMap::new(),
             exits: HashMap::new(),
             task_notices: Vec::new(),
             agent_states: Vec::new(),
@@ -152,9 +158,12 @@ impl Stream {
             .expect("timed out waiting for the core")
             .expect("the core disconnected");
         match event {
-            ClientEvent::Output { id, bytes } => {
-                client.ack(id, bytes.len());
-                self.output.entry(id).or_default().extend_from_slice(&bytes);
+            ClientEvent::Grid { stream, frame } => {
+                if let Some((id, screen)) = self.screens.get_mut(&stream) {
+                    screen.apply(decode_frame(&frame).expect("a frame"));
+                    client.ack(stream, screen.header.frame);
+                    self.output.insert(*id, screen.text().into_bytes());
+                }
             }
             ClientEvent::Event(event @ Event::Exited { id, .. }) => {
                 self.exits.insert(id, event);
@@ -163,6 +172,15 @@ impl Stream {
             ClientEvent::Event(Event::AgentState(state)) => self.agent_states.push(state),
             ClientEvent::Event(_) | ClientEvent::WindowCall { .. } => {}
         }
+    }
+
+    async fn attach(&mut self, client: &CoreClient, id: SessionId) -> Attached {
+        let attached = client.attach(id).await.expect("attach");
+        let screen = screen_of(&attached.frame);
+        client.ack(attached.stream, screen.header.frame);
+        self.output.insert(id, screen.text().into_bytes());
+        self.screens.insert(attached.stream, (id, screen));
+        attached
     }
 
     fn output(&self, id: SessionId) -> &[u8] {
@@ -192,6 +210,12 @@ impl Stream {
             self.pump(client).await;
         }
     }
+}
+
+fn screen_of(frame: &[u8]) -> Screen {
+    let mut screen = Screen::default();
+    screen.apply(decode_frame(frame).expect("a frame"));
+    screen
 }
 
 fn contains(haystack: &[u8], needle: &str) -> bool {
@@ -250,15 +274,16 @@ fn open_gate(dir: &Path) {
     std::fs::write(dir.join("go"), b"").expect("open the gate");
 }
 
-/// Attaches repeatedly until the replay holds `needle`, then stays attached.
-async fn attach_once_printed(client: &CoreClient, id: SessionId, needle: &str) -> Vec<u8> {
+/// Attaches repeatedly until the screen shows `needle`, then stays attached.
+async fn attach_once_printed(client: &CoreClient, id: SessionId, needle: &str) -> Screen {
     let deadline = Instant::now() + WAIT;
     loop {
         let attached = client.attach(id).await.expect("attach");
-        if contains(&attached.replay, needle) {
-            return attached.replay;
+        let screen = screen_of(&attached.frame);
+        if screen.text().contains(needle) {
+            return screen;
         }
-        client.detach(id).await.expect("detach");
+        client.detach(attached.stream).await.expect("detach");
         assert!(Instant::now() < deadline, "{needle:?} was never printed");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -326,7 +351,7 @@ async fn handshake_succeeds_and_a_wrong_version_is_rejected() {
 }
 
 #[tokio::test]
-async fn output_arrives_byte_for_byte() {
+async fn output_reaches_the_screen() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
     let dir = tempfile::tempdir().expect("task dir");
@@ -334,96 +359,57 @@ async fn output_arrives_byte_for_byte() {
         .spawn(launch(), gated(dir.path(), "printf hello"))
         .await
         .expect("spawn");
-    client.attach(id).await.expect("attach");
+    stream.attach(&client, id).await;
     open_gate(dir.path());
     let (code, killed) = stream.until_exit(&client, id).await;
+    stream.until_output(&client, id, "hello").await;
     assert_eq!(stream.output(id), b"hello");
     assert_eq!(code, Some(0));
     assert!(!killed);
 }
 
 #[tokio::test]
-async fn acked_output_flows_past_the_unacked_budget() {
+async fn a_flood_never_waits_for_a_client_that_stopped_drawing() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
     let dir = tempfile::tempdir().expect("task dir");
     let id = client
         .spawn(
             launch(),
-            gated(dir.path(), "head -c 2000000 /dev/zero | tr '\\0' x"),
+            gated(
+                dir.path(),
+                "head -c 3000000 /dev/zero | tr '\\0' x; echo; echo flood-done",
+            ),
         )
         .await
         .expect("spawn");
-    client.attach(id).await.expect("attach");
+    let attached = client.attach(id).await.expect("attach");
     open_gate(dir.path());
-    let started = Instant::now();
-    stream.until_exit(&client, id).await;
-    assert_eq!(stream.output(id).len(), 2_000_000);
-    assert!(stream.output(id).iter().all(|byte| *byte == b'x'));
-    assert!(
-        started.elapsed() < Duration::from_secs(3),
-        "an acking client never waits for the write-off"
-    );
-}
-
-#[tokio::test]
-async fn a_client_that_falls_behind_holds_the_program_until_it_acks() {
-    let core = start_core();
-    let (client, mut stream) = core.connect().await;
-    let dir = tempfile::tempdir().expect("task dir");
-    let id = client
-        .spawn(
-            launch(),
-            gated(dir.path(), "head -c 3000000 /dev/zero | tr '\\0' x"),
-        )
-        .await
-        .expect("spawn");
-    client.attach(id).await.expect("attach");
-    open_gate(dir.path());
-    let mut owed = 0;
-    let deadline = Instant::now() + Duration::from_millis(500);
-    while let Ok(Some(event)) = tokio::time::timeout_at(deadline.into(), stream.events.recv()).await
-    {
-        if let ClientEvent::Output { bytes, .. } = event {
-            owed += bytes.len();
-        }
-    }
-    assert!(owed > 0, "nothing arrived");
-    assert!(owed < 1_000_000, "{owed} bytes arrived without an ack");
-    client.ack(id, owed);
-    stream.output.insert(id, vec![b'x'; owed]);
-    stream.until_exit(&client, id).await;
-    assert_eq!(stream.output(id).len(), 3_000_000);
-}
-
-#[tokio::test]
-async fn a_client_that_never_acks_does_not_hold_the_program_forever() {
-    let core = start_core();
-    let (client, mut stream) = core.connect().await;
-    let dir = tempfile::tempdir().expect("task dir");
-    let id = client
-        .spawn(
-            launch(),
-            gated(dir.path(), "head -c 1500000 /dev/zero | tr '\\0' x"),
-        )
-        .await
-        .expect("spawn");
-    client.attach(id).await.expect("attach");
-    open_gate(dir.path());
-    let mut received = 0;
+    let mut frames = Vec::new();
     loop {
         match tokio::time::timeout(WAIT, stream.events.recv()).await {
-            Ok(Some(ClientEvent::Output { bytes, .. })) => received += bytes.len(),
+            Ok(Some(ClientEvent::Grid { frame, .. })) => frames.push(frame),
             Ok(Some(ClientEvent::Event(Event::Exited { id: exited, .. }))) if exited == id => break,
             Ok(Some(_)) => {}
-            _ => panic!("the program stayed held after {received} bytes"),
+            _ => panic!("the program was held back"),
         }
     }
-    assert_eq!(received, 1_500_000);
+    assert!(
+        frames.len() <= 2,
+        "{} frames came for a client that drew none",
+        frames.len()
+    );
+    let mut screen = screen_of(&attached.frame);
+    for frame in &frames {
+        screen.apply(decode_frame(frame).expect("a frame"));
+    }
+    stream.screens.insert(attached.stream, (id, screen.clone()));
+    client.ack(attached.stream, screen.header.frame);
+    stream.until_output(&client, id, "flood-done").await;
 }
 
 #[tokio::test]
-async fn bytes_that_are_not_utf8_pass_through_unchanged() {
+async fn bytes_that_are_not_utf8_do_not_break_the_screen() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
     let dir = tempfile::tempdir().expect("task dir");
@@ -434,10 +420,10 @@ async fn bytes_that_are_not_utf8_pass_through_unchanged() {
         )
         .await
         .expect("spawn");
-    client.attach(id).await.expect("attach");
+    stream.attach(&client, id).await;
     open_gate(dir.path());
     stream.until_exit(&client, id).await;
-    assert_eq!(stream.output(id), b"\xff\xfe\x00\x80\x1b[0mabc");
+    stream.until_output(&client, id, "abc").await;
 }
 
 #[tokio::test]
@@ -456,7 +442,7 @@ async fn an_interactive_shell_runs_what_is_written_to_it() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
     let id = client.spawn(launch(), terminal(None)).await.expect("spawn");
-    client.attach(id).await.expect("attach");
+    stream.attach(&client, id).await;
     client
         .write(id, b"echo answer-$((6*7))\n")
         .await
@@ -469,7 +455,7 @@ async fn resize_reaches_the_terminal() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
     let id = client.spawn(launch(), terminal(None)).await.expect("spawn");
-    client.attach(id).await.expect("attach");
+    stream.attach(&client, id).await;
     client.resize(id, 100, 40).await.expect("resize");
     client.write(id, b"stty size\n").await.expect("write");
     stream.until_output(&client, id, "40 100").await;
@@ -485,7 +471,7 @@ async fn resize_reaches_the_terminal() {
 }
 
 #[tokio::test]
-async fn attach_replays_earlier_output_then_streams_live_bytes() {
+async fn attach_shows_earlier_output_then_what_follows() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
     let id = client
@@ -493,19 +479,17 @@ async fn attach_replays_earlier_output_then_streams_live_bytes() {
         .await
         .expect("spawn");
     attach_once_printed(&client, id, "early-marker").await;
+    stream.attach(&client, id).await;
     client
         .write(id, b"echo live-$((1+1))\n")
         .await
         .expect("write");
     stream.until_output(&client, id, "live-2").await;
-    assert!(
-        !contains(stream.output(id), "early-marker"),
-        "the replay is not sent again as live output"
-    );
+    assert!(contains(stream.output(id), "early-marker"));
 }
 
 #[tokio::test]
-async fn two_attached_clients_receive_the_same_bytes() {
+async fn two_attached_clients_see_the_same_screen() {
     let core = start_core();
     let (first, mut first_stream) = core.connect().await;
     let (second, mut second_stream) = core.connect().await;
@@ -520,12 +504,13 @@ async fn two_attached_clients_receive_the_same_bytes() {
         )
         .await
         .expect("spawn");
-    first.attach(id).await.expect("first attach");
-    second.attach(id).await.expect("second attach");
+    first_stream.attach(&first, id).await;
+    second_stream.attach(&second, id).await;
     open_gate(dir.path());
     first_stream.until_exit(&first, id).await;
     second_stream.until_exit(&second, id).await;
-    assert!(contains(first_stream.output(id), "line 299"));
+    first_stream.until_output(&first, id, "line 299").await;
+    second_stream.until_output(&second, id, "line 299").await;
     assert_eq!(first_stream.output(id), second_stream.output(id));
 }
 
@@ -533,9 +518,9 @@ async fn two_attached_clients_receive_the_same_bytes() {
 async fn a_session_outlives_its_client_and_can_be_reattached() {
     let core = start_core();
     let id = {
-        let (client, _stream) = core.connect().await;
+        let (client, mut stream) = core.connect().await;
         let id = client.spawn(launch(), terminal(None)).await.expect("spawn");
-        client.attach(id).await.expect("attach");
+        stream.attach(&client, id).await;
         id
     };
     let (client, mut stream) = core.connect().await;
@@ -547,7 +532,7 @@ async fn a_session_outlives_its_client_and_can_be_reattached() {
         .find(|session| session.id == id)
         .expect("the session survived its client");
     assert!(session.running);
-    client.attach(id).await.expect("reattach");
+    stream.attach(&client, id).await;
     client
         .write(id, b"echo still-$((2+3))\n")
         .await
@@ -563,8 +548,8 @@ async fn kill_terminates_the_whole_process_tree() {
         .spawn(launch(), terminal(Some("sleep 1000 & echo bg-pid:$!")))
         .await
         .expect("spawn");
-    let replay = attach_once_printed(&client, id, "bg-pid:").await;
-    let background = number_after(&replay, "bg-pid:");
+    let screen = attach_once_printed(&client, id, "bg-pid:").await;
+    let background = number_after(screen.text().as_bytes(), "bg-pid:");
     let shell = client
         .list()
         .await
@@ -851,7 +836,7 @@ async fn a_client_on_this_host_can_watch_the_device_view_with_the_app_s_titles()
             .expect("the view arrives")
             .expect("the core disconnected");
         if let ClientEvent::Event(Event::DeviceView { view }) = event {
-            break view;
+            break *view;
         }
     };
     let session = view
@@ -943,26 +928,7 @@ async fn manifests_are_listed_reloaded_and_explained() {
 }
 
 #[tokio::test]
-async fn subscribe_streams_only_what_comes_after_it() {
-    let core = start_core();
-    let (client, mut stream) = core.connect().await;
-    let id = client
-        .spawn(
-            launch(),
-            terminal(Some("printf 'before\\n'; read line; echo after-$line")),
-        )
-        .await
-        .expect("spawn");
-    attach_once_printed(&client, id, "before").await;
-    client.detach(id).await.expect("detach");
-    client.subscribe(id).await.expect("subscribe");
-    client.write(id, b"x\n").await.expect("write");
-    stream.until_output(&client, id, "after-x").await;
-    assert!(!contains(stream.output(id), "before"));
-}
-
-#[tokio::test]
-async fn reset_modes_reach_the_screen_and_every_subscriber() {
+async fn reset_modes_reach_the_screen() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
     let id = client
@@ -975,9 +941,13 @@ async fn reset_modes_reach_the_screen_and_every_subscriber() {
     let deadline = Instant::now() + WAIT;
     loop {
         let attached = client.attach(id).await.expect("attach");
-        if attached.alternate_screen {
+        if screen_of(&attached.frame).header.modes & MODE_ALT_SCREEN != 0 {
+            let screen = screen_of(&attached.frame);
+            client.ack(attached.stream, screen.header.frame);
+            stream.screens.insert(attached.stream, (id, screen));
             break;
         }
+        client.detach(attached.stream).await.expect("detach");
         assert!(
             Instant::now() < deadline,
             "the program never switched screens"
@@ -985,10 +955,48 @@ async fn reset_modes_reach_the_screen_and_every_subscriber() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     client.reset_modes(id).await.expect("reset");
-    stream.until_output(&client, id, "\x1b[?1049l").await;
-    assert!(!client.attach(id).await.expect("attach").alternate_screen);
+    let deadline = Instant::now() + WAIT;
+    while stream
+        .screens
+        .values()
+        .any(|(_, screen)| screen.header.modes & (MODE_ALT_SCREEN | MODE_MOUSE_ANY) != 0)
+    {
+        assert!(Instant::now() < deadline, "the modes stayed on");
+        stream.pump(&client).await;
+    }
     assert!(client.reset_modes(id + 1_000_000).await.is_err());
     client.kill(id).await.expect("kill");
+}
+
+#[tokio::test]
+async fn a_line_shows_on_a_terminal_nobody_watches() {
+    let core = start_core();
+    let (client, _stream) = core.connect().await;
+    let id = client
+        .spawn(
+            launch(),
+            terminal(Some(
+                "sleep 0.3; printf 'then enter the %s BCDF-GHJK\\n' code; sleep 100",
+            )),
+        )
+        .await
+        .expect("spawn");
+    let line = tokio::time::timeout(WAIT, client.line_shown(id, "enter the code".into()))
+        .await
+        .expect("the line was never found")
+        .expect("answer");
+    assert_eq!(line.as_deref(), Some("then enter the code BCDF-GHJK"));
+    client.kill(id).await.expect("kill");
+
+    let ended = client
+        .spawn(launch(), terminal(Some("sleep 0.3; exit 0")))
+        .await
+        .expect("spawn");
+    let line = tokio::time::timeout(WAIT, client.line_shown(ended, "never printed".into()))
+        .await
+        .expect("the wait outlived the terminal")
+        .expect("answer");
+    assert_eq!(line, None);
 }
 
 #[tokio::test]
@@ -1003,11 +1011,11 @@ async fn writes_larger_than_a_frame_arrive_whole() {
         )
         .await
         .expect("spawn");
-    client.attach(id).await.expect("attach");
+    stream.attach(&client, id).await;
     let payload = vec![b'y'; 17_000_000];
     client.write(id, &payload).await.expect("write");
     stream.until_exit(&client, id).await;
-    assert!(contains(stream.output(id), "17000000"));
+    stream.until_output(&client, id, "17000000").await;
 }
 
 #[tokio::test]
@@ -1046,8 +1054,8 @@ impl OrderSink {
 }
 
 impl EventSink for OrderSink {
-    fn output(&self, id: SessionId, _bytes: &[u8]) {
-        self.note(format!("output {id}"));
+    fn grid(&self, stream: StreamId, _frame: &[u8]) {
+        self.note(format!("frame {stream}"));
     }
 
     fn event(&self, event: Event) {
@@ -1139,7 +1147,7 @@ async fn a_terminal_that_ends_unwatched_stays_to_show_how_it_ended() {
     );
     let attached = later.attach(id).await.expect("attach the ended terminal");
     assert!(attached.exited);
-    assert!(contains(&attached.replay, "farewell-42"));
+    assert!(screen_of(&attached.frame).text().contains("farewell-42"));
 
     later.kill(id).await.expect("close it");
     assert!(later.list().await.expect("list").is_empty());
@@ -1201,8 +1209,8 @@ async fn an_agent_that_ends_while_watched_stays_and_a_continuation_starts_below_
         .spawn(launch(), SpawnTarget::Terminal(resumed))
         .await
         .expect("spawn the continuation");
-    let replay = attach_once_printed(&client, id, "after-4").await;
-    let text = String::from_utf8_lossy(&replay);
+    let screen = attach_once_printed(&client, id, "after-4").await;
+    let text = screen.text();
     let before = text.find("before-2").expect("the old screen is carried");
     let note = text
         .find("\u{2014} Resuming Claude \u{2014}")
@@ -1210,7 +1218,7 @@ async fn an_agent_that_ends_while_watched_stays_and_a_continuation_starts_below_
     let after = text.find("after-4").expect("the new program prints below");
     assert!(before < note && note < after);
     assert!(!text.contains('\u{7}'));
-    assert!(!contains(&replay, "\x1b[?1000h"));
+    assert_eq!(screen.header.modes & MODE_MOUSE_ANY, 0);
     let sessions = client.list().await.expect("list");
     assert!(sessions.iter().all(|session| session.id != ended));
     client.kill(id).await.expect("kill");

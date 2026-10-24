@@ -9,7 +9,6 @@ use crate::acp::account::{self, SignIn};
 use crate::acp::SessionEnd;
 use crate::protocol::{ChatAccount, ChatContext, ChatLaunch};
 
-use super::super::connection::ClientId;
 use super::super::Core;
 use super::Chat;
 
@@ -27,8 +26,8 @@ pub(super) enum Outcome {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Replay {
-    /// Who sent it, while nobody else has been told it was sent.
-    pub announce: Option<ClientId>,
+    /// Clients have not been shown it yet.
+    pub announce: bool,
     pub message_id: Option<String>,
     pub text: String,
     pub paths: Vec<String>,

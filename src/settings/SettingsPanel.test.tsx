@@ -10,6 +10,9 @@ import { SETTINGS_INDEX, SETTINGS_PAGE_ORDER } from "./settingsIndex";
 import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";
 import { SettingsPanel } from "./SettingsPanel";
+import { testPreferences } from "../test/preferences";
+import { themeById } from "../test/themes";
+import type { ThemeSummary } from "../themes";
 
 vi.mock("../themes/wallpaper", async (importOriginal) => ({
     ...(await importOriginal<typeof import("../themes/wallpaper")>()),
@@ -22,12 +25,47 @@ vi.mock("../themes/wallpaper", async (importOriginal) => ({
 
 const initial = getState();
 
+function summary(id: string, name: string, dark: boolean, source: ThemeSummary["source"]): ThemeSummary {
+    return {
+        id,
+        name,
+        dark,
+        source,
+        bg: dark ? "#191724" : "#faf4ed",
+        line: "#26233a",
+        acc: "#c4a7e7",
+        swatches: ["#eb6f92", "#31748f", "#f6c177", "#9ccfd8", "#c4a7e7", "#ebbcba"],
+    };
+}
+
+const THEME_LIST = [
+    summary("aura-noir", "Aura Noir", true, "sikemux"),
+    summary("ghostty-rose-pine", "Rose Pine", true, "ghostty"),
+    summary("ghostty-rose-pine-dawn", "Rose Pine Dawn", false, "ghostty"),
+    summary("ghostty-rose-pine-moon", "Rose Pine Moon", true, "ghostty"),
+];
+
+/** Answers the theme calls the appearance page makes; anything else stays unanswered. */
+function answerThemeCalls(): void {
+    const transport = new MemoryIpcTransport();
+    installIpcTransportForTests(transport);
+    transport.register("core_call", (args) => {
+        const { method, params } = args as { method: string; params: { name?: string } | null };
+        if (method === "themes") return THEME_LIST;
+        if (method === "themeFromPixels") return { ...themeById("aura-noir"), name: params?.name ?? "" };
+        return new Promise(() => {});
+    });
+}
+
 beforeEach(() => {
     setState(initial, true);
-    setState({ keybindingOverrides: {}, settingsOpen: true });
+    setState({ preferences: testPreferences(), settingsOpen: true });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    resetIpcTransportForTests();
+});
 
 describe("SettingsPanel keybindings", () => {
     it("records, blocks conflicts, clears, and resets shortcuts", async () => {
@@ -44,7 +82,7 @@ describe("SettingsPanel keybindings", () => {
 
         await user.click(project);
         fireEvent.keyDown(project, { key: "o", code: "KeyO", ctrlKey: true, shiftKey: true });
-        expect(getState().keybindingOverrides["project.open"]).toBe("Ctrl+Shift+KeyO");
+        expect(getState().preferences?.keybindingOverrides["project.open"]).toBe("Ctrl+Shift+KeyO");
         const replacementLabel = keybindingLabel("Ctrl+Shift+KeyO");
         expect(screen.getByRole("button", { name: `Open project: ${replacementLabel}. Activate to change.` })).toBeInTheDocument();
 
@@ -52,15 +90,15 @@ describe("SettingsPanel keybindings", () => {
         const ssh = screen.getByRole("button", { name: `Connect to SSH host: ${sshDefault}. Activate to change.` });
         await user.click(ssh);
         fireEvent.keyDown(ssh, { key: "o", code: "KeyO", ctrlKey: true, shiftKey: true });
-        expect(getState().keybindingOverrides["ssh.open"]).toBeUndefined();
+        expect(getState().preferences?.keybindingOverrides["ssh.open"]).toBeUndefined();
         expect(screen.getByText(`${replacementLabel} is already assigned to “Open project”.`)).toBeInTheDocument();
 
         fireEvent.keyDown(ssh, { key: "Backspace", code: "Backspace" });
-        expect(getState().keybindingOverrides["ssh.open"]).toBeNull();
+        expect(getState().preferences?.keybindingOverrides["ssh.open"]).toBeNull();
         expect(screen.getByRole("button", { name: "Connect to SSH host: Unassigned. Activate to change." })).toBeInTheDocument();
 
         await user.click(screen.getByRole("button", { name: "Reset all" }));
-        expect(getState().keybindingOverrides).toEqual({});
+        expect(getState().preferences?.keybindingOverrides).toEqual({});
     });
 
     it("persists an explicit launch boundary and sends the core a non-secret provider path", async () => {
@@ -86,25 +124,30 @@ describe("SettingsPanel keybindings", () => {
     it("drafts a theme from the wallpaper and keeps it once saved", async () => {
         const user = userEvent.setup();
         vi.spyOn(settingsApi, "wallpaperImage").mockResolvedValue({ name: "Neon", dataUrl: "data:image/png;base64," });
+        answerThemeCalls();
+        setState({ preferences: testPreferences() });
         render(<SettingsPanel />);
         await user.click(screen.getByRole("button", { name: "Appearance" }));
 
         await user.click(screen.getByRole("button", { name: /From wallpaper/ }));
         expect(await screen.findByDisplayValue("Neon wallpaper")).toBeInTheDocument();
-        expect(getState().customThemes).toHaveLength(0);
+        expect(getState().preferences?.customThemes).toHaveLength(0);
 
         await user.click(screen.getByRole("button", { name: "Save theme" }));
-        expect(getState().customThemes.map((theme) => theme.name)).toEqual(["Neon wallpaper"]);
-        expect(getState().themeId).toBe(getState().customThemes[0].id);
+        expect(getState().preferences?.customThemes.map((theme) => theme.name)).toEqual(["Neon wallpaper"]);
+        expect(getState().preferences?.themeId).toBe(getState().preferences?.customThemes[0].id);
     });
 
     it("searches Ghostty's themes and applies them from the keyboard", async () => {
         const user = userEvent.setup();
+        answerThemeCalls();
+        setState({ preferences: testPreferences() });
         render(<SettingsPanel />);
         await user.click(screen.getByRole("button", { name: "Appearance" }));
 
         const themes = screen.getByRole("listbox", { name: "Themes" });
         const search = screen.getByRole("textbox", { name: "Search themes" });
+        await vi.waitFor(() => expect(within(themes).getAllByRole("option").length).toBeGreaterThan(0));
         await user.type(search, "rose pine");
         expect(
             within(themes)
@@ -116,7 +159,7 @@ describe("SettingsPanel keybindings", () => {
         expect(within(themes).getAllByRole("option")).toHaveLength(1);
 
         await user.type(search, "{ArrowDown}");
-        expect(getState().themeId).toBe("ghostty-rose-pine-dawn");
+        expect(getState().preferences?.themeId).toBe("ghostty-rose-pine-dawn");
         expect(within(themes).getByRole("option", { selected: true })).toHaveTextContent("Rose Pine Dawn");
     });
 });
@@ -228,7 +271,7 @@ describe("SettingsPanel navigation", () => {
         const transport = new MemoryIpcTransport();
         installIpcTransportForTests(transport);
         transport.registerCoreRequest("remoteStatus", () => ({ status: new Promise(() => {}) }));
-        transport.register("account_status", () => new Promise(() => {}));
+        transport.register("core_call", () => new Promise(() => {}));
         cmd.openSettings("devices", "Your account");
         const { container } = render(<SettingsPanel />);
 

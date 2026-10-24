@@ -1,15 +1,20 @@
 import { useMemo } from "react";
 import * as cmd from "../state";
 import { useResourceEnabled } from "../../../plugin-api/resources";
-import { rndJobIndexR, rndMatrixR, rndProjectsR } from "../resources";
+import { rndJobsV, rndTreeV } from "../resources";
 import { IconActivity, IconChevron, IconFolder, IconPanelLeft, IconSearch, Tooltip } from "../../../plugin-api/ui";
-import type { RundeckJob } from "../api";
-import { groupSegments, isLiveStatus } from "../shape";
-import { ancestorPaths, buildGroupTree, type GroupNode } from "./groupTree";
+import type { RundeckGroupNode } from "../types.generated";
+import { groupSegments } from "../shape";
+
+/** Every folder that must be open for `path` to be visible, including `path` itself. */
+function ancestorPaths(path: string | null): string[] {
+    const segments = groupSegments(path);
+    return segments.map((_, index) => segments.slice(0, index + 1).join("/"));
+}
 
 export function RundeckProjectTree({ paneId, active }: { paneId: string; active: boolean }) {
-    const projects = useResourceEnabled(active, rndProjectsR);
-    const index = useResourceEnabled(active, rndJobIndexR);
+    const tree = useResourceEnabled(active, rndTreeV, `${paneId}/tree`);
+    if (tree.data) cmd.markRundeckLooked();
     const settingsProject = cmd.rundeckSettings.useSelect((s) => s.activeProject);
     const settingsGroup = cmd.rundeckSettings.useSelect((s) => s.activeGroup);
     const { stack } = cmd.useRundeckView(paneId);
@@ -18,29 +23,10 @@ export function RundeckProjectTree({ paneId, active }: { paneId: string; active:
     const activeProject = top && top.kind !== "matrix" ? top.project : settingsProject;
     const activeGroup = top && top.kind !== "matrix" && top.kind !== "activity" ? top.group : onActivity ? null : settingsGroup;
     const openState = cmd.useRundeck((s) => s.treeOpen[paneId]);
-    const matrix = useResourceEnabled(active && !!activeProject, rndMatrixR, activeProject);
-
-    const jobsByProject = useMemo(() => {
-        const map = new Map<string, { jobs: RundeckJob[]; error: string | null }>();
-        for (const entry of index.data ?? []) map.set(entry.project, { jobs: entry.jobs, error: entry.error });
-        return map;
-    }, [index.data]);
-
-    const names = useMemo(() => {
-        const list = projects.data?.map((p) => p.name) ?? index.data?.map((entry) => entry.project) ?? [];
-        return [...list].sort((a, b) => a.localeCompare(b));
-    }, [projects.data, index.data]);
+    const jobs = useResourceEnabled(active && !!activeProject, rndJobsV, `${paneId}/tree-live`, activeProject, activeGroup ?? "");
 
     /** Folders in the active project with a run going somewhere inside them; "" is the project itself. */
-    const livePaths = useMemo(() => {
-        const paths = new Set<string>();
-        for (const cell of matrix.data?.cells ?? []) {
-            if (!isLiveStatus(cell.latest?.status)) continue;
-            paths.add("");
-            for (const path of ancestorPaths(cell.group)) paths.add(path);
-        }
-        return paths;
-    }, [matrix.data]);
+    const livePaths = useMemo(() => new Set(jobs.data?.livePaths ?? []), [jobs.data]);
 
     const activePaths = useMemo(() => new Set(ancestorPaths(activeGroup)), [activeGroup]);
 
@@ -51,9 +37,8 @@ export function RundeckProjectTree({ paneId, active }: { paneId: string; active:
     };
 
     const rows: RowProps[] = [];
-    for (const project of names) {
-        const entry = jobsByProject.get(project);
-        const tree = buildGroupTree(entry?.jobs ?? []);
+    for (const entry of tree.data?.projects ?? []) {
+        const project = entry.name;
         const open = isOpen(project, null);
         rows.push({
             paneId,
@@ -61,14 +46,14 @@ export function RundeckProjectTree({ paneId, active }: { paneId: string; active:
             path: null,
             name: project,
             depth: 0,
-            count: entry ? tree.total : null,
-            expandable: tree.total > 0,
+            count: entry.error ? null : entry.total,
+            expandable: entry.total > 0,
             open,
             selected: !onActivity && project === activeProject && activeGroup === null,
             live: project === activeProject && livePaths.has(""),
-            error: entry?.error ?? null,
+            error: entry.error,
         });
-        if (open && tree.total > 0)
+        if (open && entry.total > 0)
             rows.push({
                 paneId,
                 project,
@@ -88,7 +73,7 @@ export function RundeckProjectTree({ paneId, active }: { paneId: string; active:
                 rows,
                 paneId,
                 project,
-                tree.children,
+                entry.groups,
                 1,
                 isOpen,
                 project === activeProject ? activeGroup : undefined,
@@ -115,10 +100,9 @@ export function RundeckProjectTree({ paneId, active }: { paneId: string; active:
                 {rows.map((row) => (
                     <TreeRow key={`${row.project}\u0000${row.activity ? "\u0001activity" : (row.path ?? "")}`} {...row} />
                 ))}
-                {names.length === 0 && projects.status === "loading" && <div className="rnd-tree-hint">Loading projects…</div>}
-                {names.length === 0 && projects.status === "ok" && <div className="rnd-tree-hint">No projects</div>}
-                {projects.error && !projects.data && <div className="rnd-tree-hint err">{projects.error}</div>}
-                {index.error && !index.data && <div className="rnd-tree-hint err">{index.error}</div>}
+                {!tree.data && tree.status === "loading" && <div className="rnd-tree-hint">Loading projects…</div>}
+                {tree.data?.projects.length === 0 && <div className="rnd-tree-hint">No projects</div>}
+                {tree.error && !tree.data && <div className="rnd-tree-hint err">{tree.error}</div>}
             </div>
         </aside>
     );
@@ -128,7 +112,7 @@ function addGroups(
     rows: RowProps[],
     paneId: string,
     project: string,
-    nodes: GroupNode[],
+    nodes: RundeckGroupNode[],
     depth: number,
     isOpen: (project: string, path: string | null) => boolean,
     activeGroup: string | null | undefined,

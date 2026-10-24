@@ -4,9 +4,8 @@ import { formatAgo, formatDuration } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { ContextMenu, Pending, SendToAgentMenu } from "../../../plugin-api/ui";
 import type { VercelLogLine } from "../api";
-import { vercelLogR } from "../resources";
-import { useRefreshEvery } from "../../../plugin-api/hooks";
-import { deploymentForAgent, isUnderway, UNDERWAY_REFRESH_MS } from "../state";
+import { vercelLogV } from "../resources";
+import { isUnderway } from "../state";
 import { Avatar, EnvBadge, hostOf, IconMore, IconPromote, IconRollback, Source, Status, useDeploymentActions, visit } from "./parts";
 
 /** Builds print plenty to stderr that is not a failure, so only lines that say so are marked. */
@@ -14,25 +13,27 @@ const looksLikeError = (line: VercelLogLine) => line.kind === "fatal" || /\b(err
 
 /** One deployment as Vercel's details page shows it: its summary, then its build logs. */
 export function Deployment({
+    paneId,
     active,
     team,
     id,
     production,
     onBack,
 }: {
+    paneId: string;
     active: boolean;
     team: string;
     id: string;
     production: string | null;
     onBack: () => void;
 }) {
-    const log = useResourceEnabled(active, vercelLogR, team, id);
+    const log = useResourceEnabled(active, vercelLogV, paneId, team, id);
     const actions = useDeploymentActions(team);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const [agentMenu, setAgentMenu] = useState<{ x: number; y: number } | null>(null);
-    const deployment = log.data?.deployment;
+    const read = log.data?.log;
+    const deployment = read?.deployment;
     const underway = deployment ? isUnderway(deployment.state) : false;
-    useRefreshEvery(log, active && underway ? UNDERWAY_REFRESH_MS : null);
 
     if (!deployment) return <Pending handle={log} loading={`Loading ${id}`} rows={8} />;
 
@@ -152,16 +153,16 @@ export function Deployment({
                 <header className="vercel-box-head">
                     <span className="vercel-box-title">Build Logs</span>
                     <span className="vercel-muted">
-                        {log.data && log.data.skipped > 0
-                            ? `last ${log.data.lines.length} of ${log.data.lines.length + log.data.skipped} lines`
-                            : `${log.data?.lines.length ?? 0} lines`}
+                        {read && read.skipped > 0
+                            ? `last ${read.lines.length} of ${read.lines.length + read.skipped} lines`
+                            : `${read?.lines.length ?? 0} lines`}
                     </span>
                 </header>
                 <div className="vercel-log" role="log" aria-label="Build log">
-                    {log.data && log.data.lines.length === 0 ? (
+                    {read && read.lines.length === 0 ? (
                         <p className="vercel-note">{underway ? "Waiting for the build to print…" : "This build printed nothing."}</p>
                     ) : (
-                        log.data?.lines.map((line, index) => (
+                        read?.lines.map((line, index) => (
                             <div key={index} className={`vercel-log-line ${line.kind}${looksLikeError(line) ? " error" : ""}`}>
                                 <span className="vercel-log-time">{new Date(line.at).toLocaleTimeString(undefined, { hour12: false })}</span>
                                 <span>{line.text || " "}</span>
@@ -176,7 +177,7 @@ export function Deployment({
                     x={agentMenu.x}
                     y={agentMenu.y}
                     alignRight
-                    delivery={() => ({ text: deploymentForAgent(deployment, log.data) })}
+                    delivery={() => ({ text: log.data?.forAgent ?? "" })}
                     onClose={() => setAgentMenu(null)}
                 />
             )}

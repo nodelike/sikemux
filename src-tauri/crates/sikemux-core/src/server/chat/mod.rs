@@ -3,9 +3,10 @@
 //! permission request waits for the person to come back.
 
 pub(crate) mod feed;
+pub(crate) mod find;
 mod history;
 mod kept;
-mod markdown;
+pub(crate) mod mentions;
 mod native;
 pub(crate) mod offered;
 pub(crate) mod queue;
@@ -29,8 +30,8 @@ use crate::acp::{bounded_text, current_choice, native as acp_native, permission,
 use crate::launch::providers::ROUTED_ENV;
 use crate::launch::PermissionMode;
 use crate::protocol::{
-    Attention, AttentionKind, ChatAccount, ChatAttachment, ChatContext, ChatEventKind, ChatInfo,
-    ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId, Response,
+    Attention, AttentionKind, ChatAccount, ChatAttachment, ChatContext, ChatInfo, ChatLaunch,
+    ChatMark, ChatStart, ChatState, Event, RequestId, Response,
 };
 
 use super::activity::Activity;
@@ -40,6 +41,7 @@ use super::{Core, CoreError, CoreResult};
 use feed::{Feed, FeedState, Standing};
 use kept::{Keeper, KeptAgent, KeptChat};
 use native::Begin;
+pub(crate) use sikemux_fold::ChatEventKind;
 use sikemux_process::clock::epoch_ms;
 
 const MAX_AGENT_ID: usize = 200;
@@ -47,9 +49,6 @@ const START_TIMEOUT: Duration = Duration::from_secs(150);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 const NOT_RUNNING: &str = "ACP session is not running";
 const STOPPED: &str = "ACP session stopped";
-
-/// No client: a message that went in on its own, which every client is told of.
-pub(crate) const NOBODY: super::connection::ClientId = 0;
 
 /// How long a stop waits for an agent's process to be gone.
 const STOP_SETTLE: Duration = Duration::from_secs(2);
@@ -70,7 +69,6 @@ const RESTART_WINDOW: Duration = Duration::from_secs(5 * 60);
 
 pub(crate) enum ChatCommand {
     Prompt {
-        from: ClientId,
         /// Names the message for a later edit of it.
         message_id: Option<String>,
         text: String,
@@ -87,7 +85,6 @@ pub(crate) enum ChatCommand {
         reply: oneshot::Sender<Result<Value, String>>,
     },
     Steer {
-        from: ClientId,
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
@@ -108,7 +105,6 @@ pub(crate) enum ChatCommand {
     /// Takes the conversation back to before the person's message
     /// `message_id` and sends `text` in its place.
     Edit {
-        from: ClientId,
         message_id: String,
         text: String,
         paths: Vec<String>,
@@ -240,8 +236,11 @@ pub(crate) struct Chat {
     /// A new chat starts its agent only once the person writes in it or something is sent to it.
     unstarted: AtomicBool,
     wanted: tokio::sync::Notify,
-    /// The saved history of the session it resumes was shown while it waited for the person,
-    /// so its agent's own replay of it stays quiet.
+    /// Why the chat can be read here but never continued, such as a try-out's chat from the
+    /// person's own Sikemux. Its agent never starts.
+    read_only: std::sync::OnceLock<String>,
+    /// The saved history of the session it resumes is shown already, so the agent's own
+    /// replay of it as it starts stays quiet.
     pub(crate) saved_shown: AtomicBool,
 }
 
@@ -675,8 +674,10 @@ impl Chat {
 
     pub(crate) fn mark_ready(&self, start: ChatStart) {
         if let Some(core) = self.core.upgrade() {
-            core.workspaces
-                .note_config_options(self.provider(), &start.setup);
+            if let Some(launcher) = &self.origin.launcher {
+                core.workspaces
+                    .note_config_options(launcher, &start.setup["configOptions"]);
+            }
             core.names.note_session(self.agent_id(), &start.session_id);
         }
         self.feed.set_start(start.clone());
@@ -865,17 +866,25 @@ impl Chat {
                     let _ = reply.send(Err("it had not started".into()));
                     return Ok(());
                 }
-                _ => self.start_agent(),
+                _ => match self.read_only() {
+                    Some(why) => return Err(why.to_owned().into()),
+                    None => self.start_agent(),
+                },
             }
         }
         self.commands.send(command).map_err(|_| STOPPED.into())
     }
 
     /// Starts the agent of a chat that waited for the person, once; later calls do nothing.
+    /// A chat that is only read never starts one.
     pub(crate) fn start_agent(&self) {
-        if self.unstarted.swap(false, Ordering::AcqRel) {
+        if self.read_only().is_none() && self.unstarted.swap(false, Ordering::AcqRel) {
             self.wanted.notify_one();
         }
+    }
+
+    pub(crate) fn read_only(&self) -> Option<&str> {
+        self.read_only.get().map(String::as_str)
     }
 
     /// The chat waits for the person before its agent starts.
@@ -924,12 +933,8 @@ impl Chat {
             model: self.launch.model.clone(),
             model_provider: self.launch.env.get(ROUTED_ENV).cloned(),
             effort: self.launch.effort.clone(),
-            asleep: self.unstarted()
-                && self
-                    .core
-                    .upgrade()
-                    .and_then(|core| core.workspaces.published(self.agent_id()))
-                    == Some(true),
+            read_only: self.read_only().map(str::to_owned),
+            asleep: false,
             unread: false,
             active_at: None,
             group: Default::default(),
@@ -1183,7 +1188,21 @@ pub(crate) struct Chats {
     /// Where each chat is written down, for a core that starts after this one.
     kept: Option<PathBuf>,
     pub(crate) resets: reset::Resets,
+    /// The feeds of chats asleep, their history kept on disk for clients to page and find
+    /// through without waking anything.
+    resting: Mutex<Vec<Resting>>,
 }
+
+/// A sleeping chat's feed, how much history it keeps, and when a client last read it.
+struct Resting {
+    agent_id: String,
+    feed: Arc<Feed>,
+    bytes: u64,
+    read: std::time::Instant,
+}
+
+/// The most history kept for sleeping chats in all; past it, the one read least lately goes.
+const RESTING_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 impl Chats {
     pub(crate) fn new(data_dir: Option<&std::path::Path>) -> Self {
@@ -1242,6 +1261,57 @@ impl Chats {
 
     pub(crate) fn running(&self, agent_id: &str) -> CoreResult<Arc<Chat>> {
         self.get(agent_id).ok_or_else(|| NOT_RUNNING.into())
+    }
+
+    /// The feed a client reads the agent's chat from: the running chat's, else the one it
+    /// kept when it went to sleep. Reading a sleeping chat starts nothing.
+    pub(crate) fn readable(&self, agent_id: &str) -> CoreResult<Arc<Feed>> {
+        if let Some(chat) = self.get(agent_id) {
+            return Ok(chat.feed.clone());
+        }
+        let mut resting = self.resting.locked();
+        let kept = resting
+            .iter_mut()
+            .find(|resting| resting.agent_id == agent_id);
+        let kept = kept.ok_or_else(|| CoreError::from(NOT_RUNNING))?;
+        kept.read = std::time::Instant::now();
+        Ok(kept.feed.clone())
+    }
+
+    /// Keeps the feed of `chat`, which went to sleep, with only its history on disk, letting
+    /// go of the history read least lately once all those kept pass their size.
+    pub(crate) fn rest(&self, chat: &Chat) {
+        let bytes = chat.feed.rest();
+        let mut resting = self.resting.locked();
+        resting.retain(|resting| resting.agent_id != chat.agent_id());
+        resting.push(Resting {
+            agent_id: chat.agent_id().to_owned(),
+            feed: chat.feed.clone(),
+            bytes,
+            read: std::time::Instant::now(),
+        });
+        while resting.iter().map(|resting| resting.bytes).sum::<u64>() > RESTING_BYTES {
+            let Some(oldest) = (0..resting.len()).min_by_key(|&at| resting[at].read) else {
+                break;
+            };
+            resting.remove(oldest);
+        }
+    }
+
+    /// The feed the agent's chat kept while it slept, no longer kept apart.
+    fn take_rest(&self, agent_id: &str) -> Option<Arc<Feed>> {
+        let mut resting = self.resting.locked();
+        let at = resting
+            .iter()
+            .position(|resting| resting.agent_id == agent_id)?;
+        Some(resting.remove(at).feed)
+    }
+
+    /// Lets go of what a chat that will not wake again kept while it slept.
+    pub(crate) fn forget_rest(&self, agent_id: &str) {
+        self.resting
+            .locked()
+            .retain(|resting| resting.agent_id != agent_id);
     }
 
     pub(crate) fn count(&self) -> usize {
@@ -1341,12 +1411,14 @@ impl Chats {
     /// Stops the chat only when nothing in it is running: no turn, question,
     /// subagent or background task. Answers whether it stopped.
     pub(crate) fn stop_if_idle(&self, agent_id: &str) -> bool {
-        let Some(chat) = self.get(agent_id) else {
-            return true;
-        };
-        let busy =
-            matches!(chat.state_now(), "working" | "blocked") || chat.feed.running_tasks() > 0;
-        !busy && self.stop(agent_id)
+        self.get(agent_id).is_none() || (!self.at_work(agent_id) && self.stop(agent_id))
+    }
+
+    /// Whether the agent's chat is in a turn or has tasks running.
+    pub(crate) fn at_work(&self, agent_id: &str) -> bool {
+        self.get(agent_id).is_some_and(|chat| {
+            matches!(chat.state_now(), "working" | "blocked") || chat.feed.running_tasks() > 0
+        })
     }
 
     pub(crate) fn stop_all(&self) {
@@ -1381,12 +1453,21 @@ impl Chats {
             return Err("ACP session is already running".into());
         }
         let (commands, queue) = mpsc::unbounded_channel();
+        // A chat waking from sleep goes on in the feed it slept with, so a client reading
+        // that feed hears it wake, and the history its start replays is already there.
+        let rested = kept
+            .is_none()
+            .then(|| self.take_rest(&launch.agent_id))
+            .flatten();
+        let history_shown = rested.is_some();
         let (feed, flags) = kept.unwrap_or_else(|| {
-            let feed = Feed::new(
-                launch.agent_id.clone(),
-                launch.permission_mode.clone(),
-                self.history.as_deref(),
-            );
+            let feed = rested.unwrap_or_else(|| {
+                Feed::new(
+                    launch.agent_id.clone(),
+                    launch.permission_mode.clone(),
+                    self.history.as_deref(),
+                )
+            });
             let flags = Flags {
                 running: false,
                 unprompted: false,
@@ -1397,6 +1478,19 @@ impl Chats {
             };
             (feed, flags)
         });
+        let offers_effort = crate::agent_catalog::agent(&launch.provider)
+            .and_then(|agent| agent.chat.as_ref())
+            .is_some_and(|driver| {
+                matches!(
+                    driver,
+                    crate::agent_catalog::ChatDriver::Claude
+                        | crate::agent_catalog::ChatDriver::Codex
+                )
+            });
+        if offers_effort {
+            feed.offer_effort();
+        }
+        feed.work_in(launch.cwd.clone());
         let keeper = Keeper::new(self.kept.as_deref(), feed.id());
         let chat = Arc::new(Chat {
             generation: self.next_generation.fetch_add(1, Ordering::Relaxed),
@@ -1425,12 +1519,16 @@ impl Chats {
             published: Mutex::new("unknown"),
             unstarted: AtomicBool::new(false),
             wanted: tokio::sync::Notify::new(),
-            saved_shown: AtomicBool::new(false),
+            read_only: std::sync::OnceLock::new(),
+            saved_shown: AtomicBool::new(history_shown),
             current: Mutex::new(launch.clone()),
             launch,
             origin,
             core: Arc::downgrade(core),
         });
+        self.resting
+            .locked()
+            .retain(|resting| resting.agent_id != chat.agent_id());
         chats.insert(chat.agent_id().to_owned(), chat.clone());
         Ok((chat, queue))
     }
@@ -1496,6 +1594,55 @@ fn validate(launch: &ChatLaunch) -> CoreResult<()> {
     Ok(())
 }
 
+/// What a try-out core says of a chat it opens only to be read.
+const TRYOUT_READ_ONLY: &str = "This try-out continues only the chats it started, so it never writes into a session your Sikemux could be using. Continue this one in Sikemux.";
+
+/// The sessions a try-out core began itself, one `provider<TAB>session` a line, in its data folder.
+const TRYOUT_SESSIONS: &str = "tryout-sessions";
+
+fn in_tryout() -> bool {
+    sikemux_process::paths::TRYOUT
+        || std::env::var_os(sikemux_process::vars::TRYOUT_SEEDED_AT).is_some()
+}
+
+fn tryout_record(core: &Core) -> Option<PathBuf> {
+    Some(core.harness.data_dir.as_ref()?.join(TRYOUT_SESSIONS))
+}
+
+fn tryout_owns(core: &Core, provider: &str, session: &str) -> bool {
+    let entry = format!("{provider}\t{session}");
+    tryout_record(core)
+        .and_then(|record| std::fs::read_to_string(record).ok())
+        .is_some_and(|record| record.lines().any(|line| line == entry))
+}
+
+/// A try-out core shares the agents' saved sessions with the person's own core, so it takes
+/// up again only a session its own record says it began, and opens any other to be read.
+fn tryout_refusal(core: &Core, launch: &ChatLaunch) -> Option<String> {
+    let session = launch.resume_id.as_deref()?;
+    (in_tryout() && !tryout_owns(core, &launch.provider, session))
+        .then(|| TRYOUT_READ_ONLY.to_owned())
+}
+
+/// Notes in a try-out core's record that it began `session`, so it may take it up again.
+pub(crate) fn tryout_began(core: &Core, provider: &str, session: &str) {
+    use std::io::Write;
+    if !in_tryout() || session.is_empty() || tryout_owns(core, provider, session) {
+        return;
+    }
+    let Some(record) = tryout_record(core) else {
+        return;
+    };
+    let noted = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&record)
+        .and_then(|mut file| writeln!(file, "{provider}\t{session}"));
+    if let Err(error) = noted {
+        eprintln!("sikemux core: could not note the try-out's session {session}: {error}");
+    }
+}
+
 /// Starts the chat's connection. The task ends the chat however the
 /// connection ends.
 fn launch(
@@ -1510,7 +1657,6 @@ fn launch(
         if ending.unstarted() {
             ending.wanted.notified().await;
             super::activity_log::chat_launched(&owner, &ending.launch);
-            owner.workspaces.note_begun(&ending);
             ending.keep(kept::Progress::STARTING);
         }
         // The agent can be started again under the chat, on another account
@@ -1612,15 +1758,21 @@ fn start(
         launch_spec.env.entry(key).or_insert(value);
     }
     validate(&launch_spec)?;
+    let read_only = tryout_refusal(core, &launch_spec);
+    let waits_for_person = waits_for_person || read_only.is_some();
     let resume_id = launch_spec.resume_id.clone();
     let waking = core.workspaces.agent(&launch_spec.agent_id).is_some();
     let (chat, queue) = core.chats.insert(core, launch_spec, origin, None)?;
-    // An asleep agent's chat taken up to be shown stays asleep, and is not taken up again
-    // after a restart, until the person wakes it.
-    let shown = waking && waits_for_person;
-    if !shown {
-        core.workspaces.note_begun(&chat);
+    if let Some(why) = read_only {
+        eprintln!(
+            "sikemux core: {} opens {} session {} to be read only: {why}",
+            chat.agent_id(),
+            chat.provider(),
+            resume_id.as_deref().unwrap_or_default()
+        );
+        let _ = chat.read_only.set(why);
     }
+    core.workspaces.note_begun(&chat);
     super::model_providers::chat_begun(core, &chat.launch);
     let naming = (
         core.clone(),
@@ -1639,7 +1791,7 @@ fn start(
         super::activity_log::chat_launched(core, &chat.launch);
     }
     chat.unstarted.store(waits_for_person, Ordering::Release);
-    if !shown {
+    if chat.read_only().is_none() {
         chat.keep(kept::Progress::STARTING);
     }
     if let Some(client) = subscriber {
@@ -1647,9 +1799,6 @@ fn start(
     }
     if waits_for_person {
         chat.feed.wait_for_person();
-    }
-    if shown {
-        native::show_saved(&chat);
     }
     launch(
         core,
@@ -1660,6 +1809,10 @@ fn start(
             notice: None,
         },
     );
+    if waits_for_person {
+        native::show_saved(&chat);
+        offer_options(core, &chat);
+    }
     Ok(chat)
 }
 
@@ -1709,7 +1862,7 @@ pub(crate) fn resume(core: &Arc<Core>, record: ChatRecord) {
 /// saying what cut it short.
 pub(crate) fn carry_on_prompt(what: &str) -> rebind::Replay {
     rebind::Replay {
-        announce: None,
+        announce: false,
         message_id: None,
         text: format!("{what}, so your last turn stopped part-way. Check what got done, since a step that was cut off may not have finished, then carry on where you left off."),
         paths: Vec::new(),
@@ -1740,6 +1893,12 @@ pub(crate) fn restore(core: &Arc<Core>) {
         match core.chats.get(&agent_id) {
             Some(chat) if chat.feed.id() == kept.feed => {}
             Some(_) => kept::forget(&dir, &kept.feed),
+            None if !kept.begun() => {
+                if let Some(agent) = kept.agent {
+                    agent.stop();
+                }
+                kept::forget(&dir, &kept.feed);
+            }
             None => {
                 if let Err(error) = take_up(core, &dir, kept) {
                     eprintln!("sikemux core: chat {agent_id} was not taken up again: {error}");
@@ -1917,12 +2076,12 @@ pub(crate) fn adopt(
     Ok(())
 }
 
-/// The person began writing in a new chat, or one whose agent is asleep, so its agent starts
-/// while they write.
+/// The person began writing in a new chat, or a sleeping one, so its agent starts while
+/// they write.
 pub(crate) fn composing(core: &Arc<Core>, agent_id: &str) {
     if let Some(chat) = core.chats.get(agent_id) {
         chat.start_agent();
-    } else if super::launching::asleep(core, agent_id) {
+    } else if stopped(core, agent_id) {
         let (core, agent_id) = (core.clone(), agent_id.to_owned());
         tokio::spawn(async move {
             if let Err(error) = super::launching::wake_chat(&core, agent_id).await {
@@ -1957,16 +2116,31 @@ pub(crate) async fn attach(
             }),
         )
     };
-    // An asleep agent's chat is taken up to be shown, its agent starting only once the person
-    // writes in it or sends to it.
-    if super::launching::asleep(core, agent_id) {
-        if let Err(error) = super::lifecycle::ensure_shown(core, agent_id).await {
-            eprintln!("sikemux core: chat {agent_id} could not be shown: {error}");
+    // A sleeping chat is read from the feed it kept, or else taken up to wait for the person,
+    // its saved history shown when the core can read it; neither starts its agent.
+    let chat = match core.chats.get(agent_id) {
+        Some(chat) => chat,
+        None => {
+            if let Ok(feed) = core.chats.readable(agent_id) {
+                let standing = Standing {
+                    running: false,
+                    turned: false,
+                };
+                feed.attach(client, request_id, standing, since);
+                return;
+            }
+            let taken_up = stopped(core, agent_id)
+                && super::launching::start_saved(core, agent_id, true)
+                    .await
+                    .is_ok();
+            match core.chats.get(agent_id).filter(|_| taken_up) {
+                Some(chat) => chat,
+                None => {
+                    missing();
+                    return;
+                }
+            }
         }
-    }
-    let Some(chat) = core.chats.get(agent_id) else {
-        missing();
-        return;
     };
     // A chat still starting, such as one resumed after an update, is taken up
     // once it is ready. One that never gets there is gone. A new chat waiting
@@ -1998,13 +2172,61 @@ pub(crate) fn history(
 ) -> CoreResult<Response> {
     let page = core
         .chats
-        .running(agent_id)?
-        .feed
+        .readable(agent_id)?
         .history(feed, before, turns as usize)?;
     Ok(Response::ChatHistory {
-        events: page.events,
-        older_before: page.older_before,
+        page: serde_json::to_value(page).map_err(|error| CoreError::from(error.to_string()))?,
     })
+}
+
+/// The rows of a chat a client pages to: before or after an event, or around the row holding
+/// one, whole and with their meta, under the window's size.
+pub(crate) fn page(
+    core: &Core,
+    params: super::calls::ChatPageParams,
+) -> CoreResult<sikemux_wire::chat::ChatPage> {
+    use feed::Anchor;
+    let anchor = match (params.before, params.after, params.around) {
+        (Some(before), None, None) => Anchor::Before(before),
+        (None, Some(after), None) => Anchor::After(after),
+        (None, None, Some(around)) => Anchor::Around(around),
+        _ => return Err("name one of before, after or around".into()),
+    };
+    let turns = params
+        .turns
+        .map_or(sikemux_fold::TAIL_TURNS, |turns| turns as usize);
+    Ok(core.chats.readable(&params.agent_id)?.page(
+        &params.feed,
+        anchor,
+        turns,
+        params.session.as_deref(),
+    )?)
+}
+
+/// One step of `client`'s find through a chat: what it found, and where to go on from.
+pub(crate) fn find(
+    core: &Core,
+    client: ClientId,
+    params: find::FindParams,
+) -> CoreResult<find::FindAnswer> {
+    Ok(core
+        .chats
+        .readable(&params.agent_id)?
+        .find(client, &params)?)
+}
+
+/// The change a chat's tool call made and what it printed, for a client that
+/// opened the call's row.
+pub(crate) fn tool_detail(
+    core: &Core,
+    agent_id: &str,
+    tool_call_id: &str,
+) -> CoreResult<sikemux_wire::chat::ToolDetail> {
+    core.chats
+        .running(agent_id)?
+        .feed
+        .tool_detail(tool_call_id)
+        .ok_or_else(|| CoreError::from("that call left nothing to show"))
 }
 
 pub(crate) fn detach(core: &Core, client: ClientId, agent_id: &str) {
@@ -2013,18 +2235,42 @@ pub(crate) fn detach(core: &Core, client: ClientId, agent_id: &str) {
     }
 }
 
+/// Whether `agent_id` is an agent of the workspace whose chat isn't running, asleep or
+/// stopped, so a message to it must start it first on its saved conversation.
+pub(crate) fn stopped(core: &Core, agent_id: &str) -> bool {
+    core.chats.get(agent_id).is_none() && core.workspaces.agent(agent_id).is_some()
+}
+
+/// Readies `agent_id`'s chat for a message from any client: starts it when it isn't
+/// running, and opens again the earlier chats `context` names.
+pub(crate) async fn wake_for_message(
+    core: &Arc<Core>,
+    agent_id: &str,
+    context: &mut [ChatContext],
+) -> CoreResult<()> {
+    if stopped(core, agent_id) {
+        super::launching::wake_chat(core, agent_id.to_owned()).await?;
+    }
+    mentions::wake(core, agent_id, context).await
+}
+
 pub(crate) fn prompt(
     core: &Core,
-    from: ClientId,
     agent_id: &str,
     message_id: Option<String>,
     text: String,
     paths: Vec<String>,
-    context: Vec<ChatContext>,
+    mut context: Vec<ChatContext>,
 ) -> CoreResult<()> {
-    if let Some(message_id) = message_id.as_deref() {
-        bounded_text("message id", message_id, 256)?;
-    }
+    // A sent message is edited later by its id, so one the client did not name gets one here.
+    let message_id = match message_id {
+        Some(message_id) => {
+            bounded_text("message id", &message_id, 256)?;
+            message_id
+        }
+        None => uuid::Uuid::now_v7().to_string(),
+    };
+    mentions::fill(core, agent_id, &mut context);
     super::messages::worked(core, agent_id);
     let words = context.first().map(|context| context.title.as_str());
     let title = feed::title(if text.trim().is_empty() {
@@ -2034,8 +2280,7 @@ pub(crate) fn prompt(
     });
     super::workspace::retitle(core, agent_id, title, true);
     core.chats.running(agent_id)?.send(ChatCommand::Prompt {
-        from,
-        message_id,
+        message_id: Some(message_id),
         text,
         paths,
         context,
@@ -2044,17 +2289,16 @@ pub(crate) fn prompt(
 
 pub(crate) async fn edit(
     core: &Core,
-    from: ClientId,
     agent_id: &str,
     message_id: String,
     text: String,
     paths: Vec<String>,
-    context: Vec<ChatContext>,
+    mut context: Vec<ChatContext>,
 ) -> CoreResult<()> {
     bounded_text("message id", &message_id, 256)?;
+    mentions::fill(core, agent_id, &mut context);
     let (reply, answer) = oneshot::channel();
     core.chats.running(agent_id)?.send(ChatCommand::Edit {
-        from,
         message_id,
         text,
         paths,
@@ -2069,15 +2313,14 @@ pub(crate) async fn edit(
 
 pub(crate) async fn steer(
     core: &Core,
-    from: ClientId,
     agent_id: &str,
     text: String,
     paths: Vec<String>,
-    context: Vec<ChatContext>,
+    mut context: Vec<ChatContext>,
 ) -> CoreResult<String> {
+    mentions::fill(core, agent_id, &mut context);
     let (reply, answer) = oneshot::channel();
     core.chats.running(agent_id)?.send(ChatCommand::Steer {
-        from,
         text,
         paths,
         context,
@@ -2102,7 +2345,15 @@ pub(crate) async fn letter(core: &Core, agent_id: &str, text: String) -> CoreRes
 pub(crate) fn switch_account(core: &Core, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
     validate_account(&account)?;
     if let Some(chat) = core.chats.get(agent_id) {
-        return chat.send(ChatCommand::SwitchAccount { account });
+        if chat.read_only().is_some() || !chat.unstarted() {
+            return chat.send(ChatCommand::SwitchAccount { account });
+        }
+        // A chat waiting for the person starts on the account chosen, as on a model chosen.
+        chat.set_current(rebind::on_account(
+            chat.provider(),
+            &chat.current_launch(),
+            &account,
+        ));
     }
     let patch = serde_json::Map::from_iter([("profileId".to_owned(), Value::from(account.id))]);
     core.workspaces.update_agent(agent_id, patch)?;
@@ -2143,12 +2394,13 @@ pub(crate) async fn set_permission_mode(
     mode: String,
 ) -> CoreResult<()> {
     let mode = PermissionMode::parse(&mode)?;
+    let chat = core.chats.running(agent_id)?;
     let (reply, answer) = oneshot::channel();
-    core.chats
-        .running(agent_id)?
-        .send(ChatCommand::SetPermissionMode { mode, reply })?;
-    tokio::time::timeout(REPLY_TIMEOUT, answer)
-        .await
+    chat.send(ChatCommand::SetPermissionMode { mode, reply })?;
+    chat.feed.set_changing_mode(true);
+    let answered = tokio::time::timeout(REPLY_TIMEOUT, answer).await;
+    chat.feed.set_changing_mode(false);
+    answered
         .map_err(|_| CoreError::from("Permission update timed out"))?
         .map_err(|_| CoreError::from(STOPPED))?
         .map_err(CoreError::from)
@@ -2176,14 +2428,146 @@ pub(crate) async fn set_config(
 ) -> CoreResult<Value> {
     bounded_text("config id", &config_id, 256)?;
     bounded_text("config value", &value, 4096)?;
+    let chat = core.chats.running(agent_id)?;
+    if chat.unstarted() {
+        return choose_before_start(core, &chat, &config_id, value);
+    }
     let (reply, answer) = oneshot::channel();
-    core.chats.running(agent_id)?.send(ChatCommand::SetConfig {
+    chat.send(ChatCommand::SetConfig {
         config_id,
         value,
         reply,
     })?;
-    answer
+    let answer = answer
         .await
         .map_err(|_| CoreError::from(STOPPED))?
-        .map_err(CoreError::from)
+        .map_err(CoreError::from)?;
+    keep_model_choice(core, agent_id, &answer["configOptions"]);
+    Ok(answer)
+}
+
+/// The options a chat that waits for the person offers: those its launcher's last session
+/// offered, on the model and effort it will start with.
+fn waiting_options(core: &Core, chat: &Chat) -> Option<Value> {
+    let mut options = core
+        .workspaces
+        .launcher_options(chat.origin.launcher.as_deref()?)
+        .filter(|options| options.as_array().is_some_and(|rows| !rows.is_empty()))?;
+    let launch = chat.current_launch();
+    for row in options.as_array_mut().into_iter().flatten() {
+        let chosen = if row["id"] == "model" {
+            launch.model.clone()
+        } else if row["category"] == "thought_level" {
+            launch.effort.clone()
+        } else {
+            None
+        };
+        if let Some(chosen) = chosen {
+            row["currentValue"] = Value::String(chosen);
+        }
+    }
+    Some(options)
+}
+
+/// Tells a chat that waits for the person what it offers to pick. A launcher that has never
+/// offered anything has its agent's CLI asked once, with no session; after that only its own
+/// sessions change what it offers.
+fn offer_options(core: &Arc<Core>, chat: &Arc<Chat>) {
+    let Some(launcher) = chat
+        .origin
+        .launcher
+        .clone()
+        .filter(|_| chat.read_only().is_none())
+    else {
+        return;
+    };
+    if core.workspaces.launcher_options(&launcher).is_some() {
+        if let Some(options) = waiting_options(core, chat) {
+            tell_options(chat, options);
+        }
+        return;
+    }
+    // Noted as offering nothing until the CLI answers, so no other chat asks it again.
+    core.workspaces
+        .note_config_options(&launcher, &Value::Array(Vec::new()));
+    let (core, chat) = (core.clone(), chat.clone());
+    tokio::spawn(async move {
+        match native::read_options(&chat.current_launch()).await {
+            Ok(options) => core.workspaces.note_config_options(&launcher, &options),
+            Err(error) => {
+                return eprintln!("sikemux core: {launcher} offered nothing to pick: {error}")
+            }
+        }
+        if let Some(options) = waiting_options(&core, &chat).filter(|_| chat.unstarted()) {
+            tell_options(&chat, options);
+        }
+    });
+}
+
+fn tell_options(chat: &Chat, options: Value) {
+    let session = chat
+        .launch
+        .resume_id
+        .clone()
+        .unwrap_or_else(|| chat.agent_id().to_owned());
+    chat.emit(
+        ChatEventKind::SessionUpdate,
+        serde_json::json!({
+            "sessionId": session,
+            "update": { "sessionUpdate": "config_option_update", "configOptions": options },
+        }),
+    );
+}
+
+/// Keeps a model or effort chosen before the chat's agent starts, which starts on it.
+fn choose_before_start(
+    core: &Core,
+    chat: &Chat,
+    config_id: &str,
+    value: String,
+) -> CoreResult<Value> {
+    let options = waiting_options(core, chat).unwrap_or(Value::Null);
+    let row = options
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["id"] == config_id);
+    let mut launch = chat.current_launch();
+    match row {
+        Some(row) if row["id"] == "model" => launch.model = Some(value),
+        Some(row) if row["category"] == "thought_level" => launch.effort = Some(value),
+        _ => return Err(format!("{config_id} is chosen once the chat starts").into()),
+    }
+    chat.set_current(launch);
+    let options = waiting_options(core, chat).unwrap_or(Value::Null);
+    keep_model_choice(core, chat.agent_id(), &options);
+    tell_options(chat, options.clone());
+    Ok(serde_json::json!({ "configOptions": options }))
+}
+
+/// Keeps the model and effort a chat now runs on with its agent, so its next
+/// session starts on them. An effort its CLI does not take is left out.
+fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
+    let Some(agent) = core.workspaces.agent(agent_id) else {
+        return;
+    };
+    let (model, effort) = crate::acp::pickers::pickers(options);
+    let mut patch = serde_json::Map::new();
+    if let Some(model) = model.filter(|model| !model.current.is_empty()) {
+        patch.insert("model".into(), Value::String(model.current));
+    }
+    let takes = |effort: &str| {
+        crate::agent_catalog::agent(&agent.provider)
+            .is_some_and(|entry| entry.efforts.contains(&effort))
+    };
+    if let Some(effort) = effort.filter(|effort| takes(&effort.current)) {
+        patch.insert("effort".into(), Value::String(effort.current));
+    }
+    if patch.is_empty() {
+        return;
+    }
+    match core.workspaces.update_agent(agent_id, patch) {
+        Ok(_) => core.view_changed(),
+        Err(error) => eprintln!("sikemux core: the agent's model choice was not kept: {error}"),
+    }
 }

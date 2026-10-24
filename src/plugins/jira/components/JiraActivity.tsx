@@ -1,22 +1,20 @@
 import { useState } from "react";
 import { formatStamp } from "../../../plugin-api/format";
 import { Markdown, Seg } from "../../../plugin-api/ui";
-import type { JiraChange, JiraComment, JiraIssue } from "../api";
+import type { JiraChange, JiraComment, JiraIssueView } from "../api";
 import { Avatar } from "./JiraFace";
 
 type Shown = "all" | "comments" | "history";
 
-type Entry = { kind: "comment"; at: number; comment: JiraComment } | { kind: "change"; at: number; change: JiraChange };
+const KIND_SHOWN: Record<Shown, "comment" | "change" | null> = { all: null, comments: "comment", history: "change" };
 
 /** The issue's comments and edits, newest first, with a box for a new comment on top. */
-export function JiraActivity({ issue, busy, onComment }: { issue: JiraIssue; busy: boolean; onComment: (body: string) => Promise<boolean> }) {
+export function JiraActivity({ issue, busy, onComment }: { issue: JiraIssueView; busy: boolean; onComment: (body: string) => Promise<boolean> }) {
     const [shown, setShown] = useState<Shown>("comments");
     const [draft, setDraft] = useState("");
-    const entries: Entry[] = [
-        ...(shown === "history" ? [] : issue.comments.map((comment) => ({ kind: "comment" as const, at: Date.parse(comment.created), comment }))),
-        ...(shown === "comments" ? [] : issue.history.map((change) => ({ kind: "change" as const, at: Date.parse(change.created), change }))),
-    ].sort((a, b) => b.at - a.at);
-    const hiddenComments = issue.commentCount - issue.comments.length;
+    const only = KIND_SHOWN[shown];
+    const entries = only ? issue.activity.filter((entry) => entry.kind === only) : issue.activity;
+    const hiddenComments = issue.commentCount - issue.activity.filter((entry) => entry.kind === "comment").length;
 
     return (
         <section className="jira-activity" aria-label="Activity">

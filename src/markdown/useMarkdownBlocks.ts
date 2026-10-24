@@ -1,6 +1,5 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useState } from "react";
 import { markdownApi } from "../api/markdown";
-import { keepUnchanged } from "../lib/keepUnchanged";
 import { swallow } from "../state/toast";
 import type { MarkdownOptions, MdElement } from "./types";
 
@@ -11,7 +10,7 @@ const REMEMBERED_CHARS_PER_KIND = 4_000_000;
 const remembered = new Map<string, { texts: Map<string, MdElement[]>; chars: number }>();
 
 function kindOf(options: MarkdownOptions): string {
-    return `${+options.gfm}${+options.htmlAsText}${+options.fileLinks}`;
+    return `${+options.gfm}${+options.htmlAsText}${+options.fileLinks}${+!!options.filePaths}`;
 }
 
 function recall(options: MarkdownOptions, text: string): MdElement[] | undefined {
@@ -57,12 +56,21 @@ export function forgetMarkdownForTests(): void {
     remembered.clear();
 }
 
+function sameNode(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+    if (Array.isArray(a)) return Array.isArray(b) && a.length === b.length && a.every((item, index) => sameNode(item, b[index]));
+    const keys = Object.keys(a);
+    if (keys.length !== Object.keys(b).length) return false;
+    return keys.every((key) => sameNode((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+}
+
 /** Keeps every block that came back unchanged as the object already drawn, so it is not drawn again. */
 export function settleBlocks(previous: readonly MdElement[] | undefined, skip: number, tail: readonly MdElement[]): MdElement[] {
     const blocks = previous ? previous.slice(0, skip) : [];
     tail.forEach((block, index) => {
         const old = previous?.[skip + index];
-        blocks.push(old ? keepUnchanged(old, block) : block);
+        blocks.push(old && sameNode(old, block) ? old : block);
     });
     return blocks;
 }
@@ -78,25 +86,18 @@ interface Wanted {
 }
 
 interface Read extends Wanted {
-    readonly blocks: readonly MdElement[];
+    readonly blocks: MdElement[];
 }
 
 /* One read at a time per message. Text that arrives meanwhile waits for the
    next frame and is read as a whole, so a fast stream costs a read a frame. */
 class Reader {
     alive = true;
-    /** What the message was last read as, here or by whoever handed its blocks over. */
-    held: Read | null = null;
+    private held: Read | null = null;
     private wanted: Wanted | null = null;
     private busy = false;
 
-    constructor(private readonly show: () => void) {}
-
-    /** Blocks read elsewhere, which a read still on its way is older than and the next read grows from. */
-    give(read: Read): void {
-        this.held = read;
-        this.wanted = null;
-    }
+    constructor(private readonly show: (read: Read) => void) {}
 
     want(wanted: Wanted): void {
         this.wanted = wanted;
@@ -122,11 +123,9 @@ class Reader {
             )
             .then((blocks) => {
                 if (!wanted.live) remember(wanted.options, wanted.text, blocks);
+                this.held = { ...wanted, blocks };
                 this.busy = false;
-                if (this.held === previous) {
-                    this.held = { ...wanted, blocks };
-                    if (this.alive) this.show();
-                }
+                if (this.alive) this.show(this.held);
                 if (this.wanted)
                     requestAnimationFrame(() => {
                         if (!this.busy) this.next();
@@ -138,13 +137,11 @@ class Reader {
 /**
  * The blocks `text` reads as, or null until the first read comes back. While
  * `live`, the message is still being written and only its end is read again.
- * `given` is the blocks someone else already read `text` as; when they stop
- * coming, the message keeps them on screen until its own read replaces them.
  */
-export function useMarkdownBlocks(text: string, options: MarkdownOptions, live: boolean, given?: readonly MdElement[]): readonly MdElement[] | null {
-    const known = given ?? recall(options, text);
-    const [, shown] = useReducer((count: number) => count + 1, 0);
-    const [reader] = useState(() => new Reader(shown));
+export function useMarkdownBlocks(text: string, options: MarkdownOptions, live: boolean): readonly MdElement[] | null {
+    const known = recall(options, text);
+    const [read, setRead] = useState<Read | null>(null);
+    const [reader] = useState(() => new Reader(setRead));
     useEffect(() => {
         reader.alive = true;
         return () => {
@@ -152,8 +149,7 @@ export function useMarkdownBlocks(text: string, options: MarkdownOptions, live: 
         };
     }, [reader]);
     useEffect(() => {
-        if (known) reader.give({ text, options, live, blocks: known });
-        else reader.want({ text, options, live });
+        if (!known) reader.want({ text, options, live });
     }, [reader, known, text, options, live]);
-    return known ?? reader.held?.blocks ?? null;
+    return known ?? read?.blocks ?? null;
 }

@@ -1,9 +1,7 @@
 import { coreCall } from "./core";
 import { onCoreChanged } from "./coreChanged";
-import { invokeCommand as invoke } from "./invoke";
 import type { IpcUnsubscribe } from "./transport";
-import type { AgentRuntimeProfile } from "../agents/agentProfiles";
-import type { AccountAgentType } from "../agents/catalog";
+import type { CatalogAgent } from "../agents/catalog";
 import type { AgentEffort, AgentType, ProviderProfile, ProviderProfileSelection } from "../state/types";
 
 /** Whether an agent can be used right now; `unknown` when its CLI has no way to say if it is signed in. */
@@ -86,7 +84,7 @@ export interface AgentAccountBook {
     profiles: ProviderProfile[];
     selected: ProviderProfileSelection;
     /** Whether a chat moves to the next signed-in account at a usage limit, by provider. */
-    autoSwitch: Partial<Record<AccountAgentType, boolean>>;
+    autoSwitch: Partial<Record<AgentType, boolean>>;
 }
 
 const inflight = new Map<string, Promise<AgentSession[]>>();
@@ -98,10 +96,6 @@ function accountCall<T>(method: string, params: Record<string, unknown> = {}): P
 
 function key(agent: string, cwd: string, configPath?: string) {
     return `${agent}\0${cwd}\0${configPath ?? ""}`;
-}
-
-async function fetchAvailable(profiles: AgentRuntimeProfile[] = []): Promise<AgentInfo[]> {
-    return invoke<AgentInfo[]>("available_agents", { profiles });
 }
 
 async function fetchSessions(agent: string, cwd: string, configPath?: string): Promise<AgentSession[]> {
@@ -137,7 +131,12 @@ export interface AgentSignInPage {
 }
 
 export const agentApi = {
-    available: fetchAvailable,
+    /** The agents found here, each on the account chosen for it. */
+    available: (): Promise<AgentInfo[]> => coreCall("installedAgents"),
+    /** Those, with the agents Sikemux can install that it did not find, in the order to set them up. */
+    setup: (): Promise<AgentInfo[]> => coreCall("agentSetup"),
+    /** The agents the core can run, which every view names and offers them from. */
+    catalog: (): Promise<CatalogAgent[]> => coreCall("agentCatalog"),
     /** The accounts the core keeps; `null` until the app first gives it some. */
     accounts: (): Promise<AgentAccountBook | null> => accountCall("agentAccounts"),
     /** Keeps the account, in place of the one with its id; each of these answers with the accounts as they are now. */

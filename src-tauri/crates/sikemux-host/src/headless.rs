@@ -8,10 +8,10 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::json;
-use sikemux_core::cli::protocol::CliServerResponse;
-use sikemux_core::client::{probe, wait_for_core, ClientError, CoreClient, ProbeError};
-use sikemux_core::protocol::{AccountLinkState, RemoteStatus, Request, Response};
-use sikemux_core::server::plugins::{Failure, StreamEvent};
+use sikemux_core::client::{
+    probe, wait_for_core, ClientError, ClientEvent, CoreClient, ProbeError,
+};
+use sikemux_core::protocol::{AccountLinkState, Event, RemoteStatus, Request, Response};
 use sikemux_core::waiting;
 
 use crate::login_item::{self, CoreLaunch, IDENTIFIER};
@@ -389,54 +389,34 @@ fn plugins(args: &[String]) -> Result<(), String> {
         false => format!("sikemux.{plugin}"),
     };
     let socket = running()?;
-    let endpoint =
-        crate::cli_paths::cli_endpoint_path().ok_or("Sikemux's tool endpoint is unavailable")?;
-    runtime()?.block_on(plugin_login(&socket, endpoint, &plugin))
+    runtime()?.block_on(plugin_login(&socket, &plugin))
 }
 
 /// Signs the host in to a plugin's service through a browser on any machine.
 /// A browser on this host comes back to the core by itself; one elsewhere
 /// lands on a page that does not load, whose address is pasted back here.
-async fn plugin_login(socket: &Path, endpoint: PathBuf, plugin: &str) -> Result<(), String> {
-    let (core, _events) = CoreClient::connect(socket)
+async fn plugin_login(socket: &Path, plugin: &str) -> Result<(), String> {
+    const STREAM: u64 = 1;
+    let (core, mut events) = CoreClient::connect(socket)
         .await
         .map_err(|error| error.to_string())?;
-    let ticket = core
-        .call("pluginSignIn", json!({ "plugin": plugin }))
-        .await
-        .map_err(|error| error.to_string())?["ticket"]
-        .as_str()
-        .ok_or("the core gave no ticket for the sign-in")?
-        .to_owned();
-    let stream = tokio::task::spawn_blocking(move || {
-        crate::cli_client::open_plugin_stream(&endpoint, ticket)
-    })
+    core.call(
+        "pluginSignIn",
+        json!({ "stream": STREAM, "plugin": plugin }),
+    )
     .await
-    .map_err(|error| error.to_string())??;
-    let (sent, mut events) = tokio::sync::mpsc::unbounded_channel();
-    std::thread::spawn(move || {
-        for line in std::io::BufReader::new(stream).lines() {
-            let event =
-                line.ok().and_then(|line| {
-                    match serde_json::from_str::<CliServerResponse>(&line).ok()? {
-                        CliServerResponse::Result { value } => serde_json::from_value(value).ok(),
-                        CliServerResponse::Error { message } => Some(StreamEvent::Error {
-                            error: Failure::new("", "core", message),
-                        }),
-                        _ => None,
-                    }
-                });
-            if event.is_none() || sent.send(event).is_err() {
-                break;
-            }
-        }
-    });
+    .map_err(|error| error.to_string())?;
     let (pasted_into, mut pasted) = tokio::sync::mpsc::unbounded_channel();
     loop {
         tokio::select! {
-            event = events.recv() => match event.flatten() {
-                Some(StreamEvent::Item { value }) => {
-                    let Some(url) = value["url"].as_str() else { continue };
+            event = events.recv() => {
+                let Some(event) = event else {
+                    return Err("the core ended the sign-in".into());
+                };
+                let ClientEvent::Event(Event::Stream { stream: STREAM, items, done, error }) = event else {
+                    continue;
+                };
+                for url in items.iter().filter_map(|item| item["url"].as_str()) {
                     println!(
                         "\n  Open this link in a browser on any machine to sign in:\n\n    {}\n\n  If the browser then lands on a page that does not load, paste its address here.\n",
                         style::accent(url)
@@ -451,12 +431,13 @@ async fn plugin_login(socket: &Path, endpoint: PathBuf, plugin: &str) -> Result<
                         }
                     });
                 }
-                Some(StreamEvent::End) => {
+                if let Some(error) = error {
+                    return Err(error["message"].as_str().unwrap_or("the sign-in failed").to_owned());
+                }
+                if done {
                     style::done("Signed in", plugin);
                     return Ok(());
                 }
-                Some(StreamEvent::Error { error }) => return Err(error.message),
-                None => return Err("the core ended the sign-in".into()),
             },
             Some(landed) = pasted.recv() => {
                 if landed.trim().is_empty() {

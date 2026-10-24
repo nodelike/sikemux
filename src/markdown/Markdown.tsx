@@ -1,6 +1,7 @@
 import { createContext, createElement, memo, useContext, type ComponentType, type ReactNode } from "react";
 import type { MarkdownOptions, MdElement, MdNode } from "./types";
 import { useMarkdownBlocks } from "./useMarkdownBlocks";
+import { visibleText } from "./visible";
 
 /** Where a surface draws something its own way. Anything left out is drawn as plain HTML. */
 export interface MarkdownComponents {
@@ -17,6 +18,8 @@ export interface MarkdownComponents {
     readonly img?: ComponentType<{ src: string; alt: string; title?: string; inLink: boolean }>;
     /** A task list item's box; left out, it is drawn ticked or not and cannot be changed. */
     readonly taskBox?: ComponentType<{ checked: boolean }>;
+    /** A word the parser read as naming a file, outside a link; `code` when it was between backticks. */
+    readonly path?: ComponentType<{ href: string; code: boolean; children: ReactNode }>;
 }
 
 export const MARKDOWN_GFM: MarkdownOptions = { gfm: true, htmlAsText: false, fileLinks: false };
@@ -200,6 +203,16 @@ function renderNode(node: MdNode, components: MarkdownComponents, inLink: boolea
         }
         case "fnref":
             return <sup key={key}>{node.n}</sup>;
+        case "path": {
+            const Path = components.path;
+            if (!Path || inLink) return renderAll(node.c, components, inLink);
+            const code = !!node.code;
+            return (
+                <Path key={key} href={node.href} code={code}>
+                    {code ? visibleText(node.c) : renderAll(node.c, components, inLink)}
+                </Path>
+            );
+        }
         case "details":
             return (
                 <details key={key} open={node.open}>

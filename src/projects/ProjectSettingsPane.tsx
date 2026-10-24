@@ -8,6 +8,7 @@ import { SettingsPage, SettingsRow, SettingsRows, SettingsSection } from "../set
 import * as cmd from "../state/commands";
 import { confirmDialog } from "../state/dialog";
 import { useStore } from "../state/store";
+import { usePreference } from "../state/preferences";
 import { notify, reportError } from "../state/toast";
 import { AddTaskDialog } from "../tasks/AddTaskDialog";
 import { tasksApi, useProjectTasks, type ProjectTask } from "../tasks/coreTasks";
@@ -354,7 +355,7 @@ function CheckSection({
 
 function GitSection({ project, visible }: { project: string; visible: boolean }) {
     const { repo, repos } = useProjectRepo(project, visible);
-    const chosen = useStore((s) => s.defaultGitRepos[project]);
+    const chosen = useStore((s) => s.preferences?.defaultGitRepos[project]);
     return (
         <SettingsSection
             title="Default git repository"
@@ -396,8 +397,8 @@ function GitSection({ project, visible }: { project: string; visible: boolean })
 }
 
 function GeneralPage({ project }: { project: string }) {
-    const worktree = useStore((s) => s.agentWorktreeDefaults[project] === true);
-    const languageServers = useStore((s) => s.languageServerTrust[project] === true);
+    const worktree = usePreference("agentWorktreeDefaults")?.[project] === true;
+    const languageServers = useStore((s) => s.preferences?.languageServerTrust[project] === true);
     const spaces = useStore((s) => s.spaces);
     const space = useStore((s) => s.projectSpaces[project] ?? "");
     return (

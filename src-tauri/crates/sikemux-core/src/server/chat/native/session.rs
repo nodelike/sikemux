@@ -16,14 +16,15 @@ use crate::launch::PermissionMode;
 
 use crate::acp::account::{self, Failure, FailureKind, SignIn};
 use crate::acp::{permission, SessionEnd};
-use crate::protocol::{ChatAccount, ChatContext, ChatEventKind, ChatLaunch, ChatStart};
+use crate::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
+use sikemux_fold::ChatEventKind;
 
 use super::super::kept::Progress;
 use super::super::rebind::{
     error_message, next_account, on_account, switch_notice, switches_at_limit, Carried, Outcome,
     Rebind, Replay,
 };
-use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond, NOBODY};
+use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond};
 use super::process::{AgentRecord, Lines, Process, Released, Writer};
 
 /// What the person sent, for the agent to read in its own form.
@@ -257,7 +258,7 @@ impl Sink {
 
     /// The person's message `text` went into the running turn.
     pub fn prompted(&self, text: &str, paths: &[String]) {
-        self.chat.feed.prompted(NOBODY, None, text, paths);
+        self.chat.feed.prompted(None, text, paths, &[]);
     }
 
     /// Asks the person about a tool call. `request` is shaped as an ACP
@@ -542,7 +543,15 @@ pub(crate) async fn run<B: Backend>(
                 stopping: None,
                 switching: None,
             };
+            let replay = replay.or_else(|| reset::take_due(&chat));
+            // Running before it reads as ready, so no client sees a turn about to go on as over.
+            if replay.is_some() {
+                chat.running.store(true, Ordering::Release);
+            }
             chat.note_agent(backend.pid());
+            if let Some(core) = chat.core.upgrade() {
+                super::super::tryout_began(&core, &provider, &state.session_id);
+            }
             let start = state.start();
             crate::server::chat::offered::remember(&provider, &start.setup);
             chat.mark_ready(start.clone());
@@ -550,7 +559,7 @@ pub(crate) async fn run<B: Backend>(
             for update in carried.into_iter().chain(notice) {
                 sink.update(&state.session_id, update);
             }
-            (backend, state, replay.or_else(|| reset::take_due(&chat)))
+            (backend, state, replay)
         }
         Begin::Adopt(adopted) => {
             let Adopted {
@@ -587,19 +596,18 @@ pub(crate) async fn run<B: Backend>(
         }
     }
     if let Some(replay) = replay {
-        if let Some(from) = replay.announce {
+        if replay.announce {
             chat.feed.prompted(
-                from,
                 replay.message_id.as_deref(),
                 &replay.text,
                 &replay.paths,
+                &replay.context,
             );
         }
-        chat.running.store(true, Ordering::Release);
         state.turn += 1;
         begin(&chat, &mut backend, state.turn, Prompt::from(&replay)).await;
         state.last_prompt = Some(Replay {
-            announce: None,
+            announce: false,
             ..replay
         });
     }
@@ -739,7 +747,6 @@ pub(crate) async fn run<B: Backend>(
                 let _ = reply.send(Delivery::NewTurn);
                 by_letter = true;
                 ChatCommand::Prompt {
-                    from: NOBODY,
                     message_id: None,
                     text,
                     paths: Vec::new(),
@@ -762,7 +769,7 @@ pub(crate) async fn run<B: Backend>(
                 tokio::spawn(async move {
                     let delivery = match steering.await.as_deref() {
                         Ok("injected") => {
-                            chat.feed.prompted(NOBODY, None, &prompt.text, &[]);
+                            chat.feed.prompted(None, &prompt.text, &[], &[]);
                             Delivery::Steered
                         }
                         Ok("promptRequired") => Delivery::TurnEnded,
@@ -772,7 +779,6 @@ pub(crate) async fn run<B: Backend>(
                 });
             }
             ChatCommand::Prompt {
-                from,
                 message_id,
                 text,
                 paths,
@@ -783,17 +789,15 @@ pub(crate) async fn run<B: Backend>(
                     // person sends one, so theirs goes next rather than lost.
                     if letter_turn {
                         let held = ChatCommand::Prompt {
-                            from,
                             message_id,
                             text,
                             paths,
                             context,
                         };
                         after_turn(chat.clone(), held);
-                    } else if !chat
-                        .feed
-                        .enqueue(super::super::queue::Queued::new(text, paths, context))
-                    {
+                    } else if !chat.feed.enqueue(super::super::queue::Queued::new(
+                        message_id, text, paths, context,
+                    )) {
                         chat.emit(
                             ChatEventKind::Error,
                             error_message("too many messages are waiting for this turn"),
@@ -804,7 +808,7 @@ pub(crate) async fn run<B: Backend>(
                 letter_turn = by_letter;
                 state.fresh_turn(&chat);
                 let replay = Replay {
-                    announce: Some(from),
+                    announce: true,
                     message_id,
                     text,
                     paths,
@@ -829,20 +833,19 @@ pub(crate) async fn run<B: Backend>(
                     }
                 }
                 chat.feed.prompted(
-                    from,
                     replay.message_id.as_deref(),
                     &replay.text,
                     &replay.paths,
+                    &replay.context,
                 );
                 state.turn += 1;
                 begin(&chat, &mut backend, state.turn, Prompt::from(&replay)).await;
                 state.last_prompt = Some(Replay {
-                    announce: None,
+                    announce: false,
                     ..replay
                 });
             }
             ChatCommand::Edit {
-                from,
                 message_id,
                 text,
                 paths,
@@ -861,7 +864,7 @@ pub(crate) async fn run<B: Backend>(
                         continue;
                     }
                 };
-                chat.feed.rewound(from, &state.session_id, &message_id);
+                chat.feed.rewound(&message_id);
                 if let Some(moved) = moved {
                     state.session_id = moved;
                     let start = state.start();
@@ -871,17 +874,17 @@ pub(crate) async fn run<B: Backend>(
                 let _ = reply.send(Ok(()));
                 state.fresh_turn(&chat);
                 let replay = Replay {
-                    announce: None,
+                    announce: false,
                     message_id: Some(message_id),
                     text,
                     paths,
                     context,
                 };
                 chat.feed.prompted(
-                    from,
                     replay.message_id.as_deref(),
                     &replay.text,
                     &replay.paths,
+                    &replay.context,
                 );
                 chat.running.store(true, Ordering::Release);
                 letter_turn = false;
@@ -950,7 +953,6 @@ pub(crate) async fn run<B: Backend>(
                 let _ = reply.send(result.map(|options| json!({ "configOptions": options })));
             }
             ChatCommand::Steer {
-                from,
                 text,
                 paths,
                 context,
@@ -972,7 +974,8 @@ pub(crate) async fn run<B: Backend>(
                 tokio::spawn(async move {
                     let result = steering.await;
                     if result.as_deref() == Ok("injected") {
-                        chat.feed.prompted(from, None, &prompt.text, &prompt.paths);
+                        chat.feed
+                            .prompted(None, &prompt.text, &prompt.paths, &prompt.context);
                     }
                     let _ = reply.send(result);
                 });
@@ -1045,7 +1048,7 @@ pub(crate) async fn run<B: Backend>(
 impl Switching {
     fn carry_on_prompt() -> Replay {
         Replay {
-            announce: None,
+            announce: false,
             message_id: None,
             text: "Your last turn was interrupted. Carry on where you left off.".into(),
             paths: Vec::new(),

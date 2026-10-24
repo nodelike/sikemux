@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import { effectiveMode as permissionModeOf } from "../agents/agentLaunch";
 import { activityText, lostConnectionText } from "./chatStatus";
 import type { Agent } from "../state/types";
-import type { AcpPermissionRequest, ChatMessage, ChatState } from "./types";
+import type { PermissionAsk, ChatMessage, ChatRows } from "./types";
 
 const agent = (overrides: Partial<Agent>) => ({ id: "a1", type: "claude", ...overrides }) as Agent;
-const request: AcpPermissionRequest = { requestId: "r", sessionId: "s", toolCall: { toolCallId: "t", title: "Run" }, options: [] };
+const request: PermissionAsk = {
+    requestId: "r",
+    sessionId: "s",
+    toolCall: { toolCallId: "t", title: "Run", row: { action: "other", target: "Run" } },
+    options: [],
+};
 const message: ChatMessage = { id: "m1", role: "user", parts: [] };
 
 describe("permissionModeOf", () => {
@@ -16,8 +21,8 @@ describe("permissionModeOf", () => {
 });
 
 describe("activityText", () => {
-    const state = (overrides: Partial<ChatState>) =>
-        ({ permissions: [], running: false, messages: [], connection: "ready", ...overrides }) as ChatState;
+    const state = (overrides: Partial<ChatRows>) =>
+        ({ permissions: [], running: false, messages: [], connection: "ready", ...overrides }) as ChatRows;
 
     it("stays quiet while a permission card is showing", () => {
         expect(activityText(state({ permissions: [request], running: true }), "Reading…")).toBeNull();
@@ -30,7 +35,7 @@ describe("activityText", () => {
 
     it("says the agent is reconnecting, with its attempt when known, ahead of the running tool", () => {
         expect(activityText(state({ running: true, retrying: { attempt: 3, connection: true } }), "Reading…")).toBe("Reconnecting… (attempt 3)");
-        expect(activityText(state({ running: true, retrying: { attempt: null, connection: true } }), null)).toBe("Reconnecting…");
+        expect(activityText(state({ running: true, retrying: { connection: true } }), null)).toBe("Reconnecting…");
         expect(activityText(state({ running: true, retrying: { attempt: 2, connection: false } }), null)).toBe("Retrying… (attempt 2)");
     });
 

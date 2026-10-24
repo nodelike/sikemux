@@ -208,10 +208,9 @@ export const VERCEL: Record<string, (params: Params) => unknown> = {
     personal: false,
   }),
   setTeam: () => null,
-  projects: () => PROJECTS,
-  deployments: () => DEPLOYMENTS,
-  deployment: ({ id }) => find(id),
-  logs: ({ id }) => {
+  projectsView: () => ({ projects: PROJECTS }),
+  deploymentsView: () => ({ deployments: DEPLOYMENTS }),
+  logView: ({ id }) => {
     const found = find(id);
     const lines =
       found.state === "ERROR"
@@ -220,64 +219,76 @@ export const VERCEL: Record<string, (params: Params) => unknown> = {
           ? FAILED_LOG.slice(0, 5)
           : READY_LOG;
     return {
-      deployment: found,
-      lines: lines.map(([kind, text], index) => ({
-        at: found.createdAt + index * 900,
-        kind,
-        text,
-      })),
-      skipped: 0,
+      log: {
+        deployment: found,
+        lines: lines.map(([kind, text], index) => ({
+          at: found.createdAt + index * 900,
+          kind,
+          text,
+        })),
+        skipped: 0,
+      },
+      forAgent: `Vercel deployment ${found.id} of ${found.project}`,
     };
   },
-  domains: () => [
-    { name: "shop.acme.dev", verified: true, redirect: null, gitBranch: null },
-    {
-      name: "www.shop.acme.dev",
-      verified: true,
-      redirect: "shop.acme.dev",
-      gitBranch: null,
-    },
-    {
-      name: "staging.shop.acme.dev",
-      verified: false,
-      redirect: null,
-      gitBranch: "staging",
-    },
-  ],
-  env: () => [
-    {
-      id: "e1",
-      key: "DATABASE_URL",
-      target: ["production", "preview"],
-      type: "encrypted",
-      gitBranch: null,
-      updatedAt: minutesAgo(9000),
-    },
-    {
-      id: "e2",
-      key: "STRIPE_SECRET_KEY",
-      target: ["production"],
-      type: "sensitive",
-      gitBranch: null,
-      updatedAt: minutesAgo(9000),
-    },
-    {
-      id: "e3",
-      key: "NEXT_PUBLIC_SITE_URL",
-      target: ["production", "preview", "development"],
-      type: "plain",
-      gitBranch: null,
-      updatedAt: minutesAgo(400),
-    },
-    {
-      id: "e4",
-      key: "SEARCH_INDEX",
-      target: ["preview"],
-      type: "encrypted",
-      gitBranch: "search-filters",
-      updatedAt: minutesAgo(1800),
-    },
-  ],
+  domainsView: () => ({
+    domains: [
+      {
+        name: "shop.acme.dev",
+        verified: true,
+        redirect: null,
+        gitBranch: null,
+      },
+      {
+        name: "www.shop.acme.dev",
+        verified: true,
+        redirect: "shop.acme.dev",
+        gitBranch: null,
+      },
+      {
+        name: "staging.shop.acme.dev",
+        verified: false,
+        redirect: null,
+        gitBranch: "staging",
+      },
+    ],
+  }),
+  envView: () => ({
+    variables: [
+      {
+        id: "e1",
+        key: "DATABASE_URL",
+        target: ["production", "preview"],
+        type: "encrypted",
+        gitBranch: null,
+        updatedAt: minutesAgo(9000),
+      },
+      {
+        id: "e2",
+        key: "STRIPE_SECRET_KEY",
+        target: ["production"],
+        type: "sensitive",
+        gitBranch: null,
+        updatedAt: minutesAgo(9000),
+      },
+      {
+        id: "e3",
+        key: "NEXT_PUBLIC_SITE_URL",
+        target: ["production", "preview", "development"],
+        type: "plain",
+        gitBranch: null,
+        updatedAt: minutesAgo(400),
+      },
+      {
+        id: "e4",
+        key: "SEARCH_INDEX",
+        target: ["preview"],
+        type: "encrypted",
+        gitBranch: "search-filters",
+        updatedAt: minutesAgo(1800),
+      },
+    ],
+  }),
   redeploy: ({ id }) => find(id),
   promote: ({ id }) => find(id),
   cancel: ({ id }) => find(id),

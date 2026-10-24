@@ -1,0 +1,15 @@
+[package]
+name = "sikemux-fold"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A chat folded from what its agent says into the rows clients draw"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sikemux-markdown = { path = "../sikemux-markdown" }
+sikemux-wire = { path = "../sikemux-wire" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

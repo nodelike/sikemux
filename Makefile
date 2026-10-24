@@ -11,7 +11,7 @@ dev: export JIRA_OAUTH_SECRET ?= $(shell sed -n 's/^JIRA_OAUTH_SECRET=//p' .env 
 dev: export VERCEL_OAUTH_SECRET ?= $(shell sed -n 's/^VERCEL_OAUTH_SECRET=//p' .env 2>/dev/null)
 dev: icons
 	@node scripts/prune-target.mjs --throttled >/dev/null 2>&1 &
-	pnpm dev:desktop
+	node scripts/dev-gpui.mjs
 
 # Stops the dev build's core, the terminals and agents it runs, and its notch.
 dev-stop:

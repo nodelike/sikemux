@@ -2,80 +2,178 @@ import { DEMO_HOME } from "./projects";
 
 export const BRUNO_COLLECTION = `${DEMO_HOME}/api/acme-store`;
 
-const request = (
-  name: string,
-  method: string,
-  url: string,
-  seq: number,
-  body = "",
-) =>
-  `meta {\n  name: ${name}\n  type: http\n  seq: ${seq}\n}\n\n${method} {\n  url: ${url}\n  body: ${body ? "json" : "none"}\n  auth: bearer\n}\n\nauth:bearer {\n  token: {{token}}\n}\n${body ? `\nbody:json {\n${body}\n}\n` : ""}`;
+type Args = Record<string, unknown>;
 
-const CHECKOUT_BODY = `  {\n    "cartId": "cart_8f2a91",\n    "currency": "EUR",\n    "shipping": "express"\n  }`;
+const NO_AUTH = { username: "", password: "" };
+const NO_KEY = { key: "", value: "", placement: "header" };
 
-export const BRUNO_FILES: Record<string, string> = {
-  [`${BRUNO_COLLECTION}/bruno.json`]:
-    '{ "version": "1", "name": "Acme Store API", "type": "collection" }',
-  [`${BRUNO_COLLECTION}/environments/production.bru`]:
-    "vars {\n  baseUrl: https://api.acme.dev\n  token: sk_live_demo\n}\n",
-  [`${BRUNO_COLLECTION}/environments/staging.bru`]:
-    "vars {\n  baseUrl: https://staging.api.acme.dev\n  token: sk_test_demo\n}\n",
-  [`${BRUNO_COLLECTION}/health.bru`]: request(
-    "Health",
-    "get",
-    "{{baseUrl}}/health",
-    1,
-  ),
-  [`${BRUNO_COLLECTION}/catalog/folder.bru`]: "meta {\n  name: Catalog\n}\n",
-  [`${BRUNO_COLLECTION}/catalog/search.bru`]: request(
-    "Search products",
-    "get",
-    "{{baseUrl}}/v1/search?q=linen&limit=12",
-    1,
-  ),
-  [`${BRUNO_COLLECTION}/catalog/product.bru`]: request(
-    "Get product",
-    "get",
-    "{{baseUrl}}/v1/products/prd_31c8",
-    2,
-  ),
-  [`${BRUNO_COLLECTION}/checkout/folder.bru`]: "meta {\n  name: Checkout\n}\n",
-  [`${BRUNO_COLLECTION}/checkout/create.bru`]: request(
-    "Create checkout",
-    "post",
-    "{{baseUrl}}/v1/checkout",
-    1,
-    CHECKOUT_BODY,
-  ),
-  [`${BRUNO_COLLECTION}/checkout/status.bru`]: request(
-    "Checkout status",
-    "get",
-    "{{baseUrl}}/v1/checkout/chk_4411",
-    2,
-  ),
-  [`${BRUNO_COLLECTION}/users/folder.bru`]: "meta {\n  name: Users\n}\n",
-  [`${BRUNO_COLLECTION}/users/me.bru`]: request(
-    "Current user",
-    "get",
-    "{{baseUrl}}/v1/users/me",
-    1,
-  ),
+const request = (name: string, method: string, url: string, body = "") => ({
+  meta: { name, type: "http", seq: null },
+  method,
+  url,
+  params: { query: [], path: [] },
+  headers: [],
+  body: {
+    mode: body ? "json" : "none",
+    text: body,
+    graphql: { query: "", variables: "" },
+    form: [],
+  },
+  auth: {
+    mode: "bearer",
+    bearer: { token: "{{token}}" },
+    basic: NO_AUTH,
+    apikey: NO_KEY,
+  },
+  vars: { req: [], res: [] },
+  scripts: { pre: "", post: "" },
+  assertions: [],
+  tests: "",
+  docs: "",
+  settings: { encodeUrl: null, timeout: null },
+  extra: [],
+});
+
+const folder = (name: string) => ({
+  meta: { name, type: "", seq: null },
+  auth: {
+    mode: "inherit",
+    bearer: { token: "" },
+    basic: NO_AUTH,
+    apikey: NO_KEY,
+  },
+  headers: [],
+  vars: { req: [], res: [] },
+  scripts: { pre: "", post: "" },
+  extra: [],
+});
+
+const CHECKOUT_BODY = `{\n  "cartId": "cart_8f2a91",\n  "currency": "EUR",\n  "shipping": "express"\n}`;
+
+/** Each request by its file, with the folder it sits in. */
+const REQUESTS: Record<string, [string | null, ReturnType<typeof request>]> = {
+  "health.bru": [null, request("Health", "get", "{{baseUrl}}/health")],
+  "catalog/search.bru": [
+    "Catalog",
+    request("Search products", "get", "{{baseUrl}}/v1/search?q=linen&limit=12"),
+  ],
+  "catalog/product.bru": [
+    "Catalog",
+    request("Get product", "get", "{{baseUrl}}/v1/products/prd_31c8"),
+  ],
+  "checkout/create.bru": [
+    "Checkout",
+    request(
+      "Create checkout",
+      "post",
+      "{{baseUrl}}/v1/checkout",
+      CHECKOUT_BODY,
+    ),
+  ],
+  "checkout/status.bru": [
+    "Checkout",
+    request("Checkout status", "get", "{{baseUrl}}/v1/checkout/chk_4411"),
+  ],
+  "users/me.bru": [
+    "Users",
+    request("Current user", "get", "{{baseUrl}}/v1/users/me"),
+  ],
 };
 
-export function brunoDir(path: string) {
-  const names = new Set<string>();
-  for (const file of Object.keys(BRUNO_FILES)) {
-    if (file.startsWith(`${path}/`))
-      names.add(file.slice(path.length + 1).split("/")[0]);
-  }
-  return [...names].sort().map((name) => ({
-    name,
-    path: `${path}/${name}`,
-    is_dir: !BRUNO_FILES[`${path}/${name}`],
-  }));
-}
+const row = (file: string) => {
+  const [, made] = REQUESTS[file];
+  return {
+    type: "request",
+    name: made.meta.name,
+    path: `${BRUNO_COLLECTION}/${file}`,
+    method: made.method,
+    collectionPath: BRUNO_COLLECTION,
+  };
+};
 
-export const CHECKOUT_RESPONSE = {
+const env = (name: string, baseUrl: string, token: string) => ({
+  id: `${BRUNO_COLLECTION}::${name}`,
+  name,
+  collectionPath: BRUNO_COLLECTION,
+  collectionName: "acme-store",
+  vars: [
+    { name: "baseUrl", value: baseUrl, enabled: true },
+    { name: "token", value: token, enabled: true },
+  ],
+  secretNames: [],
+});
+
+/** What the Bruno plugin's views would serve for the demo collection. */
+export const BRUNO_VIEWS: Record<string, (params: Args) => unknown> = {
+  collectionView: () => ({
+    rootPath: BRUNO_COLLECTION,
+    name: "Acme Store API",
+    envs: [
+      env("production", "https://api.acme.dev", "sk_live_demo"),
+      env("staging", "https://staging.api.acme.dev", "sk_test_demo"),
+    ],
+    tree: [
+      {
+        type: "folder",
+        name: "Catalog",
+        path: `${BRUNO_COLLECTION}/catalog`,
+        children: [row("catalog/search.bru"), row("catalog/product.bru")],
+      },
+      {
+        type: "folder",
+        name: "Checkout",
+        path: `${BRUNO_COLLECTION}/checkout`,
+        children: [row("checkout/create.bru"), row("checkout/status.bru")],
+      },
+      {
+        type: "folder",
+        name: "Users",
+        path: `${BRUNO_COLLECTION}/users`,
+        children: [row("users/me.bru")],
+      },
+      row("health.bru"),
+    ],
+  }),
+  run: () => checkoutRun(),
+  requestView: ({ path }) => {
+    const file = String(path).slice(BRUNO_COLLECTION.length + 1);
+    const [inside, made] = REQUESTS[file] ?? [
+      null,
+      request("Untitled", "get", ""),
+    ];
+    return {
+      request: made,
+      collectionPath: BRUNO_COLLECTION,
+      scopes: inside ? [folder(inside)] : [],
+    };
+  },
+};
+
+const checkoutRun = () => ({
+  response: {
+    status: CHECKOUT_RESPONSE.status,
+    statusText: CHECKOUT_RESPONSE.status_text,
+    headers: CHECKOUT_RESPONSE.headers.map(([name, value]) => ({
+      name,
+      value,
+    })),
+    body: CHECKOUT_RESPONSE.body,
+    isBinary: false,
+    sizeBytes: CHECKOUT_RESPONSE.size_bytes,
+    durationMs: CHECKOUT_RESPONSE.duration_ms,
+  },
+  error: null,
+  sent: {
+    method: "POST",
+    url: "https://api.acme.dev/v1/checkout",
+    headers: [{ name: "Authorization", value: "Bearer sk_live_demo" }],
+  },
+  logs: [],
+  tests: [],
+  envUpdates: {},
+});
+
+const CHECKOUT_RESPONSE = {
   status: 201,
   status_text: "Created",
   headers: [

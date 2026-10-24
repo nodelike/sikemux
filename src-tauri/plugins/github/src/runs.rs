@@ -2,17 +2,29 @@
 // them. Times are passed through as GitHub wrote them, so whoever shows them
 // decides how to phrase "3 minutes ago".
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{LazyLock, Mutex};
 
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::json;
-use sikemux_plugin_api::codehost::{Billable, Job, Run, RunDetail, RunPage, RunTiming, Step};
+use sikemux_plugin_api::codehost::{
+    Billable, Job, Outcome, Run, RunDetail, RunPage, RunTiming, Step,
+};
+
+use sikemux_plugin_api::account::chosen;
 
 use crate::client;
 use crate::common::LIST_PAGES;
 use crate::error::{GithubError, GithubResult};
 use crate::workflows::RepoRef;
+
+/// Runs whose last read is kept, so reading one again while it is unchanged
+/// costs nothing against the rate limit.
+const FOLLOWED_AT_MOST: usize = 32;
+
+static FOLLOWED: LazyLock<Mutex<HashMap<String, Followed>>> = LazyLock::new(Default::default);
 
 const DEFAULT_PER_PAGE: u32 = 30;
 const MAX_PER_PAGE: u32 = 100;
@@ -70,7 +82,9 @@ fn short(sha: &str) -> String {
 impl From<RunRow> for Run {
     fn from(row: RunRow) -> Self {
         let actor = row.triggering_actor.or(row.actor);
+        let status = row.status.unwrap_or_else(|| "queued".into());
         Self {
+            outcome: Outcome::of(&status, row.conclusion.as_deref()),
             title: row
                 .display_title
                 .clone()
@@ -86,7 +100,7 @@ impl From<RunRow> for Run {
             run_number: row.run_number,
             attempt: row.run_attempt.unwrap_or(1),
             event: row.event,
-            status: row.status.unwrap_or_else(|| "queued".into()),
+            status,
             conclusion: row.conclusion,
             branch: row.head_branch,
             sha: row.head_sha,
@@ -229,14 +243,6 @@ pub struct RunRef {
     pub run_id: u64,
 }
 
-pub async fn get(data_dir: &Path, input: RunRef) -> GithubResult<Run> {
-    let path = input
-        .repo
-        .path(&format!("/actions/runs/{}", input.run_id))?;
-    let row: RunRow = client::get(data_dir, &path, &[]).await?;
-    Ok(Run::from(row))
-}
-
 #[derive(Deserialize)]
 struct StepRow {
     name: String,
@@ -271,10 +277,12 @@ struct JobList {
 
 impl From<JobRow> for Job {
     fn from(row: JobRow) -> Self {
+        let status = row.status.unwrap_or_else(|| "queued".into());
         Self {
+            outcome: Outcome::of(&status, row.conclusion.as_deref()),
             id: row.id.to_string(),
             name: row.name,
-            status: row.status.unwrap_or_else(|| "queued".into()),
+            status,
             conclusion: row.conclusion,
             started_at: row.started_at,
             completed_at: row.completed_at,
@@ -288,13 +296,17 @@ impl From<JobRow> for Job {
             steps: row
                 .steps
                 .into_iter()
-                .map(|step| Step {
-                    number: step.number,
-                    name: step.name,
-                    status: step.status.unwrap_or_else(|| "queued".into()),
-                    conclusion: step.conclusion,
-                    started_at: step.started_at,
-                    completed_at: step.completed_at,
+                .map(|step| {
+                    let status = step.status.unwrap_or_else(|| "queued".into());
+                    Step {
+                        outcome: Outcome::of(&status, step.conclusion.as_deref()),
+                        number: step.number,
+                        name: step.name,
+                        status,
+                        conclusion: step.conclusion,
+                        started_at: step.started_at,
+                        completed_at: step.completed_at,
+                    }
                 })
                 .collect(),
         }
@@ -311,39 +323,43 @@ fn latest() -> [(&'static str, String); 1] {
     [("filter", "latest".to_string())]
 }
 
-pub async fn jobs(data_dir: &Path, input: RunRef) -> GithubResult<Vec<Job>> {
-    let path = input
-        .repo
-        .path(&format!("/actions/runs/{}/jobs", input.run_id))?;
-    job_rows(data_dir, &path, &latest()).await
-}
-
+/// A run and its jobs. The core reads a run that is going every few seconds,
+/// so each read asks GitHub only for what changed since the last.
 pub async fn detail(data_dir: &Path, input: RunRef) -> GithubResult<RunDetail> {
-    let repo = RepoRef {
-        owner: input.repo.owner.clone(),
-        name: input.repo.name.clone(),
-    };
-    let run_id = input.run_id;
-    let (run, jobs) = futures::future::join(
-        get(data_dir, input),
-        jobs(data_dir, RunRef { repo, run_id }),
-    )
-    .await;
-    Ok(RunDetail {
-        run: run?,
-        jobs: jobs?,
-    })
+    let key = format!(
+        "{}|{}",
+        chosen().unwrap_or_default(),
+        input
+            .repo
+            .path(&format!("/actions/runs/{}", input.run_id))?
+    );
+    let taken = FOLLOWED
+        .lock()
+        .ok()
+        .and_then(|mut followed| followed.remove(&key));
+    let mut held = taken.unwrap_or_default();
+    let (detail, _) = follow(data_dir, &input, &mut held).await?;
+    if let Ok(mut followed) = FOLLOWED.lock() {
+        if followed.len() >= FOLLOWED_AT_MOST {
+            let evicted = followed.keys().next().cloned();
+            if let Some(evicted) = evicted {
+                followed.remove(&evicted);
+            }
+        }
+        followed.insert(key, held);
+    }
+    Ok(detail)
 }
 
-/// What a watch remembers between reads, so an unchanged run costs nothing.
+/// What the last read of a run returned, so an unchanged run costs nothing.
 #[derive(Default)]
-pub struct Followed {
+struct Followed {
     run: Option<(Run, Option<String>)>,
     jobs: Option<(Vec<Job>, Option<String>)>,
 }
 
 impl Followed {
-    pub fn last(&self) -> (Option<Run>, Vec<Job>) {
+    fn last(&self) -> (Option<Run>, Vec<Job>) {
         (
             self.run.as_ref().map(|(run, _)| run.clone()),
             self.jobs
@@ -356,7 +372,7 @@ impl Followed {
 
 /// The run and its jobs as they are now, and how many requests GitHub will
 /// still take this hour.
-pub async fn follow(
+async fn follow(
     data_dir: &Path,
     input: &RunRef,
     held: &mut Followed,

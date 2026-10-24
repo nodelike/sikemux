@@ -1,10 +1,9 @@
 import { Segmented } from "../../ui/Controls";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { GitColumns } from "../../git/GitColumns";
 import { SwipePages } from "../../ui/SwipePages";
-import { useVisibleStream } from "../../plugin-api/hooks";
 import { confirmDialog, copyText, notify, openUrl, reportError, swallow } from "../../plugin-api/host";
-import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
+import { useResourceEnabled } from "../../plugin-api/resources";
 import {
     EmptyState,
     IconChevron,
@@ -16,11 +15,12 @@ import {
     SkeletonRows,
     Tooltip,
 } from "../../plugin-api/ui";
-import { hostApi, type Job, type RepoRef, type Run } from "../api";
+import { hostApi, type Job, type ListedJob, type OpenRun as RunRead, type RepoRef, type Run } from "../api";
 import { errorText } from "../../lib/format";
 import { useHost } from "../registry";
-import { artifactsR, runAttemptR, runR, timingR } from "../resources";
-import { elapsedMs, eventLabel, failedStep, isUnfinished, outcomeOf, OUTCOME_LABEL, summaryJobs, watchIsNewer } from "../runStatus";
+import { artifactsR } from "../resources";
+import { runViewR } from "../lists";
+import { elapsedMs, eventLabel, outcomeOf, OUTCOME_LABEL, SUMMARY_LIMIT } from "../runStatus";
 import { closeRun, leaveRun, showJob, updateView, useHostView, type RunTab } from "../state";
 import { StatusMark } from "./ActionsIcon";
 import { Annotations } from "./Annotations";
@@ -38,79 +38,38 @@ import { billedMinutes } from "./RunUsage";
 import { WorkflowFile } from "./WorkflowFile";
 import { formatAgo, formatDuration } from "../../lib/format";
 
-const WATCH_RETRY_MS = 30_000;
-const WATCH_RETRY_MAX_MS = 5 * 60_000;
-
-const refreshRuns = () => invalidate((kind) => kind === "host.runs" || kind === "host.run");
-
 interface OpenRun {
+    read: RunRead | null;
     run: Run | null;
-    jobs: Job[];
+    jobs: ListedJob[];
     attempt: number | null;
     setAttempt: (attempt: number | null) => void;
     latestAttempt: number;
-    /** Still going, on its latest attempt, so it is watched and its clock ticks. */
+    /** Still going, on its latest attempt, so its clock ticks. */
     moving: boolean;
-    watchError: string | null;
     now: number;
     loading: boolean;
     error: unknown;
     refresh: () => void;
 }
 
-/**
- * One run as both columns read it: the attempt picked, and while it is going, what the backend pushes on every tick.
- * The list behind it is re-read once it ends.
- */
-function useOpenRun(repo: RepoRef, runId: string, active: boolean): OpenRun {
+const NO_JOBS: ListedJob[] = [];
+
+/** One run as both columns read it: the attempt picked, which the core reads again while it is going. */
+function useOpenRun(project: string | null, repo: RepoRef, runId: string, active: boolean): OpenRun {
     const [attempt, setAttempt] = useState<number | null>(null);
-    const detail = useResourceEnabled(active && attempt === null, runR, repo, runId);
-    const older = useResourceEnabled(active && attempt !== null, runAttemptR, repo, runId, attempt ?? 0);
-    const shown = attempt === null ? detail : older;
-    const [live, setLive] = useState<{ run: Run; jobs: Job[] } | null>(null);
-    const [watchError, setWatchError] = useState<string | null>(null);
-
-    const watched = attempt === null ? live : null;
-    const useWatched = watchIsNewer(watched?.run ?? null, shown.data?.run ?? null);
-    const run = (useWatched ? watched?.run : shown.data?.run) ?? null;
-    const jobs = useWatched && watched?.jobs.length ? watched.jobs : (shown.data?.jobs ?? []);
-    const moving = attempt === null && !!run && isUnfinished(run);
-    const highestAttempt = useRef(0);
-    const latestAttempt = Math.max(highestAttempt.current, detail.data?.run.attempt ?? 0, watched?.run.attempt ?? 0, run?.attempt ?? 0);
-    highestAttempt.current = latestAttempt;
+    const shown = useResourceEnabled(active, runViewR, project, repo, runId, attempt);
+    const read = shown.data ?? null;
+    const moving = attempt === null && !!read?.unfinished;
     const now = useNow(active && moving);
-
-    const latestRun = useRef(run);
-    latestRun.current = run;
-
-    useVisibleStream(
-        active && moving
-            ? (life) =>
-                  hostApi(repo.provider).watch(repo, runId, {
-                      onItem: (tick) => {
-                          if (tick.run) setLive({ run: tick.run, jobs: tick.jobs });
-                          setWatchError(tick.error);
-                          if (!tick.finished) return;
-                          refreshRuns();
-                          const last = tick.run ?? latestRun.current;
-                          if (tick.fatal || !last || !isUnfinished(last)) life.finish();
-                      },
-                      onEnd: life.ended,
-                      onError: (error) => setWatchError(errorText(error)),
-                  })
-            : null,
-        [repo, runId],
-        { pauseWhenHidden: true, retry: (tries) => Math.min(WATCH_RETRY_MS * 2 ** tries, WATCH_RETRY_MAX_MS) },
-    );
-
     return {
-        run,
-        jobs,
+        read,
+        run: read?.run ?? null,
+        jobs: read?.jobs ?? NO_JOBS,
         attempt,
         setAttempt,
-        latestAttempt,
+        latestAttempt: read?.attempts ?? 0,
         moving,
-        watchError,
         now,
         loading: shown.status === "loading",
         error: shown.error,
@@ -127,7 +86,6 @@ function RunHead({
     repo,
     open,
     canWrite,
-    active,
     back,
     onBack,
     onDeleted,
@@ -135,7 +93,6 @@ function RunHead({
     repo: RepoRef;
     open: OpenRun;
     canWrite: boolean;
-    active: boolean;
     back: string;
     onBack: () => void;
     onDeleted: () => void;
@@ -144,16 +101,12 @@ function RunHead({
     const { ci } = host.capabilities;
     const run = open.run as Run;
     const outcome = outcomeOf(run);
-    const live = isUnfinished(run);
-    const timing = useResourceEnabled(active && !live, timingR, repo, run.id);
-    const took = live ? null : (timing.data?.runDurationMs ?? null);
+    const live = !!open.read?.unfinished;
+    const took = open.read?.timing?.runDurationMs ?? null;
     const [busy, runBusy] = useBusy();
     const act = (done: string, failed: string, work: () => Promise<void>) =>
         work()
-            .then(() => {
-                notify("success", done);
-                refreshRuns();
-            })
+            .then(() => notify("success", done))
             .catch(reportError(failed));
 
     const cancel = async () => {
@@ -194,7 +147,7 @@ function RunHead({
                         <IconRefresh size={13} />
                     </button>
                 </Tooltip>
-                <RunMenu run={run} repo={repo} canWrite={canWrite} onDeleted={onDeleted} />
+                <RunMenu run={run} unfinished={live} repo={repo} canWrite={canWrite} onDeleted={onDeleted} />
                 <ShellAccount />
             </div>
             <div className="git-btn-group git-side-actions run-side-actions" role="group" aria-label="Run">
@@ -221,11 +174,6 @@ function RunHead({
                     {host.name}
                 </button>
             </div>
-            {open.moving && open.watchError && (
-                <div className="gha-callout" data-tone="danger">
-                    {open.watchError}
-                </div>
-            )}
             {ci.attempts && open.latestAttempt > 1 && (
                 <Segmented
                     fill
@@ -236,13 +184,13 @@ function RunHead({
                     onChange={(number) => open.setAttempt(number === open.latestAttempt ? null : number)}
                 />
             )}
-            {ci.approvals && <Approvals repo={repo} runId={run.id} status={run.status} conclusion={run.conclusion} active={active} />}
+            {ci.approvals && <Approvals repo={repo} runId={run.id} pending={open.read?.approvals ?? []} />}
         </div>
     );
 }
 
 /** The run's jobs as rows, like a pull request lists its files. */
-const JobRows = memo(function JobRows({ paneId, jobs, openJob, now }: { paneId: string; jobs: Job[]; openJob: string | null; now: number }) {
+const JobRows = memo(function JobRows({ paneId, jobs, openJob, now }: { paneId: string; jobs: ListedJob[]; openJob: string | null; now: number }) {
     const [folded, setFolded] = useState(false);
     return (
         <div className="git-list pr-files">
@@ -258,9 +206,8 @@ const JobRows = memo(function JobRows({ paneId, jobs, openJob, now }: { paneId: 
             </div>
             {jobs.length === 0 && <div className="gha-side-empty">No jobs yet</div>}
             {!folded &&
-                jobs.map((job, index) => {
+                jobs.map(({ job, stoppedAt }, index) => {
                     const outcome = outcomeOf(job);
-                    const stopped = failedStep(job);
                     return (
                         <button
                             key={job.id}
@@ -272,7 +219,7 @@ const JobRows = memo(function JobRows({ paneId, jobs, openJob, now }: { paneId: 
                             onClick={() => showJob(paneId, job.id)}>
                             <StatusMark outcome={outcome} size={14} />
                             <span className="git-row-name">{job.name}</span>
-                            {stopped && <span className="gha-job-stopped">at {stopped.name}</span>}
+                            {stoppedAt && <span className="gha-job-stopped">at {stoppedAt}</span>}
                             <span className="run-job-took">
                                 {outcome === "skipped"
                                     ? "skipped"
@@ -286,17 +233,30 @@ const JobRows = memo(function JobRows({ paneId, jobs, openJob, now }: { paneId: 
 });
 
 /** What CI flagged in one job and its log step by step, under the job's own actions. */
-function JobLogs({ repo, job, now, active, canWrite }: { repo: RepoRef; job: Job; now: number; active: boolean; canWrite: boolean }) {
+function JobLogs({
+    project,
+    repo,
+    runId,
+    job,
+    now,
+    active,
+    canWrite,
+}: {
+    project: string | null;
+    repo: RepoRef;
+    runId: string;
+    job: Job;
+    now: number;
+    active: boolean;
+    canWrite: boolean;
+}) {
     const host = useHost();
     const [busy, runBusy] = useBusy();
     const rerun = (debug: boolean) =>
         runBusy(() =>
             hostApi(repo.provider)
                 .rerunJob(repo, job.id, debug)
-                .then(() => {
-                    notify("success", `Re-running ${job.name}`);
-                    refreshRuns();
-                })
+                .then(() => notify("success", `Re-running ${job.name}`))
                 .catch(reportError(`Could not re-run ${job.name}`)),
         );
     return (
@@ -330,15 +290,18 @@ function JobLogs({ repo, job, now, active, canWrite }: { repo: RepoRef; job: Job
                 )}
             </div>
             {host.capabilities.ci.annotations && job.checkRunId !== null && <Annotations repo={repo} checkRunId={job.checkRunId} active={active} />}
-            <JobLogView repo={repo} job={job} now={now} active={active} />
+            <JobLogView project={project} repo={repo} runId={runId} job={job} now={now} active={active} />
         </div>
     );
 }
 
-function RunSummaries({ repo, jobs, finished, active }: { repo: RepoRef; jobs: Job[]; finished: boolean; active: boolean }) {
+/** Each summary is its own call, so a wide matrix only loads the first few until asked for the rest. */
+function RunSummaries({ repo, open, active }: { repo: RepoRef; open: OpenRun; active: boolean }) {
     const [everything, setEverything] = useState(false);
-    const shown = summaryJobs(jobs, finished, everything);
-    const rest = summaryJobs(jobs, finished, true).length - shown.length;
+    const ids = open.read?.summaries ?? [];
+    const all = ids.flatMap((id) => open.jobs.find(({ job }) => job.id === id)?.job ?? []);
+    const shown = everything ? all : all.slice(0, SUMMARY_LIMIT);
+    const rest = all.length - shown.length;
     if (shown.length === 0) return null;
     return (
         <div className="gha-run-summaries">
@@ -371,9 +334,7 @@ function RunSummary({
     const { ci } = useHost().capabilities;
     const run = open.run as Run;
     const [showFile, setShowFile] = useState(false);
-    const live = isUnfinished(run);
-    const timing = useResourceEnabled(active && ci.billing && !live, timingR, repo, run.id);
-    const billable = timing.data?.billable ?? [];
+    const billable = ci.billing ? (open.read?.timing?.billable ?? []) : [];
     const minutes = billedMinutes(billable);
     const pick = useCallback((jobId: string) => showJob(paneId, jobId), [paneId]);
     const toggleFile = useCallback(() => setShowFile((was) => !was), []);
@@ -387,24 +348,23 @@ function RunSummary({
                 </div>
             )}
             <JobGraph
-                repo={repo}
                 run={run}
-                jobs={open.jobs}
+                read={open.read as RunRead}
                 now={open.now}
-                active={active}
                 openJob={openJob}
                 onOpen={pick}
                 fileShown={showFile}
                 onToggleFile={ci.workflowFile ? toggleFile : null}
             />
             {ci.workflowFile && showFile && <WorkflowFile repo={repo} workflowId={run.workflowId} active={active} />}
-            {ci.summaries && <RunSummaries repo={repo} jobs={open.jobs} finished={!live} active={active} />}
+            {ci.summaries && <RunSummaries repo={repo} open={open} active={active} />}
         </div>
     );
 }
 
 function RunRight({
     paneId,
+    project,
     repo,
     open,
     openJob,
@@ -413,6 +373,7 @@ function RunRight({
     canWrite,
 }: {
     paneId: string;
+    project: string | null;
     repo: RepoRef;
     open: OpenRun;
     openJob: string | null;
@@ -422,7 +383,7 @@ function RunRight({
 }) {
     const host = useHost();
     const run = open.run as Run;
-    const picked = open.jobs.find((job) => job.id === openJob) ?? null;
+    const picked = open.jobs.find(({ job }) => job.id === openJob)?.job ?? null;
     const tabs: { id: RunTab; label: string }[] = [
         { id: "summary", label: "Summary" },
         { id: "logs", label: picked ? `Logs · ${picked.name}` : "Logs" },
@@ -494,7 +455,9 @@ function RunRight({
                 ) : picked ? (
                     <JobLogs
                         key={picked.id}
+                        project={project}
                         repo={repo}
+                        runId={run.id}
                         job={picked}
                         now={picked.completedAt ? coarse(open.now) : open.now}
                         active={active}
@@ -510,6 +473,8 @@ function RunRight({
 
 interface Props {
     paneId: string;
+    /** The project whose code host the run is on, or null when the repository is named outright. */
+    project: string | null;
     repo: RepoRef;
     runId: string;
     openJob: string | null;
@@ -522,13 +487,13 @@ export function RunView(props: Props) {
     return <OpenRunView key={props.runId} {...props} />;
 }
 
-function OpenRunView({ paneId, repo, runId, openJob, active, canWrite }: Props) {
-    const open = useOpenRun(repo, runId, active);
+function OpenRunView({ paneId, project, repo, runId, openJob, active, canWrite }: Props) {
+    const open = useOpenRun(project, repo, runId, active);
     const { runFrom, pickFailed, runTab } = useHostView(paneId);
 
     // A run opened from a pull request's check lands on the log of the job that failed, once its jobs are known.
     const jobsRead = open.jobs.length > 0;
-    const failedJob = open.jobs.find((job) => outcomeOf(job) === "failure")?.id ?? null;
+    const failedJob = open.read?.failedJob ?? null;
     useEffect(() => {
         if (!pickFailed || !jobsRead) return;
         updateView(paneId, openJob === null && failedJob !== null ? { pickFailed: false, job: failedJob, runTab: "logs" } : { pickFailed: false });
@@ -575,7 +540,6 @@ function OpenRunView({ paneId, repo, runId, openJob, active, canWrite }: Props) 
                         repo={repo}
                         open={open}
                         canWrite={canWrite}
-                        active={active}
                         back={backTo}
                         onBack={() => leaveRun(paneId)}
                         onDeleted={() => closeRun(paneId)}
@@ -611,7 +575,16 @@ function OpenRunView({ paneId, repo, runId, openJob, active, canWrite }: Props) 
             }
             right={
                 <div className="git-right-review">
-                    <RunRight paneId={paneId} repo={repo} open={open} openJob={openJob} tab={runTab} active={active} canWrite={canWrite} />
+                    <RunRight
+                        paneId={paneId}
+                        project={project}
+                        repo={repo}
+                        open={open}
+                        openJob={openJob}
+                        tab={runTab}
+                        active={active}
+                        canWrite={canWrite}
+                    />
                 </div>
             }
         />

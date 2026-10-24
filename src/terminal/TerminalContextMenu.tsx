@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { IS_MACOS } from "../lib/platform";
 import { IconCopy, IconDiscard, IconMessage, IconSearch, IconText } from "../ui/Icons";
 import { useOccludeNativeViews } from "../state/nativeViews";
-import type { TerminalController } from "./useXterm";
+import type { TerminalController } from "./useTerminal";
 
 interface MenuItem {
     label?: string;

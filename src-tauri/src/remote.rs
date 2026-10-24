@@ -22,9 +22,7 @@ const PUBLISH_BUDDIES: &str = "publishBuddies";
 
 fn is_publication(request: &Request) -> bool {
     match request {
-        Request::PublishBackdrop { .. }
-        | Request::PublishPalette { .. }
-        | Request::PublishOnScreen { .. } => true,
+        Request::PublishBackdrop { .. } | Request::PublishOnScreen { .. } => true,
         Request::Call { method, .. } => method == PUBLISH_BUDDIES,
         _ => false,
     }
@@ -38,7 +36,7 @@ fn same_publication(kept: &Request, request: &Request) -> bool {
 }
 
 /// How the app looks and what it shows, for paired devices: the backdrop,
-/// the theme's colours, the buddies and the agents on screen.
+/// the buddies and the agents on screen.
 #[tauri::command]
 pub async fn remote_publish(
     manager: State<'_, PtyManager>,

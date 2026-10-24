@@ -3,27 +3,44 @@ import { acpApi } from "../../api/acp";
 import { acpAccount } from "../../agents/accounts";
 import { coreCall } from "../../api/core";
 import { agentNamesApi } from "../../api/agentNames";
-import type { AgentQuestion } from "../../agents/agentQuestions";
-import { agentSupportsChat, canBypassPermissions, hasRelocatableSessions, type ChatAgentType } from "../../agents/catalog";
+import type { AgentQuestion } from "../../api/agentQuestions";
+import {
+    agentSupportsChat,
+    canBypassPermissions,
+    hasRelocatableSessions,
+    isAgentType,
+    setAgentCatalog,
+    type CatalogAgent,
+} from "../../agents/catalog";
 import { effectiveMode, isResumeId, MAX_AGENT_MODEL_LENGTH, normalizePermissionMode } from "../../agents/agentLaunch";
 import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../../agents/agentProfiles";
 import { emit } from "../bus";
-import { agentHasBackgroundWork, isAgentBusy, type AgentShown } from "../agentStatus";
 import { confirmDialog } from "../dialog";
 import { invalidate, peekResource } from "../resources";
 import { agentCatalogR } from "../resources.defs";
-import { getState, mutate, type StoreState } from "../store";
+import { setPreference } from "../preferences";
+import { getState, mutate, setState, type StoreState } from "../store";
 import { notify, reportError, swallow } from "../toast";
 import { agentExecutablePath, profileOf } from "./agentLaunchCommand";
 import { activeAgentId, agentForChat, agentIdsOf, agentWindowId, ownerSessionId, projectSessionId } from "../selectors";
 import { agentWindow } from "../agentWindow";
 import { newId } from "../layout";
-import type { Agent, AgentEffort, AgentPermissionMode, AgentType, AgentWorktree, Session } from "../types";
+import {
+    defaultProviderProfiles,
+    defaultProviderProfileSelection,
+    type Agent,
+    type AgentEffort,
+    type AgentPermissionMode,
+    type AgentType,
+    type AgentWorktree,
+    type Session,
+} from "../types";
 import { selectSession } from "./sessions";
 import { retitlePinnedChat } from "./settings";
 import { keepOpenedProjectInView, openProjectSession, withActiveSession } from "./shared";
 import { closeWindowsById } from "./tabs";
 import { bringForward, hostTitle, newWorkHost, openInstallPane, projectOnHost, startRemoteChat, type HostChoice } from "../../hosts/hosts";
+import type { Inbox } from "../../api/generated/wire";
 
 /** Providers list a session under at most this many characters. */
 const SESSION_TITLE_MAX = 72;
@@ -34,7 +51,7 @@ function detectedExecutablePath(state: StoreState, type: AgentType): string | un
     return peekResource(agentCatalogR, runtime)?.find((agent) => agent.type === type && agent.available !== false)?.command;
 }
 
-export function configureEmptyAgent(id: string, type: ChatAgentType, profileId?: string, model?: string, modelProvider?: string): void {
+export function configureEmptyAgent(id: string, type: AgentType, profileId?: string, model?: string, modelProvider?: string): void {
     const before = getState().agents[id];
     const account = profileId ? profileOf(getState(), { profileId, type }) : undefined;
     /* Its pane starts it again for another agent; another account of the same agent is the core's to move it to. */
@@ -42,7 +59,7 @@ export function configureEmptyAgent(id: string, type: ChatAgentType, profileId?:
         void acpApi.switchAccount(id, type, acpAccount(account)).catch(reportError("Switch account"));
     mutate((d) => {
         const agent = d.agents[id];
-        if (!agent || isAgentBusy(d.agentStatus[id])) return;
+        if (!agent || d.agentStatus[id]?.busy) return;
         const profile = profileId ? profileOf(d, { profileId, type }) : undefined;
         if (profileId && !profile) return;
         const mode = normalizePermissionMode(type, agent.permissionMode ?? d.defaultAgentPermissionMode);
@@ -55,15 +72,6 @@ export function configureEmptyAgent(id: string, type: ChatAgentType, profileId?:
         agent.model = model;
         agent.modelProvider = modelProvider;
         delete agent.effort;
-    });
-}
-
-export function setAgentModelPreferences(id: string, model: string | undefined, effort: AgentEffort | undefined): void {
-    mutate((d) => {
-        const agent = d.agents[id];
-        if (!agent) return;
-        agent.model = model;
-        agent.effort = effort;
     });
 }
 
@@ -138,6 +146,7 @@ export function addAgent(type: AgentType, resumeId?: string, title?: string, opt
     if (!home) return false;
     const cwd = home === target ? options.cwd : undefined;
     let attached = false;
+    let started = false;
     mutate((d) => {
         const session = d.sessions[home.id];
         if (!session) return;
@@ -183,7 +192,7 @@ export function addAgent(type: AgentType, resumeId?: string, title?: string, opt
             launchState: "live",
         };
         d.agents[agent.id] = agent;
-        d.lastAgentType = type;
+        started = true;
         const win = agentWindow(agent, agentCwd);
         d.windows[win.id] = win;
         d.windowsBySession[session.id] = [...(d.windowsBySession[session.id] ?? []), win.id];
@@ -192,7 +201,14 @@ export function addAgent(type: AgentType, resumeId?: string, title?: string, opt
             if (home !== target) bringForward(d, session.id);
         }
     });
+    if (started) setPreference("lastAgentType", type);
     return attached;
+}
+
+/** The agent a new chat starts as when none is picked. */
+export function lastAgentType(): AgentType | null {
+    const type = getState().preferences?.lastAgentType;
+    return isAgentType(type) ? type : null;
 }
 
 /** A session an agent CLI saved, by its id, in the project it ran in. */
@@ -259,7 +275,7 @@ export function canMoveAgentToProject(state: StoreState, agent: Agent): boolean 
     if (!hasRelocatableSessions(agent.type)) return false;
     if (agent.launchState === "dormant") return true;
     const shown = state.agentStatus[agent.id];
-    return !isAgentBusy(shown) && !agentHasBackgroundWork(shown);
+    return !shown?.busy && !shown?.background;
 }
 
 /**
@@ -503,23 +519,30 @@ export async function sleepIdleAgents(): Promise<number> {
 }
 
 /** Takes how the core shows each open agent, from its device view. */
-export function setAgentStatus(agents: readonly AgentShown[]): void {
-    const before = getState().agentStatus;
-    const same = (a: AgentShown, b: AgentShown) =>
-        a.status === b.status &&
-        a.group === b.group &&
-        a.unread === b.unread &&
-        a.subagents === b.subagents &&
-        a.tasks === b.tasks &&
-        a.activeAt === b.activeAt;
-    const next = Object.fromEntries(
-        agents.map((shown) => [shown.agentId, before[shown.agentId] && same(before[shown.agentId], shown) ? before[shown.agentId] : shown]),
-    );
+/** Each value of `after` that equals the one before it by every field stays the object it was, so rows showing it do not redraw. */
+function keepUnchanged<T extends object>(before: Record<string, T>, after: Record<string, T>): Record<string, T> {
+    const same = (a: T | undefined, b: T) => !!a && (Object.keys(b) as (keyof T)[]).every((key) => a[key] === b[key]);
+    const next = Object.fromEntries(Object.entries(after).map(([id, value]) => [id, same(before[id], value) ? before[id] : value]));
     const ids = Object.keys(next);
-    if (ids.length === Object.keys(before).length && ids.every((id) => next[id] === before[id])) return;
+    return ids.length === Object.keys(before).length && ids.every((id) => next[id] === before[id]) ? before : next;
+}
+
+/** Takes how the core shows every open agent, and each project's agents together. */
+export function setAgentStatus(inbox: Pick<Inbox, "agents" | "projects">): void {
+    const state = getState();
+    const agentStatus = keepUnchanged(state.agentStatus, Object.fromEntries(inbox.agents.map((shown) => [shown.agentId, shown])));
+    const projectStatus = keepUnchanged(state.projectStatus, inbox.projects);
+    if (agentStatus === state.agentStatus && projectStatus === state.projectStatus) return;
     mutate((d) => {
-        d.agentStatus = next;
+        d.agentStatus = agentStatus;
+        d.projectStatus = projectStatus;
     });
+}
+
+/** Takes the agents the core can run, and the account each starts with until the core's accounts are read. */
+export function takeAgentCatalog(agents: readonly CatalogAgent[]): void {
+    setAgentCatalog(agents);
+    setState({ providerProfiles: defaultProviderProfiles(), selectedProviderProfileIds: defaultProviderProfileSelection() });
 }
 
 /** Takes the open questions the core sent. */

@@ -1,24 +1,26 @@
-import { rowMeta, type RowMeta } from '@mac/chat/messageMeta';
+import { copyText } from '@mac/chat/messageMeta';
 import type { ChatMessage } from '@mac/chat/types';
+
+/** What a strip under a message shows: when it was sent or its turn finished, how long that took, how fast it was written, and what Copy gives. */
+export type Strip = NonNullable<ChatMessage['meta']> & { text: string };
 
 /**
  * The message a strip sits under: a prompt itself; an answer, which the agent splits into a message per tool call,
- * the last of its turn.
+ * the last of its turn, once that turn has finished.
  */
 export function stripOwner(messages: readonly ChatMessage[], id: string): string | undefined {
-  let index = messages.findIndex((message) => message.id === id);
+  const index = messages.findIndex((message) => message.id === id);
   if (index < 0) return undefined;
-  if (messages[index].role === 'assistant') {
-    while (messages[index + 1]?.role === 'assistant' && !messages[index + 1].opensTurn) index += 1;
+  if (messages[index].role === 'user') return messages[index].meta ? id : undefined;
+  for (let at = index; messages[at]?.role === 'assistant'; at += 1) {
+    if (at > index && messages[at].opensTurn) return undefined;
+    if (messages[at].meta) return messages[at].id;
   }
-  return messages[index].id;
+  return undefined;
 }
 
-/**
- * What a message's strip says of it: a prompt its own text and when it was sent; an answer all of
- * its prose and how long the turn took.
- */
-export function stripMeta(messages: readonly ChatMessage[], id: string): RowMeta | null {
+export function stripOf(messages: readonly ChatMessage[], id: string): Strip | null {
   const index = messages.findIndex((message) => message.id === id);
-  return index < 0 ? null : rowMeta(messages as ChatMessage[], index);
+  const meta = messages[index]?.meta;
+  return meta ? { ...meta, text: copyText(messages, index) } : null;
 }

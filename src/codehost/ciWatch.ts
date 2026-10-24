@@ -1,13 +1,8 @@
 import { useEffect } from "react";
 import { coreCall } from "../api/core";
-import { onCoreChanged } from "../api/coreChanged";
 import { getIpcTransport } from "../api/transport";
-import { invalidate } from "../state/resources";
 import type { RepoRef } from "./types";
 import { swallow } from "../state/toast";
-
-/** What a CI change makes the page read again. */
-const CI_KINDS = new Set(["host.runs", "host.run", "host.jobLog"]);
 
 const keyOf = (repo: Pick<RepoRef, "provider" | "owner" | "name">) => `${repo.provider}:${repo.owner}/${repo.name}`;
 
@@ -41,13 +36,9 @@ function listen(): void {
     listening = true;
     document.addEventListener("visibilitychange", send);
     void getIpcTransport().subscribe("core_connected", send).catch(swallow("follow the core connecting"));
-    onCoreChanged("ci", ({ paths }) => {
-        if (!paths?.length) return;
-        invalidate((kind, args) => CI_KINDS.has(kind) && !!args[0] && paths.includes(keyOf(args[0] as RepoRef)));
-    });
 }
 
-/** Keeps `repo`'s CI checked by the core while `on`, and reads its runs again whenever the core says they moved. */
+/** Keeps `repo`'s CI checked by the core while `on`; the core reads the lists that show it again whenever its runs move. */
 export function useCiWatch(repo: RepoRef | null, on: boolean): void {
     const key = repo && on ? keyOf(repo) : null;
     const account = repo?.account ?? null;

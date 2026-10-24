@@ -12,7 +12,7 @@ import { agentExecutablePath } from "./commands/agentLaunchCommand";
 import { agentWindow } from "./agentWindow";
 import { isSpaceIcon } from "./projectSpaces";
 import { agentIdsOf, agentWindowId, ownerSessionId } from "./selectors";
-import { getState, mutate, useStore, type StoreState } from "./store";
+import { getState, mutate, setState, useStore, type StoreState } from "./store";
 import { swallow } from "./toast";
 import { allSent, changeOnItsWay } from "./workspaceSent";
 import {
@@ -234,6 +234,8 @@ function moveWindow(d: StoreState, windowId: string, to: string): void {
 /** Brings the store to the workspace the core sent: what another client changed shows here. */
 export function applyCoreWorkspace(workspace: Workspace): void {
     known = workspace;
+    const faces = Object.fromEntries(workspace.agents.map((agent) => [agent.id, agent.face ?? null]));
+    if (!same(faces, getState().faces)) setState({ faces });
     const state = getState();
     const projects = new Set(workspace.projects.map((project) => project.id));
     const records = new Set(workspace.agents.map((agent) => agent.id));

@@ -9,15 +9,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { agentLabel } from '@mac/agents/catalog';
 import { activityText } from '@mac/chat/chatStatus';
 import { activeToolLabel } from '@mac/chat/toolLabels';
-import { outlivesFold, workFolds, type WorkFold } from '@mac/chat/transcript';
 import type { ChatMessage } from '@mac/chat/types';
 import { parseShareLink, type ShareLink } from '@mac/share/link';
 import { sharedChatTitle, ShareSession, type ShareSnapshot } from '@mac/share/session';
 import { apiUrl } from '@/account/config';
-import { Folds, FoldsContext } from '@/chat/folds';
+import { Folds, FoldsContext, rowFold } from '@/chat/folds';
 import { SharedFilesContext } from '@/chat/hostFiles';
+import { ToolDetailContext } from '@/chat/Tools';
 import { useTranscriptScroll } from '@/chat/transcriptScroll';
-import { Activity, Earlier, EarlierLost, Message, ProviderContext, WorkSummary } from '@/chat/Transcript';
+import { Activity, Earlier, EarlierLost, Message, ProviderContext, SubagentsContext, subagentsOf, WorkSummary } from '@/chat/Transcript';
 import { phoneCipher } from '@/share/cipher';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { useMinute } from '@/ui/motion';
@@ -114,10 +114,9 @@ function SharedChat({ session }: { session: ShareSession }) {
   const provider = snapshot.chat?.provider ?? 'agent';
   const title = sharedChatTitle(snapshot) ?? `${agentLabel(provider)} chat`;
   const [folds] = useState(() => new Folds());
-  const [foldsBefore, setFoldsBefore] = useState<Map<number, WorkFold>>();
-  const workFold = useMemo(() => workFolds(state.messages, state.running, foldsBefore), [state.messages, state.running, foldsBefore]);
-  if (workFold !== foldsBefore) setFoldsBefore(workFold);
   const [openWork, setOpenWork] = useState<ReadonlySet<string>>(() => new Set());
+  const workOpen = (id: string) => openWork.has(id);
+  const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
   const toggleWork = (id: string) =>
     setOpenWork((shown) => {
       const next = new Set(shown);
@@ -125,11 +124,11 @@ function SharedChat({ session }: { session: ShareSession }) {
       return next;
     });
   const liveId = state.running ? state.messages[state.messages.length - 1]?.id : undefined;
-  const marks = useMemo(() => [snapshot.replayed, liveId, workFold, openWork], [snapshot.replayed, liveId, workFold, openWork]);
+  const marks = useMemo(() => [liveId, openWork], [liveId, openWork]);
   const [since] = useState(Date.now);
   const now = useMinute() * 60_000;
   const live = snapshot.status === 'live';
-  const activity = live ? activityText({ ...state, permissions: [...snapshot.permissions] }, activeToolLabel(state.messages)) : null;
+  const activity = live ? activityText(state, activeToolLabel(state)) : null;
   const problem = problemOf(snapshot);
   const list = useRef<FlashListRef<ChatMessage>>(null);
   const scroll = useTranscriptScroll(list, {
@@ -172,86 +171,81 @@ function SharedChat({ session }: { session: ShareSession }) {
         <SharedFilesContext value={session.readImage}>
           <ProviderContext value={provider}>
             <FoldsContext value={folds}>
-              <View style={styles.transcript}>
-                <FlashList
-                  ref={list}
-                  showsVerticalScrollIndicator={false}
-                  data={state.messages}
-                  keyExtractor={(message) => message.id}
-                  getItemType={(message, index) => {
-                    const fold = workFold.get(index);
-                    return fold && index < fold.end && !openWork.has(fold.id) && !message.parts.some(outlivesFold)
-                      ? 'folded'
-                      : message.role;
-                  }}
-                  extraData={marks}
-                  renderItem={({ item, index }) => {
-                    const fold = workFold.get(index);
-                    const workId = fold ? fold.id : '';
-                    const folded = fold !== undefined && !openWork.has(workId);
-                    const summary =
-                      fold && index === fold.start ? (
-                        <WorkSummary
-                          took={fold.took}
-                          calls={fold.calls}
-                          thought={fold.thought}
-                          open={!folded}
-                          onToggle={() => toggleWork(workId)}
-                        />
-                      ) : null;
-                    if (fold && folded && index < fold.end && !item.parts.some(outlivesFold)) return summary ?? <View />;
-                    return (
-                      <>
-                        {summary}
-                        <Message
-                          message={item}
-                          live={item.id === liveId}
-                          untimed={snapshot.replayed.has(item.id)}
-                          unsent={emptyUnsent.get(item.id)}
-                          onRetry={noRetry}
-                          onTap={noTap}
-                          sentFiles={emptyFiles}
-                          from={fold && folded ? (index < fold.end ? item.parts.length : fold.from) : 0}
-                        />
-                      </>
-                    );
-                  }}
-                  ListHeaderComponent={
-                    snapshot.hasEarlier ? (
-                      <Earlier
-                        failed={snapshot.earlier === 'failed'}
-                        loading={snapshot.earlier === 'loading'}
-                        onRetry={session.loadEarlier}
-                      />
-                    ) : state.earlierLost ? (
-                      <EarlierLost />
-                    ) : null
-                  }
-                  ListFooterComponent={
-                    <>
-                      {snapshot.permissions.map((request) => (
-                        <Text key={request.requestId} style={styles.waiting}>
-                          Waiting for permission: {request.toolCall.title}
-                        </Text>
-                      ))}
-                      {activity ? <Activity provider={provider} label={activity} since={since} /> : null}
-                      {state.error ? <Text style={styles.error}>{state.error}</Text> : null}
-                    </>
-                  }
-                  contentContainerStyle={styles.content}
-                  {...scroll.listProps}
-                />
-                {scroll.away ? (
-                  <Pressable
-                    onPress={scroll.toEnd}
-                    style={styles.jump}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Jump to latest message">
-                    <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
-                  </Pressable>
-                ) : null}
-              </View>
+              <SubagentsContext value={subagents}>
+                <ToolDetailContext value={session.readToolDetail}>
+                  <View style={styles.transcript}>
+                    <FlashList
+                      ref={list}
+                      showsVerticalScrollIndicator={false}
+                      data={state.messages}
+                      keyExtractor={(message) => message.id}
+                      getItemType={(message) => (rowFold(message, workOpen).hidden ? 'folded' : message.role)}
+                      extraData={marks}
+                      renderItem={({ item }) => {
+                        const { summary: fold, hidden, from } = rowFold(item, workOpen);
+                        const summary = fold ? (
+                          <WorkSummary
+                            took={fold.took}
+                            calls={fold.calls}
+                            thought={fold.thought}
+                            open={workOpen(fold.id)}
+                            onToggle={() => toggleWork(fold.id)}
+                          />
+                        ) : null;
+                        if (hidden) return summary ?? <View />;
+                        return (
+                          <>
+                            {summary}
+                            <Message
+                              message={item}
+                              live={item.id === liveId}
+                              unsent={emptyUnsent.get(item.id)}
+                              onRetry={noRetry}
+                              onTap={noTap}
+                              sentFiles={emptyFiles}
+                              from={from}
+                            />
+                          </>
+                        );
+                      }}
+                      ListHeaderComponent={
+                        snapshot.hasEarlier ? (
+                          <Earlier
+                            failed={snapshot.earlier === 'failed'}
+                            loading={snapshot.earlier === 'loading'}
+                            onRetry={session.loadEarlier}
+                          />
+                        ) : state.earlierLost ? (
+                          <EarlierLost />
+                        ) : null
+                      }
+                      ListFooterComponent={
+                        <>
+                          {state.permissions.map((request) => (
+                            <Text key={request.requestId} style={styles.waiting}>
+                              Waiting for permission: {request.toolCall.title}
+                            </Text>
+                          ))}
+                          {activity ? <Activity provider={provider} label={activity} since={since} /> : null}
+                          {state.error ? <Text style={styles.error}>{state.error}</Text> : null}
+                        </>
+                      }
+                      contentContainerStyle={styles.content}
+                      {...scroll.listProps}
+                    />
+                    {scroll.away ? (
+                      <Pressable
+                        onPress={scroll.toEnd}
+                        style={styles.jump}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Jump to latest message">
+                        <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </ToolDetailContext>
+              </SubagentsContext>
             </FoldsContext>
           </ProviderContext>
         </SharedFilesContext>

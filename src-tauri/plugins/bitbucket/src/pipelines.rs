@@ -8,7 +8,8 @@ use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_plugin_api::codehost::{
-    Job, JobLog, LogExcerpt, LogLine, Run, RunDetail, RunPage, RunTiming, Workflow, WorkflowFile,
+    Job, JobLog, LogExcerpt, LogLine, Outcome, Run, RunDetail, RunPage, RunTiming, Workflow,
+    WorkflowFile,
 };
 
 use crate::client;
@@ -142,6 +143,7 @@ fn run_of(repo: &RepoRef, row: &PipelineRow) -> Run {
         run_number: row.build_number,
         attempt: row.run_number.unwrap_or(1),
         event: event.into(),
+        outcome: Outcome::of(&status, conclusion.as_deref()),
         status,
         conclusion,
         branch,
@@ -307,6 +309,7 @@ async fn steps(data_dir: &Path, repo: &RepoRef, run: &Run) -> BitbucketResult<Ve
             Job {
                 id: job_id(&run.id, &row.uuid),
                 name: row.name.unwrap_or_else(|| "Step".into()),
+                outcome: Outcome::of(&status, conclusion.as_deref()),
                 status,
                 conclusion,
                 started_at: row.started_on,
@@ -677,16 +680,16 @@ mod tests {
     }
 
     #[test]
-    fn a_paused_pipeline_stops_the_watch() {
+    fn a_paused_pipeline_waits_on_a_person() {
         for paused in [
             json!({ "name": "PAUSED" }),
             json!({ "name": "HALTED" }),
             json!({ "name": "IN_PROGRESS", "stage": { "name": "PAUSED" } }),
         ] {
-            assert!(crate::watch::settled(&status_of(Some(&state(paused))).0));
+            assert_eq!(status_of(Some(&state(paused))).0, "waiting");
         }
         let running = json!({ "name": "IN_PROGRESS", "stage": { "name": "RUNNING" } });
-        assert!(!crate::watch::settled(&status_of(Some(&state(running))).0));
+        assert_eq!(status_of(Some(&state(running))).0, "in_progress");
     }
 
     #[test]

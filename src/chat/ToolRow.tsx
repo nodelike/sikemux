@@ -1,4 +1,4 @@
-import { memo, useContext, useRef, useState, type ComponentType } from "react";
+import { type ComponentType, memo, useContext, useEffect, useRef, useState } from "react";
 import { frontendPlugin } from "../plugins/registry";
 import { CopyButton } from "../ui/CopyButton";
 import { hasPrimaryModifier } from "../lib/platform";
@@ -63,19 +63,17 @@ import {
     IconWorkflow,
     IconWrench,
 } from "../ui/Icons";
-import type { ToolOutput } from "./toolOutput";
 import { ChatFileRef, useFileRef } from "./FileRef";
-import { ChatAgentContext, openLink } from "./chatAgent";
+import { ChatAgentContext, openLink, ToolDetailContext } from "./chatAgent";
 import { ChatImage } from "./ChatImage";
 import { DiffBody } from "./DiffView";
 import { LiveSeconds } from "./LiveSeconds";
 import { Shimmer } from "./Shimmer";
 import { useCutOff } from "./useCutOff";
 import { toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from "./toolLabels";
-import { sikemuxToolRow } from "./toolRows";
 import { toolElapsed, toolIconName, toolRowKind, type ToolIconName } from "./toolView";
 import { attachmentName } from "./transcript";
-import type { AcpToolCall, ChatPart } from "./types";
+import type { ChatPart, ToolCall, ToolDetail, ToolOutput } from "./types";
 
 const TOOL_ICONS: Record<ToolIconName, ComponentType<{ size?: number }>> = {
     activity: IconActivity,
@@ -138,8 +136,8 @@ const TOOL_ICONS: Record<ToolIconName, ComponentType<{ size?: number }>> = {
     wrench: IconWrench,
 };
 
-function ToolKindIcon({ tool }: { tool: AcpToolCall }) {
-    const plugin = tool.status === "failed" ? null : sikemuxToolRow(tool)?.plugin;
+function ToolKindIcon({ tool }: { tool: ToolCall }) {
+    const plugin = tool.status === "failed" ? null : tool.row.plugin;
     const mark = plugin ? frontendPlugin(plugin)?.mark : undefined;
     if (mark) return mark(11);
     const Icon = TOOL_ICONS[toolIconName(tool)];
@@ -170,7 +168,7 @@ function ToolTarget({ text }: { text: string }) {
 const OUTPUT_FOLD_LINES = 12;
 
 /* A command and what it printed, the way a terminal would have shown them. */
-function ToolTerminal({ command, output, failed }: { command: string | null; output?: ToolOutput; failed: boolean }) {
+function ToolTerminal({ command, output, exitCode, failed }: { command: string | null; output?: ToolOutput; exitCode?: number; failed: boolean }) {
     const [whole, setWhole] = useState(false);
     const lines = output?.text ? output.text.split("\n") : [];
     const folds = lines.length > OUTPUT_FOLD_LINES;
@@ -206,13 +204,36 @@ function ToolTerminal({ command, output, failed }: { command: string | null; out
                 </button>
             )}
             {output?.cut && (!folds || whole) && <div className="chat-tool-note">The rest of the output was not kept</div>}
-            {failed && output?.exitCode !== undefined && <div className="chat-tool-exit">exit {output.exitCode}</div>}
+            {failed && exitCode !== undefined && <div className="chat-tool-exit">exit {exitCode}</div>}
         </div>
     );
 }
 
+/* The row keeps only how the call went; what it did comes from the core once the row is opened. */
+function useToolDetail(open: boolean, part: Extract<ChatPart, { kind: "tool" }>): ToolDetail | null {
+    const fetch = useContext(ToolDetailContext);
+    const [detail, setDetail] = useState<ToolDetail | null>(null);
+    const wanted = open && (part.diff !== undefined || part.output !== undefined);
+    const id = part.tool.toolCallId;
+    useEffect(() => {
+        if (!wanted || !fetch) return;
+        let live = true;
+        fetch(id).then(
+            (fetched) => {
+                if (live) setDetail(fetched);
+            },
+            () => {},
+        );
+        return () => {
+            live = false;
+        };
+    }, [wanted, fetch, id, part.endedAt]);
+    return detail;
+}
+
 export const ToolRow = memo(function ToolRow({ part }: { part: Extract<ChatPart, { kind: "tool" }> }) {
     const [open, setOpen] = useState(false);
+    const shown = useToolDetail(open, part);
     const targetRef = useRef<HTMLSpanElement>(null);
     const tool = part.tool;
     const rowKind = toolRowKind(tool);
@@ -298,9 +319,9 @@ export const ToolRow = memo(function ToolRow({ part }: { part: Extract<ChatPart,
             {opens && open && (
                 <div className="chat-tool-detail">
                     {diff ? (
-                        <DiffBody diff={diff} />
+                        shown?.diff && <DiffBody diff={shown.diff} />
                     ) : command !== null || output ? (
-                        <ToolTerminal command={command} output={output} failed={status === "failed"} />
+                        <ToolTerminal command={command} output={shown?.output} exitCode={output?.exitCode} failed={status === "failed"} />
                     ) : (
                         <div className="chat-tool-out">{failure}</div>
                     )}

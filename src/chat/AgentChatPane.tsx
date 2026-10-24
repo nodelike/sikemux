@@ -1,23 +1,21 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../lib/format";
 import { acpApi } from "../api/acp";
-import { effortConfig, sessionConfigs, type SessionConfig } from "./sessionConfig";
+import type { ConfigPicker } from "../api/generated/wire";
 import type { Agent, ProviderProfile } from "../state/types";
-import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { hasPrimaryModifier } from "../lib/platform";
 import { IconArrowDown, IconFile, IconPlug, IconWarning } from "../ui/Icons";
-import { chatReducer, initialChatState } from "./reducer";
 import { EarlierTurns } from "./EarlierTurns";
-import type { ChatMessage, ChatState } from "./types";
+import type { ChatMessage } from "./types";
 import { PathRootsProvider } from "./FileRef";
 import { ChatWelcome } from "./ChatWelcome";
 import { newFoldMemory } from "./longText";
 import { sentPrompts } from "./promptHistory";
 import { activeToolLabel } from "./toolLabels";
-import { runningSubagents, subagentsById } from "./transcript";
-import { activityText, composerPlaceholder as placeholderFor, connectingLabel, knownEffort, lostConnectionText } from "./chatStatus";
-import { ChatAgentContext, ChatSubagentsContext, ReaderScrollContext } from "./chatAgent";
+import { subagentCards } from "./transcript";
+import { activityText, composerPlaceholder as placeholderFor, connectingLabel, lostConnectionText } from "./chatStatus";
+import { ChatAgentContext, ChatSubagentsContext, ReaderScrollContext, ToolDetailContext } from "./chatAgent";
 import { warmTranscript } from "./ChatMessageRow";
 import { ChatTranscript } from "./ChatTranscript";
 import { ChatComposer } from "./ChatComposer";
@@ -30,7 +28,7 @@ import { useChatWorktree } from "./useChatWorktree";
 import { useStickToBottom } from "./useStickToBottom";
 import { mentionContext, useMates } from "./agentMentions";
 import { deliverToAgent } from "../agents/agentInbox";
-import type { AgentQuestion } from "../agents/agentQuestions";
+import type { AgentQuestion } from "../api/agentQuestions";
 import type { OutgoingMessage } from "./queuedMessages";
 import { answerText } from "./answerText";
 import { useChatQuestions } from "./useChatQuestions";
@@ -41,38 +39,6 @@ import { ProjectStrip } from "./ProjectStrip";
 import { AccountPicker } from "./ComposerPickers";
 import QuestionRows from "./QuestionRows";
 import { QuestionDock, questionTitle } from "./QuestionDock";
-
-/* Reading a whole transcript is one round trip to the parser, so this waits
-   at most this long before showing it anyway. */
-const READ_WAIT_MS = 1000;
-
-function useReadAfterReplay(replaying: boolean, messages: readonly ChatMessage[]): boolean {
-    const [reading, setReading] = useState(false);
-    const wasReplayingRef = useRef(replaying);
-    const messagesRef = useRef(messages);
-    messagesRef.current = messages;
-    useLayoutEffect(() => {
-        const ended = wasReplayingRef.current && !replaying;
-        wasReplayingRef.current = replaying;
-        if (!ended) return;
-        setReading(true);
-        let live = true;
-        const done = () => {
-            if (live) setReading(false);
-        };
-        void warmTranscript(messagesRef.current).then(done, done);
-        const timer = window.setTimeout(done, READ_WAIT_MS);
-        return () => {
-            live = false;
-            window.clearTimeout(timer);
-        };
-    }, [replaying]);
-    return reading;
-}
-
-function heldTranscript(shown: ChatState, next: ChatState): ChatState {
-    return { ...next, messages: shown.messages, revision: shown.revision };
-}
 
 const ChatFind = lazy(() => import("./ChatFind"));
 const WorktreeNote = lazy(() => import("./ChatWorktree").then(({ WorktreeNote }) => ({ default: WorktreeNote })));
@@ -95,42 +61,33 @@ export const AgentChatPane = memo(function AgentChatPane({
     onBusyChange: (busy: boolean) => void;
 }) {
     const home = useStore((s) => s.home);
-    const [state, dispatch] = useReducer(chatReducer, initialChatState);
     const [foldMemory] = useState(newFoldMemory);
     const [composerError, setComposerError] = useState<string | null>(null);
     const {
+        chat: state,
         agentRef,
-        sessionIdRef,
         recovery,
         retry,
         woke,
-        replaying,
         changingPermissions,
-        appliedPermissionMode,
         permissionMode,
+        appliedMode,
         earlier,
         loadEarlier,
-    } = useAcpSession({
-        active,
-        visible,
-        agent,
-        profile,
-        cwd,
-        connection: state.connection,
-        foldMemory,
-        dispatch,
-        onError: setComposerError,
-    });
-
-    /* A resumed session sends its history back over many frames. The pane keeps
-       showing what it had until the history is all in and its text has been
-       read, then shows it at once, each row drawn whole in the frame it mounts. */
-    const reading = useReadAfterReplay(replaying, state.messages);
-    const holding = replaying || reading;
+        show,
+        unshow,
+        rewind,
+        dismissError,
+    } = useAcpSession({ active, visible, agent, profile, cwd, onError: setComposerError });
+    /* A pane out of sight keeps what it last drew, so its rows are not laid out again for nothing. */
     const displayStateRef = useRef(state);
-    if (visible) displayStateRef.current = holding ? heldTranscript(displayStateRef.current, state) : state;
+    if (visible) displayStateRef.current = state;
     const displayState = displayStateRef.current;
-    const subagentCards = useMemo(() => subagentsById(displayState.messages), [displayState.messages]);
+    const { messages: shownMessages, subagentRows, runningSubagents } = displayState;
+    const subagents = useMemo(
+        () => ({ cards: subagentCards({ messages: shownMessages, subagentRows, runningSubagents }), rows: subagentRows }),
+        [shownMessages, subagentRows, runningSubagents],
+    );
     const [replyingPermission, setReplyingPermission] = useState<string | null>(null);
     const [stoppingTasks, setStoppingTasks] = useState<string[]>([]);
     const [foldedLive, setFoldedLive] = useState<ReadonlySet<string>>(() => new Set());
@@ -169,11 +126,11 @@ export const AgentChatPane = memo(function AgentChatPane({
         cwd,
         connection: state.connection,
         running: state.running,
-        replaying,
         queued: state.queued,
         commands: state.commands,
         steerable,
-        dispatch,
+        show,
+        unshow,
         onError: setComposerError,
         onSent: woke,
     });
@@ -197,6 +154,7 @@ export const AgentChatPane = memo(function AgentChatPane({
         [state.messages, queued],
     );
 
+    const toolDetail = useCallback((toolCallId: string) => acpApi.toolDetail(agent.id, toolCallId), [agent.id]);
     const scrollByReader = useCallback((deltaY: number) => scrollRef.current?.scrollBy({ top: deltaY }), []);
 
     // Find opens on its shortcut while this chat is the pane in use; it counts up so asking again refocuses it.
@@ -220,16 +178,16 @@ export const AgentChatPane = memo(function AgentChatPane({
             if (!messageId) return;
             const paths = message.attachments ?? [];
             setComposerError(null);
-            dispatch({ type: "rewind", messageId });
-            dispatch({ type: "local_prompt", text, paths, messageId });
+            rewind(message);
+            show(text, paths, [], messageId);
             acpApi.edit(agentRef.current.id, messageId, text, paths, mentionContext(text, mates)).catch((error: unknown) => {
-                dispatch({ type: "error", message: errorText(error) });
+                setComposerError(errorText(error));
             });
         },
-        [agentRef, dispatch, mates],
+        [agentRef, rewind, show, mates],
     );
 
-    const questions = useChatQuestions(agent.id, state.messages, setComposerError);
+    const questions = useChatQuestions(agent.id, setComposerError);
     const focusComposer = () => paneRef.current?.querySelector<HTMLElement>(".chat-composer .chat-draft")?.focus();
     const writeAnswer = (question: AgentQuestion) => {
         questions.write(question);
@@ -244,7 +202,7 @@ export const AgentChatPane = memo(function AgentChatPane({
             questions.pick(question, { answer: { answer: text }, shown: text });
             return true;
         }
-        void questions.answer(question, { answer: text }, text).then((answered) => {
+        void questions.answer(question, { answer: text }).then((answered) => {
             if (!answered) deliverToAgent(agent.id, message);
         });
         return true;
@@ -277,50 +235,37 @@ export const AgentChatPane = memo(function AgentChatPane({
         setReplyingPermission(requestId);
         try {
             await acpApi.permissionReply(agent.id, requestId, optionId);
-            dispatch({ type: "permission_cleared", requestId });
         } catch (error) {
             const message = errorText(error);
-            if (/no longer pending/.test(message)) dispatch({ type: "permission_cleared", requestId });
-            else setComposerError(message);
+            if (!/no longer pending/.test(message)) setComposerError(message);
         } finally {
             setReplyingPermission(null);
         }
     };
 
-    const changeConfig = async (config: SessionConfig, value: string) => {
+    const changeConfig = async (picker: ConfigPicker, value: string) => {
         if (configPending.current || state.running || changingPermissions) return;
         configPending.current = true;
         setChangingConfig(true);
         setComposerError(null);
-        const sessionId = sessionIdRef.current;
+        const sessionId = state.sessionId;
         try {
-            const response = await acpApi.setConfig(agent.id, config.id, value);
-            if (sessionIdRef.current !== sessionId) return;
-            dispatch({ type: "config", options: response.configOptions });
-            const options = sessionConfigs({ configOptions: response.configOptions });
-            const model = options.find((option) => option.id === "model")?.currentValue ?? agent.model;
-            const effort = effortConfig(options)?.currentValue ?? agent.effort;
-            cmd.setAgentModelPreferences(agent.id, model, knownEffort(effort));
+            await acpApi.setConfig(agent.id, picker.id, value);
         } catch (error) {
-            if (sessionIdRef.current === sessionId) setComposerError(errorText(error));
+            if (state.sessionId === sessionId) setComposerError(errorText(error));
         } finally {
             configPending.current = false;
             setChangingConfig(false);
         }
     };
-    const activeTool = useMemo(() => activeToolLabel(displayState.messages), [displayState.messages]);
-    const subagents = useMemo(() => runningSubagents(displayState.messages), [displayState.messages]);
+    const activeTool = useMemo(() => activeToolLabel(displayState), [displayState]);
     const connecting = connectingLabel(displayState.connection);
     const activity = recovery === null ? activityText(displayState, activeTool) : null;
     const disconnected = displayState.connection === "error" || displayState.connection === "stopped";
     const resuming = recovery?.phase === "resuming";
     const failure = recovery?.phase === "failed" ? recovery : null;
     const recoveryLabel = resuming ? "Resuming…" : failure ? "Couldn't resume this chat" : null;
-    /* Only Claude's saved chat is read by the core before its agent starts; any other's
-       history comes from its agent once the person writes. */
-    const historyLater = displayState.messages.length === 0 && displayState.connection === "ready" && !!agent.resumeId && agent.type !== "claude";
-    const welcoming =
-        !historyLater && displayState.messages.length === 0 && (displayState.connection === "ready" || (!agent.resumeId && !disconnected));
+    const welcoming = displayState.messages.length === 0 && (displayState.connection === "ready" || (!agent.resumeId && !disconnected));
     const chatAgent = useMemo(() => ({ id: agent.id, type: agent.type }), [agent.id, agent.type]);
     const composerPlaceholder =
         questions.composing && !questions.writing
@@ -338,203 +283,206 @@ export const AgentChatPane = memo(function AgentChatPane({
     return (
         <PathRootsProvider cwd={cwd} home={home} agentId={chatAgent.id} host={agent.host}>
             <ChatAgentContext.Provider value={chatAgent}>
-                <ChatSubagentsContext.Provider value={subagentCards}>
+                <ChatSubagentsContext.Provider value={subagents}>
                     <ReaderScrollContext.Provider value={scrollByReader}>
-                        <div className="agent-chat-pane" ref={paneRef}>
-                            {findRequest > 0 && (
-                                <Suspense fallback={null}>
-                                    <ChatFind
-                                        request={findRequest}
-                                        visible={visible}
-                                        messages={displayState.messages}
-                                        scrollRef={scrollRef}
-                                        onClose={() => {
-                                            setFindRequest(0);
-                                            focusComposer();
-                                        }}
-                                    />
-                                </Suspense>
-                            )}
-                            <ChatTranscript
-                                state={displayState}
-                                agentType={agent.type}
-                                foldMemory={foldMemory}
-                                unfolded={findRequest > 0}
-                                scrollRef={scrollRef}
-                                contentRef={scrollContentRef}
-                                onScroll={onScroll}
-                                activity={activity}
-                                permissions={{
-                                    requests: displayState.permissions,
-                                    busy: replyingPermission,
-                                    onReply: (requestId, optionId) => void replyPermission(requestId, optionId),
-                                }}
-                                onEdit={editable ? editMessage : undefined}
-                                before={
-                                    <>
-                                        {earlier !== "none" && <EarlierTurns state={earlier} onLoad={loadEarlier} scrollRef={scrollRef} />}
-                                        {(worktree.step !== null || agent.worktree) && (
-                                            <Suspense fallback={null}>
-                                                <WorktreeNote step={worktree.step} worktree={agent.worktree} home={home} />
-                                            </Suspense>
-                                        )}
-                                        {welcoming && <ChatWelcome cwd={cwd} agent={agent} />}
-                                        {historyLater && (
-                                            <div className="chat-connection-state ready" role="status">
-                                                <span>History appears when you write</span>
-                                            </div>
-                                        )}
-                                        {displayState.messages.length === 0 && !welcoming && !historyLater && (
-                                            <div className={`chat-connection-state ${displayState.connection}`} role="status">
-                                                {(connecting || resuming) && <span className="chat-activity-loader" aria-hidden="true" />}
-                                                <span>
-                                                    {recoveryLabel ??
-                                                        connecting ??
-                                                        (displayState.connection === "error"
-                                                            ? "Structured session unavailable."
-                                                            : "Agent session stopped.")}
-                                                </span>
-                                                {failureDetail}
-                                                {disconnected && !resuming && sessionActions}
-                                            </div>
-                                        )}
-                                    </>
-                                }
-                                after={
-                                    <>
-                                        {displayState.error && recovery === null && (
-                                            <div className="chat-error" role="alert">
-                                                <IconWarning size={14} />
-                                                <span>
-                                                    {displayState.failure?.kind === "network" ? lostConnectionText(agent.type) : displayState.error}
-                                                </span>
-                                                {displayState.failure?.kind === "network" ? (
-                                                    <NetworkFailureActions
-                                                        agent={agent}
-                                                        failure={displayState.failure}
-                                                        onDismiss={() => dispatch({ type: "dismiss_error" })}
-                                                    />
-                                                ) : (
-                                                    displayState.failure && (
-                                                        <ChatFailureActions
-                                                            agent={agent}
-                                                            profile={profile}
-                                                            failure={displayState.failure}
-                                                            signInMethods={state.capabilities.signInMethods as SignInMethod[] | undefined}
-                                                        />
-                                                    )
-                                                )}
-                                            </div>
-                                        )}
-                                        {(questions.assumed.length > 0 || questions.answered.length > 0) && (
-                                            <QuestionRows questions={questions} onWrite={writeAnswer} />
-                                        )}
-                                        {displayState.messages.length > 0 && (resuming || disconnected) && (
-                                            <div className="chat-reconnect" role="status">
-                                                {resuming ? <span className="chat-activity-loader" aria-hidden="true" /> : <IconPlug size={13} />}
-                                                <span>{recoveryLabel ?? "This session dropped."}</span>
-                                                {failureDetail}
-                                                {!resuming && sessionActions}
-                                            </div>
-                                        )}
-                                    </>
-                                }
-                            />
-
-                            <div className="chat-composer-wrap">
-                                {!atBottom && displayState.messages.length > 0 && (
-                                    <button type="button" className="chat-jump-bottom" aria-label="Jump to latest message" onClick={jumpToBottom}>
-                                        <IconArrowDown size={14} />
-                                    </button>
-                                )}
-                                <ComposerBuddy agent={agent} />
-                                {(questions.open.length > 0 || subagents.length > 0 || displayState.tasks.length > 0 || queued.length > 0) && (
-                                    <LiveStack
-                                        questions={<QuestionDock questions={questions} active={active} paneRef={paneRef} />}
-                                        subagents={subagents}
-                                        tasks={displayState.tasks}
-                                        folds={liveFolds}
-                                        stopping={stoppingTasks}
-                                        onStop={(taskId) => void stopTask(taskId)}
-                                        queue={{
-                                            messages: queued,
-                                            steerable: steerable && state.running,
-                                            onSteer: (messages) => void steer(messages),
-                                            onDrop: drop,
-                                        }}
-                                    />
-                                )}
-                                <ProjectStrip
-                                    agentId={agent.id}
-                                    host={agent.host}
-                                    project={agent.worktree?.repo ?? cwd}
-                                    cwd={cwd}
-                                    started={started}
-                                    worktree={worktree}
-                                    pull={
-                                        agent.worktree && (
-                                            <Suspense fallback={null}>
-                                                <WorktreeHeader agentId={agent.id} worktree={agent.worktree} visible={visible} />
-                                            </Suspense>
-                                        )
-                                    }
-                                    account={
-                                        <AccountPicker
-                                            agent={agent}
-                                            profile={profile}
-                                            started={agentLockedRef.current}
-                                            running={state.running}
-                                            disabled={state.connection !== "ready" || changingPermissions || changingConfig}
+                        <ToolDetailContext.Provider value={toolDetail}>
+                            <div className="agent-chat-pane" ref={paneRef}>
+                                {findRequest > 0 && (
+                                    <Suspense fallback={null}>
+                                        <ChatFind
+                                            request={findRequest}
+                                            visible={visible}
+                                            messages={displayState.messages}
+                                            scrollRef={scrollRef}
+                                            onClose={() => {
+                                                setFindRequest(0);
+                                                focusComposer();
+                                            }}
                                         />
-                                    }
-                                />
-                                <ChatComposer
-                                    agent={agent}
-                                    profile={profile}
-                                    paneRef={paneRef}
-                                    visible={visible}
-                                    connection={state.connection}
-                                    running={state.running}
-                                    steerable={steerable}
-                                    commands={state.commands}
-                                    setup={state.setup}
-                                    awaitingPermission={state.permissions.length > 0}
-                                    agentLocked={agentLockedRef.current}
-                                    changingConfig={changingConfig}
-                                    changingPermissions={changingPermissions}
-                                    permissionApplied={state.connection !== "ready" || permissionMode === appliedPermissionMode}
-                                    placeholder={composerPlaceholder}
-                                    error={composerError}
-                                    onError={setComposerError}
-                                    onSend={sendMessage}
-                                    onSteerQueued={() => {
-                                        if (queued.length > 0) void steer(queued);
+                                    </Suspense>
+                                )}
+                                <ChatTranscript
+                                    state={displayState}
+                                    agentType={agent.type}
+                                    foldMemory={foldMemory}
+                                    unfolded={findRequest > 0}
+                                    scrollRef={scrollRef}
+                                    contentRef={scrollContentRef}
+                                    onScroll={onScroll}
+                                    activity={activity}
+                                    permissions={{
+                                        requests: displayState.permissions,
+                                        busy: replyingPermission,
+                                        onReply: (requestId, optionId) => void replyPermission(requestId, optionId),
                                     }}
-                                    onStop={stop}
-                                    queuedCount={queued.length}
-                                    usage={state.usage}
-                                    onConfig={changeConfig}
-                                    history={sentHistory}
-                                    worktree={worktree}
-                                    answering={
-                                        questions.writing && questions.composing
-                                            ? {
-                                                  agentId: questions.composing.agentId,
-                                                  name: questions.composing.name,
-                                                  cli: questions.composing.cli,
-                                                  question: questions.composing.text,
-                                                  onRemove: questions.stopComposing,
-                                              }
-                                            : null
+                                    onEdit={editable ? editMessage : undefined}
+                                    before={
+                                        <>
+                                            {earlier !== "none" && <EarlierTurns state={earlier} onLoad={loadEarlier} scrollRef={scrollRef} />}
+                                            {(worktree.step !== null || agent.worktree) && (
+                                                <Suspense fallback={null}>
+                                                    <WorktreeNote step={worktree.step} worktree={agent.worktree} home={home} />
+                                                </Suspense>
+                                            )}
+                                            {welcoming && <ChatWelcome cwd={cwd} agent={agent} />}
+                                            {displayState.messages.length === 0 && !welcoming && (
+                                                <div className={`chat-connection-state ${displayState.connection}`} role="status">
+                                                    {(connecting || resuming) && <span className="chat-activity-loader" aria-hidden="true" />}
+                                                    <span>
+                                                        {recoveryLabel ??
+                                                            connecting ??
+                                                            (displayState.connection === "error"
+                                                                ? "Structured session unavailable."
+                                                                : "Agent session stopped.")}
+                                                    </span>
+                                                    {failureDetail}
+                                                    {disconnected && !resuming && sessionActions}
+                                                </div>
+                                            )}
+                                        </>
                                     }
-                                    onQuestionKey={questions.open.length > 0 ? questions.key : undefined}
+                                    after={
+                                        <>
+                                            {displayState.error && recovery === null && (
+                                                <div className="chat-error" role="alert">
+                                                    <IconWarning size={14} />
+                                                    <span>
+                                                        {displayState.failure?.kind === "network"
+                                                            ? lostConnectionText(agent.type)
+                                                            : displayState.error}
+                                                    </span>
+                                                    {displayState.failure?.kind === "network" ? (
+                                                        <NetworkFailureActions
+                                                            agent={agent}
+                                                            failure={displayState.failure}
+                                                            onDismiss={dismissError}
+                                                        />
+                                                    ) : (
+                                                        displayState.failure && (
+                                                            <ChatFailureActions
+                                                                agent={agent}
+                                                                profile={profile}
+                                                                failure={displayState.failure}
+                                                                signInMethods={state.capabilities.signInMethods as SignInMethod[] | undefined}
+                                                            />
+                                                        )
+                                                    )}
+                                                </div>
+                                            )}
+                                            {(questions.assumed.length > 0 || questions.answered.length > 0) && (
+                                                <QuestionRows questions={questions} onWrite={writeAnswer} />
+                                            )}
+                                            {displayState.messages.length > 0 && (resuming || disconnected) && (
+                                                <div className="chat-reconnect" role="status">
+                                                    {resuming ? <span className="chat-activity-loader" aria-hidden="true" /> : <IconPlug size={13} />}
+                                                    <span>{recoveryLabel ?? "This session dropped."}</span>
+                                                    {failureDetail}
+                                                    {!resuming && sessionActions}
+                                                </div>
+                                            )}
+                                        </>
+                                    }
                                 />
+
+                                <div className="chat-composer-wrap">
+                                    {!atBottom && displayState.messages.length > 0 && (
+                                        <button type="button" className="chat-jump-bottom" aria-label="Jump to latest message" onClick={jumpToBottom}>
+                                            <IconArrowDown size={14} />
+                                        </button>
+                                    )}
+                                    <ComposerBuddy agent={agent} />
+                                    {(questions.open.length > 0 ||
+                                        displayState.runningSubagents.length > 0 ||
+                                        displayState.tasks.length > 0 ||
+                                        queued.length > 0) && (
+                                        <LiveStack
+                                            questions={<QuestionDock questions={questions} active={active} paneRef={paneRef} />}
+                                            subagents={displayState.runningSubagents}
+                                            tasks={displayState.tasks}
+                                            folds={liveFolds}
+                                            stopping={stoppingTasks}
+                                            onStop={(taskId) => void stopTask(taskId)}
+                                            queue={{
+                                                messages: queued,
+                                                steerable: steerable && state.running,
+                                                onSteer: (messages) => void steer(messages),
+                                                onDrop: drop,
+                                            }}
+                                        />
+                                    )}
+                                    <ProjectStrip
+                                        agentId={agent.id}
+                                        host={agent.host}
+                                        project={agent.worktree?.repo ?? cwd}
+                                        cwd={cwd}
+                                        started={started}
+                                        worktree={worktree}
+                                        pull={
+                                            agent.worktree && (
+                                                <Suspense fallback={null}>
+                                                    <WorktreeHeader agentId={agent.id} worktree={agent.worktree} visible={visible} />
+                                                </Suspense>
+                                            )
+                                        }
+                                        account={
+                                            <AccountPicker
+                                                agent={agent}
+                                                profile={profile}
+                                                started={agentLockedRef.current}
+                                                running={state.running}
+                                                disabled={state.connection !== "ready" || changingPermissions || changingConfig}
+                                            />
+                                        }
+                                    />
+                                    <ChatComposer
+                                        agent={agent}
+                                        profile={profile}
+                                        paneRef={paneRef}
+                                        visible={visible}
+                                        connection={state.connection}
+                                        running={state.running}
+                                        steerable={steerable}
+                                        commands={state.commands}
+                                        model={state.model}
+                                        effort={state.effort}
+                                        awaitingPermission={state.permissions.length > 0}
+                                        agentLocked={agentLockedRef.current}
+                                        changingConfig={changingConfig}
+                                        changingPermissions={changingPermissions}
+                                        permissionApplied={state.connection !== "ready" || permissionMode === appliedMode}
+                                        placeholder={composerPlaceholder}
+                                        error={composerError}
+                                        onError={setComposerError}
+                                        onSend={sendMessage}
+                                        onSteerQueued={() => {
+                                            if (queued.length > 0) void steer(queued);
+                                        }}
+                                        onStop={stop}
+                                        queuedCount={queued.length}
+                                        usage={state.usage ?? null}
+                                        onConfig={changeConfig}
+                                        history={sentHistory}
+                                        worktree={worktree}
+                                        answering={
+                                            questions.writing && questions.composing
+                                                ? {
+                                                      agentId: questions.composing.agentId,
+                                                      name: questions.composing.name,
+                                                      cli: questions.composing.cli,
+                                                      question: questions.composing.text,
+                                                      onRemove: questions.stopComposing,
+                                                  }
+                                                : null
+                                        }
+                                        onQuestionKey={questions.open.length > 0 ? questions.key : undefined}
+                                    />
+                                </div>
+                                <div className="chat-drop-target" aria-hidden="true">
+                                    <IconFile size={22} />
+                                    <span>Drop files or folders into this session</span>
+                                </div>
                             </div>
-                            <div className="chat-drop-target" aria-hidden="true">
-                                <IconFile size={22} />
-                                <span>Drop files or folders into this session</span>
-                            </div>
-                        </div>
+                        </ToolDetailContext.Provider>
                     </ReaderScrollContext.Provider>
                 </ChatSubagentsContext.Provider>
             </ChatAgentContext.Provider>

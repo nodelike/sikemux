@@ -20,6 +20,7 @@ mod logs;
 mod query;
 mod services;
 mod traces;
+mod views;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -163,6 +164,15 @@ impl Plugin for Signoz {
                 "searchTraces" => answer(traces::search(data_dir, params(input)?)).await,
                 "fieldKeys" => answer(fields::keys(data_dir, params(input)?)).await,
                 "fieldValues" => answer(fields::values(data_dir, params(input)?)).await,
+                "servicesView" => answer(views::services_view(data_dir, params(input)?)).await,
+                "serviceView" => answer(views::service_view(data_dir, params(input)?)).await,
+                "logsView" => answer(views::logs_view(data_dir, params(input)?)).await,
+                "volumeView" => answer(views::volume_view(data_dir, params(input)?)).await,
+                "tracesView" => answer(views::traces_view(data_dir, params(input)?)).await,
+                "traceView" => answer(views::trace_view(data_dir, params(input)?)).await,
+                "dashboardsView" => answer(views::dashboards_view(data_dir)).await,
+                "dashboardView" => answer(views::dashboard_view(data_dir, params(input)?)).await,
+                "panelView" => answer(views::panel_view(data_dir, params(input)?)).await,
                 _ => Err(PluginError::unknown_method(method)),
             }
         })

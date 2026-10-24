@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contextAsText, contextChip, splitSentContext } from "./promptContext";
+import { contextAsText, contextChip } from "./promptContext";
 
 const issue = { uri: "https://github.com/o/r/issues/12", title: "Login crashes", text: "Issue #12: Login crashes\n\nIt crashes." };
 
@@ -25,23 +25,5 @@ describe("contextAsText", () => {
 
     it("fences past any backticks in the text", () => {
         expect(contextAsText({ ...issue, text: "```js\nx\n```" })).toContain("\n````\n```js");
-    });
-});
-
-describe("splitSentContext", () => {
-    it("reads back sections written into the text", () => {
-        expect(splitSentContext(`fix this\n\n${contextAsText(issue)}`)).toEqual({
-            text: "fix this",
-            context: [{ uri: issue.uri, title: "Login crashes" }],
-        });
-    });
-
-    it("reads back what Claude's adapter wrote for an embedded item", () => {
-        const sent = `fix this${issue.uri}\n<context ref="${issue.uri}">\n${issue.text}\n</context>`;
-        expect(splitSentContext(sent)).toEqual({ text: "fix this", context: [{ uri: issue.uri, title: "Issue #12: Login crashes" }] });
-    });
-
-    it("leaves ordinary text alone", () => {
-        expect(splitSentContext("### Heading\nnot a section")).toEqual({ text: "### Heading\nnot a section", context: [] });
     });
 });

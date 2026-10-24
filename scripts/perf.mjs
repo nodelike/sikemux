@@ -1,6 +1,7 @@
+import { execFile } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
-import { resolve } from "node:path";
-import { parseArgs } from "node:util";
+import { dirname, resolve } from "node:path";
+import { parseArgs, promisify } from "node:util";
 import { webkit } from "playwright-core";
 import { build, preview } from "vite";
 
@@ -19,6 +20,18 @@ const { values: options, positionals } = parseArgs({
 });
 
 const FRAME_120HZ_MS = 1000 / 120;
+
+const usageLine = (usage) =>
+  usage
+    ? `content CPU ${usage.contentCpuPercent}%, RSS ${usage.contentRssMb} MB, GPU process ${usage.gpuCpuPercent}%, UI process ${usage.uiCpuPercent}%`
+    : "no process usage";
+const chatPhase = (phase) =>
+  [
+    `frame p50/p90/p99/longest ${phase.p50Ms}/${phase.p90Ms}/${phase.p99Ms}/${phase.longestMs} ms`,
+    `${phase.dropped} of ${phase.frames} dropped`,
+    `render p50/p90/p99/longest ${phase.render.p50Ms}/${phase.render.p90Ms}/${phase.render.p99Ms}/${phase.render.longestMs} ms`,
+    usageLine(phase.usage),
+  ].join(", ");
 /**
  * Each limit is in milliseconds. A "smooth" one is a frame target for a 120Hz
  * display and grows with a slower one. The rest hold on any display: a frame
@@ -27,6 +40,31 @@ const FRAME_120HZ_MS = 1000 / 120;
  * another process on the machine does not fail a run.
  */
 const SCENARIOS = {
+  chat: {
+    options: { rows: 2000, page: 200, tokens: 4000 },
+    describe: (result) => [
+      `open ${result.rows} rows: settled in ${result.open.settledMs} ms, ${chatPhase(result.open)}`,
+      `scroll to the top: ${chatPhase(result.scroll)}`,
+      `scroll up as ${result.paging.pages} pages arrive: ${chatPhase(result.paging)}`,
+      `  place kept for ${result.paging.placeKept} of ${result.paging.pages} pages${result.paging.jumpsPx.length ? `, jumped ${result.paging.jumpsPx.join(", ")} px` : ""}`,
+      `stream ${result.stream.chars} characters in ${result.stream.flushes} flushes: ${chatPhase(result.stream)}, ${result.stream.fromBottomPx} px from the bottom after`,
+    ],
+    limits: [
+      ["scroll p90", (result) => result.scroll.p90Ms, 14, "smooth"],
+      ["paging scroll p90", (result) => result.paging.p90Ms, 14, "smooth"],
+      ["stream p90", (result) => result.stream.p90Ms, 17, "smooth"],
+      [
+        "frame p99",
+        (result) =>
+          Math.max(
+            result.scroll.p99Ms,
+            result.paging.p99Ms,
+            result.stream.p99Ms,
+          ),
+        50,
+      ],
+    ],
+  },
   git: {
     options: { dirtyFiles: 1500 },
     describe: (result) => [
@@ -126,6 +164,96 @@ const server = await preview({
 });
 const url = `http://localhost:${port}/showcase/perf.html`;
 
+const run = promisify(execFile);
+const webkitDir = dirname(webkit.executablePath());
+
+/** WebKit's processes from this browser's build, which other agents' runs may share. */
+async function webkitProcesses() {
+  const { stdout } = await run("ps", ["-axo", "pid=,rss=,command="]);
+  return stdout.split("\n").flatMap((line) => {
+    const [, pid, rss, command] = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/) ?? [];
+    return command?.startsWith(webkitDir)
+      ? [{ pid: Number(pid), rss: Number(rss), command }]
+      : [];
+  });
+}
+
+const elsewhere = new Set((await webkitProcesses()).map(({ pid }) => pid));
+
+/** The page's content process is the one that came with it, or failing that the biggest of this browser's. */
+async function pageProcesses(before) {
+  const ours = (await webkitProcesses()).filter(
+    ({ pid }) => !elsewhere.has(pid),
+  );
+  const biggest = (list) => list.sort((a, b) => b.rss - a.rss)[0]?.pid;
+  const content = ours.filter(({ command }) => command.includes("WebContent"));
+  return {
+    content:
+      biggest(content.filter(({ pid }) => !before.has(pid))) ??
+      biggest(content),
+    gpu: biggest(ours.filter(({ command }) => command.includes("WebKit.GPU"))),
+    ui: biggest(
+      ours.filter(({ command }) => command.includes("/MacOS/Playwright")),
+    ),
+  };
+}
+
+const cpuSeconds = (time) =>
+  time.split(":").reduce((sum, part) => sum * 60 + Number(part), 0);
+
+async function sample(pids) {
+  const { stdout } = await run("ps", [
+    "-o",
+    "pid=,time=,rss=",
+    "-p",
+    pids.join(","),
+  ]);
+  const read = new Map();
+  for (const line of stdout.trim().split("\n")) {
+    const [pid, time, rss] = line.trim().split(/\s+/);
+    read.set(Number(pid), { cpu: cpuSeconds(time), rssMb: Number(rss) / 1024 });
+  }
+  return { at: performance.now(), read };
+}
+
+/**
+ * Answers the page's `perfUsage(true)` and `perfUsage(false)` around a phase
+ * with the share of a core each process kept busy over it, from their CPU
+ * time, and the most memory the content process held, sampled every 250 ms.
+ */
+function usageWatcher(processes) {
+  const pids = [processes.content, processes.gpu, processes.ui].filter(Boolean);
+  let from = null;
+  let peak = 0;
+  let timer = null;
+  const rssOf = (read) => read.get(processes.content)?.rssMb ?? 0;
+  return async (watching) => {
+    if (!processes.content) return null;
+    if (watching) {
+      from = await sample(pids);
+      peak = rssOf(from.read);
+      timer = setInterval(async () => {
+        peak = Math.max(peak, rssOf((await sample(pids)).read));
+      }, 250);
+      return null;
+    }
+    clearInterval(timer);
+    const to = await sample(pids);
+    const percent = (pid) => {
+      const [start, end] = [from.read.get(pid), to.read.get(pid)];
+      return start && end
+        ? Math.round(((end.cpu - start.cpu) / ((to.at - from.at) / 1000)) * 100)
+        : null;
+    };
+    return {
+      contentCpuPercent: percent(processes.content),
+      contentRssMb: Math.round(Math.max(peak, rssOf(to.read))),
+      gpuCpuPercent: percent(processes.gpu),
+      uiCpuPercent: percent(processes.ui),
+    };
+  };
+}
+
 const browser = await webkit.launch();
 const context = await browser.newContext({
   viewport: { width: 1600, height: 1000 },
@@ -137,6 +265,7 @@ await context.route(/\/__showcase\/(wallpaper|preview)/, (route) =>
 );
 
 async function open() {
+  const before = new Set((await webkitProcesses()).map(({ pid }) => pid));
   const page = await context.newPage();
   page.on("pageerror", (error) => {
     if (!error.message.startsWith("ResizeObserver loop"))
@@ -147,6 +276,10 @@ async function open() {
   await page.waitForFunction(() => window.showcase && window.perf, null, {
     timeout: 60_000,
   });
+  await page.exposeFunction(
+    "perfUsage",
+    usageWatcher(await pageProcesses(before)),
+  );
   return page;
 }
 

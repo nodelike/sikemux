@@ -20,9 +20,9 @@ beforeEach(() => {
 
 describe("filesApi snapshots", () => {
     it("evicts least-recently-used frontend snapshots", async () => {
-        invokeCommand.mockImplementation(async (_command: string, args: { repo: string }) => ({
-            scanId: Number(args.repo.slice(1)) + 1,
-            files: [`${args.repo}.ts`],
+        invokeCommand.mockImplementation(async (_command: string, args: { params: { project: string } }) => ({
+            scanId: Number(args.params.project.slice(1)) + 1,
+            files: [`${args.params.project}.ts`],
         }));
         for (let index = 0; index < MAX_FRONTEND_FILE_SNAPSHOTS; index++) await filesApi.snapshot(`/${index}`);
         await filesApi.snapshot("/0");
@@ -45,7 +45,7 @@ describe("filesApi snapshots", () => {
         const [first, coalesced] = await Promise.all([filesApi.snapshot("/repo"), filesApi.snapshot("/repo")]);
         expect(coalesced).toBe(first);
         expect(invokeCommand).toHaveBeenCalledTimes(1);
-        expect(invokeCommand).toHaveBeenLastCalledWith("list_project_files_snapshot", { repo: "/repo" });
+        expect(invokeCommand).toHaveBeenLastCalledWith("core_call", { method: "projectFiles", params: { project: "/repo", since: null } });
 
         filesApi.invalidate("/repo");
         invokeCommand.mockResolvedValueOnce({ scanId: 1, files: ["unused.ts"] });

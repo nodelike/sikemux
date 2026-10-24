@@ -108,7 +108,7 @@ function CardFact({ icon, children }: { icon: ReactNode; children: ReactNode }) 
 
 function CardPulls({ agentId, worktree }: { agentId: string; worktree: AgentWorktree }) {
     const host = useHostRepo(worktree.path, true);
-    const pulls = useBranchPullList(host.repo, worktree.branch, true);
+    const pulls = useBranchPullList(host.repo ? worktree.path : null, worktree.branch, true);
     if (pulls.length === 0) return null;
     return (
         <CardFact icon={<IconPullRequest size={13} />}>

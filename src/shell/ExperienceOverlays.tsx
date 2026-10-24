@@ -2,17 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { uiActivity, type UiActivityReport } from "../lib/activity";
 import { browserDiagnostics, exportDiagnosticsSnapshot, nativeDiagnostics } from "../lib/diagnostics";
 import { useResourceEnabled } from "../state/resources";
-import { agentCatalogR } from "../state/resources.defs";
+import { agentSetupR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import * as cmd from "../state/commands";
 import { agentDetectionApi, type ManifestReport } from "../api/agentDetection";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
-import { actionForEvent, keybindingLabelForAction, type CoreKeybindingActionId } from "../commands/keybindings";
+import { actionForEvent, keybindingLabelForAction, type CoreKeybindingActionId, keybindingOverridesOf } from "../commands/keybindings";
 import { AgentIcon, IconAgent, IconFolder, IconSearch, IconServer, Logo } from "../ui/Icons";
 import { agentStatusLabel } from "../agents/agentStatus";
 import { installAgent, signInAgent } from "../agents/AgentInstall";
 import { installCommand, loginArgs } from "../agents/catalog";
-import { setupOrder, withMissingAgents } from "../agents/setupList";
 import { Kbd } from "../ui/Kbd";
 import { ShaderField } from "../ui/ShaderField";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -20,7 +19,7 @@ import { useOccludeNativeViews } from "../state/nativeViews";
 import { copyText } from "../lib/clipboard";
 import { errorText } from "../lib/format";
 import { swallow } from "../state/toast";
-import { integrationHealth } from "../api/system";
+import { hostTools } from "../api/system";
 
 /** Real first moves. Picking one closes the welcome and runs the action. */
 const WELCOME_MOVES = [
@@ -93,11 +92,11 @@ function Frame({ label, onClose, children }: { label: string; onClose: () => voi
 
 export function Onboarding() {
     const open = useStore((s) => s.onboardingOpen);
-    const overrides = useStore((s) => s.keybindingOverrides);
+    const overrides = useStore(keybindingOverridesOf);
     const profiles = useStore((s) => s.providerProfiles);
     const profileSelections = useStore((s) => s.selectedProviderProfileIds);
     const runtimeProfiles = useMemo(() => selectedAgentRuntimeProfiles(profiles, profileSelections), [profiles, profileSelections]);
-    const catalog = useResourceEnabled(open, agentCatalogR, runtimeProfiles);
+    const catalog = useResourceEnabled(open, agentSetupR, runtimeProfiles);
     const [gitMissing, setGitMissing] = useState(false);
     const dialogRef = useRef<HTMLElement>(null);
     const movesRef = useRef<HTMLDivElement>(null);
@@ -107,11 +106,11 @@ export function Onboarding() {
         if (!open) return;
         let disposed = false;
         setGitMissing(false);
-        void integrationHealth()
+        void hostTools()
             .then((value) => {
                 if (!disposed) setGitMissing(!value.git);
             })
-            .catch(swallow("read integration health"));
+            .catch(swallow("read the host's tools"));
         return () => {
             disposed = true;
         };
@@ -168,8 +167,7 @@ export function Onboarding() {
             first.focus();
         }
     };
-    const found = catalog.data ?? [];
-    const agents = catalog.data ? setupOrder(withMissingAgents(found)) : [];
+    const agents = catalog.data ?? [];
     const dragWindow = (event: React.MouseEvent<HTMLElement>) => {
         if (event.button !== 0 || event.target !== event.currentTarget) return;
         event.preventDefault();

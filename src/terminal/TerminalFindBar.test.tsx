@@ -1,11 +1,11 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TerminalFindBar } from "./TerminalFindBar";
-import type { TerminalController } from "./useXterm";
+import type { TerminalController } from "./useTerminal";
 
 function controller(): TerminalController {
     return {
-        find: vi.fn(() => true),
+        find: vi.fn(async () => true),
         clearSearch: vi.fn(),
         getSelection: vi.fn(() => ""),
         copySelection: vi.fn(async () => false),

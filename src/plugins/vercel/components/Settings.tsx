@@ -1,7 +1,7 @@
 import { formatAgo } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, Loaded, Pending } from "../../../plugin-api/ui";
-import { vercelDomainsR, vercelEnvR } from "../resources";
+import { vercelDomainsV, vercelEnvV } from "../resources";
 import { IconExternal, visit } from "./parts";
 
 const ALL_TARGETS = ["production", "preview", "development"];
@@ -12,16 +12,29 @@ const targetsLabel = (targets: string[]) =>
         : targets.map((target) => target.charAt(0).toUpperCase() + target.slice(1)).join(", ");
 
 /** A project's environment variables as Vercel lists them, by name only. */
-export function Environment({ active, team, project, find }: { active: boolean; team: string; project: string; find: string }) {
-    const variables = useResourceEnabled(active, vercelEnvR, team, project);
-    if (!variables.data) return <Pending handle={variables} loading="Loading environment variables" rows={5} />;
+export function Environment({
+    paneId,
+    active,
+    team,
+    project,
+    find,
+}: {
+    paneId: string;
+    active: boolean;
+    team: string;
+    project: string;
+    find: string;
+}) {
+    const variables = useResourceEnabled(active, vercelEnvV, paneId, team, project);
+    const listed = variables.data?.variables;
+    if (!listed) return <Pending handle={variables} loading="Loading environment variables" rows={5} />;
     const words = find.trim().toLowerCase();
-    const shown = variables.data.filter((variable) => !words || variable.key.toLowerCase().includes(words));
+    const shown = listed.filter((variable) => !words || variable.key.toLowerCase().includes(words));
     return (
         <div className="vercel-settings">
             <p className="vercel-note">Names only. Values stay in Vercel and are never shown here or given to agents.</p>
             {shown.length === 0 ? (
-                <EmptyState message={variables.data.length === 0 ? "No Environment Variables Added" : "No variable matches."} />
+                <EmptyState message={listed.length === 0 ? "No Environment Variables Added" : "No variable matches."} />
             ) : (
                 <div className="vercel-table" role="table" aria-label="Environment variables">
                     {shown.map((variable) => (
@@ -46,13 +59,13 @@ export function Environment({ active, team, project, find }: { active: boolean; 
 }
 
 /** A project's domains as Vercel lists them, each with whether it is set up right. */
-export function Domains({ active, team, project }: { active: boolean; team: string; project: string }) {
-    const domains = useResourceEnabled(active, vercelDomainsR, team, project);
+export function Domains({ paneId, active, team, project }: { paneId: string; active: boolean; team: string; project: string }) {
+    const domains = useResourceEnabled(active, vercelDomainsV, paneId, team, project);
     return (
-        <Loaded handle={domains} loading="Loading domains" rows={3} empty={(found) => (found.length > 0 ? null : "No domains.")}>
+        <Loaded handle={domains} loading="Loading domains" rows={3} empty={(found) => (found.domains.length > 0 ? null : "No domains.")}>
             {(found) => (
                 <div className="vercel-settings">
-                    {found.map((domain) => (
+                    {found.domains.map((domain) => (
                         <section key={domain.name} className="vercel-box vercel-domain">
                             <button type="button" className="vercel-link vercel-domain-name" onClick={() => visit(`https://${domain.name}`)}>
                                 {domain.name}

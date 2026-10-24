@@ -119,7 +119,10 @@ pub fn provide_to_core(data_dir: &Path) {
     match host {
         Ok(host) => {
             let _ = SHELL_VARIABLES.set(host.shell_variables());
-            sikemux_core::server::plugins::provide(Box::new(InCore(host)));
+            let plugins: Box<dyn Plugins> = Box::new(InCore(host));
+            #[cfg(feature = "fake-plugins")]
+            let plugins: Box<dyn Plugins> = Box::new(super::fake::Fake(plugins));
+            sikemux_core::server::plugins::provide(plugins);
         }
         Err(error) => eprintln!("sikemux core: the built-in plugins did not load: {error}"),
     }

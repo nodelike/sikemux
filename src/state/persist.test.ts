@@ -22,6 +22,8 @@ import type { Workspace } from "../api/generated/wire";
 import { localWorkspace } from "./coreWorkspace";
 import type { Agent } from "./types";
 import { useToasts } from "./toast";
+import { testPreferences } from "../test/preferences";
+import type { Preferences } from "../api/generated/wire";
 
 function browserTab(id: string, url: string, title: string) {
     return { id, title, url, active: false, loading: false, canGoBack: false, canGoForward: false, favicon: null, acting: false };
@@ -60,8 +62,21 @@ beforeEach(() => {
     invoke.mockReset();
     resetPersistenceForTests();
     setState(initial, true);
+    setState({ preferences: testPreferences() });
     useToasts.setState({ toasts: [] });
 });
+
+/** The settings a save keeps for the core to copy over on its next start. */
+async function savedPrefs(): Promise<Record<string, unknown>> {
+    invoke.mockResolvedValue(undefined);
+    await flushPersist();
+    return JSON.parse(invoke.mock.calls.at(-1)![1].data as string).prefs;
+}
+
+/** Lays saved settings into the preferences, as the core's copy of them does. */
+function carry(prefs: Record<string, unknown>): void {
+    setState({ preferences: testPreferences(prefs as Partial<Preferences>) });
+}
 
 describe("frontend persistence", () => {
     it("saves durable changes while terminal activity continues", async () => {
@@ -70,13 +85,13 @@ describe("frontend persistence", () => {
         const unsubscribe = subscribePersist();
         await vi.advanceTimersByTimeAsync(0);
         invoke.mockClear();
-        setState({ uiTextScale: 1.2 });
+        setState({ tabRailPage: "files" });
         for (let index = 0; index < 6; index++) {
             await vi.advanceTimersByTimeAsync(100);
             setState({ terminalTitles: { pane: `output-${index}` } });
         }
         expect(invoke).toHaveBeenCalledTimes(1);
-        expect(JSON.parse(invoke.mock.calls[0][1].data).prefs.uiTextScale).toBe(1.2);
+        expect(JSON.parse(invoke.mock.calls[0][1].data).prefs.tabRailPage).toBe("files");
         await vi.advanceTimersByTimeAsync(600);
         expect(invoke).toHaveBeenCalledTimes(1);
         unsubscribe();
@@ -126,7 +141,7 @@ describe("frontend persistence", () => {
     });
 
     it("classifies hydration before persistence can overwrite protected state", () => {
-        setState({ themeId: "unchanged" });
+        setState({ activeSpaceId: "unchanged" });
 
         expect(applyHydrate("")).toBe("empty");
         expect(hydrationAllowsPersistence("empty")).toBe(true);
@@ -135,75 +150,47 @@ describe("frontend persistence", () => {
         expect(
             applyHydrate(
                 JSON.stringify({
-                    version: 22,
+                    version: 23,
                     sessions: [],
                     itemStates: {},
                 }),
             ),
         ).toBe("unsupported-future");
         expect(hydrationAllowsPersistence("unsupported-future")).toBe(false);
-        expect(getState().themeId).toBe("unchanged");
+        expect(getState().activeSpaceId).toBe("unchanged");
         expect(invoke).not.toHaveBeenCalled();
     });
 
-    it("omits Bruno secrets and drafts while preserving its settings and other plugins'", async () => {
-        const brunoState = {
-            collectionPath: "/collections/demo",
-            selectedEnvs: { "/collections/demo": "staging" },
-            workspaces: ["/collections/demo"],
-        };
-        setState({
-            pluginSettings: {
-                "sikemux.bruno": brunoState,
-                "sikemux.rundeck": { activeProject: "ops", activeEnvFolder: "prod", prodEnvs: ["prod"] },
-            },
-        });
+    it("omits Bruno secrets and drafts", async () => {
         // These live outside the persisted store entirely; the snapshot must come back without them.
         setBrunoSecret("pane-bruno", "token", "do-not-persist");
-        setBrunoDraft("pane-bruno", "/collections/demo/login.bru", "Authorization: Bearer do-not-persist");
+        setBrunoDraft("pane-bruno", "/collections/demo/login.bru", {
+            meta: { name: "login", type: "http", seq: null },
+            method: "post",
+            url: "https://example.test/login",
+            params: { query: [], path: [] },
+            headers: [{ name: "Authorization", value: "Bearer do-not-persist", enabled: true }],
+            body: { mode: "none", text: "", graphql: { query: "", variables: "" }, form: [] },
+            auth: {
+                mode: "inherit",
+                bearer: { token: "" },
+                basic: { username: "", password: "" },
+                apikey: { key: "", value: "", placement: "header" },
+            },
+            vars: { req: [], res: [] },
+            scripts: { pre: "", post: "" },
+            assertions: [],
+            tests: "",
+            docs: "",
+            settings: { encodeUrl: true, timeout: 0 },
+            extra: [],
+        });
         flushBrunoDrafts();
         invoke.mockResolvedValue(undefined);
 
         expect(await flushPersist()).toBe(true);
         const raw = invoke.mock.calls[0][1].data as string;
         expect(raw).not.toContain("do-not-persist");
-        const saved = JSON.parse(raw);
-        expect(saved.prefs.pluginSettings).toEqual({
-            "sikemux.bruno": brunoState,
-            "sikemux.rundeck": { activeProject: "ops", activeEnvFolder: "prod", prodEnvs: ["prod"] },
-        });
-    });
-
-    it("persists and safely hydrates keybinding overrides", async () => {
-        setState({
-            keybindingOverrides: {
-                "project.open": "Ctrl+KeyP",
-                "pane.zoom": null,
-            },
-        });
-        invoke.mockResolvedValue(undefined);
-
-        expect(await flushPersist()).toBe(true);
-        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.prefs.keybindingOverrides).toEqual({
-            "project.open": "Ctrl+KeyP",
-            "pane.zoom": null,
-        });
-
-        applyHydrate(
-            JSON.stringify({
-                ...saved,
-                prefs: {
-                    ...saved.prefs,
-                    keybindingOverrides: {
-                        "project.open": "Meta+Shift+KeyO",
-                        "pane.zoom": "KeyZ",
-                        unknown: "Meta+KeyU",
-                    },
-                },
-            }),
-        );
-        expect(getState().keybindingOverrides).toEqual({ "project.open": "Meta+Shift+KeyO" });
     });
 
     it("persists rail visibility by role", async () => {
@@ -219,34 +206,6 @@ describe("frontend persistence", () => {
         setState({ sideRailOpen: true, tabRailOpen: false });
         applyHydrate(JSON.stringify(saved));
         expect(getState()).toMatchObject({ sideRailOpen: false, tabRailOpen: true });
-    });
-
-    it("remembers which projects may start language servers", async () => {
-        setState({ languageServerTrust: { "/trusted": true, "/refused": false } });
-        invoke.mockResolvedValue(undefined);
-
-        await expect(flushPersist()).resolves.toBe(true);
-        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.prefs.languageServerTrust).toEqual({ "/trusted": true, "/refused": false });
-
-        setState({ languageServerTrust: {} });
-        saved.prefs.languageServerTrust["/odd"] = "yes";
-        applyHydrate(JSON.stringify(saved));
-        expect(getState().languageServerTrust).toEqual({ "/trusted": true, "/refused": false });
-    });
-
-    it("remembers each project's Worktree switch default", async () => {
-        setState({ agentWorktreeDefaults: { "/code/app": true } });
-        invoke.mockResolvedValue(undefined);
-
-        await expect(flushPersist()).resolves.toBe(true);
-        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.prefs.agentWorktreeDefaults).toEqual({ "/code/app": true });
-
-        setState({ agentWorktreeDefaults: {} });
-        saved.prefs.agentWorktreeDefaults["/odd"] = 1;
-        applyHydrate(JSON.stringify(saved));
-        expect(getState().agentWorktreeDefaults).toEqual({ "/code/app": true });
     });
 
     it("takes the spaces and each project's space from the core, and remembers which space is shown", async () => {
@@ -698,7 +657,7 @@ describe("frontend persistence", () => {
 
         await expect(flushPersist()).resolves.toBe(true);
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.version).toBe(21);
+        expect(saved.version).toBe(22);
         expect(saved.editorViews).toBeUndefined();
         expect(saved.itemStates).toEqual({
             [editorPane.id]: {
@@ -747,12 +706,12 @@ describe("frontend persistence", () => {
         const first = deferred<void>();
         invoke.mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
 
-        setState({ themeId: "first" });
+        setState({ activeSpaceId: "first" });
         const firstFlush = flushPersist();
         await Promise.resolve();
         expect(invoke).toHaveBeenCalledTimes(1);
 
-        setState({ themeId: "latest" });
+        setState({ activeSpaceId: "latest" });
         const secondFlush = flushPersist();
         await Promise.resolve();
         expect(invoke).toHaveBeenCalledTimes(1);
@@ -761,19 +720,19 @@ describe("frontend persistence", () => {
         await expect(firstFlush).resolves.toBe(true);
         await expect(secondFlush).resolves.toBe(true);
         expect(invoke).toHaveBeenCalledTimes(2);
-        expect(JSON.parse(invoke.mock.calls[1][1].data).prefs.themeId).toBe("latest");
+        expect(JSON.parse(invoke.mock.calls[1][1].data).prefs.activeSpaceId).toBe("latest");
     });
 
     it("drops an obsolete queued snapshot when state returns to the active write", async () => {
         const first = deferred<void>();
         invoke.mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
 
-        setState({ themeId: "active" });
+        setState({ activeSpaceId: "active" });
         const activeFlush = flushPersist();
         await Promise.resolve();
-        setState({ themeId: "obsolete" });
+        setState({ activeSpaceId: "obsolete" });
         void flushPersist();
-        setState({ themeId: "active" });
+        setState({ activeSpaceId: "active" });
         void flushPersist();
 
         first.resolve();
@@ -784,13 +743,13 @@ describe("frontend persistence", () => {
     it("surfaces failed saves and retries the unsaved snapshot", async () => {
         vi.useFakeTimers();
         invoke.mockRejectedValueOnce(new Error("disk full")).mockResolvedValue(undefined);
-        setState({ themeId: "retry-me" });
+        setState({ activeSpaceId: "retry-me" });
 
         await expect(flushPersist()).resolves.toBe(false);
         expect(useToasts.getState().toasts.at(-1)?.text).toContain("disk full");
         await vi.advanceTimersByTimeAsync(1600);
         expect(invoke).toHaveBeenCalledTimes(2);
-        expect(JSON.parse(invoke.mock.calls[1][1].data).prefs.themeId).toBe("retry-me");
+        expect(JSON.parse(invoke.mock.calls[1][1].data).prefs.activeSpaceId).toBe("retry-me");
     });
 
     it("hydrates supported old snapshots safely, scrubs legacy Bruno credentials, and ignores malformed records", () => {
@@ -825,10 +784,8 @@ describe("frontend persistence", () => {
         );
 
         expect(getState().sessions[sid].kind).toBe(BRUNO_CLIENT);
-        expect(brunoSettings.get()).toEqual({ collectionPath: "/legacy", selectedEnvs: { "/legacy": "dev" }, workspaces: ["/legacy"] });
         expect(getState().sessionOrder).toEqual([sid]);
         expect(getState().recent).toEqual([]);
-        expect(rundeckSettings.get().activeProject).toBe("");
 
         invoke.mockResolvedValue(undefined);
         const unsubscribe = subscribePersist();
@@ -837,10 +794,13 @@ describe("frontend persistence", () => {
         const migrated = invoke.mock.calls[0][1].data as string;
         expect(migrated).not.toContain("legacy-secret");
         expect(migrated).not.toContain("agentBookmarks");
-        expect(JSON.parse(migrated).version).toBe(21);
+        expect(JSON.parse(migrated).version).toBe(22);
+        carry(JSON.parse(migrated).prefs);
+        expect(brunoSettings.get()).toEqual({ collectionPath: "/legacy", selectedEnvs: { "/legacy": "dev" }, workspaces: ["/legacy"] });
+        expect(rundeckSettings.get().activeProject).toBe("");
     });
 
-    it("moves v9 Rundeck sessions, windows, panes and command contexts onto the plugin's kind", () => {
+    it("moves v9 Rundeck sessions, windows, panes and command contexts onto the plugin's kind", async () => {
         const project = getState().sessions[getState().activeSessionId];
         const rundeckPane = { type: "pane", id: "pane-rundeck", cwd: "", kind: "rundeck", title: "rundeck" };
         applyHydrate(
@@ -867,10 +827,11 @@ describe("frontend persistence", () => {
         expect(st.sessions["s-rundeck"].kind).toBe(RUNDECK_DEPLOY);
         expect(st.windows["w-rundeck"].role).toBe(RUNDECK_DEPLOY);
         expect(st.windows["w-rundeck"].root).toMatchObject({ type: "pane", kind: RUNDECK_DEPLOY });
-        expect(st.customCommands[0].contexts).toEqual([RUNDECK_DEPLOY, "project"]);
+        carry(await savedPrefs());
+        expect(getState().preferences?.customCommands[0].contexts).toEqual([RUNDECK_DEPLOY, "project"]);
     });
 
-    it("moves v10 Rundeck settings and each session's deploy location into the plugin's settings", () => {
+    it("moves v10 Rundeck settings and each session's deploy location into the plugin's settings", async () => {
         const project = getState().sessions[getState().activeSessionId];
         const window = getState().windows[project.activeWindowId];
         applyHydrate(
@@ -887,6 +848,7 @@ describe("frontend persistence", () => {
             shared({ projects: [{ id: project.id, name: "api", path: "/repo/api", pinned: false }] }),
         );
 
+        carry(await savedPrefs());
         expect(rundeckSettings.get()).toEqual({
             activeProject: "channeliq",
             activeGroup: "dev",
@@ -897,7 +859,7 @@ describe("frontend persistence", () => {
         expect(getState().sessions[project.id]).not.toHaveProperty("deploy");
     });
 
-    it("folds v11 Bruno sessions, one per workspace, into the one Bruno session and keeps every folder", () => {
+    it("folds v11 Bruno sessions, one per workspace, into the one Bruno session and keeps every folder", async () => {
         const project = getState().sessions[getState().activeSessionId];
         const window = getState().windows[project.activeWindowId];
         const legacy = (id: string, folder: string) => ({
@@ -926,6 +888,7 @@ describe("frontend persistence", () => {
         const st = getState();
         expect(Object.values(st.sessions).map((session) => [session.kind, session.name])).toEqual([[BRUNO_CLIENT, "Bruno"]]);
         expect(st.activeSessionId).toBe("bruno-1");
+        carry(await savedPrefs());
         expect(brunoSettings.get().collectionPath).toBe("/ws/api-docs");
         expect(brunoSettings.get().workspaces).toEqual(expect.arrayContaining(["/ws/old", "/ws/api-docs", "/ws/billing"]));
     });
@@ -956,7 +919,7 @@ describe("frontend persistence", () => {
         expect(getState().sessions[aws.id].name).toBe("AWS");
     });
 
-    it("moves a v13 Bruno session, workspaces and shortcuts into the Bruno plugin", () => {
+    it("moves a v13 Bruno session, workspaces and shortcuts into the Bruno plugin", async () => {
         const project = getState().sessions[getState().activeSessionId];
         const window = getState().windows[project.activeWindowId];
         const legacyRoot = { ...window.root, kind: "bruno" };
@@ -990,20 +953,21 @@ describe("frontend persistence", () => {
         expect(st.sessions["s-bruno"]).toMatchObject({ kind: BRUNO_CLIENT, name: "Bruno" });
         expect(st.sessions["s-bruno"]).not.toHaveProperty("bruno");
         expect(st.windows["w-bruno"]).toMatchObject({ role: BRUNO_CLIENT, root: { type: "pane", kind: BRUNO_CLIENT } });
+        carry(await savedPrefs());
         expect(brunoSettings.get()).toEqual({
             collectionPath: "/ws/api-docs",
             selectedEnvs: { "/ws/api-docs": "staging" },
             workspaces: ["/ws/api-docs", "/ws/billing"],
         });
-        expect(st.keybindingOverrides).toEqual({
+        expect(getState().preferences?.keybindingOverrides).toEqual({
             "plugin.run:sikemux.bruno/send": "Alt+Enter",
             "plugin.open:sikemux.bruno": null,
             "pane.zoom": "Alt+KeyZ",
         });
-        expect(st.customCommands[0]?.contexts).toEqual([BRUNO_CLIENT]);
+        expect(getState().preferences?.customCommands[0]?.contexts).toEqual([BRUNO_CLIENT]);
     });
 
-    it("moves v12 AWS sessions, settings and shortcut into the AWS plugin", () => {
+    it("moves v12 AWS sessions, settings and shortcut into the AWS plugin", async () => {
         cmd.openPluginSession(AWS_CONSOLE);
         const aws = getState().sessions[getState().activeSessionId];
         const awsWindow = getState().windows[aws.activeWindowId];
@@ -1023,11 +987,11 @@ describe("frontend persistence", () => {
         const st = getState();
         expect(st.sessions[aws.id]).toMatchObject({ kind: AWS_CONSOLE, name: "AWS" });
         expect(st.windows[awsWindow.id]).toMatchObject({ role: AWS_CONSOLE, root: { type: "pane", kind: AWS_CONSOLE } });
-        expect(st.pluginSettings["sikemux.aws"]).toEqual({ profile: "prod-admin", service: "billing" });
-        expect(st.keybindingOverrides).toEqual({ "plugin.open:sikemux.aws": "Alt+Shift+KeyA" });
+        expect((await savedPrefs()).pluginSettings).toMatchObject({ "sikemux.aws": { profile: "prod-admin", service: "billing" } });
+        expect((await savedPrefs()).keybindingOverrides).toEqual({ "plugin.open:sikemux.aws": "Alt+Shift+KeyA" });
     });
 
-    it("upgrades saved SSH terminals to the reconnecting startup command", () => {
+    it("forgets the command saved SSH terminals ran, which the core builds now", () => {
         const sid = getState().activeSessionId;
         const session = getState().sessions[sid];
         const window = getState().windows[session.activeWindowId];
@@ -1054,6 +1018,7 @@ describe("frontend persistence", () => {
         const restored = getState().windows[session.activeWindowId].root;
         expect(restored.type).toBe("pane");
         if (restored.type === "pane") {
+            expect(restored.startup).toBeUndefined();
         }
     });
 

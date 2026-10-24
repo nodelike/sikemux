@@ -2,36 +2,36 @@ import { useRef, useState } from "react";
 import { confirmDialog, pickFile, swallow } from "../../../plugin-api/host";
 import { Checkbox, Dropdown } from "../../../plugin-api/ui";
 import { errorText } from "../../../plugin-api/format";
-import { databaseApi, type DatabaseProfile, type ProfileDraft, type Tested, type TlsMode } from "../api";
-import { ENGINES, TLS_MODES, defaultPort, isServer, missingField, parsePort, withEngine } from "../profileForm";
+import { databaseApi, type Tested } from "../api";
+import type { DatabaseProfileDraft, DatabaseProfileForm } from "../types.generated";
 
 const SQLITE_FILES = { name: "SQLite database", extensions: ["db", "sqlite", "sqlite3", "db3"] };
 
 type Outcome = { kind: "tested"; tested: Tested } | { kind: "failed"; message: string } | null;
 
 export function ProfileForm({
-    initial,
-    saved,
+    form,
     onSaved,
     onRemoved,
     onCancel,
 }: {
-    initial: ProfileDraft;
-    /** The profile as saved, when this edits one. */
-    saved: DatabaseProfile | null;
-    onSaved: (profile: DatabaseProfile) => void;
+    /** The connection as it starts, and the choices the plugin offers. */
+    form: DatabaseProfileForm;
+    onSaved: () => void;
     onRemoved: () => void;
     onCancel: () => void;
 }) {
-    const [draft, setDraft] = useState(initial);
+    const [draft, setDraft] = useState(form.draft);
     const [password, setPassword] = useState("");
     const [forgetPassword, setForgetPassword] = useState(false);
     const [busy, setBusy] = useState<"test" | "save" | null>(null);
     const [outcome, setOutcome] = useState<Outcome>(null);
     const working = useRef(false);
 
-    const missing = missingField(draft);
-    const change = (next: ProfileDraft) => {
+    const saved = form.draft.id === null ? null : form.draft;
+    const engine = form.engines.find((each) => each.engine === draft.engine) ?? form.engines[0];
+    const server = draft.engine !== "sqlite";
+    const change = (next: DatabaseProfileDraft) => {
         setDraft(next);
         setOutcome(null);
     };
@@ -39,13 +39,16 @@ export function ProfileForm({
     const passwordToSend = () => (forgetPassword ? "" : password || undefined);
 
     const run = async (kind: "test" | "save") => {
-        if (working.current || missing) return;
+        if (working.current) return;
         working.current = true;
         setBusy(kind);
         setOutcome(null);
         try {
             if (kind === "test") setOutcome({ kind: "tested", tested: await databaseApi.test(draft, passwordToSend()) });
-            else onSaved(await databaseApi.save(draft, passwordToSend()));
+            else {
+                await databaseApi.save(draft, passwordToSend());
+                onSaved();
+            }
         } catch (failure) {
             setOutcome({ kind: "failed", message: errorText(failure) });
         } finally {
@@ -55,7 +58,7 @@ export function ProfileForm({
     };
 
     const remove = async () => {
-        if (!saved) return;
+        if (!saved?.id) return;
         const confirmed = await confirmDialog({
             title: `Remove ${saved.name}?`,
             body: "Sikemux forgets this connection and its saved password. The database itself is not touched.",
@@ -82,15 +85,15 @@ export function ProfileForm({
             }}>
             <h2>{saved ? saved.name : "New connection"}</h2>
             <div className="db-segmented" role="radiogroup" aria-label="Engine">
-                {ENGINES.map((engine) => (
+                {form.engines.map((each) => (
                     <button
-                        key={engine.value}
+                        key={each.engine}
                         type="button"
                         role="radio"
-                        aria-checked={draft.engine === engine.value}
-                        className={draft.engine === engine.value ? "active" : undefined}
-                        onClick={() => change(withEngine(draft, engine.value))}>
-                        {engine.label}
+                        aria-checked={draft.engine === each.engine}
+                        className={draft.engine === each.engine ? "active" : undefined}
+                        onClick={() => change({ ...draft, engine: each.engine })}>
+                        {each.label}
                     </button>
                 ))}
             </div>
@@ -99,12 +102,12 @@ export function ProfileForm({
                 <input
                     value={draft.name}
                     onChange={(event) => change({ ...draft, name: event.target.value })}
-                    placeholder={isServer(draft) ? "Production" : "Local app data"}
+                    placeholder={engine?.nameHint}
                     autoFocus
                     spellCheck={false}
                 />
             </label>
-            {isServer(draft) ? (
+            {server ? (
                 <>
                     <div className="db-inline">
                         <label className="db-field db-grow">
@@ -121,9 +124,9 @@ export function ProfileForm({
                         <label className="db-field port">
                             <span>Port</span>
                             <input
-                                value={draft.port ?? ""}
-                                onChange={(event) => change({ ...draft, port: parsePort(event.target.value) })}
-                                placeholder={String(defaultPort(draft.engine))}
+                                value={draft.port}
+                                onChange={(event) => change({ ...draft, port: event.target.value })}
+                                placeholder={engine?.defaultPort?.toString()}
                                 inputMode="numeric"
                             />
                         </label>
@@ -133,7 +136,7 @@ export function ProfileForm({
                         <input
                             value={draft.database}
                             onChange={(event) => change({ ...draft, database: event.target.value })}
-                            placeholder={draft.engine === "mysql" ? "Optional; pick a schema once connected" : "Same as the user name"}
+                            placeholder={engine?.databaseHint}
                             spellCheck={false}
                             autoCapitalize="off"
                         />
@@ -144,7 +147,7 @@ export function ProfileForm({
                             <input
                                 value={draft.user}
                                 onChange={(event) => change({ ...draft, user: event.target.value })}
-                                placeholder={draft.engine === "mysql" ? "root" : "postgres"}
+                                placeholder={engine?.userHint}
                                 spellCheck={false}
                                 autoCapitalize="off"
                                 autoCorrect="off"
@@ -160,11 +163,11 @@ export function ProfileForm({
                                     setPassword(event.target.value);
                                     setOutcome(null);
                                 }}
-                                placeholder={saved?.hasPassword ? "Saved in the Keychain" : "None"}
+                                placeholder={form.hasPassword ? "Saved in the Keychain" : "None"}
                             />
                         </label>
                     </div>
-                    {saved?.hasPassword && (
+                    {form.hasPassword && (
                         <Checkbox checked={forgetPassword} onChange={setForgetPassword}>
                             Forget the saved password
                         </Checkbox>
@@ -175,10 +178,10 @@ export function ProfileForm({
                             <Dropdown
                                 label="Encryption"
                                 value={draft.tls}
-                                options={TLS_MODES.map((mode) => ({ value: mode.value, label: mode.label, detail: mode.detail }))}
-                                onChange={(tls) => change({ ...draft, tls: tls as TlsMode })}
+                                options={form.tlsModes.map((mode) => ({ value: mode.value, label: mode.label, detail: mode.detail }))}
+                                onChange={(tls) => change({ ...draft, tls })}
                             />
-                            <span className="db-hint">{TLS_MODES.find((mode) => mode.value === draft.tls)?.detail}</span>
+                            <span className="db-hint">{form.tlsModes.find((mode) => mode.value === draft.tls)?.detail}</span>
                         </div>
                     </div>
                 </>
@@ -190,7 +193,7 @@ export function ProfileForm({
                             className="db-grow"
                             value={draft.path}
                             onChange={(event) => change({ ...draft, path: event.target.value })}
-                            placeholder="~/data/app.db"
+                            placeholder={engine?.pathHint}
                             spellCheck={false}
                         />
                         <button type="button" className="db-button" onClick={() => void choose().catch(swallow("choose a database file"))}>
@@ -217,7 +220,6 @@ export function ProfileForm({
                     {outcome.message}
                 </div>
             )}
-            {missing && <div className="db-hint">Needs {missing}.</div>}
             <div className="db-actions">
                 {saved && (
                     <button type="button" className="db-button danger" onClick={() => void remove().catch(swallow("remove the connection"))}>
@@ -228,10 +230,10 @@ export function ProfileForm({
                 <button type="button" className="db-button" onClick={onCancel}>
                     Cancel
                 </button>
-                <button type="button" className="db-button" disabled={!!missing || busy !== null} onClick={() => void run("test")}>
+                <button type="button" className="db-button" disabled={busy !== null} onClick={() => void run("test")}>
                     {busy === "test" ? "Connecting…" : "Test"}
                 </button>
-                <button type="submit" className="db-button primary" disabled={!!missing || busy !== null}>
+                <button type="submit" className="db-button primary" disabled={busy !== null}>
                     {busy === "save" ? "Saving…" : "Save"}
                 </button>
             </div>

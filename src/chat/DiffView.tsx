@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { FileIcon } from "../ui/FileIcon";
 import { basename } from "../lib/paths";
-import { collapseDiff, type DiffLine, type ToolDiff } from "./diff";
+import { collapseDiff } from "./diff";
+import type { DiffLine, ToolDiff } from "./types";
 import { CodeRun, splitAtMark, useDiffTokens } from "./codeHighlight";
 import type { CodeLine } from "./types";
 
@@ -9,7 +10,7 @@ import type { CodeLine } from "./types";
    one mark that shows it. A line with no colours yet is its own single run, so
    the marking is the same either way. */
 export function DiffText({ line, tokens }: { line: DiffLine; tokens?: CodeLine }) {
-    const { pre, marked, post } = splitAtMark(tokens ?? [{ text: line.text }], line.mark);
+    const { pre, marked, post } = splitAtMark(tokens ?? [{ text: line.text }], line.mark as [number, number] | undefined);
     return (
         <span>
             <CodeRun tokens={pre} />

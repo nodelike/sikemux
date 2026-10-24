@@ -1,8 +1,8 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { expect, it, vi } from "vitest";
-import { THEMES } from "../themes";
-import { applyTheme, currentTheme, refreshViewTheme, registerView } from "../themes/bus";
+import { SIKEMUX_THEMES, testPalette } from "../test/themes";
+import { currentTheme, refreshViewTheme, registerView, wearPicked } from "../themes/bus";
 import { themeCompartmentExtension } from "./themeBridge";
 
 it("reuses theme extensions across warm tabs and refreshes a stale tab once", () => {
@@ -15,7 +15,7 @@ it("reuses theme extensions across warm tabs and refreshes a stale tab once", ()
         refreshViewTheme(view);
     }
     expect(dispatch).not.toHaveBeenCalled();
-    applyTheme(THEMES.find((theme) => theme.dark !== currentTheme().dark)!.id);
+    wearPicked(testPalette(SIKEMUX_THEMES.find((theme) => theme.dark !== currentTheme().dark)!));
     refreshViewTheme(view);
     expect(dispatch).toHaveBeenCalledTimes(1);
     refreshViewTheme(view);

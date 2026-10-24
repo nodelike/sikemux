@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /* The same injected recorder that watches a tab's requests also keeps what
    the page logs, so an agent can read errors without opening devtools. */
-const RECORDER = readFileSync(resolve(__dirname, "../../src-tauri/src/browser/recorder.js"), "utf8");
+const RECORDER = readFileSync(resolve(__dirname, "../../src-tauri/crates/sikemux-browser/src/recorder.js"), "utf8");
 
 interface Message {
     level: string;

@@ -13,9 +13,11 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use crate::agent_accounts::usage;
-use crate::protocol::{ChatEventKind, ChatLaunch};
+use crate::protocol::ChatLaunch;
+use sikemux_fold::ChatEventKind;
 
 use super::super::{launching, Core};
+use super::kept;
 use super::rebind::Replay;
 use super::{Chat, ChatCommand};
 use sikemux_process::clock::epoch_ms;
@@ -52,11 +54,7 @@ pub(crate) struct Resets {
 impl Resets {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let path = data_dir.map(|dir| dir.join(FILE));
-        let saved: Vec<Waiting> = path
-            .as_deref()
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+        let saved = path.as_deref().map(read_saved).unwrap_or_default();
         let slots = saved
             .into_iter()
             .take(MAX_WAITING)
@@ -133,6 +131,47 @@ impl Resets {
         self.save(&slots);
         Some(waiting.prompt)
     }
+}
+
+/// The chats an earlier core left waiting. Those that cannot be read are
+/// left out, and a copy of the file is kept so nothing they held is lost.
+fn read_saved(path: &Path) -> Vec<Waiting> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    let entries = match serde_json::from_slice::<Vec<Value>>(&bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            keep_unreadable(path, &error.to_string());
+            return Vec::new();
+        }
+    };
+    let mut unreadable = None;
+    let waiting = entries
+        .into_iter()
+        .filter_map(|entry| {
+            serde_json::from_value(entry)
+                .map_err(|error| unreadable.get_or_insert(error.to_string()).clone())
+                .ok()
+        })
+        .collect();
+    if let Some(why) = unreadable {
+        keep_unreadable(path, &why);
+    }
+    waiting
+}
+
+fn keep_unreadable(path: &Path, why: &str) {
+    let copied =
+        kept::unreadable_place(path).and_then(|aside| std::fs::copy(path, &aside).map(|_| aside));
+    eprintln!(
+        "sikemux core: {} holds a chat waiting for a usage limit that could not be read ({why}); {}",
+        path.display(),
+        match copied {
+            Ok(aside) => format!("a copy of it was kept as {}", aside.display()),
+            Err(error) => format!("it could not be copied aside: {error}"),
+        }
+    );
 }
 
 /// Waits for the chat's usage limit to reset to send `prompt` again, when

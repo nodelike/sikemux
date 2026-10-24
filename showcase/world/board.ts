@@ -1,4 +1,4 @@
-import type { LoggedMessage } from "../../src/agents/agentMessages";
+import type { MessageRow } from "../../src/agents/agentMessages";
 import type {
   BoardCard,
   CardRun,
@@ -29,6 +29,8 @@ const card = (
   createdByName: OTTER.name,
   result: null,
   ticket: null,
+  ticketAbove: null,
+  column: fields.status,
   auto: null,
   paidBy: null,
   recordings: [],
@@ -161,6 +163,7 @@ export const DEMO_BOARD: ProjectBoard = {
       ownerName: "Heron",
       ownerCli: "codex",
       ticket: { key: "PROJ-31", source: "Bug", provider: "jira" },
+      column: "needs",
       auto: run("agent-heron", "proj-31-retry-webhooks-that-timed-out", {
         stage: "held",
         note: "Its checks failed again after a fix:\ntest (ubuntu): failure",
@@ -181,32 +184,40 @@ const NAMES: Record<string, string> = {
   "agent-flint": "Flint",
   "agent-comet": "Comet",
 };
-const logged = (
-  ago: number,
+const TONES: Partial<Record<MessageRow["outcome"], MessageRow["tone"]>> = {
+  waiting: "held",
+  returned: "held",
+  refused: "failed",
+  dropped: "failed",
+};
+const message = (
+  sent: number,
   from: string,
   to: string,
-  kind: LoggedMessage["kind"],
-  outcome: LoggedMessage["outcome"],
-): LoggedMessage => ({
-  at: now - ago * MINUTE,
+  kind: MessageRow["kind"],
+  outcome: MessageRow["outcome"],
+  settled = sent,
+): MessageRow => ({
+  sentAt: now - sent * MINUTE,
+  at: now - settled * MINUTE,
   from,
-  fromName: NAMES[from],
-  kind,
+  fromName: NAMES[from] ?? null,
   to,
-  toName: NAMES[to],
+  toName: NAMES[to] ?? null,
+  kind,
   outcome,
+  waited: settled !== sent,
+  tone: TONES[outcome] ?? null,
 });
 
-/** The project's log of messages between agents, newest first. */
-export const DEMO_MESSAGES: LoggedMessage[] = [
-  logged(1, OTTER.id, "agent-flint", "message", "steered"),
-  logged(3, "agent-comet", OTTER.id, "question", "waiting"),
-  logged(6, MAPLE.id, "agent-flint", "answer", "delivered"),
-  logged(9, "agent-flint", OTTER.id, "report", "newTurn"),
-  logged(14, MAPLE.id, "agent-flint", "answer", "waiting"),
-  logged(22, OTTER.id, "agent-comet", "message", "dropped"),
-  logged(31, OTTER.id, "agent-comet", "message", "waiting"),
-  logged(40, "agent-flint", MAPLE.id, "question", "steered"),
-  logged(52, OTTER.id, MAPLE.id, "message", "refused"),
-  logged(64, "person", OTTER.id, "message", "newTurn"),
+/** The project's messages between agents as the core folds them, newest first. */
+export const DEMO_MESSAGES: MessageRow[] = [
+  message(1, OTTER.id, "agent-flint", "message", "steered"),
+  message(3, "agent-comet", OTTER.id, "question", "waiting"),
+  message(9, "agent-flint", OTTER.id, "report", "newTurn"),
+  message(14, MAPLE.id, "agent-flint", "answer", "delivered", 6),
+  message(31, OTTER.id, "agent-comet", "message", "dropped", 22),
+  message(40, "agent-flint", MAPLE.id, "question", "steered"),
+  message(52, OTTER.id, MAPLE.id, "message", "refused"),
+  message(64, "person", OTTER.id, "message", "newTurn"),
 ];

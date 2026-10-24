@@ -7,6 +7,7 @@ pub mod screen;
 pub mod shell;
 pub mod shell_protocol;
 pub mod task;
+pub mod terminal;
 pub mod user_shell;
 
 use error::{PtyError, PtyResult};

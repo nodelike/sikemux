@@ -8,7 +8,6 @@
 //! keys by stays unique and this host's own sessions keep their ids.
 
 pub(crate) mod install;
-pub(crate) mod probe;
 mod sink;
 
 use std::collections::BTreeMap;
@@ -26,7 +25,7 @@ use sikemux_core::join::{JoinHello, JoinReply};
 use sikemux_core::protocol::{DeviceView, SessionId, SessionInfo};
 use sikemux_core::remote::{PublicKey, SecretKey};
 use sikemux_process::sync::Locked;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::watch;
 
 use crate::error::{AppError, AppResult};
@@ -46,7 +45,6 @@ const MAX_SLOT: u64 = (1 << (52 - SLOT_SHIFT)) - 1;
 const REACH_TIMEOUT: Duration = Duration::from_secs(20);
 const RETRY_FIRST: Duration = Duration::from_secs(1);
 const RETRY_MOST: Duration = Duration::from_secs(30);
-const HOSTS_CHANGED_EVENT: &str = "hosts_changed";
 const HOST_VIEW_EVENT: &str = "host_view";
 
 #[cfg(not(test))]
@@ -76,15 +74,6 @@ pub(crate) fn core_session(id: SessionId) -> SessionId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum Reach {
-    Connecting,
-    Connected,
-    /// The last try to reach it failed; the app keeps trying.
-    Away,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Saved {
@@ -102,22 +91,9 @@ struct Saved {
 struct HostsFile {
     hosts: Vec<Saved>,
     slots: BTreeMap<String, u64>,
-    /// The SSH host each host was installed on from here, by its key, so the
-    /// rail shows them as one.
-    #[serde(default)]
-    ssh: BTreeMap<String, String>,
-}
-
-/// A host as the page lists it.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct HostEntry {
-    id: String,
-    name: String,
-    platform: String,
-    reach: Reach,
-    /// The SSH host it was installed on from here.
-    ssh: Option<String>,
+    /// What the app no longer reads stays saved until the core has copied it.
+    #[serde(flatten)]
+    rest: serde_json::Map<String, serde_json::Value>,
 }
 
 pub(crate) struct Host {
@@ -127,7 +103,6 @@ pub(crate) struct Host {
     key: PublicKey,
     pub(crate) streams: Arc<StreamTable>,
     client: watch::Sender<Option<Arc<CoreClient>>>,
-    reach: Mutex<Reach>,
     /// The sessions its last view listed, under the page's ids.
     sessions: Mutex<Vec<SessionInfo>>,
     forgotten: AtomicBool,
@@ -160,16 +135,6 @@ impl Host {
         Saved {
             name: self.name(),
             ..self.saved.clone()
-        }
-    }
-
-    fn entry(&self) -> HostEntry {
-        HostEntry {
-            id: self.saved.id.clone(),
-            name: self.name(),
-            platform: self.saved.platform.clone(),
-            reach: *self.reach.locked(),
-            ssh: None,
         }
     }
 
@@ -221,7 +186,7 @@ pub struct Hosts {
     device: tokio::sync::OnceCell<Arc<Device>>,
     hosts: Mutex<Vec<Arc<Host>>>,
     slots: Mutex<BTreeMap<String, u64>>,
-    ssh: Mutex<BTreeMap<String, String>>,
+    rest: Mutex<serde_json::Map<String, serde_json::Value>>,
     saving: Mutex<()>,
     following: tokio::sync::Mutex<()>,
 }
@@ -279,7 +244,7 @@ impl Hosts {
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
         *self.slots.locked() = file.slots;
-        *self.ssh.locked() = file.ssh;
+        *self.rest.locked() = file.rest;
         for saved in file.hosts {
             self.add(saved);
         }
@@ -322,7 +287,6 @@ impl Hosts {
             key,
             streams: Arc::default(),
             client: watch::Sender::new(None),
-            reach: Mutex::new(Reach::Connecting),
             sessions: Mutex::default(),
             forgotten: AtomicBool::new(false),
         });
@@ -345,38 +309,13 @@ impl Hosts {
                 .map(|host| host.saved())
                 .collect(),
             slots: self.slots.locked().clone(),
-            ssh: self.ssh.locked().clone(),
+            rest: self.rest.locked().clone(),
         };
         if let Ok(bytes) = serde_json::to_vec_pretty(&saved) {
             if let Some(directory) = file.parent() {
                 let _ = std::fs::create_dir_all(directory);
             }
             let _ = std::fs::write(file, bytes);
-        }
-    }
-
-    pub(crate) fn entries(&self) -> Vec<HostEntry> {
-        let ssh = self.ssh.locked();
-        self.hosts
-            .locked()
-            .iter()
-            .map(|host| HostEntry {
-                ssh: ssh.get(host.id()).cloned(),
-                ..host.entry()
-            })
-            .collect()
-    }
-
-    /// Notes that the host with `key` was installed on the SSH host `alias`.
-    pub(crate) fn reached_by(&self, key: &str, alias: &str) {
-        self.ssh.locked().insert(key.to_owned(), alias.to_owned());
-        self.save();
-        self.changed();
-    }
-
-    fn changed(&self) {
-        if let Some(app) = self.app.get() {
-            let _ = app.emit_to("main", HOSTS_CHANGED_EVENT, self.entries());
         }
     }
 
@@ -444,9 +383,7 @@ async fn stay_connected(app: AppHandle, host: Arc<Host>) {
         match device.connect(host.key, sink).await {
             Ok((client, link)) => {
                 let client = Arc::new(client);
-                *host.reach.locked() = Reach::Connected;
                 let reconnected = host.client.send_replace(Some(client.clone())).is_some();
-                hosts.changed();
                 if reconnected {
                     crate::pty::reattach(&client, &host.streams).await;
                 }
@@ -454,32 +391,20 @@ async fn stay_connected(app: AppHandle, host: Arc<Host>) {
                 wait = RETRY_FIRST;
                 let _ = on_closed.recv().await;
                 link.close(0u32.into(), b"closed");
-                *host.reach.locked() = Reach::Connecting;
-                hosts.changed();
             }
             Err(ClientError::NotPaired) => {
                 forget(&hosts, &host);
                 hosts.save();
-                hosts.changed();
                 follow_links(&app);
                 return;
             }
             Err(error) => {
                 eprintln!("Sikemux could not reach {}: {error}", host.name());
-                if std::mem::replace(&mut *host.reach.locked(), Reach::Away) != Reach::Away {
-                    hosts.changed();
-                }
                 tokio::time::sleep(wait).await;
                 wait = (wait * 2).min(RETRY_MOST);
             }
         }
     }
-}
-
-/// The hosts this app joined, and how each is reached.
-#[tauri::command]
-pub fn hosts_list(hosts: State<'_, Hosts>) -> Vec<HostEntry> {
-    hosts.entries()
 }
 
 fn forget(hosts: &Hosts, host: &Arc<Host>) {
@@ -547,7 +472,6 @@ impl Hosts {
         }
         if joined {
             self.save();
-            self.changed();
         }
         Ok(())
     }

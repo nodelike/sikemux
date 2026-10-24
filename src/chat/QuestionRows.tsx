@@ -1,4 +1,4 @@
-import type { AgentQuestion } from "../agents/agentQuestions";
+import type { AgentQuestion } from "../api/agentQuestions";
 import { IconCheck } from "../ui/Icons";
 import { AnsweredQuestion } from "./AgentQuestions";
 import type { ChatQuestions } from "./useChatQuestions";
@@ -30,16 +30,17 @@ function AssumedQuestion({ question, busy, onFine, onChange }: { question: Agent
 export default function QuestionRows({ questions, onWrite }: { questions: ChatQuestions; onWrite: (question: AgentQuestion) => void }) {
     return (
         <>
-            {questions.answered.map(({ question, answer }) => (
+            {questions.answered.map((question) => (
                 <article key={question.id} className="chat-message agent-question">
                     <div className="chat-message-content">
                         <AnsweredQuestion
                             letter={{
                                 kind: "answer",
-                                asker: question.name,
+                                name: question.name,
+                                agentId: question.agentId,
                                 cli: question.cli,
                                 question: question.text,
-                                text: answer,
+                                text: question.answer ?? "",
                                 secret: question.secret,
                             }}
                         />
@@ -51,7 +52,7 @@ export default function QuestionRows({ questions, onWrite }: { questions: ChatQu
                     key={question.id}
                     question={question}
                     busy={questions.busy === question.id}
-                    onFine={() => void questions.answer(question, { fine: true }, null)}
+                    onFine={() => void questions.answer(question, { fine: true })}
                     onChange={() => onWrite(question)}
                 />
             ))}

@@ -10,22 +10,9 @@ import type { SessionKind } from "../state/types";
 
 export type CommandContext = SessionKind;
 
-export type CustomCommandPlacement = "background" | "terminal" | "split" | "popup" | "replace";
+import type { CustomCommand, CustomCommandPlacement } from "../api/generated/wire";
 
-/**
- * A trusted, user-authored shell command. Execution and environment injection
- * are deliberately owned by the caller; the registry only handles discovery,
- * context filtering, and dispatch.
- */
-export interface CustomCommand {
-    id: string;
-    title: string;
-    detail: string;
-    command: string;
-    /** Empty means the command is available in every session context. */
-    contexts: CommandContext[];
-    placement: CustomCommandPlacement;
-}
+export type { CustomCommand, CustomCommandPlacement };
 
 export type BuiltinCommandExecutor = (id: KeybindingActionId) => void;
 export type CustomCommandExecutor = (command: CustomCommand) => void;

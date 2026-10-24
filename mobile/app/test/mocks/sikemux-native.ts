@@ -55,15 +55,14 @@ function tagged<Inner>(tag: string) {
 }
 
 export const CoreEvent = {
-  Chat: tagged<{ agentId: string; seq: bigint; eventJson: string }>('Chat'),
+  Chat: tagged<{ agentId: string; seq: bigint; changesJson: string }>('Chat'),
   View: tagged<{ viewJson: string }>('View'),
 };
 
 export const ChatAttachment = {
-  Live: tagged<Record<string, unknown>>('Live'),
-  Resumed: tagged<{ eventsJson: string; mark: { feed: string; seq: bigint } }>('Resumed'),
+  Live: tagged<{ viewJson: string; mark: { feed: string; seq: bigint } }>('Live'),
+  Resumed: tagged<{ changesJson: string; mark: { feed: string; seq: bigint } }>('Resumed'),
   Missing: tagged<Record<string, never>>('Missing'),
-  Restart: tagged<Record<string, never>>('Restart'),
 };
 
 export const JoinAnswer = {

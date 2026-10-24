@@ -8,7 +8,7 @@ publish = false
 sikemux-process = { path = "../sikemux-process" }
 sikemux-wire = { path = "../sikemux-wire" }
 portable-pty = "0.9"
-vt100 = "0.16"
+alacritty_terminal = "0.25"
 memchr = "2"
 regex = "1"
 serde = { version = "1", features = ["derive"] }

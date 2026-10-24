@@ -15,7 +15,7 @@ use super::super::workspace::{self, AddProjectParams};
 use super::super::{Core, CoreResult};
 use super::code::{self, Code, Opened};
 use super::link::{Answer, Received};
-use super::{ask, find};
+use super::{ask, find, LinkedHost};
 
 /// Long enough to clone a large repository, or to take one from a bundle.
 const OPEN_WAIT: Duration = Duration::from_secs(10 * 60);
@@ -31,9 +31,21 @@ pub(crate) struct OpenOnParams {
 /// that host's project for it.
 pub(crate) async fn open_on(core: &Arc<Core>, params: OpenOnParams) -> CoreResult<Value> {
     let link = find(core, &params.host)?;
-    let path = params.path;
+    open_there(core, &link, params.path, false).await
+}
+
+/// Opens the project at `path` on the linked host `link`, with what is not committed laid
+/// over it there when `uncommitted`, and answers with that host's project for it and, then,
+/// how the uncommitted changes went.
+pub(crate) async fn open_there(
+    core: &Arc<Core>,
+    link: &LinkedHost,
+    path: PathBuf,
+    uncommitted: bool,
+) -> CoreResult<Value> {
     let packed = blocking(move || code::package(&path).map_err(Into::into)).await?;
-    let request = json!({ "code": Code { patch: None, ..packed.code.clone() } });
+    let patch = packed.code.patch.clone().filter(|_| uncommitted);
+    let request = json!({ "code": Code { patch, ..packed.code.clone() } });
     let asked = |body| {
         ask(
             core,
@@ -90,10 +102,21 @@ pub(super) async fn open_here(core: &Arc<Core>, params: Value, body: Option<Rece
     match opened {
         Opened::Needs(tips) => Ok(json!({ "needs": "bundle", "tips": tips })),
         Opened::Ready(path) => {
+            let laid = match &code.patch {
+                Some(patch) => {
+                    let (path, patch) = (path.clone(), patch.clone());
+                    let laid = blocking(move || code::lay_over(&path, &patch).map_err(Into::into));
+                    Some(
+                        laid.await
+                            .map_or_else(|error| error.to_string(), |()| "applied".into()),
+                    )
+                }
+                None => None,
+            };
             let project = workspace::add_project(core, AddProjectParams::named(path, code.project))
                 .await
                 .map_err(|error| error.to_string())?;
-            Ok(json!({ "path": project.path, "project": project.id }))
+            Ok(json!({ "path": project.path, "project": project.id, "uncommitted": laid }))
         }
     }
 }

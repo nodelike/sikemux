@@ -10,7 +10,6 @@ import * as cmd from "../state/commands";
 import { getState, useStore } from "../state/store";
 import {
     activeTabRef,
-    agentDisplayOf,
     agentInWindow,
     documentsOf,
     editorPaneOf,
@@ -44,6 +43,7 @@ import { PAN_MS, panTransform, useWindowPan } from "./useWindowPan";
 import { useWheelPan } from "./useWheelPan";
 import { useDocumentSlide } from "./useDocumentSlide";
 import { fileTabMenu, renameTerminalTab, windowTabMenu } from "./tabMenus";
+import { preferencesOf } from "../state/preferences";
 
 const FULL: Rect = { x: 0, y: 0, w: 1, h: 1 };
 
@@ -54,7 +54,7 @@ const FULL: Rect = { x: 0, y: 0, w: 1, h: 1 };
  * back is instant and a shell is not re-attached. That retention used to be
  * unbounded and only ever released when the window was deleted, so a long
  * session accumulated every screen it had ever shown — each one holding store
- * subscriptions, CodeMirror views and xterm buffers. Eight is more than a
+ * subscriptions, CodeMirror views and terminal views. Eight is more than a
  * working set and small enough to have an end.
  */
 const RETAINED_WORKBENCH_WINDOWS = 8;
@@ -371,7 +371,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
             if (win.role === "agent") {
                 const agent = agentInWindow(agentsById, win);
                 if (!agent) return [];
-                const display = agentDisplayOf({ agentStatus }, agent.id);
+                const display = agentStatus[agent.id];
                 const { title, handle } = agentNaming(agent, providerProfiles);
                 return [
                     {
@@ -389,7 +389,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
                                 buddyClass="agent-glyph buddy-mark"
                             />
                         ),
-                        badge: display.subagents + display.tasks > 0 ? <BackgroundCounts display={display} /> : undefined,
+                        badge: display?.background ? <BackgroundCounts display={display} /> : undefined,
                         accessory: showsAgentState(display) ? <AgentStateIndicator display={display} /> : undefined,
                     },
                 ];
@@ -625,7 +625,7 @@ const WindowLayer = memo(function WindowLayer({
     const layerRef = useRef<HTMLDivElement>(null);
     useDocumentSlide(layerRef, live ? editorPaneId : null, documents?.activeId ?? null, documents?.ids ?? EMPTY_IDS);
     const zoomedPaneId = useStore((s) => s.zoomedPaneId);
-    const paneShader = useStore((s) => s.paneShader);
+    const paneShader = useStore((s) => preferencesOf(s).paneShader);
     const { panes, dividers, stacked, stacks, inStack } = useMemo(() => computeLayout(win.root, win.activePaneId), [win.root, win.activePaneId]);
     /*
      * Only the panes stacked behind a strip show a shell's own title, so only

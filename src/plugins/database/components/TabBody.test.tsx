@@ -1,29 +1,42 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DatabaseProfile } from "../api";
+import type { DatabaseConnection } from "../types.generated";
 
-const api = vi.hoisted(() => ({ describe: vi.fn(), history: vi.fn() }));
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), databaseApi: api }));
+const views = vi.hoisted(() => ({ tableView: vi.fn(), historyView: vi.fn() }));
 
+import { fakeViews } from "../../../plugin-api/fakeViews";
 import { historyTab, tableTab, type DatabaseTab } from "../tabs";
 import { TabBody } from "./TabBody";
 import { database } from "../resources";
 
-const shop: DatabaseProfile = { id: "p1", name: "Shop", readOnly: false, agentWrites: false, hasPassword: false, engine: "sqlite", path: "/a.db" };
-const connected = { id: "p1", version: "SQLite 3.46.0" };
+fakeViews(views);
+
+const shop: DatabaseConnection = {
+    id: "p1",
+    name: "Shop",
+    engine: "sqlite",
+    engineName: "SQLite",
+    address: "a.db",
+    readOnly: false,
+    connected: "SQLite 3.46.0",
+    defaultSchema: "main",
+    facts: [],
+    schemas: null,
+    failed: null,
+};
 
 afterEach(() => {
     cleanup();
     database.refresh();
 });
 beforeEach(() => {
-    Object.values(api).forEach((mock) => mock.mockReset());
-    api.history.mockResolvedValue([]);
+    Object.values(views).forEach((mock) => mock.mockReset());
+    views.historyView.mockResolvedValue({ entries: [], empty: "" });
 });
 
 function renderTab(tab: DatabaseTab, open = true) {
     const props = { onQuery: vi.fn(), onOpenTable: vi.fn(), onEdit: vi.fn() };
-    render(<TabBody tab={tab} profile={shop} connected={open ? connected : null} active {...props} />);
+    render(<TabBody slot="pane/tab" tab={tab} profile={open ? shop : { ...shop, connected: null }} active {...props} />);
     return props;
 }
 
@@ -31,7 +44,7 @@ describe("TabBody", () => {
     it("offers to connect before showing a console or table on a closed connection", () => {
         renderTab(tableTab("p1", "main", "orders"), false);
         expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument();
-        expect(api.describe).not.toHaveBeenCalled();
+        expect(views.tableView).not.toHaveBeenCalled();
     });
 
     it("shows the history whether or not the connection is open", async () => {

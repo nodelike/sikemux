@@ -19,6 +19,7 @@ use crate::protocol::WindowCall;
 use crate::text::clipped;
 
 use super::activity::Activity;
+use super::changed::Topic;
 use super::connection::ClientId;
 use super::kept::Kept;
 use super::messages;
@@ -40,6 +41,8 @@ const MAX_DETAIL_CHARS: usize = 400;
 const MAX_HEADER_CHARS: usize = 40;
 const MAX_ANSWER_BYTES: usize = 64 * 1024;
 const MAX_OPEN_PER_AGENT: usize = 8;
+/// Answers kept to show while their askers have not read them; the oldest go first.
+const MAX_ANSWERED: usize = 32;
 /// A lead whose turn ended may still be handed the question back unread, so
 /// it counts as passing it over only once this long has gone by.
 const LEAD_GRACE_MS: u64 = 3_000;
@@ -109,33 +112,103 @@ struct Question {
     from_host: Option<String>,
 }
 
+/// Where a question stands for the person.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum QuestionState {
+    /// It waits on the lead it went to first.
+    Lead,
+    /// The asker waits on the person's answer.
+    Open,
+    /// The asker went on with its assumption, which the person may correct.
+    Assumed,
+    /// The person answered it and the asker has not read the answer yet.
+    Answered,
+}
+
+/// A question as the app, the notch and phones show it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct View {
+    pub id: String,
+    pub agent_id: String,
+    /// The asker's name, such as Maple.
+    pub name: String,
+    pub cli: String,
+    pub project: String,
+    /// The asker's own words.
+    pub asked: String,
+    /// What the person is asked, which a lead that passed it on may have
+    /// reworded.
+    pub text: String,
+    /// Two or three words naming the question, such as Photo access.
+    pub header: Option<String>,
+    pub choices: Vec<Choice>,
+    /// The person may pick more than one of `choices`.
+    pub multi: bool,
+    /// The asker waits for the answer; otherwise it goes on with `assumption`.
+    pub blocked: bool,
+    pub assumption: Option<String>,
+    /// The answer is a secret, such as a password: typed into a masked field,
+    /// never the composer, and never shown again.
+    pub secret: bool,
+    pub at: u64,
+    pub state: QuestionState,
+    /// Why it reached the person rather than the lead it went to first, such
+    /// as "Maple didn't know".
+    pub via_note: Option<String>,
+    /// What the field a secret is typed into says beside it.
+    pub secret_note: Option<String>,
+    /// The person's answer, while its state is answered; none for a secret.
+    pub answer: Option<String>,
+    /// The ticket of the board card the asker is working, such as PROJ-12.
+    pub ticket: Option<String>,
+}
+
 impl Question {
-    fn view(&self) -> Value {
-        let (lead, via, passed) = match &self.stage {
-            Stage::Lead { lead_name, .. } => (Some(lead_name.clone()), None, false),
-            Stage::Person { lead, passed } => {
-                (None, lead.as_ref().map(|(_, name)| name.clone()), *passed)
-            }
+    fn view(&self) -> View {
+        let (state, via_note) = match &self.stage {
+            Stage::Lead { .. } => (QuestionState::Lead, None),
+            Stage::Person { lead, passed } => (
+                if self.blocked {
+                    QuestionState::Open
+                } else {
+                    QuestionState::Assumed
+                },
+                lead.as_ref().map(|(_, name)| {
+                    let why = if *passed {
+                        "didn't know"
+                    } else {
+                        "didn't answer"
+                    };
+                    format!("{name} {why}")
+                }),
+            ),
         };
-        json!({
-            "id": self.id,
-            "agentId": self.agent_id,
-            "name": self.name,
-            "cli": self.cli,
-            "project": self.project,
-            "asked": self.asked,
-            "text": self.text,
-            "header": self.header,
-            "choices": self.choices,
-            "multi": self.multi,
-            "blocked": self.blocked,
-            "assumption": self.assumption,
-            "secret": self.secret,
-            "at": self.at,
-            "lead": lead,
-            "via": via,
-            "passed": passed,
-        })
+        View {
+            id: self.id.clone(),
+            agent_id: self.agent_id.clone(),
+            name: self.name.clone(),
+            cli: self.cli.clone(),
+            project: self.project.clone(),
+            asked: self.asked.clone(),
+            text: self.text.clone(),
+            header: self.header.clone(),
+            choices: self.choices.clone(),
+            multi: self.multi,
+            blocked: self.blocked,
+            assumption: self.assumption.clone(),
+            secret: self.secret,
+            at: self.at,
+            state,
+            via_note,
+            secret_note: self.secret.then(|| format!(
+                "Kept private. {} reads it from a file only your account can open, and it never shows in the chat.",
+                self.name
+            )),
+            answer: None,
+            ticket: None,
+        }
     }
 
     fn asks_person(&self) -> bool {
@@ -170,9 +243,19 @@ struct QuestionsRecord {
     open: Vec<Question>,
 }
 
+/// A question the person answered, kept until its asker reads the answer.
+#[derive(Clone)]
+struct Answered {
+    question: Question,
+    /// What it was answered with; none for a secret.
+    answer: Option<String>,
+}
+
 #[derive(Default)]
 struct State {
     open: Vec<Question>,
+    /// Oldest first.
+    answered: Vec<Answered>,
     /// Something changed that the window has not been sent yet.
     dirty: bool,
     /// The window connection last sent the questions.
@@ -351,6 +434,18 @@ impl Questions {
             !(question.id == id && question.agent_id == agent_id && question.went_to(lead))
         });
         if state.open.len() != before {
+            self.changed(&mut state);
+        }
+    }
+
+    /// The agent was handed the person's answers to its questions.
+    pub(crate) fn delivered(&self, agent_id: &str) {
+        let mut state = self.state.locked();
+        let before = state.answered.len();
+        state
+            .answered
+            .retain(|answered| answered.question.agent_id != agent_id);
+        if state.answered.len() != before {
             self.changed(&mut state);
         }
     }
@@ -877,23 +972,28 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
     )
 }
 
-/// The open questions, for the app, the notch and phones.
-pub(crate) fn views(core: &Core) -> Vec<Value> {
-    let open = core.harness.questions.state.locked().open.clone();
-    with_tickets(core, open)
+/// The open questions and the answers their askers have not read, for the
+/// app, the notch and phones.
+pub(crate) fn views(core: &Core) -> Vec<View> {
+    let (open, answered) = {
+        let state = core.harness.questions.state.locked();
+        (state.open.clone(), state.answered.clone())
+    };
+    views_of(core, open, answered)
 }
 
 /// Each question's view, with the ticket of the card its asker holds.
-fn with_tickets(core: &Core, open: Vec<Question>) -> Vec<Value> {
-    open.iter()
-        .map(|question| {
-            let mut view = question.view();
-            if let (Some(ticket), Some(fields)) = (
-                super::board::ticket_of_agent(core, &question.agent_id),
-                view.as_object_mut(),
-            ) {
-                fields.insert("ticket".into(), ticket.into());
-            }
+fn views_of(core: &Core, open: Vec<Question>, answered: Vec<Answered>) -> Vec<View> {
+    let open = open.iter().map(|question| (question.view(), question));
+    let answered = answered.iter().map(|answered| {
+        let mut view = answered.question.view();
+        view.state = QuestionState::Answered;
+        view.answer = answered.answer.clone();
+        (view, &answered.question)
+    });
+    open.chain(answered)
+        .map(|(mut view, question)| {
+            view.ticket = super::board::ticket_of_agent(core, &question.agent_id);
             view
         })
         .collect()
@@ -949,11 +1049,26 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
         state
             .open
             .retain(|question| !taken.iter().any(|(taken, ..)| taken.id == question.id));
+        for (question, _, text) in &taken {
+            if let (None, Some(text)) = (&question.from_host, text) {
+                state.answered.push(Answered {
+                    question: question.clone(),
+                    answer: (!question.secret).then(|| text.clone()),
+                });
+            }
+        }
+        let over = state.answered.len().saturating_sub(MAX_ANSWERED);
+        state.answered.drain(..over);
         core.harness.questions.changed(&mut state);
         taken
     };
     let reopen = |questions: Vec<Question>| {
         let mut state = core.harness.questions.state.locked();
+        state.answered.retain(|answered| {
+            !questions
+                .iter()
+                .any(|question| question.id == answered.question.id)
+        });
         state.open.extend(questions);
         core.harness.questions.changed(&mut state);
     };
@@ -1006,14 +1121,18 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
                 (answered(question, &question.asked), text.clone(), note)
             })
             .collect();
-        if let Err(error) = messages::answer(core, asker.to_owned(), sent).await {
-            reopen(
-                own.into_iter()
-                    .map(|(question, _)| question.clone())
-                    .collect(),
-            );
-            failed = Some(error);
-            continue;
+        match messages::answer(core, asker.to_owned(), sent).await {
+            Ok(delivered) if delivered["delivery"] == "waiting" => {}
+            Ok(_) => core.harness.questions.delivered(asker),
+            Err(error) => {
+                reopen(
+                    own.into_iter()
+                        .map(|(question, _)| question.clone())
+                        .collect(),
+                );
+                failed = Some(error);
+                continue;
+            }
         }
         for (question, text) in own {
             copy_to_lead(core, question, text).await;
@@ -1052,6 +1171,7 @@ fn answered(question: &Question, question_text: &str) -> messages::Answered {
     messages::Answered {
         question: question_text.to_owned(),
         asker: question.name.clone(),
+        asker_id: question.agent_id.clone(),
         cli: question.cli.clone(),
         secret: question.secret,
     }
@@ -1122,6 +1242,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             core.boards.wake.now();
         }
         if state.open.is_empty()
+            && state.answered.is_empty()
             && state.told_phones.is_empty()
             && state.shown_devices.is_empty()
             && !state.dirty
@@ -1134,6 +1255,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             state
                 .open
                 .iter()
+                .chain(state.answered.iter().map(|answered| &answered.question))
                 .map(|question| question.agent_id.clone())
                 .collect(),
             state
@@ -1181,7 +1303,11 @@ pub(crate) fn settle(core: &Arc<Core>) {
             }
             keep
         });
-        let mut changed = state.open.len() != before;
+        let answered = state.answered.len();
+        state
+            .answered
+            .retain(|answered| !gone.contains(&answered.question.agent_id));
+        let mut changed = state.open.len() != before || state.answered.len() != answered;
         for question in &mut state.open {
             let Stage::Lead {
                 lead_id,
@@ -1425,22 +1551,23 @@ fn tell_phones(core: &Core) {
 /// opened that has not had them.
 fn tell_window(core: &Arc<Core>) {
     let window = core.window.client_id();
-    let open = {
+    let (open, answered) = {
         let mut state = core.harness.questions.state.locked();
         if !state.dirty && state.told_window == window {
             return;
         }
         if state.dirty {
             core.view_changed();
+            core.changes.changed(Topic::Questions, None, None);
         }
         state.dirty = false;
         state.told_window = window;
         if window.is_none() {
             return;
         }
-        state.open.clone()
+        (state.open.clone(), state.answered.clone())
     };
-    let views = with_tickets(core, open);
+    let views = views_of(core, open, answered);
     let request = json!({
         "id": "agent-questions",
         "project": "/",
@@ -1452,6 +1579,7 @@ fn tell_window(core: &Arc<Core>) {
         WindowCall::Harness { request },
         "show agents' questions",
         false,
+        None,
     ) else {
         return;
     };

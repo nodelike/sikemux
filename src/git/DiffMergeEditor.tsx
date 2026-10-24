@@ -1,12 +1,12 @@
 import { useEffect, useRef } from "react";
 import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
-import { getChunks, unifiedMergeView } from "@codemirror/merge";
+import { unifiedMergeView } from "@codemirror/merge";
 import { Compartment, EditorState, Facet, Prec } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, lineNumbers, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { editorThemeOnlyExtensions, languageCompartment, languageFor, loadLanguage } from "../editor/codemirror";
 import { registerView } from "../themes/bus";
 import { swallow } from "../state/toast";
-import { ownerNotes, type ChangeBlock, type OwnedFile } from "./changeOwners";
+import { fileNotes, type OwnedFile } from "./changeOwners";
 
 /* The editor's own theme sets a 13px face and a solid ground; the diff pane
    reads at the diff's size over whatever is behind it. */
@@ -44,15 +44,9 @@ class NoteWidget extends WidgetType {
 
 function noteDecorations(state: EditorState): DecorationSet {
     const owned = state.facet(ownedFacet);
-    const chunks = getChunks(state)?.chunks;
-    if (!owned || !chunks?.length) return Decoration.none;
+    if (!owned) return Decoration.none;
     const doc = state.doc;
-    const blocks: ChangeBlock[] = chunks.map((chunk) => {
-        const start = doc.lineAt(chunk.fromB).number;
-        if (chunk.toB <= chunk.fromB) return { start, count: 0 };
-        return { start, count: doc.lineAt(Math.min(chunk.toB - 1, doc.length)).number - start + 1 };
-    });
-    const { lines, gaps } = ownerNotes(blocks, owned);
+    const { lines, gaps } = fileNotes(owned);
     const notes = new Map(lines);
     for (const [line, note] of gaps) if (!notes.has(line)) notes.set(Math.min(line, doc.lines), note);
     const widgets = [...notes]
@@ -70,10 +64,7 @@ const ownerNotesPlugin = ViewPlugin.fromClass(
             this.decorations = noteDecorations(view.state);
         }
         update(update: ViewUpdate) {
-            const moved =
-                update.docChanged ||
-                update.startState.facet(ownedFacet) !== update.state.facet(ownedFacet) ||
-                getChunks(update.startState)?.chunks !== getChunks(update.state)?.chunks;
+            const moved = update.docChanged || update.startState.facet(ownedFacet) !== update.state.facet(ownedFacet);
             if (moved) this.decorations = noteDecorations(update.state);
         }
     },

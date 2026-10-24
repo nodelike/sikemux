@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
-import type { AgentGroup, AgentShown } from "../state/agentStatus";
+import type { AgentGroup, AgentShown } from "../api/generated/wire";
 import { getState, setState } from "../state/store";
 import { withAgents } from "../test/agents";
+import { testPreferences } from "../test/preferences";
 
 const notification = vi.hoisted(() => {
     const sent = vi.fn();
@@ -39,13 +40,31 @@ const { installAgentNotifications, introduceNotifications } = await import("./ag
 const initial = getState();
 
 function shown(agentId: string, group: AgentGroup): Record<string, AgentShown> {
-    return { [agentId]: { agentId, title: agentId, status: group, group, unread: group === "done", subagents: 0, tasks: 0, activeAt: null } };
+    const busy = group === "working" || group === "blocked";
+    return {
+        [agentId]: {
+            agentId,
+            cli: "codex",
+            title: agentId,
+            status: group,
+            group,
+            label: group,
+            unread: group === "done",
+            subagents: 0,
+            tasks: 0,
+            busy,
+            background: false,
+            activeAt: null,
+            face: null,
+        },
+    };
 }
 
 const notice = { title: "Codex needs your input", body: "openjob on studio", agentId: "a2" };
 
 beforeEach(() => {
     setState(initial, true);
+    setState({ preferences: testPreferences() });
     const first = getState().activeSessionId;
     setState((state) => ({
         sessionOrder: [first, "s2"],
@@ -87,7 +106,7 @@ describe("notifying outside the app", () => {
         focused = true;
         transport.emit("agent_notice", notice);
         focused = false;
-        setState({ agentNotifications: false });
+        setState({ preferences: testPreferences({ agentNotifications: false }) });
         transport.emit("agent_notice", notice);
         expect(appWindow.requestUserAttention).not.toHaveBeenCalled();
         expect(notification.sent).not.toHaveBeenCalled();
@@ -108,14 +127,14 @@ describe("the first launch", () => {
         await vi.waitFor(() => expect(notification.sent).toHaveBeenCalledTimes(1));
         expect(notification.sent.mock.calls[0][0].title).toBe("Sikemux notifications are on");
         expect(notification.bips).toHaveBeenCalledTimes(1);
-        expect(getState().notificationsIntroduced).toBe(true);
+        expect(getState().preferences?.notificationsIntroduced).toBe(true);
     });
 
     it("stays quiet for someone who switched notifications off", () => {
-        setState({ agentNotifications: false });
+        setState({ preferences: testPreferences({ agentNotifications: false }) });
         introduceNotifications();
         expect(notification.sent).not.toHaveBeenCalled();
         expect(notification.bips).not.toHaveBeenCalled();
-        expect(getState().notificationsIntroduced).toBe(false);
+        expect(getState().preferences?.notificationsIntroduced).toBe(false);
     });
 });

@@ -1,68 +1,12 @@
-import { expect, it, vi } from "vitest";
-import { chatReducer, initialChatState } from "./reducer";
-import { rateLabel, rowMeta, sentLabel, sentTitle } from "./messageMeta";
-import type { ChatState } from "./types";
+import { expect, it } from "vitest";
+import { copyText, rateLabel, sentLabel, sentTitle } from "./messageMeta";
+import type { ChatMessage, ChatPart } from "./types";
 
-const update = (state: ChatState, value: Record<string, unknown>) =>
-    chatReducer(state, { type: "session_update", sessionId: "session-1", update: value });
-
-const chunk = (text: string, messageId = "m1") => ({
-    sessionUpdate: "agent_message_chunk",
-    messageId,
-    content: { type: "text", text },
-});
-
-const last = (state: ChatState) => rowMeta(state.messages, state.messages.length - 1);
-
-it("reads the rate off a turn it watched stream", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-18T00:00:00Z"));
-    let state = chatReducer(initialChatState, { type: "turn_started" });
-    state = update(state, chunk("a".repeat(40)));
-    vi.setSystemTime(new Date("2026-09-18T00:00:02Z"));
-    state = update(state, chunk("b".repeat(40)));
-
-    // 80 characters is ~20 tokens, written over two seconds.
-    expect(last(state).rate).toBeCloseTo(10);
-    vi.useRealTimers();
-});
-
-it("times the writing and not the tool call waited on in the middle of it", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-18T00:00:00Z"));
-    let state = chatReducer(initialChatState, { type: "turn_started" });
-    state = update(state, chunk("a".repeat(40), "m1"));
-    vi.setSystemTime(new Date("2026-09-18T00:00:01Z"));
-    state = update(state, chunk("b".repeat(40), "m1"));
-
-    vi.setSystemTime(new Date("2026-09-18T00:01:00Z"));
-    state = update(state, { sessionUpdate: "tool_call", toolCallId: "t1", title: "cargo check", status: "completed" });
-    state = update(state, chunk("c".repeat(40), "m2"));
-    vi.setSystemTime(new Date("2026-09-18T00:01:01Z"));
-    state = update(state, chunk("d".repeat(40), "m2"));
-
-    // 160 characters is ~40 tokens, written over the two seconds either side of
-    // a minute-long tool call.
-    expect(last(state).rate).toBeCloseTo(20);
-    vi.useRealTimers();
-});
-
-it("times nothing for history replayed after a reconnect", () => {
-    const state = update(initialChatState, chunk("a".repeat(400)));
-    expect(state.messages[0].streamStartedAt).toBeUndefined();
-    expect(last(state).rate).toBeNull();
-});
-
-it("gives no rate for a burst too short to measure", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-18T00:00:00Z"));
-    let state = chatReducer(initialChatState, { type: "turn_started" });
-    state = update(state, chunk("hello"));
-    vi.setSystemTime(new Date("2026-09-18T00:00:00.100Z"));
-    state = update(state, chunk(" there"));
-
-    expect(last(state).rate).toBeNull();
-    vi.useRealTimers();
+const text = (id: string, value: string): ChatPart => ({ kind: "text", id, text: value });
+const toolPart = (id: string, title: string): ChatPart => ({
+    kind: "tool",
+    id,
+    tool: { toolCallId: id, title, status: "completed", row: { action: "other", target: title } },
 });
 
 it("spells a slow rate out to a decimal and a fast one whole", () => {
@@ -71,69 +15,25 @@ it("spells a slow rate out to a decimal and a fast one whole", () => {
 });
 
 it("copies the prose and the files a turn was sent with, not the tool rows", () => {
-    const state = update(
-        update(chatReducer(initialChatState, { type: "local_prompt", text: "check the build", paths: ["/tmp/log.txt"] }), {
-            sessionUpdate: "tool_call",
-            toolCallId: "t1",
-            title: "cargo check",
-            status: "pending",
-        }),
-        chunk("It builds clean."),
-    );
+    const messages: ChatMessage[] = [
+        { id: "u1", role: "user", parts: [text("u1-t", "check the build")], attachments: ["/tmp/log.txt"], meta: { from: "u1" } },
+        { id: "m1", role: "assistant", parts: [toolPart("t1", "cargo check"), text("m1-t", "It builds clean.")], meta: { from: "m1" } },
+    ];
 
-    expect(rowMeta(state.messages, 0).text).toBe("check the build\n\n/tmp/log.txt");
-    expect(last(state).text).toBe("It builds clean.");
+    expect(copyText(messages, 0)).toBe("check the build\n\n/tmp/log.txt");
+    expect(copyText(messages, 1)).toBe("It builds clean.");
 });
 
 it("copies a whole answer from where it ends, and offers nothing in the middle of one", () => {
-    let state = update(chatReducer(initialChatState, { type: "local_prompt", text: "wire it up", paths: [] }), chunk("Looking now.", "m1"));
-    state = update(state, { sessionUpdate: "tool_call", toolCallId: "t1", title: "rg wire", status: "completed" });
-    state = update(state, chunk("Wired.", "m2"));
-
-    const middle = state.messages.findIndex((message) => message.id === "m1");
-    expect(rowMeta(state.messages, middle).text).toBe("");
-    expect(last(state).text).toBe("Looking now.\n\nWired.");
-});
-
-it("counts no characters for a streamed message that never said how many arrived", () => {
-    const messages = [
-        {
-            id: "m1",
-            role: "assistant" as const,
-            parts: [{ id: "m1-t", kind: "text" as const, text: "hello" }],
-            streamStartedAt: 0,
-            streamEndedAt: 1_000,
-        },
+    const messages: ChatMessage[] = [
+        { id: "u1", role: "user", parts: [text("u1-t", "wire it up")] },
+        { id: "m1", role: "assistant", parts: [text("m1-t", "Looking now.")] },
+        { id: "m2", role: "assistant", parts: [toolPart("t1", "rg wire")] },
+        { id: "m3", role: "assistant", parts: [text("m3-t", "Wired.")], meta: { from: "m1" } },
     ];
-    expect(rowMeta(messages, 0)).toEqual({ text: "hello", rate: null, at: null, took: null });
-});
 
-it("stamps a prompt with when it was sent, and its answer with when the turn finished and how long it took", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 8, 29, 21, 7, 0));
-    let state = chatReducer(initialChatState, { type: "local_prompt", text: "check the build", paths: [] });
-    state = chatReducer(state, { type: "turn_started" });
-    vi.setSystemTime(new Date(2026, 8, 29, 21, 7, 4));
-    state = update(state, chunk("Looking.", "m1"));
-    vi.setSystemTime(new Date(2026, 8, 29, 21, 9, 0));
-    state = update(state, { sessionUpdate: "tool_call", toolCallId: "t1", title: "cargo check", status: "completed" });
-    state = update(state, chunk("It builds.", "m2"));
-    expect(last(state).at).toBeNull();
-
-    vi.setSystemTime(new Date(2026, 8, 29, 21, 11, 52));
-    state = chatReducer(state, { type: "turn_completed" });
-
-    expect(rowMeta(state.messages, 0)).toMatchObject({ at: new Date(2026, 8, 29, 21, 7, 0).getTime(), took: null });
-    expect(last(state)).toMatchObject({ at: new Date(2026, 8, 29, 21, 11, 52).getTime(), took: (4 * 60 + 52) * 1000 });
-    vi.useRealTimers();
-});
-
-it("has no time for history replayed after a reconnect", () => {
-    let state = update(initialChatState, chunk("from before"));
-    state = chatReducer(state, { type: "turn_completed" });
-    expect(state.messages[0].sentAt).toBeUndefined();
-    expect(state.messages[0].endedAt).toBeUndefined();
-    expect(last(state)).toMatchObject({ at: null, took: null });
+    expect(copyText(messages, 1)).toBe("");
+    expect(copyText(messages, 3)).toBe("Looking now.\n\nWired.");
 });
 
 it("says when with the day, as near as it is", () => {

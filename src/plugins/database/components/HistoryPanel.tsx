@@ -2,24 +2,28 @@ import { useState } from "react";
 import { confirmDialog, swallow } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, SkeletonRows } from "../../../plugin-api/ui";
-import { databaseApi, type DatabaseProfile, type HistoryEntry } from "../api";
-import { database, databaseHistoryR } from "../resources";
+import { databaseApi } from "../api";
+import { databaseHistoryV } from "../resources";
+import type { DatabaseConnection, DatabaseHistoryEntry } from "../types.generated";
 import { formatAgo, formatDuration } from "../../../plugin-api/format";
 
 export function HistoryPanel({
+    slot,
     profile,
     active,
     onOpen,
     now = Date.now(),
 }: {
-    profile: DatabaseProfile;
+    /** Where the pane shows it, so the core keeps it for this pane. */
+    slot: string;
+    profile: DatabaseConnection;
     active: boolean;
     /** Puts a past query in the editor, running it when asked. */
     onOpen: (sql: string, run: boolean) => void;
     now?: number;
 }) {
     const [search, setSearch] = useState("");
-    const history = useResourceEnabled(active, databaseHistoryR, profile.id, search.trim());
+    const history = useResourceEnabled(active, databaseHistoryV, slot, profile.id, search.trim());
 
     const clear = async () => {
         const confirmed = await confirmDialog({
@@ -30,7 +34,6 @@ export function HistoryPanel({
         });
         if (!confirmed) return;
         await databaseApi.clearHistory(profile.id);
-        database.refresh(databaseHistoryR);
     };
 
     return (
@@ -47,7 +50,7 @@ export function HistoryPanel({
                 <button
                     type="button"
                     className="db-button"
-                    disabled={!history.data?.length}
+                    disabled={!history.data?.entries.length}
                     onClick={() => void clear().catch(swallow("clear the history"))}>
                     Clear history
                 </button>
@@ -56,11 +59,11 @@ export function HistoryPanel({
                 <EmptyState message={history.error ?? "Sikemux could not read the history."} tone="error" />
             ) : !history.data ? (
                 <SkeletonRows rows={5} label="Loading history" />
-            ) : history.data.length === 0 ? (
-                <EmptyState message={search.trim() ? "No past query matches." : "Queries you and your agents run here show up in this list."} />
+            ) : history.data.entries.length === 0 ? (
+                <EmptyState message={history.data.empty} />
             ) : (
                 <ol className="db-history-list">
-                    {history.data.map((entry) => (
+                    {history.data.entries.map((entry) => (
                         <HistoryRow key={`${entry.at}-${entry.sql}`} entry={entry} now={now} onOpen={onOpen} />
                     ))}
                 </ol>
@@ -69,7 +72,7 @@ export function HistoryPanel({
     );
 }
 
-function HistoryRow({ entry, now, onOpen }: { entry: HistoryEntry; now: number; onOpen: (sql: string, run: boolean) => void }) {
+function HistoryRow({ entry, now, onOpen }: { entry: DatabaseHistoryEntry; now: number; onOpen: (sql: string, run: boolean) => void }) {
     return (
         <li className={`db-history-entry${entry.ok ? "" : " failed"}`}>
             <pre className="db-history-sql">{entry.sql}</pre>
@@ -85,7 +88,7 @@ function HistoryRow({ entry, now, onOpen }: { entry: HistoryEntry; now: number; 
                         {entry.error ?? "Failed"}
                     </span>
                 )}
-                {entry.source === "agent" && <span className="db-badge">agent</span>}
+                {entry.byAgent && <span className="db-badge">agent</span>}
                 <span className="db-grow" />
                 <button type="button" className="db-button" onClick={() => onOpen(entry.sql, false)}>
                     Open

@@ -6,7 +6,8 @@ import "../styles/marks.css";
 /** An outcome, or a job a run will make but has not started yet. */
 export type Mark = Outcome | "idle";
 
-const INNER: Partial<Record<Mark, string>> = {
+/** The tick, cross or slash drawn over an ended outcome's circle, on a 16 grid. */
+export const MARK_INNER: Partial<Record<Mark, string>> = {
     success: "m5.2 8.2 1.9 1.9 3.7-3.9",
     failure: "m5.8 5.8 4.4 4.4m0-4.4-4.4 4.4",
     cancelled: "M5.6 10.4 10.4 5.6",
@@ -19,7 +20,7 @@ const INNER: Partial<Record<Mark, string>> = {
  */
 export function StatusMark({ outcome, size = 14 }: { outcome: Mark; size?: number }) {
     const label = outcome === "idle" ? "Not started" : OUTCOME_LABEL[outcome];
-    const inner = INNER[outcome];
+    const inner = MARK_INNER[outcome];
     const style = { "--mark": `${size}px` } as React.CSSProperties;
     if (outcome === "running" || outcome === "queued" || outcome === "blocked")
         return (

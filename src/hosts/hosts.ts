@@ -1,6 +1,6 @@
 import { coreCall, coreRequest } from "../api/core";
-import type { ChatInfo, DeviceView, ProjectInfo, SessionInfo, SshLink } from "../api/generated/wire";
-import { coreSessionsApi } from "../api/coreSessions";
+import type { CoreChange } from "../api/coreChanged";
+import type { ChatInfo, DeviceView, ProjectInfo, SessionInfo } from "../api/generated/wire";
 import { invokeCommand as invoke } from "../api/invoke";
 import { getIpcTransport } from "../api/transport";
 import { agentLabel, isAgentType } from "../agents/catalog";
@@ -8,10 +8,8 @@ import { agentWindow } from "../state/agentWindow";
 import { makeWindow } from "../state/commands/shared";
 import { createProjectSession, createSshSession } from "../state/commands/sessions";
 import { remoteApi } from "../api/remote";
-import { sshStartup } from "../terminal/sshStartup";
 import { offerResumableSessions } from "../terminal/sessionResume";
 import { agentWindowId, ownerSessionId } from "../state/selectors";
-import { collectPanes } from "../state/layout";
 import { getState, mutate, setState, useStore, type StoreState } from "../state/store";
 import { notify, reportError, swallow } from "../state/toast";
 import { confirmDialog } from "../state/dialog";
@@ -19,35 +17,37 @@ import { accountApi } from "../api/account";
 import type { Agent, PaneNode, Session } from "../state/types";
 import type { Draft } from "immer";
 
-/** Another host on the account the app joined, as the app reaches it. */
-export interface HostEntry {
-    /** The host's core key, which every request to it names. */
-    readonly id: string;
+/** A row of the rail's Hosts group, as the core lists it: a host linked with this one, or an SSH host a terminal is open to. */
+export interface HostRow {
+    /** The host's core key, which every request to it names; none for an SSH host without Sikemux. */
+    readonly id: string | null;
     readonly name: string;
-    readonly platform: string;
-    readonly reach: "connecting" | "connected" | "away";
-    /** The SSH host it was installed on from here, which the rail shows it as. */
+    readonly platform: string | null;
+    /** How this host's core reaches it; `failed` only for an SSH host ssh gave up on. */
+    readonly reach: "connecting" | "connected" | "away" | "failed";
+    /** The SSH host it was installed on from here, or the row's own alias. */
     readonly ssh: string | null;
+    /**
+     * What the core found its SSH host to run when it last asked: no Sikemux, Sikemux on this host's account, signed
+     * out, on another account, its core stopped, or a release too old to say which host it is.
+     */
+    readonly found?: "nothing" | "same" | "signedOut" | "other" | "stopped" | "outdated";
+    /** What setting its SSH host up takes, by the core's word for it. */
+    readonly setUp?: "install" | "update" | "signIn" | "start";
 }
+
+/** Another host on the account. */
+export type HostEntry = HostRow & { readonly id: string; readonly platform: string };
 
 export const hostsApi = {
-    list: () => invoke<HostEntry[]>("hosts_list"),
+    list: () => coreCall<HostRow[]>("hosts"),
 };
-
-/**
- * What asking an SSH host found of the Sikemux there: on this host's account, signed out, on another account, its core
- * stopped, or a release too old to say which host it is; and the host's key when it said.
- */
-export interface SshProbe {
-    readonly key: string | null;
-    readonly found: "same" | "signedOut" | "other" | "stopped" | "outdated";
-}
 
 /**
  * Runs `command` on the SSH host `alias` over the person's own SSH, in a terminal tab of its SSH session where a
  * password ssh or sudo asks for is typed, and resolves once the host is on the account.
  */
-async function signInOverSsh(alias: string, command: "host_install" | "host_sign_in" | "host_update", title: string): Promise<void> {
+async function signInOverSsh(alias: string, command: "host_install" | "host_sign_in" | "host_update" | "host_start", title: string): Promise<void> {
     const controller = new AbortController();
     const done = new Promise<void>((resolve, reject) => {
         void getIpcTransport()
@@ -64,7 +64,7 @@ async function signInOverSsh(alias: string, command: "host_install" | "host_sign
             .catch(reject);
     });
     try {
-        const id = await invoke<number>(command, { alias, cols: 100, rows: 30 });
+        const id = await invoke<number>(command, { alias });
         offerResumableSessions([id]);
         createSshSession(alias);
         mutate((d) => {
@@ -94,22 +94,31 @@ export const SSH_WORK: Readonly<Record<SshWork, { offer: string; running: string
     updating: { offer: "Update Sikemux", running: "updating" },
 };
 
-/** What setting up an SSH host takes, from what asking it found: installing only where there is no Sikemux at all. */
-export function setUpFor(probe: SshProbe | undefined): SshWork | null {
-    if (!probe) return "installing";
-    return ({ signedOut: "signing in", stopped: "starting", outdated: "updating", same: null, other: null } as const)[probe.found];
+const WORK: Readonly<Record<NonNullable<HostRow["setUp"]>, SshWork>> = {
+    install: "installing",
+    signIn: "signing in",
+    start: "starting",
+    update: "updating",
+};
+
+/** What setting up a row's SSH host takes, as the core says from what it found there. */
+export function setUpFor(row: HostRow | undefined): SshWork | null {
+    return row?.setUp ? WORK[row.setUp] : null;
 }
 
-export function sshSetUp(state: Pick<StoreState, "sshProbes">, alias: string): SshWork | null {
-    return setUpFor(state.sshProbes[alias]);
+/** What setting up the SSH host `alias` takes; installing while no row has said what it runs. */
+export function sshSetUp(state: Pick<StoreState, "hosts" | "openSshHosts">, alias: string): SshWork | null {
+    const row = [...state.hosts, ...state.openSshHosts].find((candidate) => candidate.ssh === alias);
+    return row ? setUpFor(row) : "installing";
 }
 
 /** What a host row says of the Sikemux found on its SSH host, when that is not running on this host's account. */
-export function sshFoundLabel(probe: SshProbe | undefined): string | null {
-    if (!probe) return null;
-    return ({ signedOut: "not signed in", other: "on another account", stopped: "stopped", outdated: "older release", same: null } as const)[
-        probe.found
-    ];
+export function sshFoundLabel(row: HostRow | undefined): string | null {
+    const found = row?.found;
+    if (!found) return null;
+    return (
+        { signedOut: "not signed in", other: "on another account", stopped: "stopped", outdated: "older release", same: null, nothing: null } as const
+    )[found];
 }
 
 /** Sets the SSH host `alias` up, once at a time for every place that offers it, then asks it again what it is. */
@@ -119,11 +128,10 @@ export function setUpOverSsh(alias: string, work: SshWork): void {
     const run: Record<SshWork, () => Promise<unknown>> = {
         installing: () => signInOverSsh(alias, "host_install", "Install Sikemux"),
         "signing in": () => signInOverSsh(alias, "host_sign_in", "Sign in"),
-        starting: () => invoke("host_start", { alias }),
+        starting: () => signInOverSsh(alias, "host_start", "Start Sikemux"),
         updating: () => signInOverSsh(alias, "host_update", "Update Sikemux"),
     };
     void run[work]()
-        .then(() => probeSshHost(alias))
         .catch(reportError(`${SSH_WORK[work].offer} on ${alias}`))
         .finally(() => {
             const { [alias]: _, ...others } = getState().sshWork;
@@ -147,13 +155,6 @@ export function openInstallPane(alias: string): void {
         d.windowsBySession[session.id] = [...(d.windowsBySession[session.id] ?? []), window.id];
         session.activeWindowId = window.id;
     });
-}
-
-/** Asks the SSH host `alias` whether it runs Sikemux and which host it is, keeping the answer for its row. */
-async function probeSshHost(alias: string): Promise<void> {
-    const probed = await invoke<SshProbe | null>("host_probe", { alias });
-    const { [alias]: _, ...others } = getState().sshProbes;
-    setState({ sshProbes: probed ? { ...others, [alias]: probed } : others });
 }
 
 /** A project on another host, as that host shows it. */
@@ -301,7 +302,7 @@ export function newSshTerminalOn(alias: string): void {
     mutate((d) => {
         const session = d.sessionOrder.map((id) => d.sessions[id]).find((candidate) => candidate?.kind === "ssh" && candidate.name === alias);
         if (!session) return;
-        const window = makeWindow("", alias, { startup: sshStartup(alias), role: "named" });
+        const window = makeWindow("", alias, { role: "named" });
         d.windows[window.id] = window;
         d.windowsBySession[session.id] = [...(d.windowsBySession[session.id] ?? []), window.id];
         session.activeWindowId = window.id;
@@ -563,46 +564,6 @@ function noticeNewDevices(signal: AbortSignal): void {
         .catch(swallow("follow new devices on the account"));
 }
 
-/** The SSH host a terminal runs on, by the session it is a tab of. */
-function sshAliasOf(state: Pick<StoreState, "sessionOrder" | "sessions" | "windowsBySession" | "windows">, ptyId: number): string | undefined {
-    const holds = (windowId: string) => {
-        const window = state.windows[windowId];
-        return !!window && collectPanes(window.root).some((pane) => pane.ptyId === ptyId);
-    };
-    return state.sessionOrder
-        .map((id) => state.sessions[id])
-        .find((session) => session?.kind === "ssh" && (state.windowsBySession[session.id] ?? []).some(holds))?.name;
-}
-
-/**
- * Asks each SSH host once, as a terminal on it connects, whether it runs Sikemux and which host it is, so a host on
- * the account shows as one row (ADR 0018).
- */
-function probeSshHosts(signal: AbortSignal): void {
-    const asked = new Set<string>();
-    const probe = (ptyId: number) => {
-        const alias = sshAliasOf(getState(), ptyId);
-        if (!alias || asked.has(alias)) return;
-        asked.add(alias);
-        void probeSshHost(alias).catch(swallow(`ask ${alias} which host it is`));
-    };
-    void getIpcTransport()
-        .subscribe<{ id: number; link: SshLink }>(
-            "pty_ssh_link",
-            ({ payload }) => {
-                if (payload.link === "connected") probe(payload.id);
-            },
-            { signal },
-        )
-        .catch(swallow("follow SSH terminals connecting"));
-    void coreSessionsApi
-        .list()
-        .then((sessions) => {
-            for (const session of sessions) if (session.ssh === "connected") probe(session.id);
-        })
-        .catch(swallow("list SSH terminals"));
-}
-
 /** Keeps the store's hosts and their views as the app reaches them. */
 export function startHosts(): () => void {
     const controller = new AbortController();
@@ -612,17 +573,24 @@ export function startHosts(): () => void {
     const frontHost = front && hostOfSession(front);
     if (frontHost && !sameHost(frontHost, THIS_HOST)) chooseHost(THIS_HOST);
     else followSessionInFront();
-    probeSshHosts(controller.signal);
-    const setHosts = (hosts: HostEntry[]) => {
+    const setHosts = (rows: HostRow[]) => {
+        const hosts = rows.filter((row): row is HostEntry => row.id !== null);
         const ids = new Set(hosts.map((host) => host.id));
         setState({
             hosts,
+            openSshHosts: rows.filter((row) => row.id === null),
             hostViews: Object.fromEntries(Object.entries(getState().hostViews).filter(([id]) => ids.has(id))),
         });
         placeRemoteProjects();
     };
     void transport
-        .subscribe<HostEntry[]>("hosts_changed", (event) => setHosts(event.payload), { signal: controller.signal })
+        .subscribe<CoreChange>(
+            "core_changed",
+            ({ payload }) => {
+                if (payload.topic === "hosts") void hostsApi.list().then(setHosts).catch(swallow("list other hosts"));
+            },
+            { signal: controller.signal },
+        )
         .catch(swallow("follow other hosts"));
     void transport
         .subscribe<{ host: string; view: DeviceView }>(

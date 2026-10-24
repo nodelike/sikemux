@@ -19,7 +19,6 @@ import { Tooltip } from "../ui/Tooltip";
 import { AgentMark } from "../agents/AgentMark";
 import sikemuxMark from "../../brand/mark/mark-purple.svg";
 import * as cmd from "../state/commands";
-import { messageLetters, type AgentLetter, type AgentMessageLetter } from "./agentLetters";
 import { AnsweredQuestion } from "./AgentQuestions";
 import { rateLabel, sentLabel, sentTitle } from "./messageMeta";
 import { durationLabel } from "./durationLabel";
@@ -37,7 +36,6 @@ import {
     attachmentName,
     formatDetail,
     groupParts,
-    sentParts,
     shownParts,
     SUBAGENT_MARKS,
     SUBAGENT_WORDS,
@@ -45,12 +43,13 @@ import {
     subagentTask,
     type SubagentMark,
 } from "./transcript";
-import type { AccountMove, AcpSubagent, AcpTaskNotice, AgentNotice, ChatMessage, ChatPart } from "./types";
+import type { AccountMove, AgentLetter, AgentNotice, ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice } from "./types";
 import { ContextChipLabel } from "./ContextChip";
+import type { MdElement } from "../markdown/types";
 import { Shimmer } from "./Shimmer";
 import { MessageEditor } from "./MessageEditor";
 
-function ResourceLinkPart({ content }: { content: Extract<ChatPart, { kind: "content" }>["content"] }) {
+function ResourceLinkPart({ content }: { content: ContentBlock }) {
     const uri = typeof content.uri === "string" ? content.uri : undefined;
     const imagePath = localImagePath(uri);
     const preview = useImagePreview(imagePath);
@@ -72,7 +71,7 @@ function ResourceLinkPart({ content }: { content: Extract<ChatPart, { kind: "con
 }
 
 function ContentPart({ part }: { part: Extract<ChatPart, { kind: "content" }> }) {
-    const content = part.content;
+    const content = part.content as ContentBlock;
     if (content.type === "resource_link") return <ResourceLinkPart content={content} />;
     /* A picture too big to keep was kept by name, so the row says what it was. */
     if (content.type === "image") {
@@ -98,12 +97,11 @@ export function warmTranscript(messages: readonly ChatMessage[]): Promise<void> 
         const message = messages[index];
         if (warmed.has(message)) continue;
         warmed.add(message);
-        const letters = messageLetters(message);
-        if (letters) {
-            for (const letter of letters) if (letter.kind === "message" && !letter.tree) texts.push({ text: letter.text, typed: false });
+        if (message.letters?.length) {
+            texts.push(...message.letters.map((letter) => ({ text: letter.text, typed: false })));
             continue;
         }
-        for (const part of sentParts(message).parts) {
+        for (const part of message.parts) {
             if (part.kind === "text" && !part.md) texts.push({ text: part.text, typed: message.role === "user" });
             else if (part.kind === "thought" && !part.md) texts.push({ text: part.text, typed: false });
         }
@@ -117,7 +115,7 @@ const MessagePart = memo(function MessagePart({ part, live, typed }: { part: Cha
     if (part.kind === "text") {
         return (
             <div className="chat-markdown">
-                <FoldedMarkdown id={part.id} text={part.text} live={live} typed={typed} tree={part.md?.blocks} />
+                <FoldedMarkdown id={part.id} text={part.text} live={live} typed={typed} tree={part.md?.blocks as MdElement[] | undefined} />
             </div>
         );
     }
@@ -125,7 +123,7 @@ const MessagePart = memo(function MessagePart({ part, live, typed }: { part: Cha
         return (
             <div className="chat-thought">
                 <div className="chat-markdown">
-                    <FoldedMarkdown id={part.id} text={part.text} live={live} tree={part.md?.blocks} />
+                    <FoldedMarkdown id={part.id} text={part.text} live={live} tree={part.md?.blocks as MdElement[] | undefined} />
                 </div>
             </div>
         );
@@ -169,8 +167,8 @@ function PartGroups({ parts, live, typed = false }: { parts: ChatPart[]; live: b
     );
 }
 
-function NoticePart({ notice }: { notice: AcpTaskNotice }) {
-    const subagent = useContext(ChatSubagentsContext).get(notice.subagent ?? "");
+function NoticePart({ notice }: { notice: TaskNotice }) {
+    const subagent = useContext(ChatSubagentsContext).cards.get(notice.subagent ?? "");
     if (subagent) return <SubagentPart subagent={subagent} />;
     return (
         <div className={`chat-notice state-${notice.state}`} role="status">
@@ -219,7 +217,7 @@ const SUBAGENT_ICONS: Record<Exclude<SubagentMark, "spinner">, ReactNode> = {
     close: <IconClose size={11} />,
 };
 
-function SubagentStateMark({ state }: { state: AcpSubagent["state"] }) {
+function SubagentStateMark({ state }: { state: SubagentCard["state"] }) {
     const word = SUBAGENT_WORDS[state];
     const mark = SUBAGENT_MARKS[state];
     return (
@@ -231,10 +229,11 @@ function SubagentStateMark({ state }: { state: AcpSubagent["state"] }) {
 
 /* A folded subagent keeps streaming into a transcript nobody is reading, so its
    body is only built once the reader opens it. */
-function SubagentPart({ subagent }: { subagent: AcpSubagent }) {
+function SubagentPart({ subagent }: { subagent: SubagentCard }) {
     const agentType = useContext(ChatAgentContext).type;
+    const rows = useContext(ChatSubagentsContext).rows[subagent.sessionId];
     const [open, setOpen] = useState(false);
-    const parts = subagent.messages.flatMap((message) => message.parts);
+    const parts = useMemo(() => (rows ?? []).flatMap((message) => message.parts), [rows]);
     const cost = subagentCost(subagent);
     return (
         <details className={`chat-subagent state-${subagent.state}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
@@ -280,7 +279,7 @@ function SentTime({ at, took }: { at: number; took: number | null }) {
 }
 
 /** A teammate's message, headed like the agent's own "Worked for" line. */
-function TeammateLetter({ id, letter }: { id: string; letter: AgentMessageLetter }) {
+function TeammateLetter({ id, letter }: { id: string; letter: AgentLetter }) {
     return (
         <div className="chat-letter" title={letter.agentId}>
             <div className="chat-letter-top">
@@ -298,14 +297,14 @@ function TeammateLetter({ id, letter }: { id: string; letter: AgentMessageLetter
                             type="button"
                             className="chat-letter-name"
                             title={`Open ${letter.name}`}
-                            onClick={() => cmd.revealAgent(letter.agentId)}>
+                            onClick={() => letter.agentId && cmd.revealAgent(letter.agentId)}>
                             {letter.name}
                         </button>
                     </span>
                 </span>
             </div>
             <div className="chat-markdown">
-                <FoldedMarkdown id={id} text={letter.text} live={false} tree={letter.tree} />
+                <FoldedMarkdown id={id} text={letter.text} live={false} tree={letter.tree?.blocks as MdElement[] | undefined} />
             </div>
         </div>
     );
@@ -354,13 +353,13 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     /** Where the shown parts start, when the work before them is folded away. */
     from?: number;
 }) {
-    const letters = useMemo(() => messageLetters(message), [message]);
-    const { parts, context } = useMemo(() => sentParts(message), [message]);
+    const { parts, letters } = message;
+    const context = message.context ?? [];
     const shown = useMemo(() => shownParts(parts, from), [parts, from]);
     const [editing, setEditing] = useState(false);
     const attachments = message.attachments ?? [];
     const written = parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])).join("\n\n");
-    if (letters) return <AgentLetters id={message.id} letters={letters} at={at} />;
+    if (letters?.length) return <AgentLetters id={message.id} letters={letters} at={at} />;
     if (editing && onEdit) {
         return (
             <article className={`chat-message ${message.role}`}>

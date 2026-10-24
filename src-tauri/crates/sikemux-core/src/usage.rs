@@ -3,7 +3,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use reqwest::Client;
@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
-use crate::protocol::BuildChannel;
+use crate::protocol::{BuildChannel, Preferences, UpdateChannel};
+use crate::server::Core;
 
 const CAPTURE_ENDPOINT: &str = "https://eu.i.posthog.com/i/v0/e/";
 const PROJECT_TOKEN: &str = "phc_yGaffnPw38wHvQKgusATcKtYmkyDCbNNGpTo3sK9pQoD";
@@ -35,9 +36,9 @@ impl Install {
         }
     }
 
-    /// The release workflow builds each kind with `SIKEMUX_USAGE_REPORTING`
-    /// set to its name.
-    pub fn reports(self) -> bool {
+    /// Built by the release workflow, which sets `SIKEMUX_USAGE_REPORTING` to
+    /// the kind's name. Only such a build reports usage or updates itself.
+    pub fn published(self) -> bool {
         !cfg!(debug_assertions) && option_env!("SIKEMUX_USAGE_REPORTING") == Some(self.name())
     }
 }
@@ -76,7 +77,7 @@ struct Platform {
 
 /// Sends today's event unless this install already sent it.
 pub async fn report_active(data_dir: &Path, active: Active<'_>) -> Result<(), String> {
-    if !active.install.reports() {
+    if !active.install.published() {
         return Ok(());
     }
     static IN_FLIGHT: Mutex<()> = Mutex::const_new(());
@@ -102,24 +103,36 @@ pub async fn report_active(data_dir: &Path, active: Active<'_>) -> Result<(), St
     save_record(&path, &record)
 }
 
-/// A host's core counts as active each day it runs. `DO_NOT_TRACK` in its
-/// environment turns this off, since a host has no settings window.
-pub async fn report_host(
-    data_dir: PathBuf,
-    version: String,
-    channel: BuildChannel,
-    account: impl Fn() -> Option<String>,
-) {
+/// Counts this install active once a UTC day while the person shares usage: an
+/// app's core on a day one of its windows is open, a host's core on a day it
+/// runs. `DO_NOT_TRACK` in the core's environment turns it off as well.
+pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
+    let Some(install) = [Install::App, Install::Host]
+        .into_iter()
+        .find(|install| install.published())
+    else {
+        return;
+    };
     if std::env::var_os("DO_NOT_TRACK").is_some_and(|value| !value.is_empty() && value != "0") {
         return;
     }
+    let host = crate::server::host_info();
     let mut every_hour = tokio::time::interval(HOST_CHECK_INTERVAL);
     loop {
-        every_hour.tick().await;
-        let account = account();
+        tokio::select! {
+            _ = every_hour.tick() => {}
+            _ = core.usage_wake.notified() => {}
+        }
+        let preferences = core.preferences.get();
+        let Some(channel) =
+            reported_channel(install, &preferences, core.window.is_open(), host.channel)
+        else {
+            continue;
+        };
+        let account = core.remote.owner();
         let active = Active {
-            install: Install::Host,
-            version: &version,
+            install,
+            version: &host.version,
             channel,
             account: account.as_deref(),
         };
@@ -127,6 +140,24 @@ pub async fn report_host(
             eprintln!("sikemux core: {error}");
         }
     }
+}
+
+/// The channel today's use counts under, or none when nothing may be sent: the person
+/// does not share usage, or no window of the app is open.
+fn reported_channel(
+    install: Install,
+    preferences: &Preferences,
+    window_open: bool,
+    host_channel: BuildChannel,
+) -> Option<BuildChannel> {
+    if !preferences.share_usage_data || (install == Install::App && !window_open) {
+        return None;
+    }
+    Some(match (install, preferences.update_channel) {
+        (Install::Host, _) => host_channel,
+        (Install::App, UpdateChannel::Stable) => BuildChannel::Stable,
+        (Install::App, UpdateChannel::Nightly) => BuildChannel::Nightly,
+    })
 }
 
 fn load_record(path: &Path) -> Result<UsageRecord, String> {
@@ -211,7 +242,7 @@ fn os_release_field(text: &str, key: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn os_version() -> Option<String> {
+pub(crate) fn os_version() -> Option<String> {
     let mut buffer = [0u8; 32];
     let mut length = buffer.len();
     // SAFETY: the name is nul-terminated and sysctl writes at most `length`
@@ -236,7 +267,7 @@ fn os_version() -> Option<String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn os_version() -> Option<String> {
+pub(crate) fn os_version() -> Option<String> {
     None
 }
 
@@ -256,6 +287,20 @@ mod tests {
     use std::time::UNIX_EPOCH;
 
     use super::*;
+
+    #[test]
+    fn nothing_is_sent_once_the_person_opts_out() {
+        let opted_out = Preferences {
+            share_usage_data: false,
+            ..Preferences::default()
+        };
+        for install in [Install::App, Install::Host] {
+            assert_eq!(
+                reported_channel(install, &opted_out, true, BuildChannel::Stable),
+                None
+            );
+        }
+    }
 
     #[test]
     fn a_day_turns_over_at_utc_midnight() {

@@ -2,14 +2,16 @@ import { useEffect, useId, useMemo, useRef, type ReactNode } from "react";
 import { openUrl, swallow } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { Checkbox, Dropdown } from "../../../plugin-api/ui";
-import type { JobOption, OptionValue } from "../api";
-import { rndOptionValuesR } from "../resources";
-import { useDebounced } from "../../../plugin-api/hooks";
-import { optionDelimiter, splitMulti, substituteOptionRefs, type OptionValues } from "./options";
+import { rndOptionValuesV } from "../resources";
+import type { RundeckJobOption as JobOption, RundeckOptionChoice as OptionValue } from "../types.generated";
+import { splitMulti } from "./options";
 
 interface Props {
+    paneId: string;
     options: JobOption[];
-    values: OptionValues;
+    values: Record<string, string>;
+    /** Each option's values URL with the other options filled in. */
+    valuesUrls: Record<string, string>;
     errors: Record<string, string>;
     showErrors: boolean;
     permalink: string | null;
@@ -19,15 +21,29 @@ interface Props {
     hint?: (option: JobOption) => ReactNode;
 }
 
-export function RundeckOptionsForm({ options, values, errors, showErrors, permalink, active, onChange, onRemoteValues, hint }: Props) {
+export function RundeckOptionsForm({
+    paneId,
+    options,
+    values,
+    valuesUrls,
+    errors,
+    showErrors,
+    permalink,
+    active,
+    onChange,
+    onRemoteValues,
+    hint,
+}: Props) {
     if (options.length === 0) return <div className="rnd-plan-row muted">This job takes no options.</div>;
     return (
         <div className="rnd-options">
             {options.map((option) => (
                 <OptionField
                     key={option.name}
+                    slot={`${paneId}/values/${option.name}`}
                     option={option}
-                    values={values}
+                    value={values[option.name] ?? ""}
+                    valuesUrl={valuesUrls[option.name] ?? ""}
                     error={showErrors ? errors[option.name] : undefined}
                     permalink={permalink}
                     active={active}
@@ -41,8 +57,10 @@ export function RundeckOptionsForm({ options, values, errors, showErrors, permal
 }
 
 interface FieldProps {
+    slot: string;
     option: JobOption;
-    values: OptionValues;
+    value: string;
+    valuesUrl: string;
     error: string | undefined;
     permalink: string | null;
     active: boolean;
@@ -51,25 +69,23 @@ interface FieldProps {
     hint: ReactNode;
 }
 
-function OptionField({ option, values, error, permalink, active, onChange, onRemoteValues, hint }: FieldProps) {
+function OptionField({ slot, option, value, valuesUrl, error, permalink, active, onChange, onRemoteValues, hint }: FieldProps) {
     const id = useId();
-    const value = values[option.name] ?? "";
-    const remoteUrl = useDebounced(option.values_url ? substituteOptionRefs(option.values_url, values) : "", 400);
-    const remote = useResourceEnabled(active && !!remoteUrl, rndOptionValuesR, remoteUrl);
-    const remoteFailed = !!option.values_url && remote.status === "error";
+    const remote = useResourceEnabled(active && !!valuesUrl, rndOptionValuesV, slot, valuesUrl);
+    const remoteFailed = !!option.valuesUrl && remote.status === "error";
     const report = useRef(onRemoteValues);
     report.current = onRemoteValues;
 
     useEffect(() => {
-        if (!option.values_url) return;
+        if (!option.valuesUrl) return;
         if (remote.data) report.current(remote.data.map((entry) => entry.value));
         else if (remote.status === "error") report.current(null);
-    }, [remote.data, remote.status, option.values_url]);
+    }, [remote.data, remote.status, option.valuesUrl]);
 
     const choices = useMemo<OptionValue[] | null>(() => {
-        if (option.values_url) return remote.data ?? null;
+        if (option.valuesUrl) return remote.data ?? null;
         return option.values?.length ? option.values.map((entry) => ({ name: entry, value: entry })) : null;
-    }, [option.values_url, option.values, remote.data]);
+    }, [option.valuesUrl, option.values, remote.data]);
 
     const label = option.label || option.name;
 
@@ -87,7 +103,7 @@ function OptionField({ option, values, error, permalink, active, onChange, onRem
             <OptionInput id={id} option={option} value={value} choices={choices} permalink={permalink} onChange={onChange} />
             {hint}
             {option.description && <small className="rnd-field-help">{option.description}</small>}
-            {option.values_url && remote.status === "loading" && !remote.data && <small className="rnd-field-help">loading values…</small>}
+            {option.valuesUrl && remote.status === "loading" && !remote.data && <small className="rnd-field-help">loading values…</small>}
             {remoteFailed && <small className="rnd-field-help warn">Couldn't load the allowed values ({remote.error}). Type a value instead.</small>}
             {error && <small className="rnd-field-error">{error}</small>}
         </div>
@@ -131,7 +147,7 @@ function OptionInput({
 
     if (option.enforced && choices) {
         if (option.multivalued) {
-            const delimiter = optionDelimiter(option);
+            const delimiter = option.delimiter;
             const picked = new Set(splitMulti(value, delimiter));
             const toggle = (entry: string, on: boolean) => {
                 const next = choices.map((c) => c.value).filter((v) => (v === entry ? on : picked.has(v)));
@@ -171,11 +187,7 @@ function OptionInput({
                 value={value}
                 list={choices ? listId : undefined}
                 placeholder={
-                    option.is_date
-                        ? (option.date_format ?? "date")
-                        : option.multivalued
-                          ? `values separated by ${optionDelimiter(option)}`
-                          : undefined
+                    option.isDate ? (option.dateFormat ?? "date") : option.multivalued ? `values separated by ${option.delimiter}` : undefined
                 }
                 onChange={(e) => onChange(e.target.value)}
                 {...textProps}

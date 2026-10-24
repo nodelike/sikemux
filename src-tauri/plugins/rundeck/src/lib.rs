@@ -15,15 +15,21 @@
 //   plan        — read-only git inspection (dirty / ahead-behind / relation)
 
 mod agent;
+mod ansi;
 mod auth;
 mod client;
 mod config;
 mod error;
 mod executions;
+mod form;
 mod jobs;
 mod logs;
+mod notice;
+mod places;
 mod plan;
 mod projects;
+mod shape;
+mod views;
 mod watch;
 
 use std::sync::Arc;
@@ -94,6 +100,15 @@ struct ProjectExecutionsParams {
 struct ExecutionParams {
     #[serde(deserialize_with = "executions::id_from_string_or_number")]
     execution_id: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WatchParams {
+    #[serde(deserialize_with = "executions::id_from_string_or_number")]
+    execution_id: u64,
+    #[serde(default)]
+    job: Option<watch::WatchedJob>,
 }
 
 #[derive(Deserialize)]
@@ -182,6 +197,47 @@ impl Plugin for Rundeck {
             let session = &session;
             let branch_options = &saved.settings.branch_options;
             match method {
+                "treeView" => answer(views::tree_view(session)).await,
+                "jobsView" => {
+                    answer(views::jobs_view(session, &saved.settings, params(input)?)).await
+                }
+                "jobView" => {
+                    answer(views::job_view(session, &saved.settings, params(input)?)).await
+                }
+                "activityView" => {
+                    answer(views::activity_view(
+                        session,
+                        &saved.settings,
+                        params(input)?,
+                    ))
+                    .await
+                }
+                "executionView" => {
+                    answer(views::execution_view(
+                        session,
+                        &saved.settings,
+                        params(input)?,
+                    ))
+                    .await
+                }
+                "deployTargetView" => {
+                    answer(places::deploy_target_view(
+                        session,
+                        &saved.settings,
+                        params(input)?,
+                    ))
+                    .await
+                }
+                "catalogView" => answer(places::catalog_view(session, &saved.settings)).await,
+                "deployView" => {
+                    answer(form::deploy_view(session, &saved.settings, params(input)?)).await
+                }
+                "planView" => {
+                    answer(form::plan_view(session, &saved.settings, params(input)?)).await
+                }
+                "checkRun" => {
+                    answer(form::check_run(session, &saved.settings, params(input)?)).await
+                }
                 "projects" => answer(projects::projects(session)).await,
                 "jobs" => {
                     let ProjectParams { project } = params(input)?;
@@ -310,9 +366,16 @@ impl Plugin for Rundeck {
         Box::pin(async move {
             match method {
                 "watch" => {
-                    let ExecutionParams { execution_id } = params(input)?;
-                    let (session, _) = signed_in(ctx).await?;
-                    watch::watch(session, execution_id, sink).await
+                    let WatchParams { execution_id, job } = params(input)?;
+                    let (session, saved) = signed_in(ctx).await?;
+                    watch::watch(
+                        session,
+                        execution_id,
+                        job,
+                        saved.settings.branch_options,
+                        sink,
+                    )
+                    .await
                 }
                 "logs" => {
                     let LogsParams {

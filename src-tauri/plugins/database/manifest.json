@@ -4,6 +4,12 @@
   "version": "0.1.0",
   "sikemux": ">=0.4",
   "callTimeoutSecs": 600,
+  "views": {
+    "explorerView": { "everySecs": 120 },
+    "tableView": { "everySecs": 120 },
+    "historyView": { "everySecs": 30 }
+  },
+  "writes": ["save", "remove", "connect", "disconnect", "query", "agentQuery", "clearHistory"],
   "tools": [
     {
       "name": "db_databases",

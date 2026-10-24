@@ -1,19 +1,11 @@
-import { DEFAULT_NOTCH_SETTINGS } from "../notch/notchSettings";
-import type { CodeHostChoice } from "../api/generated/wire";
+import type { CodeHostChoice, Preferences } from "../api/generated/wire";
 import type { PluginManifest } from "../api/plugins";
 import { create } from "zustand";
 import { enableMapSet, produce, type Draft } from "immer";
-import { DEFAULT_THEME_ID, type Theme } from "../themes";
-import { DEFAULT_TERMINAL_FONT_SIZE } from "../terminal/fontSize";
-import { DEFAULT_CHAT_TEXT_SCALE } from "../chat/textScale";
-import { DEFAULT_EDITOR_TEXT_SCALE } from "../editor/textScale";
-import type { KeybindingOverrides } from "../commands/keybindings";
-import type { CustomCommand } from "../commands/registry";
 import type { SettingsPageId } from "../settings/settingsIndex";
 import { RAIL_WIDTH } from "../lib/railWidths";
 import { DEFAULT_BUDDY_STYLE } from "../buddies/style";
-import { DEFAULT_PROVIDER_PROFILES, DEFAULT_PROVIDER_PROFILE_SELECTION } from "./types";
-import type { AccountAgentType } from "../agents/catalog";
+import { defaultProviderProfiles, defaultProviderProfileSelection } from "./types";
 
 enableMapSet();
 import { makePane, newId } from "./layout";
@@ -31,13 +23,10 @@ import type {
     GitPaneView,
     GlobalSearchView,
     PickerMode,
-    ProjectRoot,
     ProjectSpace,
     ProviderProfile,
     ProviderProfileSelection,
     RecentEntry,
-    RailDensity,
-    MidTurnSend,
     TabRailScope,
     TabRailPage,
     PinnedChat,
@@ -58,86 +47,40 @@ export interface DomainState {
     activeSessionId: string;
 
     recent: RecentEntry[];
-
-    projectRoots: ProjectRoot[];
-    themeId: string;
-    /** User-defined themes, derived from a built-in or another custom theme via the theme editor. */
-    customThemes: Theme[];
-    uiTextScale: number;
-    paneShader: boolean;
     /** Agents show a character in place of their harness logo. */
-    buddies: boolean;
-    /** The default character style: a pack id or "all", and a shape id or "mixed". */
-    buddyPack: string;
-    buddyShape: string;
-    buddyMotion: boolean;
-    /** A picture on disk that panes show, dithered, in place of the grain. */
-    paneImage: string | null;
-    /** How strongly the pane texture or picture shows, 1 being as designed. */
-    paneStrength: number;
-    terminalFontSize: number;
-    chatTextScale: number;
-    editorTextScale: number;
-    windowOpacity: number;
-    windowBlur: number;
-    cloudBrowser: string;
-    cloudBrowserShortcut: string;
-    keybindingOverrides: KeybindingOverrides;
+    /** How agents' faces look, as the core keeps it. */
+    faceStyle: import("../api/generated/wire").FaceStyle;
+    /** The face each agent the core lists wears, or null while it shows its CLI's logo, by agent id. */
+    faces: Readonly<Record<string, import("../api/generated/wire").AgentFace | null>>;
     sideRailOpen: boolean;
     tabRailOpen: boolean;
     sideRailWidth: number;
     tabRailWidth: number;
     diffTarget: Record<string, DiffTarget | null>;
-    /** Each plugin's own settings, by plugin id, in whatever shape the plugin decodes. */
-    pluginSettings: Readonly<Record<string, unknown>>;
     /** Plugins switched off in Settings; they are built in but act as if absent. */
     disabledPlugins: readonly string[];
     /** The repository and account picked by hand on each code host, by project folder, as the core keeps them. */
     codeHosts: Readonly<Record<string, Record<string, CodeHostChoice>>>;
-    restoreAgentTabs: boolean;
     spaces: readonly ProjectSpace[];
     /** The space id each project belongs to, by project folder, so it outlives closing the project. */
     projectSpaces: Readonly<Record<string, string>>;
     /** The space the rail shows, or null for every project. */
     activeSpaceId: string | null;
-    agentNotifications: boolean;
-    notch: import("../notch/notchSettings").NotchSettings;
-    voiceDictation: boolean;
-    /** Agents get the iOS Simulator tools on a Mac that can run it. */
-    iosSimulator: boolean;
-    /** The simulator tab draws the device's frame and side buttons around its screen. */
-    simulatorFrame: boolean;
-    notificationsIntroduced: boolean;
-    /** The person was told once that terminals keep running after Sikemux quits. */
-    keptRunningNoticeShown: boolean;
-    railDensity: RailDensity;
-    midTurnSend: MidTurnSend;
+    /** How the person wants Sikemux to behave, as the core keeps it; null until read. */
+    preferences: Preferences | null;
     /** The tab rail shows every CLI's chats instead of one provider's. */
     tabRailAllAgents: boolean;
     /** Providers whose chats move to the next signed-in account when one runs out of usage. */
-    accountAutoSwitch: Partial<Record<AccountAgentType, boolean>>;
+    accountAutoSwitch: Partial<Record<AgentType, boolean>>;
     tabRailScope: TabRailScope;
     tabRailPage: TabRailPage;
     pinnedChats: PinnedChat[];
-    onboardingComplete: boolean;
-    lastSeenVersion: string;
-    customCommands: CustomCommand[];
-    updateChannel: "stable" | "nightly";
-    shareUsageData: boolean;
     lastReleaseNotes: HeldRelease | null;
     recentCommandKeys: string[];
     /** Non-secret launch profiles and the per-agent defaults that reference them. */
     providerProfiles: ProviderProfile[];
     selectedProviderProfileIds: ProviderProfileSelection;
     defaultAgentPermissionMode: AgentPermissionMode;
-    /** The agent ⌘N starts: whichever was launched last. */
-    lastAgentType: AgentType | null;
-    /** Whether each project, by root path, may start its language servers. A project absent here has not been asked. */
-    languageServerTrust: Record<string, boolean>;
-    /** Whether a new chat in each project, by root path, starts with its Worktree switch on. */
-    agentWorktreeDefaults: Record<string, boolean>;
-    /** For a project folder that holds several repositories, by root path, the one its Git views open. */
-    defaultGitRepos: Record<string, string>;
 }
 
 export type UpdateOperationState = "available" | "waiting" | "preparing" | "downloading" | "installing" | "restarting" | "error";
@@ -215,9 +158,11 @@ export interface ViewState {
     globalSearchBySession: Record<string, GlobalSearchView>;
 
     /** How the core shows each open agent, by id, as its device view last said. Never persisted. */
-    agentStatus: Record<string, import("./agentStatus").AgentShown>;
+    agentStatus: Record<string, import("../api/generated/wire").AgentShown>;
+    /** How each project's open agents show together, by project id, as the core last said. Never persisted. */
+    projectStatus: Record<string, import("../api/generated/wire").AgentRollup>;
     /** Questions agents asked that wait on an answer, as the core last sent them. */
-    agentQuestions: import("../agents/agentQuestions").AgentQuestion[];
+    agentQuestions: import("../api/agentQuestions").AgentQuestion[];
     /** Each project's board cards, by the project folder the core names, as the core last sent them. */
     agentBoards: Record<string, import("../agents/agentBoard").BoardCard[]>;
     /** Each project's Auto settings and how many of its agents run, by the same project folder. */
@@ -236,10 +181,10 @@ export interface ViewState {
     lastSessionId: string | null;
     /** The account's other hosts this app joined, and how each is reached. */
     hosts: readonly import("../hosts/hosts").HostEntry[];
+    /** The SSH hosts a terminal is open to, without Sikemux on them from here, as the core lists them. */
+    openSshHosts: readonly import("../hosts/hosts").HostRow[];
     /** What each of those hosts last showed this app, by its id. */
     hostViews: Readonly<Record<string, import("../api/generated/wire").DeviceView>>;
-    /** What asking each SSH host found, by its alias, for those that run Sikemux. */
-    sshProbes: Readonly<Record<string, import("../hosts/hosts").SshProbe>>;
     /** The SSH hosts being set up now, by alias. */
     sshWork: Readonly<Record<string, import("../hosts/hosts").SshWork>>;
     /** The host chosen under Hosts, beside the chosen project: where the tab rail looks and new work starts. */
@@ -289,65 +234,29 @@ export const useStore = create<StoreState>(() => {
         windowsBySession: { [session.id]: [window.id] },
         activeSessionId: session.id,
         recent: [],
-        projectRoots: [],
-        themeId: DEFAULT_THEME_ID,
-        customThemes: [],
-        uiTextScale: 1,
-        paneShader: true,
-        buddies: false,
-        buddyPack: DEFAULT_BUDDY_STYLE.pack,
-        buddyShape: DEFAULT_BUDDY_STYLE.shape,
-        buddyMotion: true,
-        paneImage: null,
-        paneStrength: 1,
-        terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
-        chatTextScale: DEFAULT_CHAT_TEXT_SCALE,
-        editorTextScale: DEFAULT_EDITOR_TEXT_SCALE,
-        windowOpacity: 1,
-        windowBlur: 0,
-        cloudBrowser: "",
-        cloudBrowserShortcut: "",
-        keybindingOverrides: {},
+        faceStyle: { on: false, pack: DEFAULT_BUDDY_STYLE.pack, shape: DEFAULT_BUDDY_STYLE.shape, motion: true },
+        faces: {},
         sideRailOpen: true,
         tabRailOpen: true,
         sideRailWidth: RAIL_WIDTH.start.initial,
         tabRailWidth: RAIL_WIDTH.end.initial,
         diffTarget: {},
-        pluginSettings: {},
         disabledPlugins: [],
         codeHosts: {},
-        restoreAgentTabs: true,
         spaces: [],
         projectSpaces: {},
         activeSpaceId: null,
-        agentNotifications: true,
-        notch: DEFAULT_NOTCH_SETTINGS,
-        voiceDictation: false,
-        iosSimulator: true,
-        simulatorFrame: true,
-        notificationsIntroduced: false,
-        keptRunningNoticeShown: false,
-        railDensity: "comfortable",
-        midTurnSend: "steer",
+        preferences: null,
         tabRailAllAgents: false,
         accountAutoSwitch: {},
         tabRailScope: "project",
         tabRailPage: "agents",
         pinnedChats: [],
-        onboardingComplete: false,
-        lastSeenVersion: "",
-        customCommands: [],
-        updateChannel: "stable",
-        shareUsageData: true,
         lastReleaseNotes: null,
         recentCommandKeys: [],
-        providerProfiles: DEFAULT_PROVIDER_PROFILES.map((profile) => ({ ...profile })),
-        selectedProviderProfileIds: { ...DEFAULT_PROVIDER_PROFILE_SELECTION },
+        providerProfiles: defaultProviderProfiles(),
+        selectedProviderProfileIds: defaultProviderProfileSelection(),
         defaultAgentPermissionMode: "bypass",
-        lastAgentType: null,
-        languageServerTrust: {},
-        agentWorktreeDefaults: {},
-        defaultGitRepos: {},
 
         home: "",
         pluginManifests: [],
@@ -376,6 +285,7 @@ export const useStore = create<StoreState>(() => {
         gitCmdLogOpen: false,
         globalSearchBySession: {},
         agentStatus: {},
+        projectStatus: {},
         agentQuestions: [],
         agentBoards: {},
         agentBoardAuto: {},
@@ -389,10 +299,10 @@ export const useStore = create<StoreState>(() => {
         terminalTitles: {},
         lastSessionId: null,
         hosts: [],
+        openSshHosts: [],
         hostViews: {},
         chosenHost: { kind: "core" },
         lastOnHost: {},
-        sshProbes: {},
         sshWork: {},
         pendingUpdate: null,
         updateBlockers: [],

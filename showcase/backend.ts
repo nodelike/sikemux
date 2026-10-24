@@ -16,18 +16,13 @@ import {
 } from "./world/agents";
 import { BRANCHES, FILE_DIFFS, GIT_STATUS } from "./world/git";
 import { RUNDECK, rundeckStream } from "./world/rundeck";
-import { GITHUB } from "./world/github";
+import { GITHUB, openJobLog, openRun } from "./world/github";
 import { JIRA } from "./world/jira";
 import { VERCEL } from "./world/vercel";
 import { SIGNOZ, signozTail } from "./world/signoz";
 import { AWS, awsLogLines } from "./world/aws";
 import { demoActivity } from "./world/activity";
-import {
-  BRUNO_COLLECTION,
-  BRUNO_FILES,
-  CHECKOUT_RESPONSE,
-  brunoDir,
-} from "./world/bruno";
+import { BRUNO_VIEWS } from "./world/bruno";
 import {
   BROWSER_TABS,
   placeBrowserPage,
@@ -44,6 +39,9 @@ import { terminalReplay } from "./world/terminals";
 import { PtyOutput, type PtyChannel } from "./ptyOutput";
 import { AGENTS, demoSnapshot, demoWorkspace } from "./world/workspace";
 import { DEMO_BOARD, DEMO_MESSAGES } from "./world/board";
+import { DEMO_PALETTE, DEMO_THEMES, demoPalette } from "./world/theme";
+import type { Theme } from "../src/themes";
+import AGENT_CATALOG from "../src/test/agentCatalog.generated.json";
 import type { BoardCard } from "../src/agents/agentBoard";
 
 type Args = Record<string, unknown>;
@@ -312,8 +310,88 @@ export class ShowcaseBackend implements IpcTransport {
     this.on("take_deep_links", constant([]));
     this.on("harness_claim", constant([]));
     this.on("agent_sessions_watch_start", constant(1));
-    this.on("lsp_locations", constant([]));
-    this.on("lsp_document_symbols", constant([]));
+    this.onCore(["lsp.locations", "lsp.symbols"], constant([]));
+    this.onCore(
+      ["faceStyle", "setFaceStyle"],
+      constant({ on: true, pack: "all", shape: "mixed", motion: true }),
+    );
+    this.onCore(["theme"], (args) =>
+      demoPalette((args as { params?: { id?: string } | null }).params?.id),
+    );
+    this.onCore(["themes"], constant(DEMO_THEMES));
+    this.onCore(["themePalette"], (args) => ({
+      ...DEMO_PALETTE,
+      theme: (args as { params: { theme: Theme } }).params.theme,
+    }));
+    this.onCore(
+      ["preferences", "setPreference"],
+      constant({
+        midTurnSend: "steer",
+        uiTextScale: 1,
+        terminalFontSize: 13,
+        chatTextScale: 1,
+        editorTextScale: 1,
+        themeId: "aura-noir",
+        customThemes: [],
+        lastAgentType: null,
+        agentWorktreeDefaults: {},
+        restoreAgentTabs: true,
+        agentNotifications: false,
+        projectRoots: [
+          { path: `${DEMO_HOME}/code`, depth: 1, selfIndex: false },
+        ],
+        defaultGitRepos: {},
+        languageServerTrust: Object.fromEntries(
+          DEMO_PROJECTS.map((project) => [project.path, true]),
+        ),
+        customCommands: [],
+        pluginSettings: {
+          "sikemux.rundeck": { activeProject: "platform", activeGroup: null },
+          "sikemux.signoz": { minutes: 60, environment: "production" },
+          "sikemux.github": { pinned: [] },
+        },
+        cloudBrowser: "",
+        cloudBrowserShortcut: "",
+        iosSimulator: true,
+        notch: {
+          enabled: false,
+          displays: "all",
+          openWith: "hover",
+          fullScreen: "needsYou",
+          peeks: "all",
+          answerInNotch: true,
+          sound: true,
+          haptics: true,
+          yieldToDev: true,
+        },
+        voiceDictation: false,
+        updateChannel: "stable",
+        shareUsageData: false,
+        onboardingComplete: true,
+        lastSeenVersion: "0.5.3",
+        notificationsIntroduced: true,
+        keptRunningNoticeShown: true,
+        paneShader: true,
+        paneImage: PANE_IMAGE,
+        paneStrength: 1.8,
+        windowOpacity: 0.81,
+        windowBlur: 0,
+        railDensity: "comfortable",
+        simulatorFrame: true,
+        keybindingOverrides: {},
+      }),
+    );
+    this.onCore(
+      [
+        "lsp.start",
+        "lsp.open",
+        "lsp.change",
+        "lsp.changeIncremental",
+        "lsp.close",
+        "lsp.stop",
+      ],
+      constant(null),
+    );
     this.on("simulator_attachments", constant([SIM_ATTACHED]));
     this.on(
       "sim_status",
@@ -355,15 +433,11 @@ export class ShowcaseBackend implements IpcTransport {
       "state_save",
       "path_kinds",
       "write_file",
-      "lsp_start",
-      "lsp_open",
-      "lsp_change",
-      "lsp_change_incremental",
-      "lsp_close",
-      "lsp_stop",
-      "pty_resize",
       "pty_write",
+      "pty_call",
+      "pty_input",
       "pty_unsubscribe",
+      "pty_clear",
       "sim_watch_read",
       "sim_unwatch",
       "sim_prepare",
@@ -386,8 +460,8 @@ export class ShowcaseBackend implements IpcTransport {
         { alias: "db-replica", hostname: "10.20.0.31", user: "edon", port: 22 },
       ]),
     );
-    this.on(
-      "scan_project_roots",
+    this.onCore(
+      ["projectRoots"],
       constant(DEMO_PROJECTS.map(({ name, path }) => ({ name, path }))),
     );
 
@@ -395,16 +469,8 @@ export class ShowcaseBackend implements IpcTransport {
     this.on("markdown_parse", ({ requests }) =>
       server("markdown", { requests }),
     );
-    this.on(
-      "read_file",
-      ({ path }) =>
-        BRUNO_FILES[path as string] ?? server("read_file", { path }),
-    );
-    this.on("read_dir", ({ path }) =>
-      (path as string).startsWith(BRUNO_COLLECTION)
-        ? brunoDir(path as string)
-        : [],
-    );
+    this.on("read_file", ({ path }) => server("read_file", { path }));
+    this.on("read_dir", () => []);
     this.on("preview_file", ({ path }) =>
       path === PANE_IMAGE ? { mime: "image/jpeg", size: 0, modified: 0 } : null,
     );
@@ -412,12 +478,14 @@ export class ShowcaseBackend implements IpcTransport {
       content: await server<string>("read_file", { path }),
       version: "showcase",
     }));
-    this.on("read_text_file_limited", ({ path }) =>
-      server("read_file", { path }),
+    this.onCore(["files.readText"], ({ params }) =>
+      server("read_file", { path: (params as Args).path }),
     );
-    this.on("list_project_files_snapshot", async ({ repo }) => ({
+    this.onCore(["projectFiles"], async ({ params }) => ({
       scanId: 1,
-      files: await server<string[]>("list_files", { repo }),
+      files: await server<string[]>("list_files", {
+        repo: (params as Args).project,
+      }),
     }));
     const projectAt = (repo: unknown) =>
       DEMO_PROJECTS.find((candidate) => candidate.path === repo)?.name;
@@ -535,26 +603,46 @@ export class ShowcaseBackend implements IpcTransport {
       });
       return id;
     });
+    const sizes = new Map<number, { cols: number; rows: number }>();
+    const ptyOutputs = new Map<number, PtyOutput>();
+    this.on("pty_resize", ({ id, cols, rows }) => {
+      const size = { cols: cols as number, rows: rows as number };
+      sizes.set(id as number, size);
+      const output = ptyOutputs.get(id as number);
+      if (output) {
+        Object.assign(output.screen, size);
+        output.changed();
+      }
+    });
     this.on("pty_attach", ({ id, onEvent }) => {
       const pane = ptyPanes.get(id as number);
-      if (pane?.paneId)
-        this.outputs.set(pane.paneId, new PtyOutput(onEvent as PtyChannel));
-      const replay = new TextEncoder().encode(
-        terminalReplay(pane?.paneId, pane?.cwd ?? null),
-      );
+      const output = new PtyOutput(onEvent as PtyChannel);
+      Object.assign(output.screen, sizes.get(id as number) ?? {});
+      output.screen.write(terminalReplay(pane?.paneId, pane?.cwd ?? null));
+      ptyOutputs.set(id as number, output);
+      if (pane?.paneId) this.outputs.set(pane.paneId, output);
+      const frame = output.screen.frame();
       const header = new TextEncoder().encode(
-        JSON.stringify({ subId: 1, alternateScreen: false, shell: null }),
+        JSON.stringify({ subId: 1, shell: null }),
       );
-      const out = new Uint8Array(4 + header.length + replay.length);
+      const out = new Uint8Array(4 + header.length + frame.length);
       new DataView(out.buffer).setUint32(0, header.length, true);
       out.set(header, 4);
-      out.set(replay, 4 + header.length);
+      out.set(frame, 4 + header.length);
       return out.buffer;
     });
-    this.on("pty_ack", ({ id, bytes }) => {
-      const paneId = ptyPanes.get(id as number)?.paneId;
-      if (paneId) this.outputs.get(paneId)?.ack(bytes as number);
+    this.on("pty_ack", ({ id }) => ptyOutputs.get(id as number)?.ack());
+    this.on("pty_lines", ({ id, start, count }) => {
+      const lines = ptyOutputs
+        .get(id as number)
+        ?.screen.history(start as number, count as number);
+      return (lines ?? new Uint8Array([0, 0, 0, 0, 0])).buffer;
     });
+    this.on("pty_text", constant(""));
+    this.on(
+      "pty_find",
+      constant({ epoch: 0, current: null, matches: [], more: false }),
+    );
 
     this.on("available_agents", constant(AVAILABLE_AGENTS));
     this.onCore(["savedSessions"], ({ params }) => {
@@ -596,19 +684,26 @@ export class ShowcaseBackend implements IpcTransport {
     this.onCore(["modelProviders"], () => []);
     // Each time a pane opens a chat the demo starts it again from its script, as acp_start did:
     // the first attach finds nothing, startChat plays the history, and the next attach takes it up.
-    this.on("acp_attach", ({ agentId }) => {
-      const start = this.justStarted.get(agentId as string);
-      if (!start) return { status: "missing" };
-      this.justStarted.delete(agentId as string);
-      return {
-        status: "live",
-        start,
-        permissionMode: "workspace-write",
-        running: false,
-        turned: true,
-        feed: `feed-${String(agentId)}`,
-        olderBefore: null,
+    this.on("acp_attach", async ({ agentId }) => {
+      const chat = agentId as string;
+      if (!this.justStarted.delete(chat)) return { status: "missing" };
+      await this.folding.get(chat);
+      const { view, seq } = await server<{ view: unknown; seq: number }>(
+        "fold",
+        { chat, view: true },
+      );
+      return { status: "live", view, feed: `feed-${chat}`, seq };
+    });
+    this.onCore(["chatToolDetail"], async ({ params }) => {
+      const { agentId, toolCallId } = params as {
+        agentId: string;
+        toolCallId: string;
       };
+      const { detail } = await server<{ detail: unknown }>("fold", {
+        chat: agentId,
+        detail: toolCallId,
+      });
+      return detail ?? {};
     });
     this.on("acp_list", () => []);
     this.on("pty_sessions", () => []);
@@ -617,8 +712,12 @@ export class ShowcaseBackend implements IpcTransport {
     );
     const spareNames = ["Lark", "Fern", "Quartz", "Dune", "Pika", "Aster"];
     this.on("agent_name_call", constant(null));
+    this.onCore(["agentCatalog"], constant(AGENT_CATALOG));
     this.onCore(["chatStates", "questions", "shares"], constant([]));
-    this.onCore(["answerQuestion", "answerQuestions"], constant({ answered: true }));
+    this.onCore(
+      ["answerQuestion", "answerQuestions"],
+      constant({ answered: true }),
+    );
     this.onCore(["stopChatIfIdle"], constant({ stopped: false }));
     this.onCore(["agentSessions"], ({ params }) =>
       sessionSearch(params as { query: string; limit?: number }),
@@ -638,11 +737,11 @@ export class ShowcaseBackend implements IpcTransport {
         parent: null,
       };
     });
-    this.onCore(["inbox", "agentMessages"], ({ method, params }) => {
-      if (method === "agentMessages")
+    this.onCore(["inbox", "agentMessageRows"], ({ method, params }) => {
+      if (method === "agentMessageRows")
         return {
           project: (params as { project: string }).project,
-          entries: DEMO_MESSAGES,
+          rows: DEMO_MESSAGES,
         };
       return {
         items: [],
@@ -653,10 +752,20 @@ export class ShowcaseBackend implements IpcTransport {
         remoteAgents: [],
         order: [],
         agents: [],
+        projects: {},
+        rollup: null,
       };
     });
     this.onCore(
-      ["boards", "board", "boardAdd", "boardUpdate", "boardRemove", "boardSettings", "boardRetry"],
+      [
+        "boards",
+        "board",
+        "boardAdd",
+        "boardUpdate",
+        "boardRemove",
+        "boardSettings",
+        "boardRetry",
+      ],
       ({ method, params }) => {
         const { id, status } = (params ?? {}) as {
           id?: number;
@@ -681,11 +790,16 @@ export class ShowcaseBackend implements IpcTransport {
     this.onCore(["workspace"], constant(demoWorkspace()));
     this.onCore(["startChat"], ({ params }) => {
       const { agentId } = params as { agentId: string };
-      const agent = Object.values(AGENTS).find((candidate) => candidate.id === agentId);
+      const agent = Object.values(AGENTS).find(
+        (candidate) => candidate.id === agentId,
+      );
       this.startAgent(agentId, agent?.type ?? "claude");
       return null;
     });
-    this.onCore(["ports", "taskRuns", "trustAsks", "closedAgents", "agentSignIns"], constant([]));
+    this.onCore(
+      ["ports", "taskRuns", "trustAsks", "closedAgents", "agentSignIns"],
+      constant([]),
+    );
     this.onCore(["agentNameTheme"], constant({ theme: "anime" }));
     this.onCore(["setAgentNameTheme"], ({ params }) => params);
     this.onCore(["tasks"], ({ params }) => ({
@@ -694,8 +808,13 @@ export class ShowcaseBackend implements IpcTransport {
       trusted: true,
       tasks: [],
     }));
-    this.on("core_call", ({ method, params }) =>
-      this.coreMethods.get(method as string)?.({ method, params: params as Args }) ?? null,
+    this.on(
+      "core_call",
+      ({ method, params }) =>
+        this.coreMethods.get(method as string)?.({
+          method,
+          params: params as Args,
+        }) ?? null,
     );
     this.on("acp_start", ({ agentId, provider }) =>
       this.startAgent(agentId as string, provider as string),
@@ -705,18 +824,174 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.rundeck": RUNDECK,
       "sikemux.signoz": SIGNOZ,
       "sikemux.aws": AWS,
-      "sikemux.bruno": { send: () => CHECKOUT_RESPONSE },
+      "sikemux.bruno": BRUNO_VIEWS,
       "sikemux.github": GITHUB,
       "sikemux.database": DATABASE,
       "sikemux.jira": JIRA,
       "sikemux.vercel": VERCEL,
       "sikemux.slack": {
-        status: () => ({ configured: true, ok: true, authFailed: false, message: null, workspaces: [] }),
+        status: () => ({
+          configured: true,
+          ok: true,
+          authFailed: false,
+          message: null,
+          workspaces: [],
+        }),
       },
       "sikemux.linear": {
-        status: () => ({ configured: false, ok: false, authFailed: false, message: null, workspaces: [] }),
+        status: () => ({
+          configured: false,
+          ok: false,
+          authFailed: false,
+          message: null,
+          workspaces: [],
+        }),
       },
     };
+    type Listed = { outcome: string; sha: string; status: string };
+    const tally = (runs: Listed[]) => {
+      const count = (...outcomes: string[]) =>
+        runs.filter((run) => outcomes.includes(run.outcome)).length;
+      const [failing, running, queued, waiting] = [
+        count("failure"),
+        count("running"),
+        count("queued"),
+        count("blocked"),
+      ];
+      return {
+        outcome: failing
+          ? "failure"
+          : running
+            ? "running"
+            : queued
+              ? "queued"
+              : waiting
+                ? "blocked"
+                : "success",
+        total: runs.length,
+        passed: count("success", "skipped"),
+        failing,
+        running,
+        queued,
+        waiting,
+        cancelled: count("cancelled"),
+        unknown: count("unknown"),
+      };
+    };
+    const listed = <T>(value: T) => ({ value });
+    this.onCore(["codeHostPulls"], ({ params }) => {
+      const pulls = GITHUB.pulls(params as Args) as {
+        number: number;
+        state: string;
+        draft: boolean;
+        mergedAt: string | null;
+        headSha: string | null;
+      }[];
+      return listed({
+        pulls: pulls.map((pull) => {
+          const runs = pull.headSha
+            ? (GITHUB.runs({ headSha: pull.headSha }) as { runs: Listed[] })
+                .runs
+            : [];
+          return {
+            pull,
+            ownBranch: true,
+            state: pull.mergedAt
+              ? "merged"
+              : pull.state === "open" && pull.draft
+                ? "draft"
+                : pull.state,
+            closes: [],
+            checks: runs.length ? tally(runs) : null,
+          };
+        }),
+        counts: GITHUB.pullCounts({}),
+      });
+    });
+    this.onCore(["codeHostRuns"], ({ params }) => {
+      const page = GITHUB.runs(params as Args) as {
+        runs: Listed[];
+        total: number;
+        nextPage: number | null;
+      };
+      return listed({
+        ...page,
+        runs: page.runs.map((run) => ({
+          run,
+          unfinished: run.status !== "completed",
+        })),
+      });
+    });
+    this.onCore(["codeHostIssues"], ({ params }) =>
+      listed({
+        ...(GITHUB.issues(params as Args) as object),
+        counts: GITHUB.issueCounts({}),
+      }),
+    );
+    this.onCore(["codeHostPull"], ({ params }) => {
+      const pull = GITHUB.pull(params as Args) as {
+        number: number;
+        state: string;
+        draft: boolean;
+        mergedAt: string | null;
+        headSha: string | null;
+        mergeState: string | null;
+      };
+      const reviews = GITHUB.pullReviews({}) as { state: string }[];
+      const runs = pull.headSha
+        ? (GITHUB.runs({ headSha: pull.headSha }) as { runs: Listed[] }).runs
+        : [];
+      const said = reviews.map((review) => review.state);
+      const readiness: Record<string, string> = {
+        dirty: "conflicts",
+        blocked: "blocked",
+        behind: "behind",
+        clean: "ready",
+        unstable: "ready",
+        has_hooks: "ready",
+      };
+      return listed({
+        pull,
+        state: pull.mergedAt
+          ? "merged"
+          : pull.state === "open" && pull.draft
+            ? "draft"
+            : pull.state,
+        closes: [],
+        ownBranch: true,
+        verdict: said.includes("CHANGES_REQUESTED")
+          ? "changesRequested"
+          : said.includes("APPROVED")
+            ? "approved"
+            : null,
+        reviewed: reviews.length > 0,
+        merge: readiness[pull.mergeState ?? ""] ?? "checking",
+        checks: runs.length ? tally(runs) : null,
+        runs: runs.map((run) => ({
+          run,
+          unfinished: run.status !== "completed",
+        })),
+      });
+    });
+    this.onCore(["codeHostRun"], ({ params }) =>
+      listed(openRun((params as Args).runId as number)),
+    );
+    this.onCore(["codeHostJobLog"], ({ params }) =>
+      listed(openJobLog(String((params as Args).jobId))),
+    );
+    this.onCore(["codeHostReleases"], () => {
+      const releases = GITHUB.releases({}) as {
+        id: number;
+        draft: boolean;
+        prerelease: boolean;
+      }[];
+      return listed({
+        releases,
+        latest:
+          releases.find((release) => !release.draft && !release.prerelease)
+            ?.id ?? null,
+      });
+    });
     this.on("plugin_call", ({ plugin, method, params }) => {
       const answer = plugins[plugin as string]?.[method as string];
       if (!answer)
@@ -726,17 +1001,33 @@ export class ShowcaseBackend implements IpcTransport {
         };
       return answer((params ?? {}) as Args);
     });
-    let nextStream = 1;
-    this.on("plugin_stream_start", ({ plugin, method, onEvent }) => {
-      const channel = onEvent as { onmessage: (event: unknown) => void };
+    this.onCore(["pluginView"], ({ params }) => {
+      const { plugin, method, params: asked } = params as Args;
+      const answer = plugins[plugin as string]?.[method as string];
+      return answer
+        ? { value: answer((asked ?? {}) as Args) }
+        : {
+            failed: {
+              plugin,
+              category: "unavailable",
+              message: `showcase has no ${String(plugin)}.${String(method)}`,
+            },
+          };
+    });
+    this.onCore(["pluginStream"], ({ params }) => {
+      const { stream, plugin, method } = params as Args;
       const emit = (value: unknown) =>
-        setTimeout(() => channel.onmessage({ kind: "item", value }), 30);
+        setTimeout(
+          () =>
+            this.emit("core_stream", { stream, items: [value], done: false }),
+          30,
+        );
       if (plugin === "sikemux.rundeck") rundeckStream(method as string, emit);
       if (plugin === "sikemux.aws" && method === "tailLogs")
         for (const line of awsLogLines()) emit(line);
       if (plugin === "sikemux.signoz" && method === "tailLogs")
         emit(signozTail());
-      return nextStream++;
+      return { stream };
     });
 
     this.on(
@@ -781,15 +1072,14 @@ export class ShowcaseBackend implements IpcTransport {
         platform: string;
       }[],
     };
-    const account = {
-      signedIn: true,
-      userId: "user_demo",
-      email: "edon@acme.dev",
-      name: "Edon Ramos",
-      picture: null,
-    };
-    this.on("account_status", () => account);
-    this.on("account_refresh_profile", () => account);
+    this.onCore(
+      ["account"],
+      constant({
+        name: "Edon Ramos",
+        email: "edon@acme.dev",
+        pictureHash: null,
+      }),
+    );
     this.on("account_phones", constant([]));
     this.on("account_hosts", constant([]));
     this.on("remote_status", () => ({ ...remote }));
@@ -806,7 +1096,9 @@ export class ShowcaseBackend implements IpcTransport {
 
   async showSimulator(screen: string): Promise<void> {
     this.simulatorScreen = screen;
-    const frame = await (await fetch(`/__showcase/simulator/frame/${screen}`)).arrayBuffer();
+    const frame = await (
+      await fetch(`/__showcase/simulator/frame/${screen}`)
+    ).arrayBuffer();
     this.simulator?.onmessage(frame);
   }
 
@@ -820,17 +1112,34 @@ export class ShowcaseBackend implements IpcTransport {
         card.id === id ? { ...card, ...changes, updatedAt: Date.now() } : card,
       ),
     };
-    this.emit("core_changed", { topic: "boards", project: this.board.project, paths: null });
+    this.emit("core_changed", {
+      topic: "boards",
+      project: this.board.project,
+      paths: null,
+    });
   }
 
-  private readonly liveSteps: { agentId: string; run: () => void; holdMs: number }[] = [];
+  private readonly liveSteps: {
+    agentId: string;
+    run: () => void;
+    holdMs: number;
+  }[] = [];
 
   /** Plays every queued step, or only `agentId`'s, at once and ends each turn, so the chats are idle. */
   settleLive(agentId?: string): void {
-    const agents = new Set(this.liveSteps.map((step) => step.agentId).filter((id) => !agentId || id === agentId));
+    const agents = new Set(
+      this.liveSteps
+        .map((step) => step.agentId)
+        .filter((id) => !agentId || id === agentId),
+    );
     while (this.stepLive(agentId) >= 0);
     for (const agentId of agents)
-      this.emit("acp_event", { agentId, kind: "turn_completed", payload: { stopReason: "end_turn", at: Date.now() } });
+      this.fold(agentId, [
+        {
+          kind: "turn_completed",
+          payload: { stopReason: "end_turn", at: Date.now() },
+        },
+      ]);
   }
 
   /**
@@ -839,30 +1148,84 @@ export class ShowcaseBackend implements IpcTransport {
    */
   async cue(name: string): Promise<void> {
     const { agentId, updates } = CUED_TURNS[name];
-    const read = await Promise.all(updates.map((update) => this.withPicture(update)));
+    const read = await Promise.all(
+      updates.map((update) => this.withPicture(update)),
+    );
     this.queueLiveTurn(agentId, read, this.batchFor(agentId), true);
   }
 
   // A picture is shrunk to a screenshot's size first, or the chat keeps it only by name.
-  private async withPicture(update: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const content = update.content as { type?: string; uri?: string } | undefined;
+  private async withPicture(
+    update: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const content = update.content as
+      { type?: string; uri?: string } | undefined;
     if (content?.type !== "image" || !content.uri) return update;
-    const picture = await createImageBitmap(await (await fetch(content.uri)).blob());
+    const picture = await createImageBitmap(
+      await (await fetch(content.uri)).blob(),
+    );
     const scale = Math.min(1, 1280 / picture.width);
-    const canvas = new OffscreenCanvas(Math.round(picture.width * scale), Math.round(picture.height * scale));
-    canvas.getContext("2d")!.drawImage(picture, 0, 0, canvas.width, canvas.height);
-    const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 })).arrayBuffer());
+    const canvas = new OffscreenCanvas(
+      Math.round(picture.width * scale),
+      Math.round(picture.height * scale),
+    );
+    canvas
+      .getContext("2d")!
+      .drawImage(picture, 0, 0, canvas.width, canvas.height);
+    const bytes = new Uint8Array(
+      await (
+        await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 })
+      ).arrayBuffer(),
+    );
     let binary = "";
     for (let at = 0; at < bytes.length; at += 0x8000)
       binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-    return { ...update, content: { type: "image", mimeType: "image/jpeg", data: btoa(binary) } };
+    return {
+      ...update,
+      content: { type: "image", mimeType: "image/jpeg", data: btoa(binary) },
+    };
+  }
+
+  /** What each chat's folding is up to, so its changes go out in the order its script says them. */
+  private readonly folding = new Map<string, Promise<void>>();
+
+  /** Hands a chat's events to the core's fold and sends the page what it changed, as the core would. */
+  private fold(
+    agentId: string,
+    events: { kind: string; payload: unknown }[],
+    reset = false,
+  ): void {
+    const before = this.folding.get(agentId) ?? Promise.resolve();
+    const next = before
+      .then(() =>
+        server<{ changes: unknown[]; seq: number }>("fold", {
+          chat: agentId,
+          events,
+          reset,
+        }),
+      )
+      .then(({ changes, seq }) => {
+        if (changes.length)
+          this.emit("acp_event", {
+            agentId,
+            kind: "changes",
+            seq,
+            payload: changes,
+          });
+      });
+    this.folding.set(
+      agentId,
+      next.catch(() => {}),
+    );
   }
 
   private batchFor(agentId: string) {
     const sessionId = `session-${agentId}`;
-    return (updates: Record<string, unknown>[]) => ({
-      updates: updates.map((update) => ({ sessionId, update })),
-    });
+    return (updates: Record<string, unknown>[]) =>
+      updates.map((update) => ({
+        kind: "session_update",
+        payload: { sessionId, update },
+      }));
   }
 
   /**
@@ -870,7 +1233,10 @@ export class ShowcaseBackend implements IpcTransport {
    * Given an agent, only that agent's turn moves on, so several can work at once.
    */
   stepLive(agentId?: string): number {
-    const index = agentId === undefined ? 0 : this.liveSteps.findIndex((step) => step.agentId === agentId);
+    const index =
+      agentId === undefined
+        ? 0
+        : this.liveSteps.findIndex((step) => step.agentId === agentId);
     const [step] = index < 0 ? [] : this.liveSteps.splice(index, 1);
     if (!step) return -1;
     step.run();
@@ -880,15 +1246,13 @@ export class ShowcaseBackend implements IpcTransport {
   private queueLiveTurn(
     agentId: string,
     live: Record<string, unknown>[],
-    batch: (updates: Record<string, unknown>[]) => unknown,
+    batch: (
+      updates: Record<string, unknown>[],
+    ) => { kind: string; payload: unknown }[],
     completes = false,
   ) {
     const send = (updates: Record<string, unknown>[]) =>
-      this.emit("acp_event", {
-        agentId,
-        kind: "session_update",
-        payload: batch(updates),
-      });
+      this.fold(agentId, batch(updates));
     const strip = ({
       durationMs: _durationMs,
       board: _board,
@@ -900,7 +1264,9 @@ export class ShowcaseBackend implements IpcTransport {
     this.liveSteps.push({
       agentId,
       run: () =>
-        this.emit("acp_event", { agentId, kind: "turn_started", payload: { at: Date.now() } }),
+        this.fold(agentId, [
+          { kind: "turn_started", payload: { at: Date.now() } },
+        ]),
       holdMs: 400,
     });
     let finishing: Record<string, unknown> | null = null;
@@ -911,7 +1277,8 @@ export class ShowcaseBackend implements IpcTransport {
       const shown = isTool
         ? { ...strip(update), status: update.asks ? "pending" : "in_progress" }
         : strip(update);
-      const card = update.board as (Partial<BoardCard> & { id: number }) | undefined;
+      const card = update.board as
+        (Partial<BoardCard> & { id: number }) | undefined;
       const page = update.browser as BrowserPage | undefined;
       this.liveSteps.push({
         agentId,
@@ -929,27 +1296,33 @@ export class ShowcaseBackend implements IpcTransport {
             shown,
           ]);
           if (card) this.changeCard(card);
-          if (typeof update.simulator === "string") void this.showSimulator(update.simulator);
+          if (typeof update.simulator === "string")
+            void this.showSimulator(update.simulator);
           if (page) {
             showBrowserPage(agentId, page);
             this.emit("browser-tabs-changed", null);
             this.emit("browser-agent-acting", agentId);
           }
           if (update.asks)
-            this.emit("acp_event", {
-              agentId,
-              kind: "permission_request",
-              payload: {
-                requestId: `ask-${String(update.toolCallId)}`,
-                sessionId: `session-${agentId}`,
-                toolCall: strip(update),
-                options: [
-                  { optionId: "allow", name: "Allow", kind: "allow_once" },
-                  { optionId: "always", name: "Always allow", kind: "allow_always" },
-                  { optionId: "deny", name: "Deny", kind: "reject_once" },
-                ],
+            this.fold(agentId, [
+              {
+                kind: "permission_request",
+                payload: {
+                  requestId: `ask-${String(update.toolCallId)}`,
+                  sessionId: `session-${agentId}`,
+                  toolCall: strip(update),
+                  options: [
+                    { optionId: "allow", name: "Allow", kind: "allow_once" },
+                    {
+                      optionId: "always",
+                      name: "Always allow",
+                      kind: "allow_always",
+                    },
+                    { optionId: "deny", name: "Deny", kind: "reject_once" },
+                  ],
+                },
               },
-            });
+            ]);
         },
         holdMs: Number(update.durationMs ?? (isTool ? 1200 : 600)),
       });
@@ -960,8 +1333,19 @@ export class ShowcaseBackend implements IpcTransport {
       agentId,
       run: () => {
         if (last)
-          send([{ sessionUpdate: "tool_call_update", toolCallId: last.toolCallId, status: "completed" }]);
-        this.emit("acp_event", { agentId, kind: "turn_completed", payload: { stopReason: "end_turn", at: Date.now() } });
+          send([
+            {
+              sessionUpdate: "tool_call_update",
+              toolCallId: last.toolCallId,
+              status: "completed",
+            },
+          ]);
+        this.fold(agentId, [
+          {
+            kind: "turn_completed",
+            payload: { stopReason: "end_turn", at: Date.now() },
+          },
+        ]);
       },
       holdMs: 400,
     });
@@ -975,36 +1359,42 @@ export class ShowcaseBackend implements IpcTransport {
     new URLSearchParams(location.search).has("video") ? [AGENTS.hero.id] : [],
   );
 
-  private readonly justStarted = new Map<string, { sessionId: string; capabilities: object; setup: object }>();
+  private readonly justStarted = new Set<string>();
 
   private startAgent(agentId: string, provider: string) {
     const full = AGENT_SCRIPTS[agentId];
-    const lastAnswer = full ? full.history.findLastIndex((update) => update.sessionUpdate !== "user_message_chunk") : -1;
+    const lastAnswer = full
+      ? full.history.findLastIndex(
+          (update) => update.sessionUpdate !== "user_message_chunk",
+        )
+      : -1;
     const script =
       full && this.settledScripts.has(agentId)
-        ? { ...full, history: full.history.slice(0, lastAnswer + 1), live: undefined }
+        ? {
+            ...full,
+            history: full.history.slice(0, lastAnswer + 1),
+            live: undefined,
+          }
         : full;
     const setup = { configOptions: MODEL_OPTIONS[provider] ?? [] };
     const sessionId = `session-${agentId}`;
     const batch = this.batchFor(agentId);
-    if (script) {
-      this.emit("acp_event", {
-        agentId,
-        kind: "session_update",
-        payload: batch([
-          ...recorded(script.history),
-          { sessionUpdate: "usage_update", ...script.usage },
-        ]),
-      });
-    }
-    this.emit("acp_event", {
-      agentId,
-      kind: "ready",
-      payload: { capabilities: {}, setup },
-    });
-    if (script?.live) this.queueLiveTurn(agentId, script.live, batch);
     const start = { sessionId, capabilities: {}, setup };
-    this.justStarted.set(agentId, start);
+    this.fold(
+      agentId,
+      [
+        { kind: "ready", payload: start },
+        ...(script
+          ? batch([
+              ...recorded(script.history),
+              { sessionUpdate: "usage_update", ...script.usage },
+            ])
+          : []),
+      ],
+      true,
+    );
+    if (script?.live) this.queueLiveTurn(agentId, script.live, batch);
+    this.justStarted.add(agentId);
     return start;
   }
 }

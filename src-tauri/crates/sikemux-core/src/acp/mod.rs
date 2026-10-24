@@ -26,7 +26,7 @@ use crate::launch::PermissionMode;
 use crate::protocol::ChatContext;
 
 const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
-const MAX_ATTACHMENTS: usize = 32;
+pub const MAX_ATTACHMENTS: usize = 32;
 const MAX_CONTEXT_ITEMS: usize = 16;
 
 pub fn bounded_text(name: &str, value: &str, max: usize) -> Result<(), String> {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AgentIcon, IconChevron, IconUser } from "../ui/Icons";
-import { agentLabel, hasAccounts, type AccountAgentType, type ChatAgentType } from "../agents/catalog";
+import { agentLabel, hasAccounts, type AgentType } from "../agents/catalog";
 import { modelProvidersApi, modelWords, type ModelProvider, type ServedModels } from "../api/modelProviders";
 import { accountName, accountsOf, moveChat } from "../agents/accounts";
 import type { AgentUsage } from "../api/agents";
@@ -10,11 +10,12 @@ import { fetchResource, peekResource } from "../state/resources";
 import { agentAccountR, agentUsageR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
-import { DEFAULT_PROVIDER_PROFILE_SELECTION, type Agent, type ProviderProfile } from "../state/types";
+import { defaultProviderProfileSelection, type Agent, type ProviderProfile } from "../state/types";
 import { selectedProviderProfile } from "../agents/agentProfiles";
 import * as cmd from "../state/commands";
 import PickerMenu, { type AgentChoicesProps, type Choice } from "./PickerMenu";
-import { currentLabel, pickerSlots, sessionConfigs, type SessionConfig } from "./sessionConfig";
+import type { ConfigPicker } from "../api/generated/wire";
+import { currentLabel } from "./sessionConfig";
 
 export function Picker({
     name,
@@ -266,18 +267,16 @@ export function AccountPicker({
     const profile = useStore(
         (s) =>
             chosen ??
-            selectedProviderProfile(agent.type, s.providerProfiles, { ...DEFAULT_PROVIDER_PROFILE_SELECTION, ...s.selectedProviderProfileIds }),
+            selectedProviderProfile(agent.type, s.providerProfiles, { ...defaultProviderProfileSelection(), ...s.selectedProviderProfileIds }),
     );
     const [movable, load] = useMovable(agent, profile, started);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const trigger = useRef<HTMLButtonElement>(null);
-    const provider = agent.type as AccountAgentType;
+    const provider = agent.type as AgentType;
     if (!profile || !movable.some((row) => row.account.id !== profile.id)) return null;
     const name = accountName(profile, peekResource(agentAccountR, provider, profile.configPath));
     const move = (account: ProviderProfile) =>
-        started
-            ? moveChat(agent, account)
-            : cmd.configureEmptyAgent(agent.id, agent.type as ChatAgentType, account.id, agent.model, agent.modelProvider);
+        started ? moveChat(agent, account) : cmd.configureEmptyAgent(agent.id, agent.type, account.id, agent.model, agent.modelProvider);
     const items: CtxItem[] = movable.map(({ account, usage }) => ({
         ...accountItem(provider, account, account.id === profile.id, usage),
         run: account.id === profile.id ? undefined : () => move(account),
@@ -323,7 +322,8 @@ export function AccountPicker({
 export function ComposerPickers({
     agent,
     profile,
-    setup,
+    model: modelPicker,
+    effort: effortPicker,
     disabled,
     agentLocked = false,
     onConfig,
@@ -331,34 +331,37 @@ export function ComposerPickers({
 }: {
     agent: Agent;
     profile?: ProviderProfile;
-    setup: Record<string, unknown>;
+    /** The session's model picker and effort picker, as the core reads them. */
+    model?: ConfigPicker | null;
+    effort?: ConfigPicker | null;
     disabled: boolean;
     agentLocked?: boolean;
-    onAgent: (type: ChatAgentType, profileId?: string, model?: string, modelProvider?: string) => void;
-    onConfig: (config: SessionConfig, value: string) => void;
+    onAgent: (type: AgentType, profileId?: string, model?: string, modelProvider?: string) => void;
+    onConfig: (picker: ConfigPicker, value: string) => void;
 }) {
-    const configs = sessionConfigs(setup);
+    const slots = [{ id: "model", picker: modelPicker }, ...(effortPicker ? [{ id: effortPicker.id, picker: effortPicker }] : [])];
     const agentIcon = <AgentIcon type={agent.type} size={17} className={`agent-glyph ${agent.type}`} />;
     const rowIcon = <AgentIcon type={agent.type} size={15} className={`agent-glyph ${agent.type}`} />;
-    const [switching, setSwitching] = useState<Record<string, unknown>>();
+    /* The model picker an agent switch started from; a new one says the new agent's session is ready. */
+    const [switching, setSwitching] = useState<{ from: ConfigPicker | null | undefined }>();
     const [routes, loadRoutes] = useRoutes(agent.type, agent.modelProvider);
-    const loading = switching !== undefined && (disabled || switching === setup);
+    const loading = switching !== undefined && (disabled || (modelPicker != null && switching.from === modelPicker));
     useEffect(() => {
         if (switching && !loading) setSwitching(undefined);
     }, [switching, loading]);
     const route = routes.find((item) => item.provider.id === agent.modelProvider);
     const relaunch: typeof onAgent = (...choice) => {
-        setSwitching(setup);
+        setSwitching({ from: modelPicker });
         onAgent(...choice);
     };
     return (
         <div className="chat-pickers">
-            {pickerSlots(configs, agent.type).map(({ id, config }) => {
+            {slots.map(({ id, picker: config }) => {
                 const model = id === "model";
                 const name = model ? "Model" : "Reasoning effort";
                 const current = currentLabel(config) ?? (model ? agent.model || "Model" : agent.effort || "Effort");
                 const label = model && route ? `${current} · ${route.provider.label}` : current;
-                const listed = config?.options || [];
+                const listed = config?.choices || [];
                 const served = model ? (route?.served.models ?? []).filter((value) => !listed.some((option) => option.value === value)) : [];
                 const options = [...listed, ...served.map((value) => ({ value, label: route ? servedLabel(route, value) : value }))];
                 return (
@@ -366,7 +369,7 @@ export function ComposerPickers({
                         key={id}
                         name={name}
                         label={label}
-                        value={config?.currentValue || ""}
+                        value={config?.current || ""}
                         options={model ? options.map((option) => ({ ...option, icon: rowIcon })) : options}
                         disabled={disabled || (!options.length && (!model || agentLocked))}
                         icon={model ? agentIcon : undefined}
@@ -382,9 +385,7 @@ export function ComposerPickers({
                                     modelProvider={agent.modelProvider}
                                     profile={profile}
                                     routes={routes}
-                                    onPick={(next) =>
-                                        relaunch(agent.type as ChatAgentType, profile?.id, next?.served.defaults[agent.type], next?.provider.id)
-                                    }
+                                    onPick={(next) => relaunch(agent.type, profile?.id, next?.served.defaults[agent.type], next?.provider.id)}
                                 />
                             ) : undefined
                         }
@@ -399,7 +400,7 @@ export function ComposerPickers({
                         }
                         compact={model}
                         onSelect={(value) => {
-                            if (config && value !== config.currentValue) onConfig(config, value);
+                            if (config && value !== config.current) onConfig(config, value);
                         }}
                     />
                 );

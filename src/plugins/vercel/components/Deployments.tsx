@@ -3,9 +3,8 @@ import { formatAgo, formatDuration } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { ContextMenu, Dropdown, EmptyState, Pending, StaleNotice } from "../../../plugin-api/ui";
 import type { VercelDeployment, VercelProject } from "../api";
-import { vercelDeploymentsR } from "../resources";
-import { useRefreshEvery } from "../../../plugin-api/hooks";
-import { isUnderway, UNDERWAY_REFRESH_MS, type EnvironmentFilter, type StatusFilter, type VercelView } from "../state";
+import { vercelDeploymentsV } from "../resources";
+import { isUnderway, type EnvironmentFilter, type StatusFilter, type VercelView } from "../state";
 import { Avatar, EnvBadge, IconMore, Source, Status, useDeploymentActions } from "./parts";
 
 const ENVIRONMENTS: { value: EnvironmentFilter; label: string }[] = [
@@ -24,6 +23,7 @@ const STATUSES: { value: StatusFilter; label: string }[] = [
 
 /** A project's deployments as Vercel lists them: what, how it went, where, from what, when and by whom. */
 export function Deployments({
+    paneId,
     active,
     team,
     project,
@@ -33,6 +33,7 @@ export function Deployments({
     onFilter,
     onOpen,
 }: {
+    paneId: string;
     active: boolean;
     team: string;
     project: VercelProject;
@@ -42,13 +43,13 @@ export function Deployments({
     onFilter: (patch: Partial<Pick<VercelView, "environment" | "status">>) => void;
     onOpen: (id: string) => void;
 }) {
-    const deployments = useResourceEnabled(active, vercelDeploymentsR, team, project.name);
+    const deployments = useResourceEnabled(active, vercelDeploymentsV, paneId, team, project.name);
+    const listed = deployments.data?.deployments;
     const actions = useDeploymentActions(team);
     const [menu, setMenu] = useState<{ deployment: VercelDeployment; x: number; y: number } | null>(null);
-    useRefreshEvery(deployments, active && deployments.data?.some((each) => isUnderway(each.state)) ? UNDERWAY_REFRESH_MS : null);
 
     const words = find.trim().toLowerCase();
-    const shown = (deployments.data ?? []).filter(
+    const shown = (listed ?? []).filter(
         (each) =>
             (environment === "all" || each.target === environment) &&
             (status === "all" || each.state === status || (status === "BUILDING" && isUnderway(each.state))) &&
@@ -74,10 +75,10 @@ export function Deployments({
                 />
             </div>
             <StaleNotice handle={deployments} />
-            {!deployments.data ? (
+            {!listed ? (
                 <Pending handle={deployments} loading="Loading deployments" />
             ) : shown.length === 0 ? (
-                <EmptyState message={deployments.data.length === 0 ? "No deployments yet." : "No deployment matches these filters."} />
+                <EmptyState message={listed.length === 0 ? "No deployments yet." : "No deployment matches these filters."} />
             ) : (
                 <div className="vercel-table" role="table" aria-label="Deployments">
                     {shown.map((each) => {

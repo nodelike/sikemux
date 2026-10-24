@@ -1,9 +1,8 @@
 import { Segmented } from "../../ui/Controls";
 import { useMemo, useState, type ReactNode } from "react";
 import { confirmDialog, copyText, notify, openUrl, reportError, swallow } from "../../plugin-api/host";
-import { checkoutPull, isOwnBranch, localBranchOf } from "../checkout";
 import { useHost } from "../registry";
-import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
+import { useResourceEnabled } from "../../plugin-api/resources";
 import {
     Dropdown,
     EmptyState,
@@ -31,15 +30,26 @@ import { FileIcon } from "../../ui/FileIcon";
 import { SwipePages } from "../../ui/SwipePages";
 import { basename, dirname } from "../../lib/paths";
 import { requestOpenFile } from "../../state/commands";
-import { hostApi, type MergeMethod, type Pull, type RepoRef, type Run } from "../api";
+import {
+    hostApi,
+    type CheckTally,
+    type ListedPull,
+    type MergeMethod,
+    type MergeReadiness,
+    type OpenPull,
+    type Pull,
+    type RepoRef,
+    type ReviewVerdict,
+} from "../api";
 import { errorText } from "../../lib/format";
-import { pullCommitsR, pullCountsR, pullFilesR, pullR, pullReviewsR, pullsR, runsR, timelineR } from "../resources";
-import { checksSummary, outcomeOf, overallOutcome, type Outcome } from "../runStatus";
+import { pullCommitsR, timelineR } from "../resources";
+import { checkoutPull, pullFilesR, pullListR, pullViewR } from "../lists";
+import { tallySummary, type Outcome } from "../runStatus";
 import { needsPull } from "../compose";
 import { compose, openRunFrom, setListState, showItem } from "../state";
 import { CommentThread, Face } from "./CommentThread";
 import { SectionIcon, StatusMark } from "./ActionsIcon";
-import { closedIssues, pullState } from "../project";
+import { pullState } from "../project";
 import { Branch, Comments, Labels, ListTitle, ShellAccount, StateMark, Who } from "./Bits";
 import { useBusy } from "./hooks";
 import { useNow } from "../../plugin-api/hooks";
@@ -51,19 +61,6 @@ import { formatAgo } from "../../lib/format";
 
 const LIST_STATES = ["open", "closed", "all"];
 
-export function reviewVerdict(reviews: readonly { author: string | null; state: string }[]): string | null {
-    // Only a person's latest review counts, which is how GitHub scores it too.
-    const latest = new Map<string, string>();
-    for (const review of reviews) {
-        if (review.state === "COMMENTED" || review.state === "DISMISSED") continue;
-        latest.set(review.author ?? "", review.state);
-    }
-    const states = [...latest.values()];
-    if (states.includes("CHANGES_REQUESTED")) return "Changes requested";
-    if (states.includes("APPROVED")) return "Approved";
-    return null;
-}
-
 /** Who opened it, its state and title, then its number, age and branches: one headline for the list and the open pull request. */
 function PullHeadline({
     pull,
@@ -72,6 +69,7 @@ function PullHeadline({
     trailing,
     meta,
     labels = false,
+    state: listed,
 }: {
     pull: Pull;
     now: number;
@@ -81,8 +79,10 @@ function PullHeadline({
     meta?: ReactNode;
     /** The open pull request's header: when it last changed and its labels, rather than the list's opened and updated. */
     labels?: boolean;
+    /** Its state as the core listed it, with a draft and a merge told apart. */
+    state?: string;
 }) {
-    const state = pullState(pull);
+    const state = listed ?? pullState(pull);
     return (
         <>
             <span className="pr-face">
@@ -115,49 +115,28 @@ function PullHeadline({
     );
 }
 
-function PullCi({ runs }: { runs: readonly Run[] }) {
-    const overall = overallOutcome(runs);
-    // Nothing started yet reads apart from something running.
-    const outcome = overall === "running" && !runs.some((run) => outcomeOf(run) === "running") ? "queued" : overall;
-    const summary = checksSummary(runs);
-    const passed = runs.filter((run) => ["success", "skipped"].includes(outcomeOf(run))).length;
+function PullCi({ tally }: { tally: CheckTally }) {
+    const summary = tallySummary(tally);
     return (
         <Tooltip label={summary === "all passed" ? "All checks passed" : `Checks: ${summary}`}>
-            <span className="pr-ci" data-outcome={outcome}>
-                <StatusMark outcome={outcome} size={13} />
+            <span className="pr-ci" data-outcome={tally.outcome}>
+                <StatusMark outcome={tally.outcome} size={13} />
                 <span className="pr-ci-count">
-                    {passed}/{runs.length}
+                    {tally.passed}/{tally.total}
                 </span>
             </span>
         </Tooltip>
     );
 }
 
-function PullRow({
-    repo,
-    pull,
-    recent,
-    active,
-    now,
-    onOpen,
-}: {
-    repo: RepoRef;
-    pull: Pull;
-    /** Its commit's runs among the repository's latest, when they are there. */
-    recent: readonly Run[] | undefined;
-    active: boolean;
-    now: number;
-    onOpen: () => void;
-}) {
-    // An older pull request's commit is past the repository's latest runs, so it asks for its own, as its page does.
-    const own = useResourceEnabled(active && !recent && !!pull.headSha, runsR, { ...repo, headSha: pull.headSha ?? "", perPage: 30 });
-    const runs = recent ?? own.data?.runs;
-    const ci = runs?.length ? <PullCi runs={runs} /> : null;
-    const issues = useMemo(() => closedIssues(pull.body), [pull.body]);
+function PullRow({ listed, now, onOpen }: { listed: ListedPull; now: number; onOpen: () => void }) {
+    const { pull, closes: issues } = listed;
+    const ci = listed.checks ? <PullCi tally={listed.checks} /> : null;
     return (
         <button type="button" className="pr-row pr-headline" onClick={onOpen}>
             <PullHeadline
                 pull={pull}
+                state={listed.state}
                 now={now}
                 title={<span className="pr-headline-title">{pull.title}</span>}
                 meta={ci && <span className="pr-ci-meta">{ci}</span>}
@@ -184,6 +163,7 @@ function PullRow({
 
 interface DetailProps {
     repo: RepoRef;
+    project: string;
     cwd: string | null;
     projectBranch: string | null;
     number: number;
@@ -199,22 +179,22 @@ const MERGE_METHODS: { value: MergeMethod; label: string }[] = [
     { value: "rebase", label: "Rebase" },
 ];
 
-function mergeability(mergeState: string | null, base: string, hostName: string): { outcome: Outcome; title: string; detail: string | null } {
-    switch (mergeState) {
-        case "dirty":
+function mergeability(merge: MergeReadiness, base: string, hostName: string): { outcome: Outcome; title: string; detail: string | null } {
+    switch (merge) {
+        case "conflicts":
             return { outcome: "failure", title: `Conflicts with ${base}`, detail: "Resolve the conflicts before merging." };
         case "blocked":
             return { outcome: "blocked", title: "Merging is blocked", detail: `${hostName} is waiting on the required reviews and checks.` };
         case "behind":
             return { outcome: "blocked", title: `Behind ${base}`, detail: "Bring the branch up to date before merging." };
-        case "clean":
-        case "unstable":
-        case "has_hooks":
+        case "ready":
             return { outcome: "success", title: "Ready to merge", detail: null };
-        default:
+        case "checking":
             return { outcome: "queued", title: "Checking whether it can merge", detail: null };
     }
 }
+
+const VERDICT_LABEL: Record<ReviewVerdict, string> = { approved: "Approved", changesRequested: "Changes requested" };
 
 function MergePart({ outcome, title, detail }: { outcome: Outcome; title: string; detail?: string | null }) {
     return (
@@ -228,21 +208,9 @@ function MergePart({ outcome, title, detail }: { outcome: Outcome; title: string
     );
 }
 
-function MergeBox({
-    repo,
-    pull,
-    verdict,
-    reviewed,
-    active,
-    onOpenRun,
-}: {
-    repo: RepoRef;
-    pull: Pull;
-    verdict: string | null;
-    reviewed: boolean;
-    active: boolean;
-    onOpenRun: (runId: string) => void;
-}) {
+function MergeBox({ repo, view, active, onOpenRun }: { repo: RepoRef; view: OpenPull; active: boolean; onOpenRun: (runId: string) => void }) {
+    const { pull, reviewed } = view;
+    const verdict = view.verdict ? VERDICT_LABEL[view.verdict] : null;
     const host = useHost();
     const { pulls } = host.capabilities;
     const methods = MERGE_METHODS.filter((each) => pulls.mergeMethods.includes(each.value));
@@ -261,7 +229,6 @@ function MergeBox({
         try {
             await hostApi(repo.provider).mergePull(repo, pull.number, method, pull.headSha ?? "");
             notify("success", `Merged #${pull.number}`);
-            invalidate((kind) => kind.startsWith("host.pull"));
         } catch (error) {
             reportError(`Could not merge #${pull.number}`)(error);
         }
@@ -281,13 +248,12 @@ function MergeBox({
         try {
             await hostApi(repo.provider).setPullState(repo, pull.number, open ? "closed" : "open");
             notify("success", open ? `Closed #${pull.number}` : `Reopened #${pull.number}`);
-            invalidate((kind) => kind.startsWith("host.pull"));
         } catch (error) {
             reportError(open ? "Could not close it" : "Could not reopen it")(error);
         }
     };
 
-    const checks = pull.headSha ? <PullChecks repo={repo} sha={pull.headSha} active={active} onOpenRun={onOpenRun} /> : null;
+    const checks = <PullChecks repo={repo} checks={view.checks} runs={view.runs} active={active} onOpenRun={onOpenRun} />;
     if (pull.state === "merged") {
         const merger = pull.mergedBy ?? null;
         const commit = pull.mergeCommitSha;
@@ -348,7 +314,7 @@ function MergeBox({
             : verdict === "Changes requested"
               ? { outcome: "failure" as const, title: "Changes requested" }
               : { outcome: "queued" as const, title: reviewed ? "No approving review yet" : "No reviews yet" };
-    const merging = pulls.mergeability ? mergeability(pull.mergeState, base, host.name) : null;
+    const merging = pulls.mergeability ? mergeability(view.merge, base, host.name) : null;
     return (
         <div className="gha-merge-box">
             <MergePart outcome={verdictPart.outcome} title={verdictPart.title} />
@@ -381,19 +347,30 @@ function MergeBox({
 }
 
 /** Checks the pull request's branch out in this project, one of the side panel's actions. */
-function CheckoutButton({ cwd, repo, pull, current }: { cwd: string | null; repo: RepoRef; pull: Pull; current: string | null }) {
-    const host = useHost();
+function CheckoutButton({
+    cwd,
+    project,
+    pull,
+    checkout,
+    current,
+}: {
+    cwd: string | null;
+    project: string | null;
+    pull: Pull;
+    /** The local branch the core says checking it out makes, none when it cannot be. */
+    checkout: string | null;
+    current: string | null;
+}) {
     const [busy, runBusy] = useBusy();
-    const local = localBranchOf(pull, repo);
-    const here = !!local && local === current;
-    const can = !!cwd && pull.state === "open" && (isOwnBranch(pull, repo) || !!host.pullHeadRef);
+    const here = !!checkout && checkout === current;
+    const can = !!cwd && !!project && pull.state === "open" && !!checkout;
     return (
         <Tooltip
             label={
                 here
-                    ? `${local} is checked out in this project`
+                    ? `${checkout} is checked out in this project`
                     : can
-                      ? `Check out ${local ?? "the branch"} in this project`
+                      ? `Check out ${checkout} in this project`
                       : "Only an open pull request in this project's repository can be checked out"
             }>
             <button
@@ -401,11 +378,11 @@ function CheckoutButton({ cwd, repo, pull, current }: { cwd: string | null; repo
                 className="git-btn"
                 disabled={busy || here || !can}
                 onClick={() =>
-                    cwd &&
+                    project &&
                     runBusy(() =>
-                        checkoutPull(cwd, host, repo, pull)
+                        checkoutPull(project, pull.number)
                             .then(() => notify("success", `Checked out #${pull.number}`))
-                            .catch(swallow("check out the pull request")),
+                            .catch(reportError(`Could not check out #${pull.number}`)),
                     )
                 }>
                 {here ? <IconCheck size={13} /> : <IconCheckout size={13} />}
@@ -417,19 +394,21 @@ function CheckoutButton({ cwd, repo, pull, current }: { cwd: string | null; repo
 
 /** The pull request's changed files as rows, like Changes lists staged and unstaged ones. */
 function PullFileRows({
+    project,
     repo,
     number,
     active,
     focus,
     onFocus,
 }: {
+    project: string | null;
     repo: RepoRef;
     number: number;
     active: boolean;
     focus: string | null;
     onFocus: (path: string) => void;
 }) {
-    const files = useResourceEnabled(active, pullFilesR, repo, number);
+    const files = useResourceEnabled(active, pullFilesR, project, repo, number);
     const list = files.data ?? [];
     const added = list.reduce((sum, file) => sum + file.additions, 0);
     const removed = list.reduce((sum, file) => sum + file.deletions, 0);
@@ -489,6 +468,7 @@ export type PullTab = "conversation" | "files";
  */
 export function PullRight({
     repo,
+    project,
     cwd,
     number,
     tab,
@@ -500,6 +480,8 @@ export function PullRight({
     onLeaveCommit,
 }: {
     repo: RepoRef;
+    /** The project the pull request is of, or none for one the inbox opened. */
+    project: string | null;
     cwd: string | null;
     number: number;
     tab: PullTab;
@@ -511,11 +493,11 @@ export function PullRight({
     onLeaveCommit: () => void;
 }) {
     const host = useHost();
-    const pull = useResourceEnabled(active, pullR, repo, number);
+    const view = useResourceEnabled(active, pullViewR, project, repo, number);
     const timeline = useResourceEnabled(active, timelineR, repo, number, "pull");
     const now = useNow(false);
-    if (!pull.data) return <SkeletonRows rows={6} label="Loading pull request" />;
-    const found = pull.data;
+    if (!view.data) return <SkeletonRows rows={6} label="Loading pull request" />;
+    const found = view.data.pull;
     const said =
         (timeline.data ?? []).filter((item) => item.kind === "commented" || (item.kind === "reviewed" && (item.body ?? "").trim())).length + 1;
     const tabs: { id: PullTab; label: string; count: number | null }[] = [
@@ -606,7 +588,7 @@ export function PullRight({
                     <EmptyState message="This repository is not checked out here, so its commits cannot be opened." />
                 )
             ) : (
-                <PullFiles repo={repo} pull={found} cwd={cwd} active={active} focusPath={focus ?? undefined} />
+                <PullFiles project={project} repo={repo} pull={found} cwd={cwd} active={active} focusPath={focus ?? undefined} />
             )}
         </div>
     );
@@ -678,6 +660,7 @@ type SidePage = "files" | "commits" | "merge";
 /** An open pull request's side panel, laid out like the git pane's: what it is and its actions, then its files, commits and merge as pages. */
 function PullColumn({
     repo,
+    project,
     cwd,
     projectBranch,
     number,
@@ -696,25 +679,16 @@ function PullColumn({
     onClose: () => void;
 }) {
     const host = useHost();
-    const pull = useResourceEnabled(active, pullR, repo, number);
-    const reviews = useResourceEnabled(active, pullReviewsR, repo, number);
+    const view = useResourceEnabled(active, pullViewR, project, repo, number);
     const [page, setPage] = useState<SidePage>("files");
-    if (pull.status === "loading" && !pull.data) return <SkeletonRows rows={8} label="Loading pull request" />;
-    if (!pull.data) {
-        return <EmptyState title="Could not read it" message={errorText(pull.error)} tone="error" action={{ label: "Back", onClick: onClose }} />;
+    if (view.status === "loading" && !view.data) return <SkeletonRows rows={8} label="Loading pull request" />;
+    if (!view.data) {
+        return <EmptyState title="Could not read it" message={errorText(view.error)} tone="error" action={{ label: "Back", onClick: onClose }} />;
     }
-    const found = pull.data;
-    const reviewList = reviews.data ?? [];
+    const found = view.data.pull;
     const merge = (
         <div className="pr-card">
-            <MergeBox
-                repo={repo}
-                pull={found}
-                verdict={reviewVerdict(reviewList)}
-                reviewed={reviewList.length > 0}
-                active={active}
-                onOpenRun={onOpenRun}
-            />
+            <MergeBox repo={repo} view={view.data} active={active} onOpenRun={onOpenRun} />
         </div>
     );
     const open = found.state === "open";
@@ -727,13 +701,13 @@ function PullColumn({
                             <IconChevron size={11} />
                         </button>
                     </Tooltip>
-                    <StateMark kind="pull" state={pullState(found)} size={14} />
+                    <StateMark kind="pull" state={view.data.state} size={14} />
                     <span className="pr-side-number">#{found.number}</span>
                     <span className="gha-page-spacer" />
                     <ShellAccount />
                 </div>
                 <div className="git-btn-group git-side-actions pr-side-actions" role="group" aria-label="Pull request">
-                    <CheckoutButton cwd={cwd} repo={repo} pull={found} current={projectBranch} />
+                    <CheckoutButton cwd={cwd} project={project} pull={found} checkout={view.data.checkout ?? null} current={projectBranch} />
                     <button type="button" className="git-btn" onClick={() => void openUrl(found.url).catch(swallow(`open ${host.name}`))}>
                         <IconExternal size={13} />
                         {host.name}
@@ -743,7 +717,7 @@ function PullColumn({
                         className={`git-btn${open && !found.draft && found.mergeState !== "dirty" ? " primary" : ""}`}
                         onClick={() => setPage("merge")}>
                         <IconMerge size={13} />
-                        {open ? "Merge" : pullState(found) === "merged" ? "Merged" : "Closed"}
+                        {open ? "Merge" : view.data.state === "merged" ? "Merged" : "Closed"}
                     </button>
                 </div>
             </div>
@@ -756,7 +730,7 @@ function PullColumn({
                         id: "files",
                         label: "Files",
                         icon: <IconFile size={14} />,
-                        content: <PullFileRows repo={repo} number={number} active={active} focus={focus} onFocus={onFocus} />,
+                        content: <PullFileRows project={project} repo={repo} number={number} active={active} focus={focus} onFocus={onFocus} />,
                     },
                     {
                         id: "commits",
@@ -774,6 +748,7 @@ function PullColumn({
 interface Props {
     paneId: string;
     repo: RepoRef;
+    project: string;
     listState: string;
     item: number | null;
     composing: boolean;
@@ -784,17 +759,11 @@ interface Props {
     active: boolean;
 }
 
-export function PullsView({ paneId, repo, listState, item, composing, projectBranch, cwd, login, active }: Props) {
+export function PullsView({ paneId, repo, project, listState, item, composing, projectBranch, cwd, login, active }: Props) {
     const listing = item === null && !composing;
-    const pulls = useResourceEnabled(active, pullsR, repo, listState);
-    const counts = useResourceEnabled(active && item === null, pullCountsR, repo).data;
-    const open = useResourceEnabled(active && listing && !!projectBranch, pullsR, repo, "open");
-    const recentRuns = useResourceEnabled(active && listing, runsR, { ...repo, perPage: 100 });
-    const runsBySha = useMemo(() => {
-        const bySha = new Map<string, Run[]>();
-        for (const run of recentRuns.data?.runs ?? []) bySha.set(run.sha, [...(bySha.get(run.sha) ?? []), run]);
-        return bySha;
-    }, [recentRuns.data]);
+    const pulls = useResourceEnabled(active, pullListR, project, listState);
+    const counts = pulls.data?.counts;
+    const open = useResourceEnabled(active && listing && !!projectBranch, pullListR, project, "open");
     useCiWatch(repo, active && listing);
     const now = useNow(false);
     const [commit, setCommit] = useState<{ pull: number; sha: string } | null>(null);
@@ -809,8 +778,8 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
             <NewPullForm
                 paneId={paneId}
                 repo={repo}
+                project={project}
                 cwd={cwd}
-                head={projectBranch}
                 active={active}
                 onCreated={(number) => showItem(paneId, number)}
                 onCancel={() => compose(paneId, null)}
@@ -818,8 +787,14 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
         );
     }
 
-    const rows = pulls.data ?? [];
-    const offer = !!open.data && needsPull(projectBranch, open.data, []);
+    const rows = pulls.data?.pulls ?? [];
+    const offer =
+        !!open.data &&
+        needsPull(
+            projectBranch,
+            open.data.pulls.map(({ pull }) => pull),
+            [],
+        );
     const list =
         pulls.status === "loading" && !pulls.data ? (
             <SkeletonRows rows={8} label="Loading pull requests" />
@@ -867,16 +842,8 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
                     <EmptyState icon={<IconPullRequest size={20} />} message={`No ${listState === "all" ? "" : listState} pull requests.`} />
                 ) : (
                     <div className="pr-rows">
-                        {rows.map((pull) => (
-                            <PullRow
-                                key={pull.number}
-                                repo={repo}
-                                pull={pull}
-                                recent={pull.headSha ? runsBySha.get(pull.headSha) : undefined}
-                                active={active}
-                                now={now}
-                                onOpen={() => showItem(paneId, pull.number)}
-                            />
+                        {rows.map((listed) => (
+                            <PullRow key={listed.pull.number} listed={listed} now={now} onOpen={() => showItem(paneId, listed.pull.number)} />
                         ))}
                     </div>
                 )}
@@ -888,6 +855,7 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
     const left = (
         <PullColumn
             repo={repo}
+            project={project}
             cwd={cwd}
             projectBranch={projectBranch}
             number={item}
@@ -913,6 +881,7 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
     const right = (
         <PullRight
             repo={repo}
+            project={project}
             cwd={cwd}
             number={item}
             tab={tab}

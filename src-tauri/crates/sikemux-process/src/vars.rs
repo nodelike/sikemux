@@ -4,6 +4,10 @@ pub const AGENT_ID: &str = "SIKEMUX_AGENT_ID";
 pub const AGENT_TYPE: &str = "SIKEMUX_AGENT_TYPE";
 pub const TOOLS_AGENT_ID: &str = "SIKEMUX_TOOLS_AGENT_ID";
 pub const CLI_ENDPOINT: &str = "SIKEMUX_CLI_ENDPOINT";
+pub const CONFIG_DIR: &str = "SIKEMUX_CONFIG_DIR";
+pub const TRYOUT_SEEDED_AT: &str = "SIKEMUX_TRYOUT_SEEDED_AT";
+/// Set when the app opens, it opens its window without coming in front of the app in use.
+pub const LAUNCH_BEHIND: &str = "SIKEMUX_LAUNCH_BEHIND";
 pub const CLI_ENDPOINT_PUBLISH: &str = "SIKEMUX_CLI_ENDPOINT_PUBLISH";
 pub const REAL_GIT: &str = "SIKEMUX_REAL_GIT";
 pub const PROJECT: &str = "SIKEMUX_PROJECT";
@@ -22,6 +26,9 @@ pub const WINDOW_ID: &str = "SIKEMUX_WINDOW_ID";
 pub const PANE_ID: &str = "SIKEMUX_PANE_ID";
 pub const BIN_PATH: &str = "SIKEMUX_BIN_PATH";
 pub const SHELL_INTEGRATION: &str = "SIKEMUX_SHELL_INTEGRATION";
+/// `path` in a sandbox's own environment: agent CLIs are looked up only on the PATH it was
+/// started with, never in the person's login shell or the folders installers use.
+pub const AGENT_SEARCH: &str = "SIKEMUX_AGENT_SEARCH";
 
 /// The Claude home of the agent session that started this process. No agent, terminal or task
 /// Sikemux starts inherits it; an account's profile sets its own again.

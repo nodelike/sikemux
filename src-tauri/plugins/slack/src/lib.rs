@@ -6,6 +6,7 @@
 //   auth   — signing in with a token, and the status of each workspace
 //   text   — message links, and Slack's markup as markdown
 //   slack  — channels, history, threads, search, posts and people
+//   views  — a thread as the pane shows it, with what an agent is handed of it
 
 mod auth;
 mod client;
@@ -13,6 +14,7 @@ mod config;
 mod error;
 mod slack;
 mod text;
+mod views;
 
 use std::sync::Arc;
 
@@ -52,8 +54,9 @@ impl Plugin for Slack {
                 }
                 "signOut" => answer(auth::sign_out(data_dir, params(input)?)).await,
                 "setDefault" => answer(auth::set_default(data_dir, params(input)?)).await,
-                "channels" => answer(slack::channels(data_dir, params(input)?)).await,
-                "history" => answer(slack::history(data_dir, params(input)?)).await,
+                "channelsView" => answer(slack::channels_view(data_dir, params(input)?)).await,
+                "historyView" => answer(slack::history_view(data_dir, params(input)?)).await,
+                "threadView" => answer(views::thread_view(data_dir, params(input)?)).await,
                 "thread" => answer(slack::thread(data_dir, params(input)?)).await,
                 "search" => answer(slack::search(data_dir, params(input)?)).await,
                 "post" => answer(slack::post(data_dir, params(input)?)).await,
@@ -107,7 +110,7 @@ mod tests {
             (Some(false), Some(false))
         );
         let error = plugin
-            .call(&ctx, "channels", json!({}))
+            .call(&ctx, "channelsView", json!({}))
             .await
             .expect_err("signed out");
         assert_eq!(error.category, "unconfigured");

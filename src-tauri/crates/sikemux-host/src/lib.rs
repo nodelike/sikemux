@@ -5,6 +5,8 @@
 pub mod account;
 pub mod cli_client;
 pub mod cli_paths;
+#[cfg(unix)]
+pub mod core_start;
 pub mod environment;
 pub mod hang_reports;
 #[cfg(unix)]

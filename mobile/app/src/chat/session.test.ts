@@ -1,45 +1,51 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatAttachment, MobileError, type ConnectionLike } from '@sikemux/native';
 
+import type { ChatChange, ChatMessage, PermissionAsk } from '@mac/chat/types';
 import type { ChatInfo, ChatState } from '@/core/protocol';
 import type { ChatDelivery } from '@/devices/hub';
 import { ChatSession } from './session';
 import type { Attachment } from './uploads';
 
 const FEED = 'feed-1';
-const event = (kind: string, payload: Record<string, unknown> = {}) => ({ kind, payload });
-const said = (text: string) =>
-  event('session_update', {
-    sessionId: 's',
-    update: { sessionUpdate: 'agent_message_chunk', messageId: 'm', content: { type: 'text', text } },
-  });
-const asking = (requestId: string) =>
-  event('permission_request', {
-    requestId,
-    sessionId: 's',
-    toolCall: { toolCallId: `t-${requestId}`, title: 'rm -rf build', kind: 'execute' },
-    options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
-  });
+const HEAD = {
+  connection: 'ready',
+  running: false,
+  turned: false,
+  permissionMode: 'default',
+  commands: [],
+  capabilities: {},
+  setup: {},
+  permissions: [],
+  tasks: [],
+  runningSubagents: [],
+  queued: [],
+  earlierLost: false,
+};
+const row = (id: string, role: ChatMessage['role'], text: string, fields: Partial<ChatMessage> = {}): ChatMessage => ({
+  id,
+  role,
+  parts: [{ kind: 'text', id: `${id}/text`, text }],
+  ...fields,
+});
+const said = (id: string, text: string): ChatChange => ({ op: 'row', row: row(id, 'assistant', text) });
+const headSet = (set: Record<string, unknown>): ChatChange => ({ op: 'head', set });
+const asking = (requestId: string): PermissionAsk => ({
+  requestId,
+  sessionId: 's',
+  toolCall: { toolCallId: `t-${requestId}`, title: 'rm -rf build', kind: 'execute', row: { action: 'execute', target: 'rm -rf build' } },
+  options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+});
 
-function live(events: unknown[], seq: number, running = false) {
+function live(rows: ChatMessage[], seq: number, head: Record<string, unknown> = {}) {
   return ChatAttachment.Live.new({
-    sessionId: 's',
-    capabilitiesJson: '{}',
-    setupJson: '{}',
-    permissionMode: 'default',
-    running,
-    turned: false,
-    replayJson: JSON.stringify(events),
+    viewJson: JSON.stringify({ head: { ...HEAD, ...head }, rows }),
     mark: { feed: FEED, seq: BigInt(seq) },
-    olderBefore: undefined,
   });
 }
 
 const queued = (...messages: { id: string; text: string; paths: string[] }[]) =>
-  event('session_update', {
-    sessionId: 's',
-    update: { sessionUpdate: 'queued_messages', messages: messages.map((message) => ({ ...message, context: [] })) },
-  });
+  headSet({ queued: messages.map((message) => ({ ...message, context: [] })) });
 
 function fakeConnection(attachment: unknown) {
   return {
@@ -47,11 +53,10 @@ function fakeConnection(attachment: unknown) {
     wakeChat: vi.fn(async () => {}),
     attachChat: vi.fn(async (_agent: string, _since?: { feed: string; seq: bigint }) => attachment),
     detachChat: vi.fn(async () => {}),
-    prompt: vi.fn(async (_agent: string, _text: string, _paths: string[]) => {}),
     attachFile: vi.fn(async (_agent: string, name: string, _mime: string, _bytes: ArrayBuffer) => `/host/pasted/${name}`),
     cancel: vi.fn(async () => {}),
-    steer: vi.fn(async (_agent: string, _text: string, _paths: string[]) => true),
     call: vi.fn(async (_method: string, _params: string) => 'null'),
+    prompt: vi.fn(async (_agent: string, _messageId: string | undefined, _text: string, _paths: string[]) => {}),
     stopTask: vi.fn(async (_agent: string, _task: string) => {}),
     setPermissionMode: vi.fn(async (_agent: string, _mode: string) => {}),
     answerPermission: vi.fn(async () => {}),
@@ -59,6 +64,10 @@ function fakeConnection(attachment: unknown) {
     chatHistory: vi.fn(),
   };
 }
+
+/** What the session asked the host to send, oldest first. */
+const prompts = (connection: ReturnType<typeof fakeConnection>) =>
+  connection.prompt.mock.calls.map(([agentId, messageId, text, paths]) => ({ agentId, messageId, text, paths }));
 
 function harness() {
   let take: ((deliveries: ChatDelivery[]) => void) | undefined;
@@ -77,8 +86,8 @@ function harness() {
     },
   });
   let seq = 0;
-  const deliver = (...events: unknown[]) =>
-    take?.(events.map((payload) => ({ agentId: 'agent', seq: BigInt((seq += 1)), eventJson: JSON.stringify(payload) })));
+  const deliver = (...changes: ChatChange[]) =>
+    take?.(changes.map((change) => ({ agentId: 'agent', seq: BigInt((seq += 1)), changesJson: JSON.stringify([change]) })));
   const startAt = (value: number) => {
     seq = value;
   };
@@ -98,7 +107,7 @@ const picked = (name: string, kind: 'image' | 'file', size = 1000): Attachment =
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 const texts = (session: ChatSession) =>
-  session.snapshot().agent.messages.flatMap((message) => message.parts.flatMap((part) => (part.kind === 'text' ? [part.text] : [])));
+  session.snapshot().view.messages.flatMap((message) => message.parts.flatMap((part) => (part.kind === 'text' ? [part.text] : [])));
 const info = (state: ChatState, asleep = false) => ({ agentId: 'agent', state, asleep }) as ChatInfo;
 
 beforeEach(() => {
@@ -110,36 +119,37 @@ afterEach(() => {
 });
 
 describe('a chat session', () => {
-  it('keeps events that arrived but were not drawn when the chat is left', async () => {
+  it('keeps changes that arrived but were not drawn when the chat is left', async () => {
     const { session, deliver, startAt, drawFrame } = harness();
     const connection = fakeConnection(live([], 5));
     const release = session.hold(connection as unknown as ConnectionLike);
     await settle();
     startAt(5);
-    deliver(event('turn_started'), said('half'));
-    expect(session.snapshot().agent.running).toBe(false);
+    deliver(headSet({ running: true }), said('m6', 'half'));
+    expect(session.snapshot().view.running).toBe(false);
 
     release();
     expect(texts(session)).toEqual(['half']);
-    expect(session.snapshot().agent.running).toBe(true);
+    expect(session.snapshot().view.running).toBe(true);
 
     const resumed = fakeConnection(
-      ChatAttachment.Resumed.new({ eventsJson: JSON.stringify([event('turn_completed')]), mark: { feed: FEED, seq: 8n } }),
+      ChatAttachment.Resumed.new({ changesJson: JSON.stringify([headSet({ running: false })]), mark: { feed: FEED, seq: 8n } }),
     );
     session.hold(resumed as unknown as ConnectionLike);
     await settle();
     expect(resumed.attachChat.mock.calls[0][1]).toEqual({ feed: FEED, seq: 7n });
-    expect(session.snapshot().agent.running).toBe(false);
+    expect(session.snapshot().view.running).toBe(false);
+    expect(texts(session)).toEqual(['half']);
     drawFrame();
   });
 
-  it('moves the mark only once events are drawn', async () => {
+  it('moves the mark only once changes are drawn', async () => {
     const { session, deliver, startAt, drawFrame } = harness();
     const first = fakeConnection(live([], 2));
     session.hold(first as unknown as ConnectionLike);
     await settle();
     startAt(2);
-    deliver(said('one'));
+    deliver(said('m3', 'one'));
     expect(texts(session)).toEqual([]);
     drawFrame();
     expect(texts(session)).toEqual(['one']);
@@ -150,31 +160,37 @@ describe('a chat session', () => {
     expect(first.attachChat.mock.calls[1][1]).toEqual({ feed: FEED, seq: 3n });
   });
 
-  it('marks a message the host did not take, and sends it again on Retry', async () => {
-    const { session } = harness();
+  it('marks a message the host did not take, sends it again on Retry, and shows it once the host does', async () => {
+    const { session, deliver, startAt, drawFrame } = harness();
     const connection = fakeConnection(live([], 0));
     connection.prompt.mockRejectedValueOnce(MobileError.Connection.new({ message: 'the connection dropped' }));
     session.hold(connection as unknown as ConnectionLike);
     await settle();
 
     session.send('hello');
-    expect(session.snapshot().agent.running).toBe(true);
+    expect(session.snapshot().view.running).toBe(true);
     await settle();
     const [[id, unsent]] = [...session.snapshot().unsent];
     expect(unsent).toEqual({ state: 'failed', problem: 'the connection dropped' });
-    expect(session.snapshot().agent.running).toBe(false);
+    expect(session.snapshot().view.running).toBe(false);
     expect(texts(session)).toEqual(['hello']);
 
     session.retrySend(id);
     expect(session.snapshot().unsent.get(id)?.state).toBe('sending');
     await settle();
     expect(session.snapshot().unsent.size).toBe(0);
-    expect(connection.prompt).toHaveBeenCalledTimes(2);
+    expect(prompts(connection).map((sent) => sent.messageId)).toEqual([id, id]);
+    expect(texts(session)).toEqual(['hello']);
+
+    startAt(0);
+    deliver({ op: 'row', row: row('m1', 'user', 'hello', { promptId: id }) });
+    drawFrame();
+    expect(session.snapshot().view.messages.map((message) => message.id)).toEqual(['m1']);
   });
 
-  it('keeps a message it could not send through a full replay', async () => {
+  it('keeps a message it could not send through a fresh view of the chat', async () => {
     const { session } = harness();
-    const connection = fakeConnection(live([event('prompt', { text: 'before' }), event('turn_completed')], 2));
+    const connection = fakeConnection(live([row('m1', 'user', 'before')], 2));
     connection.prompt.mockRejectedValueOnce(new Error('timed out'));
     session.hold(connection as unknown as ConnectionLike);
     await settle();
@@ -186,12 +202,12 @@ describe('a chat session', () => {
     expect(texts(session)).toEqual(['before', 'lost']);
     const [[id, unsent]] = [...session.snapshot().unsent];
     expect(unsent.state).toBe('failed');
-    expect(session.snapshot().agent.messages.at(-1)?.id).toBe(id);
+    expect(session.snapshot().view.messages.at(-1)?.id).toBe(id);
   });
 
   it('shows only the permission requests the host still waits on', async () => {
     const { session, deliver, startAt, drawFrame } = harness();
-    const connection = fakeConnection(live([event('turn_started'), asking('old'), asking('open')], 3, true));
+    const connection = fakeConnection(live([], 3, { running: true, permissions: [asking('old'), asking('open')] }));
     session.hold(connection as unknown as ConnectionLike);
     await settle();
     const ids = () => session.snapshot().permissions.map((request) => request.requestId);
@@ -201,7 +217,7 @@ describe('a chat session', () => {
     expect(ids()).toEqual(['open']);
 
     startAt(3);
-    deliver(asking('new'));
+    deliver(headSet({ permissions: [asking('old'), asking('open'), asking('new')] }));
     drawFrame();
     expect(ids()).toEqual(['open', 'new']);
     vi.setSystemTime(Date.now() + 3000);
@@ -211,7 +227,7 @@ describe('a chat session', () => {
 
   it('keeps a failed answer apart from the agent', async () => {
     const { session } = harness();
-    const connection = fakeConnection(live([event('turn_started'), asking('ask')], 2, true));
+    const connection = fakeConnection(live([], 2, { running: true, permissions: [asking('ask')] }));
     connection.answerPermission.mockRejectedValueOnce(new Error('timed out'));
     session.hold(connection as unknown as ConnectionLike);
     await settle();
@@ -221,33 +237,34 @@ describe('a chat session', () => {
     expect(session.snapshot().answering.has('ask')).toBe(true);
     await settle();
     expect(connection.answerPermission).toHaveBeenCalledTimes(1);
-    const { agent, notice, permissions, answering } = session.snapshot();
+    const { view, notice, permissions, answering } = session.snapshot();
     expect(notice).toBe('The answer did not reach the host: timed out');
-    expect(agent.running).toBe(true);
-    expect(agent.error).toBeNull();
+    expect(view.running).toBe(true);
+    expect(view.error).toBeUndefined();
     expect(permissions).toHaveLength(1);
     expect(answering.size).toBe(0);
   });
 
   it("hands a message written mid-turn to the host's queue, and shows what waits there", async () => {
     const { session, deliver, startAt, drawFrame } = harness();
-    const connection = fakeConnection(live([event('turn_started')], 1, true));
+    const connection = fakeConnection(live([], 1, { running: true }));
     session.hold(connection as unknown as ConnectionLike);
     await settle();
     await session.send('next');
+    expect(session.snapshot().view.queued.map((held) => held.text)).toEqual(['next']);
     await settle();
-    expect(connection.prompt).toHaveBeenCalledWith('agent', 'next', []);
+    expect(prompts(connection)).toMatchObject([{ agentId: 'agent', text: 'next', paths: [] }]);
     expect(texts(session)).toEqual([]);
 
     startAt(1);
     deliver(queued({ id: 'q1', text: 'next', paths: [] }));
     drawFrame();
-    expect(session.snapshot().queued.map((held) => held.text)).toEqual(['next']);
+    expect(session.snapshot().view.queued.map((held) => held.text)).toEqual(['next']);
   });
 
   it('hands what waited back to the composer on Stop', async () => {
     const { session, deliver, startAt, drawFrame } = harness();
-    const connection = fakeConnection(live([event('turn_started')], 1, true));
+    const connection = fakeConnection(live([], 1, { running: true }));
     session.hold(connection as unknown as ConnectionLike);
     await settle();
     session.setDraft('and also');
@@ -263,7 +280,7 @@ describe('a chat session', () => {
 
   it('asks the host to steer waiting messages into the turn, or to take one back', async () => {
     const { session } = harness();
-    const connection = fakeConnection(live([event('turn_started')], 1, true));
+    const connection = fakeConnection(live([], 1, { running: true }));
     session.hold(connection as unknown as ConnectionLike);
     await settle();
 
@@ -275,10 +292,9 @@ describe('a chat session', () => {
   });
 
   it('keeps the permission mode it set until the host says otherwise', async () => {
-    const { session } = harness();
-    const connection = fakeConnection(live([], 0));
+    const { session, deliver, startAt, drawFrame } = harness();
+    const connection = fakeConnection(live([], 0, { permissionMode: 'workspace-write' }));
     session.hold(connection as unknown as ConnectionLike);
-    session.hostSaw({ ...info('ready'), permissionMode: 'workspace-write' }, []);
     await settle();
     expect(session.snapshot().permissionMode).toBe('workspace-write');
 
@@ -288,9 +304,12 @@ describe('a chat session', () => {
     expect(connection.setPermissionMode).toHaveBeenCalledWith('agent', 'bypass');
     expect(session.snapshot()).toMatchObject({ permissionMode: 'bypass', changingMode: false });
 
-    session.hostSaw({ ...info('ready'), permissionMode: 'workspace-write' }, []);
+    startAt(0);
+    deliver(headSet({ running: true }));
+    drawFrame();
     expect(session.snapshot().permissionMode).toBe('bypass');
-    session.hostSaw({ ...info('ready'), permissionMode: 'default' }, []);
+    deliver(headSet({ permissionMode: 'default' }));
+    drawFrame();
     expect(session.snapshot().permissionMode).toBe('default');
   });
 
@@ -317,15 +336,18 @@ describe('a chat session', () => {
     expect(await session.send('look')).toBe(true);
     const shown = session.snapshot();
     expect(shown.attachments).toHaveLength(0);
-    const message = shown.agent.messages.at(-1);
+    const message = shown.view.messages.at(-1);
     expect(message?.attachments).toEqual(['file:///picked/shot.jpg', 'file:///picked/notes.txt']);
     expect(shown.unsent.get(message?.id ?? '')?.state).toBe('sending');
     expect(shown.sentFiles.get('file:///picked/shot.jpg')?.name).toBe('shot.jpg');
 
     await settle();
     expect(connection.attachFile.mock.calls.map((call) => call[1])).toEqual(['shot.jpg', 'notes.txt']);
-    expect(connection.prompt).toHaveBeenCalledWith('agent', 'look', ['/host/pasted/shot.jpg', '/host/pasted/notes.txt']);
-    expect(session.snapshot().unsent.size).toBe(0);
+    expect(prompts(connection)).toMatchObject([{ text: 'look', paths: ['/host/pasted/shot.jpg', '/host/pasted/notes.txt'] }]);
+    const { view, sentFiles, unsent } = session.snapshot();
+    expect(unsent.size).toBe(0);
+    expect(view.messages.at(-1)?.attachments).toEqual(['/host/pasted/shot.jpg', '/host/pasted/notes.txt']);
+    expect(sentFiles.get('/host/pasted/shot.jpg')?.uri).toBe('file:///picked/shot.jpg');
   });
 
   it('marks the message not sent while a file did not reach the host, and sends only the rest again', async () => {
@@ -338,14 +360,14 @@ describe('a chat session', () => {
 
     await session.send('both');
     await settle();
-    const id = session.snapshot().agent.messages.at(-1)?.id ?? '';
+    const id = session.snapshot().view.messages.at(-1)?.id ?? '';
     expect(session.snapshot().unsent.get(id)).toEqual({ state: 'failed', problem: 'the connection dropped' });
-    expect(connection.prompt).not.toHaveBeenCalled();
+    expect(prompts(connection)).toEqual([]);
 
     session.retrySend(id);
     await settle();
     expect(connection.attachFile).toHaveBeenCalledTimes(3);
-    expect(connection.prompt).toHaveBeenCalledWith('agent', 'both', ['/host/pasted/a.jpg', '/host/pasted/b.pdf']);
+    expect(prompts(connection)).toMatchObject([{ text: 'both', paths: ['/host/pasted/a.jpg', '/host/pasted/b.pdf'] }]);
   });
 
   it("leaves out files over the host's limit and says so", () => {
@@ -358,12 +380,12 @@ describe('a chat session', () => {
 
   it('hands held files back to the composer on Stop', async () => {
     const { session, deliver, startAt, drawFrame } = harness();
-    const connection = fakeConnection(live([event('turn_started')], 1, true));
+    const connection = fakeConnection(live([], 1, { running: true }));
     session.hold(connection as unknown as ConnectionLike);
     await settle();
     session.attach([picked('shot.jpg', 'image')]);
     await session.send('next');
-    expect(session.snapshot().queued.map((held) => held.text)).toEqual(['next']);
+    expect(session.snapshot().view.queued.map((held) => held.text)).toEqual(['next']);
     await settle();
     startAt(1);
     deliver(queued({ id: 'q1', text: 'next', paths: ['/host/pasted/shot.jpg'] }));

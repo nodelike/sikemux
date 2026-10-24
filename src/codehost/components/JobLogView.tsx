@@ -14,32 +14,17 @@ import {
     SkeletonRows,
 } from "../../plugin-api/ui";
 import { CARD_HEADER_HEIGHT, CardStream, type CardStreamHandle } from "../../ui/CardStream";
-import { type Job, type LogLine, type RepoRef, type Step } from "../api";
+import { type Job, type JobLogLine, type LogColor, type LogSpan, type RepoRef, type Step } from "../api";
 import { errorText } from "../../lib/format";
-import { stepStarts } from "../jobGraph";
-import { jobLogR } from "../resources";
+import { jobLogViewR } from "../lists";
 import { elapsedMs, outcomeOf } from "../runStatus";
-import { useRefreshEvery } from "../../plugin-api/hooks";
 import { formatDuration } from "../../lib/format";
 import { StatusMark } from "./ActionsIcon";
-import { ansiCss, parseAnsi, stripAnsi, type AnsiRun } from "../../lib/ansi";
+import { ansiCss } from "../../lib/ansi";
 import { CodeRun, fenceLanguage, useCodeTokens } from "../../chat/codeHighlight";
-
-/** Runner logs mark sections, errors and warnings with `##[...]`, which is noise on screen; the line is styled instead. */
-const MARKUP = /^##\[(group|endgroup|section|command|error|warning|notice|debug)\]/u;
-
-function kindOf(text: string): string | null {
-    return MARKUP.exec(text)?.[1] ?? null;
-}
-
-function clean(text: string): string {
-    return text.replace(MARKUP, "");
-}
 
 const SHELL = fenceLanguage("bash");
 
-/** A running job's log grows without its run changing, so the view on screen reads it again itself rather than waiting for the core's CI check. */
-const LIVE_REFRESH_MS = 5_000;
 const LINE_HEIGHT = 18;
 const BODY_PADDING = 4;
 /** How close to the bottom the reader must be for a running job's new lines to keep the view at the bottom. */
@@ -54,58 +39,48 @@ function findMatches(plain: readonly string[], needle: string): number[] {
     return found;
 }
 
-/**
- * The script under each `Run` a step opens with, up to the `shell:` line, as one text to colour as bash, and which
- * line of it each log line is.
- */
-function commandsOf(lines: readonly LogLine[], plain: readonly string[], from: number, to: number): { text: string; at: Map<number, number> } {
+/** The scripts the step's `Run` lines repeat, as one text to colour as bash, and which line of it each log line is. */
+function commandsOf(lines: readonly JobLogLine[], from: number, to: number): { text: string; at: Map<number, number> } {
     const at = new Map<number, number>();
     const script: string[] = [];
-    let running = false;
+    let inScript = false;
     for (let index = from; index < to; index += 1) {
-        const kind = kindOf(lines[index]?.text ?? "");
-        const text = plain[index] ?? "";
-        if (kind === "group" && text.startsWith("Run ")) {
-            if (script.length > 0) script.push("");
-            running = true;
-        } else if (running && (kind === "endgroup" || text.startsWith("shell: "))) {
-            running = false;
-        } else if (running) {
-            at.set(index, script.length);
-            script.push(text);
+        const line = lines[index];
+        if (!line?.script) {
+            inScript = false;
+            continue;
         }
+        if (!inScript && script.length > 0) script.push("");
+        inScript = true;
+        at.set(index, script.length);
+        script.push(line.text);
     }
     return { text: script.join("\n"), at };
 }
 
-function runStyle(run: AnsiRun): CSSProperties | undefined {
-    if (run.fg === null && run.bg === null && !run.bold && !run.dim && !run.italic && !run.underline) return undefined;
+const css = (color: LogColor | undefined) => (color ? ansiCss(color.kind === "palette" ? color.index : color.hex) : undefined);
+
+function spanStyle(span: LogSpan): CSSProperties {
     return {
-        color: run.fg === null ? undefined : ansiCss(run.fg),
-        background: run.bg === null ? undefined : ansiCss(run.bg),
-        fontWeight: run.bold ? 600 : undefined,
-        opacity: run.dim ? 0.65 : undefined,
-        fontStyle: run.italic ? "italic" : undefined,
-        textDecoration: run.underline ? "underline" : undefined,
+        color: css(span.fg),
+        background: css(span.bg),
+        fontWeight: span.bold ? 600 : undefined,
+        opacity: span.dim ? 0.65 : undefined,
+        fontStyle: span.italic ? "italic" : undefined,
+        textDecoration: span.underline ? "underline" : undefined,
     };
 }
 
 /** A line in the colours the job printed it in. */
-const LogText = memo(function LogText({ text }: { text: string }) {
-    const runs = parseAnsi(text);
-    if (runs.length === 0) return " ";
+const LogText = memo(function LogText({ line }: { line: JobLogLine }) {
+    if (line.spans.length === 0) return line.text || " ";
     return (
         <>
-            {runs.map((run, index) => {
-                const style = runStyle(run);
-                return style ? (
-                    <span key={index} style={style}>
-                        {run.text}
-                    </span>
-                ) : (
-                    run.text
-                );
-            })}
+            {line.spans.map((span, index) => (
+                <span key={index} style={spanStyle(span)}>
+                    {span.text}
+                </span>
+            ))}
         </>
     );
 });
@@ -120,24 +95,6 @@ interface Section {
     to: number;
 }
 
-/** Lines written before the first step began belong to it; a step that never ran holds no lines. */
-function sectionsOf(lines: readonly LogLine[], steps: readonly Step[], starts: ReadonlyMap<number, number>): Section[] {
-    if (steps.length === 0) return [{ key: "log", step: null, from: 0, to: lines.length }];
-    let cursor = 0;
-    let first = true;
-    return steps.map((step, index) => {
-        const key = `step:${step.number}`;
-        const begins = starts.get(step.number);
-        if (begins === undefined) return { key, step, from: cursor, to: cursor };
-        const next = steps.slice(index + 1).find((later) => starts.has(later.number));
-        const to = next ? (starts.get(next.number) ?? lines.length) : lines.length;
-        const from = first ? 0 : begins;
-        first = false;
-        cursor = to;
-        return { key, step, from, to };
-    });
-}
-
 interface Jump {
     key: string;
     line: number;
@@ -149,8 +106,7 @@ interface Marks {
 }
 
 interface StepLinesProps {
-    lines: readonly LogLine[];
-    plain: readonly string[];
+    lines: readonly JobLogLine[];
     section: Section;
     start: number;
     scroller: () => HTMLElement | null;
@@ -163,7 +119,7 @@ interface StepLinesProps {
 function leaveScrollAlone(): void {}
 
 /** An open step's lines, drawn only where the list is scrolled to, however long the step ran. */
-const StepLines = memo(function StepLines({ lines, plain, section, start, scroller, marks, jump, onJumped }: StepLinesProps) {
+const StepLines = memo(function StepLines({ lines, section, start, scroller, marks, jump, onJumped }: StepLinesProps) {
     const rows = useRef<HTMLDivElement>(null);
     const [margin, setMargin] = useState(start + CARD_HEADER_HEIGHT + BODY_PADDING);
     useLayoutEffect(() => {
@@ -183,7 +139,7 @@ const StepLines = memo(function StepLines({ lines, plain, section, start, scroll
         scrollToFn: leaveScrollAlone,
     });
 
-    const commands = useMemo(() => commandsOf(lines, plain, from, to), [lines, plain, from, to]);
+    const commands = useMemo(() => commandsOf(lines, from, to), [lines, from, to]);
     const coloured = useCodeTokens(commands.text, commands.text ? SHELL : null);
 
     const mine = jump?.key === section.key ? jump : null;
@@ -206,7 +162,7 @@ const StepLines = memo(function StepLines({ lines, plain, section, start, scroll
                     const index = from + row.index;
                     const line = lines[index];
                     if (!line) return null;
-                    const kind = kindOf(line.text);
+                    const kind = line.mark;
                     const tokens = coloured?.[commands.at.get(index) ?? -1];
                     const hit = index === marks.current ? " hit current" : marks.matched.has(index) ? " hit" : "";
                     return (
@@ -217,9 +173,7 @@ const StepLines = memo(function StepLines({ lines, plain, section, start, scroll
                             className={`gha-log-line${kind && kind !== "endgroup" ? ` ${kind}` : ""}${hit}`}
                             style={{ transform: `translateY(${row.start - virtualizer.options.scrollMargin}px)` }}>
                             <span className="gha-log-number gha-mono">{row.index + 1}</span>
-                            <span className="gha-log-text gha-mono">
-                                {tokens ? <CodeRun tokens={tokens} /> : <LogText text={clean(line.text)} />}
-                            </span>
+                            <span className="gha-log-text gha-mono">{tokens ? <CodeRun tokens={tokens} /> : <LogText line={line} />}</span>
                         </div>
                     );
                 })}
@@ -229,15 +183,19 @@ const StepLines = memo(function StepLines({ lines, plain, section, start, scroll
 });
 
 interface Props {
+    project: string | null;
     repo: RepoRef;
+    runId: string;
     job: Job;
     now: number;
     active: boolean;
 }
 
-export function JobLogView({ repo, job, now, active }: Props) {
+const NO_LINES: JobLogLine[] = [];
+
+export function JobLogView({ project, repo, runId, job, now, active }: Props) {
     const running = job.status !== "completed";
-    const log = useResourceEnabled(active, jobLogR, repo, job.id);
+    const log = useResourceEnabled(active, jobLogViewR, project, repo, runId, job.id);
     const [query, setQuery] = useState("");
     const [match, setMatch] = useState(0);
     const [jump, setJump] = useState<Jump | null>(null);
@@ -245,27 +203,18 @@ export function JobLogView({ repo, job, now, active }: Props) {
     const stream = useRef<CardStreamHandle>(null);
     const following = useRef(true);
 
-    useRefreshEvery(log, active && running ? LIVE_REFRESH_MS : null);
-
-    // The last lines a job writes, usually the error, land after the last
-    // read made while it was running, so a finished job is read once more.
-    const refreshLog = useRef(log.refresh);
-    refreshLog.current = log.refresh;
-    const owesFinalRead = useRef(running);
-    useEffect(() => {
-        if (running) {
-            owesFinalRead.current = true;
-            return;
-        }
-        if (!owesFinalRead.current || !active) return;
-        owesFinalRead.current = false;
-        void refreshLog.current();
-    }, [running, active]);
-
-    const lines = useMemo(() => log.data?.lines ?? [], [log.data]);
-    const plain = useMemo(() => lines.map((line) => stripAnsi(clean(line.text))), [lines]);
-    const starts = useMemo(() => stepStarts(lines, job.steps), [lines, job.steps]);
-    const sections = useMemo(() => sectionsOf(lines, job.steps, starts), [lines, job.steps, starts]);
+    const lines = log.data?.lines ?? NO_LINES;
+    const plain = useMemo(() => lines.map((line) => line.text), [lines]);
+    const sections = useMemo(
+        (): Section[] =>
+            (log.data?.sections ?? []).map(({ step, from, to }) => ({
+                key: step === null ? "log" : `step:${step}`,
+                step: step === null ? null : (job.steps.find((each) => each.number === step) ?? null),
+                from,
+                to,
+            })),
+        [log.data, job.steps],
+    );
     const keys = useMemo(() => sections.map((section) => section.key), [sections]);
     const byKey = useMemo(() => new Map(sections.map((section) => [section.key, section])), [sections]);
     const collapsed = useMemo(() => new Set(keys.filter((key) => !opened.has(key))), [keys, opened]);
@@ -462,7 +411,6 @@ export function JobLogView({ repo, job, now, active }: Props) {
                         return (
                             <StepLines
                                 lines={lines}
-                                plain={plain}
                                 section={section}
                                 start={start}
                                 scroller={scroller}

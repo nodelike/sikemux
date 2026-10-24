@@ -8,17 +8,26 @@ publish = false
 sikemux-plugin-api = { path = "../../crates/sikemux-plugin-api" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
+rquickjs = { version = "0.14", optional = true }
 futures = "0.3"
 url = "2"
-tokio = { version = "1", features = ["net"] }
+tokio = { version = "1", features = ["net", "rt"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "gzip", "stream", "multipart"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rquickjs = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[features]
+# Runs scripts in QuickJS on macOS too, as Linux hosts do, to test that engine.
+quickjs = ["dep:rquickjs"]
+
 [dev-dependencies]
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [lints]
 workspace = true

@@ -19,8 +19,6 @@ pub const SCHEME: &str = "page";
 reaches the app, its storage or another window. */
 const SANDBOX: &str = "sandbox allow-scripts allow-forms";
 
-const BASE_CSS: &str = "html{background:var(--background,Canvas);color:var(--foreground,CanvasText);font-family:var(--font-sans,system-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}html[data-sikemux-framed]{background:transparent;overflow:hidden!important}body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono,ui-monospace)}";
-
 /* Speaks the MCP Apps messages (JSON-RPC over postMessage) between a framed
 page and the chat: the chat sends theme changes, the page reports its height
 and hands over the links the person clicks. A wheel turned over the page that
@@ -42,11 +40,7 @@ impl Pages {
     /// The page with the current theme, the base styles and the bootstrap
     /// ahead of everything the agent wrote.
     fn themed(&self, html: &str) -> String {
-        let markup = format!(
-            "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><style id=\"sikemux-theme\">{}</style><style>{BASE_CSS}</style><script>{BOOTSTRAP}</script>",
-            self.theme()
-        );
-        sikemux_core::pages::insert_head(html, &markup)
+        sikemux_core::pages::themed(html, &self.theme(), Some(BOOTSTRAP))
     }
 }
 
@@ -93,7 +87,7 @@ fn close_preview(app: &AppHandle, agent_id: &str) {
         return;
     };
     for tab in snapshot.tabs.into_iter().filter(|tab| tab.url == url) {
-        let _ = manager.close_tab(app, agent_id, &tab.id);
+        let _ = manager.close_tab(agent_id, &tab.id);
     }
 }
 
@@ -133,30 +127,9 @@ fn status(code: StatusCode) -> Response<Vec<u8>> {
         .expect("static status response")
 }
 
-/// The window's theme as the `:root` rule pages style against. Only custom
-/// property names pass, and no value can close the rule or the style element.
-fn theme_rule(dark: bool, variables: &BTreeMap<String, String>) -> String {
-    let mut rule = format!(
-        ":root{{color-scheme:{};",
-        if dark { "dark" } else { "light" }
-    );
-    for (name, value) in variables {
-        let named = name.len() > 2
-            && name.starts_with("--")
-            && name[2..]
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
-        if named {
-            let value: String = value.chars().filter(|c| !";{}<>".contains(*c)).collect();
-            rule.push_str(&format!("{name}:{value};"));
-        }
-    }
-    rule + "}"
-}
-
 #[tauri::command]
 pub fn page_theme(pages: State<'_, Pages>, dark: bool, variables: BTreeMap<String, String>) {
-    *pages.theme.locked() = theme_rule(dark, &variables);
+    *pages.theme.locked() = sikemux_core::pages::theme_rule(dark, &variables);
 }
 
 /// The core kept a page the agent showed: the draft's tab has done its job,
@@ -178,9 +151,10 @@ async fn page_open(app: AppHandle, agent_id: String, id: String) -> AppResult<St
     let page = std::fs::read_to_string(pages_dir(&app)?.join(format!("{id}.html")))
         .map_err(|_| AppError::Other("that page is gone".into()))?;
     let url = tab_url(&app, &id, &page).map_err(AppError::Other)?;
-    app.state::<BrowserManager>()
-        .open_tab(&app, &agent_id, Some(&url))
-        .await
+    Ok(app
+        .state::<BrowserManager>()
+        .open_tab(&agent_id, Some(&url))
+        .await?)
 }
 
 #[cfg(test)]
@@ -196,7 +170,7 @@ mod tests {
             ("--Bad".to_owned(), "red".to_owned()),
         ]);
         let pages = Pages::default();
-        *pages.theme.lock().unwrap() = theme_rule(false, &variables);
+        *pages.theme.lock().unwrap() = sikemux_core::pages::theme_rule(false, &variables);
         let themed = pages.themed("<p>");
         assert!(themed.contains(":root{color-scheme:light;--accent:#a277ff;--x:red/stylescript;}"));
         assert!(!themed.contains("color:red"));

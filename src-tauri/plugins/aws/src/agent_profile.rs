@@ -36,6 +36,10 @@ struct Picks {
     default: Option<String>,
     #[serde(default)]
     projects: BTreeMap<PathBuf, String>,
+    /// The profile the AWS pane shows, which the plugin's sign-in is checked
+    /// as.
+    #[serde(default)]
+    pane: Option<String>,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,9 +64,9 @@ pub struct AgentProfile {
 /// What the pane shows: the picks for one project, and what they come to.
 #[derive(Serialize)]
 pub struct AgentProfilePicks {
-    project: Option<String>,
-    default: Option<String>,
-    effective: Option<AgentProfile>,
+    pub(crate) project: Option<String>,
+    pub(crate) default: Option<String>,
+    pub(crate) effective: Option<AgentProfile>,
 }
 
 /// The profile agents started in `project` get, or in any project not
@@ -111,10 +115,29 @@ pub(crate) fn pick(
             }
             (None, profile) => saved.default = profile,
         }
-        let bytes = serde_json::to_vec_pretty(&saved)?;
-        sikemux_process::files::write_atomic(&ctx.data_dir().join(PICKS_FILE), &bytes, false)?;
+        save(ctx, &saved)?;
     }
     Ok(picks(ctx, project))
+}
+
+pub(crate) fn pane_profile(ctx: &PluginContext) -> Option<String> {
+    read(ctx.data_dir()).pane
+}
+
+/// Picks the profile the AWS pane shows; no profile clears the pick.
+pub(crate) fn pick_pane(ctx: &PluginContext, profile: Option<String>) -> AwsResult<Option<String>> {
+    let profile = profile.filter(|profile| !profile.trim().is_empty());
+    let _turn = WRITING.locked();
+    let mut saved = read(ctx.data_dir());
+    saved.pane.clone_from(&profile);
+    save(ctx, &saved)?;
+    Ok(profile)
+}
+
+fn save(ctx: &PluginContext, picks: &Picks) -> AwsResult<()> {
+    let bytes = serde_json::to_vec_pretty(picks)?;
+    sikemux_process::files::write_atomic(&ctx.data_dir().join(PICKS_FILE), &bytes, false)?;
+    Ok(())
 }
 
 fn effective(

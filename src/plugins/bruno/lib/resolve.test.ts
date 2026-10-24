@@ -1,36 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { parseEnv, parseRequest, parseScope } from "./parse";
 import { buildScope, findRequest, requestVars, selectedEnvOf } from "./resolve";
-import type { BruCollection, BruTreeNode } from "./types";
+import type { BruEnv, BruRequest, BruScope, BruTreeNode } from "./types";
 
-const collectionScope = parseScope("vars {\n  baseUrl: https://collection.test\n  shared: collection\n}\n", "collection");
-const folderScope = parseScope("vars {\n  shared: folder\n  folderOnly: yes\n}\n", "folder");
-const request = parseRequest("meta {\n  name: Ping\n}\nget {\n  url: {{baseUrl}}/ping\n}\nvars:pre-request {\n  requestOnly: ok\n}\n");
-const env = parseEnv("vars {\n  baseUrl: https://env.test\n  envOnly: yes\n}\n", "dev", "/api", "API");
-
-const tree: BruTreeNode[] = [
-    {
-        type: "folder",
-        name: "v1",
-        path: "/api/v1",
-        seq: 0,
-        scope: folderScope,
-        children: [{ type: "request", name: "Ping", path: "/api/v1/ping.bru", seq: 1, method: "get", collectionPath: "/api", request }],
-    },
-];
-const collection: BruCollection = { rootPath: "/api", name: "API", config: collectionScope, envs: [env], tree };
+const row = (name: string, value: string) => ({ name, value, enabled: true });
+const scope = (name: string, vars: ReturnType<typeof row>[]): BruScope => ({
+    meta: { name, type: "", seq: null },
+    auth: { mode: "inherit", bearer: { token: "" }, basic: { username: "", password: "" }, apikey: { key: "", value: "", placement: "header" } },
+    headers: [],
+    vars: { req: vars, res: [] },
+    scripts: { pre: "", post: "" },
+    extra: [],
+});
+const collectionScope = scope("collection", [row("baseUrl", "https://collection.test"), row("shared", "collection")]);
+const folderScope = scope("folder", [row("shared", "folder"), row("folderOnly", "yes")]);
+const env: BruEnv = {
+    id: "/api::dev",
+    name: "dev",
+    collectionPath: "/api",
+    collectionName: "API",
+    vars: [row("baseUrl", "https://env.test"), row("envOnly", "yes")],
+    secretNames: [],
+};
+const ping: BruTreeNode = { type: "request", name: "Ping", path: "/api/v1/ping.bru", method: "get", collectionPath: "/api" };
+const tree: BruTreeNode[] = [{ type: "folder", name: "v1", path: "/api/v1", children: [ping] }];
 
 describe("Bruno request resolution", () => {
-    it("finds requests and returns ancestor folder scopes", () => {
-        const located = findRequest(tree, "/api/v1/ping.bru");
-        expect(located?.request).toBe(request);
-        expect(located?.collectionPath).toBe("/api");
-        expect(located?.folderScopes).toEqual([folderScope]);
+    it("finds a request's row by its path", () => {
+        expect(findRequest(tree, "/api/v1/ping.bru")).toBe(ping);
         expect(findRequest(tree, "/missing.bru")).toBeNull();
     });
 
     it("builds variable scopes in documented precedence order", () => {
-        expect(buildScope({ collection, env, secretVars: { token: "secret", shared: "secret" }, folderScopes: [folderScope] })).toEqual({
+        expect(buildScope({ env, secretVars: { token: "secret", shared: "secret" }, scopes: [collectionScope, folderScope] })).toEqual({
             baseUrl: "https://env.test",
             shared: "secret",
             folderOnly: "yes",
@@ -40,8 +41,10 @@ describe("Bruno request resolution", () => {
     });
 
     it("extracts request vars and selected environments", () => {
-        expect(requestVars(request)).toEqual({ requestOnly: "ok" });
-        expect(selectedEnvOf(collection, env.id)).toBe(env);
-        expect(selectedEnvOf(collection, null)).toBeUndefined();
+        expect(requestVars({ vars: { req: [row("requestOnly", "ok")], res: [] } } as Pick<BruRequest, "vars"> as BruRequest)).toEqual({
+            requestOnly: "ok",
+        });
+        expect(selectedEnvOf([env], env.id)).toBe(env);
+        expect(selectedEnvOf([env], null)).toBeUndefined();
     });
 });

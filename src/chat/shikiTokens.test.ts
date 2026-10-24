@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { textMateGrammar, tokenizeCode } from "./shikiTokens";
 import { codeThemeName } from "../themes/codeTheme";
-import { DEFAULT_THEME_ID, themeById } from "../themes";
+import { DEFAULT_THEME_ID } from "../themes";
+import { themeById } from "../test/themes";
 
 const invokeCommand = vi.hoisted(() => vi.fn());
 vi.mock("../api/invoke", () => ({ invokeCommand }));

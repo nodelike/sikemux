@@ -1,26 +1,16 @@
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { AGENT_LABELS } from '@mac/state/agentStatus';
-import type { AgentStatus, RemoteAgent } from '@/core/protocol';
+import type { RemoteAgent } from '@/core/protocol';
 import { AgentIcon } from '@/ui/Icon';
 import { Row } from '@/ui/list';
 import { AgentState, Dot } from '@/ui/status';
 import { useColors } from '@/ui/theme';
 
-const STATUS_LABELS: Record<AgentStatus, string> = {
-  ...AGENT_LABELS,
-  stopped: 'Stopped',
-  starting: 'Starting…',
-  asleep: 'Sleeping',
-};
-
 function WorkerEnd({ worker }: { worker: RemoteAgent }) {
   const colors = useColors();
   if (!worker.reachable) return <Dot color={colors.rest} hollow />;
-  return worker.status === 'blocked' || worker.status === 'working' || worker.status === 'done' ? (
-    <AgentState group={worker.status} />
-  ) : null;
+  return <AgentState group={worker.group} />;
 }
 
 /** A worker an agent here started on a linked host, set in when it sits under the agent that started it. */
@@ -37,7 +27,7 @@ export const WorkerRow = memo(function WorkerRow({ worker, nested }: { worker: R
         name={worker.name}
         host={worker.host}
         place={worker.project}
-        detail={worker.reachable ? STATUS_LABELS[worker.status] : 'Out of reach'}
+        detail={worker.reachable ? worker.label : 'Out of reach'}
         end={<WorkerEnd worker={worker} />}
       />
     </View>

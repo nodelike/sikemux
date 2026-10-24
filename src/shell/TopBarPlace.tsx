@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { chooseHost, setUpOverSsh, SSH_WORK, sshSetUp, THIS_HOST, type HostChoice } from "../hosts/hosts";
+import { chooseHost, setUpFor, setUpOverSsh, SSH_WORK, sshSetUp, THIS_HOST, type HostChoice } from "../hosts/hosts";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
@@ -59,8 +59,8 @@ export function TopBarPlace() {
     const setUpAlias = useStore((s) => {
         const host = s.chosenHost;
         if (host.kind === "ssh") return host.alias;
-        const alias = s.hosts.find((candidate) => candidate.id === host.host)?.ssh;
-        return alias && s.sshProbes[alias] && sshSetUp(s, alias) ? alias : null;
+        const row = s.hosts.find((candidate) => candidate.id === host.host);
+        return row?.ssh && setUpFor(row) ? row.ssh : null;
     });
 
     const hostOptions = useMemo<DropdownOption[]>(() => {

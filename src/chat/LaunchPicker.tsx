@@ -1,31 +1,31 @@
 import { useEffect, useState } from "react";
-import { agentLabel, type ChatAgentType } from "../agents/catalog";
+import { agentLabel, type AgentType } from "../agents/catalog";
 import { coreCall } from "../api/core";
 import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
 import { AgentIcon } from "../ui/Icons";
 import { PayerChoices, Picker, servedLabel, useRoutes } from "./ComposerPickers";
 import type { Choice } from "./PickerMenu";
-import { sessionConfigs } from "./sessionConfig";
+import type { ConfigPicker } from "../api/generated/wire";
 import "../styles/chat/pickers.css";
 
 /** An agent to start later: which one, which of the person's accounts, who pays, and on what model. */
 export interface LaunchChoice {
-    type: ChatAgentType;
+    type: AgentType;
     profileId?: string;
     provider: string | null;
     model: string | null;
 }
 
 /** The models `type` offered when a chat of it last started, since none runs here to ask. */
-function useOfferedModels(type: ChatAgentType | null): Choice[] {
+function useOfferedModels(type: AgentType | null): Choice[] {
     const [models, setModels] = useState<Choice[]>([]);
     useEffect(() => {
         if (!type) return setModels([]);
         let current = true;
-        void coreCall<unknown>("agentModels", { agent: type })
+        void coreCall<ConfigPicker | null>("agentModels", { agent: type })
             .then((offered) => {
-                if (current) setModels(offered ? (sessionConfigs({ configOptions: [offered] })[0]?.options ?? []) : []);
+                if (current) setModels(offered?.choices ?? []);
             })
             .catch(swallow("the agent's models"));
         return () => {

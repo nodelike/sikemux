@@ -87,6 +87,8 @@ pub enum ProviderUse {
 pub struct AgentEntry {
     pub kind: &'static str,
     pub label: &'static str,
+    /// One line on what the agent is, for someone choosing which to install.
+    pub about: &'static str,
     pub command: &'static str,
     pub brand: &'static str,
     pub featured: bool,
@@ -96,10 +98,14 @@ pub struct AgentEntry {
     pub resumes_by_path: bool,
     pub relocatable_sessions: bool,
     pub bypass: bool,
-    /// The model it writes commit messages with, when it can.
-    pub commit_model: Option<&'static str>,
+    /// The models it writes commit messages with, the default first; none when it cannot.
+    pub commit_models: &'static [&'static str],
     /// The reasoning efforts the CLI's own flag takes.
     pub efforts: &'static [&'static str],
+    /// Its official install command, which puts it where its own updater expects.
+    pub install: Option<&'static str>,
+    /// The arguments that start its own sign-in.
+    pub login: Option<&'static [&'static str]>,
     /// Arguments that answer whether the CLI runs, without side effects.
     pub probe: &'static [&'static str],
     /// Where its installers put the CLI off PATH.
@@ -116,6 +122,7 @@ pub const AGENTS: &[AgentEntry] = &[
     AgentEntry {
         kind: "claude",
         label: "Claude",
+        about: "Anthropic's coding agent",
         command: "claude",
         brand: "#d97757",
         featured: true,
@@ -125,8 +132,12 @@ pub const AGENTS: &[AgentEntry] = &[
         resumes_by_path: false,
         relocatable_sessions: true,
         bypass: true,
-        commit_model: Some("sonnet"),
+        commit_models: &[
+            "sonnet", "opus", "haiku", "opusplan", "sonnet[1m]", "default",
+        ],
         efforts: &["low", "medium", "high", "xhigh", "max"],
+        install: Some("curl -fsSL https://claude.ai/install.sh | bash"),
+        login: Some(&["auth", "login"]),
         probe: &["--version"],
         install_paths: &["~/.claude/local/claude", "~/.claude/bin/claude"],
         git_shim_args: &[],
@@ -150,6 +161,7 @@ pub const AGENTS: &[AgentEntry] = &[
     AgentEntry {
         kind: "codex",
         label: "Codex",
+        about: "OpenAI's coding agent",
         command: "codex",
         brand: "#7a9dff",
         featured: true,
@@ -159,8 +171,13 @@ pub const AGENTS: &[AgentEntry] = &[
         resumes_by_path: false,
         relocatable_sessions: true,
         bypass: true,
-        commit_model: Some("gpt-5.5"),
+        commit_models: &[
+            "gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1",
+            "gpt-5",
+        ],
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max"],
+        install: Some("curl -fsSL https://chatgpt.com/codex/install.sh | sh"),
+        login: Some(&["login"]),
         probe: &["--version"],
         install_paths: &["/Applications/ChatGPT.app/Contents/Resources/codex"],
         git_shim_args: &["-c", "allow_login_shell=false"],
@@ -184,6 +201,7 @@ pub const AGENTS: &[AgentEntry] = &[
     AgentEntry {
         kind: "hermes",
         label: "Hermes",
+        about: "Nous Research's coding agent",
         command: "hermes",
         brand: "#e0a050",
         featured: false,
@@ -193,10 +211,15 @@ pub const AGENTS: &[AgentEntry] = &[
         resumes_by_path: false,
         relocatable_sessions: false,
         bypass: true,
-        commit_model: Some("openai/gpt-5.5"),
+        commit_models: &[
+            "openai/gpt-5.5", "openai/gpt-5.1", "anthropic/claude-sonnet-4.6",
+            "anthropic/claude-opus-4.1", "google/gemini-2.5-pro",
+        ],
         efforts: &[
             "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
         ],
+        install: Some("curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"),
+        login: Some(&["model"]),
         probe: &["--help"],
         install_paths: &[],
         git_shim_args: &[],
@@ -231,6 +254,7 @@ pub const AGENTS: &[AgentEntry] = &[
     AgentEntry {
         kind: "pi",
         label: "Pi",
+        about: "A minimal terminal coding agent",
         command: "pi",
         brand: "#7dd3fc",
         featured: false,
@@ -240,8 +264,10 @@ pub const AGENTS: &[AgentEntry] = &[
         resumes_by_path: true,
         relocatable_sessions: false,
         bypass: false,
-        commit_model: None,
+        commit_models: &[],
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+        install: Some("curl -fsSL https://pi.dev/install.sh | sh"),
+        login: None,
         probe: &["--version"],
         install_paths: &[],
         git_shim_args: &[],
@@ -265,6 +291,7 @@ pub const AGENTS: &[AgentEntry] = &[
     AgentEntry {
         kind: "opencode",
         label: "OpenCode",
+        about: "An open-source agent for many model providers",
         command: "opencode",
         brand: "#a78bfa",
         featured: false,
@@ -274,8 +301,10 @@ pub const AGENTS: &[AgentEntry] = &[
         resumes_by_path: false,
         relocatable_sessions: false,
         bypass: false,
-        commit_model: None,
+        commit_models: &[],
         efforts: &[],
+        install: Some("curl -fsSL https://opencode.ai/install | bash"),
+        login: Some(&["auth", "login"]),
         probe: &["--version"],
         install_paths: &["~/.opencode/bin/opencode"],
         git_shim_args: &[],
@@ -296,6 +325,7 @@ pub const AGENTS: &[AgentEntry] = &[
     AgentEntry {
         kind: "omp",
         label: "OMP",
+        about: "oh-my-pi, a terminal coding agent",
         command: "omp",
         brand: "#f97316",
         featured: false,
@@ -305,8 +335,10 @@ pub const AGENTS: &[AgentEntry] = &[
         resumes_by_path: true,
         relocatable_sessions: false,
         bypass: true,
-        commit_model: None,
+        commit_models: &[],
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+        install: Some("curl -fsSL https://omp.sh/install | sh"),
+        login: Some(&["login"]),
         probe: &["--version"],
         install_paths: &[],
         git_shim_args: &[],
@@ -327,6 +359,7 @@ pub const AGENTS: &[AgentEntry] = &[
     AgentEntry {
         kind: "grok",
         label: "Grok",
+        about: "xAI's coding agent",
         command: "grok",
         brand: "#fcfcfc",
         featured: false,
@@ -336,8 +369,10 @@ pub const AGENTS: &[AgentEntry] = &[
         resumes_by_path: false,
         relocatable_sessions: false,
         bypass: true,
-        commit_model: None,
+        commit_models: &[],
         efforts: &["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        install: Some("curl -fsSL https://x.ai/cli/install.sh | bash"),
+        login: Some(&["login"]),
         probe: &["--version"],
         install_paths: &["~/.grok/bin/grok"],
         git_shim_args: &[],
@@ -369,6 +404,7 @@ pub const AGENTS: &[AgentEntry] = &[
     AgentEntry {
         kind: "muse",
         label: "Muse",
+        about: "Meta's coding agent",
         command: "muse",
         brand: "#0081fb",
         featured: false,
@@ -378,8 +414,10 @@ pub const AGENTS: &[AgentEntry] = &[
         resumes_by_path: false,
         relocatable_sessions: false,
         bypass: true,
-        commit_model: None,
+        commit_models: &[],
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+        install: None,
+        login: None,
         probe: &["--version"],
         install_paths: &[],
         git_shim_args: &[],

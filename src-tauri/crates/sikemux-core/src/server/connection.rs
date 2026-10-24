@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -10,9 +10,9 @@ use tokio::net::UnixStream;
 use tokio::sync::{mpsc, Notify};
 
 use crate::protocol::{
-    decode_input, encode_control, fits, read_frame, ClientMessage, FrameKind, HostRegistration,
-    LaunchIdentity, Request, RequestId, Response, ServerMessage, SessionId, SpawnTarget,
-    TerminalSpawn, OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
+    decode_input, encode_control, encode_lines, fits, read_frame, ClientMessage, FrameKind,
+    HostRegistration, LaunchIdentity, Request, RequestId, Response, ServerMessage, SessionId,
+    SpawnTarget, StreamId, OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
 };
 
 use super::access::{self, Needs, Peer};
@@ -43,7 +43,8 @@ pub(crate) struct ClientConn {
     queued: AtomicUsize,
     closed: AtomicBool,
     kick: Notify,
-    subscriptions: Mutex<HashSet<SessionId>>,
+    /// The session each of this client's terminal streams shows.
+    streams: Mutex<HashMap<StreamId, SessionId>>,
     /// A local client that asked for the device view.
     watches_view: AtomicBool,
     /// A phone's app is in front, as far as it last said.
@@ -80,7 +81,7 @@ impl ClientConn {
             queued: AtomicUsize::new(0),
             closed: AtomicBool::new(false),
             kick: Notify::new(),
-            subscriptions: Mutex::new(HashSet::new()),
+            streams: Mutex::new(HashMap::new()),
             watches_view: AtomicBool::new(false),
             foreground: AtomicBool::new(true),
         });
@@ -104,7 +105,7 @@ impl ClientConn {
             queued: AtomicUsize::new(0),
             closed: AtomicBool::new(false),
             kick: Notify::new(),
-            subscriptions: Mutex::new(HashSet::new()),
+            streams: Mutex::new(HashMap::new()),
             watches_view: AtomicBool::new(false),
             foreground: AtomicBool::new(true),
         });
@@ -113,7 +114,11 @@ impl ClientConn {
     }
 
     pub(crate) fn is_subscribed(&self, id: SessionId) -> bool {
-        self.subscriptions.locked().contains(&id)
+        self.streams.locked().values().any(|session| *session == id)
+    }
+
+    pub(crate) fn stream_session(&self, stream: StreamId) -> Option<SessionId> {
+        self.streams.locked().get(&stream).copied()
     }
 
     pub(crate) fn send(&self, frame: Arc<[u8]>) -> bool {
@@ -135,6 +140,15 @@ impl ClientConn {
     pub(crate) fn close(&self) {
         self.closed.store(true, Ordering::Release);
         self.kick.notify_one();
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
+    /// The bytes sent to the client that it has not read yet.
+    pub(crate) fn backlog(&self) -> usize {
+        self.queued.load(Ordering::Acquire)
     }
 
     pub(crate) fn send_message(&self, message: &ServerMessage) {
@@ -173,17 +187,16 @@ impl ClientConn {
         });
     }
 
-    pub(crate) fn note_subscription(&self, id: SessionId, subscribed: bool) {
-        let mut subscriptions = self.subscriptions.locked();
-        if subscribed {
-            subscriptions.insert(id);
-        } else {
-            subscriptions.remove(&id);
-        }
+    pub(crate) fn note_stream(&self, stream: StreamId, id: SessionId) {
+        self.streams.locked().insert(stream, id);
     }
 
-    pub(crate) fn take_subscriptions(&self) -> HashSet<SessionId> {
-        std::mem::take(&mut *self.subscriptions.locked())
+    pub(crate) fn forget_stream(&self, stream: StreamId) {
+        self.streams.locked().remove(&stream);
+    }
+
+    pub(crate) fn take_streams(&self) -> HashMap<StreamId, SessionId> {
+        std::mem::take(&mut *self.streams.locked())
     }
 
     pub(crate) async fn wait_flushed(&self, limit: Duration) {
@@ -305,7 +318,7 @@ pub(crate) async fn serve_client(
         queued: AtomicUsize::new(0),
         closed: AtomicBool::new(false),
         kick: Notify::new(),
-        subscriptions: Mutex::new(HashSet::new()),
+        streams: Mutex::new(HashMap::new()),
         watches_view: AtomicBool::new(false),
         foreground: AtomicBool::new(true),
     });
@@ -350,9 +363,12 @@ async fn read_requests(
     while let Ok(Some(frame)) = read_frame(reader).await {
         match frame.kind {
             FrameKind::Control => match serde_json::from_slice::<ClientMessage>(&frame.payload) {
-                Ok(ClientMessage::Ack { id, bytes }) => {
-                    if let Some(session) = core.session(id) {
-                        session::ack(&session, client.id, bytes);
+                Ok(ClientMessage::Ack { stream, frame }) => {
+                    if let Some(session) = client
+                        .stream_session(stream)
+                        .and_then(|id| core.session(id))
+                    {
+                        session::ack(&session, stream, frame);
                     }
                 }
                 Ok(ClientMessage::Request {
@@ -398,47 +414,34 @@ async fn read_requests(
                     client.respond(request_id, Err("invalid argument: pty not found".into()));
                     continue;
                 };
-                let reply_to = client.clone();
-                type_input(
-                    core,
-                    &target,
-                    bytes.to_vec(),
-                    typist(client),
-                    Box::new(move |result| {
-                        reply_to.respond(
-                            request_id,
-                            result.map(|()| Response::Done).map_err(CoreError::from),
-                        );
-                    }),
-                );
+                write_to_program(core, client, request_id, &target, bytes.to_vec());
             }
-            FrameKind::Output | FrameKind::Snapshot | FrameKind::Frozen => return,
+            FrameKind::Grid | FrameKind::Snapshot | FrameKind::Lines | FrameKind::Frozen => return,
         }
     }
 }
 
-/// Who `client` types as: the app on its own connection, or anyone else.
+/// Who `client` types as: the person's own app, or anyone else.
 pub(crate) fn typist(client: &ClientConn) -> session::Typist {
     if client.peer == Peer::App {
-        session::Typist::App(client.id)
+        session::Typist::App
     } else {
         session::Typist::Other
     }
 }
 
-/// Types `bytes` into `target` as the person's own input.
-pub(crate) fn type_input(
-    core: &Core,
+/// Writes to a session's program in the order writes arrived, and tells
+/// its agent's status a line was submitted.
+fn write_to_program(
+    core: &Arc<Core>,
+    client: &Arc<ClientConn>,
+    request_id: RequestId,
     target: &session::Session,
     bytes: Vec<u8>,
-    typist: session::Typist,
-    reply: Box<dyn FnOnce(std::io::Result<()>) + Send>,
 ) {
-    if !target.may_type(typist) {
-        return reply(Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            session::SETUP_LOCKED,
-        )));
+    if !target.may_type(typist(client)) {
+        client.respond(request_id, Err(session::SETUP_LOCKED.into()));
+        return;
     }
     agent::note_input(core, target, &bytes);
     if let Some(agent) = target
@@ -449,46 +452,22 @@ pub(crate) fn type_input(
         core.harness.questions.typed(agent.agent_id());
         messages::worked(core, agent.agent_id());
     }
-    session::queue_input(target, bytes, typist, reply);
-}
-
-/// Opens, for the app connection `client`, a terminal that runs `startup` to
-/// set a host up over SSH, locked to that connection from the start
-/// (`SetupLock`), and answers with its id.
-pub(crate) async fn spawn_setup(
-    core: &Arc<Core>,
-    client: &ClientConn,
-    cols: u16,
-    rows: u16,
-    startup: String,
-) -> CoreResult<SessionId> {
-    if client.peer != Peer::App {
-        return Err(access::APP_ONLY.into());
+    if bytes.is_empty() {
+        client.respond(request_id, Ok(Response::Done));
+        return;
     }
-    let launch = core.launch_identity();
-    let owner = client.id;
-    let spawning = core.clone();
-    let pending = blocking(move || {
-        let mut prepared = prepare_terminal(
-            &launch,
-            TerminalSpawn {
-                cols,
-                rows,
-                cwd: None,
-                startup: Some(startup),
-                direct_command: None,
-                context: None,
-                env: HashMap::new(),
-                continues: None,
-            },
-        )?;
-        prepared.setup = Some(session::SetupLock::By(owner));
-        session::spawn_session(&spawning, prepared)
-    })
-    .await?;
-    let id = pending.id();
-    pending.start(core);
-    Ok(id)
+    let reply_to = client.clone();
+    session::queue_input(
+        target,
+        bytes,
+        typist(client),
+        Box::new(move |result| {
+            reply_to.respond(
+                request_id,
+                result.map(|()| Response::Done).map_err(CoreError::from),
+            );
+        }),
+    );
 }
 
 pub(crate) async fn blocking<T: Send + 'static>(
@@ -598,6 +577,8 @@ async fn run_requests(
             }
             Request::RegisterWindow => {
                 core.window.register(client.clone());
+                super::notch::follow(&core);
+                core.usage_wake.notify_one();
                 if let Some(listening) = core.listening.get() {
                     crate::waiting::wake(&listening.config.socket);
                 }
@@ -662,24 +643,81 @@ async fn run_requests(
                     Err(error) => client.respond(request_id, Err(error)),
                 }
             }
-            Request::Subscribe { id } => {
+            Request::ResetModes { id } => {
                 let result = match session_or_missing(&core, id) {
                     Ok(target) => {
-                        let subscriber = client.clone();
-                        blocking(move || session::subscribe(&target, &subscriber, request_id)).await
+                        let resetting = core.clone();
+                        blocking(move || session::reset_modes(&resetting, &target)).await
                     }
                     Err(error) => Err(error),
                 };
-                match result {
-                    Ok(()) => core.view_changed(),
-                    Err(error) => client.respond(request_id, Err(error)),
-                }
+                client.respond(request_id, result.map(|()| Response::Done));
             }
-            Request::ResetModes { id } => {
+            Request::TerminalInput { id, input } => match session_or_missing(&core, id) {
+                Ok(target) => {
+                    let bytes = session::encode(&target, &input);
+                    write_to_program(&core, &client, request_id, &target, bytes);
+                }
+                Err(error) => client.respond(request_id, Err(error)),
+            },
+            Request::TerminalLines { id, start, count } => match session_or_missing(&core, id) {
+                Ok(target) => {
+                    tokio::spawn(async move {
+                        let lines =
+                            blocking(move || Ok(session::lines(&target, start, count))).await;
+                        match lines {
+                            Ok(lines) => {
+                                client.send(encode_lines(request_id, &lines).into());
+                            }
+                            Err(error) => client.respond(request_id, Err(error)),
+                        }
+                    });
+                }
+                Err(error) => client.respond(request_id, Err(error)),
+            },
+            Request::TerminalText { id, range } => {
                 let result = match session_or_missing(&core, id) {
-                    Ok(target) => blocking(move || session::reset_modes(&target)).await,
+                    Ok(target) => blocking(move || Ok(session::text(&target, range))).await,
                     Err(error) => Err(error),
                 };
+                client.respond(
+                    request_id,
+                    result.map(|text| Response::TerminalText { text }),
+                );
+            }
+            Request::TerminalFind {
+                id,
+                query,
+                options,
+                from,
+                backwards,
+                inclusive,
+            } => match session_or_missing(&core, id) {
+                Ok(target) => {
+                    tokio::spawn(async move {
+                        let result = blocking(move || {
+                            session::find(&target, &query, &options, from, backwards, inclusive)
+                        })
+                        .await;
+                        client.respond(request_id, result.map(|result| Response::Found { result }));
+                    });
+                }
+                Err(error) => client.respond(request_id, Err(error)),
+            },
+            Request::TerminalWaitFor { id, containing } => match session_or_missing(&core, id) {
+                Ok(target) => {
+                    let shown = session::line_shown(&target, containing);
+                    drop(target);
+                    tokio::spawn(async move {
+                        let line = shown.await.unwrap_or(None);
+                        client.respond(request_id, Ok(Response::TerminalLine { line }));
+                    });
+                }
+                Err(error) => client.respond(request_id, Err(error)),
+            },
+            Request::TerminalClear { id } => {
+                let result =
+                    session_or_missing(&core, id).map(|target| session::clear(&core, &target));
                 client.respond(request_id, result.map(|()| Response::Done));
             }
             Request::ShellAtPrompt { id } => {
@@ -692,20 +730,23 @@ async fn run_requests(
                     result.map(|at_prompt| Response::ShellAtPrompt { at_prompt }),
                 );
             }
-            Request::Detach { id } => {
-                if let Some(target) = core.session(id) {
-                    let client_id = client.id;
+            Request::Detach { stream } => {
+                if let Some(target) = client
+                    .stream_session(stream)
+                    .and_then(|id| core.session(id))
+                {
                     let _ = blocking(move || {
-                        session::detach(&target, client_id);
+                        session::detach(&target, stream);
                         Ok(())
                     })
                     .await;
                 }
-                client.note_subscription(id, false);
+                client.forget_stream(stream);
                 core.view_changed();
                 client.respond(request_id, Ok(Response::Done));
             }
             Request::Resize { id, cols, rows } => {
+                core.spares.note_size(cols, rows);
                 let result = match validate_pty_dimensions(cols, rows) {
                     Ok(()) => match session_or_missing(&core, id) {
                         Ok(target) => blocking(move || session::resize(&target, cols, rows)).await,
@@ -787,29 +828,23 @@ async fn run_requests(
                 text,
                 paths,
                 context,
-            } if super::launching::asleep(&core, &agent_id) => {
-                tokio::spawn(async move {
-                    let result = super::launching::wake_if_asleep(&core, &agent_id)
-                        .await
-                        .and_then(|()| {
-                            chat::prompt(
-                                &core, client.id, &agent_id, message_id, text, paths, context,
-                            )
-                        });
-                    client.respond(request_id, result.map(|()| Response::Done));
-                });
-            }
-            Request::AcpPrompt {
-                agent_id,
-                message_id,
-                text,
-                paths,
-                context,
             } => {
-                let result = chat::prompt(
-                    &core, client.id, &agent_id, message_id, text, paths, context,
-                );
-                client.respond(request_id, result.map(|()| Response::Done));
+                if chat::stopped(&core, &agent_id) || chat::mentions::wakes(&context) {
+                    tokio::spawn(async move {
+                        let mut context = context;
+                        let result =
+                            match chat::wake_for_message(&core, &agent_id, &mut context).await {
+                                Ok(()) => {
+                                    chat::prompt(&core, &agent_id, message_id, text, paths, context)
+                                }
+                                Err(error) => Err(error),
+                            };
+                        client.respond(request_id, result.map(|()| Response::Done));
+                    });
+                } else {
+                    let result = chat::prompt(&core, &agent_id, message_id, text, paths, context);
+                    client.respond(request_id, result.map(|()| Response::Done));
+                }
             }
             Request::AcpEdit {
                 agent_id,
@@ -819,12 +854,11 @@ async fn run_requests(
                 context,
             } => {
                 tokio::spawn(async move {
-                    let result = match super::launching::wake_if_asleep(&core, &agent_id).await {
+                    let mut context = context;
+                    let result = match chat::wake_for_message(&core, &agent_id, &mut context).await
+                    {
                         Ok(()) => {
-                            chat::edit(
-                                &core, client.id, &agent_id, message_id, text, paths, context,
-                            )
-                            .await
+                            chat::edit(&core, &agent_id, message_id, text, paths, context).await
                         }
                         Err(error) => Err(error),
                     };
@@ -838,10 +872,10 @@ async fn run_requests(
                 context,
             } => {
                 tokio::spawn(async move {
-                    let result = match super::launching::wake_if_asleep(&core, &agent_id).await {
-                        Ok(()) => {
-                            chat::steer(&core, client.id, &agent_id, text, paths, context).await
-                        }
+                    let mut context = context;
+                    let result = match chat::wake_for_message(&core, &agent_id, &mut context).await
+                    {
+                        Ok(()) => chat::steer(&core, &agent_id, text, paths, context).await,
                         Err(error) => Err(error),
                     };
                     client.respond(
@@ -877,10 +911,11 @@ async fn run_requests(
                 }
             }
             Request::Call { method, params } => {
-                tokio::spawn(async move {
+                let device = client.peer.device_id();
+                tokio::spawn(super::layout::asked_by(device, async move {
                     let result = calls::call(core, &client, &method, params).await;
                     client.respond(request_id, result.map(|result| Response::Called { result }));
-                });
+                }));
             }
             Request::AcpCancel { agent_id } => {
                 let result = chat::cancel(&core, &agent_id);
@@ -953,10 +988,6 @@ async fn run_requests(
                     }),
                 );
             }
-            Request::PublishPalette { palette } => {
-                let result = core.workspaces.publish_palette(palette);
-                client.respond(request_id, result.map(|()| Response::Done));
-            }
             Request::PublishOnScreen { agent_ids, focused } => {
                 core.seen.show(client.id, agent_ids, focused);
                 core.view_changed();
@@ -1025,7 +1056,7 @@ async fn run_requests(
                 client.respond(
                     request_id,
                     Ok(Response::Workspace {
-                        workspace: core.workspaces.view(),
+                        workspace: core.workspace_view(),
                     }),
                 );
             }
@@ -1170,6 +1201,7 @@ pub(crate) async fn spawn(
     started_by: Option<String>,
 ) -> CoreResult<PendingStart> {
     if let SpawnTarget::Terminal(spawn) = target.as_mut() {
+        core.spares.note_size(spawn.cols, spawn.rows);
         super::launching::terminal_agent(&core, spawn).await;
     }
     blocking(move || {
@@ -1221,12 +1253,7 @@ fn give_agent_environment(core: &Core, folder: &str, env: &mut HashMap<String, S
 
 async fn shutdown(core: Arc<Core>, client: Arc<ClientConn>, request_id: RequestId, stop_all: bool) {
     if stop_all {
-        let draining = core.clone();
-        let _ = blocking(move || {
-            draining.drain();
-            Ok(())
-        })
-        .await;
+        core.stop_everything().await;
     } else {
         let running = core.running_sessions() + core.chats.count();
         if running > 0 {

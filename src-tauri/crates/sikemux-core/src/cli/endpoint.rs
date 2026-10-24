@@ -15,9 +15,8 @@ use super::protocol::CliEndpointDescriptor;
 /// Sikemux spawns so it can find the endpoint. Reading it here would let a
 /// second Sikemux started from one of those terminals publish over it.
 pub fn default_endpoint_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os(vars::CLI_ENDPOINT_PUBLISH).filter(|path| !path.is_empty())
-    {
-        return Some(PathBuf::from(path));
+    if let Some(path) = sikemux_process::paths::env_path(vars::CLI_ENDPOINT_PUBLISH) {
+        return Some(path);
     }
     sikemux_process::paths::config_file("cli", "json")
 }

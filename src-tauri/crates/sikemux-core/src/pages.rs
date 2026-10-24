@@ -2,7 +2,7 @@
 //! writes, kept in the data folder with every local picture and font it names
 //! inlined, so it outlives those files and any client can show it.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -196,6 +196,39 @@ pub fn publish(
     std::fs::write(dir.join(format!("{id}.html")), page)
         .map_err(|error| format!("could not keep the page: {error}"))?;
     Ok(PageRef { id, title, height })
+}
+
+const BASE_CSS: &str = "html{background:var(--background,Canvas);color:var(--foreground,CanvasText);font-family:var(--font-sans,system-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}html[data-sikemux-framed]{background:transparent;overflow:hidden!important}body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono,ui-monospace)}";
+
+/// The window's theme as the `:root` rule pages style against. Only custom
+/// property names pass, and no value can close the rule or the style element.
+pub fn theme_rule(dark: bool, variables: &BTreeMap<String, String>) -> String {
+    let mut rule = format!(
+        ":root{{color-scheme:{};",
+        if dark { "dark" } else { "light" }
+    );
+    for (name, value) in variables {
+        let named = name.len() > 2
+            && name.starts_with("--")
+            && name[2..]
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        if named {
+            let value: String = value.chars().filter(|c| !";{}<>".contains(*c)).collect();
+            rule.push_str(&format!("{name}:{value};"));
+        }
+    }
+    rule + "}"
+}
+
+/// A page as a window shows it: `theme`, a [`theme_rule`], and the base styles
+/// ahead of everything the agent wrote, with the window's own `script` first.
+pub fn themed(html: &str, theme: &str, script: Option<&str>) -> String {
+    let script = script.map_or_else(String::new, |script| format!("<script>{script}</script>"));
+    let markup = format!(
+        "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><style id=\"sikemux-theme\">{theme}</style><style>{BASE_CSS}</style>{script}"
+    );
+    insert_head(html, &markup)
 }
 
 #[cfg(test)]

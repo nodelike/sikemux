@@ -1,0 +1,24 @@
+[package]
+name = "sikemux-linked"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Reaching the account's other hosts as a device of the person's own"
+
+[features]
+# Test kits only: dial hosts also at the addresses dev/host-addresses.json names, as local test
+# cores have no relay to meet through. Never on in a try-out or release.
+host-addresses-file = []
+
+# Beside sikemux-client rather than inside it, so the phone's store builds never depend on it,
+# and like it kept out of workspace-hack: data and transport only.
+[dependencies]
+hex = "0.4"
+iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sikemux-client = { path = "../sikemux-client" }
+sikemux-wire = { path = "../sikemux-wire" }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

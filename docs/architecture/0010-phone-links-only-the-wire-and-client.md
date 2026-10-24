@@ -1,7 +1,7 @@
-# ADR 0010: The phone links only the wire format and the client
+# ADR 0010: The phone links only the wire format and the client, and the core owns what the data means
 
 - Status: Accepted
-- Decision date: 2026-10-10
+- Decision date: 2026-10-10, revised 2026-10-21
 
 ## Context
 
@@ -36,20 +36,32 @@ phone never runs.
   air. A method a released app calls is never removed or renamed, as the accounts API's
   `/v1` only grows. `call_to_file` writes a file in the answer to disk from Rust, so large
   answers never cross into JavaScript.
-- **The phone's Rust is transport.** What changes with features, such as how a chat reads
-  or how long a turn took, lives in TypeScript the phone shares with the Mac, and reaches
-  the phone over the air.
+- **The phone's Rust is transport.** Neither crate does anything with the data it carries.
+- **The core owns what the data means; clients own only how it is shown.** The core reads
+  every agent's own messages and sends what a client draws: a chat folded into rows with
+  stable ids (its turns, folds, timings, tool calls read once, letters from other agents,
+  subagents), each agent's status and roll-ups, questions and where they stand, and the
+  agent catalog. It sends changes, not snapshots: rows appended, text written on, fields
+  set, rows taken back, a window of the latest rows when a client opens a chat, earlier
+  pages on demand, and what a client missed when it comes back with a mark. Clients keep
+  one store of that view, apply the changes and draw it, with only their own words, icons,
+  formatting, path display and markdown drawing. No client reads an agent's messages, folds
+  events or keeps a second copy of the core's logic, so the Mac, the phone, the notch, the
+  web and a GPUI desktop all show the same thing from the same data.
 
 ## Consequences
 
 - Changes to the core's server, its chat drivers, the harness, the terminal engine and the
   desktop's dependencies no longer change the phone's native code. Only a change to the
   wire format, the client, `sikemux-mobile` or a dependency they share needs a store build.
-- What the phone shows of a host crosses the bridge as the core's own JSON: chat events,
-  the device view and the host's info, read by TypeScript in `mobile/app/src/core`. A
-  field the core adds there reaches the phone with an over-the-air update. Only what the
-  native side acts on itself, such as a chat's place in its feed, stays a typed UniFFI
-  record, and a field on one of those still needs a store build.
+- What the phone shows of a host crosses the bridge as the core's own JSON: a chat's view
+  and its changes, the device view and the host's info, drawn by TypeScript in
+  `mobile/app/src`. A field the core adds there reaches the phone with an over-the-air
+  update, and so does a change to what the data means, since the core works it out. Only
+  what the native side acts on itself, such as a chat's place in its feed, stays a typed
+  UniFFI record, and a field on one of those still needs a store build.
+- A feature that changes what a chat or an agent means changes the core, once, and every
+  client follows. One that changes how it looks changes each client that shows it.
 - A new request type in `sikemux-wire`, or a new bridge method, still needs a store build,
   so neither is added for a feature: it becomes a method of `Call`. What still needs one is
   something new the core pushes outside the chat events and the device view, a transport
@@ -60,6 +72,11 @@ phone never runs.
   dependency from either crate on the core shows up as a failing test.
 
 ## Alternatives considered
+
+- **Feature logic in TypeScript the phone shares with the Mac.** The first form of this
+  decision. Rejected on 2026-10-21: only clients that run that TypeScript could use it,
+  the notch and a GPUI desktop and web cannot, and each client folded the same events
+  again, holding a whole chat's raw events to do it.
 
 - **Putting the server behind a Cargo feature.** Rejected: the fingerprint hashes a
   crate's whole folder, so the phone's runtime would still change with every server edit.

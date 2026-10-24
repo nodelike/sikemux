@@ -90,6 +90,27 @@ fn transcript(launch: &ChatLaunch, session_id: &str) -> Option<PathBuf> {
     sessions::transcript::find(AgentKind::Claude, &root, Some(&cwd), session_id)
 }
 
+/// The models Claude offers, from its answer to `initialize` with no session saved.
+pub(crate) async fn read_options(command: tokio::process::Command) -> Result<Value, String> {
+    const ASKED: &str = "sikemux-options";
+    let request = json!({
+        "type": "control_request",
+        "request_id": ASKED,
+        "request": { "subtype": "initialize", "hooks": {} },
+    });
+    let said = crate::agent_accounts::usage::ask(
+        "claude",
+        command,
+        crate::agent_accounts::usage::CLAUDE_STREAM_ARGS,
+        &format!("{request}\n"),
+    )
+    .await?;
+    let models = crate::agent_accounts::usage::control_answer(&said, ASKED)
+        .and_then(|answer| answer.get("models")?.as_array().cloned())
+        .ok_or("Claude named no models")?;
+    Ok(config::options(&models, config::DEFAULT, config::DEFAULT))
+}
+
 /// Replays the saved chat of `session_id` through `sink`, answering the ids of the person's
 /// messages in it and the model it last ran on.
 pub(crate) fn replay_saved(

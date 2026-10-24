@@ -9,7 +9,6 @@ import { deskEditorId } from "../desks";
 import { notify, reportError } from "../toast";
 import { choiceDialog, confirmDialog } from "../dialog";
 import { editorPaneOf, projectSessionId } from "../selectors";
-import { isAgentBusy } from "../agentStatus";
 import { collectPanes, makePane, newId } from "../layout";
 import type { CorePaneKind, PaneKind, Session, SessionKind, Window, WindowRole } from "../types";
 import { CORE_PANE_KINDS } from "../windowRoles";
@@ -200,7 +199,7 @@ export function guardDiscardDirty(paths: string[], action: string, proceed: () =
 export function guardCloseAgents(agentIds: readonly string[], title: string, proceed: () => void): void {
     const { agentStatus } = getState();
     guardStopAgents(
-        agentIds.filter((id) => isAgentBusy(agentStatus[id])),
+        agentIds.filter((id) => agentStatus[id]?.busy),
         title,
         proceed,
     );
@@ -242,7 +241,7 @@ export function guardCloseLeads(agentIds: readonly string[], title: string, proc
     const { agents, agentStatus } = getState();
     const label = (id: string) => agents[id]?.name ?? agents[id]?.title ?? "agent";
     const leads = agentIds.filter((id) => workers.some((worker) => agents[worker]?.lead === id)).map(label);
-    const busy = agentIds.filter((id) => isAgentBusy(agentStatus[id])).map(label);
+    const busy = agentIds.filter((id) => agentStatus[id]?.busy).map(label);
     const one = workers.length === 1;
     const working =
         busy.length > 0 ? `${listed(busy)} ${busy.length === 1 ? "is" : "are"} working and ${busy.length === 1 ? "stops" : "stop"} with it. ` : "";

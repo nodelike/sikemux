@@ -3,7 +3,6 @@ import type { Agent, LayoutNode, Session, Window } from "../../src/state/types";
 import { VERSION, type PersistedSnapshot } from "../../src/state/persist";
 import {
   DEMO_HOME,
-  DEMO_PROJECTS,
   FRONT,
   MOODBOARD,
   SIKEMUX,
@@ -591,31 +590,12 @@ function baseSnapshot(): PersistedSnapshot {
     activeSessionId: "s-sikemux",
     recent: [],
     prefs: {
-      projectRoots: [{ path: `${DEMO_HOME}/code`, depth: 1 }],
-      languageServerTrust: Object.fromEntries(
-        DEMO_PROJECTS.map((project) => [project.path, true]),
-      ),
-      themeId: "aura-noir",
-      windowOpacity: 0.81,
-      paneShader: true,
       sideRailWidth: 258,
       tabRailWidth: 256,
-      windowBlur: 0,
-      cloudBrowser: "",
-      cloudBrowserShortcut: "",
       sideRailOpen: true,
       tabRailOpen: true,
-      onboardingComplete: true,
-      notificationsIntroduced: true,
-      agentNotifications: false,
       lastReleaseNotes: null,
-      lastSeenVersion: "0.5.3",
       activeSpaceId: null,
-      pluginSettings: {
-        "sikemux.rundeck": { activeProject: "platform", activeGroup: null },
-        "sikemux.signoz": { minutes: 60, environment: "production" },
-        "sikemux.github": { pinned: [] },
-      },
     },
     itemStates: {
       "p-editor": {

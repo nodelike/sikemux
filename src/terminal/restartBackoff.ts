@@ -13,7 +13,7 @@ const DEFAULT_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const;
 
 /**
  * Bounds renderer-only PTY reattachments without delaying the PTY process.
- * The process owner stays alive while a failed/overloaded xterm renderer cools
+ * The process owner stays alive while a failed renderer cools
  * down, so output can be recovered from the next bounded attach snapshot.
  */
 export class RendererRestartBackoff {

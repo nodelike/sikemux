@@ -1,5 +1,6 @@
 import type { PromptContext } from "../api/acp";
 import { basename } from "../lib/paths";
+import type { QueuedMessage } from "./types";
 
 /** What the composer hands over when the person sends. */
 export interface OutgoingMessage {
@@ -7,8 +8,6 @@ export interface OutgoingMessage {
     paths: string[];
     context: PromptContext[];
 }
-
-export type QueuedMessage = OutgoingMessage & { id: string };
 
 export const queuedLabel = (message: QueuedMessage): string =>
     message.text || [...message.paths.map(basename), ...message.context.map((item) => item.title)].join(", ");

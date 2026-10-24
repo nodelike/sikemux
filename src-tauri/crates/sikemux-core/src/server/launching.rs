@@ -16,12 +16,13 @@ use crate::protocol::{
     ChatAccount, ChatLaunch, ChatStart, Continuation, Event, RequestId, Response, SessionId,
     SpawnTarget, TerminalSpawn, WAKE_WAIT,
 };
+use serde_json::{json, Value};
 use sikemux_process::vars;
 use sikemux_pty::launch::{PtyAgentProfile, PtyContext, PtyDirectCommand};
 
 use super::chat;
 use super::connection::{blocking, ClientConn};
-use super::workspace::{launcher_of, ChatChoice, ResumeChoice};
+use super::workspace::{launcher_of, ChatChoice, ResumeChoice, SessionChoice};
 use super::{lifecycle, Core, CoreError, CoreResult};
 
 /// Where this core's agents reach their tools; none for a core without a
@@ -222,6 +223,8 @@ pub(crate) struct Launch {
     pub resume_id: Option<String>,
     pub account: Option<ChatAccount>,
     pub fallbacks: Vec<ChatAccount>,
+    /// The program to run in place of the launcher's own, for a chat a client started with one.
+    pub program: Option<PathBuf>,
     /// A new chat whose agent starts only once the person writes in it or sends to it.
     pub waits_for_person: bool,
 }
@@ -234,7 +237,10 @@ pub(crate) async fn start(
     chosen: Launch,
 ) -> CoreResult<Arc<chat::Chat>> {
     let launcher = core.workspaces.launcher(&chosen.launcher)?;
-    let program = launcher.agent.program().await?;
+    let program = match chosen.program {
+        Some(program) => program,
+        None => launcher.agent.program().await?,
+    };
     let launcher_id = launcher.id.clone();
     let waits_for_person = chosen.waits_for_person;
     let owner = core.clone();
@@ -262,7 +268,8 @@ pub(crate) async fn start(
 }
 
 /// Starts an agent of the workspace as its record says, on its saved
-/// conversation and the account it last ran on.
+/// conversation and the account it last ran on, or with `waits_for_person`
+/// lists it to start once the person writes in it.
 pub(crate) async fn start_agent(
     core: &Arc<Core>,
     by: Option<&Arc<ClientConn>>,
@@ -282,18 +289,24 @@ pub(crate) async fn start_agent(
         model: agent.model,
         model_provider: agent.model_provider,
         effort: agent.effort,
-        resume_id: agent.resume_id,
         account: kept.account,
         fallbacks: kept.fallbacks,
+        program: kept.program,
         waits_for_person,
+        resume_id: agent.resume_id,
     };
     start(core, by, chosen).await
 }
 
 /// Starts an agent's chat as its record says unless it runs already, and
-/// answers once its session is ready or says why it never got there.
-pub(crate) async fn start_saved(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
-    lifecycle::ensure_running(core, agent_id).await?;
+/// answers once its session is ready or says why it never got there; with
+/// `waits_for_person`, once it is listed to start when the person writes.
+pub(crate) async fn start_saved(
+    core: &Arc<Core>,
+    agent_id: &str,
+    waits_for_person: bool,
+) -> CoreResult<()> {
+    lifecycle::ensure_running(core, agent_id, waits_for_person).await?;
     let started = core.chats.running(agent_id)?;
     if started.unstarted() {
         return Ok(());
@@ -304,31 +317,14 @@ pub(crate) async fn start_saved(core: &Arc<Core>, agent_id: &str) -> CoreResult<
 /// Wakes an agent's chat and answers once it is ready, so a client taking it
 /// up next finds it there.
 pub(crate) async fn wake_chat(core: &Arc<Core>, agent_id: String) -> CoreResult<Response> {
-    if let Some(shown) = core.chats.get(&agent_id) {
-        shown.start_agent();
-    }
     let deadline = tokio::time::Instant::now() + WAKE_WAIT;
-    tokio::time::timeout_at(deadline, lifecycle::ensure_running(core, &agent_id))
+    tokio::time::timeout_at(deadline, lifecycle::ensure_running(core, &agent_id, false))
         .await
         .map_err(|_| CoreError::from("the chat did not wake in time"))??;
     tokio::time::timeout_at(deadline, chat::until_ready(core, &agent_id))
         .await
         .map_err(|_| CoreError::from("the chat did not wake in time"))??;
     Ok(Response::Done)
-}
-
-/// Whether the agent is asleep in the workspace, with no chat running, so the person's
-/// writing or sending to it has to wake it first.
-pub(crate) fn asleep(core: &Core, agent_id: &str) -> bool {
-    core.chats.get(agent_id).is_none() && core.workspaces.published(agent_id) == Some(true)
-}
-
-/// Wakes the agent when it is asleep, as the person's writing or sending to it does.
-pub(crate) async fn wake_if_asleep(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
-    if asleep(core, agent_id) {
-        wake_chat(core, agent_id.to_owned()).await?;
-    }
-    Ok(())
 }
 
 /// Starts a new chat in one of the projects and answers `client` once its
@@ -341,18 +337,36 @@ pub(crate) fn start_chat(
 ) {
     let (core, client) = (core.clone(), client.clone());
     tokio::spawn(async move {
-        let result = start_new(&core, &client, choice).await;
+        let result = start_new(&core, Some(&client), choice)
+            .await
+            .map(|(agent_id, start)| Response::ChatBegun { agent_id, start });
         client.respond(request_id, result);
     });
 }
 
+/// Takes up an agent's session again in the project it ran in, recent or not, and
+/// answers the agent that holds it once its session is ready.
+pub(crate) async fn resume_session(core: &Arc<Core>, session: SessionChoice) -> CoreResult<Value> {
+    let choice = core
+        .workspaces
+        .session_choice(session, &core.chats.list())?;
+    let project = choice.project.clone();
+    let (agent_id, _) = start_new(core, None, choice).await?;
+    Ok(json!({ "agentId": agent_id, "project": project }))
+}
+
 async fn start_new(
     core: &Arc<Core>,
-    client: &Arc<ClientConn>,
+    client: Option<&Arc<ClientConn>>,
     choice: ChatChoice,
-) -> CoreResult<Response> {
+) -> CoreResult<(String, ChatStart)> {
     let agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
-    let waits_for_person = choice.resume_id.is_none();
+    let kind = choice
+        .launcher
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .to_owned();
     let chosen = Launch {
         agent_id: agent_id.clone(),
         launcher: choice.launcher,
@@ -364,18 +378,39 @@ async fn start_new(
         resume_id: choice.resume_id,
         account: None,
         fallbacks: Vec::new(),
-        waits_for_person,
+        program: None,
+        waits_for_person: true,
     };
-    let started = start(core, Some(client), chosen).await?;
-    let start = match started.unstarted() {
-        true => ChatStart {
+    let started = start(core, client, chosen).await?;
+    remember_kind(core, &kind);
+    if started.unstarted() {
+        let start = ChatStart {
             session_id: String::new(),
-            capabilities: serde_json::Value::Null,
-            setup: serde_json::Value::Null,
-        },
-        false => chat::until_started(core, started).await?,
-    };
-    Ok(Response::ChatBegun { agent_id, start })
+            capabilities: Value::Null,
+            setup: Value::Null,
+        };
+        return Ok((agent_id, start));
+    }
+    match chat::until_started(core, started).await {
+        Ok(start) => Ok((agent_id, start)),
+        Err(error) => {
+            super::workspace::close_gone(core, &[agent_id]);
+            Err(error)
+        }
+    }
+}
+
+/// Keeps the kind of agent a chat was started as, so a project with no agent of its own
+/// starts its next chat as that kind.
+fn remember_kind(core: &Core, kind: &str) {
+    if core.preferences.get().last_agent_type.as_deref() == Some(kind) {
+        return;
+    }
+    if core.preferences.set("lastAgentType", kind.into()).is_ok() {
+        core.changes
+            .changed(super::changed::Topic::Preferences, None, None);
+        core.view_changed();
+    }
 }
 
 /// Takes up a recent chat again, answering like [`start_chat`].

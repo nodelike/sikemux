@@ -12,7 +12,8 @@ use reqwest::{Method, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_plugin_api::codehost::{
-    Job, JobLog, LogExcerpt, LogLine, Run, RunDetail, RunPage, RunTiming, Workflow, WorkflowFile,
+    Job, JobLog, LogExcerpt, LogLine, Outcome, Run, RunDetail, RunPage, RunTiming, Workflow,
+    WorkflowFile,
 };
 use sikemux_process::sync::Locked;
 
@@ -105,6 +106,7 @@ pub fn run_of(row: &PipelineRow, commit_title: Option<&str>) -> Run {
         run_number: row.iid.unwrap_or(row.id),
         attempt: 1,
         event: event_of(row.source.as_deref()).into(),
+        outcome: Outcome::of(&status, conclusion.as_deref()),
         status,
         conclusion,
         branch: merge_request
@@ -305,6 +307,7 @@ pub fn job_of(row: JobRow) -> Job {
             Some(stage) => format!("{stage} / {}", row.name),
             None => row.name,
         },
+        outcome: Outcome::of(&status, conclusion.as_deref()),
         status,
         conclusion,
         started_at: row.started_at,

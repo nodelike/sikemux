@@ -2,28 +2,13 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { reportError } from "../../../plugin-api/host";
 import { Filter, Seg, VirtualLogList } from "../../../plugin-api/ui";
 import { awsApi } from "../api";
+import type { AwsLogLine } from "../types.generated";
 import { highlightLog } from "./logHighlight";
 
 const MAX_LINES = 5000;
 const FLUSH_MS = 50;
-const ERROR = /\b(?:ERROR|ERR|FATAL|CRITICAL|PANIC|SEVERE)\b/i;
-const WARN = /\b(?:WARN|WARNING)\b/i;
-const STAMP = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?\S*\s(.*)$/s;
 
 type Level = "all" | "warn" | "error";
-type Line = { text: string; stamp: string | null; day: string | null; level: "error" | "warn" | null };
-
-function parse(raw: string): Line {
-    const stderr = raw.startsWith("[err] ");
-    const m = stderr ? null : STAMP.exec(raw);
-    const text = m ? m[3] : raw;
-    return {
-        text,
-        stamp: m ? m[2] : null,
-        day: m ? m[1] : null,
-        level: stderr || ERROR.test(text) ? "error" : WARN.test(text) ? "warn" : null,
-    };
-}
 
 interface Props {
     profile: string;
@@ -34,7 +19,7 @@ interface Props {
 }
 
 export function AwsLogTailView({ profile, logGroup, logStream, active, lead }: Props) {
-    const [lines, setLines] = useState<Line[]>([]);
+    const [lines, setLines] = useState<AwsLogLine[]>([]);
     const [err, setErr] = useState<string | null>(null);
     const [live, setLive] = useState(false);
     const [pinned, setPinned] = useState(true);
@@ -45,7 +30,7 @@ export function AwsLogTailView({ profile, logGroup, logStream, active, lead }: P
         if (!active) return;
         let cancelled = false;
         let flushTimer: number | undefined;
-        const pending: Line[] = [];
+        const pending: AwsLogLine[] = [];
         setLines([]);
         setErr(null);
         setLive(true);
@@ -68,8 +53,7 @@ export function AwsLogTailView({ profile, logGroup, logStream, active, lead }: P
             {
                 onLine: (line) => {
                     if (cancelled) return;
-                    if (line === "") return ended();
-                    pending.push(parse(line));
+                    pending.push(line);
                     if (flushTimer === undefined) flushTimer = window.setTimeout(flushPending, FLUSH_MS);
                 },
                 onEnd: ended,
@@ -160,8 +144,8 @@ export function AwsLogTailView({ profile, logGroup, logStream, active, lead }: P
                         }
                         renderRow={(line) => (
                             <>
-                                <span className="aws-log-ts" title={line.day ? `${line.day} ${line.stamp} UTC` : undefined}>
-                                    {line.stamp ?? ""}
+                                <span className="aws-log-ts" title={line.day ? `${line.day} ${line.clock} UTC` : undefined}>
+                                    {line.clock ?? ""}
                                 </span>
                                 <span className="aws-log-text">{highlightLog(line.text)}</span>
                             </>

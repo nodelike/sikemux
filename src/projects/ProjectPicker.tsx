@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { projectMark } from "../hosts/placeMarks";
 import { useResourceEnabled } from "../state/resources";
 import { projectRootsScanR } from "../state/resources.defs";
+import { projectRootsOf } from "../state/preferences";
 import { useStore } from "../state/store";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
 import { IconFolder } from "../ui/Icons";
@@ -27,7 +28,7 @@ export function ProjectPicker({
     opens?: "above" | "below";
 }) {
     const home = useStore((s) => s.home);
-    const roots = useStore((s) => s.projectRoots);
+    const roots = useStore(projectRootsOf);
     const sessions = useStore(
         useShallow((s) => s.sessionOrder.map((id) => s.sessions[id]).filter((session) => session?.kind === "project" && session.host === host)),
     );

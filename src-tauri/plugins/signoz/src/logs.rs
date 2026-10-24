@@ -10,6 +10,7 @@ use crate::client;
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Scope;
 use crate::query::{self, all_of, quote, View};
+pub use sikemux_plugin_api::signoz::{LogLine, LogPage, TailTick, VolumeBucket};
 
 const DEFAULT_LIMIT: u32 = 30;
 const MAX_LIMIT: u32 = 500;
@@ -34,28 +35,6 @@ pub struct LogSearch {
     pub offset: Option<u32>,
     #[serde(default)]
     pub view: View,
-}
-
-#[derive(Serialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct LogLine {
-    pub id: String,
-    pub timestamp: String,
-    pub service: Option<String>,
-    pub severity: Option<String>,
-    pub body: String,
-    pub trace_id: Option<String>,
-    pub span_id: Option<String>,
-    /// Where the cause usually is: bodies say "request failed", attributes say why.
-    pub attributes: BTreeMap<String, Value>,
-    pub resources: BTreeMap<String, Value>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LogPage {
-    pub lines: Vec<LogLine>,
-    pub next_offset: Option<u32>,
 }
 
 /// What every returned line has in common, written once instead of on each line.
@@ -109,12 +88,6 @@ pub struct LogDigest {
 pub enum LogReply {
     Lines(LogPage),
     Digest(LogDigest),
-}
-
-#[derive(Serialize)]
-struct TailTick {
-    lines: Vec<LogLine>,
-    error: Option<String>,
 }
 
 fn present(value: &Option<String>) -> Option<&str> {
@@ -226,14 +199,6 @@ pub struct VolumeQuery {
     pub buckets: Option<u32>,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct VolumeBucket {
-    /// Unix milliseconds at the start of the bucket.
-    pub start: u64,
-    pub counts: BTreeMap<String, u64>,
-}
-
 /// How many lines of each level arrived in each slice of the window. The
 /// severity toggles are left out on purpose: the chart shows the whole shape
 /// of the traffic, and the reader's choice only dims part of it.
@@ -311,16 +276,22 @@ pub async fn search(data_dir: &Path, search: LogSearch) -> SignozResult<LogReply
             return one_line(data_dir, &search, id).await.map(LogReply::Digest);
         }
     }
+    let found = page(data_dir, &search).await?;
+    Ok(match search.view {
+        View::Pane => LogReply::Lines(found),
+        View::Agent => LogReply::Digest(digest(found.lines, found.next_offset, Some(BODY_CHARS))),
+    })
+}
+
+/// The lines `search` finds, every field of each.
+pub async fn page(data_dir: &Path, search: &LogSearch) -> SignozResult<LogPage> {
     let limit = search.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = search.offset.unwrap_or(0);
-    let request = list_query(&search, search.scope.window()?, limit, offset, true)?;
+    let request = list_query(search, search.scope.window()?, limit, offset, true)?;
     let result = client::query_range(data_dir, &request).await?;
     let lines = lines_of(&result);
     let next_offset = (lines.len() as u32 == limit).then(|| offset.saturating_add(limit));
-    Ok(match search.view {
-        View::Pane => LogReply::Lines(LogPage { lines, next_offset }),
-        View::Agent => LogReply::Digest(digest(lines, next_offset, Some(BODY_CHARS))),
-    })
+    Ok(LogPage { lines, next_offset })
 }
 
 /// One line, whole. A SigNoz log id is a KSUID stamped with the line's time,

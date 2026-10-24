@@ -4,6 +4,7 @@
 
 mod autolink;
 mod doc;
+pub mod paths;
 mod url;
 
 pub use doc::{diff, Doc, Op, Patch};
@@ -29,6 +30,10 @@ pub struct Options {
     /// uploaded image, while the rest of the markup is still dropped.
     #[serde(default)]
     pub html_images: bool,
+    /// Marks the names in prose and between backticks that could be files, for a reader to
+    /// check and draw as files when they are.
+    #[serde(default)]
+    pub file_paths: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -119,6 +124,14 @@ pub enum Element {
     Br,
     Fnref {
         n: usize,
+    },
+    /// A name that could be a file, `:line` and all, holding the words as written, between
+    /// backticks when `code` is set.
+    Path {
+        href: String,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        code: bool,
+        c: Vec<Node>,
     },
     /// A `<details>` fold from embedded HTML, open or not as it was written.
     Details {
@@ -307,7 +320,8 @@ fn plain_text(nodes: &[Node], out: &mut String) {
                 | Element::Em { c }
                 | Element::Strong { c }
                 | Element::Del { c }
-                | Element::A { c, .. },
+                | Element::A { c, .. }
+                | Element::Path { c, .. },
             ) => plain_text(c, out),
             Node::Element(_) => {}
         }
@@ -371,15 +385,31 @@ impl Builder {
     }
 
     fn children(&self, pieces: Vec<Piece>) -> Vec<Node> {
-        Self::nodes(pieces, self.options.gfm && self.links_open == 0)
+        let outside_links = self.links_open == 0;
+        Self::nodes(
+            pieces,
+            self.options.gfm && outside_links,
+            self.options.file_paths && outside_links,
+        )
     }
 
-    fn nodes(pieces: Vec<Piece>, link_addresses: bool) -> Vec<Node> {
+    fn nodes(pieces: Vec<Piece>, link_addresses: bool, file_paths: bool) -> Vec<Node> {
         let mut nodes = Vec::with_capacity(pieces.len());
         for piece in pieces {
             match piece {
-                Piece::Node(Node::Text(text)) if link_addresses => {
-                    autolink::link_addresses(text, &mut nodes)
+                Piece::Node(Node::Text(text)) if link_addresses || file_paths => {
+                    let mut linked = Vec::new();
+                    if link_addresses {
+                        autolink::link_addresses(text, &mut linked);
+                    } else {
+                        linked.push(Node::Text(text));
+                    }
+                    for node in linked {
+                        match node {
+                            Node::Text(text) if file_paths => paths::mark_paths(text, &mut nodes),
+                            node => nodes.push(node),
+                        }
+                    }
                 }
                 Piece::Node(node) => nodes.push(node),
                 Piece::Typed(text) => nodes.push(Node::Text(text)),
@@ -504,6 +534,13 @@ impl Builder {
             Event::Start(tag) => self.start(tag),
             Event::End(tag) => self.end(tag),
             Event::Text(text) => self.push_text(&text),
+            Event::Code(code)
+                if self.options.file_paths
+                    && self.links_open == 0
+                    && paths::names_whole_path(&code) =>
+            {
+                self.push(Piece::Node(paths::path(&code, true)));
+            }
             Event::Code(code) => self.push_element(Element::Code {
                 v: code.into_string(),
             }),
@@ -645,11 +682,11 @@ impl Builder {
             Kind::Link { href, title } => Element::A {
                 href,
                 title,
-                c: Self::nodes(frame.children, false),
+                c: Self::nodes(frame.children, false, false),
             },
             Kind::Image { src, title } => {
                 let mut alt = String::new();
-                plain_text(&Self::nodes(frame.children, false), &mut alt);
+                plain_text(&Self::nodes(frame.children, false, false), &mut alt);
                 Element::Img { src, alt, title }
             }
             Kind::Code { lang, mut text } => {

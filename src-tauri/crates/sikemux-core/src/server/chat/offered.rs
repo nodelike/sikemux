@@ -7,22 +7,19 @@ use std::sync::{LazyLock, Mutex};
 
 use serde_json::Value;
 use sikemux_process::sync::Locked;
+use sikemux_wire::protocol::ConfigPicker;
 
-static OFFERED: LazyLock<Mutex<HashMap<String, Value>>> = LazyLock::new(Mutex::default);
+static OFFERED: LazyLock<Mutex<HashMap<String, ConfigPicker>>> = LazyLock::new(Mutex::default);
 
 /// Keeps the model choice a chat of `agent` started with.
 pub(crate) fn remember(agent: &str, setup: &Value) {
-    let Some(model) = setup["configOptions"]
-        .as_array()
-        .and_then(|options| options.iter().find(|option| option["id"] == "model"))
-    else {
-        return;
-    };
-    OFFERED.locked().insert(agent.to_owned(), model.clone());
+    if let (Some(model), _) = crate::acp::pickers::pickers(&setup["configOptions"]) {
+        OFFERED.locked().insert(agent.to_owned(), model);
+    }
 }
 
 /// The model choice `agent` last offered, if a chat of it has started since
 /// the core did.
-pub(crate) fn models(agent: &str) -> Option<Value> {
+pub(crate) fn models(agent: &str) -> Option<ConfigPicker> {
     OFFERED.locked().get(agent).cloned()
 }

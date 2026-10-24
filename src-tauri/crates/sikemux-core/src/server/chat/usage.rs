@@ -6,8 +6,9 @@ use serde_json::{json, Value};
 use crate::acp::current_choice;
 use crate::agent_catalog::AgentKind;
 use crate::launch::named_account;
-use crate::protocol::{ChatEventKind, ChatStart};
+use crate::protocol::ChatStart;
 use crate::sessions::context::read_session_context;
+use sikemux_fold::ChatEventKind;
 
 use super::Chat;
 

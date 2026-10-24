@@ -4,7 +4,7 @@ import { agentCatalogR } from "../resources.defs";
 import { agentWindowId, nearestAgentId, selectTabRefs } from "../selectors";
 import { getState, useStore } from "../store";
 import { notify } from "../toast";
-import { addAgent } from "./agents";
+import { addAgent, lastAgentType } from "./agents";
 import { newBrowserTab, openDeskSimulator, toggleDesk } from "./desk";
 import { createCommandSession } from "./sessions";
 import { newWindow, selectTab, selectWindowId } from "./tabs";
@@ -27,7 +27,7 @@ export async function startAgent(): Promise<void> {
     const runtime = selectedAgentRuntimeProfiles(st.providerProfiles, st.selectedProviderProfileIds);
     const catalog = peekResource(agentCatalogR, runtime) ?? (await fetchResource(agentCatalogR, runtime).catch(() => []));
     const installed = catalog.filter((agent) => agent.available !== false);
-    const agent = installed.find((candidate) => candidate.type === getState().lastAgentType) ?? installed[0];
+    const agent = installed.find((candidate) => candidate.type === lastAgentType()) ?? installed[0];
     if (!agent) {
         openAgentPalette();
         return;
@@ -77,9 +77,7 @@ export function newTerminal(): void {
         return newRemoteTerminal(place && session ? session.id : null, here.host, place?.project.path ?? "");
     }
     if ((session?.kind === "project" || session?.kind === "command") && !session.host) {
-        const spare = takeSpareShell(session);
-        if (spare) openSpareShell(spare);
-        else newWindow();
+        void takeSpareShell(session).then((spare) => (spare ? openSpareShell(spare) : newWindow()));
     } else createCommandSession();
 }
 

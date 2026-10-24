@@ -8,7 +8,7 @@ vi.mock("../api/search", () => ({
         project: (...args: unknown[]) => project(...args),
         cancel: vi.fn(async () => {}),
         replace: vi.fn(),
-        readFileWindow: vi.fn(async () => ({ doc: "", start_line: 1, total_lines: 0, clipped_head: false, clipped_tail: false })),
+        readFileWindow: vi.fn(async () => ({ doc: "", startLine: 1, totalLines: 0, clippedHead: false, clippedTail: false })),
     },
 }));
 
@@ -59,7 +59,7 @@ describe("SearchPane", () => {
         expect(listedRows()).toBeGreaterThan(0);
 
         await act(async () => {
-            finish!({ files: [], file_count: 200, match_count: 200, truncated: false, elapsed_ms: 3 });
+            finish!({ files: [], fileCount: 200, matchCount: 200, truncated: false, elapsedMs: 3 });
         });
         expect(listedRows()).toBeGreaterThan(0);
         expect(container.querySelector(".sp-stats")?.textContent).toContain("200");

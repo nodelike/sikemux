@@ -85,15 +85,6 @@ export interface TailTick {
     error: string | null;
 }
 
-export interface ServiceHealth {
-    service: string;
-    environment: string | null;
-    calls: number;
-    errors: number;
-    errorRate: number;
-    p99Ms: number;
-}
-
 export type Point = [number, number];
 
 export interface ServiceOverview {
@@ -247,7 +238,6 @@ export const signozApi = {
     useApiKey: (url: string, apiKey?: string, account?: string) => backend.call<SignozStatus>("useApiKey", { url, apiKey, account }),
     signOut: () => backend.call<void>("signOut"),
 
-    services: (scope: Scope) => backend.call<ServiceHealth[]>("services", scope),
     serviceOverview: (scope: Scope) => backend.call<ServiceOverview>("serviceOverview", scope),
     operations: (scope: Scope) => backend.call<Operation[]>("operations", scope),
     errorGroups: (scope: Scope) => backend.call<ErrorGroup[]>("errorGroups", scope),

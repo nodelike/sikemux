@@ -4,8 +4,7 @@ import { invokeCommand as invoke } from "./api/invoke";
 import { whenIdle } from "./lib/idle";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { checkForUpdate, UPDATES_IN_APP } from "./api/updater";
-import { reportActive } from "./api/usage";
+import { followUpdates, UPDATES_IN_APP } from "./api/updater";
 import { TabRow, TopBar } from "./shell/TopBar";
 import { SideRail } from "./rail/SideRail";
 import { TabRail } from "./rail/TabRail";
@@ -13,6 +12,11 @@ import { RailPeek } from "./rail/RailPeek";
 import { RailResizer, useRailWidthVars } from "./rail/RailResizer";
 import { watchSshLinks } from "./terminal/sshLinks";
 import { watchTerminalTitles } from "./terminal/terminalTitles";
+import { watchRailNames } from "./terminal/railNames";
+import { watchFaceStyle } from "./buddies/faceStyle";
+import { customCommandsOf, showPreferences, usePreference, watchPreferences, preferencesOf } from "./state/preferences";
+import { watchDrafts } from "./state/gitWorkbench";
+import { watchLspClaims } from "./api/lsp";
 import { watchAgentStatus } from "./agents/statusRefresh";
 import { syncAgentAccounts } from "./agents/accountBook";
 import { agentApi, type AgentAccountBook } from "./api/agents";
@@ -43,12 +47,11 @@ import { AgentBoardBridge } from "./shell/AgentBoardBridge";
 import { RemoteWorkspaceBridge } from "./shell/RemoteWorkspaceBridge";
 import { UpdateRequiredPrompt } from "./shell/UpdateRequiredPrompt";
 import { PairingPrompt } from "./shell/PairingPrompt";
-import { NotchBridge } from "./notch/NotchBridge";
 import { CliOpenBridge } from "./shell/CliOpenBridge";
 import { DeepLinkBridge } from "./shell/DeepLinkBridge";
 import { git } from "./api/git";
 import { runKeybindingAction, useKeymap } from "./commands/keymap";
-import { getKeybindingAction, QUIT_AND_STOP_SHORTCUT } from "./commands/keybindings";
+import { getKeybindingAction, QUIT_AND_STOP_SHORTCUT, keybindingOverridesOf } from "./commands/keybindings";
 import { usePinchZoom } from "./shell/pinchZoom";
 import { introduceNotifications, useAgentNotifications } from "./agents/agentNotifications";
 import { useVoiceDictation } from "./voice/dictation";
@@ -64,9 +67,9 @@ import { fsapi } from "./api/fs";
 import { emit } from "./state/bus";
 import * as cmd from "./state/commands";
 import { offerSavedSessions, restoreCoreSessions } from "./workspace/restoreCoreSessions";
-import { startSpareShells } from "./terminal/spareShell";
 import { coreSessionsApi } from "./api/coreSessions";
-import type { Workspace as SharedWorkspace } from "./api/generated/wire";
+import { coreCall } from "./api/core";
+import type { Preferences, Workspace as SharedWorkspace } from "./api/generated/wire";
 import { fetchCoreWorkspace, startCoreWorkspace } from "./state/coreWorkspace";
 import { startHosts } from "./hosts/hosts";
 import { applyHydrate, canFlushPersist, flushPersist, hydrationAllowsPersistence, subscribePersist, type HydrationResult } from "./state/persist";
@@ -80,12 +83,14 @@ import {
     showPathDropHover,
 } from "./state/dropRegistry";
 import { notify, reportError, swallow } from "./state/toast";
+import { whatsNew } from "./api/releases";
 import { confirmDialog } from "./state/dialog";
 import { invalidate } from "./state/resources";
 import { getState, useStore } from "./state/store";
-import { applyTheme, applyWindowOpacity, registerCustomThemes } from "./themes/bus";
+import type { Palette } from "./themes";
+import { applyWindowOpacity, watchTheme, wearPicked } from "./themes/bus";
 import { startPageTheme } from "./chat/pageTheme";
-import { applyTerminalFontSize } from "./terminal/fontSize";
+import { applyTerminalFontSize, currentTerminalFontSize } from "./terminal/fontSize";
 import { applyChatTextScale } from "./chat/textScale";
 import { applyEditorTextScale } from "./editor/textScale";
 import { dirname } from "./lib/paths";
@@ -295,12 +300,12 @@ async function quitAndStopEverything(): Promise<void> {
 }
 
 function ApplicationCommandPalette() {
-    const keybindingOverrides = useStore((s) => s.keybindingOverrides);
-    const customCommands = useStore((s) => s.customCommands);
+    const keybindingOverrides = useStore(keybindingOverridesOf);
+    const customCommands = useStore(customCommandsOf);
     const recentCommandKeys = useStore((s) => s.recentCommandKeys);
     const activeKind = useStore((s) => s.sessions[s.activeSessionId]?.kind ?? null);
     const activeProjectCwd = useStore(activeProjectCwdOf);
-    const languageServersAllowedHere = useStore((s) => (activeProjectCwd ? s.languageServerTrust[activeProjectCwd] === true : false));
+    const languageServersAllowedHere = useStore((s) => (activeProjectCwd ? s.preferences?.languageServerTrust[activeProjectCwd] === true : false));
     const activeTerminalWindowId = useStore((s) => {
         const id = s.sessions[s.activeSessionId]?.activeWindowId;
         return id && s.windows[id]?.role === "term" ? id : null;
@@ -601,16 +606,37 @@ export default function App() {
     const filePaletteOpen = useStore((s) => s.filePaletteOpen);
     const newTabPaletteOpen = useStore((s) => s.newTabPaletteOpen);
     const installedPlugins = useInstalledPlugins();
-    const iosSimulator = useStore((s) => s.iosSimulator);
+    const iosSimulator = usePreference("iosSimulator");
     useEffect(() => {
-        void simApi.offerToAgents(iosSimulator).catch(swallow("switch the iOS Simulator"));
+        if (iosSimulator !== undefined) void simApi.offerToAgents(iosSimulator).catch(swallow("switch the iOS Simulator"));
     }, [iosSimulator]);
     const settingsOpen = useStore((s) => s.settingsOpen);
-    const uiTextScale = useStore((s) => s.uiTextScale);
+    const uiTextScale = usePreference("uiTextScale");
     useEffect(() => {
-        document.documentElement.style.setProperty("--ui-text-scale", String(uiTextScale));
+        if (uiTextScale !== undefined) document.documentElement.style.setProperty("--ui-text-scale", String(uiTextScale));
     }, [uiTextScale]);
-    const paneStrength = useStore((s) => s.paneStrength);
+    const windowOpacity = usePreference("windowOpacity");
+    useEffect(() => {
+        if (windowOpacity !== undefined) applyWindowOpacity(windowOpacity);
+    }, [windowOpacity]);
+    const windowBlur = usePreference("windowBlur");
+    useEffect(() => {
+        if (windowBlur !== undefined) cmd.applyWindowBlur(windowBlur);
+    }, [windowBlur]);
+    useEffect(() => watchTheme(), []);
+    const terminalFontSize = usePreference("terminalFontSize");
+    useEffect(() => {
+        if (terminalFontSize !== undefined && terminalFontSize !== currentTerminalFontSize()) applyTerminalFontSize(terminalFontSize);
+    }, [terminalFontSize]);
+    const chatTextScale = usePreference("chatTextScale");
+    useEffect(() => {
+        if (chatTextScale !== undefined) applyChatTextScale(chatTextScale);
+    }, [chatTextScale]);
+    const editorTextScale = usePreference("editorTextScale");
+    useEffect(() => {
+        if (editorTextScale !== undefined) applyEditorTextScale(editorTextScale);
+    }, [editorTextScale]);
+    const paneStrength = useStore((s) => preferencesOf(s).paneStrength);
     useEffect(() => {
         document.documentElement.style.setProperty("--pane-strength", String(paneStrength));
     }, [paneStrength]);
@@ -637,7 +663,6 @@ export default function App() {
     useEffect(() => {
         let disposed = false;
         let unsub = () => {};
-        let stopSpareShells = () => {};
         let stopHosts = () => {};
         let stopPaneResources = () => {};
         let stopAccountSync = () => {};
@@ -654,14 +679,22 @@ export default function App() {
         void pluginsApi.manifests().then(cmd.setPluginManifests, swallow("plugin manifests"));
         let accounts: AgentAccountBook | null | undefined;
         let workspace: SharedWorkspace | undefined;
-        const fromCore = Promise.all([agentApi.accounts().catch(() => undefined), fetchCoreWorkspace()]);
+        const fromCore = Promise.all([
+            agentApi.accounts().catch(() => undefined),
+            fetchCoreWorkspace(),
+            agentApi.catalog(),
+            coreCall<Preferences>("preferences").catch(() => null),
+            coreCall<Palette>("theme").catch(() => null),
+        ]);
         void fromCore.then(
             () => !disposed && setCoreAnswered(true),
             () => {},
         );
         Promise.all([invoke<BootInfo>("boot_init"), fromCore])
-            .then(([boot, [book, shared]]) => {
+            .then(([boot, [book, shared, catalog, preferences, palette]]) => {
                 if (disposed) return;
+                cmd.takeAgentCatalog(catalog);
+                if (preferences) showPreferences(preferences);
                 accounts = book;
                 workspace = shared;
                 const hydrateSpan = performanceTelemetry.startSpan(bootSpan, "startup.hydrate");
@@ -669,18 +702,23 @@ export default function App() {
                     cmd.setHome(boot.home);
                     hydrationResult = applyHydrate(boot.state, accounts, workspace);
                     const st = getState();
-                    registerCustomThemes(st.customThemes);
-                    applyTheme(st.themeId);
+                    if (palette) wearPicked(palette);
                     startPageTheme();
-                    applyWindowOpacity(st.windowOpacity);
-                    applyTerminalFontSize(st.terminalFontSize);
-                    applyChatTextScale(st.chatTextScale);
-                    applyEditorTextScale(st.editorTextScale);
-                    cmd.setWindowBlur(st.windowBlur);
+                    applyWindowOpacity(preferencesOf(st).windowOpacity);
+                    if (preferences) {
+                        document.documentElement.style.setProperty("--ui-text-scale", String(preferences.uiTextScale));
+                        applyTerminalFontSize(preferences.terminalFontSize);
+                        applyChatTextScale(preferences.chatTextScale);
+                        applyEditorTextScale(preferences.editorTextScale);
+                    }
+                    cmd.applyWindowBlur(preferencesOf(st).windowBlur);
                     if (hydrationAllowsPersistence(hydrationResult)) {
                         offerSavedSessions();
-                        if (!st.onboardingComplete) cmd.openOnboarding();
-                        else if (st.lastReleaseNotes && st.lastSeenVersion !== st.lastReleaseNotes.version) cmd.openWhatsNew();
+                        if (preferences && !preferences.onboardingComplete) cmd.openOnboarding();
+                        else
+                            void whatsNew()
+                                .then(({ unseen }) => unseen && cmd.openWhatsNew())
+                                .catch(swallow("ask whether there is news"));
                         performanceTelemetry.endSpan(hydrateSpan, { outcome: "success" });
                     } else {
                         setBootIssue(
@@ -710,7 +748,6 @@ export default function App() {
                     setBootReady(true);
                     introduceNotifications();
                     void restoreCoreSessions();
-                    stopSpareShells = startSpareShells();
                     stopHosts = startHosts();
                 }
                 finishBoot(disposed ? "cancelled" : writable ? "success" : "error");
@@ -721,7 +758,6 @@ export default function App() {
             unsub();
             stopWorkspaceSync();
             stopAccountSync();
-            stopSpareShells();
             stopHosts();
             stopPaneResources();
         };
@@ -741,6 +777,11 @@ export default function App() {
 
     useEffect(() => watchSshLinks(), []);
     useEffect(() => watchTerminalTitles(), []);
+    useEffect(() => watchRailNames(), []);
+    useEffect(() => watchFaceStyle(), []);
+    useEffect(() => watchPreferences(), []);
+    useEffect(() => watchDrafts(), []);
+    useEffect(() => watchLspClaims(), []);
     useEffect(() => watchAgentStatus(), []);
     /* Fetched ahead so the first chat opened draws at once; a failure here leaves opening one to fetch it again. */
     useEffect(() => whenIdle(() => void import("./chat/AgentSurface").catch(swallow("preload the chat surface"))), []);
@@ -779,25 +820,7 @@ export default function App() {
 
     useEffect(() => onCoreChanged("git", onGitChanged), []);
 
-    useEffect(() => {
-        if (import.meta.env.DEV || !UPDATES_IN_APP) return;
-        const firstCheck = window.setTimeout(() => void checkForUpdate(), 4000);
-        const poll = window.setInterval(() => void checkForUpdate(), 30 * 60_000);
-        return () => {
-            window.clearTimeout(firstCheck);
-            window.clearInterval(poll);
-        };
-    }, []);
-
-    useEffect(() => {
-        if (import.meta.env.DEV) return;
-        const firstReport = window.setTimeout(() => void reportActive(), 5000);
-        const poll = window.setInterval(() => void reportActive(), 60 * 60_000);
-        return () => {
-            window.clearTimeout(firstReport);
-            window.clearInterval(poll);
-        };
-    }, []);
+    useEffect(() => (UPDATES_IN_APP ? followUpdates() : undefined), []);
 
     useEffect(() => {
         const clearTreeHover = () => {
@@ -885,7 +908,6 @@ export default function App() {
             <DeepLinkBridge />
             <HarnessBridge />
             <RemoteWorkspaceBridge />
-            <NotchBridge />
             <RemoteChatBridge />
             <AgentNameBridge />
             <AgentQuestionBridge />

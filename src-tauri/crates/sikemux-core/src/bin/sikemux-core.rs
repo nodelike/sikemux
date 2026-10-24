@@ -6,6 +6,7 @@ fn main() {
     if let Some(code) = sikemux_core::git_guard::shim::run_if_git() {
         std::process::exit(code);
     }
+    let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
     let build = sikemux_core::protocol::BuildIdentity::new(
         env!("CARGO_PKG_VERSION"),
         "standalone",

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use sikemux_core::client::EventSink;
-use sikemux_core::protocol::{Event, SessionId};
+use sikemux_core::protocol::{Event, StreamId};
 use sikemux_pty::shell_protocol::PTY_SHELL_METADATA_EVENT;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
@@ -31,8 +31,8 @@ impl RemoteSink {
 }
 
 impl EventSink for RemoteSink {
-    fn output(&self, id: SessionId, bytes: &[u8]) {
-        deliver(&self.host.streams, self.host.page_id(id), bytes);
+    fn grid(&self, stream: StreamId, frame: &[u8]) {
+        deliver(&self.host.streams, self.host.current(), stream, frame);
     }
 
     fn event(&self, event: Event) {
@@ -64,14 +64,13 @@ impl EventSink for RemoteSink {
                 json!({ "id": self.host.page_id(id), "title": title }),
             ),
             Event::Chat {
-                agent_id, event, ..
-            } => crate::acp::deliver(&self.app, &agent_id, event),
-            Event::AttentionCleared { id, agent_id } => {
-                crate::acp::permission_cleared(&self.app, &agent_id, id)
-            }
+                agent_id,
+                seq,
+                changes,
+            } => crate::acp::deliver(&self.app, &agent_id, seq, changes),
             Event::DeviceView { view } => {
                 if let Some(hosts) = self.app.try_state::<Hosts>() {
-                    hosts.emit_view(&self.host, view);
+                    hosts.emit_view(&self.host, *view);
                 }
             }
             Event::Changed {
@@ -90,6 +89,15 @@ impl EventSink for RemoteSink {
                 "agent_notice",
                 json!({ "title": title, "body": body, "agentId": agent_id }),
             ),
+            Event::Stream {
+                stream,
+                items,
+                done,
+                error,
+            } => self.emit(
+                "core_stream",
+                json!({ "stream": stream, "items": items, "done": done, "error": error }),
+            ),
             Event::SshLink { .. }
             | Event::AccountDevice { .. }
             | Event::TaskOutput { .. }
@@ -98,7 +106,8 @@ impl EventSink for RemoteSink {
             | Event::ChatBegun { .. }
             | Event::Network { .. }
             | Event::FocusAgent { .. }
-            | Event::Attention { .. } => {}
+            | Event::Attention { .. }
+            | Event::AttentionCleared { .. } => {}
         }
     }
 

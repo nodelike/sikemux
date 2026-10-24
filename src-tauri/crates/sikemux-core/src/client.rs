@@ -149,6 +149,9 @@ fn wait_for_new_build(
 /// Starts `<binary> core --socket <socket> <args>` in its own session,
 /// detached from the caller, with its output appended to `log`.
 fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -> io::Result<()> {
+    if let Some(folder) = log.parent() {
+        std::fs::create_dir_all(folder)?;
+    }
     let log = OpenOptions::new()
         .create(true)
         .append(true)

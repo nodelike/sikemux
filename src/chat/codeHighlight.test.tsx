@@ -2,9 +2,10 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodeTokens, fenceLanguage, splitAtMark, useCodeTokens, useDiffTokens } from "./codeHighlight";
 import type { CodeLine } from "./types";
-import type { DiffLine } from "./diff";
-import { previewTheme } from "../themes/bus";
-import { DEFAULT_THEME_ID, THEMES, themeById } from "../themes";
+import type { DiffLine } from "./types";
+import { wearPicked } from "../themes/bus";
+import { DEFAULT_THEME_ID } from "../themes";
+import { SIKEMUX_THEMES, testPalette, themeById } from "../test/themes";
 
 const tokenizeCode = vi.fn<(text: string, lang: string) => Promise<CodeLine[]>>();
 
@@ -26,7 +27,7 @@ beforeEach(() => {
 
 afterEach(() => {
     cleanup();
-    previewTheme(themeById(DEFAULT_THEME_ID));
+    wearPicked(testPalette(themeById(DEFAULT_THEME_ID)));
     vi.useRealTimers();
     vi.clearAllMocks();
 });
@@ -56,7 +57,7 @@ describe("fenceLanguage", () => {
     });
 });
 
-const otherTheme = () => THEMES.find((theme) => theme.id !== DEFAULT_THEME_ID)!;
+const otherTheme = () => SIKEMUX_THEMES.find((theme) => theme.id !== DEFAULT_THEME_ID)!;
 
 describe("useCodeTokens", () => {
     it("keeps the old colours on screen through a theme change until the new ones arrive", async () => {
@@ -64,7 +65,7 @@ describe("useCodeTokens", () => {
         await settle();
         tokenizeCode.mockImplementation((text) => Promise.resolve(text.split("\n").map((line) => [{ text: line, color: "#ffcb6b" }])));
 
-        act(() => previewTheme(otherTheme()));
+        act(() => wearPicked(testPalette(otherTheme())));
         expect(screen.getByTestId("fence").querySelector("span")).toHaveStyle({ color: "#c792ea" });
 
         await settle();
@@ -76,7 +77,7 @@ describe("useCodeTokens", () => {
         render(<Fence text="const raced = 1;" lang="typescript" />);
         act(() => {
             vi.advanceTimersByTime(150);
-            previewTheme(otherTheme());
+            wearPicked(testPalette(otherTheme()));
         });
         await settle();
 

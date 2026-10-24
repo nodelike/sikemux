@@ -1,8 +1,9 @@
 //! Secrets kept by service and account, where no agent can reach them: in
 //! the data protection keychain for a build Sikemux's team signed on macOS,
 //! and in the guarded store for a core Sikemux's installer set up on Linux. A
-//! development build keeps them in files only the person can read. Any other
-//! build keeps none, rather than keep them where agents could read them.
+//! development build, or the try-out built with its own secrets folder, keeps
+//! them in files only the person can read. Any other build keeps none, rather
+//! than keep them where agents could read them.
 
 use std::fmt;
 
@@ -14,6 +15,9 @@ mod keychain;
 mod signature;
 
 pub use signature::{signed_by_team, TEAM_REQUIREMENT};
+
+/// This is the try-out, built to keep its secrets in a folder of its own.
+pub const TRYOUT: bool = file::TRYOUT_FOLDER.is_some();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeychainError {
@@ -62,7 +66,7 @@ fn store() -> Store {
     if guarded::active() {
         return Store::Guarded;
     }
-    if cfg!(debug_assertions) {
+    if cfg!(debug_assertions) || TRYOUT {
         Store::Files
     } else {
         Store::Unprotected

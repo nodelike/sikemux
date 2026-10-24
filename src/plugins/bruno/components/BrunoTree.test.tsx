@@ -1,7 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
-import { emptyRequest } from "../lib/types";
 import { BrunoTree } from "./BrunoTree";
 
 it("activates request rows and expands folders from the keyboard", async () => {
@@ -16,17 +15,13 @@ it("activates request rows and expands folders from the keyboard", async () => {
                     type: "folder",
                     name: "users",
                     path: "/api/users",
-                    seq: 1,
-                    scope: null,
                     children: [
                         {
                             type: "request",
                             name: "list",
                             path: "/api/users/list.bru",
                             method: "get",
-                            seq: 1,
                             collectionPath: "/api",
-                            request: emptyRequest("list"),
                         },
                     ],
                 },

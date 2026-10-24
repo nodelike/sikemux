@@ -1,3 +1,4 @@
+import { parseLines } from "../terminalFrames";
 import {
   SESSION,
   everyFrame,
@@ -9,17 +10,21 @@ import {
 } from "./measure";
 
 /*
- * Floods a terminal with a colourful build log as fast as it takes it, the
- * way `cat` of a big log does, while keys are typed into it, then scrolls
- * back through what it kept.
+ * Floods a terminal with a colourful build log the way `cat` of a big log
+ * does, at the rate the core reads it, while keys are typed into it, then
+ * scrolls back through what it kept. The core sends a frame of the screen
+ * each time the last one was drawn, so every frame carries a full screen.
  */
+
+/** What the core reads of the log in one 60Hz frame: about 29 MB/s, as measured. */
+const LOG_BYTES_PER_FRAME = 485_000;
 
 const WINDOW = "w-sikemux-term";
 const PANE = "t-dev";
 
 const paint = (code: number, text: string) => `\x1b[${code}m${text}\x1b[0m`;
 
-function buildLog(bytes: number): Uint8Array {
+function buildLog(bytes: number): string {
   const crates = ["tokio", "serde_json", "sikemux-core", "vt100", "hyper"];
   const lines: string[] = [];
   let size = 0;
@@ -34,7 +39,7 @@ function buildLog(bytes: number): Uint8Array {
     lines.push(text);
     size += text.length + 2;
   }
-  return new TextEncoder().encode(`${lines.join("\r\n")}\r\n`);
+  return `${lines.join("\r\n")}\r\n`;
 }
 
 /** Types through Playwright when it drives the page, so keys take WebKit's real input path. */
@@ -53,13 +58,13 @@ export async function terminal({
   const deadline = performance.now() + 30_000;
   let output = backend.terminalOutput(PANE);
   let input = document.querySelector<HTMLTextAreaElement>(
-    `[data-pane-id="${PANE}"] .xterm-helper-textarea`,
+    `[data-pane-id="${PANE}"] .terminal-input`,
   );
   while ((!output || !input) && performance.now() < deadline) {
     await sleep(250);
     output = backend.terminalOutput(PANE);
     input = document.querySelector<HTMLTextAreaElement>(
-      `[data-pane-id="${PANE}"] .xterm-helper-textarea`,
+      `[data-pane-id="${PANE}"] .terminal-input`,
     );
   }
   if (!output || !input) throw new Error("the terminal is not on screen");
@@ -69,27 +74,41 @@ export async function terminal({
   const pressedAt: number[] = [];
   const typed: number[] = [];
   const onKey = (event: KeyboardEvent) => pressedAt.push(event.timeStamp);
-  // On the window, since xterm's own listener on the terminal sends the key before any other there runs.
   window.addEventListener("keydown", onKey, { capture: true });
-  // The shell echoes what is typed into the output, ahead of what the flood has not yet written.
-  backend.on("pty_write", ({ data }) => {
-    for (const key of String(data)) {
+  // The shell echoes what is typed into the next frame.
+  backend.on("pty_input", ({ input: typedInput }) => {
+    const { text } = typedInput as { text?: string };
+    for (const key of text ?? "") {
       const at = pressedAt.shift();
       if (at === undefined) continue;
+      output.write(key);
       void output
-        .write(new TextEncoder().encode(key), { ahead: true })
-        .then((end) => output.acked(end))
+        .drawnSoon()
         .then(() =>
           requestAnimationFrame(() => typed.push(performance.now() - at)),
         );
     }
   });
 
-  const log = buildLog(1 << 20);
-  const start = output.sent;
+  const log = parseLines(buildLog(1 << 20));
+  const linesPerFrame = Math.round(
+    (LOG_BYTES_PER_FRAME / (1 << 20)) * log.length,
+  );
+  let offset = 0;
+  let fed = 0;
   const until = performance.now() + seconds * 1000;
-  const flood = async () => {
-    while (performance.now() < until) await output.write(log);
+  const flood = () => {
+    output.beforeFrame = () => {
+      if (performance.now() >= until) {
+        output.beforeFrame = null;
+        return;
+      }
+      const lines = log.slice(offset, offset + linesPerFrame);
+      offset = (offset + linesPerFrame) % log.length;
+      output.screen.pushLines(lines);
+      fed += LOG_BYTES_PER_FRAME;
+    };
+    output.changed();
   };
   let pressed = 0;
   const type = async () => {
@@ -99,33 +118,29 @@ export async function terminal({
     }
   };
   const flooding = await frames(seconds * 1000, () => {
-    void flood();
+    flood();
     void type();
   });
-  await output.acked(output.sent);
   await sleep(500);
   window.removeEventListener("keydown", onKey, { capture: true });
-  const megabytes = (output.sent - start) / (1 << 20);
+  const megabytes = fed / (1 << 20);
   // A key whose echo never came back counts as one that took forever.
   const unechoed = Array<number>(pressed - typed.length).fill(Infinity);
 
   const screen = document.querySelector<HTMLElement>(
-    `[data-pane-id="${PANE}"] .xterm-screen`,
+    `[data-pane-id="${PANE}"] .terminal-surface`,
   );
   if (!screen) throw new Error("the terminal screen is not on screen");
   const wheel = (deltaY: number) => () =>
     screen.dispatchEvent(
       new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true }),
     );
-  const sliderTop = () =>
-    parseFloat(
-      document.querySelector<HTMLElement>(
-        `[data-pane-id="${PANE}"] .scrollbar.vertical .slider`,
-      )?.style.top ?? "",
-    );
-  const bottom = sliderTop();
+  const scrolled = () =>
+    document.querySelector<HTMLElement>(
+      `[data-pane-id="${PANE}"] .terminal-scrollbar`,
+    )?.dataset.scrolled === "true";
   const scroll = spread(await everyFrame(240, wheel(-40)));
-  if (!(sliderTop() < bottom)) throw new Error("the scrollback did not scroll");
+  if (!scrolled()) throw new Error("the scrollback did not scroll");
   const fling = spread(await everyFrame(120, wheel(400)));
 
   return {

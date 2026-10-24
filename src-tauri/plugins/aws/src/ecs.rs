@@ -16,12 +16,12 @@ const SERVICE_EVENTS: usize = 10;
 
 #[derive(Serialize, Clone)]
 pub struct EcsCluster {
-    name: String,
-    arn: String,
-    services_count: Option<i64>,
-    tasks_running: Option<i64>,
-    tasks_pending: Option<i64>,
-    status: Option<String>,
+    pub(crate) name: String,
+    pub(crate) arn: String,
+    pub(crate) services_count: Option<i64>,
+    pub(crate) tasks_running: Option<i64>,
+    pub(crate) tasks_pending: Option<i64>,
+    pub(crate) status: Option<String>,
 }
 
 pub(crate) async fn clusters(target: &Target) -> AwsResult<Vec<EcsCluster>> {
@@ -138,16 +138,16 @@ impl DescribedService {
 
 #[derive(Serialize, Clone)]
 pub struct EcsService {
-    name: String,
-    arn: String,
-    desired: Option<i64>,
-    running: Option<i64>,
-    pending: Option<i64>,
-    status: Option<String>,
-    task_definition: Option<String>,
-    rollout: Option<String>,
-    primary_created_at: Option<String>,
-    primary_updated_at: Option<String>,
+    pub(crate) name: String,
+    pub(crate) arn: String,
+    pub(crate) desired: Option<i64>,
+    pub(crate) running: Option<i64>,
+    pub(crate) pending: Option<i64>,
+    pub(crate) status: Option<String>,
+    pub(crate) task_definition: Option<String>,
+    pub(crate) rollout: Option<String>,
+    pub(crate) primary_created_at: Option<String>,
+    pub(crate) primary_updated_at: Option<String>,
 }
 
 pub(crate) async fn services(target: &Target, cluster: &str) -> AwsResult<Vec<EcsService>> {
@@ -326,20 +326,20 @@ async fn describe_service(
 
 #[derive(Serialize, Clone)]
 pub struct EcsTask {
-    arn: String,
-    task_id: String,
-    status: Option<String>,
-    desired_status: Option<String>,
-    health_status: Option<String>,
-    task_definition: Option<String>,
-    cpu: Option<String>,
-    memory: Option<String>,
-    started_at: Option<String>,
-    last_status_change: Option<String>,
-    stopped_reason: Option<String>,
-    availability_zone: Option<String>,
-    private_ip: Option<String>,
-    containers: Vec<EcsContainer>,
+    pub(crate) arn: String,
+    pub(crate) task_id: String,
+    pub(crate) status: Option<String>,
+    pub(crate) desired_status: Option<String>,
+    pub(crate) health_status: Option<String>,
+    pub(crate) task_definition: Option<String>,
+    pub(crate) cpu: Option<String>,
+    pub(crate) memory: Option<String>,
+    pub(crate) started_at: Option<String>,
+    pub(crate) last_status_change: Option<String>,
+    pub(crate) stopped_reason: Option<String>,
+    pub(crate) availability_zone: Option<String>,
+    pub(crate) private_ip: Option<String>,
+    pub(crate) containers: Vec<EcsContainer>,
 }
 
 #[derive(Serialize, Clone)]

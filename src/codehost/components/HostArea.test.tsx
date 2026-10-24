@@ -46,9 +46,14 @@ vi.mock("./DispatchDialog", () => ({
 import { invalidate } from "../../plugin-api/resources";
 import type { TreeSection } from "../state";
 import { hostSettings, resetView, setFollowBranch, updateView, viewOf } from "../state";
-import { InHost, picked, registerTestHost, TEST_HOST } from "../testHost";
+import { ciCore, InHost, picked, registerTestHost, TEST_HOST } from "../testHost";
 import { setState } from "../../state/store";
 import { HostArea } from "./HostArea";
+import { testPreferences } from "../../test/preferences";
+
+beforeEach(() => setState({ preferences: testPreferences() }));
+
+ciCore();
 
 const signIn = vi.hoisted(() => ({ last: null as null | ((account: string | null) => void) }));
 const host = {
@@ -70,6 +75,7 @@ function show(section: TreeSection, extra: { branch?: string | null; cwd?: strin
         section,
         repo: extra.repo ?? repo,
         branch: extra.branch === undefined ? "feat/x" : extra.branch,
+        project: CWD,
         cwd: extra.cwd === undefined ? CWD : extra.cwd,
         active: true,
     };

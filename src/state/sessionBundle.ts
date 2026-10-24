@@ -84,7 +84,7 @@ export function parseSessionBundle(raw: string): ValidSessionBundle {
     const claims = new Set<string>();
     const agents = decoded.agents.map((row, index): ImportedAgent => {
         if (!isRecord(row) || !isAgentType(row.type)) throw new Error(`session bundle agent ${index + 1} is unsupported`);
-        const type = row.type as AgentType;
+        const type = row.type;
         const title = requiredString(row.title, `agent ${index + 1} title`);
         const resumeId = requiredString(row.resumeId, `agent ${index + 1} resume id`);
         if (!isResumeId(type, resumeId)) throw new Error(`session bundle agent ${index + 1} resume id is invalid`);

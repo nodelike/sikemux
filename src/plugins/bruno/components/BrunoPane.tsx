@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { basename, confirmDialog } from "../../../plugin-api/host";
+import { basename, confirmDialog, reportError } from "../../../plugin-api/host";
+import { readViewsAgain } from "../../../plugin-api/views";
+import { BRUNO_PLUGIN } from "../kinds";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconBruno, IconChevron } from "../../../plugin-api/ui";
 import { mergeScope, type Scope } from "../lib/interpolate";
-import { parseRequest } from "../lib/parse";
 import { buildScope, findRequest, requestVars, selectedEnvOf } from "../lib/resolve";
-import { runRequest, type RunResult } from "../lib/run";
-import { serializeRequest } from "../lib/serialize";
-import type { BruRequest, BruScope } from "../lib/types";
+import { brunoApi } from "../api";
+import type { BruRunResult as RunResult } from "../types.generated";
+import type { BruRequest } from "../lib/types";
 import { useBrunoDrafts, useBrunoSecretVars } from "../runtime";
 import {
     DEFAULT_BRUNO_VIEW,
-    brunoCollectionR,
+    brunoCollectionV,
+    brunoRequestV,
     brunoSaveRequest,
     brunoSelectRequest,
     brunoSetDraft,
@@ -37,14 +39,6 @@ interface Props {
     active: boolean;
 }
 
-function safeParse(text: string, fallback: BruRequest | null): BruRequest | null {
-    try {
-        return parseRequest(text);
-    } catch {
-        return fallback;
-    }
-}
-
 export function BrunoPane({ paneId, active }: Props) {
     const collectionPath = brunoSettings.useSelect((settings) => settings.collectionPath);
     const selectedEnvs = brunoSettings.useSelect((settings) => settings.selectedEnvs);
@@ -53,7 +47,7 @@ export function BrunoPane({ paneId, active }: Props) {
     const drafts = useBrunoDrafts(paneId);
     const secretVars = useBrunoSecretVars(paneId);
 
-    const coll = useResourceEnabled(active && !!collectionPath, brunoCollectionR, collectionPath);
+    const coll = useResourceEnabled(active && !!collectionPath, brunoCollectionV, `${paneId}/collection`, collectionPath);
     const collection = coll.data;
     useEffect(() => rememberCollection(collection ?? null), [collection]);
 
@@ -67,48 +61,49 @@ export function BrunoPane({ paneId, active }: Props) {
 
     const path = view.activeRequestPath;
     const located = useMemo(() => (collection && path ? findRequest(collection.tree, path) : null), [collection, path]);
-    const diskRequest = located?.request ?? null;
+    const opened = useResourceEnabled(active && !!collectionPath && !!path, brunoRequestV, `${paneId}/request`, collectionPath, path ?? "");
+    const diskRequest = opened.data?.request ?? null;
+    const scopes = opened.data?.scopes;
     const draft = path ? (drafts[path] ?? null) : null;
 
     const effectiveRequest = useMemo<BruRequest | null>(() => {
         if (editing && path && editing.path === path) return editing.req;
-        if (draft != null) return safeParse(draft, diskRequest);
+        if (draft != null) return draft;
         return diskRequest;
     }, [editing, path, draft, diskRequest]);
 
     // Scope the environment picker to the open request's collection.
-    const reqCollPath = located?.collectionPath ?? "";
+    const reqCollPath = opened.data?.collectionPath ?? located?.collectionPath ?? "";
     const visibleEnvs = useMemo(() => {
         if (!collection) return [];
         return reqCollPath ? collection.envs.filter((e) => e.collectionPath === reqCollPath) : collection.envs;
     }, [collection, reqCollPath]);
     const showEnvCollection = !reqCollPath; // only disambiguate by collection when not scoped
     const selectedEnvId = selectedEnvs[reqCollPath] ?? null;
-    const env = collection ? selectedEnvOf(collection, selectedEnvId) : undefined;
+    const env = collection ? selectedEnvOf(collection.envs, selectedEnvId) : undefined;
     const secretNames = useMemo(() => env?.secretNames ?? [], [env?.secretNames]);
     const inheritedScope = useMemo(() => {
         if (!collection) return {} as Scope;
-        return buildScope({ collection, env, secretVars, folderScopes: located?.folderScopes ?? [] });
-    }, [collection, env, secretVars, located]);
+        return buildScope({ env, secretVars, scopes: scopes ?? [] });
+    }, [collection, env, secretVars, scopes]);
     const scope = useMemo(() => mergeScope(runtime, requestVars(effectiveRequest), inheritedScope), [runtime, effectiveRequest, inheritedScope]);
 
     // Serialising the file's own version once per request, rather than once per
     // keystroke, to answer the only question asked of it: is this edited yet.
-    const diskSerialized = useMemo(() => (diskRequest ? serializeRequest(diskRequest) : ""), [diskRequest]);
+    const diskSerialized = useMemo(() => JSON.stringify(diskRequest), [diskRequest]);
 
     const onChange = useCallback(
         (next: BruRequest) => {
             if (!path) return;
             setEditing({ path, req: next });
-            const serialized = serializeRequest(next);
-            brunoSetDraft(paneId, path, serialized === diskSerialized ? null : serialized);
+            brunoSetDraft(paneId, path, JSON.stringify(next) === diskSerialized ? null : next);
         },
         [path, diskSerialized, paneId],
     );
 
     const onSend = useCallback(async () => {
         if (!path || !effectiveRequest || !collection) return;
-        const scopes = [collection.config, ...(located?.folderScopes ?? [])].filter(Boolean) as BruScope[];
+
         let trusted = trustedCollection === collectionPath;
         if (!trusted) {
             trusted = await confirmDialog({
@@ -121,7 +116,15 @@ export function BrunoPane({ paneId, active }: Props) {
         }
         setRunning((r) => ({ ...r, [path]: true }));
         try {
-            const result = await runRequest({ request: effectiveRequest, scopes, vars: scope, trust: trusted, collectionPath });
+            const result = await brunoApi.run({
+                root: collectionPath,
+                path,
+                request: effectiveRequest,
+                env: selectedEnvId ?? undefined,
+                secrets: secretVars,
+                runtime,
+                trusted,
+            });
             setResults((r) => ({ ...r, [path]: result }));
             if (Object.keys(result.envUpdates).length) {
                 setRuntime((prev) => ({ ...prev, ...result.envUpdates }));
@@ -130,10 +133,12 @@ export function BrunoPane({ paneId, active }: Props) {
                     if (secretNames.includes(k)) brunoSetSecret(paneId, k, v);
                 }
             }
+        } catch (error) {
+            reportError("send the request")(error);
         } finally {
             setRunning((r) => ({ ...r, [path]: false }));
         }
-    }, [path, effectiveRequest, collection, located, scope, secretNames, paneId, trustedCollection, collectionPath]);
+    }, [path, effectiveRequest, collection, selectedEnvId, secretVars, runtime, secretNames, paneId, trustedCollection, collectionPath]);
 
     const onSave = useCallback(() => {
         if (!path) return;
@@ -241,7 +246,7 @@ export function BrunoPane({ paneId, active }: Props) {
                     loading={coll.status === "loading" && !collection}
                     error={coll.error ?? null}
                     onSelect={(p) => brunoSelectRequest(paneId, p)}
-                    onReload={() => void coll.refresh()}
+                    onReload={() => void readViewsAgain(BRUNO_PLUGIN).catch(reportError("reload the collection"))}
                 />
                 <div className="bruno-main">
                     {effectiveRequest && path ? (

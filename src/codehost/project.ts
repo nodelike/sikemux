@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { currentBranch, git, gitOverviewR } from "../plugin-api/host";
 import { resource, useCachedResourceEnabled, useResourceEnabled } from "../plugin-api/resources";
-import { isOwnBranch } from "./checkout";
 import { enabledCodeHosts, type CodeHost } from "./registry";
-import { accountForR, hostStatusR, pullsR } from "./resources";
+import { accountForR } from "./resources";
+import { pullListR } from "./lists";
 import { useStore } from "../state/store";
 import { refOf } from "./state";
 import type { Pull, RepoRef } from "./types";
@@ -73,26 +73,16 @@ export function useHostRepo(cwd: string | null, enabled: boolean): HostRepo {
 
 const NO_PULLS: ReadonlyMap<string, Pull> = new Map();
 
-/** The open pull request of each of the repository's own branches, by branch name, once someone is signed in to its host. */
-export function useBranchPulls(repo: RepoRef | null, enabled: boolean): ReadonlyMap<string, Pull> {
-    const status = useResourceEnabled(enabled && !!repo, hostStatusR, repo?.provider ?? "", repo?.account ?? null);
-    const pulls = useResourceEnabled(enabled && !!repo && !!status.data?.ok, pullsR, repo ?? { provider: "", owner: "", name: "" }, "open");
-    return useMemo(() => (repo && pulls.data ? pullsByBranch(pulls.data, repo) : NO_PULLS), [repo, pulls.data]);
-}
-
-/** A fork's pull request is left out: its branch of the same name is not the one in this repository. */
-export function pullsByBranch(pulls: readonly Pull[], repo: RepoRef): ReadonlyMap<string, Pull> {
-    const byBranch = new Map<string, Pull>();
-    for (const pull of pulls) {
-        if (pull.head && isOwnBranch(pull, repo)) byBranch.set(pull.head, pull);
-    }
-    return byBranch;
-}
-
-/** A branch's pull request: the open one when there is one, or else the newest it had. */
-export function pullForBranch(pulls: readonly Pull[], repo: RepoRef, branch: string): Pull | null {
-    const own = pulls.filter((pull) => pull.head === branch && isOwnBranch(pull, repo));
-    return own.find((pull) => pull.state === "open") ?? own[0] ?? null;
+/** The open pull request of each of the project's own branches, by branch name, as the core lists them. */
+export function useBranchPulls(cwd: string | null, enabled: boolean): ReadonlyMap<string, Pull> {
+    const pulls = useResourceEnabled(enabled && !!cwd, pullListR, cwd ?? "", "open");
+    return useMemo(
+        () =>
+            pulls.data
+                ? new Map(pulls.data.pulls.filter((listed) => listed.ownBranch && listed.pull.head).map(({ pull }) => [pull.head!, pull]))
+                : NO_PULLS,
+        [pulls.data],
+    );
 }
 
 export function pullMerged(pull: Pick<Pull, "state" | "mergedAt"> | null): boolean {
@@ -105,30 +95,21 @@ export function pullState(pull: Pick<Pull, "state" | "draft" | "mergedAt">): str
     return pull.draft && pull.state === "open" ? "draft" : pull.state;
 }
 
-const CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:[\w.-]+\/[\w.-]+)?#(\d+)/giu;
-
-/** The issues a pull request's description says it closes, as GitHub links them: "Fixes #12", "closes owner/repo#3". */
-export function closedIssues(body: string | null | undefined): number[] {
-    return [...new Set([...(body ?? "").matchAll(CLOSING)].map((match) => Number(match[1])))];
-}
-
 export const PULL_STATE_LABEL: Readonly<Record<string, string>> = { open: "Open", closed: "Closed", merged: "Merged", draft: "Draft" };
 
 const NO_PULL_LIST: readonly Pull[] = [];
 
-/** Every pull request a branch has had, in any state, once someone is signed in to its host. */
-export function useBranchPullList(repo: RepoRef | null, branch: string, enabled: boolean): readonly Pull[] {
-    const status = useResourceEnabled(enabled && !!repo, hostStatusR, repo?.provider ?? "", repo?.account ?? null);
-    const pulls = useResourceEnabled(enabled && !!repo && !!status.data?.ok, pullsR, repo ?? NO_REPO, "all");
+/** Every pull request a branch of the project has had, in any state. */
+export function useBranchPullList(cwd: string | null, branch: string, enabled: boolean): readonly Pull[] {
+    const pulls = useResourceEnabled(enabled && !!cwd, pullListR, cwd ?? "", "all");
     return useMemo(
-        () => (repo && pulls.data ? pulls.data.filter((pull) => pull.head === branch && isOwnBranch(pull, repo)) : NO_PULL_LIST),
-        [repo, pulls.data, branch],
+        () => pulls.data?.pulls.filter((listed) => listed.ownBranch && listed.pull.head === branch).map(({ pull }) => pull) ?? NO_PULL_LIST,
+        [pulls.data, branch],
     );
 }
 
-/** One branch's pull request in any state, once someone is signed in to its host. */
-export function useBranchPull(repo: RepoRef | null, branch: string, enabled: boolean): Pull | null {
-    const status = useResourceEnabled(enabled && !!repo, hostStatusR, repo?.provider ?? "", repo?.account ?? null);
-    const pulls = useResourceEnabled(enabled && !!repo && !!status.data?.ok, pullsR, repo ?? NO_REPO, "all");
-    return useMemo(() => (repo && pulls.data ? pullForBranch(pulls.data, repo, branch) : null), [repo, pulls.data, branch]);
+/** A branch's pull request: the open one when there is one, or else the newest it had. */
+export function useBranchPull(cwd: string | null, branch: string, enabled: boolean): Pull | null {
+    const own = useBranchPullList(cwd, branch, enabled);
+    return own.find((pull) => pull.state === "open") ?? own[0] ?? null;
 }

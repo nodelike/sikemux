@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ContextMenu, IconClose, IconPlus, type ContextMenuItem } from "../../../plugin-api/ui";
-import type { DatabaseProfile } from "../api";
+import type { DatabaseConnection } from "../types.generated";
 import { tabLabel, type DatabaseTab } from "../tabs";
 
 const GLYPH: Record<DatabaseTab["kind"], string> = { console: "›_", table: "▦", history: "↺", connection: "ⓘ" };
@@ -9,7 +9,7 @@ const GLYPH: Record<DatabaseTab["kind"], string> = { console: "›_", table: "�
 export function TabStrip({
     tabs,
     active,
-    profiles,
+    connections,
     onSelect,
     onClose,
     onCloseOthers,
@@ -17,7 +17,7 @@ export function TabStrip({
 }: {
     tabs: DatabaseTab[];
     active: string | null;
-    profiles: DatabaseProfile[];
+    connections: DatabaseConnection[];
     onSelect: (id: string) => void;
     onClose: (id: string) => void;
     onCloseOthers: (id: string) => void;
@@ -25,7 +25,7 @@ export function TabStrip({
     onNewConsole?: () => void;
 }) {
     const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
-    const nameOf = (profile: string) => profiles.find((each) => each.id === profile)?.name ?? "removed";
+    const nameOf = (profile: string) => connections.find((each) => each.id === profile)?.name ?? "removed";
 
     return (
         <div className="db-tabstrip">

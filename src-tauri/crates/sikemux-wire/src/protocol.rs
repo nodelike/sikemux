@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Read};
 use std::path::PathBuf;
 
+use crate::grid::{FindOptions, FindResult, GridPoint, TerminalInput};
 use crate::pty::agent_detection::{DetectionExplain, ManifestReloadReport};
 use crate::pty::launch::{PtyContext, PtyDirectCommand};
 use crate::pty::output_log::{OutputPage, OutputQuery};
@@ -17,11 +18,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const PROTOCOL: &str = "sikemux-core";
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 /// The oldest version a device may speak and still be served. A change a
 /// device from an older release can still read bumps only `PROTOCOL_VERSION`,
 /// so phones waiting on an app store review keep working.
-pub const OLDEST_PROTOCOL_VERSION: u32 = 9;
+pub const OLDEST_PROTOCOL_VERSION: u32 = 12;
 /// How long a core waits for a sleeping chat it was asked to wake to come
 /// back up, its agent's adapter and CLI with it. A device waits longer, so the
 /// core's reason for giving up reaches it.
@@ -33,6 +34,9 @@ pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
 
 pub type SessionId = u64;
+/// One attach's stream of frames. A client can watch a session in several
+/// places at once, each with its own stream.
+pub type StreamId = u32;
 pub type RequestId = u64;
 pub type CallId = u64;
 
@@ -40,14 +44,19 @@ pub type CallId = u64;
 #[repr(u8)]
 pub enum FrameKind {
     Control = 0,
-    /// Core to client: session id (u64 BE), then the terminal's bytes.
-    Output = 1,
+    /// Core to client, a terminal's cells changing: stream id (u32 BE), then
+    /// a frame as [`crate::grid`] lays it out.
+    Grid = 1,
     /// Core to client, answering an attach: request id (u64 BE), session id
-    /// (u64 BE), header length (u32 BE), [`AttachHeader`] JSON, replay bytes.
+    /// (u64 BE), stream id (u32 BE), header length (u32 BE), [`AttachHeader`]
+    /// JSON, then the first frame of the stream, holding the whole screen.
     Snapshot = 2,
     /// Client to core, a write: request id (u64 BE), session id (u64 BE), then
     /// the bytes for the terminal. Answered like any other request.
     Input = 3,
+    /// Core to client, answering [`Request::TerminalLines`]: request id
+    /// (u64 BE), then the lines as [`crate::grid`] lays them out.
+    Lines = 4,
     /// A request every core answers, whatever protocol version it speaks:
     /// sent instead of a hello, and answered once.
     Frozen = 0x46,
@@ -57,9 +66,10 @@ impl FrameKind {
     fn from_byte(byte: u8) -> Option<Self> {
         match byte {
             0 => Some(Self::Control),
-            1 => Some(Self::Output),
+            1 => Some(Self::Grid),
             2 => Some(Self::Snapshot),
             3 => Some(Self::Input),
+            4 => Some(Self::Lines),
             0x46 => Some(Self::Frozen),
             _ => None,
         }
@@ -98,9 +108,9 @@ pub enum ClientMessage {
         request_id: RequestId,
         request: Request,
     },
-    /// The client has finished with this many output bytes of a session it is
-    /// attached to. Never answered.
-    Ack { id: SessionId, bytes: usize },
+    /// The client has drawn every frame of the stream up to `frame`, so the
+    /// core may send the next. Never answered.
+    Ack { stream: StreamId, frame: u32 },
     /// The window's answer to a [`ServerMessage::WindowCall`].
     WindowReply {
         call_id: CallId,
@@ -126,14 +136,55 @@ pub enum Request {
         id: SessionId,
     },
     List,
+    /// Starts a stream of the session's cells, answered with a snapshot frame.
     Attach {
         id: SessionId,
     },
     Detach {
-        id: SessionId,
+        stream: StreamId,
     },
-    /// Like `Attach` without the replay: the client already holds the screen.
-    Subscribe {
+    /// A key, text, paste, mouse or focus change for the session's program.
+    TerminalInput {
+        id: SessionId,
+        input: TerminalInput,
+    },
+    /// History lines `start..start + count`, answered with a lines frame.
+    TerminalLines {
+        id: SessionId,
+        start: u64,
+        count: u32,
+    },
+    /// The text between two cells, or all the terminal holds without them.
+    TerminalText {
+        id: SessionId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        range: Option<(GridPoint, GridPoint)>,
+    },
+    /// Searches the session's history and screen. The current match is the
+    /// first after `from`, or before it going `backwards`, or at it when
+    /// `inclusive`.
+    TerminalFind {
+        id: SessionId,
+        query: String,
+        #[serde(default)]
+        options: FindOptions,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<GridPoint>,
+        #[serde(default)]
+        backwards: bool,
+        #[serde(default)]
+        inclusive: bool,
+    },
+    /// Answers with the first line on the session's screen that contains
+    /// `containing`, once one shows, or with none when the session ends first.
+    /// Needs no client to watch the terminal.
+    TerminalWaitFor {
+        id: SessionId,
+        containing: String,
+    },
+    /// Moves the cursor's line to the top of the screen and drops the history
+    /// above it, without telling the program.
+    TerminalClear {
         id: SessionId,
     },
     /// Turns off the input modes a crashed program may have left on, for the
@@ -339,11 +390,6 @@ pub enum Request {
     },
     /// The picture published with the backdrop, as a data URL.
     BackdropImage,
-    /// The colours of the app's theme, by name, so devices draw in them.
-    /// Replaces what it published before.
-    PublishPalette {
-        palette: BTreeMap<String, String>,
-    },
     /// The agents the app shows now, replacing the last list, and whether its
     /// window is in front. An agent on screen in a window in front is never
     /// left unread, and one on screen is not put to sleep.
@@ -431,6 +477,12 @@ pub struct RecentInfo {
     pub cwd: PathBuf,
     /// Unix milliseconds.
     pub active_at: u64,
+    /// The agent in the workspace that holds the chat, open or asleep.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// The person pinned it, so it shows above the rest however long ago it ran.
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// Something read elsewhere and handed to the agent whole, such as an issue.
@@ -450,28 +502,7 @@ pub struct ChatStart {
     pub setup: Value,
 }
 
-/// The kinds of the app's `acp_event`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatEventKind {
-    Status,
-    Ready,
-    SessionUpdate,
-    /// What a person sent the agent, for everyone watching but the sender.
-    Prompt,
-    TurnStarted,
-    TurnCompleted,
-    PermissionRequest,
-    Error,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChatEvent {
-    pub kind: ChatEventKind,
-    pub payload: Value,
-}
-
-/// The last of a chat's events a client heard. `feed` changes whenever the
+/// The last of a chat's changes a client heard. `feed` changes whenever the
 /// chat's agent starts again, which starts `seq` over.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatMark {
@@ -486,32 +517,19 @@ pub struct ChatMark {
     rename_all_fields = "camelCase"
 )]
 pub enum ChatAttachment {
-    /// `replay` holds what the agent said since its session started or
-    /// loaded, in order, so a client rebuilds the chat as if it had watched.
-    /// Live events follow, numbered from `mark.seq + 1`.
+    /// The chat as it stands, a [`crate::chat::ChatView`] as JSON. Changes
+    /// follow, numbered from `mark.seq + 1`.
     Live {
-        start: Box<ChatStart>,
-        permission_mode: String,
-        running: bool,
-        /// A turn has run in this session, so the provider keeps it.
-        turned: bool,
-        replay: Vec<ChatEvent>,
+        view: Value,
         mark: ChatMark,
-        /// A phone is sent only the chat's last turns. Asking for the history
-        /// before this event, with [`Request::AcpHistory`], pages back.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        older_before: Option<u64>,
     },
-    /// The events the client missed since the mark it attached with, except
-    /// the prompts it sent itself. Live events follow `mark`.
+    /// What changed since the mark the client attached with, as a list of
+    /// [`crate::chat::ChatChange`] JSON. Changes follow `mark`.
     Resumed {
-        events: Vec<ChatEvent>,
+        changes: Value,
         mark: ChatMark,
     },
     Missing,
-    /// The session said more than the core keeps, so the client starts it
-    /// again from the provider's own history.
-    Restart,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -592,6 +610,10 @@ pub struct ChatInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_provider: Option<String>,
     pub effort: Option<String>,
+    /// Why it can be read here but not continued, such as a try-out's chat from the
+    /// person's own Sikemux. Its agent never starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_only: Option<String>,
     /// The app stopped its agent while idle; `AcpWake` starts it again.
     pub asleep: bool,
     /// It finished a turn or asked for something while the person was not
@@ -755,6 +777,15 @@ pub enum Response {
         id: SessionId,
     },
     Done,
+    TerminalText {
+        text: String,
+    },
+    TerminalLine {
+        line: Option<String>,
+    },
+    Found {
+        result: FindResult,
+    },
     Sessions {
         sessions: Vec<SessionInfo>,
     },
@@ -776,11 +807,11 @@ pub enum Response {
     ChatAttached {
         attachment: ChatAttachment,
     },
-    /// Older events of a chat, in order. Paging goes on before `older_before`;
-    /// without one this reaches the start of what the host keeps.
+    /// Rows from before what a client holds, a [`crate::chat::ChatPage`] as
+    /// JSON. Paging goes on before its `olderBefore`; without one this reaches
+    /// the start of what the host keeps.
     ChatHistory {
-        events: Vec<ChatEvent>,
-        older_before: Option<u64>,
+        page: Value,
     },
     Chats {
         chats: Vec<ChatInfo>,
@@ -854,6 +885,124 @@ pub struct ProjectInfo {
     /// has none. The core keeps it; clients only read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<String>,
+    /// Where its repository stands, while the folder is one. The core fills
+    /// it in; clients only read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<ProjectGit>,
+    /// The launcher a new agent here starts with: that of the agent last
+    /// started here, else one of the kind of agent last started anywhere, else
+    /// the first offered. The core fills it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launcher: Option<String>,
+    /// A new chat here starts in a worktree of its own, as the person chose for
+    /// the project. The core fills it in from its preferences.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub worktree_default: bool,
+    /// Where its repository is on a code host, while its origin is on one.
+    /// The core fills it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_host: Option<ProjectCodeHost>,
+}
+
+/// A project's repository on a code host, and what Sikemux shows of it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCodeHost {
+    /// The host's plugin, such as `github`.
+    pub host: String,
+    /// `owner/name`.
+    pub repo: String,
+    /// What the host calls its CI, such as Actions or Pipelines.
+    pub ci_name: String,
+    /// The sections clients list for it: `pulls`, `actions`, `issues` and
+    /// `releases`, in order.
+    pub sections: Vec<String>,
+    /// What the host lets a pull request do, which clients offer accordingly.
+    #[serde(default)]
+    pub pulls: PullAbilities,
+    /// What the host's CI shows and lets a person do.
+    #[serde(default)]
+    pub ci: CiAbilities,
+}
+
+/// What a code host's CI shows of a run and lets a person do to it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CiAbilities {
+    /// A run keeps its earlier attempts.
+    pub attempts: bool,
+    /// A run can wait on someone approving a deployment.
+    pub approvals: bool,
+    /// A workflow can be started by hand.
+    pub dispatch: bool,
+    pub annotations: bool,
+    /// Jobs write summaries of their own.
+    pub summaries: bool,
+    pub artifacts: bool,
+    /// It says how many minutes a run was billed.
+    pub billing: bool,
+    pub workflow_file: bool,
+    pub rerun_failed: bool,
+    pub rerun_job: bool,
+    /// A job can run again with its runner's debug logging on.
+    pub debug_logs: bool,
+    pub delete_runs: bool,
+    /// A run's logs can go while the run stays.
+    pub delete_logs: bool,
+}
+
+/// What a code host lets a pull request do.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullAbilities {
+    /// The ways it merges, `squash`, `merge` or `rebase`, in the order offered.
+    pub merge_methods: Vec<String>,
+    /// A review can ask for changes.
+    pub request_changes: bool,
+    /// A closed one can be opened again.
+    pub reopen: bool,
+    /// It says whether one can merge cleanly.
+    pub mergeability: bool,
+}
+
+/// The open pull request a project's branch is the head of.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPull {
+    pub number: u64,
+    pub title: String,
+    pub draft: bool,
+    pub url: String,
+    /// How the checks on its latest commit stand; none before any ran.
+    pub checks: Option<PullChecks>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PullChecks {
+    Pending,
+    Passing,
+    Failing,
+}
+
+/// A project's branch as its chip shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGit {
+    pub branch: String,
+    /// Commits it has that its upstream lacks, and the other way round.
+    pub ahead: u32,
+    pub behind: u32,
+    /// Something in it changed since its last commit.
+    pub dirty: bool,
+    /// The open pull request the branch is the head of, as its code host
+    /// last said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull: Option<ProjectPull>,
+    /// The branch has no open pull request and is not one others merge into,
+    /// so clients offer to open one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub needs_pull: bool,
 }
 
 /// A repository or account picked for a project on one code host.
@@ -897,6 +1046,10 @@ pub struct WorkspaceAgent {
     pub id: String,
     /// The CLI it runs, such as `claude`.
     pub provider: String,
+    /// What the core calls it, such as Otter, open or asleep. The core fills
+    /// it in; clients only read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// Its project, by id.
     pub project: String,
     pub cwd: PathBuf,
@@ -933,12 +1086,292 @@ pub struct WorkspaceAgent {
     /// The character drawn for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub buddy: Option<Value>,
+    /// The face it wears in place of its CLI's logo, from `buddy` and the
+    /// person's face style; none while it shows the logo. The core fills it
+    /// in; clients only read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<AgentFace>,
     /// The terminal session running it, for an agent in a terminal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pty_id: Option<SessionId>,
     /// Unix milliseconds.
     #[serde(default)]
     pub created_at: u64,
+}
+
+/// The face an agent wears, drawn by each client from the same art.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentFace {
+    pub pack: String,
+    pub shape: String,
+    /// Which of the pack's colours, in the order its palette lists them.
+    pub color: u32,
+    /// The part of the shape's 24-unit square its drawing fills, as an SVG
+    /// viewBox.
+    #[serde(rename = "box")]
+    pub view_box: String,
+}
+
+/// How agents' faces look, as the person picked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FaceStyle {
+    /// Every agent wears a face; otherwise only one with a name does.
+    pub on: bool,
+    /// A pack's id, or `all` for a pack per agent.
+    pub pack: String,
+    /// A shape's id, or `mixed` for a shape per agent.
+    pub shape: String,
+    /// Faces move with what their agents are doing.
+    pub motion: bool,
+}
+
+impl Default for FaceStyle {
+    fn default() -> Self {
+        Self {
+            on: false,
+            pack: "all".into(),
+            shape: "mixed".into(),
+            motion: true,
+        }
+    }
+}
+
+pub const DEFAULT_TERMINAL_FONT_SIZE: u32 = 13;
+pub const MIN_TERMINAL_FONT_SIZE: u32 = 8;
+pub const MAX_TERMINAL_FONT_SIZE: u32 = 32;
+/// How much larger than usual a chat's or an editor's text is drawn.
+pub const DEFAULT_TEXT_SCALE: f64 = 1.0;
+pub const MIN_TEXT_SCALE: f64 = 0.7;
+pub const MAX_TEXT_SCALE: f64 = 2.0;
+/// The sizes the whole interface's text may be drawn at.
+pub const UI_TEXT_SCALES: [f64; 3] = [1.0, 1.1, 1.25];
+pub const DEFAULT_THEME_ID: &str = "aura-noir";
+/// How many folders below a project root projects are looked for, at most.
+pub const MAX_PROJECT_DEPTH: u32 = 8;
+
+/// Where a custom command's output goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CustomCommandPlacement {
+    Background,
+    Terminal,
+    Split,
+    Popup,
+    Replace,
+}
+
+/// A shell command the person added to the command palette.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomCommand {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub detail: String,
+    pub command: String,
+    /// The kinds of tab it is offered in; none means every tab.
+    #[serde(default)]
+    pub contexts: Vec<String>,
+    pub placement: CustomCommandPlacement,
+}
+
+/// A folder the person keeps projects in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRoot {
+    pub path: String,
+    /// How many folders below it git repositories count as projects.
+    pub depth: u32,
+    /// The folder is a project itself, whether or not it is a git repository.
+    #[serde(default)]
+    pub self_index: bool,
+}
+
+/// How the person wants Sikemux to behave, the same in every app. A field
+/// left out reads as its default.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Preferences {
+    /// What sending does while an agent's turn runs.
+    pub mid_turn_send: MidTurnSend,
+    /// One of 1, 1.1 and 1.25.
+    pub ui_text_scale: f64,
+    pub terminal_font_size: u32,
+    pub chat_text_scale: f64,
+    pub editor_text_scale: f64,
+    /// The theme the person picked, one of the curated, Ghostty or their own.
+    pub theme_id: String,
+    /// The themes the person made.
+    pub custom_themes: Vec<crate::theme::Theme>,
+    /// The agent a new chat starts as when none is picked: the last one picked.
+    pub last_agent_type: Option<String>,
+    /// The projects, by folder, whose new chats start in a worktree of their own.
+    pub agent_worktree_defaults: BTreeMap<String, bool>,
+    /// Agent tabs open when the app quit open again when it starts.
+    pub restore_agent_tabs: bool,
+    /// The desktop says when an agent needs the person.
+    pub agent_notifications: bool,
+    /// The folders the person keeps projects in.
+    pub project_roots: Vec<ProjectRoot>,
+    /// The repository a project's Git views open on, by the project's folder,
+    /// for a project holding more than one.
+    pub default_git_repos: BTreeMap<String, String>,
+    /// Whether a project's language servers may run, by its folder, once the
+    /// person said.
+    pub language_server_trust: BTreeMap<String, bool>,
+    /// The commands the person added to the command palette.
+    pub custom_commands: Vec<CustomCommand>,
+    /// Each plugin's own settings, by the plugin's id, as the plugin reads them.
+    pub plugin_settings: BTreeMap<String, Value>,
+    /// The browser app single sign-on opens in, or none for the default one.
+    pub cloud_browser: String,
+    /// The shortcut that brings that browser's desktop forward.
+    pub cloud_browser_shortcut: String,
+    /// Agents may drive the iOS Simulator.
+    pub ios_simulator: bool,
+    /// How the island over the MacBook notch behaves.
+    pub notch: crate::notch::NotchSettings,
+    /// Holding right Option dictates; the speech model downloads once it is on.
+    pub voice_dictation: bool,
+    /// Which releases updates come from.
+    pub update_channel: UpdateChannel,
+    /// Anonymous usage is reported.
+    pub share_usage_data: bool,
+    /// The person went through the first-run introduction.
+    pub onboarding_complete: bool,
+    /// The release whose notes the person last saw.
+    pub last_seen_version: String,
+    /// The first launch already asked macOS to let Sikemux notify.
+    pub notifications_introduced: bool,
+    /// The person was told once that terminals keep running after Sikemux quits.
+    pub kept_running_notice_shown: bool,
+    /// Panes show a dithered texture behind them.
+    pub pane_shader: bool,
+    /// A picture every pane dithers in place of the texture.
+    pub pane_image: Option<String>,
+    /// How strongly the texture or picture shows, from 0 to 2.
+    pub pane_strength: f64,
+    /// How opaque the window is, from 0 to 1.
+    pub window_opacity: f64,
+    /// How much what is behind the window blurs, in points.
+    pub window_blur: f64,
+    pub rail_density: RailDensity,
+    /// The iOS Simulator is drawn inside a device's frame.
+    pub simulator_frame: bool,
+    /// The keys the person bound to actions in place of their defaults, by
+    /// the action's id; none unbinds an action.
+    pub keybinding_overrides: BTreeMap<String, Option<String>>,
+    /// The side rail is shown.
+    pub side_rail_open: bool,
+    /// The side rail's width, in points.
+    pub side_rail_width: f64,
+    /// The tab rail is shown.
+    pub tab_rail_open: bool,
+    /// The tab rail's width, in points.
+    pub tab_rail_width: f64,
+    pub tab_rail_page: TabRailPage,
+    pub tab_rail_scope: TabRailScope,
+    /// The tab rail lists every agent's chats rather than one agent's.
+    pub tab_rail_all_agents: bool,
+    /// The commands the person ran from the command deck, the last first.
+    pub recent_command_keys: Vec<String>,
+}
+
+/// The page the tab rail shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TabRailPage {
+    #[default]
+    Agents,
+    Terminals,
+    Files,
+}
+
+/// Whose agents the tab rail lists: the project in front's, or every project's.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TabRailScope {
+    #[default]
+    Project,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RailDensity {
+    #[default]
+    Comfortable,
+    Compact,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    Nightly,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            mid_turn_send: MidTurnSend::default(),
+            ui_text_scale: UI_TEXT_SCALES[0],
+            terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
+            chat_text_scale: DEFAULT_TEXT_SCALE,
+            editor_text_scale: DEFAULT_TEXT_SCALE,
+            theme_id: DEFAULT_THEME_ID.to_owned(),
+            custom_themes: Vec::new(),
+            last_agent_type: None,
+            agent_worktree_defaults: BTreeMap::new(),
+            restore_agent_tabs: true,
+            agent_notifications: true,
+            project_roots: Vec::new(),
+            default_git_repos: BTreeMap::new(),
+            language_server_trust: BTreeMap::new(),
+            custom_commands: Vec::new(),
+            plugin_settings: BTreeMap::new(),
+            cloud_browser: String::new(),
+            cloud_browser_shortcut: String::new(),
+            ios_simulator: true,
+            notch: crate::notch::NotchSettings::default(),
+            voice_dictation: false,
+            update_channel: UpdateChannel::default(),
+            share_usage_data: true,
+            onboarding_complete: false,
+            last_seen_version: String::new(),
+            notifications_introduced: false,
+            kept_running_notice_shown: false,
+            pane_shader: true,
+            pane_image: None,
+            pane_strength: 1.0,
+            window_opacity: 1.0,
+            window_blur: 0.0,
+            rail_density: RailDensity::default(),
+            simulator_frame: true,
+            keybinding_overrides: BTreeMap::new(),
+            side_rail_open: true,
+            side_rail_width: 258.0,
+            tab_rail_open: true,
+            tab_rail_width: 288.0,
+            tab_rail_page: TabRailPage::default(),
+            tab_rail_scope: TabRailScope::default(),
+            tab_rail_all_agents: false,
+            recent_command_keys: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MidTurnSend {
+    /// The message joins the turn that runs.
+    #[default]
+    Steer,
+    /// The message waits for the turn to end.
+    Queue,
 }
 
 /// What a device learns about a launcher: never its program or environment.
@@ -978,6 +1411,9 @@ pub struct ConfigPicker {
 pub struct ConfigChoice {
     pub value: String,
     pub label: String,
+    /// What the agent says about it, shown under its label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -997,7 +1433,7 @@ pub struct Workspace {
     #[serde(default)]
     pub disabled_plugins: Vec<String>,
     pub launchers: Vec<LauncherInfo>,
-    /// The app's theme colours by name; empty until the app publishes them.
+    /// DESIGN's colour tokens for the person's theme, by name.
     pub palette: BTreeMap<String, String>,
     pub backdrop: Backdrop,
 }
@@ -1029,6 +1465,16 @@ pub enum DeviceAccess {
     Full,
     /// Read sessions and answer agents' permission requests.
     Watch,
+}
+
+/// How busy a host is, for the rows clients show it in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostLoad {
+    /// The last minute's load as a share of the host's cores, in percent.
+    pub cpu: u32,
+    /// Memory in use, in bytes, where the host says.
+    pub memory_used: Option<u64>,
 }
 
 /// The computer a core runs on, as a person would recognise it.
@@ -1297,6 +1743,8 @@ pub struct SessionInfo {
     pub cols: u16,
     pub rows: u16,
     pub attached: usize,
+    /// The workspace project it runs in, by id; none for a terminal outside
+    /// every project.
     pub project: Option<String>,
     pub pane_id: Option<String>,
     pub agent_id: Option<String>,
@@ -1337,6 +1785,14 @@ pub struct SessionInfo {
     /// For an SSH terminal, where its connection last stood.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh: Option<SshLink>,
+    /// The SSH config host an SSH terminal connects to.
+    #[serde(default)]
+    pub ssh_alias: Option<String>,
+    /// What the rail calls a plain shell outside every project, agent and
+    /// SSH host, started with no command or name of its own: the lowest
+    /// number no other running one has when it started.
+    #[serde(default)]
+    pub rail_name: Option<String>,
 }
 
 /// A task's launch request without its environment.
@@ -1403,18 +1859,19 @@ pub enum Event {
         id: SessionId,
     },
     AgentState(AgentStateEvent),
-    /// Sent only to the clients that started or attached to the chat.
-    /// `seq` counts the chat's events, so a client can tell which ones the
-    /// attach answer already held.
+    /// Sent only to the clients that started or attached to the chat: what
+    /// changed in it, a list of [`crate::chat::ChatChange`] as JSON. `seq`
+    /// counts the chat's changes, so a client can tell which the attach answer
+    /// already held.
     Chat {
         agent_id: String,
         seq: u64,
-        event: ChatEvent,
+        changes: Value,
     },
     /// Sent only to paired devices: what they show of this host, whole, when
     /// they connect and whenever any of it changes.
     DeviceView {
-        view: DeviceView,
+        view: Box<DeviceView>,
     },
     /// Sent only to clients on this host.
     Remote {
@@ -1475,6 +1932,18 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         paths: Option<Vec<String>>,
     },
+    /// The next part of an answer that arrives in parts, sent only to the
+    /// connection that started `stream`. The last part has `done`, and
+    /// `error` when the stream failed: `{category, message}` and whatever
+    /// else its source says about the failure.
+    Stream {
+        stream: u64,
+        items: Vec<Value>,
+        #[serde(default)]
+        done: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<Value>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1491,6 +1960,137 @@ pub struct DeviceView {
     /// JSON so a change to its shape reaches phones over the air.
     #[serde(default)]
     pub inbox: Value,
+    /// Which project is in front, and each project's tabs.
+    #[serde(default)]
+    pub layout: Box<Layout>,
+    /// Who this host is signed in to Sikemux as; none while nobody is.
+    #[serde(default)]
+    pub account: Option<Box<AccountInfo>>,
+    #[serde(default)]
+    pub face_style: Box<FaceStyle>,
+    /// How busy this host is, while a client that shows it is attached.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load: Option<HostLoad>,
+}
+
+/// The Sikemux account this host is signed in to, as clients show it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountInfo {
+    pub name: Option<String>,
+    pub email: Option<String>,
+    /// Names the picture `accountPicture` answers, which changes with it.
+    pub picture_hash: Option<String>,
+}
+
+/// The tabs every desktop client draws, kept by the core.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Layout {
+    /// The project in front, by id.
+    #[serde(default)]
+    pub active_project: Option<String>,
+    /// Each project's tabs, by project id.
+    #[serde(default)]
+    pub projects: BTreeMap<String, ProjectLayout>,
+    /// The SSH host in front instead of a project, by its alias.
+    #[serde(default)]
+    pub active_host: Option<String>,
+    /// The terminal tabs open to each SSH host, by its alias. A host with
+    /// none left has no strip.
+    #[serde(default)]
+    pub hosts: BTreeMap<String, ProjectLayout>,
+    /// The tabs of terminals that belong to no project.
+    #[serde(default)]
+    pub terminals: ProjectLayout,
+    /// Whether the terminals' strip is in front instead of a project or host.
+    #[serde(default)]
+    pub terminals_in_front: bool,
+    /// The account's other host the person is on, by its key, whose own projects and tabs
+    /// are shown instead of this host's; none while they are on this host or an SSH host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen_host: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectLayout {
+    /// The tab in front, by id.
+    #[serde(default)]
+    pub active: Option<String>,
+    /// In the order the tab strip shows them.
+    #[serde(default)]
+    pub tabs: Vec<Tab>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tab {
+    pub id: String,
+    /// What the person named it; clients name an unnamed tab from its pane.
+    #[serde(default)]
+    pub title: Option<String>,
+    pub pane: Pane,
+    /// Opened to look at, by a single click: the next such tab takes its
+    /// place, until the person keeps it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preview: bool,
+}
+
+/// What a tab shows: one view, or several side by side.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Pane {
+    View {
+        id: String,
+        kind: PaneKind,
+        /// What it shows: an agent's id, a session's id, a path, a URL or a
+        /// plugin's id, by `kind`.
+        target: String,
+    },
+    Split {
+        id: String,
+        dir: SplitDir,
+        panes: Vec<Pane>,
+        /// Each pane's share of the split, in thousandths.
+        sizes: Vec<u16>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaneKind {
+    Agent,
+    Terminal,
+    Files,
+    Git,
+    Search,
+    Board,
+    Browser,
+    Plugin,
+    /// An agent's pages, files, task terminals and simulator; `target` is the agent.
+    Desk,
+    /// A project's own settings; `target` is its folder.
+    ProjectSettings,
+    /// What setting Sikemux up adds on an SSH host, and the one action that does it; `target`
+    /// is the host's alias.
+    InstallSikemux,
+    /// A kind a newer core shows, which this build does not know and leaves out.
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SplitDir {
+    Row,
+    Column,
+    /// In the same place, one in front and the rest reached by a strip of tabs over them.
+    Stack,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1551,7 +2151,6 @@ pub struct AgentStateEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachHeader {
-    pub alternate_screen: bool,
     pub shell: Option<ShellMetadataSnapshot>,
     /// The session's `Exited` event was sent before this snapshot, so the
     /// client will not hear of the exit again.
@@ -1576,8 +2175,8 @@ pub fn encode_control<T: Serialize>(message: &T) -> serde_json::Result<Vec<u8>> 
     ))
 }
 
-pub fn encode_output(id: SessionId, bytes: &[u8]) -> Vec<u8> {
-    encode_frame(FrameKind::Output, &[&id.to_be_bytes(), bytes])
+pub fn encode_grid(stream: StreamId, frame: &[u8]) -> Vec<u8> {
+    encode_frame(FrameKind::Grid, &[&stream.to_be_bytes(), frame])
 }
 
 pub fn encode_input(request_id: RequestId, id: SessionId, bytes: &[u8]) -> Vec<u8> {
@@ -1590,8 +2189,9 @@ pub fn encode_input(request_id: RequestId, id: SessionId, bytes: &[u8]) -> Vec<u
 pub fn encode_snapshot(
     request_id: RequestId,
     id: SessionId,
+    stream: StreamId,
     header: &AttachHeader,
-    replay: &[u8],
+    frame: &[u8],
 ) -> serde_json::Result<Vec<u8>> {
     let header = serde_json::to_vec(header)?;
     Ok(encode_frame(
@@ -1599,11 +2199,16 @@ pub fn encode_snapshot(
         &[
             &request_id.to_be_bytes(),
             &id.to_be_bytes(),
+            &stream.to_be_bytes(),
             &(header.len() as u32).to_be_bytes(),
             &header,
-            replay,
+            frame,
         ],
     ))
+}
+
+pub fn encode_lines(request_id: RequestId, lines: &[u8]) -> Vec<u8> {
+    encode_frame(FrameKind::Lines, &[&request_id.to_be_bytes(), lines])
 }
 
 fn split_u64(bytes: &[u8]) -> Option<(u64, &[u8])> {
@@ -1611,8 +2216,13 @@ fn split_u64(bytes: &[u8]) -> Option<(u64, &[u8])> {
     Some((u64::from_be_bytes(*head), rest))
 }
 
-pub fn decode_output(payload: &[u8]) -> Option<(SessionId, &[u8])> {
-    split_u64(payload)
+fn split_u32(bytes: &[u8]) -> Option<(u32, &[u8])> {
+    let (head, rest) = bytes.split_first_chunk::<4>()?;
+    Some((u32::from_be_bytes(*head), rest))
+}
+
+pub fn decode_grid(payload: &[u8]) -> Option<(StreamId, &[u8])> {
+    split_u32(payload)
 }
 
 pub fn decode_input(payload: &[u8]) -> Option<(RequestId, SessionId, &[u8])> {
@@ -1621,17 +2231,37 @@ pub fn decode_input(payload: &[u8]) -> Option<(RequestId, SessionId, &[u8])> {
     Some((request_id, id, bytes))
 }
 
-pub fn decode_snapshot(payload: &[u8]) -> Option<(RequestId, SessionId, AttachHeader, &[u8])> {
+/// The parts of an attach's answer.
+pub struct Snapshot<'a> {
+    pub request_id: RequestId,
+    pub id: SessionId,
+    pub stream: StreamId,
+    pub header: AttachHeader,
+    pub frame: &'a [u8],
+}
+
+pub fn decode_snapshot(payload: &[u8]) -> Option<Snapshot<'_>> {
     let (request_id, rest) = split_u64(payload)?;
     let (id, rest) = split_u64(rest)?;
-    let (header_len, rest) = rest.split_first_chunk::<4>()?;
-    let header_len = u32::from_be_bytes(*header_len) as usize;
+    let (stream, rest) = split_u32(rest)?;
+    let (header_len, rest) = split_u32(rest)?;
+    let header_len = header_len as usize;
     if header_len > rest.len() {
         return None;
     }
-    let (header, replay) = rest.split_at(header_len);
+    let (header, frame) = rest.split_at(header_len);
     let header = serde_json::from_slice(header).ok()?;
-    Some((request_id, id, header, replay))
+    Some(Snapshot {
+        request_id,
+        id,
+        stream,
+        header,
+        frame,
+    })
+}
+
+pub fn decode_lines(payload: &[u8]) -> Option<(RequestId, &[u8])> {
+    split_u64(payload)
 }
 
 /// Whether a frame from [`encode_frame`] is small enough for the other side
@@ -1735,6 +2365,10 @@ mod tests {
             attentions: Vec::new(),
             recent: Vec::new(),
             inbox: Value::Null,
+            layout: Box::default(),
+            account: None,
+            face_style: Box::default(),
+            load: None,
         })
         .unwrap();
         view.as_object_mut().unwrap().remove("recent");
@@ -1744,27 +2378,29 @@ mod tests {
 
     #[test]
     fn frames_carry_a_big_endian_length_that_counts_the_kind_byte() {
-        let frame = encode_output(7, b"hi");
-        assert_eq!(&frame[..4], &11u32.to_be_bytes());
-        assert_eq!(frame[4], FrameKind::Output as u8);
+        let frame = encode_grid(7, b"hi");
+        assert_eq!(&frame[..4], &7u32.to_be_bytes());
+        assert_eq!(frame[4], FrameKind::Grid as u8);
         let parsed = read_frame_sync(&mut &frame[..]).unwrap().unwrap();
-        assert_eq!(parsed.kind, FrameKind::Output);
-        assert_eq!(decode_output(&parsed.payload), Some((7, &b"hi"[..])));
+        assert_eq!(parsed.kind, FrameKind::Grid);
+        assert_eq!(decode_grid(&parsed.payload), Some((7, &b"hi"[..])));
     }
 
     #[test]
-    fn snapshot_frames_round_trip_header_and_raw_replay() {
+    fn snapshot_frames_round_trip_header_and_frame() {
         let header = AttachHeader {
-            alternate_screen: true,
             shell: None,
             exited: true,
         };
-        let frame = encode_snapshot(3, 9, &header, b"\xff\x00replay").unwrap();
+        let frame = encode_snapshot(3, 9, 5, &header, b"\xff\x00frame").unwrap();
         let parsed = read_frame_sync(&mut &frame[..]).unwrap().unwrap();
-        let (request_id, id, decoded, replay) = decode_snapshot(&parsed.payload).unwrap();
-        assert_eq!((request_id, id), (3, 9));
-        assert_eq!(decoded, header);
-        assert_eq!(replay, b"\xff\x00replay");
+        let snapshot = decode_snapshot(&parsed.payload).unwrap();
+        assert_eq!(
+            (snapshot.request_id, snapshot.id, snapshot.stream),
+            (3, 9, 5)
+        );
+        assert_eq!(snapshot.header, header);
+        assert_eq!(snapshot.frame, b"\xff\x00frame");
     }
 
     #[test]

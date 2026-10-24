@@ -2,12 +2,11 @@ import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useActiveProjectCwd } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, Filter, IconRun, IconWarning, Seg, SkeletonRows } from "../../../plugin-api/ui";
-import type { MatrixCell } from "../api";
-import { rndMatrixR, useProdEnvs } from "../resources";
+import { rndJobsV } from "../resources";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
-import { childSegment, duration, groupSegments, inGroup, isLiveStatus, isProdTarget } from "../shape";
-import { statusKind } from "./branchStyle";
+import { duration } from "../shape";
+import type { RundeckJobRow, RundeckSection } from "../types.generated";
 import { useNow } from "../../../plugin-api/hooks";
 import { BranchChip, Header, Status, Tag, levelCrumbs } from "./parts";
 import { formatAgo } from "../../../plugin-api/format";
@@ -19,10 +18,10 @@ interface Props {
 
 type StatusFilter = "all" | "running" | "failed";
 
-interface Section {
-    /** A folder under the current one, or null for jobs that sit in it directly. */
-    segment: string | null;
-    cells: MatrixCell[];
+/** A section with the jobs it holds, of those shown. */
+interface Shown {
+    section: RundeckSection;
+    jobs: RundeckJobRow[];
 }
 
 export function RundeckJobs({ paneId, active }: Props) {
@@ -33,49 +32,39 @@ export function RundeckJobs({ paneId, active }: Props) {
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const [query, setQuery] = useState("");
 
-    const res = useResourceEnabled(active && !!project, rndMatrixR, project);
+    const res = useResourceEnabled(active && !!project, rndJobsV, paneId, project, group ?? "");
     const data = res.data;
-    const cells = useMemo(
-        () => (data?.cells ?? []).filter((c) => inGroup(c.group, group)).sort((a, b) => a.name.localeCompare(b.name)),
-        [data, group],
-    );
-    const anyLive = cells.some((c) => isLiveStatus(c.latest?.status));
+    const jobs = useMemo(() => new Map((data?.jobs ?? []).map((job) => [job.jobId, job])), [data]);
+    const anyLive = (data?.running ?? 0) > 0;
     const now = useNow(active, anyLive ? 1_000 : 30_000);
-
-    const sections = useMemo(() => sectionsBy(cells, (cell) => childSegment(cell.group, group)), [cells, group]);
-    const listSections = useMemo(() => sectionsBy(cells, (cell) => relativePath(cell.group, group)), [cells, group]);
-
-    const folders = sections.filter((s) => s.segment !== null);
-    const shared = useMemo(() => {
-        const seen = new Map<string, number>();
-        for (const section of folders) for (const name of new Set(section.cells.map((c) => c.name))) seen.set(name, (seen.get(name) ?? 0) + 1);
-        return [...seen.entries()].filter(([, n]) => n > 1).length;
-    }, [folders]);
-    const canCompare = folders.length > 1 && shared > 0;
+    const canCompare = (data?.compare.length ?? 0) > 0;
     const layout = canCompare ? layoutChoice : "list";
 
-    const visible = (cell: MatrixCell) => {
-        if (query && !cell.name.toLowerCase().includes(query.trim().toLowerCase())) return false;
-        if (statusFilter === "running") return isLiveStatus(cell.latest?.status);
-        if (statusFilter === "failed") return statusKind(cell.latest?.status) === "failed";
+    const visible = (job: RundeckJobRow) => {
+        if (query && !job.name.toLowerCase().includes(query.trim().toLowerCase())) return false;
+        if (statusFilter === "running") return !!job.latest?.live;
+        if (statusFilter === "failed") return job.latest?.statusKind === "failed";
         return true;
     };
-    const shown = sections.map((s) => ({ ...s, cells: s.cells.filter(visible) })).filter((s) => s.cells.length > 0);
-    const shownList = listSections.map((s) => ({ ...s, cells: s.cells.filter(visible) })).filter((s) => s.cells.length > 0);
-    const flat = (layout === "list" ? shownList : shown).flatMap((s) => s.cells);
+    const showing = (sections: RundeckSection[]): Shown[] =>
+        sections
+            .map((section) => ({ section, jobs: section.jobs.flatMap((id) => jobs.get(id) ?? []).filter(visible) }))
+            .filter((shown) => shown.jobs.length > 0);
+    const shownList = showing(data?.list ?? []);
+    const shownCompare = showing(data?.compare ?? []);
+    const flat = (layout === "list" ? shownList : shownCompare).flatMap((shown) => shown.jobs);
 
-    const jobRef = (cell: MatrixCell): JobRef => ({
+    const jobRef = (job: RundeckJobRow): JobRef => ({
         project,
-        jobId: cell.job_id,
-        name: cell.name,
-        group: cell.group,
-        repoPath: cmd.linkedRepoPath({ jobId: cell.job_id, name: cell.name }, activeCwd),
+        jobId: job.jobId,
+        name: job.name,
+        group: job.group,
+        repoPath: cmd.linkedRepoPath({ jobId: job.jobId, name: job.name }, activeCwd),
     });
-    const open = (cell: MatrixCell) => cmd.rundeckPush(paneId, { kind: "service", ...jobRef(cell) });
-    const openForm = (cell: MatrixCell) => {
-        if (cell.enabled === false) return;
-        const branch = cell.deployed?.branch ?? cell.latest?.branch;
-        cmd.rundeckPush(paneId, { kind: "deploy", ...jobRef(cell), branch: branch ?? undefined });
+    const open = (job: RundeckJobRow) => cmd.rundeckPush(paneId, { kind: "service", ...jobRef(job) });
+    const openForm = (job: RundeckJobRow) => {
+        if (!job.enabled) return;
+        cmd.rundeckPush(paneId, { kind: "deploy", ...jobRef(job), branch: job.deployed?.branch ?? job.latest?.branch ?? undefined });
     };
 
     if (!project) {
@@ -86,18 +75,14 @@ export function RundeckJobs({ paneId, active }: Props) {
         );
     }
 
-    const running = cells.filter((c) => isLiveStatus(c.latest?.status)).length;
-    const failed = cells.filter((c) => statusKind(c.latest?.status) === "failed").length;
-    const title = groupSegments(group).pop() ?? project;
-    const timedOut = cells.filter((c) => c.error === "timed out").length;
-
+    const total = data?.jobs.length ?? 0;
     return (
         <div className="rnd-main">
             <Header
                 paneId={paneId}
                 crumbs={levelCrumbs(paneId, { kind: "matrix" }, project, group)}
-                title={title}
-                count={cells.length}
+                title={data?.title ?? project}
+                count={total}
                 aside={
                     layout === "list" ? (
                         <Seg
@@ -105,14 +90,14 @@ export function RundeckJobs({ paneId, active }: Props) {
                             value={statusFilter}
                             onChange={setStatusFilter}
                             options={[
-                                { value: "all", label: "All", count: cells.length },
-                                { value: "running", label: "Running", count: running },
-                                { value: "failed", label: "Failed", count: failed },
+                                { value: "all", label: "All", count: total },
+                                { value: "running", label: "Running", count: data?.running ?? 0 },
+                                { value: "failed", label: "Failed", count: data?.failed ?? 0 },
                             ]}
                         />
                     ) : (
                         <span className="rnd-head-note">
-                            {shared} {shared === 1 ? "job" : "jobs"} in more than one folder
+                            {data?.shared} {data?.shared === 1 ? "job" : "jobs"} in more than one folder
                         </span>
                     )
                 }
@@ -138,8 +123,8 @@ export function RundeckJobs({ paneId, active }: Props) {
             {data?.error && <div className="rnd-banner warn">{data.error}</div>}
             {data?.partial && (
                 <div className="rnd-banner warn">
-                    Rundeck was slow to answer{timedOut ? `: ${timedOut} job${timedOut === 1 ? "" : "s"} timed out` : ""}. Those rows show no recent
-                    runs; refresh to try again.
+                    Rundeck was slow to answer{data.timedOut ? `: ${data.timedOut} job${data.timedOut === 1 ? "" : "s"} timed out` : ""}. Those rows
+                    show no recent runs; refresh to try again.
                 </div>
             )}
             {res.error && !data && (
@@ -156,51 +141,25 @@ export function RundeckJobs({ paneId, active }: Props) {
                     <SkeletonRows rows={6} label="Loading jobs" />
                 </div>
             )}
-            {data && cells.length === 0 && <EmptyState message={group ? `No jobs in ${group}.` : `No jobs in ${project}.`} />}
-            {data && cells.length > 0 && flat.length === 0 && <div className="rnd-note">No jobs match.</div>}
+            {data && total === 0 && <EmptyState message={group ? `No jobs in ${group}.` : `No jobs in ${project}.`} />}
+            {data && total > 0 && flat.length === 0 && <div className="rnd-note">No jobs match.</div>}
             {layout === "list" && flat.length > 0 && (
-                <JobList paneId={paneId} project={project} group={group} sections={shownList} now={now} onOpen={open} onDeploy={openForm} />
+                <JobList paneId={paneId} project={project} sections={shownList} now={now} onOpen={open} onDeploy={openForm} />
             )}
             {layout === "compare" && flat.length > 0 && (
-                <Compare
-                    project={project}
-                    group={group}
-                    sections={shown.filter((s) => s.segment !== null)}
-                    loose={shown.find((s) => s.segment === null)?.cells.length ?? 0}
-                    now={now}
-                    onOpen={open}
-                    onDeploy={openForm}
-                />
+                <Compare sections={shownCompare} loose={data?.loose ?? 0} now={now} onOpen={open} onDeploy={openForm} />
             )}
         </div>
     );
 }
 
-function sectionsBy(cells: MatrixCell[], key: (cell: MatrixCell) => string | null): Section[] {
-    const map = new Map<string | null, MatrixCell[]>();
-    for (const cell of cells) {
-        const segment = key(cell);
-        map.set(segment, [...(map.get(segment) ?? []), cell]);
-    }
-    return [...map.entries()]
-        .sort(([a], [b]) => (a === null ? -1 : b === null ? 1 : a.localeCompare(b)))
-        .map(([segment, list]) => ({ segment, cells: list }));
-}
-
-/** Where a job sits below the current folder, or null when it sits in the folder itself. */
-function relativePath(jobGroup: string | null, group: string | null): string | null {
-    const below = groupSegments(jobGroup).slice(groupSegments(group).length);
-    return below.length ? below.join("/") : null;
-}
-
-function lastRunTime(cell: MatrixCell): string | null {
-    return cell.latest?.ended_at ?? cell.latest?.started_at ?? null;
+function lastRunTime(job: RundeckJobRow): string | null {
+    return job.latest?.endedAt ?? job.latest?.startedAt ?? null;
 }
 
 function JobList({
     paneId,
     project,
-    group,
     sections,
     now,
     onOpen,
@@ -208,28 +167,25 @@ function JobList({
 }: {
     paneId: string;
     project: string;
-    group: string | null;
-    sections: Section[];
+    sections: Shown[];
     now: number;
-    onOpen: (cell: MatrixCell) => void;
-    onDeploy: (cell: MatrixCell) => void;
+    onOpen: (job: RundeckJobRow) => void;
+    onDeploy: (job: RundeckJobRow) => void;
 }) {
     const body = useRef<HTMLTableSectionElement>(null);
-    const prodEnvs = useProdEnvs();
-    const flat = sections.flatMap((s) => s.cells);
-    const onKey = (event: KeyboardEvent, cell: MatrixCell) => {
-        const at = flat.indexOf(cell);
+    const flat = sections.flatMap((shown) => shown.jobs);
+    const onKey = (event: KeyboardEvent, job: RundeckJobRow) => {
+        const at = flat.indexOf(job);
         if (event.key === "Enter") {
             event.preventDefault();
-            onOpen(cell);
+            onOpen(job);
         } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
             const next = flat[Math.max(0, Math.min(flat.length - 1, at + (event.key === "ArrowDown" ? 1 : -1)))];
             if (!next) return;
-            body.current?.querySelector<HTMLElement>(`[data-job="${CSS.escape(next.job_id)}"]`)?.focus();
+            body.current?.querySelector<HTMLElement>(`[data-job="${CSS.escape(next.jobId)}"]`)?.focus();
         }
     };
-    const folderPath = (segment: string) => [...groupSegments(group), segment].join("/");
     return (
         <div className="rnd-table-wrap">
             <table className="rnd-table" aria-hidden="true">
@@ -249,55 +205,52 @@ function JobList({
                 <table className="rnd-table" aria-label="Jobs">
                     <JobCols />
                     <tbody ref={body}>
-                        {sections.map((section) => (
+                        {sections.map(({ section, jobs }) => (
                             <SectionRows
                                 key={section.segment ?? "\u0000"}
                                 showHead={sections.length > 1 || section.segment !== null}
-                                label={section.segment ? folderPath(section.segment) : groupSegments(group).join("/") || project}
-                                onOpenFolder={
-                                    section.segment ? () => cmd.selectRundeckGroup(paneId, project, folderPath(section.segment!)) : undefined
-                                }
-                                prod={isProdTarget(project, section.segment ? folderPath(section.segment) : group, prodEnvs)}>
-                                {section.cells.map((cell) => {
-                                    const when = lastRunTime(cell);
-                                    const disabled = cell.enabled === false;
+                                label={section.label}
+                                onOpenFolder={section.segment ? () => cmd.selectRundeckGroup(paneId, project, section.path) : undefined}
+                                prod={section.prod}>
+                                {jobs.map((job) => {
+                                    const when = lastRunTime(job);
                                     return (
                                         <tr
-                                            key={cell.job_id}
-                                            data-job={cell.job_id}
+                                            key={job.jobId}
+                                            data-job={job.jobId}
                                             tabIndex={0}
-                                            className={disabled ? "dim" : undefined}
-                                            onClick={() => onOpen(cell)}
-                                            onKeyDown={(e) => onKey(e, cell)}>
+                                            className={job.enabled ? undefined : "dim"}
+                                            onClick={() => onOpen(job)}
+                                            onKeyDown={(e) => onKey(e, job)}>
                                             <td>
                                                 <span className="rnd-name-row">
-                                                    <Status status={cell.latest?.status} label="" />
-                                                    <span className="rnd-name">{cell.name}</span>
-                                                    {cell.scheduled && <Tag>scheduled</Tag>}
-                                                    {disabled && <Tag tone="muted">disabled</Tag>}
-                                                    {cell.error && <Tag tone="warn">{cell.error === "timed out" ? "timed out" : "error"}</Tag>}
+                                                    <Status status={job.latest?.status} label="" />
+                                                    <span className="rnd-name">{job.name}</span>
+                                                    {job.scheduled && <Tag>scheduled</Tag>}
+                                                    {!job.enabled && <Tag tone="muted">disabled</Tag>}
+                                                    {job.error && <Tag tone="warn">{job.error === "timed out" ? "timed out" : "error"}</Tag>}
                                                 </span>
                                             </td>
                                             <td>
-                                                <BranchChip branch={cell.latest?.branch ?? cell.deployed?.branch} />
+                                                <BranchChip branch={job.branch} />
                                             </td>
                                             <td className="rnd-cell-sub">
-                                                {cell.latest ? (cell.latest.user ?? "—") : <span className="rnd-dim">Never run</span>}
+                                                {job.latest ? (job.latest.user ?? "—") : <span className="rnd-dim">Never run</span>}
                                             </td>
                                             <td className="r rnd-cell-dim">{when ? formatAgo(when, now) : "—"}</td>
                                             <td className="r rnd-cell-dim">
-                                                {cell.latest ? duration(cell.latest.started_at, cell.latest.ended_at, now) || "—" : "—"}
+                                                {job.latest ? duration(job.latest.startedAt, job.latest.endedAt, now) || "—" : "—"}
                                             </td>
                                             <td className="r">
-                                                {!disabled && (
+                                                {job.enabled && (
                                                     <button
                                                         className="rnd-btn rnd-row-deploy"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            onDeploy(cell);
+                                                            onDeploy(job);
                                                         }}>
                                                         <IconRun size={10} />
-                                                        {cell.latest?.branch || cell.deployed?.branch ? "Deploy" : "Run"}
+                                                        {job.runWord}
                                                     </button>
                                                 )}
                                             </td>
@@ -360,32 +313,26 @@ function SectionRows({
 }
 
 function Compare({
-    project,
-    group,
     sections,
     loose,
     now,
     onOpen,
     onDeploy,
 }: {
-    project: string;
-    group: string | null;
-    sections: Section[];
+    sections: Shown[];
     loose: number;
     now: number;
-    onOpen: (cell: MatrixCell) => void;
-    onDeploy: (cell: MatrixCell) => void;
+    onOpen: (job: RundeckJobRow) => void;
+    onDeploy: (job: RundeckJobRow) => void;
 }) {
-    const prodEnvs = useProdEnvs();
-    const names = [...new Set(sections.flatMap((s) => s.cells.map((c) => c.name)))].sort((a, b) => a.localeCompare(b));
-    const path = (segment: string) => [...groupSegments(group), segment].join("/");
+    const names = [...new Set(sections.flatMap((shown) => shown.jobs.map((job) => job.name)))].sort((a, b) => a.localeCompare(b));
     return (
         <div className="rnd-compare">
             <div className="rnd-compare-grid" style={{ gridTemplateColumns: `minmax(120px, 180px) repeat(${sections.length}, minmax(0, 1fr))` }}>
                 <div className="rnd-compare-head">Job</div>
-                {sections.map((s) => (
-                    <div key={s.segment} className={`rnd-compare-head${isProdTarget(project, path(s.segment!), prodEnvs) ? " prod" : ""}`}>
-                        {s.segment}
+                {sections.map(({ section }) => (
+                    <div key={section.path} className={`rnd-compare-head${section.prod ? " prod" : ""}`}>
+                        {section.segment}
                     </div>
                 ))}
                 {names.map((name) => (
@@ -409,55 +356,53 @@ function CompareRow({
     onDeploy,
 }: {
     name: string;
-    sections: Section[];
+    sections: Shown[];
     now: number;
-    onOpen: (cell: MatrixCell) => void;
-    onDeploy: (cell: MatrixCell) => void;
+    onOpen: (job: RundeckJobRow) => void;
+    onDeploy: (job: RundeckJobRow) => void;
 }) {
     return (
         <>
             <div className="rnd-compare-name">{name}</div>
-            {sections.map((section) => {
-                const cell = section.cells.find((c) => c.name === name);
-                if (!cell) return <div key={section.segment} className="rnd-compare-cell empty" />;
-                const when = lastRunTime(cell);
-                const live = isLiveStatus(cell.latest?.status);
-                const drift = live && cell.deployed?.branch && cell.latest?.branch && cell.deployed.branch !== cell.latest.branch;
+            {sections.map(({ section, jobs }) => {
+                const job = jobs.find((row) => row.name === name);
+                if (!job) return <div key={section.path} className="rnd-compare-cell empty" />;
+                const when = lastRunTime(job);
                 return (
                     <div
-                        key={section.segment}
+                        key={section.path}
                         className="rnd-compare-cell"
                         role="button"
                         tabIndex={0}
-                        onClick={() => onOpen(cell)}
+                        onClick={() => onOpen(job)}
                         onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                onOpen(cell);
+                                onOpen(job);
                             }
                         }}>
                         <div className="rnd-compare-top">
-                            <BranchChip branch={cell.latest?.branch ?? cell.deployed?.branch} />
-                            {cell.latest ? <Status status={cell.latest.status} /> : <span className="rnd-dim">Never run</span>}
+                            <BranchChip branch={job.branch} />
+                            {job.latest ? <Status status={job.latest.status} /> : <span className="rnd-dim">Never run</span>}
                         </div>
                         <div className="rnd-compare-foot">
-                            <span className="rnd-compare-when">{cell.latest ? `${cell.latest.user} · ${when ? formatAgo(when, now) : ""}` : ""}</span>
-                            {drift && (
+                            <span className="rnd-compare-when">{job.latest ? `${job.latest.user} · ${when ? formatAgo(when, now) : ""}` : ""}</span>
+                            {job.liveBranch && (
                                 <span className="rnd-drift">
                                     <IconWarning size={11} />
-                                    live is {cell.deployed!.branch}
+                                    live is {job.liveBranch}
                                 </span>
                             )}
                         </div>
-                        {cell.enabled !== false && (
+                        {job.enabled && (
                             <button
                                 className="rnd-btn rnd-row-deploy rnd-compare-deploy"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    onDeploy(cell);
+                                    onDeploy(job);
                                 }}>
                                 <IconRun size={10} />
-                                {cell.latest?.branch || cell.deployed?.branch ? "Deploy" : "Run"}
+                                {job.runWord}
                             </button>
                         )}
                     </div>

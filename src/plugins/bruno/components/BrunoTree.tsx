@@ -9,7 +9,7 @@ interface Props {
     collectionPath: string;
     tree: BruTreeNode[];
     activePath: string | null;
-    drafts: Record<string, string>;
+    drafts: Record<string, unknown>;
     running: Record<string, boolean>;
     loading: boolean;
     error: string | null;

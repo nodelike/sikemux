@@ -3,21 +3,21 @@ import { agentApi, type AgentAccountStatus } from "../api/agents";
 import { acpApi, type AcpAccount } from "../api/acp";
 import { invalidate } from "../state/resources";
 import { reportError, swallow } from "../state/toast";
-import { hasAccounts, type AccountAgentType } from "./catalog";
+import { hasAccounts, type AgentType } from "./catalog";
 import { adoptAgentAccounts } from "../state/persist";
-import { DEFAULT_PROVIDER_PROFILES, type Agent, type ProviderProfile } from "../state/types";
+import { defaultProviderProfiles, type Agent, type ProviderProfile } from "../state/types";
 import { errorText } from "../lib/format";
 
 /* An account is a provider profile: its directory holds one sign-in. */
 
-export function accountsOf(provider: AccountAgentType, profiles: readonly ProviderProfile[]): ProviderProfile[] {
+export function accountsOf(provider: AgentType, profiles: readonly ProviderProfile[]): ProviderProfile[] {
     return profiles.filter((profile) => profile.provider === provider);
 }
 
 /* A profile still under its built-in name says nothing about whose account
    it is, so it goes by the name on the account instead. */
 export function accountName(account: ProviderProfile, status: AgentAccountStatus | undefined): string {
-    const unnamed = DEFAULT_PROVIDER_PROFILES.some((builtin) => builtin.id === account.id && builtin.name === account.name);
+    const unnamed = defaultProviderProfiles().some((builtin) => builtin.id === account.id && builtin.name === account.name);
     return (unnamed && status?.name) || account.name;
 }
 
@@ -32,14 +32,14 @@ export function moveChat(agent: Agent, account: ProviderProfile): void {
 
 /** Makes `account` the one `provider` runs on: new chats start there, and the core moves open ones there with any
     turn carrying on. Chats kept where the account cannot see them, and agents in a terminal, stay where they are. */
-export async function switchAccount(provider: AccountAgentType, account: ProviderProfile): Promise<void> {
+export async function switchAccount(provider: AgentType, account: ProviderProfile): Promise<void> {
     adoptAgentAccounts(await agentApi.selectAccount(provider, account.id));
 }
 
 const sameDirectory = (a: string | null | undefined, b: string | null | undefined) => (a || null) === (b || null);
 
 /** Reads an account's sign-in and limits again, after they changed. */
-async function refreshAccount(provider: AccountAgentType, configPath: string | undefined): Promise<void> {
+async function refreshAccount(provider: AgentType, configPath: string | undefined): Promise<void> {
     await agentApi.forgetAccount(provider, configPath).catch(swallow("forget the account cache"));
     invalidate(
         (kind, args) =>
@@ -113,7 +113,7 @@ export async function signOut(profile: ProviderProfile, executablePath?: string)
 }
 
 /** Makes a new account a folder of its own that shares the default one's chats and settings. */
-export async function addAccount(provider: AccountAgentType, name: string, accent: string): Promise<ProviderProfile> {
+export async function addAccount(provider: AgentType, name: string, accent: string): Promise<ProviderProfile> {
     const configPath = await agentApi.addAccount(provider, name);
     const profile: ProviderProfile = {
         id: `profile-${Date.now().toString(36)}`,
@@ -129,7 +129,7 @@ export async function addAccount(provider: AccountAgentType, name: string, accen
 
 /** The sign-in dialog: a new account for `provider`, or `profileId` signing in again. */
 export interface AccountDialogRequest {
-    provider: AccountAgentType;
+    provider: AgentType;
     profileId?: string;
 }
 

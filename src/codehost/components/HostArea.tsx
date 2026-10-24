@@ -22,13 +22,15 @@ interface Props {
     repo: RepoRef;
     /** The branch checked out in the git pane. */
     branch: string | null;
+    /** The project folder, whose code host the core lists. */
+    project: string;
     /** The project folder, when the repository shown is its own. */
     cwd: string | null;
     active: boolean;
 }
 
 /** One of the code host's sections, drawn in the git pane in place of the local workbench. */
-export function HostArea({ paneId, section, repo, branch, cwd, active }: Props) {
+export function HostArea({ paneId, section, repo, branch, project, cwd, active }: Props) {
     const host = useHost();
     const view = useHostView(paneId);
     const status = useResourceEnabled(active, hostStatusR, host.id, repo.account ?? null);
@@ -93,6 +95,7 @@ export function HostArea({ paneId, section, repo, branch, cwd, active }: Props) 
                         <PullsView
                             paneId={paneId}
                             repo={repo}
+                            project={project}
                             listState={view.pullState}
                             item={view.item}
                             composing={view.composing === "pull"}
@@ -105,6 +108,7 @@ export function HostArea({ paneId, section, repo, branch, cwd, active }: Props) 
                         <IssuesView
                             paneId={paneId}
                             repo={repo}
+                            project={project}
                             listState={view.issueState}
                             item={view.item}
                             composing={view.composing === "issue"}
@@ -113,11 +117,12 @@ export function HostArea({ paneId, section, repo, branch, cwd, active }: Props) 
                             active={active}
                         />
                     ) : section === "releases" ? (
-                        <ReleasesView paneId={paneId} repo={repo} active={active} />
+                        <ReleasesView paneId={paneId} repo={repo} project={project} active={active} />
                     ) : view.run === null ? (
                         <RunsList
                             paneId={paneId}
                             repo={repo}
+                            project={project}
                             view={view}
                             branch={runBranch}
                             projectBranch={branch}
@@ -126,7 +131,15 @@ export function HostArea({ paneId, section, repo, branch, cwd, active }: Props) 
                             onDispatch={(workflowId) => updateView(paneId, { dispatching: workflowId })}
                         />
                     ) : (
-                        <RunView paneId={paneId} repo={repo} runId={view.run} openJob={view.job} active={active} canWrite={canWrite} />
+                        <RunView
+                            paneId={paneId}
+                            project={project}
+                            repo={repo}
+                            runId={view.run}
+                            openJob={view.job}
+                            active={active}
+                            canWrite={canWrite}
+                        />
                     )}
                 </div>
                 {dispatching && (

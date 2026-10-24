@@ -731,6 +731,1129 @@
           ]
         }
       ]
+    },
+    {
+      "text": "I edited src/a.ts to fix it.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "I edited ",
+            {
+              "t": "path",
+              "href": "src/a.ts",
+              "c": [
+                "src/a.ts"
+              ]
+            },
+            " to fix it."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "see src/a.ts:42 for the cause",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "see ",
+            {
+              "t": "path",
+              "href": "src/a.ts:42",
+              "c": [
+                "src/a.ts:42"
+              ]
+            },
+            " for the cause"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "I edited src/a.ts.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "I edited ",
+            {
+              "t": "path",
+              "href": "src/a.ts",
+              "c": [
+                "src/a.ts"
+              ]
+            },
+            "."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "I would put it in src/gone.ts next.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "I would put it in ",
+            {
+              "t": "path",
+              "href": "src/gone.ts",
+              "c": [
+                "src/gone.ts"
+              ]
+            },
+            " next."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Look at `src/a.ts` again.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Look at ",
+            {
+              "t": "path",
+              "href": "src/a.ts",
+              "code": true,
+              "c": [
+                {
+                  "t": "code",
+                  "v": "src/a.ts"
+                }
+              ]
+            },
+            " again."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Run `npm/nope` first.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Run ",
+            {
+              "t": "path",
+              "href": "npm/nope",
+              "code": true,
+              "c": [
+                {
+                  "t": "code",
+                  "v": "npm/nope"
+                }
+              ]
+            },
+            " first."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "[the file I changed](src/a.ts)",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            {
+              "t": "a",
+              "href": "src/a.ts",
+              "c": [
+                "the file I changed"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "text": "see https://example.com/a for more",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "see ",
+            {
+              "t": "a",
+              "href": "https://example.com/a",
+              "c": [
+                "https://example.com/a"
+              ]
+            },
+            " for more"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "everything lives under src/ now",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "everything lives under ",
+            {
+              "t": "path",
+              "href": "src/",
+              "c": [
+                "src/"
+              ]
+            },
+            " now"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "src/a.ts and README.md and src/gone.ts",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            {
+              "t": "path",
+              "href": "src/a.ts",
+              "c": [
+                "src/a.ts"
+              ]
+            },
+            " and ",
+            {
+              "t": "path",
+              "href": "README.md",
+              "c": [
+                "README.md"
+              ]
+            },
+            " and ",
+            {
+              "t": "path",
+              "href": "src/gone.ts",
+              "c": [
+                "src/gone.ts"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Existing message",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Existing message"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Check the build",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Check the build"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "First",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "First"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "First try",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "First try"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "The old answer",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "The old answer"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Second try",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Second try"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Hello",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Hello"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Hi",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Hi"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Check the tests",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Check the tests"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Look at the styles",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Look at the styles"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "One two three",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "One two three"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Check the styles",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Check the styles"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Weighing the two options",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Weighing the two options"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "The styles are in chat.css",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "The styles are in ",
+            {
+              "t": "path",
+              "href": "chat.css",
+              "c": [
+                "chat.css"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Found the pane",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Found the pane"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "The pane paints no background",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "The pane paints no background"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Use this: “<svg viewBox=\"0 0 16 16\"><path d=\"M0 0h16\"/></svg>”\n\n<div>own line</div>",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Use this: “",
+            "<svg viewBox=\"0 0 16 16\">",
+            "<path d=\"M0 0h16\"/>",
+            "</svg>",
+            "”"
+          ]
+        },
+        {
+          "t": "p",
+          "c": [
+            "<div>own line</div>"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Done <b>quietly</b>",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Done quietly"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": []
+    },
+    {
+      "text": "Here is the fix:\n\n```ts\nconst a = 1;\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Here is the fix:"
+          ]
+        },
+        {
+          "t": "pre",
+          "lang": "ts",
+          "v": "const a = 1;\n"
+        }
+      ]
+    },
+    {
+      "text": "```100%\nfull\n```\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "pre",
+          "lang": "100%",
+          "v": "full\n"
+        }
+      ]
+    },
+    {
+      "text": "carry on",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "carry on"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Earlier question",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Earlier question"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Review this",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Review this"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Brings the run page up to what GitHub shows.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false,
+        "htmlImages": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Brings the run page up to what GitHub shows."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Seen on staging",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Seen on staging"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Steps: **open** the app",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Steps: ",
+            {
+              "t": "strong",
+              "c": [
+                "open"
+              ]
+            },
+            " the app"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "disk version one",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "disk version one"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "disk version two",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "disk version two"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Notes for 100",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Notes for 100"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Notes for 2",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Notes for 2"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Notes for 3",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Notes for 3"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Notes for 1",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Notes for 1"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Deploy failed on staging",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Deploy failed on staging"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "ok",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "ok"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Looking now",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Looking now"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "It fails one run in ten.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "It fails one run in ten."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Seen it on CI too.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Seen it on CI too."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "between",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false,
+        "htmlImages": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "between"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Fix the flaky PTY test",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Fix the flaky PTY test"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "hello",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "hello"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "It jumps.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "It jumps."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Earlier answer",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Earlier answer"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Still working on it and",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Still working on it and"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Still working on it and done",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Still working on it and done"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Still working on it",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Still working on it"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "fix it",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "fix it"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Here is the fix:\n\n```ts\nconst a = 1;\n```\n\n| approach | cpu |\n| --- | --- |\n| batch | 12% |\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true,
+        "filePaths": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Here is the fix:"
+          ]
+        },
+        {
+          "t": "pre",
+          "lang": "ts",
+          "v": "const a = 1;\n"
+        },
+        {
+          "t": "table",
+          "align": [
+            null,
+            null
+          ],
+          "head": [
+            [
+              "approach"
+            ],
+            [
+              "cpu"
+            ]
+          ],
+          "rows": [
+            [
+              [
+                "batch"
+              ],
+              [
+                "12%"
+              ]
+            ]
+          ]
+        }
+      ]
     }
   ]
 }

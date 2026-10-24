@@ -1,6 +1,7 @@
 // Projects and jobs, plus the matrix: every job of one project with its
 // newest execution and its newest successful one, fetched in one call.
 
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures::future::join_all;
@@ -88,6 +89,41 @@ pub async fn job_index(session: &Session) -> RundeckResult<Vec<JobIndexEntry>> {
         }
     }))
     .await)
+}
+
+/// How long the list of every job is reused by the top bar and the job search,
+/// which would otherwise ask every project for its jobs each time they look.
+const INDEX_KEPT: Duration = Duration::from_secs(300);
+
+struct KeptIndex {
+    account: String,
+    read: Instant,
+    index: Arc<Vec<JobIndexEntry>>,
+}
+
+static INDEX: Mutex<Option<KeptIndex>> = Mutex::new(None);
+
+/// Every project's jobs, read again once the copy kept for this account is a few minutes old.
+pub async fn recent_job_index(session: &Session) -> RundeckResult<Arc<Vec<JobIndexEntry>>> {
+    let account = format!("{} {}", session.url, session.user);
+    let kept = INDEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .filter(|kept| kept.account == account && kept.read.elapsed() < INDEX_KEPT)
+        .map(|kept| kept.index.clone());
+    if let Some(index) = kept {
+        return Ok(index);
+    }
+    let index = Arc::new(job_index(session).await?);
+    *INDEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(KeptIndex {
+        account,
+        read: Instant::now(),
+        index: index.clone(),
+    });
+    Ok(index)
 }
 
 // ---- matrix ---------------------------------------------------------------

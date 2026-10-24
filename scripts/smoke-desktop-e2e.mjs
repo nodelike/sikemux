@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TerminalGrid, decodeFrame, rowText } from "../src/terminal/grid.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // Read from the core's source so the greeting cannot fall behind a protocol bump.
@@ -264,43 +265,66 @@ function openCore(path) {
         );
         return reply && control(reply);
       };
+      // Each attached stream's screen, drawn from its frames and acked as a
+      // pane does, since the core sends only a couple of frames ahead of that.
+      const screens = new Map();
+      const draw = (stream, bytes) => {
+        const frame = decodeFrame(bytes);
+        screens.get(stream).grid.apply(frame);
+        socket.write(
+          coreControl({ type: "ack", stream, frame: frame.header.frame }),
+        );
+      };
+      const shown = (id) =>
+        [...screens.values()]
+          .filter((screen) => screen.id === id)
+          .map(({ grid }) =>
+            grid.rows.map((row) => rowText(row, grid.cols)).join("\n"),
+          )
+          .join("\n");
+      const attach = async (id) => {
+        const attachId = ++requestId;
+        socket.write(
+          coreControl({
+            type: "request",
+            requestId: attachId,
+            request: { op: "attach", id },
+          }),
+        );
+        const reply = await next(
+          (frame) =>
+            (frame.kind === CORE_FRAME.snapshot &&
+              frame.payload.readBigUInt64BE(0) === BigInt(attachId)) ||
+            control(frame)?.requestId === attachId,
+        );
+        if (reply?.kind !== CORE_FRAME.snapshot) return false;
+        const stream = reply.payload.readUInt32BE(16);
+        const headerLength = reply.payload.readUInt32BE(20);
+        screens.set(stream, { id, grid: new TerminalGrid() });
+        draw(stream, reply.payload.subarray(24 + headerLength));
+        return true;
+      };
       resolveOpen({
         hello: control(hello),
         request,
-        async attach(id) {
-          const attachId = ++requestId;
-          socket.write(
-            coreControl({
-              type: "request",
-              requestId: attachId,
-              request: { op: "attach", id },
-            }),
+        attach,
+        // What the terminal shows, drawn from one stream per terminal that
+        // stays attached, as a pane's does, however often it is asked.
+        async screen(id) {
+          const attached = [...screens.values()].some(
+            (screen) => screen.id === id,
           );
-          const reply = await next(
-            (frame) =>
-              (frame.kind === CORE_FRAME.snapshot &&
-                frame.payload.readBigUInt64BE(0) === BigInt(attachId)) ||
-              control(frame)?.requestId === attachId,
-          );
-          return reply?.kind === CORE_FRAME.snapshot;
-        },
-        async attachReplay(id) {
-          const attachId = ++requestId;
-          socket.write(
-            coreControl({
-              type: "request",
-              requestId: attachId,
-              request: { op: "attach", id },
-            }),
-          );
-          const reply = await next(
-            (frame) =>
-              frame.kind === CORE_FRAME.snapshot &&
-              frame.payload.readBigUInt64BE(0) === BigInt(attachId),
-          );
-          if (!reply) return "";
-          const headerLength = reply.payload.readUInt32BE(16);
-          return reply.payload.subarray(20 + headerLength).toString("utf8");
+          if (!attached && !(await attach(id))) return "";
+          for (;;) {
+            const frame = await next(
+              (candidate) =>
+                candidate.kind === CORE_FRAME.output &&
+                screens.get(candidate.payload.readUInt32BE(0))?.id === id,
+              0,
+            );
+            if (!frame) return shown(id);
+            draw(frame.payload.readUInt32BE(0), frame.payload.subarray(4));
+          }
         },
         write(id, text) {
           const header = Buffer.alloc(16);
@@ -314,23 +338,18 @@ function openCore(path) {
           );
         },
         async output(id, needle, timeout) {
-          let seen = "";
           const deadline = Date.now() + timeout;
-          while (!seen.includes(needle) && Date.now() < deadline) {
+          while (!shown(id).includes(needle)) {
             const frame = await next(
               (candidate) =>
-                candidate.kind === CORE_FRAME.output ||
-                candidate.kind === CORE_FRAME.snapshot,
+                candidate.kind === CORE_FRAME.output &&
+                screens.get(candidate.payload.readUInt32BE(0))?.id === id,
               deadline - Date.now(),
             );
-            if (!frame) break;
-            if (
-              frame.kind === CORE_FRAME.output &&
-              frame.payload.readBigUInt64BE(0) === BigInt(id)
-            )
-              seen += frame.payload.subarray(8).toString("utf8");
+            if (!frame) return false;
+            draw(frame.payload.readUInt32BE(0), frame.payload.subarray(4));
           }
-          return seen.includes(needle);
+          return true;
         },
         async chatEvent(agentId, accept, timeout = 10_000) {
           const frame = await next((candidate) => {
@@ -339,10 +358,10 @@ function openCore(path) {
               message?.type === "event" &&
               message.event.kind === "chat" &&
               message.event.agentId === agentId &&
-              accept(message.event.event)
+              accept(message.event.changes)
             );
           }, timeout);
-          return frame ? control(frame).event.event : null;
+          return frame ? control(frame).event.changes : null;
         },
         close: () => socket.destroy(),
       });
@@ -840,8 +859,8 @@ async function exerciseHarnessWithWindowClosed(harnessEnv) {
     "workspace.inspect with the window closed",
   );
   if (
-    "windows" in inspected ||
-    !inspected.note ||
+    !Array.isArray(inspected.windows) ||
+    !inspected.note?.includes("No Sikemux window is open") ||
     !inspected.runs.some((run) => run.executionId === started.executionId)
   )
     fail(`inspect with the window closed: ${JSON.stringify(inspected)}`);
@@ -937,7 +956,7 @@ async function exerciseQuitKeepsTerminals() {
       `the pane started ${panes.length - 1} new terminal(s) instead of taking its own back`,
       desktopLog,
     );
-  const replay = await watcher.attachReplay(shell.id);
+  const replay = await watcher.screen(shell.id);
   if (!replay.includes("kept-45"))
     fail("the reattached terminal lost its earlier output", desktopLog);
   watcher.close();
@@ -1013,11 +1032,8 @@ async function exerciseChatKeepsGoing(fakeAgent) {
     5_000,
   );
   if (
-    !(await core.chatEvent(
-      CHAT_AGENT_ID,
-      (event) =>
-        event.kind === "session_update" &&
-        chatSaid(event.payload).includes("holding"),
+    !(await core.chatEvent(CHAT_AGENT_ID, (changes) =>
+      chatSaid(changes).includes("holding"),
     ))
   )
     fail("the chat turn did not start", desktopLog);
@@ -1051,33 +1067,28 @@ async function exerciseChatKeepsGoing(fakeAgent) {
   desktop = launchDesktop();
   await waitForBroker(desktop);
   const watcher = await openCore(coreSocket);
-  const attachment = await attachChat(watcher);
-  const replay = chatSaid(attachment.replay);
+  const { view } = await attachChat(watcher);
+  const replay = chatSaid(view);
   if (
-    attachment.start.sessionId !== sessionId ||
-    !attachment.running ||
+    view.head.sessionId !== sessionId ||
+    !view.head.running ||
     !replay.includes("held")
   )
     fail(`the replay lost the chat: ${replay.slice(0, 2_000)}`, desktopLog);
-  const request = attachment.replay.find(
-    (event) => event.kind === "permission_request",
-  );
+  const [request] = view.head.permissions;
   if (!request) fail("the waiting permission request was not replayed");
   await watcher.request(
     {
       op: "acpPermissionReply",
       agentId: CHAT_AGENT_ID,
-      requestId: request.payload.requestId,
+      requestId: request.requestId,
       optionId: "allow",
     },
     5_000,
   );
   if (
-    !(await watcher.chatEvent(
-      CHAT_AGENT_ID,
-      (event) =>
-        event.kind === "session_update" &&
-        chatSaid(event.payload).includes("answered allow"),
+    !(await watcher.chatEvent(CHAT_AGENT_ID, (changes) =>
+      chatSaid(changes).includes("answered allow"),
     ))
   )
     fail("the answered permission did not reach the chat", desktopLog);
@@ -1093,8 +1104,8 @@ async function expectChatResumed(sessionId) {
   const watcher = await openCore(coreSocket);
   const attachment = await attachChat(watcher);
   if (
-    attachment.start.sessionId !== sessionId ||
-    !chatSaid(attachment.replay).includes("answered allow")
+    attachment.view.head.sessionId !== sessionId ||
+    !chatSaid(attachment.view).includes("answered allow")
   )
     fail(
       `the update did not resume the chat on its session: ${JSON.stringify(attachment).slice(0, 2_000)}`,
@@ -1147,7 +1158,7 @@ async function expectTerminalKept(shell, corePid, build, marker) {
   const session = await coreSession(watcher, shell.id);
   if (session.pid !== shell.pid || !processAlive(shell.pid))
     fail("the shell did not survive the update", desktopLog);
-  const replay = await watcher.attachReplay(shell.id);
+  const replay = await watcher.screen(shell.id);
   if (!replay.includes(marker))
     fail("the updated core lost the terminal's earlier output", desktopLog);
   watcher.write(shell.id, "echo after-$((9*9))\r");
@@ -1258,7 +1269,7 @@ async function expectTuiAgentResumed(core, previous, runs) {
     "the resumed agent to print below its old screen",
     10_000,
     async () => {
-      replay = await core.attachReplay(resumed.id);
+      replay = await core.screen(resumed.id);
       return count(replay, FAKE_PI_SESSION_LINE) === runs;
     },
   );
@@ -1301,7 +1312,7 @@ async function exerciseTerminalAgentResumes() {
   });
   let screen = "";
   await waitFor("the terminal agent to print", 10_000, async () => {
-    screen = await core.attachReplay(first.id);
+    screen = await core.screen(first.id);
     return screen.includes(FAKE_PI_SESSION_LINE);
   }).catch(() =>
     fail(

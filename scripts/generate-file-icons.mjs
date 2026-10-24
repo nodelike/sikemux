@@ -1,10 +1,16 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
+import { createServer } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
 const themeDir = resolve(root, "node_modules/material-icon-theme");
 const iconsOutputDir = resolve(root, "public/file-icons");
 const indexOutputPath = resolve(iconsOutputDir, "index.json");
+const gpuiBundlePath = resolve(
+  root,
+  "src-tauri/crates/sikemux-gpui/assets/file-icons.json.gz",
+);
 const grammarsPath = resolve(root, "src/languages/generated/grammars.ts");
 const check = process.argv.includes("--check");
 
@@ -98,6 +104,14 @@ async function readOrNull(path) {
   }
 }
 
+/** Compressed files are compared by what they hold, since zlib versions differ in the bytes they write. */
+async function emitPacked(path, text) {
+  const current = await readFile(path).catch(() => null);
+  if (current && gunzipSync(current).toString("utf8") === text) return;
+  if (check) throw new Error(`Generated file icons are stale: ${path}`);
+  await writeFile(path, gzipSync(text, { level: 9 }));
+}
+
 async function emit(path, expected) {
   if ((await readOrNull(path)) === expected) return;
   if (check) throw new Error(`Generated file icons are stale: ${path}`);
@@ -122,3 +136,42 @@ await emit(
   resolve(iconsOutputDir, "LICENSE"),
   await readFile(resolve(themeDir, "LICENSE"), "utf8"),
 );
+
+// The GPUI app reads one compressed bundle: the same index and icons, with the
+// tables the app tells a file's language by, so both pick the same icon.
+const server = await createServer({
+  root,
+  logLevel: "error",
+  server: { middlewareMode: true, hmr: false },
+  appType: "custom",
+  optimizeDeps: { noDiscovery: true, include: [] },
+});
+try {
+  const { FILE_NAMES, EXTENSIONS } = await server.ssrLoadModule(
+    "/src/languages/index.ts",
+  );
+  const { GRAMMARS, GRAMMAR_ALIASES } = await server.ssrLoadModule(
+    "/src/languages/generated/grammars.ts",
+  );
+  const known = sorted({
+    ...Object.fromEntries(Object.keys(GRAMMARS).map((id) => [id, id])),
+    ...GRAMMAR_ALIASES,
+  });
+  await emitPacked(
+    gpuiBundlePath,
+    JSON.stringify({
+      version,
+      file: fallback,
+      names,
+      extensions,
+      languages,
+      light: lightVariants,
+      languageNames: sorted(FILE_NAMES),
+      languageExtensions: sorted(EXTENSIONS),
+      known,
+      icons,
+    }),
+  );
+} finally {
+  await server.close();
+}

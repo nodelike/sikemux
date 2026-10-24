@@ -1,0 +1,585 @@
+{
+  "packs": [
+    {
+      "id": "buddies",
+      "name": "Buddies",
+      "shapes": [
+        {
+          "id": "mochi",
+          "name": "Mochi",
+          "box": "1.50 3.80 21.00 21.00",
+          "measured": "5bf9f20333d5c432"
+        },
+        {
+          "id": "bean",
+          "name": "Bean",
+          "box": "2.30 4.50 19.40 19.40",
+          "measured": "27bebe1835a363ef"
+        },
+        {
+          "id": "ghostie",
+          "name": "Ghostie",
+          "box": "3.30 5.40 17.40 17.40",
+          "measured": "1b80c362cb09bc9c"
+        },
+        {
+          "id": "blob",
+          "name": "Blob",
+          "box": "3.19 4.55 18.68 18.68",
+          "measured": "c88521d997a8ebb8"
+        },
+        {
+          "id": "cloud",
+          "name": "Cloud",
+          "box": "1.70 2.03 23.23 23.23",
+          "measured": "d080ae79bee5c594"
+        },
+        {
+          "id": "heart",
+          "name": "Heart",
+          "box": "1.70 3.30 20.60 20.60",
+          "measured": "417759affbbf8b81"
+        },
+        {
+          "id": "star",
+          "name": "Star",
+          "box": "2.21 2.82 19.59 19.59",
+          "measured": "d2c67dab67479c77"
+        },
+        {
+          "id": "peach",
+          "name": "Peach",
+          "box": "2.25 4.31 19.49 19.49",
+          "measured": "ae5bd4e9ba692ad1"
+        },
+        {
+          "id": "egg",
+          "name": "Egg",
+          "box": "2.60 3.70 18.80 18.80",
+          "measured": "10585a794b389f50"
+        },
+        {
+          "id": "onigiri",
+          "name": "Onigiri",
+          "box": "2.00 3.20 20.01 20.01",
+          "measured": "bd7ee97cb6bd7ecf"
+        },
+        {
+          "id": "dumpling",
+          "name": "Dumpling",
+          "box": "1.70 4.80 20.60 20.60",
+          "measured": "03601ef8e9d858b5"
+        },
+        {
+          "id": "pudding",
+          "name": "Pudding",
+          "box": "3.90 6.20 16.20 16.20",
+          "measured": "9d47387a75476fa6"
+        },
+        {
+          "id": "toast",
+          "name": "Toast",
+          "box": "2.56 4.36 18.88 18.88",
+          "measured": "57fdc2d8bd725259"
+        },
+        {
+          "id": "marshmallow",
+          "name": "Marshmallow",
+          "box": "2.90 5.00 18.20 18.20",
+          "measured": "054a8f0955bccea2"
+        },
+        {
+          "id": "penguin",
+          "name": "Penguin",
+          "box": "0.70 2.10 22.61 22.61",
+          "measured": "1d6a15edcd3ebd9f"
+        },
+        {
+          "id": "slime",
+          "name": "Slime",
+          "box": "2.70 4.60 18.60 18.60",
+          "measured": "7e35e99300e75858"
+        }
+      ],
+      "colors": 10
+    },
+    {
+      "id": "glow",
+      "name": "Glow",
+      "shapes": [
+        {
+          "id": "squircle",
+          "name": "Squircle",
+          "box": "1.30 1.30 21.40 21.40",
+          "measured": "6d0f19f2f00d3404"
+        },
+        {
+          "id": "orb",
+          "name": "Orb",
+          "box": "1.30 1.30 21.40 21.40",
+          "measured": "fa8dca39e6a28863"
+        },
+        {
+          "id": "pill",
+          "name": "Pill",
+          "box": "0.10 0.10 23.80 23.80",
+          "measured": "bd519d4551d4273d"
+        },
+        {
+          "id": "monitor",
+          "name": "Monitor",
+          "box": "0.70 0.70 22.60 22.60",
+          "measured": "674c290e6210f646"
+        },
+        {
+          "id": "dome",
+          "name": "Dome",
+          "box": "1.30 1.10 21.40 21.40",
+          "measured": "da22b045b2324c44"
+        }
+      ],
+      "colors": 8
+    },
+    {
+      "id": "googly",
+      "name": "Googly",
+      "shapes": [
+        {
+          "id": "pair",
+          "name": "Pair",
+          "box": "1.90 1.90 20.20 20.20",
+          "measured": "fbc003983531698b"
+        },
+        {
+          "id": "lashes",
+          "name": "Lashes",
+          "box": "2.10 1.90 19.80 19.80",
+          "measured": "f300d1ee1435444e"
+        },
+        {
+          "id": "sleepy",
+          "name": "Sleepy",
+          "box": "1.90 1.50 20.20 20.20",
+          "measured": "fd4d6ad3dba8279c"
+        },
+        {
+          "id": "specs",
+          "name": "Specs",
+          "box": "1.20 1.20 21.60 21.60",
+          "measured": "eaa18ee79d99b6dd"
+        },
+        {
+          "id": "trio",
+          "name": "Trio",
+          "box": "1.50 0.30 21.00 21.00",
+          "measured": "4600ff91258fd0b1"
+        },
+        {
+          "id": "big",
+          "name": "Big eye",
+          "box": "1.90 1.90 20.20 20.20",
+          "measured": "dc6aebe0d63e23d4"
+        }
+      ],
+      "colors": 8
+    },
+    {
+      "id": "soot",
+      "name": "Soot",
+      "shapes": [
+        {
+          "id": "soot",
+          "name": "Soot",
+          "box": "1.60 2.05 20.85 20.85",
+          "measured": "bbe37798a14f8e8f"
+        },
+        {
+          "id": "fluff",
+          "name": "Fluff",
+          "box": "1.48 2.02 20.80 20.80",
+          "measured": "0428d3b9fe2117df"
+        },
+        {
+          "id": "konpeito",
+          "name": "Konpeito",
+          "box": "1.86 2.01 21.35 21.35",
+          "measured": "286748f83c6af8e2"
+        },
+        {
+          "id": "puff",
+          "name": "Puff",
+          "box": "1.43 2.01 21.12 21.12",
+          "measured": "500607d99ec103ac"
+        }
+      ],
+      "colors": 8
+    },
+    {
+      "id": "peekers",
+      "name": "Peekers",
+      "shapes": [
+        {
+          "id": "peek",
+          "name": "Peek",
+          "box": "0.90 2.20 22.20 22.20",
+          "measured": "62dcd480cf277ea0"
+        },
+        {
+          "id": "frog",
+          "name": "Frog",
+          "box": "0.30 1.50 23.40 23.40",
+          "measured": "30ba71b2b2b8063d"
+        },
+        {
+          "id": "owl",
+          "name": "Owl",
+          "box": "2.00 2.70 20.00 20.00",
+          "measured": "544185b61eeedef4"
+        }
+      ],
+      "colors": 10
+    },
+    {
+      "id": "cyclops",
+      "name": "Cyclops",
+      "shapes": [
+        {
+          "id": "orb",
+          "name": "Orb",
+          "box": "1.70 2.10 20.60 20.60",
+          "measured": "beab80d1a387b4b1"
+        },
+        {
+          "id": "drop",
+          "name": "Drop",
+          "box": "1.70 1.90 20.60 20.60",
+          "measured": "802c9fb8354da56a"
+        },
+        {
+          "id": "squish",
+          "name": "Squish",
+          "box": "0.90 3.10 22.20 22.20",
+          "measured": "aa7f050df0502fb4"
+        },
+        {
+          "id": "spook",
+          "name": "Spook",
+          "box": "2.80 3.90 18.40 18.40",
+          "measured": "d04b32fe33030111"
+        }
+      ],
+      "colors": 10
+    },
+    {
+      "id": "matrix",
+      "name": "Matrix",
+      "shapes": [
+        {
+          "id": "matrix",
+          "name": "Matrix",
+          "box": "0.90 0.90 22.20 22.20",
+          "measured": "da08488df8a60e21"
+        },
+        {
+          "id": "round",
+          "name": "Round",
+          "box": "1.10 1.10 21.80 21.80",
+          "measured": "d7f1d20b95a67ede"
+        },
+        {
+          "id": "visor",
+          "name": "Visor",
+          "box": "-0.10 -0.10 24.20 24.20",
+          "measured": "10dc5c89889403f7"
+        }
+      ],
+      "colors": 8
+    },
+    {
+      "id": "screens",
+      "name": "Screen pals",
+      "shapes": [
+        {
+          "id": "telly",
+          "name": "Telly",
+          "box": "0.70 3.20 22.60 22.60",
+          "measured": "270019c408f81229"
+        },
+        {
+          "id": "pet",
+          "name": "Pet",
+          "box": "2.20 3.30 19.60 19.60",
+          "measured": "e10f1617addb3d20"
+        },
+        {
+          "id": "pocket",
+          "name": "Pocket",
+          "box": "0.80 0.70 22.40 22.40",
+          "measured": "b106927b57b9438e"
+        },
+        {
+          "id": "desktop",
+          "name": "Desktop",
+          "box": "1.20 1.50 21.60 21.60",
+          "measured": "64594cc46abe404d"
+        },
+        {
+          "id": "laptop",
+          "name": "Laptop",
+          "box": "0.30 0.40 23.40 23.40",
+          "measured": "fb680963c1ac813a"
+        },
+        {
+          "id": "phone",
+          "name": "Phone",
+          "box": "0.50 0.50 23.00 23.00",
+          "measured": "6d8d7f48b74a851a"
+        },
+        {
+          "id": "watch",
+          "name": "Watch",
+          "box": "0.50 -0.10 24.20 24.20",
+          "measured": "e0e00d13d8697e68"
+        },
+        {
+          "id": "arcade",
+          "name": "Arcade",
+          "box": "0.30 0.70 23.40 23.40",
+          "measured": "2cce0a495f1b8fe4"
+        },
+        {
+          "id": "handheld",
+          "name": "Handheld",
+          "box": "0.10 0.10 23.80 23.80",
+          "measured": "42ecc639cb7fa9f7"
+        },
+        {
+          "id": "classic",
+          "name": "Classic",
+          "box": "0.50 0.50 23.00 23.00",
+          "measured": "ab062d33c64891d3"
+        },
+        {
+          "id": "camera",
+          "name": "Camera",
+          "box": "0.70 0.70 22.60 22.60",
+          "measured": "64a73e9421975a2c"
+        },
+        {
+          "id": "washer",
+          "name": "Washer",
+          "box": "0.60 0.50 22.80 22.80",
+          "measured": "0c3df71d20222347"
+        },
+        {
+          "id": "microwave",
+          "name": "Microwave",
+          "box": "0.10 0.70 23.80 23.80",
+          "measured": "183166bd8b7a7b67"
+        },
+        {
+          "id": "boombox",
+          "name": "Boombox",
+          "box": "0.30 1.10 23.40 23.40",
+          "measured": "32c2c6096cb52ace"
+        }
+      ],
+      "colors": 8
+    },
+    {
+      "id": "japan",
+      "name": "Japan",
+      "shapes": [
+        {
+          "id": "daruma",
+          "name": "Daruma",
+          "box": "2.00 2.70 20.00 20.00",
+          "measured": "f7a17ab258a357da"
+        },
+        {
+          "id": "neko",
+          "name": "Maneki-neko",
+          "box": "2.30 2.65 20.70 20.70",
+          "measured": "9af22797510754c5"
+        },
+        {
+          "id": "kokeshi",
+          "name": "Kokeshi",
+          "box": "1.70 2.30 20.60 20.60",
+          "measured": "cd5b84831ebd1dd0"
+        },
+        {
+          "id": "kitsune",
+          "name": "Kitsune",
+          "box": "1.70 2.10 20.60 20.60",
+          "measured": "9daf8e8a4a10d06b"
+        },
+        {
+          "id": "teru",
+          "name": "Teru teru",
+          "box": "1.70 2.30 20.60 20.60",
+          "measured": "a921db14c92def9b"
+        },
+        {
+          "id": "nigiri",
+          "name": "Nigiri",
+          "box": "1.90 4.90 20.20 20.20",
+          "measured": "0006c78eafc5321d"
+        },
+        {
+          "id": "onigiri",
+          "name": "Onigiri",
+          "box": "2.00 3.20 20.01 20.01",
+          "measured": "1f67f6c2b9016d41"
+        }
+      ],
+      "colors": 8
+    },
+    {
+      "id": "chibi",
+      "name": "Chibi",
+      "shapes": [
+        {
+          "id": "bob",
+          "name": "Bob",
+          "box": "2.60 2.70 18.80 18.80",
+          "measured": "2a43ec46fab226a9"
+        },
+        {
+          "id": "spiky",
+          "name": "Spiky",
+          "box": "1.70 1.10 20.60 20.60",
+          "measured": "81fe62858c0b3f9f"
+        },
+        {
+          "id": "hime",
+          "name": "Hime",
+          "box": "1.80 2.70 20.40 20.40",
+          "measured": "5a8f51dd96606611"
+        },
+        {
+          "id": "buns",
+          "name": "Buns",
+          "box": "1.10 0.90 21.80 21.80",
+          "measured": "d47d069da512d201"
+        },
+        {
+          "id": "hood",
+          "name": "Neko hood",
+          "box": "1.70 2.50 20.60 20.60",
+          "measured": "9b8bc5054adc823e"
+        },
+        {
+          "id": "side",
+          "name": "Side tail",
+          "box": "3.30 3.07 19.67 19.67",
+          "measured": "1b6295189d54218f"
+        }
+      ],
+      "colors": 8
+    },
+    {
+      "id": "personas",
+      "name": "Personas",
+      "shapes": [
+        {
+          "id": "ceo",
+          "name": "CEO",
+          "box": "-0.70 1.90 25.40 25.40",
+          "measured": "21730085fd1a7c02"
+        },
+        {
+          "id": "cto",
+          "name": "CTO",
+          "box": "1.10 2.40 21.80 21.80",
+          "measured": "a75bd1fd7d2915dc"
+        },
+        {
+          "id": "cpo",
+          "name": "CPO",
+          "box": "2.70 3.30 20.40 20.40",
+          "measured": "d037479b3c30bb1b"
+        },
+        {
+          "id": "scientist",
+          "name": "Chief Scientist",
+          "box": "-0.70 2.10 25.40 25.40",
+          "measured": "f711a404a7b9c981"
+        },
+        {
+          "id": "designer",
+          "name": "Designer",
+          "box": "1.70 3.75 19.60 19.60",
+          "measured": "b8ffdc00ef2046d7"
+        },
+        {
+          "id": "engineer",
+          "name": "Engineer",
+          "box": "2.40 4.30 19.20 19.20",
+          "measured": "b5b31e585fec04b3"
+        },
+        {
+          "id": "devops",
+          "name": "DevOps",
+          "box": "2.70 3.35 20.30 20.30",
+          "measured": "2d34436b1a54e499"
+        },
+        {
+          "id": "publisher",
+          "name": "Publisher",
+          "box": "2.40 4.30 19.20 19.20",
+          "measured": "111b58814637b825"
+        },
+        {
+          "id": "marketer",
+          "name": "Marketer",
+          "box": "1.70 3.70 19.60 19.60",
+          "measured": "6b672a729b57e4c7"
+        },
+        {
+          "id": "sales",
+          "name": "Sales",
+          "box": "2.70 3.74 19.53 19.53",
+          "measured": "71651cb831c643f3"
+        },
+        {
+          "id": "data",
+          "name": "Data",
+          "box": "2.70 3.40 20.20 20.20",
+          "measured": "4ba6aff3a5c6fd9f"
+        },
+        {
+          "id": "qa",
+          "name": "QA",
+          "box": "2.70 3.98 19.05 19.05",
+          "measured": "31cfc221bfc1dbf0"
+        },
+        {
+          "id": "security",
+          "name": "Security",
+          "box": "2.25 4.30 19.50 19.50",
+          "measured": "7b927166121a43d3"
+        },
+        {
+          "id": "support",
+          "name": "Support",
+          "box": "1.70 3.70 19.60 19.60",
+          "measured": "2e495d798a98860e"
+        },
+        {
+          "id": "cfo",
+          "name": "CFO",
+          "box": "1.50 3.63 19.80 19.80",
+          "measured": "2ad4f3ecc189b2d2"
+        },
+        {
+          "id": "intern",
+          "name": "Intern",
+          "box": "2.70 3.90 19.20 19.20",
+          "measured": "49d897db7d15d9b1"
+        }
+      ],
+      "colors": 10
+    }
+  ]
+}

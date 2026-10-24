@@ -11,18 +11,22 @@
 pub(crate) mod account;
 mod calls;
 mod code;
+pub(crate) mod install;
 mod join;
 mod link;
+mod listed;
 pub(crate) mod open;
 mod outbox;
+pub(crate) mod probe;
 pub(crate) mod route;
 pub(crate) mod spawn;
 pub(crate) mod team;
+pub(crate) mod transfer;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -34,6 +38,8 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use tokio::sync::Semaphore;
 
+use super::changed::Topic;
+use super::kept::Kept;
 use super::remote::{self, LinkedHost};
 use super::wake::{sooner, Wake};
 use super::{Core, CoreError, CoreResult};
@@ -41,6 +47,7 @@ use crate::backoff::Backoff;
 
 pub(crate) use join::link_host;
 pub(crate) use link::{Failed, LINK_ALPN};
+pub(crate) use listed::{installed_from, rows};
 pub(crate) use outbox::Sending;
 
 const DIAL_WAIT: Duration = Duration::from_secs(15);
@@ -55,6 +62,7 @@ const OUT_OF_REACH_MS: u64 = 2 * 60_000;
 /// Asks one linked host may have this host answer at once.
 const MAX_ANSWERING: usize = 32;
 const MAX_ADDRESSES: usize = 8;
+const INSTALLED_FILE: &str = "host-installed-from.json";
 
 /// A linked host out of reach, and when to try it again.
 struct Down {
@@ -85,10 +93,22 @@ pub(crate) struct Hosts {
     /// Links with the account's other hosts, when it may have one not linked.
     pub(crate) relink: Wake,
     linking: AtomicBool,
+    /// A client lists the hosts, so every linked one is kept in reach to say
+    /// how it is reached.
+    listed: AtomicBool,
+    /// The SSH host each host was installed on from here, by its key.
+    installed: Mutex<BTreeMap<String, String>>,
+    installed_kept: Kept,
+    /// What is being done to SSH hosts from here, by alias, until it ends well.
+    setups: Mutex<HashMap<String, install::Setup>>,
+    /// What each SSH host was found to run when last asked, by alias.
+    probes: Mutex<HashMap<String, probe::Found>>,
+    probing: Mutex<probe::Probing>,
 }
 
 impl Hosts {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        let installed_kept = Kept::new(data_dir, INSTALLED_FILE);
         Self {
             state: Mutex::new(State::default()),
             outbox: outbox::Outbox::new(data_dir),
@@ -96,6 +116,36 @@ impl Hosts {
             wake: Wake::default(),
             relink: Wake::default(),
             linking: AtomicBool::new(false),
+            listed: AtomicBool::new(false),
+            installed: Mutex::new(installed_kept.load()),
+            installed_kept,
+            setups: Mutex::default(),
+            probes: Mutex::default(),
+            probing: Mutex::default(),
+        }
+    }
+
+    /// Takes the SSH hosts the app noted hosts were installed on from here,
+    /// keeping any the core noted itself.
+    pub(crate) fn carry_installed_from(&self, carried: BTreeMap<String, String>) {
+        if carried.is_empty() {
+            return;
+        }
+        let mut installed = self.installed.locked();
+        for (key, alias) in carried {
+            installed.entry(key).or_insert(alias);
+        }
+        self.installed_kept.save(&*installed);
+    }
+
+    fn reach(&self, host: &str) -> listed::Reach {
+        let state = self.state.locked();
+        if state.connections.contains_key(host) {
+            listed::Reach::Connected
+        } else if state.down.get(host).is_some_and(|down| down.failures > 0) {
+            listed::Reach::Away
+        } else {
+            listed::Reach::Connecting
         }
     }
 
@@ -251,7 +301,44 @@ fn addr_of(core: &Core, id: &str, addresses: &[String]) -> Result<EndpointAddr, 
     Ok(addresses
         .iter()
         .filter_map(|address| address.parse::<SocketAddr>().ok())
+        .chain(kit_addresses(id))
         .fold(with_relays, EndpointAddr::with_ip_addr))
+}
+
+/// Where a test kit's core also dials the host `id`: the addresses the kit names for it in
+/// `dev/host-addresses.json`, since test cores on one machine have no relay to meet through.
+#[cfg(feature = "host-addresses-file")]
+fn kit_addresses(id: &str) -> Vec<SocketAddr> {
+    let Some(text) = sikemux_process::paths::config_dir()
+        .and_then(|dir| std::fs::read_to_string(dir.join("dev/host-addresses.json")).ok())
+    else {
+        return Vec::new();
+    };
+    let Ok(named) = serde_json::from_str::<HashMap<String, Vec<SocketAddr>>>(&text) else {
+        return Vec::new();
+    };
+    if !named
+        .values()
+        .flatten()
+        .all(|address| on_this_network(address.ip()))
+    {
+        eprintln!("sikemux core: dev/host-addresses.json names an address off this network, so it is not used");
+        return Vec::new();
+    }
+    named.get(id).cloned().unwrap_or_default()
+}
+
+#[cfg(not(feature = "host-addresses-file"))]
+fn kit_addresses(_: &str) -> Vec<SocketAddr> {
+    Vec::new()
+}
+
+#[cfg(feature = "host-addresses-file")]
+fn on_this_network(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => ip.is_loopback() || ip.is_private(),
+        std::net::IpAddr::V6(ip) => ip.is_loopback() || (ip.segments()[0] & 0xfe00) == 0xfc00,
+    }
 }
 
 async fn dial(core: &Core, id: &str, addresses: &[String]) -> Result<Connection, String> {
@@ -508,7 +595,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
         let mut state = core.hosts.state.locked();
         state.down.retain(|host, _| linked.contains(host));
         for link in &links {
-            let wanted = core.hosts.outbox.has(&link.id) || core.hosts.team.has_host(&link.id);
+            let wanted = core.hosts.outbox.has(&link.id)
+                || core.hosts.team.has_host(&link.id)
+                || core.hosts.listed.load(Ordering::Acquire);
             if !wanted
                 || state.connections.contains_key(&link.id)
                 || state.dialing.contains(&link.id)
@@ -557,7 +646,10 @@ pub(crate) fn settle(core: &Arc<Core>) {
             }
             match dialed {
                 Ok(connection) => adopt(&core, &link.id, connection),
-                Err(_) => core.hosts.wake.now(),
+                Err(_) => {
+                    core.changes.changed(Topic::Hosts, None, None);
+                    core.hosts.wake.now();
+                }
             }
         });
     }

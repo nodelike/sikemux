@@ -17,6 +17,7 @@ use crate::protocol::{
 use crate::text::{clipped, clipped_line};
 
 use super::board::{self, Summary, Waits};
+use super::display;
 use super::notify::provider_name;
 use super::Core;
 
@@ -165,9 +166,10 @@ pub(crate) struct View {
     pub remote_agents: Vec<RemoteAgent>,
     /// Every open agent here as devices show it, in the order they list them.
     pub agents: Vec<Shown>,
-    /// The characters the app draws for its agents.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub buddies: Option<super::workspace::Buddies>,
+    /// How each project's open agents show together, by project id.
+    pub projects: BTreeMap<String, Rollup>,
+    /// How every open agent here shows together; none while none is open.
+    pub rollup: Option<Rollup>,
 }
 
 /// How devices show an open agent here.
@@ -175,15 +177,100 @@ pub(crate) struct View {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Shown {
     pub agent_id: String,
+    /// The CLI it runs, such as `claude`.
+    pub cli: String,
     /// What its row is titled: the chat's or terminal's own title, else what
     /// it is, such as "New Claude chat".
     pub title: String,
     pub status: AgentStatus,
     pub group: AgentGroup,
+    /// The word shown for its group, such as "Needs input".
+    pub label: &'static str,
     pub unread: bool,
     pub subagents: u32,
     pub tasks: u32,
+    /// Mid-turn or waiting on an answer, so stopping it now loses work.
+    pub busy: bool,
+    /// It still has subagents or shells running.
+    pub background: bool,
     pub active_at: Option<u64>,
+    /// The face it wears, as the workspace's agent does; none while it shows
+    /// its CLI's logo.
+    pub face: Option<crate::protocol::AgentFace>,
+    /// Its place on its lead's team, which the agents listed after a lead
+    /// belong to; none for an agent on its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamLink>,
+}
+
+/// Where an agent sits on its team: the lead heads it, the last worker ends it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum TeamLink {
+    Head,
+    Member,
+    Last,
+}
+
+impl Shown {
+    fn new(
+        agent_id: String,
+        cli: String,
+        title: String,
+        status: AgentStatus,
+        group: AgentGroup,
+    ) -> Self {
+        Self {
+            agent_id,
+            cli,
+            title,
+            status,
+            group,
+            label: display::group_label(group),
+            unread: false,
+            subagents: 0,
+            tasks: 0,
+            busy: matches!(group, AgentGroup::Blocked | AgentGroup::Working),
+            background: false,
+            active_at: None,
+            face: None,
+            team: None,
+        }
+    }
+
+    fn running(mut self, subagents: u32, tasks: u32) -> Self {
+        self.subagents = subagents;
+        self.tasks = tasks;
+        self.background = subagents + tasks > 0;
+        self
+    }
+}
+
+/// Several agents shown as one: the group of the one that wants the person
+/// most, with every subagent and shell they still have running.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Rollup {
+    pub group: AgentGroup,
+    pub label: &'static str,
+    pub subagents: u32,
+    pub tasks: u32,
+}
+
+fn rollup<'a>(agents: impl IntoIterator<Item = &'a Shown>) -> Option<Rollup> {
+    agents
+        .into_iter()
+        .fold(None, |rolled: Option<Rollup>, agent| {
+            let group = rolled
+                .as_ref()
+                .map_or(agent.group, |rolled| rolled.group.min(agent.group));
+            Some(Rollup {
+                group,
+                label: display::group_label(group),
+                subagents: rolled.as_ref().map_or(0, |rolled| rolled.subagents) + agent.subagents,
+                tasks: rolled.as_ref().map_or(0, |rolled| rolled.tasks) + agent.tasks,
+            })
+        })
 }
 
 /// An agent on a linked host that works with agents here.
@@ -197,11 +284,17 @@ pub(crate) struct RemoteAgent {
     pub host_id: String,
     pub cli: String,
     pub status: AgentStatus,
+    pub group: AgentGroup,
+    /// The word shown for its status, such as "Sleeping".
+    pub label: &'static str,
     /// The agent here that started it, for a worker.
     pub lead: Option<String>,
     pub project: String,
     /// Its host answers now.
     pub reachable: bool,
+    /// Its place on its lead's team, shown after the last of that team's agents here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamLink>,
 }
 
 /// The workers agents here started on linked hosts.
@@ -219,8 +312,11 @@ fn remote_agents(core: &Core) -> Vec<RemoteAgent> {
             name: foreign.name,
             cli: foreign.cli,
             status: foreign.status,
+            group: display::group_of_status(foreign.status),
+            label: display::status_label(foreign.status),
             lead: foreign.parent,
             project: foreign.project,
+            team: None,
         })
         .collect()
 }
@@ -417,7 +513,11 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
             id: agent_id.clone(),
             name: session.agent_name.clone(),
             cli: session.agent_type.clone(),
-            project: project(agent_id).or_else(|| session.project.clone()),
+            project: project(agent_id).or_else(|| {
+                let id = session.project.as_deref()?;
+                let folder = core.workspaces.project_info(id)?.path;
+                Some(folder.to_string_lossy().into_owned())
+            }),
             title: session.title.clone(),
             session: Some(session.id),
             group,
@@ -725,35 +825,175 @@ fn ranked(mut items: Vec<Item>) -> Vec<Item> {
 
 /// The inbox, from the chats and terminals the device view lists.
 pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> View {
-    View {
-        agents: shown(core, chats, sessions),
-        ..view_of(core, &agents(core, chats, sessions), sessions)
+    let mut listed = in_teams(shown(core, chats, sessions), &core.workspaces.agent_leads());
+    let mut faces = core.agent_faces();
+    for agent in &mut listed {
+        agent.face = faces.remove(&agent.agent_id);
     }
+    let mut by_project: BTreeMap<String, Vec<&Shown>> = BTreeMap::new();
+    let mut project_of = core.workspaces.agent_projects();
+    for agent in &listed {
+        if let Some(project) = project_of.remove(&agent.agent_id) {
+            by_project.entry(project).or_default().push(agent);
+        }
+    }
+    let projects = by_project
+        .into_iter()
+        .filter_map(|(project, agents)| Some((project, rollup(agents)?)))
+        .collect();
+    let mut view = view_of(core, &agents(core, chats, sessions), sessions);
+    with_remote_workers(&mut listed, &mut view.remote_agents);
+    View {
+        rollup: rollup(&listed),
+        projects,
+        agents: listed,
+        ..view
+    }
+}
+
+/// Adds the workers agents here started on linked hosts to their leads' teams: each team
+/// with such workers ends with them, in the order they come, so the team's last agent here
+/// no longer ends it. Workers whose lead is not listed stand on their own.
+fn with_remote_workers(listed: &mut [Shown], remote: &mut Vec<RemoteAgent>) {
+    let mut teams: Vec<(usize, usize)> = Vec::new();
+    let mut at = 0;
+    while at < listed.len() {
+        let mut end = at;
+        if listed[at].team == Some(TeamLink::Head) {
+            while end + 1 < listed.len() && listed[end].team != Some(TeamLink::Last) {
+                end += 1;
+            }
+        }
+        teams.push((at, end));
+        at = end + 1;
+    }
+    let mut placed = vec![false; remote.len()];
+    let mut order = Vec::with_capacity(remote.len());
+    for (start, end) in teams {
+        let ids: Vec<&str> = listed[start..=end]
+            .iter()
+            .map(|agent| agent.agent_id.as_str())
+            .collect();
+        let workers: Vec<usize> = (0..remote.len())
+            .filter(|&ix| {
+                !placed[ix]
+                    && remote[ix]
+                        .lead
+                        .as_deref()
+                        .is_some_and(|lead| ids.contains(&lead))
+            })
+            .collect();
+        let Some(&last) = workers.last() else {
+            continue;
+        };
+        listed[end].team = Some(if start == end {
+            TeamLink::Head
+        } else {
+            TeamLink::Member
+        });
+        for &worker in &workers {
+            placed[worker] = true;
+            remote[worker].team = Some(if worker == last {
+                TeamLink::Last
+            } else {
+                TeamLink::Member
+            });
+            order.push(worker);
+        }
+    }
+    order.extend((0..remote.len()).filter(|&ix| !placed[ix]));
+    let mut taken: Vec<Option<RemoteAgent>> = remote.drain(..).map(Some).collect();
+    remote.extend(order.into_iter().filter_map(|ix| taken[ix].take()));
+}
+
+/// The agents in the order given, but each lead's workers right after it, in the same
+/// order, and theirs after them. A worker whose lead is not listed stands on its own.
+fn in_teams(agents: Vec<Shown>, leads: &HashMap<String, String>) -> Vec<Shown> {
+    let lead_of: Vec<Option<usize>> = {
+        let at: HashMap<&str, usize> = agents
+            .iter()
+            .enumerate()
+            .map(|(ix, agent)| (agent.agent_id.as_str(), ix))
+            .collect();
+        agents
+            .iter()
+            .enumerate()
+            .map(|(ix, agent)| {
+                let lead = leads.get(&agent.agent_id)?;
+                at.get(lead.as_str()).copied().filter(|&lead| lead != ix)
+            })
+            .collect()
+    };
+    let mut workers = vec![Vec::new(); agents.len()];
+    for (ix, lead) in lead_of.iter().enumerate() {
+        if let Some(lead) = lead {
+            workers[*lead].push(ix);
+        }
+    }
+    fn gather(lead: usize, workers: &[Vec<usize>], placed: &mut [bool], team: &mut Vec<usize>) {
+        placed[lead] = true;
+        team.push(lead);
+        for &worker in &workers[lead] {
+            if !placed[worker] {
+                gather(worker, workers, placed, team);
+            }
+        }
+    }
+    let mut placed = vec![false; agents.len()];
+    let mut order = Vec::with_capacity(agents.len());
+    for ix in 0..agents.len() {
+        if placed[ix] || lead_of[ix].is_some() {
+            continue;
+        }
+        let mut team = Vec::new();
+        gather(ix, &workers, &mut placed, &mut team);
+        let last = team.len() - 1;
+        order.extend(team.into_iter().enumerate().map(|(at, member)| {
+            let link = match at {
+                _ if last == 0 => None,
+                0 => Some(TeamLink::Head),
+                at if at == last => Some(TeamLink::Last),
+                _ => Some(TeamLink::Member),
+            };
+            (member, link)
+        }));
+    }
+    order.extend(
+        (0..agents.len())
+            .filter(|&ix| !placed[ix])
+            .map(|ix| (ix, None)),
+    );
+    let mut agents: Vec<Option<Shown>> = agents.into_iter().map(Some).collect();
+    order
+        .into_iter()
+        .filter_map(|(ix, link)| {
+            let mut agent = agents[ix].take()?;
+            agent.team = link;
+            Some(agent)
+        })
+        .collect()
 }
 
 fn shown(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Shown> {
     let mut ranked: Vec<(u32, Shown)> = chats
         .iter()
         .map(|chat| {
-            (
-                chat.attention_rank,
-                Shown {
-                    agent_id: chat.agent_id.clone(),
-                    title: chat
-                        .title
-                        .clone()
-                        .filter(|title| !title.is_empty())
-                        .unwrap_or_else(|| {
-                            format!("New {} chat", provider_name(core, &chat.provider))
-                        }),
-                    status: chat.status,
-                    group: chat.group,
-                    unread: chat.unread,
-                    subagents: chat.subagents,
-                    tasks: chat.tasks,
-                    active_at: chat.active_at,
-                },
+            let title = chat
+                .title
+                .clone()
+                .filter(|title| !title.is_empty())
+                .unwrap_or_else(|| format!("New {} chat", provider_name(core, &chat.provider)));
+            let mut shown = Shown::new(
+                chat.agent_id.clone(),
+                chat.provider.clone(),
+                title,
+                chat.status,
+                chat.group,
             )
+            .running(chat.subagents, chat.tasks);
+            shown.unread = chat.unread;
+            shown.active_at = chat.active_at;
+            (chat.attention_rank, shown)
         })
         .collect();
     ranked.extend(sessions.iter().filter_map(|session| {
@@ -761,25 +1001,22 @@ fn shown(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Shown
         if chats.iter().any(|chat| &chat.agent_id == agent_id) {
             return None;
         }
-        Some((
-            session.attention_rank.unwrap_or(u32::MAX),
-            Shown {
-                agent_id: agent_id.clone(),
-                title: session
-                    .title
-                    .clone()
-                    .filter(|title| !title.is_empty())
-                    .unwrap_or_else(|| {
-                        provider_name(core, session.agent_type.as_deref().unwrap_or("agent"))
-                    }),
-                status: session.status?,
-                group: session.group?,
-                unread: session.unread,
-                subagents: 0,
-                tasks: 0,
-                active_at: session.active_at,
-            },
-        ))
+        let cli = session.agent_type.clone().unwrap_or_else(|| "agent".into());
+        let title = session
+            .title
+            .clone()
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| provider_name(core, &cli));
+        let mut shown = Shown::new(
+            agent_id.clone(),
+            cli,
+            title,
+            session.status?,
+            session.group?,
+        );
+        shown.unread = session.unread;
+        shown.active_at = session.active_at;
+        Some((session.attention_rank.unwrap_or(u32::MAX), shown))
     }));
     ranked.sort_by(|a, b| (a.0, &a.1.agent_id).cmp(&(b.0, &b.1.agent_id)));
     ranked.into_iter().map(|(_, shown)| shown).collect()
@@ -812,7 +1049,8 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> View {
         agent_messages: core.harness.mailbox.log.latest(),
         remote_agents: remote_agents(core),
         agents: Vec::new(),
-        buddies: core.workspaces.buddies(),
+        projects: BTreeMap::new(),
+        rollup: None,
     }
 }
 

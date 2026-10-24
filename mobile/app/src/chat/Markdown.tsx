@@ -13,7 +13,7 @@ import { Icon } from '@/ui/Icon';
 import { openLink } from '@/ui/prompt';
 import { fonts, italic, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 import { DiffRow, SidewaysRows } from './Diff';
-import { FileRef, fileRuns, hostImagePath, LinkedImage, namesFile } from './FileRef';
+import { FileRef, hostImagePath, LinkedImage, namesFile } from './FileRef';
 import { ImageViewerHost } from './ImageViewer';
 import type { Fading } from './reveal';
 
@@ -39,25 +39,24 @@ function Link({ url, children, styles }: { url: string; children: ReactNode; sty
   );
 }
 
-/** Prose with the files it names drawn as the Mac's file refs. */
-function proseRuns(text: string, key: number): ReactNode {
-  const runs = fileRuns(text);
-  if (runs.length === 1 && typeof runs[0] === 'string') return <Fragment key={key}>{text}</Fragment>;
-  return (
-    <Fragment key={key}>
-      {runs.map((run, index) => (typeof run === 'string' ? run : <FileRef key={index} raw={run.raw} label={run.raw} look="link" />))}
-    </Fragment>
-  );
-}
-
 type Ink = { styles: Styles; paths: boolean };
 
 function inline(node: MdNode, key: number, ink: Ink): ReactNode {
   const { styles, paths } = ink;
-  if (typeof node === 'string') return paths ? proseRuns(node, key) : <Fragment key={key}>{node}</Fragment>;
+  if (typeof node === 'string') return <Fragment key={key}>{node}</Fragment>;
   switch (node.t) {
+    case 'path': {
+      const label = node.code ? visibleText(node.c) : inlines(node.c, { styles, paths: false });
+      if (paths && namesFile(node.href)) return <FileRef key={key} raw={node.href} label={label} look={node.code ? 'code' : 'link'} />;
+      return node.code ? (
+        <Text key={key} style={styles.chip}>
+          {label}
+        </Text>
+      ) : (
+        <Fragment key={key}>{label}</Fragment>
+      );
+    }
     case 'code':
-      if (paths && namesWholePath(node.v) && namesFile(node.v)) return <FileRef key={key} raw={node.v} label={node.v} look="code" />;
       return (
         <Text key={key} style={styles.chip}>
           {node.v}
@@ -143,7 +142,7 @@ function withFading(nodes: readonly MdNode[], fading: Fading | undefined, style:
   return (
     <>
       {inlines(nodes.slice(0, -1), ink)}
-      {proseRuns(last.slice(0, last.length - coming.length), nodes.length)}
+      {last.slice(0, last.length - coming.length)}
       {fading.map((piece, index) => {
         const words = piece.text.slice(0, left);
         left -= words.length;

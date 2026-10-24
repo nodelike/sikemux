@@ -4,12 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Circle, Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { toolDiff } from '@mac/chat/diff';
 import { unknownCommand } from '@mac/chat/composerInput';
 import { contextShare, contextTone, money, tokenCount } from '@mac/chat/contextUsage';
-import { currentLabel, pickerSlots, sessionConfigs, type SessionConfig } from '@mac/chat/sessionConfig';
-import { toolKind, toolLabel, toolPath } from '@mac/chat/toolLabels';
-import type { AcpAvailableCommand, AcpPermissionRequest, AcpToolCall, ChatState, ContextUsage } from '@mac/chat/types';
+import { currentLabel } from '@mac/chat/sessionConfig';
+import { toolKind, toolPath } from '@mac/chat/toolLabels';
+import type { ChatRows } from '@mac/chat/rows';
+import type { ChatCommandInfo, ContextUsage, PermissionAsk, ToolCall } from '@mac/chat/types';
 import { canSwitchMode, isYolo } from '@mac/agents/agentLaunch';
 import { agentLabel } from '@mac/agents/catalog';
 import { problem } from '@/core/problem';
@@ -18,7 +18,8 @@ import { AgentIcon, Icon } from '@/ui/Icon';
 import { Track } from '@/ui/controls';
 import { useKeyboardShown } from '@/ui/screen';
 import { Sheet } from '@/ui/Sheet';
-import { brand, fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+import { useAgentBrand } from '@mac/agents/catalog';
+import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { ComposerAttachments } from './Attachments';
 import { ComposerInput } from './ComposerInput';
 import { AttachSheet } from './AttachSheet';
@@ -28,7 +29,7 @@ import type { Attachment } from './uploads';
 import { useDraft } from './useChat';
 import { matchingCommands } from './commands';
 
-export function askTitle(request: AcpPermissionRequest): string {
+export function askTitle(request: PermissionAsk): string {
   const kind = toolKind(request.toolCall);
   if (kind === 'run') return 'Run a command?';
   if (kind === 'edit' || kind === 'move' || kind === 'delete') return 'Change a file?';
@@ -37,11 +38,11 @@ export function askTitle(request: AcpPermissionRequest): string {
 }
 
 /** All of what the agent asks to run or touch, since the end of a command can change what it does. */
-function asked(tool: AcpToolCall): string {
+function asked(tool: ToolCall): string {
   const command = (tool.rawInput as { command?: unknown } | undefined)?.command;
   if (typeof command === 'string' && command.trim()) return command.trim();
   if (Array.isArray(command) && command.every((word) => typeof word === 'string')) return command.join(' ');
-  return toolPath(tool) ?? toolLabel(tool.title).name.trim();
+  return toolPath(tool) ?? tool.row.target;
 }
 
 /**
@@ -54,7 +55,7 @@ function PermissionDock({
   answering,
   onAnswer,
 }: {
-  requests: AcpPermissionRequest[];
+  requests: PermissionAsk[];
   provider: string;
   answering: ReadonlySet<string>;
   onAnswer: (requestId: string, optionId: string | null) => void;
@@ -72,7 +73,6 @@ function PermissionDock({
   const ordered = [...cancel, ...rejects, ...always, ...once];
   const primary = once[0] ?? always[0];
   const run = toolKind(request.toolCall) === 'run';
-  const diff = toolDiff(request.toolCall);
   const title = askTitle(request);
   return (
     <View
@@ -118,9 +118,10 @@ function PermissionDock({
           {run ? <Text style={{ color: colors.toolRun }}>$ </Text> : null}
           {asked(request.toolCall)}
         </Text>
-        {diff ? (
+        {request.diff ? (
           <Text style={[styles.dockCmdText, { marginTop: 4 }]}>
-            <Text style={{ color: colors.gitAdded }}>+{diff.adds}</Text> <Text style={{ color: colors.gitDeleted }}>−{diff.dels}</Text>
+            <Text style={{ color: colors.gitAdded }}>+{request.diff.adds}</Text>{' '}
+            <Text style={{ color: colors.gitDeleted }}>−{request.diff.dels}</Text>
           </Text>
         ) : null}
       </ScrollView>
@@ -151,7 +152,7 @@ function PermissionDock({
   );
 }
 
-function Commands({ matches, onPick }: { matches: AcpAvailableCommand[]; onPick: (name: string) => void }) {
+function Commands({ matches, onPick }: { matches: ChatCommandInfo[]; onPick: (name: string) => void }) {
   const styles = useStyles(makeStyles);
   if (!matches.length) return null;
   return (
@@ -174,11 +175,11 @@ function Commands({ matches, onPick }: { matches: AcpAvailableCommand[]; onPick:
 }
 
 /** The Mac's colour for how full the context is: the agent's own, then warm, then hot. */
-function usageColor(usage: ContextUsage, provider: string, colors: Palette): string {
+function usageColor(usage: ContextUsage, provider: string, brand: string | undefined, colors: Palette): string {
   const tone = contextTone(usage);
   if (tone === 'hot') return colors.danger;
   if (tone === 'warm') return colors.warn;
-  return provider === 'claude' || provider === 'codex' ? brand[provider] : colors.accent;
+  return (provider === 'claude' || provider === 'codex') && brand ? brand : colors.accent;
 }
 
 const RING = 14;
@@ -187,6 +188,7 @@ const RING_STROKE = 1.8;
 /** How much of the context window the chat has used, as the Mac's composer rings it. A tap opens the settings sheet. */
 function ContextRing({ usage, provider, onPress }: { usage: ContextUsage; provider: string; onPress: () => void }) {
   const colors = useColors();
+  const brand = useAgentBrand(provider);
   const styles = useStyles(makeStyles);
   const radius = (RING - RING_STROKE) / 2;
   const around = 2 * Math.PI * radius;
@@ -203,7 +205,7 @@ function ContextRing({ usage, provider, onPress }: { usage: ContextUsage; provid
           cx={RING / 2}
           cy={RING / 2}
           r={radius}
-          stroke={usageColor(usage, provider, colors)}
+          stroke={usageColor(usage, provider, brand, colors)}
           strokeWidth={RING_STROKE}
           strokeDasharray={`${share * around} ${around}`}
           strokeLinecap="round"
@@ -290,22 +292,22 @@ function ConfigSheet({
   visible,
   onClose,
   provider,
-  configs,
+  model,
+  effort,
   usage,
   onPick,
 }: {
   visible: boolean;
   onClose: () => void;
   provider: string;
-  configs: SessionConfig[];
-  usage: ChatState['usage'];
-  onPick: (config: SessionConfig, value: string) => void;
+  model: ChatRows['model'];
+  effort: ChatRows['effort'];
+  usage: ChatRows['usage'];
+  onPick: (picker: NonNullable<ChatRows['model']>, value: string) => void;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const slots = pickerSlots(configs, provider as never);
-  const model = slots[0]?.config;
-  const effort = slots[1]?.config;
+  const brand = useAgentBrand(provider);
   return (
     <Sheet visible={visible} onClose={onClose}>
       <View style={styles.sheetHead}>
@@ -316,8 +318,8 @@ function ConfigSheet({
         <>
           <Text style={styles.sheetLabel}>Model</Text>
           <View style={styles.group}>
-            {model.options.map((option, index) => {
-              const on = option.value === model.currentValue;
+            {model.choices.map((option, index) => {
+              const on = option.value === model.current;
               return (
                 <Pressable
                   key={option.value}
@@ -338,9 +340,9 @@ function ConfigSheet({
         <>
           <Text style={styles.sheetLabel}>Effort</Text>
           <Track
-            value={effort.currentValue}
+            value={effort.current}
             onChange={(value) => onPick(effort, value)}
-            options={effort.options.map((option) => ({ value: option.value, label: option.label }))}
+            options={effort.choices.map((option) => ({ value: option.value, label: option.label }))}
           />
         </>
       ) : null}
@@ -354,7 +356,10 @@ function ConfigSheet({
           </View>
           <View style={styles.contextBar}>
             <View
-              style={[styles.contextFill, { width: `${contextShare(usage) * 100}%`, backgroundColor: usageColor(usage, provider, colors) }]}
+              style={[
+                styles.contextFill,
+                { width: `${contextShare(usage) * 100}%`, backgroundColor: usageColor(usage, provider, brand, colors) },
+              ]}
             />
           </View>
           {usage.cost ? <Text style={styles.cost}>Session cost {money(usage.cost)}</Text> : null}
@@ -400,7 +405,8 @@ export const Composer = memo(function Composer({
   session,
   provider,
   running,
-  setup,
+  model,
+  effort,
   usage,
   commands,
   requests,
@@ -421,11 +427,12 @@ export const Composer = memo(function Composer({
   session: ChatSession;
   provider: string;
   running: boolean;
-  setup: ChatState['setup'];
-  usage: ChatState['usage'];
-  commands: AcpAvailableCommand[];
+  model: ChatRows['model'];
+  effort: ChatRows['effort'];
+  usage: ChatRows['usage'];
+  commands: ChatCommandInfo[];
   /** The permission requests waiting on an answer, the first one shown first. */
-  requests: AcpPermissionRequest[];
+  requests: PermissionAsk[];
   answering: ReadonlySet<string>;
   placeholder: string;
   permissionMode: string;
@@ -458,10 +465,8 @@ export const Composer = memo(function Composer({
   const input = inputRef ?? ownInput;
   const [sheet, setSheet] = useState(false);
   const typing = useKeyboardShown();
-  const configs = sessionConfigs(setup);
-  const slots = pickerSlots(configs, provider as never);
-  const model = currentLabel(slots[0]?.config);
-  const effort = currentLabel(slots[1]?.config);
+  const modelLabel = currentLabel(model);
+  const effortLabel = currentLabel(effort);
   const pulls = !draft && onRecent !== undefined;
   const pullUp = useMemo(
     () =>
@@ -548,29 +553,29 @@ export const Composer = memo(function Composer({
             <Icon name="IconPlus" size={17} color={colors.inkDim} />
           </Pressable>
           <YoloToggle mode={permissionMode} provider={provider} locked={modeLocked} onToggle={session.setPermissionMode} />
-          {model ? (
+          {modelLabel ? (
             <Pressable
               style={[styles.picker, styles.model]}
               onPress={() => setSheet(true)}
               accessibilityRole="button"
-              accessibilityLabel={`Model, ${model}`}>
+              accessibilityLabel={`Model, ${modelLabel}`}>
               <AgentIcon provider={provider} size={16} />
               <Text style={[styles.pickerText, styles.modelText, { color: colors.accent }]} numberOfLines={1}>
-                {model}
+                {modelLabel}
               </Text>
               <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
                 <Icon name="IconChevron" size={10} color={colors.accent} />
               </View>
             </Pressable>
           ) : null}
-          {effort ? (
+          {effortLabel ? (
             <Pressable
               style={styles.picker}
               onPress={() => setSheet(true)}
               accessibilityRole="button"
-              accessibilityLabel={`Effort, ${effort}`}>
+              accessibilityLabel={`Effort, ${effortLabel}`}>
               <Text style={styles.pickerText} numberOfLines={1}>
-                {effort}
+                {effortLabel}
               </Text>
               <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
                 <Icon name="IconChevron" size={10} color={colors.inkDim} />
@@ -607,10 +612,11 @@ export const Composer = memo(function Composer({
         visible={sheet}
         onClose={() => setSheet(false)}
         provider={provider}
-        configs={configs}
+        model={model}
+        effort={effort}
         usage={usage}
-        onPick={(config, value) => {
-          session.setConfig(config.id, value);
+        onPick={(picker, value) => {
+          session.setConfig(picker.id, value);
           setSheet(false);
         }}
       />

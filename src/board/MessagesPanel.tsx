@@ -1,21 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
-import { kindLabel, messageRows, messageTone, outcomeLabel, type AgentMessageLog, type MessageRow } from "../agents/agentMessages";
+import { useEffect, useState } from "react";
+import { kindLabel, outcomeLabel, rowKeys, whoLabel, type AgentMessageRows, type MessageRow } from "../agents/agentMessages";
 import { AgentMark } from "../agents/AgentMark";
 import { inboxApi } from "../api/inbox";
 import { formatAge } from "../lib/format";
 import { useInbox } from "../rail/useInbox";
-import { useStore } from "../state/store";
 import { reportError } from "../state/toast";
 import { IconClose } from "../ui/Icons";
 
-/** The project's log, read again whenever the core says the project logged another message. */
-function useMessageLog(folder: string): AgentMessageLog | null {
-    const [log, setLog] = useState<AgentMessageLog | null>(null);
+/** The project's messages, read again whenever the core says the project logged another. */
+function useMessageLog(folder: string): AgentMessageRows | null {
+    const [log, setLog] = useState<AgentMessageRows | null>(null);
     const latest = useInbox().inbox.agentMessages[log?.project ?? folder];
     useEffect(() => {
         let current = true;
         inboxApi
-            .agentMessages(folder)
+            .agentMessageRows(folder)
             .then((read) => {
                 if (current) setLog(read);
             })
@@ -30,10 +29,10 @@ function useMessageLog(folder: string): AgentMessageLog | null {
 /** Who messaged whom in the project, and what became of each message, opened beside the board. */
 export function MessagesPanel({ folder, onClose }: { folder: string; onClose: () => void }) {
     const log = useMessageLog(folder);
-    const agents = useStore((s) => s.agents);
-    const rows = useMemo(() => (log ? messageRows(log.entries, (id) => agents[id]?.name) : []), [log, agents]);
-    const held = rows.filter((row) => messageTone(row.outcome) === "held").length;
-    const failed = rows.filter((row) => messageTone(row.outcome) === "failed").length;
+    const rows = log?.rows ?? [];
+    const keys = rowKeys(rows);
+    const held = rows.filter((row) => row.tone === "held").length;
+    const failed = rows.filter((row) => row.tone === "failed").length;
     return (
         <aside className="board-card-panel" aria-label="Messages between agents">
             <header className="board-panel-head">
@@ -49,8 +48,8 @@ export function MessagesPanel({ folder, onClose }: { folder: string; onClose: ()
                 <p className="board-auto-hint">No agent has messaged another here yet.</p>
             ) : (
                 <ol className="board-messages">
-                    {rows.map((row) => (
-                        <Message key={row.key} row={row} />
+                    {rows.map((row, index) => (
+                        <Message key={keys[index]} row={row} />
                     ))}
                 </ol>
             )}
@@ -59,14 +58,13 @@ export function MessagesPanel({ folder, onClose }: { folder: string; onClose: ()
 }
 
 function Message({ row }: { row: MessageRow }) {
-    const tone = messageTone(row.outcome);
     return (
-        <li className={`board-message${tone ? ` ${tone}` : ""}`}>
+        <li className={`board-message${row.tone ? ` ${row.tone}` : ""}`}>
             <span className="board-message-who">
                 {row.from && <AgentMark agentId={row.from} cli={null} />}
-                <b>{row.fromName}</b>
+                <b>{whoLabel(row.from, row.fromName)}</b>
                 <span className="board-message-to">to</span>
-                <b>{row.toName}</b>
+                <b>{whoLabel(row.to, row.toName)}</b>
                 <span className="kanban-grow" />
                 <time className="board-message-at" dateTime={new Date(row.sentAt).toISOString()} title={new Date(row.at).toLocaleString()}>
                     {formatAge(row.sentAt)}

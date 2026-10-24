@@ -9,10 +9,11 @@ vi.mock("../../plugin-api/host", async (importOriginal) => ({ ...(await importOr
 
 import { invalidate } from "../../plugin-api/resources";
 import { useToasts } from "../../state/toast";
-import { InHost, registerTestHost, TEST_HOST } from "../testHost";
+import { ciCore, InHost, registerTestHost, TEST_HOST } from "../testHost";
 import { ReleasesView } from "./ReleasesView";
 
 const host = registerTestHost(api);
+ciCore(api);
 const repo = { provider: TEST_HOST, owner: "nodelike", name: "sikemux" };
 
 const release = (id: number, overrides: Partial<Release> = {}): Release => ({
@@ -37,7 +38,7 @@ async function renderReleases(releases: Release[]) {
     api.releases.mockResolvedValue(releases);
     const view = render(
         <InHost host={host}>
-            <ReleasesView paneId="pane" repo={repo} active />
+            <ReleasesView paneId="pane" repo={repo} project="/repo" active />
         </InHost>,
     );
     await act(async () => {});

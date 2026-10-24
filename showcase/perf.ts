@@ -1,3 +1,4 @@
+import { chat } from "./perf/chat";
 import { git } from "./perf/git";
 import { startup } from "./perf/startup";
 import { terminal } from "./perf/terminal";
@@ -10,6 +11,7 @@ import { theme } from "./perf/theme";
  */
 
 const SCENARIOS: Record<string, (options?: never) => Promise<object>> = {
+  chat,
   git,
   startup,
   terminal,

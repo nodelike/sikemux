@@ -1,21 +1,16 @@
 import { memo, useId, useLayoutEffect, useMemo, useState } from "react";
-import { useResourceEnabled } from "../../plugin-api/resources";
-import type { Job, RepoRef, Run } from "../api";
-import { graphOf, type GraphBox, type GraphJob } from "../jobGraph";
-import { useHost } from "../registry";
-import { workflowJobsR } from "../resources";
-import { elapsedMs, jobsSummary, outcomeOf } from "../runStatus";
+import type { GraphBox, GraphEdge, GraphJob, Job, OpenRun, Run } from "../api";
+import { elapsedMs, outcomeOf } from "../runStatus";
 import { StatusMark } from "./ActionsIcon";
 import { coarse } from "./hooks";
 import { formatDuration } from "../../lib/format";
 import { basename } from "../../lib/paths";
 
 interface Props {
-    repo: RepoRef;
     run: Run;
-    jobs: Job[];
+    /** The run as the core laid out its jobs. */
+    read: OpenRun;
     now: number;
-    active: boolean;
     openJob: string | null;
     onOpen: (jobId: string) => void;
     fileShown: boolean;
@@ -24,13 +19,15 @@ interface Props {
 }
 
 interface Shared {
+    jobs: ReadonlyMap<string, Job>;
     now: number;
     openJob: string | null;
     onOpen: (jobId: string) => void;
 }
 
 function JobRow({ entry, shared }: { entry: GraphJob; shared: Shared }) {
-    const { job, label } = entry;
+    const { label } = entry;
+    const job = entry.job === null ? undefined : shared.jobs.get(entry.job);
     if (!job)
         return (
             <div className="gha-graph-job" data-idle="1" title={label}>
@@ -63,7 +60,7 @@ function Box({ box, shared }: { box: GraphBox; shared: Shared }) {
                 </div>
             )}
             {box.jobs.map((entry) => (
-                <JobRow key={entry.job?.id ?? entry.label} entry={entry} shared={shared} />
+                <JobRow key={entry.job ?? entry.label} entry={entry} shared={shared} />
             ))}
         </div>
     );
@@ -104,7 +101,7 @@ function route(x1: number, y1: number, x2: number, y2: number, turn: number): st
 }
 
 /** Lines meet a box at the middle of its first row, so a tall box joins where its first job is. */
-function measure(canvas: HTMLElement, edges: readonly [string, string][]): Drawn {
+function measure(canvas: HTMLElement, edges: readonly GraphEdge[]): Drawn {
     const columns = [...canvas.querySelectorAll<HTMLElement>("[data-column]")].map((column) => {
         const { x } = offsetWithin(column, canvas);
         return { left: x, right: x + column.offsetWidth };
@@ -121,7 +118,7 @@ function measure(canvas: HTMLElement, edges: readonly [string, string][]): Drawn
     }
     const lines: string[] = [];
     const dots = new Map<string, [number, number]>();
-    for (const [from, to] of edges) {
+    for (const { from, to } of edges) {
         const start = boxes.get(from);
         const end = boxes.get(to);
         if (!start || !end) continue;
@@ -133,7 +130,7 @@ function measure(canvas: HTMLElement, edges: readonly [string, string][]): Drawn
     return { width: canvas.offsetWidth, height: canvas.offsetHeight, lines, dots: [...dots.values()], holes };
 }
 
-function Edges({ canvas, edges }: { canvas: HTMLDivElement | null; edges: readonly [string, string][] }) {
+function Edges({ canvas, edges }: { canvas: HTMLDivElement | null; edges: readonly GraphEdge[] }) {
     const [drawn, setDrawn] = useState<Drawn | null>(null);
     const mask = `gha-graph-edges-${useId().replace(/[^\w-]/g, "")}`;
     useLayoutEffect(() => {
@@ -174,25 +171,22 @@ function Edges({ canvas, edges }: { canvas: HTMLDivElement | null; edges: readon
     );
 }
 
-export const JobGraph = memo(function JobGraph({ repo, run, jobs, now, active, openJob, onOpen, fileShown, onToggleFile }: Props) {
-    const host = useHost();
-    const readable = !!host.api.workflowFileAt && !!run.path && run.path.startsWith(".github/");
-    const files = useResourceEnabled(active && readable, workflowJobsR, repo, run.path ?? "", run.sha);
-    const settled = !readable || !!files.data || !!files.error;
-    const graph = useMemo(() => graphOf(jobs, files.data ?? null, run.path), [jobs, files.data, run.path]);
+export const JobGraph = memo(function JobGraph({ run, read, now, openJob, onOpen, fileShown, onToggleFile }: Props) {
+    const { graph } = read;
+    const jobs = useMemo(() => new Map(read.jobs.map(({ job }) => [job.id, job])), [read.jobs]);
     const [canvas, setCanvas] = useState<HTMLDivElement | null>(null);
-    const shared = useMemo(() => ({ now, openJob, onOpen }), [now, openJob, onOpen]);
+    const shared = useMemo(() => ({ jobs, now, openJob, onOpen }), [jobs, now, openJob, onOpen]);
     const name = run.path ? basename(run.path) : null;
-    const summary = jobsSummary(jobs);
+    const total = read.jobs.length;
 
     return (
         <section className="gha-graph">
             <div className="gha-graph-head">
                 <span className="gha-graph-file">{name ?? run.name}</span>
-                {summary.total > 0 && (
+                {total > 0 && (
                     <span className="gha-dim">
-                        {summary.done} of {summary.total} job{summary.total === 1 ? "" : "s"} done
-                        {summary.failed > 0 && <span className="gha-failed-count"> · {summary.failed} failed</span>}
+                        {read.done} of {total} job{total === 1 ? "" : "s"} done
+                        {read.failed > 0 && <span className="gha-failed-count"> · {read.failed} failed</span>}
                     </span>
                 )}
                 <span className="gha-graph-spacer" />
@@ -202,9 +196,7 @@ export const JobGraph = memo(function JobGraph({ repo, run, jobs, now, active, o
                     </button>
                 )}
             </div>
-            {!settled ? (
-                <div className="gha-graph-stages" />
-            ) : graph.columns.length === 0 ? (
+            {graph.columns.length === 0 ? (
                 <div className="gha-dim gha-graph-empty">No jobs yet</div>
             ) : (
                 <div className="gha-graph-stages">

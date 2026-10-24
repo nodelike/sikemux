@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { emit } from "../state/bus";
 import {
     closeRun,
@@ -21,6 +21,10 @@ import {
     type HostSettings,
 } from "./state";
 import { picked } from "./testHost";
+import { setState } from "../state/store";
+import { testPreferences } from "../test/preferences";
+
+beforeEach(() => setState({ preferences: testPreferences() }));
 
 const HOST = "test.host";
 const settings = hostSettings(HOST);

@@ -1,41 +1,48 @@
-import { pluginResources } from "../../plugin-api/service";
+import { defineService } from "../../plugin-api/service";
 import { awsApi } from "./api";
 import { AWS_PLUGIN } from "./kinds";
+import type { AwsAgentProfiles, AwsBilling, AwsEc2, AwsEcsClusters, AwsEcsServices, AwsEcsTasks, AwsLambda, AwsS3, AwsSqs } from "./types.generated";
 
-export const aws = pluginResources(AWS_PLUGIN);
+export const aws = defineService(AWS_PLUGIN, () => awsApi.status());
+
+export const awsProfileR = aws.resource("profile", () => awsApi.profile());
 
 export const awsProfilesR = aws.resource("profiles", () => awsApi.profiles());
 
-export const awsAgentProfileR = aws.resource("agentProfile", (project: string | null) => awsApi.agentProfilePicks(project));
-
 export const awsSetupR = aws.resource("setup", () => awsApi.setup());
 
-export const awsIdentityR = aws.resource("status", (profile: string, force: boolean) => awsApi.identity(profile, force), 60_000);
-
-export const ecsClustersR = aws.resource("ecs.clusters", (profile: string) => awsApi.ecsClusters(profile), 30_000);
-
-export const ecsServicesR = aws.resource("ecs.services", (profile: string, cluster: string) => awsApi.ecsServices(profile, cluster), 30_000);
-
-export const ecsTasksR = aws.resource(
-    "ecs.tasks",
-    (profile: string, cluster: string, service: string) => awsApi.ecsTasks(profile, cluster, service),
-    15_000,
-);
+export const awsIdentityR = aws.resource("identity", (profile: string, force: boolean) => awsApi.identity(profile, force), 60_000);
 
 export const ecsServiceLogConfigR = aws.resource("ecs.serviceLogConfig", (profile: string, cluster: string, service: string) =>
     awsApi.ecsServiceLogConfig(profile, cluster, service),
 );
 
-export const ec2InstancesR = aws.resource("ec2.instances", (profile: string) => awsApi.ec2Instances(profile), 60_000);
+/** The profile agents start on, for a project and for every other one. */
+export const agentProfileV = aws.view<[project: string | null], AwsAgentProfiles>("agentProfileView", (project) => ({ project }));
 
-export const lambdaFnsR = aws.resource("lambda.functions", (profile: string) => awsApi.lambdaFunctions(profile), 60_000);
+/** How many closed months the costs reach back over, beside the month in progress. */
+const MONTHS_BACK = 5;
 
-export const sqsQueuesR = aws.resource("sqs.queues", (profile: string) => awsApi.sqsQueues(profile), 60_000);
+/** The account's costs by month, worked out by the plugin and kept by the core. */
+export const billingV = aws.view<[profile: string], AwsBilling>("billingView", (profile) => ({ profile, monthsBack: MONTHS_BACK }));
 
-export const billingMonthsR = aws.resource(
-    "billing.months",
-    (profile: string, monthsBack: number) => awsApi.billingMonths(profile, monthsBack),
-    5 * 60_000,
-);
+export const ecsClustersV = aws.view<[profile: string], AwsEcsClusters>("ecsClustersView", (profile) => ({ profile }));
 
-export const s3BucketsR = aws.resource("s3.buckets", (profile: string) => awsApi.s3Buckets(profile), 5 * 60_000);
+export const ecsServicesV = aws.view<[profile: string, cluster: string], AwsEcsServices>("ecsServicesView", (profile, cluster) => ({
+    profile,
+    cluster,
+}));
+
+export const ecsTasksV = aws.view<[profile: string, cluster: string, service: string], AwsEcsTasks>("ecsTasksView", (profile, cluster, service) => ({
+    profile,
+    cluster,
+    service,
+}));
+
+export const ec2V = aws.view<[profile: string], AwsEc2>("ec2View", (profile) => ({ profile }));
+
+export const lambdaV = aws.view<[profile: string], AwsLambda>("lambdaView", (profile) => ({ profile }));
+
+export const sqsV = aws.view<[profile: string], AwsSqs>("sqsView", (profile) => ({ profile }));
+
+export const s3V = aws.view<[profile: string], AwsS3>("s3View", (profile) => ({ profile }));

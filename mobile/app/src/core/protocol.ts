@@ -6,12 +6,15 @@
 import type { DeviceView, HostInfo, Inbox, RecentInfo, RemotePairing } from './wire.generated';
 
 export type {
+  AgentFace,
   AgentGroup,
+  AgentQuestion,
   AgentStatus,
   ChatInfo,
   ChatState,
   DeviceAccess,
   DeviceInfo,
+  FaceStyle,
   HostInfo,
   Inbox,
   InboxItem,
@@ -34,7 +37,7 @@ function readCore<T>(json: string): T {
 }
 
 /** The view as the phone's client passes it on, which always fills in `recent`. */
-type SentView = Omit<Snapshot, 'inbox'> & { inbox?: Omit<Inbox, 'agents'> & Partial<Pick<Inbox, 'agents'>> };
+type SentView = Omit<Snapshot, 'inbox'> & { inbox?: Omit<Inbox, 'agents' | 'projects'> & Partial<Pick<Inbox, 'agents' | 'projects'>> };
 
 /** Hosts before 0.5.3-nightly.2 send no inbox, and before 0.5.4-nightly.1 no `agents` in it; each reads as empty. */
 export function readView(json: string): Snapshot {
@@ -42,8 +45,8 @@ export function readView(json: string): Snapshot {
   return {
     ...view,
     inbox: inbox
-      ? { ...inbox, agents: inbox.agents ?? [] }
-      : { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [] },
+      ? { ...inbox, agents: inbox.agents ?? [], projects: inbox.projects ?? {} }
+      : { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [], projects: {} },
   };
 }
 
@@ -89,8 +92,9 @@ function keepInbox(previous: Inbox, next: Inbox): Inbox {
     items: keepItems(previous.items, next.items, (item) => item.id),
     remoteAgents: keepItems(previous.remoteAgents, next.remoteAgents, (agent) => agent.agentId),
     agents: keepItems(previous.agents, next.agents, (agent) => agent.agentId),
+    projects: same(previous.projects, next.projects) ? previous.projects : next.projects,
+    rollup: same(previous.rollup, next.rollup) ? previous.rollup : next.rollup,
     agentMessages: same(previous.agentMessages, next.agentMessages) ? previous.agentMessages : next.agentMessages,
-    buddies: same(previous.buddies, next.buddies) ? previous.buddies : next.buddies,
   };
   const keys = new Set([...Object.keys(previous), ...Object.keys(kept)]) as Set<keyof Inbox>;
   return [...keys].every((key) => kept[key] === previous[key]) ? previous : kept;
@@ -98,6 +102,3 @@ function keepInbox(previous: Inbox, next: Inbox): Inbox {
 
 export const readHost = (json: string) => readCore<HostInfo>(json);
 export const readPairing = (json: string) => readCore<RemotePairing>(json);
-
-/** A chat event as the Mac app's chat code reads it. */
-export type CoreChatEvent = { kind: string; payload: Record<string, unknown> };

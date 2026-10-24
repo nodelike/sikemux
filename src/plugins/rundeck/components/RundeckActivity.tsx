@@ -1,17 +1,13 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useActiveProjectCwd } from "../../../plugin-api/host";
-import { useNow, useRefreshEvery } from "../../../plugin-api/hooks";
+import { useNow } from "../../../plugin-api/hooks";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconWarning, Seg, SkeletonRows } from "../../../plugin-api/ui";
-import type { RundeckExecution } from "../api";
-import { rndProjectExecutionsR, rundeck, useBranchOptions } from "../resources";
+import { rndActivityV } from "../resources";
 import * as cmd from "../state";
-import { branchOf, isLiveStatus } from "../shape";
-import { statusKind } from "./branchStyle";
-import { newestExecutions } from "./executionProgress";
+import type { RundeckRun } from "../types.generated";
 import { Header, levelCrumbs } from "./parts";
 import { RunHistory } from "./RunHistory";
-import { usualSeconds } from "./runStats";
 
 type ActivityFilter = "all" | "running" | "failed" | "mine";
 
@@ -19,50 +15,32 @@ const PAGE = 50;
 const MOST = 200;
 
 export function RundeckActivity({ paneId, project, active }: { paneId: string; project: string; active: boolean }) {
-    const branchOptions = useBranchOptions();
     const activeCwd = useActiveProjectCwd();
     const [max, setMax] = useState(PAGE);
     const [filter, setFilter] = useState<ActivityFilter>("all");
-    const status = useResourceEnabled(active, rundeck.statusR);
-    const res = useResourceEnabled(active, rndProjectExecutionsR, project, max);
+    const res = useResourceEnabled(active, rndActivityV, paneId, project, max);
 
-    const runs = useMemo(() => newestExecutions(res.data?.executions ?? []), [res.data]);
-    const anyLive = runs.some((ex) => isLiveStatus(ex.status));
-    const now = useNow(active && anyLive, 5_000);
-    useRefreshEvery(res, !active ? null : anyLive ? 5_000 : 30_000);
-
-    const usualByJob = useMemo(() => {
-        const byJob = new Map<string, RundeckExecution[]>();
-        for (const ex of runs) {
-            const id = ex.job?.id;
-            if (id) byJob.set(id, [...(byJob.get(id) ?? []), ex]);
-        }
-        return new Map([...byJob].map(([id, list]) => [id, usualSeconds(list, Date.now())]));
-    }, [runs]);
-
-    const me = status.data?.user ?? null;
-    const counts = {
-        running: runs.filter((ex) => isLiveStatus(ex.status)).length,
-        failed: runs.filter((ex) => statusKind(ex.status) === "failed").length,
-        mine: me ? runs.filter((ex) => ex.user === me).length : 0,
-    };
+    const runs = res.data?.runs ?? [];
+    const now = useNow(active && (res.data?.running ?? 0) > 0, 5_000);
+    const me = res.data?.me ?? null;
+    const counts = { running: res.data?.running ?? 0, failed: res.data?.failed ?? 0, mine: res.data?.mine ?? 0 };
     const shown = runs.filter((ex) => {
-        if (filter === "running") return isLiveStatus(ex.status);
-        if (filter === "failed") return statusKind(ex.status) === "failed";
+        if (filter === "running") return ex.live;
+        if (filter === "failed") return ex.statusKind === "failed";
         if (filter === "mine") return !!me && ex.user === me;
         return true;
     });
 
-    const openRun = (ex: RundeckExecution) => {
-        if (!ex.job?.id) return;
+    const openRun = (ex: RundeckRun) => {
+        if (!ex.jobId) return;
         const job = {
             project,
-            jobId: ex.job.id,
-            name: ex.job.name ?? ex.job.id,
-            group: ex.job.group || null,
-            repoPath: cmd.linkedRepoPath({ jobId: ex.job.id, name: ex.job.name ?? "" }, activeCwd),
+            jobId: ex.jobId,
+            name: ex.jobName ?? ex.jobId,
+            group: ex.jobGroup,
+            repoPath: cmd.linkedRepoPath({ jobId: ex.jobId, name: ex.jobName ?? "" }, activeCwd),
         };
-        cmd.rundeckPush(paneId, { kind: "execution", ...job, executionId: ex.id });
+        cmd.rundeckPush(paneId, { kind: "execution", ...job, executionId: ex.executionId });
     };
     const total = res.data?.total ?? null;
     const more = total !== null && runs.length < total && max < MOST;
@@ -106,14 +84,7 @@ export function RundeckActivity({ paneId, project, active }: { paneId: string; p
                 )}
                 {shown.length > 0 && (
                     <section className="rnd-card rnd-service-card">
-                        <RunHistory
-                            runs={shown}
-                            branchOf={(ex) => branchOf(ex.job?.options, branchOptions)}
-                            usualOf={(ex) => (ex.job?.id ? (usualByJob.get(ex.job.id) ?? null) : null)}
-                            now={now}
-                            showJob
-                            onOpen={openRun}
-                        />
+                        <RunHistory runs={shown} now={now} showJob onOpen={openRun} />
                         {more && (
                             <div className="rnd-history-more">
                                 <button

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-    cardColumn,
     cardQuestion,
     COLUMN_LABELS,
     RUN_WAITS_ON_PERSON,
@@ -57,7 +56,7 @@ export function BoardPane({ folder, visible }: { folder: string; visible: boolea
 
     const byId = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
     const asking = (card: BoardCard) => cardQuestion(card, questions);
-    const columnOf = (card: BoardCard): BoardColumn => cardColumn(card, questions, moving[card.id]);
+    const columnOf = (card: BoardCard): BoardColumn => moving[card.id] ?? card.column;
 
     const move = async (id: number, to: CardStatus) => {
         const card = byId.get(id);

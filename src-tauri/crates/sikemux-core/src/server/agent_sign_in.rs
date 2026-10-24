@@ -107,6 +107,32 @@ fn pages_changed(core: &Core) {
     core.changes.changed(Topic::AgentSignIn, None, None);
 }
 
+#[derive(Deserialize)]
+pub(super) struct LauncherParams {
+    /// The launcher whose account to sign in to, such as `claude:work`.
+    launcher: String,
+}
+
+/// Signs the person in to the account a launcher starts agents on, as
+/// [`sign_in`] does.
+pub(super) async fn sign_in_launcher(core: &Arc<Core>, params: LauncherParams) -> CoreResult<()> {
+    let (provider, profile) = match params.launcher.split_once(':') {
+        Some((provider, profile)) => (provider, Some(profile)),
+        None => (params.launcher.as_str(), None),
+    };
+    let agent = AgentKind::from_name(provider)
+        .ok_or_else(|| CoreError::from("that agent is not one Sikemux knows"))?;
+    let profile = profile.and_then(|id| core.workspaces.accounts()?.profile(id).cloned());
+    let account = Account {
+        agent,
+        executable_path: profile
+            .as_ref()
+            .and_then(|profile| profile.executable_path.clone()),
+        config_path: profile.and_then(|profile| profile.config_path),
+    };
+    sign_in(core, account).await
+}
+
 /// Runs the agent's own sign-in for one account and answers once it ends.
 /// The CLI opens a browser on the host itself; the page it opens is offered
 /// to every client, for when the person is elsewhere.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarColumns, levelOf, levelThresholds, streaks, weekday } from "./activityCalendar";
+import { calendarColumns, weekday } from "./activityCalendar";
 
 const day = (iso: string) => Date.parse(`${iso}T00:00:00Z`) / 86_400_000;
 
@@ -24,18 +24,5 @@ describe("activity calendar", () => {
             .map((column) => column.month)
             .filter(Boolean);
         expect(new Set(months).size).toBe(months.length);
-    });
-
-    it("grades days by the quartiles of active days", () => {
-        const thresholds = levelThresholds([0, 1, 2, 3, 4, 100]);
-        expect(levelOf(0, thresholds)).toBe(0);
-        expect(levelOf(1, thresholds)).toBe(1);
-        expect(levelOf(100, thresholds)).toBe(4);
-    });
-
-    it("keeps a streak alive until today is over", () => {
-        const today = 100;
-        expect(streaks(new Set([90, 91, 92, 98, 99]), today)).toEqual({ activeDays: 5, current: 2, longest: 3 });
-        expect(streaks(new Set([97, 98]), today).current).toBe(0);
     });
 });

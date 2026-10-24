@@ -1,5 +1,3 @@
-import type { Engine } from "./api";
-
 export interface Statement {
     from: number;
     to: number;
@@ -78,15 +76,4 @@ export function statementAt(script: string, cursor: number): Statement | null {
         if (statement.to < cursor) before = statement;
     }
     return before ?? statements[0] ?? null;
-}
-
-/** A name written so the engine reads it as one identifier: backticks for MySQL, double quotes elsewhere. */
-export function quoteIdentifier(engine: Engine, name: string): string {
-    return engine === "mysql" ? `\`${name.replace(/`/g, "``")}\`` : `"${name.replace(/"/g, '""')}"`;
-}
-
-/** A query for a table's first rows, as a starting point to edit. */
-export function previewSql(engine: Engine, schema: string, table: string, limit = 100): string {
-    const qualified = schema ? `${quoteIdentifier(engine, schema)}.${quoteIdentifier(engine, table)}` : quoteIdentifier(engine, table);
-    return `select * from ${qualified} limit ${limit};`;
 }

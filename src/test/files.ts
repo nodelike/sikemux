@@ -1,6 +1,6 @@
-/** The read of a file on this host that the editor asks Tauri for, or null when `command` is something else. */
+/** The read of a file on this host that the editor asks the core for, or null when `command` is something else. */
 export function fileRead(command: unknown, args: unknown): { path: string; at: number } | null {
-    if (command !== "files_call") return null;
+    if (command !== "core_call") return null;
     const { method, params } = args as { method: string; params: { path: string; at: number } };
     return method === "files.read" ? params : null;
 }

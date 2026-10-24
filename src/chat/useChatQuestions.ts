@@ -1,11 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { errorText } from "../lib/format";
-import { unreadAnswers, waitingQuestions, type AgentQuestion, type QuestionAnswer, type SentAnswer } from "../agents/agentQuestions";
-import { agentQuestionsApi } from "../api/agentQuestions";
+import { agentQuestionsApi, type AgentQuestion, type QuestionAnswer } from "../api/agentQuestions";
 import { useStore } from "../state/store";
-import type { ChatMessage } from "./types";
 
 const NO_PICKS: ReadonlyMap<string, QuestionPick> = new Map();
+const NONE: ReadonlySet<string> = new Set();
 
 /** An answer picked for an open question, held until every open question has one. */
 export interface QuestionPick {
@@ -19,8 +18,8 @@ export interface ChatQuestions {
     open: AgentQuestion[];
     /** Questions the agent went on without, on an assumption. */
     assumed: AgentQuestion[];
-    /** Answered here, until the transcript holds the answer. */
-    answered: { question: AgentQuestion; answer: string }[];
+    /** Answered, until the agent has read the answer. */
+    answered: AgentQuestion[];
     /** The assumed question whose answer is on its way. */
     busy: string | null;
     /** The open questions' answers are on their way. */
@@ -38,7 +37,7 @@ export interface ChatQuestions {
     composing: AgentQuestion | null;
     /** The composer answers an assumed question because the person chose to change it. */
     writing: boolean;
-    answer: (question: AgentQuestion, answer: QuestionAnswer, shown: string | null) => Promise<boolean>;
+    answer: (question: AgentQuestion, answer: QuestionAnswer) => Promise<boolean>;
     pick: (question: AgentQuestion, pick: QuestionPick) => void;
     /** Picks a choice, or ticks it on a question that takes several. */
     choose: (question: AgentQuestion, choice: number) => void;
@@ -57,12 +56,17 @@ const choicePick = (question: AgentQuestion, choice: number): QuestionPick => ({
 });
 
 /** The questions an agent put to the person, answered in its chat. */
-export function useChatQuestions(agentId: string, messages: readonly ChatMessage[], onError: (message: string | null) => void): ChatQuestions {
+export function useChatQuestions(agentId: string, onError: (message: string | null) => void): ChatQuestions {
     const all = useStore((s) => s.agentQuestions);
     const [busy, setBusy] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
-    const [sent, setSent] = useState<SentAnswer[]>([]);
-    const { open, assumed } = useMemo(() => waitingQuestions(all, agentId, sent), [all, agentId, sent]);
+    /* Answered from here, kept out of sight until the core's next list moves them on. */
+    const [sent, setSent] = useState(NONE);
+    const { open, assumed, answered } = useMemo(() => {
+        const own = all.filter((question) => question.agentId === agentId);
+        const waiting = (state: AgentQuestion["state"]) => own.filter((question) => question.state === state && !sent.has(question.id));
+        return { open: waiting("open"), assumed: waiting("assumed"), answered: own.filter((question) => question.state === "answered") };
+    }, [all, agentId, sent]);
     const [writingId, setWritingId] = useState<string | null>(null);
     const [heldPicks, setPicks] = useState<ReadonlyMap<string, QuestionPick>>(NO_PICKS);
     const [shownId, setShownId] = useState<string | null>(null);
@@ -81,18 +85,16 @@ export function useChatQuestions(agentId: string, messages: readonly ChatMessage
     const moved = current && cursorAt?.id === current.id ? cursorAt.at : null;
     const cursor = moved ?? (picked && "choice" in picked.answer ? picked.answer.choice : 0);
 
-    const answered = useMemo(() => unreadAnswers(sent, messages), [messages, sent]);
-
     const writing = assumed.find((question) => question.id === writingId) ?? null;
     const composing = writing ?? (!folded && current && !current.secret ? current : null);
 
     const answer = useCallback(
-        async (question: AgentQuestion, given: QuestionAnswer, shown: string | null) => {
+        async (question: AgentQuestion, given: QuestionAnswer) => {
             setBusy(question.id);
             onError(null);
             try {
                 await agentQuestionsApi.answer(question.id, given);
-                setSent((current) => [...current, { question, answer: shown }]);
+                setSent((current) => new Set(current).add(question.id));
                 setWritingId((current) => (current === question.id ? null : current));
                 return true;
             } catch (error) {
@@ -117,7 +119,7 @@ export function useChatQuestions(agentId: string, messages: readonly ChatMessage
             agentQuestionsApi
                 .answerAll(answers.map(({ question, pick }) => ({ id: question.id, answer: pick.answer })))
                 .then(() => {
-                    setSent((current) => [...current, ...answers.map(({ question, pick }) => ({ question, answer: pick.shown }))]);
+                    setSent((current) => new Set([...current, ...answers.map(({ question }) => question.id)]));
                     setPicks(NO_PICKS);
                     setShownId(null);
                     setCursor(null);

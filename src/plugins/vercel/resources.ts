@@ -1,15 +1,24 @@
 import { defineService } from "../../plugin-api/service";
 import { vercelApi } from "./api";
 import { VERCEL_PLUGIN } from "./kinds";
+import type { VercelDeployments, VercelDomains, VercelOpenLog, VercelProjects, VercelVariables } from "./types.generated";
 
 export const vercel = defineService(VERCEL_PLUGIN, vercelApi.status);
 
-export const vercelProjectsR = vercel.resource("projects", (team: string) => vercelApi.projects(team), 30_000);
+/** The team's projects, kept by the core for the pane. */
+export const vercelProjectsV = vercel.view<[team: string], VercelProjects>("projectsView", (team) => ({ team }));
 
-export const vercelDeploymentsR = vercel.resource("deployments", (team: string, project: string) => vercelApi.deployments(team, project), 15_000);
+/** A project's latest deployments, kept by the core. */
+export const vercelDeploymentsV = vercel.view<[team: string, project: string], VercelDeployments>("deploymentsView", (team, project) => ({
+    team,
+    project,
+}));
 
-export const vercelLogR = vercel.resource("log", (team: string, id: string) => vercelApi.logs(team, id), 10_000);
+/** A deployment with the end of its build log and what an agent is handed of both, kept by the core. */
+export const vercelLogV = vercel.view<[team: string, id: string], VercelOpenLog>("logView", (team, id) => ({ team, id }));
 
-export const vercelDomainsR = vercel.resource("domains", (team: string, project: string) => vercelApi.domains(team, project), 60_000);
+/** A project's domains, kept by the core. */
+export const vercelDomainsV = vercel.view<[team: string, project: string], VercelDomains>("domainsView", (team, project) => ({ team, project }));
 
-export const vercelEnvR = vercel.resource("env", (team: string, project: string) => vercelApi.env(team, project), 60_000);
+/** The names of a project's environment variables, kept by the core. */
+export const vercelEnvV = vercel.view<[team: string, project: string], VercelVariables>("envView", (team, project) => ({ team, project }));

@@ -6,22 +6,12 @@ use std::collections::VecDeque;
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer, Serialize};
+pub use sikemux_plugin_api::rundeck::{OutputLine as LogEntry, OutputTick as LogTick};
 use sikemux_plugin_api::{reply, PluginResult, StreamSink};
 use tokio::time::sleep;
 
 use crate::client::{get_json, Session};
 use crate::error::RundeckResult;
-
-#[derive(Serialize, Clone, Deserialize)]
-pub struct LogEntry {
-    pub time: Option<String>,
-    pub level: Option<String>,
-    pub log: Option<String>,
-    pub user: Option<String>,
-    #[serde(rename = "stepctx")]
-    pub step_ctx: Option<String>,
-    pub node: Option<String>,
-}
 
 #[derive(Serialize, Clone, Deserialize)]
 pub struct LogChunk {
@@ -63,15 +53,6 @@ where
             CursorValue::Unsigned(value) => value.to_string(),
         }),
     )
-}
-
-#[derive(Serialize, Clone)]
-pub struct LogTick {
-    pub entries: Vec<LogEntry>,
-    pub offset: String,
-    pub completed: bool,
-    pub failed: bool,
-    pub error: Option<String>,
 }
 
 const POLL_INTERVAL: Duration = Duration::from_millis(1500);
@@ -157,7 +138,15 @@ pub async fn logs(
                 let completed = log_stream_completed(&chunk);
                 let delay = next_delay(&chunk, back_to_back_reads);
                 sink.send(reply(LogTick {
-                    entries: chunk.entries,
+                    entries: chunk
+                        .entries
+                        .into_iter()
+                        .map(|mut entry| {
+                            entry.runs =
+                                crate::ansi::styled(entry.log.as_deref().unwrap_or_default());
+                            entry
+                        })
+                        .collect(),
                     offset: offset.clone(),
                     completed,
                     failed: false,
@@ -326,6 +315,7 @@ mod tests {
                 user: None,
                 step_ctx: None,
                 node: None,
+                runs: Vec::new(),
             })
             .collect();
         chunk

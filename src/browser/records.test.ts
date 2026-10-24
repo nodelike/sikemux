@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 /* The reader an agent's browser_network and browser_wait call to look at
    what the recorder kept. It evaluates to an object of functions. */
-const RECORDS = readFileSync(resolve(__dirname, "../../src-tauri/src/browser/records.js"), "utf8");
+const RECORDS = readFileSync(resolve(__dirname, "../../src-tauri/crates/sikemux-browser/src/records.js"), "utf8");
 
 interface Call {
     id: number;

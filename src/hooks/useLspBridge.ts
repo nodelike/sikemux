@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { languageFromPath, loadServedLanguages, lsp, type LspTextChange } from "../api/lsp";
+import { languageFromPath, loadServedLanguages, lsp, onLostDocument, type LspTextChange } from "../api/lsp";
 import { documentLanguageOf } from "../languages";
 import { languageServersAllowed } from "../editor/languageServerTrust";
 import { dismissToast, notify, swallow } from "../state/toast";
@@ -39,6 +39,16 @@ export function useLspBridge(cwd: string) {
     if (startedServers.current.project !== cwd) {
         startedServers.current = { project: cwd, epoch: startedServers.current.epoch + 1, languages: new Set() };
     }
+
+    useEffect(
+        () =>
+            onLostDocument((project, language, path) => {
+                if (project !== cwd) return;
+                opened.current.delete(openKey(language, path));
+                versions.current.delete(path);
+            }),
+        [cwd],
+    );
 
     useEffect(() => {
         if (!cwd) return;

@@ -1,0 +1,490 @@
+[
+    {
+        "id": "palette.commands",
+        "label": "Open command deck",
+        "detail": "Search every action, shortcut, and custom command",
+        "category": "Workspace",
+        "mac": "Meta+Shift+KeyP",
+        "other": "Ctrl+Shift+KeyP"
+    },
+    {
+        "id": "palette.files",
+        "label": "Open file or request palette",
+        "detail": "Files in projects, or what the plugin in front offers",
+        "category": "Workspace",
+        "mac": "Meta+KeyP",
+        "other": "Ctrl+Alt+KeyP"
+    },
+    {
+        "id": "search.global",
+        "label": "Global search",
+        "detail": "Search across the active project",
+        "category": "Workspace",
+        "mac": "Meta+Shift+KeyF",
+        "other": "Ctrl+Shift+KeyF"
+    },
+    {
+        "id": "settings.toggle",
+        "label": "Open settings",
+        "detail": "Open or close this preferences window",
+        "category": "Workspace",
+        "mac": "Meta+Comma",
+        "other": "Ctrl+Comma"
+    },
+    {
+        "id": "view.focusMode",
+        "label": "Focus mode",
+        "detail": "Hide both rails",
+        "category": "Workspace",
+        "mac": "Meta+KeyB",
+        "other": "Ctrl+Alt+KeyF"
+    },
+    {
+        "id": "project.open",
+        "label": "Open project",
+        "detail": "Open the project picker",
+        "category": "Workspace",
+        "mac": "Meta+KeyO",
+        "other": "Ctrl+Shift+KeyO"
+    },
+    {
+        "id": "session.open",
+        "label": "Open project, host or plugin",
+        "detail": "Pick from projects, SSH hosts and plugins in one list",
+        "category": "Workspace",
+        "mac": "Meta+Shift+KeyO",
+        "other": "Ctrl+Alt+KeyO"
+    },
+    {
+        "id": "ssh.open",
+        "label": "Connect to SSH host",
+        "detail": "Open the SSH host picker",
+        "category": "Workspace",
+        "mac": "Meta+Shift+KeyS",
+        "other": "Ctrl+Alt+KeyS"
+    },
+    {
+        "id": "palette.newTab",
+        "label": "New…",
+        "detail": "Choose what to open: terminal, agent, browser, editor, Git or search",
+        "category": "Workspace",
+        "mac": null,
+        "other": null
+    },
+    {
+        "id": "session.close",
+        "label": "Close session",
+        "detail": "Close the project, host or terminal session in front, asking first if agents would stop",
+        "category": "Workspace",
+        "mac": "Meta+Shift+KeyW",
+        "other": "Ctrl+Shift+KeyQ"
+    },
+    {
+        "id": "text.sizeIncrease",
+        "label": "Increase text size",
+        "detail": "Larger text in the focused editor or chat, or in every terminal",
+        "category": "Workspace",
+        "mac": "Meta+Equal",
+        "other": "Ctrl+Equal"
+    },
+    {
+        "id": "text.sizeDecrease",
+        "label": "Decrease text size",
+        "detail": "Smaller text in the focused editor or chat, or in every terminal",
+        "category": "Workspace",
+        "mac": "Meta+Minus",
+        "other": "Ctrl+Minus"
+    },
+    {
+        "id": "text.sizeReset",
+        "label": "Reset text size",
+        "detail": "Return the focused editor or chat, or every terminal, to its default size",
+        "category": "Workspace",
+        "mac": "Meta+Digit0",
+        "other": "Ctrl+Digit0"
+    },
+    {
+        "id": "theme.switch",
+        "label": "Switch theme",
+        "detail": "Preview each theme as you move through them, Enter keeps one",
+        "category": "Workspace",
+        "mac": null,
+        "other": null
+    },
+    {
+        "id": "agent.new",
+        "label": "New agent",
+        "detail": "Start the agent you launched last in this project, ready to type to",
+        "category": "Agents",
+        "mac": "Meta+KeyN",
+        "other": "Ctrl+Shift+KeyN"
+    },
+    {
+        "id": "agent.choose",
+        "label": "Choose agent",
+        "detail": "Start any installed agent, or resume an earlier conversation",
+        "category": "Agents",
+        "mac": "Meta+Shift+KeyN",
+        "other": "Ctrl+Alt+KeyN"
+    },
+    {
+        "id": "desk.toggle",
+        "label": "Show or hide desk",
+        "detail": "The agent's pages, files and terminals, beside it",
+        "category": "Agents",
+        "mac": "Meta+KeyJ",
+        "other": "Ctrl+Shift+KeyJ"
+    },
+    {
+        "id": "agent.permissions",
+        "label": "Toggle agent permissions",
+        "detail": "Toggle skip-permissions for the active agent",
+        "category": "Agents",
+        "mac": "Meta+Shift+KeyY",
+        "other": "Ctrl+Shift+KeyY"
+    },
+    {
+        "id": "terminal.new",
+        "label": "New terminal",
+        "detail": "A terminal tab in this project, another login on this host, or a new terminal under Terminals",
+        "category": "Panes",
+        "mac": "Meta+KeyT",
+        "other": "Ctrl+Shift+KeyT"
+    },
+    {
+        "id": "session.command",
+        "label": "Focus Terminals",
+        "detail": "Jump to the terminal under Terminals",
+        "category": "Panes",
+        "mac": "Meta+Ctrl+KeyT",
+        "other": "Ctrl+Alt+Shift+KeyT"
+    },
+    {
+        "id": "pane.splitRow",
+        "label": "Split pane right",
+        "detail": "Create a side-by-side pane",
+        "category": "Panes",
+        "mac": "Meta+KeyD",
+        "other": "Ctrl+Shift+KeyD"
+    },
+    {
+        "id": "pane.splitColumn",
+        "label": "Split pane down",
+        "detail": "Create a pane below",
+        "category": "Panes",
+        "mac": "Meta+Shift+KeyD",
+        "other": "Ctrl+Shift+KeyE"
+    },
+    {
+        "id": "pane.splitStack",
+        "label": "Split pane into tabs",
+        "detail": "Create a pane in the same place, reached by tab",
+        "category": "Panes",
+        "mac": "Meta+Alt+KeyD",
+        "other": "Ctrl+Alt+Shift+KeyD"
+    },
+    {
+        "id": "pane.focusLeft",
+        "label": "Focus pane left",
+        "detail": "Move focus to the pane on the left",
+        "category": "Panes",
+        "mac": "Meta+Alt+ArrowLeft",
+        "other": "Ctrl+Alt+ArrowLeft"
+    },
+    {
+        "id": "pane.focusDown",
+        "label": "Focus pane down",
+        "detail": "Move focus to the pane below",
+        "category": "Panes",
+        "mac": "Meta+Alt+ArrowDown",
+        "other": "Ctrl+Alt+ArrowDown"
+    },
+    {
+        "id": "pane.focusUp",
+        "label": "Focus pane up",
+        "detail": "Move focus to the pane above",
+        "category": "Panes",
+        "mac": "Meta+Alt+ArrowUp",
+        "other": "Ctrl+Alt+ArrowUp"
+    },
+    {
+        "id": "pane.focusRight",
+        "label": "Focus pane right",
+        "detail": "Move focus to the pane on the right",
+        "category": "Panes",
+        "mac": "Meta+Alt+ArrowRight",
+        "other": "Ctrl+Alt+ArrowRight"
+    },
+    {
+        "id": "pane.resizeLeft",
+        "label": "Resize pane left",
+        "detail": "Grow the active pane toward the left",
+        "category": "Panes",
+        "mac": "Meta+Ctrl+ArrowLeft",
+        "other": "Ctrl+Alt+Shift+ArrowLeft"
+    },
+    {
+        "id": "pane.resizeDown",
+        "label": "Resize pane down",
+        "detail": "Grow the active pane downward",
+        "category": "Panes",
+        "mac": "Meta+Ctrl+ArrowDown",
+        "other": "Ctrl+Alt+Shift+ArrowDown"
+    },
+    {
+        "id": "pane.resizeUp",
+        "label": "Resize pane up",
+        "detail": "Grow the active pane upward",
+        "category": "Panes",
+        "mac": "Meta+Ctrl+ArrowUp",
+        "other": "Ctrl+Alt+Shift+ArrowUp"
+    },
+    {
+        "id": "pane.resizeRight",
+        "label": "Resize pane right",
+        "detail": "Grow the active pane toward the right",
+        "category": "Panes",
+        "mac": "Meta+Ctrl+ArrowRight",
+        "other": "Ctrl+Alt+Shift+ArrowRight"
+    },
+    {
+        "id": "pane.zoom",
+        "label": "Zoom pane",
+        "detail": "Fill the window with the active pane",
+        "category": "Panes",
+        "mac": "Meta+Shift+Enter",
+        "other": "Ctrl+Shift+Enter"
+    },
+    {
+        "id": "pane.close",
+        "label": "Close",
+        "detail": "Close the page, file, pane or tab in front, asking first if an agent is mid-turn",
+        "category": "Panes",
+        "mac": "Meta+KeyW",
+        "other": "Ctrl+Shift+KeyW"
+    },
+    {
+        "id": "window.previous",
+        "label": "Previous tab",
+        "detail": "Move one tab left along the strip",
+        "category": "Navigation",
+        "mac": "Meta+Shift+BracketLeft",
+        "other": "Ctrl+PageUp"
+    },
+    {
+        "id": "window.next",
+        "label": "Next tab",
+        "detail": "Move one tab right along the strip",
+        "category": "Navigation",
+        "mac": "Meta+Shift+BracketRight",
+        "other": "Ctrl+PageDown"
+    },
+    {
+        "id": "tab.previous",
+        "label": "Previous of the same kind",
+        "detail": "The previous desk page, agent, file or terminal, whichever is in front",
+        "category": "Navigation",
+        "mac": "Ctrl+Shift+Tab",
+        "other": "Ctrl+Shift+Tab"
+    },
+    {
+        "id": "tab.next",
+        "label": "Next of the same kind",
+        "detail": "The next desk page, agent, file or terminal, whichever is in front",
+        "category": "Navigation",
+        "mac": "Ctrl+Tab",
+        "other": "Ctrl+Tab"
+    },
+    {
+        "id": "tab.goto1",
+        "label": "Tab 1",
+        "detail": "Jump to tab 1 in the strip",
+        "category": "Navigation",
+        "mac": "Meta+Digit1",
+        "other": "Ctrl+Digit1"
+    },
+    {
+        "id": "tab.goto2",
+        "label": "Tab 2",
+        "detail": "Jump to tab 2 in the strip",
+        "category": "Navigation",
+        "mac": "Meta+Digit2",
+        "other": "Ctrl+Digit2"
+    },
+    {
+        "id": "tab.goto3",
+        "label": "Tab 3",
+        "detail": "Jump to tab 3 in the strip",
+        "category": "Navigation",
+        "mac": "Meta+Digit3",
+        "other": "Ctrl+Digit3"
+    },
+    {
+        "id": "tab.goto4",
+        "label": "Tab 4",
+        "detail": "Jump to tab 4 in the strip",
+        "category": "Navigation",
+        "mac": "Meta+Digit4",
+        "other": "Ctrl+Digit4"
+    },
+    {
+        "id": "tab.goto5",
+        "label": "Tab 5",
+        "detail": "Jump to tab 5 in the strip",
+        "category": "Navigation",
+        "mac": "Meta+Digit5",
+        "other": "Ctrl+Digit5"
+    },
+    {
+        "id": "tab.goto6",
+        "label": "Tab 6",
+        "detail": "Jump to tab 6 in the strip",
+        "category": "Navigation",
+        "mac": "Meta+Digit6",
+        "other": "Ctrl+Digit6"
+    },
+    {
+        "id": "tab.goto7",
+        "label": "Tab 7",
+        "detail": "Jump to tab 7 in the strip",
+        "category": "Navigation",
+        "mac": "Meta+Digit7",
+        "other": "Ctrl+Digit7"
+    },
+    {
+        "id": "tab.goto8",
+        "label": "Tab 8",
+        "detail": "Jump to tab 8 in the strip",
+        "category": "Navigation",
+        "mac": "Meta+Digit8",
+        "other": "Ctrl+Digit8"
+    },
+    {
+        "id": "tab.goto9",
+        "label": "Last tab",
+        "detail": "Jump to the last tab in the strip",
+        "category": "Navigation",
+        "mac": "Meta+Digit9",
+        "other": "Ctrl+Digit9"
+    },
+    {
+        "id": "session.lastUsed",
+        "label": "Switch to last-used session",
+        "detail": "Toggle back to the session you used immediately before this one",
+        "category": "Navigation",
+        "mac": "Meta+Alt+KeyU",
+        "other": "Ctrl+Alt+KeyU"
+    },
+    {
+        "id": "session.next",
+        "label": "Next session",
+        "detail": "Cycle forward through sessions; hold Control to keep choosing",
+        "category": "Navigation",
+        "mac": "Ctrl+Backquote",
+        "other": "Ctrl+Backquote"
+    },
+    {
+        "id": "session.previous",
+        "label": "Previous session",
+        "detail": "Cycle backward through sessions",
+        "category": "Navigation",
+        "mac": "Ctrl+Shift+Backquote",
+        "other": "Ctrl+Shift+Backquote"
+    },
+    {
+        "id": "session.nextGroup",
+        "label": "Next session group",
+        "detail": "Cycle through project, SSH, cloud and command groups",
+        "category": "Navigation",
+        "mac": "Ctrl+Alt+Backquote",
+        "other": "Ctrl+Alt+Backquote"
+    },
+    {
+        "id": "window.files",
+        "label": "Focus files",
+        "detail": "Jump to the files window",
+        "category": "Navigation",
+        "mac": "Meta+KeyE",
+        "other": "Ctrl+Alt+KeyE"
+    },
+    {
+        "id": "window.terminal",
+        "label": "Focus terminal",
+        "detail": "Jump to the terminal window",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit2",
+        "other": "Ctrl+Alt+Digit2"
+    },
+    {
+        "id": "window.git",
+        "label": "Focus Git",
+        "detail": "Jump to the Git window",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit3",
+        "other": "Ctrl+Alt+Digit3"
+    },
+    {
+        "id": "window.agents",
+        "label": "Focus agents",
+        "detail": "Jump to the agents view",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit4",
+        "other": "Ctrl+Alt+Digit4"
+    },
+    {
+        "id": "window.search",
+        "label": "Focus search",
+        "detail": "Jump to the search window",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit5",
+        "other": "Ctrl+Alt+Digit5"
+    },
+    {
+        "id": "window.board",
+        "label": "Focus agent board",
+        "detail": "Jump to the cards the project's agents work from",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit6",
+        "other": "Ctrl+Alt+Digit6"
+    },
+    {
+        "id": "browser.tabNew",
+        "label": "New browser tab",
+        "detail": "Open a page on the desk of the agent in front, or the one that worked last",
+        "category": "Browser",
+        "mac": "Meta+Shift+KeyT",
+        "other": "Ctrl+Shift+KeyB"
+    },
+    {
+        "id": "browser.address",
+        "label": "Focus browser address",
+        "detail": "Focus the embedded browser address bar",
+        "category": "Browser",
+        "mac": "Meta+KeyL",
+        "other": "Ctrl+Shift+KeyL"
+    },
+    {
+        "id": "browser.reload",
+        "label": "Reload browser tab",
+        "detail": "Reload the active embedded browser tab",
+        "category": "Browser",
+        "mac": "Meta+KeyR",
+        "other": "Ctrl+KeyR"
+    },
+    {
+        "id": "browser.back",
+        "label": "Browser back",
+        "detail": "Go back in the active embedded browser tab",
+        "category": "Browser",
+        "mac": "Meta+BracketLeft",
+        "other": "Ctrl+BracketLeft"
+    },
+    {
+        "id": "browser.forward",
+        "label": "Browser forward",
+        "detail": "Go forward in the active embedded browser tab",
+        "category": "Browser",
+        "mac": "Meta+BracketRight",
+        "other": "Ctrl+BracketRight"
+    }
+]

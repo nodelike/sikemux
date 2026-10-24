@@ -4,6 +4,7 @@ import { useShaderField } from "../hooks/useShaderField";
 import { reviveShaderField, type ShaderFieldPreset } from "../lib/shaderField";
 import { whenStageStill } from "../state/nativeViews";
 import { useStore } from "../state/store";
+import { preferencesOf } from "../state/preferences";
 
 /**
  * An empty element for a Paper Shaders field to paint into.
@@ -44,7 +45,7 @@ export const ScreenFieldContext = createContext(false);
 /** The pane's picture behind one screen of a pane that draws none of its own. */
 export function ScreenField() {
     const wanted = useContext(ScreenFieldContext);
-    const paneShader = useStore((s) => s.paneShader);
+    const paneShader = useStore((s) => preferencesOf(s).paneShader);
     return wanted ? <PaneField enabled={paneShader} /> : null;
 }
 

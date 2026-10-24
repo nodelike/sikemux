@@ -1,4 +1,4 @@
-import { isPluginFailure, type PluginBackend, type PluginStream, type PluginStreamHandlers } from "../plugin-api/backend";
+import { isPluginFailure, type PluginBackend } from "../plugin-api/backend";
 import { invalidate } from "../state/resources";
 
 const IMAGES_KEPT = 400;
@@ -11,8 +11,6 @@ export interface CodeHostClient {
      * itself. Each address is fetched once; one that failed is tried again next time.
      */
     image(url: string): Promise<string>;
-    /** Follows one run; a tick that finds the person signed out has the sign-in status read again. */
-    watch<Tick extends { signedOut: boolean }>(params: unknown, handlers: PluginStreamHandlers<Tick>): PluginStream;
 }
 
 /** What every code host plugin does the same way around its backend. */
@@ -40,14 +38,5 @@ export function createCodeHostClient(backend: PluginBackend): CodeHostClient {
             }
             return fetched;
         },
-
-        watch: <Tick extends { signedOut: boolean }>(params: unknown, handlers: PluginStreamHandlers<Tick>) =>
-            backend.stream<Tick>("watchRun", params, {
-                ...handlers,
-                onItem: (tick) => {
-                    if (tick.signedOut) backend.signedOut();
-                    handlers.onItem(tick);
-                },
-            }),
     };
 }

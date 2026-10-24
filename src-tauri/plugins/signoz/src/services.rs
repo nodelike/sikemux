@@ -1,12 +1,13 @@
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::client;
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Scope;
 use crate::query;
+pub use sikemux_plugin_api::signoz::{ErrorGroup, Operation, Overview, Point, ServiceHealth};
 
 const MAX_ROWS: u32 = 500;
 const MAX_OPERATIONS: u32 = 100;
@@ -22,17 +23,6 @@ pub struct ServiceQuery {
     /// hide the very rows the list is for, so those are ignored.
     #[serde(flatten)]
     pub scope: Scope,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ServiceHealth {
-    pub service: String,
-    pub environment: Option<String>,
-    pub calls: u64,
-    pub errors: u64,
-    pub error_rate: f64,
-    pub p99_ms: f64,
 }
 
 /// Counted from entry spans rather than SigNoz's service map, which leaves out
@@ -133,22 +123,6 @@ impl ServiceRequest {
     }
 }
 
-pub type Point = (u64, f64);
-
-#[derive(Serialize, Debug, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct Overview {
-    pub calls: u64,
-    pub errors: u64,
-    pub error_rate: f64,
-    pub per_minute: f64,
-    pub p99_ms: f64,
-    pub p50_ms: f64,
-    pub requests: Vec<Point>,
-    pub failures: Vec<Point>,
-    pub p99: Vec<Point>,
-}
-
 const LATENCY_AND_ERRORS: [&str; 4] = [
     "count()",
     "countIf(hasError = true)",
@@ -243,17 +217,6 @@ fn parse_overview(totals: &Value, series: &Value, span_ms: u64, step_seconds: u6
     }
 }
 
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Operation {
-    pub name: String,
-    pub calls: u64,
-    pub errors: u64,
-    pub error_rate: f64,
-    pub p99_ms: f64,
-    pub p50_ms: f64,
-}
-
 /// What a service is asked to do, one row per entry-span name, busiest first.
 pub async fn operations(data_dir: &Path, request: ServiceRequest) -> SignozResult<Vec<Operation>> {
     let spec = json!({
@@ -299,18 +262,6 @@ fn parse_operations(result: &Value) -> Vec<Operation> {
             })
         })
         .collect()
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ErrorGroup {
-    /// The message with its numbers and ids blanked, so one failure is one row.
-    pub pattern: String,
-    /// The most frequent message behind the pattern, as written.
-    pub sample: String,
-    pub count: u64,
-    pub first_seen: u64,
-    pub last_seen: u64,
 }
 
 /// A service's error and fatal logs, grouped by what they say.

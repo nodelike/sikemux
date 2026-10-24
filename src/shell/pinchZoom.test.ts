@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installPinchZoom, PINCH_IDLE_MS } from "./pinchZoom";
 import { getState, setState } from "../state/store";
+import { testPreferences } from "../test/preferences";
 
 const initial = getState();
 let uninstall: () => void;
@@ -30,7 +31,7 @@ function pinchWheel(target: Element, deltaY: number, ctrlKey = true): WheelEvent
 beforeEach(() => {
     vi.useFakeTimers();
     setState(initial, true);
-    setState({ chatTextScale: 1, editorTextScale: 1, terminalFontSize: 13 });
+    setState({ preferences: testPreferences() });
     uninstall = installPinchZoom();
 });
 
@@ -45,11 +46,11 @@ describe("pinching to resize text", () => {
         const chat = surface("agent-chat-pane");
         gesture(chat, "gesturestart", 1);
         gesture(chat, "gesturechange", 1.2);
-        expect(getState().chatTextScale).toBe(1.2);
+        expect(getState().preferences?.chatTextScale).toBe(1.2);
         gesture(chat, "gesturechange", 1.5);
-        expect(getState().chatTextScale).toBe(1.5);
+        expect(getState().preferences?.chatTextScale).toBe(1.5);
         gesture(chat, "gestureend", 1.5);
-        expect(getState().editorTextScale).toBe(1);
+        expect(getState().preferences?.editorTextScale).toBe(1);
     });
 
     it("resizes the editor and terminal each on their own", () => {
@@ -61,9 +62,9 @@ describe("pinching to resize text", () => {
         gesture(terminal, "gesturestart", 1);
         gesture(terminal, "gesturechange", 2);
         gesture(terminal, "gestureend", 2);
-        expect(getState().editorTextScale).toBe(0.8);
-        expect(getState().terminalFontSize).toBe(26);
-        expect(getState().chatTextScale).toBe(1);
+        expect(getState().preferences?.editorTextScale).toBe(0.8);
+        expect(getState().preferences?.terminalFontSize).toBe(26);
+        expect(getState().preferences?.chatTextScale).toBe(1);
     });
 
     it("keeps the page from zooming only when a text surface takes the pinch", () => {
@@ -78,22 +79,22 @@ describe("pinching to resize text", () => {
     it("adds up small ctrl-wheel steps so the terminal still grows", () => {
         const terminal = surface("terminal-shell");
         for (let i = 0; i < 10; i += 1) pinchWheel(terminal, -10);
-        expect(getState().terminalFontSize).toBe(26);
+        expect(getState().preferences?.terminalFontSize).toBe(26);
     });
 
     it("starts a new pinch after the wheel goes quiet", () => {
         const chat = surface("agent-chat-pane");
         pinchWheel(chat, -100);
-        expect(getState().chatTextScale).toBe(2);
+        expect(getState().preferences?.chatTextScale).toBe(2);
         vi.advanceTimersByTime(PINCH_IDLE_MS);
-        setState({ chatTextScale: 1 });
+        setState({ preferences: { ...getState().preferences!, chatTextScale: 1 } });
         pinchWheel(chat, 100);
-        expect(getState().chatTextScale).toBe(0.7);
+        expect(getState().preferences?.chatTextScale).toBe(0.7);
     });
 
     it("leaves ordinary scrolling alone", () => {
         const chat = surface("agent-chat-pane");
         expect(pinchWheel(chat, 40, false).defaultPrevented).toBe(false);
-        expect(getState().chatTextScale).toBe(1);
+        expect(getState().preferences?.chatTextScale).toBe(1);
     });
 });

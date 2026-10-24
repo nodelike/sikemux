@@ -14,29 +14,31 @@ import { requestOpenFile, setGitView } from "../../state/commands";
 import { useStore } from "../../state/store";
 import { DEFAULT_GIT_VIEW } from "../../state/types";
 import { hostApi, type RepoRef } from "../api";
-import { defaultBase, isUsualBase } from "../compose";
+import { newPullR } from "../lists";
 import { useHost } from "../registry";
-import { hostBranchesR } from "../resources";
 
 type Comparison = { key: string; data: GitCompare | null; error: string | null };
 
 interface Props {
     paneId: string;
     repo: RepoRef;
+    /** The project the pull request is opened from. */
+    project: string;
     /** The project folder, when this is its own repository. */
     cwd: string | null;
-    head: string | null;
     active: boolean;
     onCreated: (number: number) => void;
     onCancel: () => void;
 }
 
 /** A new pull request, laid out like Changes: the message box and the branch's files and commits on the left, its diff on the right. */
-export function NewPullForm({ paneId, repo, cwd, head: startingHead, active, onCreated, onCancel }: Props) {
+export function NewPullForm({ paneId, repo, project, cwd, active, onCreated, onCancel }: Props) {
     const host = useHost();
-    const branches = useResourceEnabled(active, hostBranchesR, repo);
-    const names = useMemo(() => branches.data ?? [], [branches.data]);
-    const [head, setHead] = useState(startingHead && !isUsualBase(startingHead) ? startingHead : "");
+    const start = useResourceEnabled(active, newPullR, project);
+    const names = useMemo(() => start.data?.branches ?? [], [start.data]);
+    const startingHead = start.data?.head ?? null;
+    const [picked, setHead] = useState<string | null>(null);
+    const head = picked ?? startingHead ?? "";
     const [base, setBase] = useState<string | null>(null);
     const [title, setTitle] = useState("");
     const [body, setBody] = useState("");
@@ -49,9 +51,10 @@ export function NewPullForm({ paneId, repo, cwd, head: startingHead, active, onC
     const [pushedAt, setPushedAt] = useState(0);
     const bodyRef = useRef<HTMLTextAreaElement>(null);
 
+    const startingBase = start.data?.base ?? null;
     useEffect(() => {
-        if (base === null && names.length > 0) setBase(defaultBase(names, head || null));
-    }, [base, names, head]);
+        if (base === null && startingBase) setBase(startingBase);
+    }, [base, startingBase]);
 
     const compareKey = cwd && base && head && base !== head ? `${base}\n${head}\n${pushedAt}` : null;
     useEffect(() => {
@@ -82,7 +85,7 @@ export function NewPullForm({ paneId, repo, cwd, head: startingHead, active, onC
         el.style.height = `${el.scrollHeight}px`;
     }, [body]);
 
-    const pushed = !head || names.length === 0 || names.includes(head);
+    const pushed = !head || head !== startingHead || !!start.data?.pushed;
     const ready = !!title.trim() && !!head.trim() && !!base && base !== head && pushed && !busy;
 
     const create = async () => {
@@ -106,7 +109,7 @@ export function NewPullForm({ paneId, repo, cwd, head: startingHead, active, onC
         try {
             await git.push(cwd);
             notify("success", `Pushed ${head}`);
-            invalidate((kind) => kind === "host.branches");
+            invalidate((kind) => kind === "host.newPull");
             setPushedAt(Date.now());
         } catch (error) {
             reportError(`Could not push ${head}`)(error);

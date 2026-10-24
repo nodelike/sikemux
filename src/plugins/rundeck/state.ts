@@ -218,3 +218,12 @@ export function openRundeckExecution(job: JobRef, executionId: number): void {
     if (!paneId) return;
     setStack(paneId, [...HOME.stack, { kind: "service", ...job }, { kind: "execution", ...job, executionId }]);
 }
+
+let looked = false;
+
+/** Something in Sikemux asked Rundeck for its jobs, so the top bar may ask too. */
+export function markRundeckLooked(): void {
+    looked = true;
+}
+
+export const rundeckLooked = (): boolean => looked;

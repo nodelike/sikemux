@@ -34,9 +34,26 @@ describe("closing what holds agents", () => {
     it("asks before stopping an agent that is still working", async () => {
         cmd.createProjectSession("/work/demo");
         const agentId = startAgent();
-        cmd.setAgentStatus([
-            { agentId, title: "claude", status: "working", group: "working", unread: false, subagents: 0, tasks: 0, activeAt: null },
-        ]);
+        cmd.setAgentStatus({
+            agents: [
+                {
+                    agentId,
+                    cli: "claude",
+                    title: "claude",
+                    status: "working",
+                    group: "working",
+                    label: "Working",
+                    unread: false,
+                    subagents: 0,
+                    tasks: 0,
+                    busy: true,
+                    background: false,
+                    activeAt: null,
+                    face: null,
+                },
+            ],
+            projects: {},
+        });
 
         cmd.closeActiveFocusTarget();
 

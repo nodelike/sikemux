@@ -1,4 +1,5 @@
-import { THEMES } from "../../src/themes";
+import { SIKEMUX_THEMES, testPalette } from "../../src/test/themes";
+import { wearPicked } from "../../src/themes/bus";
 import { SESSION, showcase, sleep, spread } from "./measure";
 
 /*
@@ -21,7 +22,9 @@ export async function theme({ steps = 12 }: { steps?: number } = {}) {
     const shown: number[] = [];
     for (let step = 0; step < steps; step++) {
       const start = performance.now();
-      cmd.setThemeId(THEMES[(step * 7 + 3) % THEMES.length].id);
+      wearPicked(
+        testPalette(SIKEMUX_THEMES[(step * 7 + 3) % SIKEMUX_THEMES.length]),
+      );
       await frame();
       await frame();
       shown.push(performance.now() - start);

@@ -1,8 +1,36 @@
-import { invokeCommand } from "./invoke";
+import { coreCall } from "./core";
 
 export interface ProjectFilesSnapshot {
     readonly scanId: number;
     readonly files: string[];
+}
+
+/** The whole list, only what changed since the scan named, or neither when nothing did. */
+interface ProjectFilesAnswer {
+    readonly scanId: number;
+    readonly files?: string[];
+    readonly added?: string[];
+    readonly removed?: string[];
+}
+
+function insertSorted(files: string[], path: string): void {
+    let low = 0;
+    let high = files.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (files[middle] < path) low = middle + 1;
+        else high = middle;
+    }
+    files.splice(low, 0, path);
+}
+
+function applied(previous: ProjectFilesSnapshot | undefined, answer: ProjectFilesAnswer): ProjectFilesSnapshot {
+    if (previous && answer.scanId === previous.scanId) return previous;
+    if (answer.files || !previous) return { scanId: answer.scanId, files: answer.files ?? [] };
+    const removed = new Set(answer.removed);
+    const files = removed.size ? previous.files.filter((path) => !removed.has(path)) : [...previous.files];
+    for (const path of answer.added ?? []) insertSorted(files, path);
+    return { scanId: answer.scanId, files };
 }
 
 interface CachedSnapshot {
@@ -48,8 +76,10 @@ function snapshot(repo: string): Promise<ProjectFilesSnapshot> {
     const pending = inflight.get(repo);
     if (pending?.generation === generation) return pending.promise;
 
-    const promise = invokeCommand<ProjectFilesSnapshot>("list_project_files_snapshot", { repo })
-        .then((incoming) => {
+    const base = hit?.snapshot;
+    const promise = coreCall<ProjectFilesAnswer>("projectFiles", { project: repo, since: base?.scanId ?? null })
+        .then((answer) => {
+            const incoming = applied(base, answer);
             const previous = cache.get(repo)?.snapshot;
             // scanId is process-monotonic. Never let a late request replace a
             // newer snapshot, and preserve array identity when nothing changed.

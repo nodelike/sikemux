@@ -7,7 +7,7 @@ import { EmptyState, IconChevron, IconDownload, IconExternal, IconFile, IconRefr
 import { hostApi, type Release, type RepoRef } from "../api";
 import { errorText } from "../../lib/format";
 import { useHost } from "../registry";
-import { releasesR } from "../resources";
+import { releaseListR } from "../lists";
 import { SectionIcon } from "./ActionsIcon";
 import { ShellAccount } from "./Bits";
 import { Face } from "./CommentThread";
@@ -19,10 +19,6 @@ import { formatAgo, formatBytes } from "../../lib/format";
 const RELEASES_READ = 100;
 
 /** The newest release that is neither a draft nor a pre-release, which is the one GitHub marks as latest. */
-export function latestOf(releases: readonly Release[]): number | null {
-    return releases.find((release) => !release.draft && !release.prerelease)?.id ?? null;
-}
-
 function Tags({ release, latest }: { release: Release; latest: boolean }) {
     return (
         <>
@@ -178,19 +174,20 @@ const KINDS: { id: Kind; label: string }[] = [
 interface Props {
     paneId: string;
     repo: RepoRef;
+    project: string;
     active: boolean;
 }
 
 /** Releases in the side panel, newest first; the one picked, the latest to begin with, reads on the right. */
-export function ReleasesView({ paneId, repo, active }: Props) {
+export function ReleasesView({ paneId, repo, project, active }: Props) {
     const host = useHost();
-    const releases = useResourceEnabled(active, releasesR, repo);
+    const releases = useResourceEnabled(active, releaseListR, project);
     const [picked, setPicked] = useState<number | null>(null);
     const [kind, setKind] = useState<Kind>("all");
     const now = useNow(false);
 
-    const all = releases.data ?? [];
-    const latest = latestOf(all);
+    const all = releases.data?.releases ?? [];
+    const latest = releases.data?.latest ?? null;
     const rows = all.filter((release) => kind === "all" || (kind === "pre") === (release.prerelease || release.draft));
     const shown = all.find((release) => release.id === picked) ?? all.find((release) => release.id === latest) ?? all[0] ?? null;
 

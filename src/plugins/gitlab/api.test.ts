@@ -9,8 +9,6 @@ const fake = vi.hoisted(() => ({
 vi.mock("../../api/plugins", async () => (await import("../../plugin-api/fakeTransport")).fakeTransport(fake));
 vi.mock("../../state/resources", async (importOriginal) => ({ ...(await importOriginal<object>()), invalidate: fake.invalidate }));
 
-import type { PluginStreamHandlers } from "../../plugin-api/backend";
-import type { RunTick } from "../../plugin-api/codehost";
 import { accountOf, entryOf, gitlabHostApi, type GitlabStatus } from "./api";
 
 const repo = { provider: "sikemux.gitlab", owner: "platform/payments", name: "billing-api" };
@@ -63,17 +61,6 @@ describe("the GitLab host API", () => {
         await expect(gitlabHostApi.pulls(repo, "open")).rejects.toBe(refused);
         const [matches] = fake.invalidate.mock.calls[0] as [(kind: string) => boolean];
         expect(matches("host.status") && !matches("host.pulls")).toBe(true);
-    });
-
-    it("has it read again when a watched pipeline finds the sign-in gone", async () => {
-        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<RunTick>) => {
-            handlers.onItem({ run: null, jobs: [], error: "signed out", finished: true, fatal: true, signedOut: true });
-        });
-        const ticks: RunTick[] = [];
-        gitlabHostApi.watch(repo, "1834", { onItem: (tick) => ticks.push(tick) });
-        await vi.waitFor(() => expect(ticks).toHaveLength(1));
-        expect(fake.stream).toHaveBeenCalledWith("watchRun", { ...repo, runId: "1834" }, expect.anything());
-        expect(fake.invalidate).toHaveBeenCalled();
     });
 });
 

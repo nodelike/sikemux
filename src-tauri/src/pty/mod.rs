@@ -1,7 +1,7 @@
 //! Terminals live in the background core (`sikemux core`); these commands
-//! forward to it over its socket. Output comes back on the connection and is
-//! fanned out to the webview channels that show each terminal, with the same
-//! ack-based flow control the in-process terminals had.
+//! forward to it over its socket. The core runs each terminal and sends every
+//! pane its own stream of changed cells, which comes back on the connection
+//! and goes to the webview channel of that pane.
 
 pub(crate) mod commands;
 pub(crate) mod sink;
@@ -13,11 +13,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use sikemux_core::client::{
-    await_deferred_upgrade, await_upgrade, frozen_request, Attached, ClientError, CoreClient, Reply,
-};
-use sikemux_core::frozen::{FrozenReply, FrozenRequest, UpdateBlocker};
-use sikemux_core::protocol::{BuildIdentity, Request, SessionInfo, SessionKind};
+use sikemux_core::client::{Attached, ClientError, CoreClient, Reply};
+use sikemux_core::protocol::{Request, SessionInfo, SessionKind};
+use sikemux_host::core_start::{self, StartError, Upgrade};
 use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -32,15 +30,6 @@ const MAIN_WEBVIEW: &str = "main";
 /// Long enough for the core's shared kill grace plus reaping a few hundred
 /// sessions.
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
-/// The core first checks that the sidecar starts, which can take a while the
-/// first time macOS sees a new binary.
-const UPGRADE_ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
-const UPGRADE_RETURN_TIMEOUT: Duration = Duration::from_secs(20);
-/// A core with chat turns running updates once they end, which it gives two
-/// minutes.
-const DEFERRED_RETURN_TIMEOUT: Duration = Duration::from_secs(150);
-/// `ESC c`, which clears a pane's screen and history before its replay.
-const FULL_RESET: &[u8] = b"\x1bc";
 
 struct CoreSettings {
     app: AppHandle,
@@ -88,6 +77,10 @@ pub(crate) fn core_message(message: String) -> AppError {
         AppError::FileConflict(reason.to_string())
     } else if let Some(path) = message.strip_prefix("not-text: ") {
         AppError::NotText(path.to_string())
+    } else if let Some(reason) = message.strip_prefix("lsp: ") {
+        AppError::Lsp(reason.to_string())
+    } else if let Some(reason) = message.strip_prefix("lsp-server-missing: ") {
+        AppError::LspServerMissing(reason.to_string())
     } else {
         AppError::Other(message)
     }
@@ -182,38 +175,18 @@ impl PtyManager {
         let launch = self.core_launch().ok_or_else(|| {
             AppError::Pty("the sikemux-host sidecar that runs terminals is missing".into())
         })?;
-        let binary = launch.binary.clone();
         if let Some(directory) = launch.log.parent() {
             let _ = std::fs::create_dir_all(directory);
         }
         let identifier = settings.app.config().identifier.clone();
-        let found = tauri::async_runtime::spawn_blocking(move || {
-            crate::login_item::start_core(&identifier, &launch)
-        })
-        .await
-        .map_err(|error| AppError::Pty(format!("core start join: {error}")))?;
-        match found {
-            Ok(hello) if hello.build.same_build(&crate::build_identity()) => {}
-            Ok(hello) => {
-                match upgrade_core(settings, binary, hello.pid, Some(hello.build), false).await {
-                    Ok(Upgrade::Done) => {}
-                    Ok(Upgrade::Deferred) => eprintln!(
-                        "Sikemux's terminal core updates once its chats can be carried over; using it as it is until then"
-                    ),
-                    Err(message) => {
-                        eprintln!("Sikemux keeps its terminal core as it is: {message}")
-                    }
-                }
+        let force = take_forced_update(settings);
+        match core_start::start(&identifier, &launch, &crate::build_identity(), force).await {
+            Ok(()) => {}
+            Err(StartError::Incompatible { pid, reason }) => {
+                self.notice_incompatible(settings, pid);
+                return Err(AppError::Pty(reason));
             }
-            Err(ClientError::VersionMismatch { pid, message, .. }) => {
-                if let Err(reason) = upgrade_core(settings, binary, pid, None, true).await {
-                    self.notice_incompatible(settings, pid);
-                    return Err(AppError::Pty(format!(
-                        "{message}, and it could not be updated: {reason}"
-                    )));
-                }
-            }
-            Err(error) => return Err(core_error(error)),
+            Err(StartError::Unreachable(error)) => return Err(core_error(error)),
         }
         let sink = Arc::new(AppSink::new(settings.app.clone(), self.streams.clone()));
         let client = Arc::new(
@@ -296,7 +269,17 @@ impl PtyManager {
             ) else {
                 return;
             };
-            match upgrade_core(settings, binary, client.core_pid(), Some(build), false).await {
+            let force = take_forced_update(settings);
+            match core_start::upgrade(
+                &settings.socket,
+                binary,
+                client.core_pid(),
+                Some(build),
+                force,
+                false,
+            )
+            .await
+            {
                 Ok(Upgrade::Done) => {}
                 Ok(Upgrade::Deferred) => {
                     eprintln!("Sikemux's terminal core updates once its chats can be carried over")
@@ -323,7 +306,7 @@ impl PtyManager {
             "Not Now",
             move || {
                 std::thread::spawn(move || {
-                    stop_core_process(&socket, pid);
+                    core_start::stop(&socket, pid);
                     app.exit(0);
                 });
             },
@@ -351,13 +334,23 @@ impl PtyManager {
 
     /// The page went away with every channel it held. Terminals and tasks keep
     /// running in the core, which stops sending what nobody will show.
+    /// Lets go of every terminal the page watched, stops every stream it
+    /// started, such as a search or a plugin's, and closes the documents its
+    /// editors opened in language servers, as the page goes away.
     pub fn detach_all(&self) {
-        let subscribed = self.streams.release_all();
+        let streams = self.streams.release_all();
         let Some(client) = self.current() else {
             return;
         };
-        for id in subscribed {
-            let _ = client.submit(Request::Detach { id }, |_| ());
+        for stream in streams {
+            let _ = client.submit(Request::Detach { stream }, |_| ());
+        }
+        for method in ["streamCancel", "lsp.release"] {
+            let call = Request::Call {
+                method: method.into(),
+                params: serde_json::json!({}),
+            };
+            let _ = client.submit(call, |_| ());
         }
     }
 
@@ -410,33 +403,25 @@ impl PtyManager {
     }
 }
 
-/// Sends every pane its screen again from a core that came back, followed
-/// by the live output. `streams` holds the page's ids, which the core of
-/// another host knows by its own.
+/// Starts every pane's stream again on a core that came back, each with its
+/// whole screen. `streams` holds the page's ids, which the core of another
+/// host knows by its own.
 pub(crate) async fn reattach(client: &Arc<CoreClient>, streams: &Arc<StreamTable>) {
-    for id in streams.core_subscribed() {
+    for (pane, id) in streams.panes() {
         let table = streams.clone();
         let request = Request::Attach {
             id: crate::hosts::core_session(id),
         };
         let submitted = client.submit(request, move |reply| match reply {
             Ok(Reply::Attached(Attached {
-                alternate_screen,
+                stream,
                 exited,
-                replay,
+                frame,
                 ..
             })) => {
-                table.restart(id);
-                // An alternate screen repaints itself in full and leaves
-                // the pane's own normal-screen history alone.
-                let mut screen = Vec::with_capacity(replay.len() + FULL_RESET.len());
-                if !alternate_screen {
-                    screen.extend_from_slice(FULL_RESET);
-                }
-                screen.extend_from_slice(&replay);
-                sink::deliver(&table, id, &screen);
+                table.restream(pane, stream, &frame);
                 if exited {
-                    table.channels(id).send(&[]);
+                    sink::report_exited(&table, id);
                 }
             }
             // A dropped connection is not the session ending; the next
@@ -448,59 +433,6 @@ pub(crate) async fn reattach(client: &Arc<CoreClient>, streams: &Arc<StreamTable
             let _ = replied.await;
         }
     }
-}
-
-enum Upgrade {
-    Done,
-    /// The core goes on as it is until its chats can be carried over, then
-    /// updates and drops its connections, which come back to the updated core.
-    Deferred,
-}
-
-/// Asks the core at `socket` to replace itself with `binary`, and waits for
-/// it to answer from the same process again. Without `old`, the core speaks
-/// another protocol and could not say which build it runs. A core that
-/// defers is waited for only when `wait_if_deferred`.
-async fn upgrade_core(
-    settings: &CoreSettings,
-    binary: PathBuf,
-    pid: u32,
-    old: Option<BuildIdentity>,
-    wait_if_deferred: bool,
-) -> Result<Upgrade, String> {
-    let socket = settings.socket.clone();
-    let force = take_forced_update(settings);
-    let upgraded = tauri::async_runtime::spawn_blocking(move || {
-        let request = FrozenRequest::Upgrade { binary, force };
-        match frozen_request(&socket, &request, UPGRADE_ANSWER_TIMEOUT) {
-            Ok(FrozenReply::Accepted) => {
-                await_upgrade(&socket, pid, old.as_ref(), UPGRADE_RETURN_TIMEOUT)
-                    .map(Some)
-                    .map_err(|error| error.to_string())
-            }
-            Ok(FrozenReply::Deferred { .. }) if wait_if_deferred => {
-                await_deferred_upgrade(&socket, pid, old.as_ref(), DEFERRED_RETURN_TIMEOUT)
-                    .map(Some)
-                    .map_err(|error| error.to_string())
-            }
-            Ok(FrozenReply::Deferred { .. }) => Ok(None),
-            Ok(FrozenReply::Refused { message }) => Err(message),
-            Ok(FrozenReply::UpdateBlockers { .. }) => {
-                Err("the core answered another request".to_owned())
-            }
-            Err(error) => Err(error.to_string()),
-        }
-    })
-    .await
-    .map_err(|error| error.to_string())??;
-    let Some(upgraded) = upgraded else {
-        return Ok(Upgrade::Deferred);
-    };
-    eprintln!(
-        "Sikemux updated its terminal core (pid {pid}) to {} {}",
-        upgraded.build.version, upgraded.build.commit
-    );
-    Ok(Upgrade::Done)
 }
 
 /// Where the person's choice to force the next core update is kept, so the
@@ -524,39 +456,6 @@ impl PtyManager {
             .get()
             .ok_or("the terminal core is not configured yet")?;
         std::fs::write(forced_update_marker(settings), b"").map_err(|error| error.to_string())
-    }
-
-    /// The chats at work that an update now would stop and start again
-    /// rather than carry over. A core that cannot say is taken to have none.
-    pub(crate) async fn update_blockers(&self) -> Vec<UpdateBlocker> {
-        let Some(settings) = self.settings.get() else {
-            return Vec::new();
-        };
-        let socket = settings.socket.clone();
-        let asked = tauri::async_runtime::spawn_blocking(move || {
-            frozen_request(
-                &socket,
-                &FrozenRequest::UpdateBlockers,
-                UPGRADE_ANSWER_TIMEOUT,
-            )
-        })
-        .await;
-        match asked {
-            Ok(Ok(FrozenReply::UpdateBlockers { chats })) => chats,
-            _ => Vec::new(),
-        }
-    }
-}
-
-/// Ends a core this app cannot talk to, with everything running in it.
-fn stop_core_process(socket: &std::path::Path, pid: u32) {
-    let stopped = frozen_request(socket, &FrozenRequest::StopEverything, STOP_TIMEOUT);
-    if !matches!(stopped, Ok(FrozenReply::Accepted)) && pid > 1 {
-        // SAFETY: kill only takes integers; the pid is a single process above
-        // init, so this never signals a group or every process.
-        unsafe {
-            libc::kill(pid as libc::pid_t, libc::SIGTERM);
-        }
     }
 }
 
@@ -594,11 +493,7 @@ mod tests {
     fn leaving_detaches_without_telling_any_pane_its_process_ended() {
         let manager = PtyManager::default();
         let (channel, messages) = recorded();
-        {
-            let mut guard = manager.streams.lock();
-            guard.begin_attach(3).expect("begin");
-            guard.finish_attach(3, channel).expect("attach");
-        }
+        manager.streams.add(3, channel, 1);
         manager.detach_all();
         assert_eq!(manager.streams.subscriber_count(), 0);
         assert_eq!(*messages.lock().expect("count"), 0);

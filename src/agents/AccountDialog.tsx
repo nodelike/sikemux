@@ -26,7 +26,7 @@ import {
     type AccountDialogRequest,
 } from "./accounts";
 import { selectedProviderProfile } from "./agentProfiles";
-import { agentBrand, agentLabel, type AccountAgentType } from "./catalog";
+import { agentBrand, agentLabel, type AgentType } from "./catalog";
 import { openUrl } from "../api/system";
 
 export function AccountDialogHost() {
@@ -188,7 +188,7 @@ function AccountDialog({ request }: { request: AccountDialogRequest }) {
 }
 
 /** Accounts signed out of, to sign in to again or remove. */
-function SignedOutAccounts({ provider, onSignIn }: { provider: AccountAgentType; onSignIn: (account: ProviderProfile) => void }) {
+function SignedOutAccounts({ provider, onSignIn }: { provider: AgentType; onSignIn: (account: ProviderProfile) => void }) {
     const profiles = useStore((s) => s.providerProfiles);
     const [signedOut, setSignedOut] = useState<string[]>([]);
     useEffect(() => {
@@ -278,7 +278,7 @@ function BrowserHelp({ url, account }: { url: string; account: ProviderProfile }
     );
 }
 
-function SignedIn({ provider, account, mark }: { provider: AccountAgentType; account: ProviderProfile; mark: ReactNode }) {
+function SignedIn({ provider, account, mark }: { provider: AgentType; account: ProviderProfile; mark: ReactNode }) {
     const status = useResource(agentAccountR, provider, account.configPath);
     const current = useStore((s) => selectedProviderProfile(provider, s.providerProfiles, s.selectedProviderProfileIds));
     const currentStatus = useResource(agentAccountR, provider, current?.configPath);

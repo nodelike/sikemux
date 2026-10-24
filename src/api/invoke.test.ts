@@ -47,12 +47,12 @@ describe("invokeCommand", () => {
         const failure = deferred<never>();
         const successHandler = vi.fn((_args: IpcInvokeArguments | undefined, _context: MemoryInvokeContext) => success.promise);
         const failureHandler = vi.fn((_args: IpcInvokeArguments | undefined, _context: MemoryInvokeContext) => failure.promise);
-        transport.register("files_call", successHandler);
+        transport.register("keep_dropped_paths", successHandler);
         transport.register("state_save", failureHandler);
 
         const readArgs = { path: "/project/file" };
         const statusArgs = { repo: "/project" };
-        const successful = invokeCommand<{ readonly marker: "result" }>("files_call", readArgs);
+        const successful = invokeCommand<{ readonly marker: "result" }>("keep_dropped_paths", readArgs);
         const failed = invokeCommand<never>("state_save", statusArgs);
 
         expect(performanceTelemetry.snapshot().gauges[IPC_INVOKE_ACTIVE_GAUGE]).toBe(2);
@@ -79,7 +79,7 @@ describe("invokeCommand", () => {
         });
         const spans = snapshot.spans.filter((span) => span.name === IPC_INVOKE_METRIC);
         expect(spans).toHaveLength(2);
-        expect(spans.map((span) => span.metadata.command)).toEqual(["files_call", "state_save"]);
+        expect(spans.map((span) => span.metadata.command)).toEqual(["keep_dropped_paths", "state_save"]);
         const requestIds = spans.map((span) => span.metadata.requestId as number);
         expect(requestIds[1]).toBe(requestIds[0] + 1);
         expect(spans[1].metadata).toMatchObject({ outcome: "error", category: "git" });
@@ -164,13 +164,13 @@ describe("invokeCommand", () => {
         const firstRequestId = performanceTelemetry.snapshot().spans[0].metadata.requestId as number;
 
         performanceTelemetry.reset();
-        transport.register("integration_health", async () => null);
-        await invokeCommand<null>("integration_health");
+        transport.register("open_url", async () => null);
+        await invokeCommand<null>("open_url");
 
         const snapshot = performanceTelemetry.snapshot();
         expect(snapshot.spans[0].metadata.requestId).toBeGreaterThan(firstRequestId);
         expect(snapshot.spans[0].metadata).toEqual({
-            command: "integration_health",
+            command: "open_url",
             requestId: snapshot.spans[0].metadata.requestId,
             outcome: "success",
         });

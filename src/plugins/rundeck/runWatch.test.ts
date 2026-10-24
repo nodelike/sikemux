@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RundeckExecution, WatchUpdate } from "./api";
+import type { RundeckRunNotice } from "./types.generated";
 
 const api = vi.hoisted(() => ({ watch: vi.fn() }));
 const stop = vi.hoisted(() => vi.fn());
@@ -9,6 +10,9 @@ vi.mock("../../plugin-api/host", async (importOriginal) => ({ ...(await importOr
 
 import { watchRun } from "./runWatch";
 import { updateRundeckSettings } from "./state";
+import { answerPreferencesForTests } from "../../plugin-api/testPreferences";
+
+beforeEach(answerPreferencesForTests);
 
 const job = { project: "shop", jobId: "j1", name: "api", group: "staging/backend" };
 let nextId = 100;
@@ -29,15 +33,21 @@ function execution(id: number, status: string): RundeckExecution {
     };
 }
 
+const NOTICES: Record<string, RundeckRunNotice> = {
+    succeeded: { ok: true, title: "Deployed feature/cart to staging/backend", body: "api · took 1m 30s" },
+    failed: { ok: false, title: "Deploy of feature/cart to staging/backend failed", body: "api · after 1m 30s" },
+};
+
 const update = (id: number, status: string, terminal: boolean): WatchUpdate => ({
     execution: execution(id, status),
     state: null,
     error: null,
     terminal,
+    notice: terminal ? NOTICES[status] : undefined,
 });
 
 beforeEach(() => {
-    api.watch.mockImplementation((_id: number, handlers: { onItem: (u: WatchUpdate) => void }) => {
+    api.watch.mockImplementation((_id: number, _job: unknown, handlers: { onItem: (u: WatchUpdate) => void }) => {
         let stopped = false;
         send = (update) => !stopped && handlers.onItem(update);
         stop.mockImplementation(() => (stopped = true));
@@ -83,25 +93,6 @@ describe("watchRun", () => {
         watchRun(job, id);
         watchRun(job, id);
         expect(api.watch).toHaveBeenCalledTimes(1);
-    });
-
-    it("says how the run ended from its steps when Rundeck stopped returning the run itself", () => {
-        const id = ++nextId;
-        watchRun(job, id, () => true);
-        send({ execution: null, state: { executionState: "FAILED", steps: [], stepCount: 2, completed: true }, error: "502", terminal: true });
-        expect(host.notify).toHaveBeenCalledWith("error", "api on staging/backend failed", expect.anything());
-    });
-
-    it("says it lost track of a run when Rundeck stopped answering altogether", () => {
-        const id = ++nextId;
-        watchRun(job, id, () => false);
-        send({ execution: null, state: null, error: "connection refused", terminal: true });
-        expect(host.notify).toHaveBeenCalledWith("error", "Lost track of staging/backend/api", expect.anything());
-        expect(host.notifyDesktop).toHaveBeenCalledWith(
-            "Lost track of staging/backend/api",
-            `Rundeck stopped answering before run #${id} ended. Check it in Rundeck.`,
-        );
-        expect(stop).toHaveBeenCalled();
     });
 
     it("does not watch at all when the person turned the notice off", () => {

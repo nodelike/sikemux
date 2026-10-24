@@ -1,31 +1,17 @@
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { PluginTopBarProps } from "../../../plugin-api";
 import { currentBranch, git, gitOverviewR, notify, reportError } from "../../../plugin-api/host";
-import { invalidate, peekResource, useResourceEnabled } from "../../../plugin-api/resources";
+import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
 import { IconCheck, IconCheckout, IconChevron, IconRundeck, Tooltip } from "../../../plugin-api/ui";
-import type { MatrixCell, RundeckJob } from "../api";
-import { rndJobCellsR, rndJobIndexR, rndProjectsR, useProdEnvs } from "../resources";
-import { basenameOf, displayStatus, groupSegments, isLiveStatus, isProdTarget, targetTone, type EnvTone } from "../shape";
-import { openRundeckJob, rundeckSettings, setDeployTarget } from "../state";
-import { useRefreshEvery } from "../../../plugin-api/hooks";
-import { branchKind, statusKind } from "./branchStyle";
+import { rndDeployTargetV } from "../resources";
+import { basenameOf } from "../shape";
+import { markRundeckLooked, openRundeckJob, rundeckLooked, rundeckSettings, setDeployTarget } from "../state";
+import type { RundeckDeployTarget, RundeckEnvTone, RundeckJobPlace } from "../types.generated";
+import { branchKind } from "./branchStyle";
 import { useMenuKeys } from "./hooks";
 import "../branch.css";
 
-const MAX_MATCHES = 12;
-
-const DOT_CLASS: Record<EnvTone, string> = { prod: "production", staging: "staging", preprod: "preprod", dev: "dev", other: "other" };
-
-function locationLabel(job: RundeckJob): string {
-    return [job.project, ...groupSegments(job.group), job.name].join(" / ");
-}
-
-/** Jobs named after the folder: exact name first, any case only when nothing matches exactly. */
-function matchJobs(jobs: RundeckJob[], folder: string): RundeckJob[] {
-    const exact = jobs.filter((job) => job.name === folder);
-    const found = exact.length ? exact : jobs.filter((job) => job.name.toLowerCase() === folder.toLowerCase());
-    return found.sort((a, b) => locationLabel(a).localeCompare(locationLabel(b))).slice(0, MAX_MATCHES);
-}
+const DOT_CLASS: Record<RundeckEnvTone, string> = { prod: "production", staging: "staging", preprod: "preprod", dev: "dev", other: "other" };
 
 /**
  * Where the project in front is deployed, and what is running there.
@@ -36,42 +22,19 @@ function matchJobs(jobs: RundeckJob[], folder: string): RundeckJob[] {
  */
 export function RundeckTopBarItem({ projectCwd, stripHovered }: PluginTopBarProps) {
     const folder = projectCwd ? basenameOf(projectCwd) : null;
-    const prodEnvs = useProdEnvs();
     const picked = rundeckSettings.useSelect((s) => (projectCwd ? s.deployTargets[projectCwd] : undefined));
-    const deployWanted = stripHovered || peekResource(rndJobIndexR) !== undefined || peekResource(rndProjectsR) !== undefined;
-    const index = useResourceEnabled(!!folder && deployWanted, rndJobIndexR);
-
-    const matches = useMemo(
-        () =>
-            folder
-                ? matchJobs(
-                      (index.data ?? []).flatMap((entry) => entry.jobs),
-                      folder,
-                  )
-                : [],
-        [index.data, folder],
-    );
-    const cells = useResourceEnabled(matches.length > 0, rndJobCellsR, matches);
-    const deploying = cells.data?.some((cell) => isLiveStatus(cell.latest?.status)) ?? false;
-    useRefreshEvery(cells, matches.length === 0 ? null : deploying ? 10_000 : 60_000);
-
-    const active =
-        matches.find((job) => picked && job.project === picked.project && job.id === picked.jobId) ??
-        matches.find((job) => !isProdTarget(job.project, job.group, prodEnvs)) ??
-        matches[0] ??
-        null;
-    if (!projectCwd || !active) return null;
-    const cell = cells.data?.find((c) => c.job_id === active.id) ?? null;
+    if (stripHovered) markRundeckLooked();
+    const target = useResourceEnabled(!!folder && rundeckLooked(), rndDeployTargetV, `topbar/${projectCwd}`, folder ?? "", picked ?? null);
+    const active = target.data?.active;
+    if (!projectCwd || !target.data || !active) return null;
 
     return (
         <>
             <DeployChip
-                jobs={matches}
+                target={target.data}
                 job={active}
-                cell={cell}
                 repo={projectCwd}
-                prodEnvs={prodEnvs}
-                onPick={(job) => setDeployTarget(projectCwd, { project: job.project, jobId: job.id })}
+                onPick={(job) => setDeployTarget(projectCwd, { project: job.project, jobId: job.jobId })}
             />
             <span className="tb-sep" />
         </>
@@ -80,38 +43,35 @@ export function RundeckTopBarItem({ projectCwd, stripHovered }: PluginTopBarProp
 
 /** Where the project deploys, and one menu to pick the place, deploy there, or check out what it runs. */
 function DeployChip({
-    jobs,
+    target,
     job,
-    cell,
     repo,
-    prodEnvs,
     onPick,
 }: {
-    jobs: RundeckJob[];
-    job: RundeckJob;
-    cell: MatrixCell | null;
+    target: RundeckDeployTarget;
+    job: RundeckJobPlace;
     repo: string;
-    prodEnvs: string[];
-    onPick: (job: RundeckJob) => void;
+    onPick: (job: RundeckJobPlace) => void;
 }) {
+    const jobs = target.jobs;
     const repoStatus = useResourceEnabled(true, gitOverviewR, repo);
     const checkedOut = currentBranch(repoStatus.data?.status);
     const detached = !!repoStatus.data && checkedOut === null;
     const branch = checkedOut ?? "";
-    const deployed = cell?.deployed?.branch ?? null;
-    const latest = cell?.latest ?? null;
-    const runsBranch = !cell || deployed !== null || latest?.branch != null;
+    const deployed = target.deployedBranch;
+    const lastRun = target.lastRun;
+    const runsBranch = target.runsBranch;
     const [checkingOut, setCheckingOut] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     useMenuKeys(menuOpen, menuRef, () => setMenuOpen(false));
-    const dot = (candidate: RundeckJob) => DOT_CLASS[targetTone(candidate.project, candidate.group, prodEnvs)];
-    const place = locationLabel(job);
+    const dot = (candidate: RundeckJobPlace) => DOT_CLASS[candidate.tone];
+    const place = job.place;
 
     const deployBranch = () => {
         setMenuOpen(false);
         openRundeckJob(
-            { project: job.project, jobId: job.id, name: job.name, group: job.group, repoPath: repo },
+            { project: job.project, jobId: job.jobId, name: job.name, group: job.group, repoPath: repo },
             { branch: runsBranch ? branch : undefined },
         );
     };
@@ -129,8 +89,6 @@ function DeployChip({
             .finally(() => setCheckingOut(false));
     };
 
-    const lastRun =
-        latest && `Last run ${displayStatus(latest.status, latest.custom_status).toLowerCase()}${latest.branch ? ` · ${latest.branch}` : ""}`;
     const deployLabel = !runsBranch
         ? `Run on ${place}`
         : repoStatus.status === "loading" && !repoStatus.data
@@ -141,7 +99,7 @@ function DeployChip({
 
     return (
         <span className="tb-deploy-actions" data-no-window-drag>
-            <Tooltip label={[deployed ? `${place} runs ${deployed}` : place, lastRun].filter(Boolean).join(" · ")} disabled={menuOpen}>
+            <Tooltip label={target.summary} disabled={menuOpen}>
                 <button className="tb-deploy-chip" onClick={() => setMenuOpen((v) => !v)} aria-haspopup="menu" aria-expanded={menuOpen}>
                     <IconRundeck size={12} />
                     <span className={`env-dot ${dot(job)}`} />
@@ -158,16 +116,16 @@ function DeployChip({
                                 <div className="env-dd-group">Deploy to</div>
                                 {jobs.map((candidate) => (
                                     <button
-                                        key={`${candidate.project}:${candidate.id}`}
-                                        className={`env-dd-item${candidate.id === job.id ? " active" : ""}`}
+                                        key={`${candidate.project}:${candidate.jobId}`}
+                                        className={`env-dd-item${candidate.jobId === job.jobId ? " active" : ""}`}
                                         role="menuitemradio"
-                                        aria-checked={candidate.id === job.id}
+                                        aria-checked={candidate.jobId === job.jobId}
                                         onClick={() => onPick(candidate)}>
                                         <span className="tree-ctx-icon">
                                             <span className={`env-dot ${dot(candidate)}`} />
                                         </span>
-                                        <span className="env-dd-label">{locationLabel(candidate)}</span>
-                                        {candidate.id === job.id && <IconCheck size={11} className="env-dd-check" />}
+                                        <span className="env-dd-label">{candidate.place}</span>
+                                        {candidate.jobId === job.jobId && <IconCheck size={11} className="env-dd-check" />}
                                     </button>
                                 ))}
                                 <div className="env-dd-sep" />
@@ -193,14 +151,14 @@ function DeployChip({
                                 <span className={`tb-deploy-menu-branch rnd-branch-${branchKind(deployed)}`}>{deployed}</span>
                             </button>
                         )}
-                        {latest && (
+                        {lastRun && (
                             <>
                                 <div className="env-dd-sep" />
                                 <div className="env-dd-info">
                                     <span className="tree-ctx-icon">
-                                        <i className={`tb-deploy-dot ${statusKind(latest.status)}`} aria-hidden="true" />
+                                        <i className={`tb-deploy-dot ${lastRun.statusKind}`} aria-hidden="true" />
                                     </span>
-                                    <span>{lastRun}</span>
+                                    <span>{lastRun.text}</span>
                                 </div>
                             </>
                         )}

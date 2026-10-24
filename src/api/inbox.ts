@@ -1,4 +1,4 @@
-import type { AgentMessageLog } from "../agents/agentMessages";
+import type { AgentMessageRows } from "../agents/agentMessages";
 import type { Inbox } from "./generated/wire";
 import { coreCall } from "./core";
 
@@ -9,5 +9,5 @@ export const INBOX_EVENT = "inbox_changed";
 
 export const inboxApi = {
     read: () => coreCall<Inbox>("inbox"),
-    agentMessages: (project: string) => coreCall<AgentMessageLog>("agentMessages", { project }),
+    agentMessageRows: (project: string) => coreCall<AgentMessageRows>("agentMessageRows", { project }),
 };

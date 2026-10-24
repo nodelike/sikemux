@@ -4,6 +4,14 @@
   "version": "0.1.0",
   "sikemux": ">=0.4",
   "callTimeoutSecs": 60,
+  "views": {
+    "projectsView": { "everySecs": 30 },
+    "deploymentsView": { "everySecs": 15 },
+    "logView": { "everySecs": 5 },
+    "domainsView": { "everySecs": 60 },
+    "envView": { "everySecs": 60 }
+  },
+  "writes": ["redeploy", "promote", "cancel", "setTeam"],
   "tools": [
     {
       "name": "vercel_projects",

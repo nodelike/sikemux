@@ -8,6 +8,7 @@ default-run = "sikemux"
 
 [workspace]
 members = ["crates/*", "plugins/*"]
+exclude = ["crates/sikemux-gpui"]
 
 [workspace.package]
 version = "0.5.4-nightly.8"
@@ -43,7 +44,6 @@ hex = "0.4"
 [dependencies]
 tauri = { version = "2", default-features = false, features = ["macos-private-api", "wry", "unstable", "compression"] }
 rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
-tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
@@ -54,11 +54,6 @@ sha2 = "0.11"
 hex = "0.4"
 rusqlite = { version = "0.40", features = ["bundled"] }
 notify = "8"
-ignore = "0.4"
-grep-matcher = "0.1"
-grep-regex = "0.1"
-grep-searcher = "0.1"
-globset = "0.4"
 regex = "1"
 rayon = "1"
 url = "2"
@@ -70,11 +65,13 @@ futures = "0.3"
 semver = "1"
 sikemux-plugin-api = { path = "crates/sikemux-plugin-api" }
 sikemux-keychain = { path = "crates/sikemux-keychain" }
-sikemux-loopback = { path = "crates/sikemux-loopback" }
 sikemux-process = { path = "crates/sikemux-process" }
 sikemux-markdown = { path = "crates/sikemux-markdown" }
 sikemux-pty = { path = "crates/sikemux-pty" }
 sikemux-core = { path = "crates/sikemux-core" }
+sikemux-voice = { path = "crates/sikemux-voice" }
+sikemux-browser = { path = "crates/sikemux-browser" }
+sikemux-simulator = { path = "crates/sikemux-simulator" }
 sikemux-host = { path = "crates/sikemux-host", default-features = false }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls-no-provider", "gzip", "stream", "cookies", "multipart"] }
@@ -86,6 +83,9 @@ libc = "0.2"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 notify-rust = "4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "0.18", features = ["v3_24"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "crates/workspace-hack" }
@@ -233,8 +233,6 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.rusqlite]
 opt-level = "s"
-[profile.release.package.tauri-plugin-updater]
-opt-level = "s"
 [profile.release.package.plist]
 opt-level = "s"
 [profile.release.package.muda]
@@ -260,8 +258,6 @@ opt-level = "s"
 [profile.release.package.infer]
 opt-level = "s"
 [profile.release.package.cfb]
-opt-level = "s"
-[profile.release.package.tar]
 opt-level = "s"
 [profile.release.package.quick-xml]
 opt-level = "s"

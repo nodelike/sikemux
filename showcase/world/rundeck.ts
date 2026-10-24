@@ -96,6 +96,93 @@ const cells = ENVS.flatMap((env, envIndex) =>
   }),
 );
 
+type Cell = (typeof cells)[number];
+
+const runOf = (run: Cell["latest"]) => ({
+  executionId: run.execution_id,
+  status: run.status,
+  statusKind: run.status,
+  live: run.status === "running",
+  user: run.user,
+  startedAt: run.started_at,
+  endedAt: run.ended_at,
+  branch: run.branch,
+});
+
+const sectionsBy = (
+  shown: Cell[],
+  here: string[],
+  key: (below: string[]) => string | null,
+) => {
+  const by = new Map<string | null, string[]>();
+  for (const cell of shown) {
+    const segment = key(cell.group.split("/").slice(here.length));
+    by.set(segment, [...(by.get(segment) ?? []), cell.job_id]);
+  }
+  return [...by.entries()]
+    .sort(([a], [b]) => (a ?? "").localeCompare(b ?? ""))
+    .map(([segment, ids]) => {
+      const path = [...here, ...(segment ? [segment] : [])].join("/");
+      return {
+        segment,
+        path,
+        label: path || PROJECT,
+        prod: path.includes("production"),
+        jobs: ids,
+      };
+    });
+};
+
+const jobsView = ({ group }: Params) => {
+  const here = typeof group === "string" && group ? group.split("/") : [];
+  const shown = cells
+    .filter(
+      (cell) =>
+        cell.group.split("/").slice(0, here.length).join("/") ===
+        here.join("/"),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const rows = shown.map((cell) => {
+    const latest = runOf(cell.latest);
+    const deployed = runOf(cell.deployed);
+    return {
+      jobId: cell.job_id,
+      name: cell.name,
+      group: cell.group,
+      enabled: true,
+      scheduled: false,
+      error: null,
+      latest,
+      deployed,
+      branch: latest.branch,
+      runWord: "Deploy",
+      liveBranch:
+        latest.live && deployed.branch !== latest.branch
+          ? deployed.branch
+          : null,
+    };
+  });
+  const compare = sectionsBy(shown, here, (below) => below[0] ?? null).filter(
+    (section) => section.segment !== null,
+  );
+  return {
+    project: PROJECT,
+    group: here.length ? here.join("/") : null,
+    title: here.at(-1) ?? PROJECT,
+    error: null,
+    partial: false,
+    timedOut: 0,
+    running: rows.filter((row) => row.latest.live).length,
+    failed: rows.filter((row) => row.latest.statusKind === "failed").length,
+    jobs: rows,
+    list: sectionsBy(shown, here, (below) => below.join("/") || null),
+    compare: compare.length > 1 ? compare : [],
+    shared: compare.length > 1 ? SERVICES.length : 0,
+    loose: 0,
+    livePaths: ["", "deploy", "deploy/production"],
+  };
+};
+
 const LIVE_EXECUTION = 48_199;
 const steps = [
   "Checkout",
@@ -201,13 +288,31 @@ export const RUNDECK: Record<string, (params: Params) => unknown> = {
     { project: "data", jobs: [], error: null },
   ],
   jobs: () => jobs,
-  branchesMatrix: () => ({
-    project: PROJECT,
-    cells,
-    error: null,
-    partial: false,
-    elapsed_ms: 412,
+  treeView: () => ({
+    projects: [
+      {
+        name: PROJECT,
+        error: null,
+        total: jobs.length,
+        ungrouped: 0,
+        groups: [
+          {
+            name: "deploy",
+            path: "deploy",
+            count: jobs.length,
+            children: ENVS.map((env) => ({
+              name: env,
+              path: `deploy/${env}`,
+              count: SERVICES.length,
+              children: [],
+            })),
+          },
+        ],
+      },
+      { name: "data", error: null, total: 0, ungrouped: 0, groups: [] },
+    ],
   }),
+  jobsView,
   jobCells: () => cells,
   jobDetail: ({ jobId: id }) => {
     const job = jobs.find((candidate) => candidate.id === id) ?? jobs[0];
@@ -240,23 +345,112 @@ export const RUNDECK: Record<string, (params: Params) => unknown> = {
     };
   },
   executions: ({ jobId: id }) => history(String(id)),
-  projectExecutions: () => projectExecutions(),
-  plan: ({ targetBranch }) => ({
-    project: PROJECT,
-    service: "deploy/production/billing-service",
-    target_branch: targetBranch,
-    deployed_branch: "release/2.13",
-    branch_relation: "target-contains-deployed",
-    branch_relation_detail: null,
-    git_root: "/Users/edon/code/billing-service",
-    current_branch: "release/2.14",
-    head_sha: "9c41e2a5d0b7",
-    dirty: true,
-    upstream: "origin/release/2.14",
-    ahead: 2,
-    behind: 0,
-    remote_target_exists: true,
-    push_action: "will-push-current",
+  jobView: ({ jobId: id }) => jobView(String(id)),
+  activityView: () => activityView(),
+  deployView: ({ jobId: id, branch, given }) =>
+    deployView(
+      String(id),
+      branch as string | undefined,
+      given as Params | undefined,
+    ),
+  planView: ({ targetBranch }) => ({
+    targetBranch,
+    deployedBranch: "release/2.13",
+    currentBranch: "release/2.14",
+    pushes: true,
+    checks: [
+      {
+        tone: "ok",
+        text: "Contains everything that is live",
+        value: null,
+        pushes: false,
+      },
+      {
+        tone: "ok",
+        text: "On origin",
+        value: `origin/${targetBranch}`,
+        pushes: false,
+      },
+      {
+        tone: "info",
+        text: "Checkout is on release/2.14",
+        value: "9c41e2a",
+        pushes: false,
+      },
+      {
+        tone: "warn",
+        text: "Checkout has uncommitted changes",
+        value: "not deployed",
+        pushes: false,
+      },
+      {
+        tone: "warn",
+        text: "2 local commits not pushed",
+        value: "origin/release/2.14",
+        pushes: false,
+      },
+      {
+        tone: "warn",
+        text: "Pushes your checkout before deploying",
+        value: null,
+        pushes: true,
+      },
+    ],
+    detail: null,
+  }),
+  executionView: () => executionView(),
+  deployTargetView: ({ folder }) => {
+    const matches = jobs.filter((job) => job.name === folder);
+    const place = (job: (typeof jobs)[number]) => ({
+      project: job.project,
+      jobId: job.id,
+      name: job.name,
+      group: job.group,
+      place: [job.project, ...job.group.split("/"), job.name].join(" / "),
+      tone: job.group.includes("production") ? "prod" : "staging",
+    });
+    const active =
+      matches.find((job) => !job.group.includes("production")) ?? matches[0];
+    if (!active)
+      return {
+        jobs: [],
+        active: null,
+        deployedBranch: null,
+        runsBranch: false,
+        lastRun: null,
+        summary: "",
+        readAgainSecs: null,
+      };
+    const cell = cells.find((candidate) => candidate.job_id === active.id)!;
+    const lastRun = `Last run ${cell.latest.status} · ${cell.latest.branch}`;
+    return {
+      jobs: matches.map(place),
+      active: place(active),
+      deployedBranch: cell.deployed.branch,
+      runsBranch: true,
+      lastRun: { statusKind: cell.latest.status, text: lastRun },
+      summary: `${place(active).place} runs ${cell.deployed.branch} · ${lastRun}`,
+      readAgainSecs: null,
+    };
+  },
+  catalogView: () => ({
+    jobs: jobs.map((job) => ({
+      project: job.project,
+      jobId: job.id,
+      name: job.name,
+      group: job.group,
+      place: [job.project, ...job.group.split("/"), job.name].join(" / "),
+      tone: job.group.includes("production") ? "prod" : "staging",
+    })),
+    failedProjects: 0,
+  }),
+  checkRun: ({ values }) => ({
+    errors: (values as Params).BRANCH
+      ? {}
+      : { BRANCH: "enter a branch to deploy" },
+    send: values,
+    valuesUrls: {},
+    running: false,
   }),
 };
 
@@ -317,6 +511,216 @@ function history(id: string) {
       workflowState: running ? workflow : null,
     };
   });
+}
+
+type HistoryRun = ReturnType<typeof history>[number];
+
+const median = (times: number[]) =>
+  times.length
+    ? [...times].sort((a, b) => a - b)[Math.floor(times.length / 2)]
+    : null;
+
+const usualOf = (runs: HistoryRun[]) =>
+  median(runs.filter((run) => run.status === "succeeded").map(secsOf));
+
+function secsOf(run: HistoryRun): number {
+  return run["date-ended"]
+    ? Math.round(
+        (run["date-ended"].unixtime - run["date-started"].unixtime) / 1000,
+      )
+    : 0;
+}
+
+function pastRunOf(run: HistoryRun, usual: number | null) {
+  return {
+    executionId: run.id,
+    status: run.status,
+    statusKind: run.status,
+    live: run.status === "running",
+    user: run.user,
+    startedAt: run["date-started"].date,
+    endedAt: run["date-ended"]?.date ?? null,
+    secs: run["date-ended"] ? secsOf(run) : null,
+    branch: run.job.options.BRANCH,
+    jobId: run.job.id,
+    jobName: run.job.name,
+    jobGroup: run.job.group,
+    usualSecs: usual,
+  };
+}
+
+function jobView(id: string) {
+  const job = jobs.find((candidate) => candidate.id === id) ?? jobs[0];
+  const past = history(job.id);
+  const usual = usualOf(past);
+  const runs = past.map((run) => pastRunOf(run, usual));
+  const succeeded = runs.filter((run) => run.status === "succeeded");
+  const times = succeeded.map((run) => run.secs ?? 0);
+  const live = runs.find((run) => run.live);
+  return {
+    jobId: job.id,
+    name: job.name,
+    group: job.group,
+    project: PROJECT,
+    description: job.description,
+    permalink: null,
+    executionEnabled: true,
+    nodeFilter: null,
+    prod: job.group.includes("production"),
+    runsBranch: true,
+    runWord: "Deploy",
+    runs,
+    live: live && {
+      executionId: live.executionId,
+      user: live.user,
+      startedAt: live.startedAt,
+      branch: live.branch,
+      steps: workflow.steps.map((step, index) => ({
+        name: steps[index],
+        state:
+          step.executionState === "SUCCEEDED"
+            ? "ok"
+            : step.executionState === "RUNNING"
+              ? "running"
+              : "pending",
+      })),
+      completed: 4,
+      total: steps.length,
+    },
+    lastGood: succeeded[0] ?? null,
+    repeatOptions: succeeded[0]
+      ? { BRANCH: succeeded[0].branch, ENV: job.group.split("/")[1] }
+      : {},
+    finished: runs.filter((run) => !run.live).length,
+    succeeded: succeeded.length,
+    usualSecs: usual,
+    fastestSecs: times.length ? Math.min(...times) : null,
+    slowestSecs: times.length ? Math.max(...times) : null,
+    readAgainSecs: live ? 3 : null,
+  };
+}
+
+function deployView(
+  id: string,
+  branch: string | undefined,
+  given: Params | undefined,
+) {
+  const job = jobs.find((candidate) => candidate.id === id) ?? jobs[0];
+  const page = jobView(id);
+  const env = job.group.split("/")[1];
+  return {
+    jobId: job.id,
+    name: job.name,
+    group: job.group,
+    project: PROJECT,
+    description: job.description,
+    permalink: null,
+    nodeFilter: null,
+    executionEnabled: true,
+    prod: page.prod,
+    env: "deploy",
+    service: `${job.group}/${job.name}`,
+    runsBranch: true,
+    branchKey: "BRANCH",
+    runWord: "Deploy",
+    options: [
+      {
+        name: "BRANCH",
+        label: "Branch",
+        description: null,
+        required: true,
+        secure: false,
+        default: "main",
+        values: null,
+        valuesUrl: null,
+        enforced: false,
+        multivalued: false,
+        delimiter: ",",
+        isDate: false,
+        dateFormat: null,
+        kind: "text",
+      },
+      {
+        name: "ENV",
+        label: null,
+        description: null,
+        required: true,
+        secure: false,
+        default: env,
+        values: ENVS,
+        valuesUrl: null,
+        enforced: true,
+        multivalued: false,
+        delimiter: ",",
+        isDate: false,
+        dateFormat: null,
+        kind: "text",
+      },
+    ],
+    optionsError: null,
+    values: { BRANCH: branch || String(given?.BRANCH ?? "main"), ENV: env },
+    usualSecs: page.usualSecs,
+    recentBranches: [...new Set(page.runs.map((run) => run.branch))].slice(
+      0,
+      6,
+    ),
+  };
+}
+
+function executionView() {
+  const done = workflow.steps.filter(
+    (step) => step.executionState === "SUCCEEDED",
+  ).length;
+  return {
+    executionId: execution.id,
+    status: execution.status,
+    statusKind: "running",
+    live: true,
+    user: execution.user,
+    startedAt: execution["date-started"].date,
+    endedAt: null,
+    permalink: null,
+    branch: execution.job.options.BRANCH,
+    runWord: "Deploy",
+    steps: workflow.steps.map((step, index) => ({
+      key: step.stepctx,
+      name: steps[index],
+      state:
+        step.executionState === "SUCCEEDED"
+          ? "ok"
+          : step.executionState === "RUNNING"
+            ? "running"
+            : "pending",
+      stateName: step.executionState.toLowerCase(),
+      startedAt: step.startTime,
+      endedAt: step.endTime,
+    })),
+    completed: done,
+    total: steps.length,
+    percent: Math.round((done / steps.length) * 100),
+    usualSecs: jobView(execution.job.id).usualSecs,
+    canRunAgain: true,
+    repeatOptions: execution.job.options,
+    readAgainSecs: 2,
+  };
+}
+
+function activityView() {
+  const { executions, total } = projectExecutions();
+  const usual = new Map(jobs.map((job) => [job.id, usualOf(history(job.id))]));
+  const runs = executions.map((run) =>
+    pastRunOf(run, usual.get(run.job.id) ?? null),
+  );
+  return {
+    project: PROJECT,
+    me: "edon",
+    runs,
+    total,
+    running: runs.filter((run) => run.live).length,
+    failed: runs.filter((run) => run.statusKind === "failed").length,
+    mine: runs.filter((run) => run.user === "edon").length,
+    readAgainSecs: runs.some((run) => run.live) ? 5 : null,
+  };
 }
 
 function projectExecutions() {

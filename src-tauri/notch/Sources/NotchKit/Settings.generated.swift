@@ -2,8 +2,8 @@
 
 import Foundation
 
-/// The Notch section of Sikemux's settings, which the app writes to a file
-/// beside its core and the helper rereads whenever it changes.
+/// The Notch section of the person's preferences, which the helper reads from
+/// the core and again whenever they change.
 struct NotchSettings: Decodable, Equatable {
     enum Displays: String, Decodable { case all, builtIn, pointer }
     enum OpenWith: String, Decodable { case hover, click }

@@ -4,9 +4,8 @@ import { AgentTitleInput } from "../agents/AgentTitleInput";
 import { AgentStateIndicator, BackgroundCounts, showsAgentState } from "../agents/AgentStateIndicator";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
-import { inTeams, type TeamLink } from "../agents/teams";
-import type { AgentDisplay } from "../state/agentStatus";
-import { activeAgentId, agentDisplayOf, hasChat, openAgents } from "../state/selectors";
+import type { AgentShown } from "../api/generated/wire";
+import { activeAgentId, hasChat, openAgents } from "../state/selectors";
 import type { Agent } from "../state/types";
 import { AgentFace } from "../buddies/Buddy";
 import { IconAgent, IconChevron, IconClose, IconPin } from "../ui/Icons";
@@ -17,9 +16,9 @@ import { Tooltip } from "../ui/Tooltip";
 import { AgentRowProject } from "./AgentRowTree";
 import { AgentRowCard, useRowCard } from "./AgentRowCard";
 import { AgentReview } from "./AgentReview";
-import { isRemoteWorker, RemoteAgentRow, teamWrapClass, withRemoteWorkers } from "./RemoteAgentRow";
-import { foldTeams, useTeamFolds, type TeamFold } from "./teams";
-import { inCoreOrder, useInbox } from "./useInbox";
+import { isRemoteWorker, RemoteAgentRow, teamWrapClass } from "./RemoteAgentRow";
+import { coreTeams, foldTeams, useTeamFolds, type TeamFold, type TeamLink } from "./teams";
+import { useInbox } from "./useInbox";
 import { runningChats, usePlace } from "./HostLists";
 import { hostName } from "../hosts/hosts";
 
@@ -27,7 +26,7 @@ interface OpenAgentRow {
     id: string;
     lead?: string;
     agent: Agent;
-    display: AgentDisplay;
+    display: AgentShown | undefined;
     sessionName: string;
     sessionId: string;
     sessionCwd: string;
@@ -59,7 +58,7 @@ export function AllProjectsAgents({ showEmpty, host }: { showEmpty: boolean; hos
                 id: agentId,
                 lead: agent.lead,
                 agent,
-                display: agentDisplayOf({ agentStatus }, agentId),
+                display: agentStatus[agentId],
                 sessionName: session.name,
                 sessionId: session.id,
                 sessionCwd: session.cwd,
@@ -70,10 +69,7 @@ export function AllProjectsAgents({ showEmpty, host }: { showEmpty: boolean; hos
 
     const { folded, toggle } = useTeamFolds();
     const workers = useMemo(() => inbox.remoteAgents.filter((worker) => worker.hostId === host), [inbox.remoteAgents, host]);
-    const teams = useMemo(
-        () => foldTeams(inTeams(withRemoteWorkers(inCoreOrder(open, inbox.agents), workers)), folded, toggle),
-        [open, inbox.agents, workers, folded, toggle],
-    );
+    const teams = useMemo(() => foldTeams(coreTeams(open, inbox.agents, workers), folded, toggle), [open, inbox.agents, workers, folded, toggle]);
     const running = host ? runningChats(place, agents, host, new Set(workers.map((worker) => worker.agentId))) : [];
 
     const menuAgent = menu && agents[menu.agentId];
@@ -157,7 +153,7 @@ export function OpenAgentRow({
     onContextMenu,
 }: {
     agent: Agent;
-    display: AgentDisplay;
+    display: AgentShown | undefined;
     link?: TeamLink;
     /** On a lead's row, whether its team shows and how to fold it. */
     fold?: TeamFold;

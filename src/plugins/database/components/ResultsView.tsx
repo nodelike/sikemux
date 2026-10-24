@@ -1,14 +1,21 @@
 import { memo, useState, type MouseEvent, type ReactNode } from "react";
-import { copyWithNotice } from "../../../plugin-api/host";
-import type { Cell, QueryOutcome, ResultColumn, ResultSet } from "../api";
-import { cellText, mainResult, summary, toCsv, toTsv } from "../results";
+import { copyWithNotice, reportError } from "../../../plugin-api/host";
+import { databaseApi } from "../api";
+import type { DatabaseCopyFormat, DatabaseQueryOutcome, DatabaseResultColumn, DatabaseResultSet } from "../types.generated";
 import { formatDuration } from "../../../plugin-api/format";
 
 /** Rows drawn at a time; more are added on request so a 10,000-row result stays quick to show. */
 const PAGE = 1000;
 
-export function ResultsView({ outcome, actions }: { outcome: QueryOutcome; actions?: (result: ResultSet) => ReactNode }) {
-    const [picked, setPicked] = useState(() => mainResult(outcome));
+/** What a cell shows; NULL is told apart from text that says it by the grid's styling. */
+const cellText = (cell: string | null) => cell ?? "NULL";
+
+function copyAs(result: DatabaseResultSet, format: DatabaseCopyFormat, what: string) {
+    void databaseApi.copyResult(result, format).then((text) => copyWithNotice(text, what), reportError("copy the results"));
+}
+
+export function ResultsView({ outcome, actions }: { outcome: DatabaseQueryOutcome; actions?: (result: DatabaseResultSet) => ReactNode }) {
+    const [picked, setPicked] = useState(outcome.main);
     const index = Math.min(picked, outcome.results.length - 1);
     const result = outcome.results[index];
     if (!result) return <div className="db-results-empty">The statement ran and returned nothing.</div>;
@@ -25,7 +32,7 @@ export function ResultsView({ outcome, actions }: { outcome: QueryOutcome; actio
                                 role="tab"
                                 aria-selected={at === index}
                                 className={at === index ? "active" : undefined}
-                                title={summary(each)}
+                                title={each.summary}
                                 onClick={() => setPicked(at)}>
                                 {at + 1}
                             </button>
@@ -33,7 +40,7 @@ export function ResultsView({ outcome, actions }: { outcome: QueryOutcome; actio
                     </div>
                 )}
                 <span className="db-meta" role="status">
-                    {summary(result)} · {formatDuration(outcome.millis)}
+                    {result.summary} · {formatDuration(outcome.millis)}
                 </span>
                 <span className="db-grow" />
                 {result.columns.length > 0 && (
@@ -41,7 +48,7 @@ export function ResultsView({ outcome, actions }: { outcome: QueryOutcome; actio
                         type="button"
                         className="db-button"
                         title="Copy as tab-separated text, ready to paste into a spreadsheet"
-                        onClick={() => copyWithNotice(toTsv(result), "the results")}>
+                        onClick={() => copyAs(result, "tsv", "the results")}>
                         Copy
                     </button>
                 )}
@@ -50,21 +57,21 @@ export function ResultsView({ outcome, actions }: { outcome: QueryOutcome; actio
                         type="button"
                         className="db-button"
                         title="Copy as comma-separated values (CSV)"
-                        onClick={() => copyWithNotice(toCsv(result), "the results as CSV")}>
+                        onClick={() => copyAs(result, "csv", "the results as CSV")}>
                         Copy CSV
                     </button>
                 )}
                 {actions?.(result)}
             </div>
-            {result.columns.length > 0 ? <Grid key={index} result={result} /> : <div className="db-results-empty">{summary(result)}.</div>}
+            {result.columns.length > 0 ? <Grid key={index} result={result} /> : <div className="db-results-empty">{result.summary}.</div>}
         </section>
     );
 }
 
-function Grid({ result }: { result: ResultSet }) {
+function Grid({ result }: { result: DatabaseResultSet }) {
     const [shown, setShown] = useState(PAGE);
     const [selected, setSelected] = useState<{ row: number; column: number } | null>(null);
-    const selectedCell: Cell | undefined = selected ? result.rows[selected.row]?.[selected.column] : undefined;
+    const selectedCell: string | null | undefined = selected ? result.rows[selected.row]?.[selected.column] : undefined;
     const pick = (event: MouseEvent<HTMLElement>) => {
         const clicked = clickedCell(event);
         if (clicked) setSelected(clicked);
@@ -134,9 +141,9 @@ const GridRow = memo(function GridRow({
     columns,
     selectedColumn,
 }: {
-    row: Cell[];
+    row: (string | null)[];
     at: number;
-    columns: ResultColumn[];
+    columns: DatabaseResultColumn[];
     selectedColumn: number | null;
 }) {
     return (

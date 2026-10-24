@@ -4,7 +4,7 @@ import { notify, openSignInUrl, swallow } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { Dropdown, Pending, ResizeHandle, SignedIn, StaleNotice } from "../../../plugin-api/ui";
 import { vercelApi, type VercelProject, type VercelStatus } from "../api";
-import { vercel, vercelProjectsR } from "../resources";
+import { vercel, vercelProjectsV } from "../resources";
 import { updateVercelView, useVercelView, type VercelSection } from "../state";
 import { Deployment } from "./Deployment";
 import { Deployments } from "./Deployments";
@@ -41,8 +41,9 @@ function Dashboard({ paneId, active, status }: { paneId: string; active: boolean
     const sideRef = useRef<HTMLDivElement>(null);
     const team = status.team ?? "";
     const scopeSlug = status.teams.find((each) => each.id === team)?.slug ?? status.account?.username ?? "";
-    const projects = useResourceEnabled(active, vercelProjectsR, team);
-    const project = projects.data?.find((each) => each.name === view.project) ?? null;
+    const projects = useResourceEnabled(active, vercelProjectsV, paneId, team);
+    const list = projects.data?.projects;
+    const project = list?.find((each) => each.name === view.project) ?? null;
 
     const chooseTeam = (next: string) => {
         if (next === team) return;
@@ -118,7 +119,7 @@ function Dashboard({ paneId, active, status }: { paneId: string; active: boolean
                                 Projects
                             </button>
                             <div className="vercel-nav-rule" />
-                            {(projects.data ?? []).map((each) => (
+                            {(list ?? []).map((each) => (
                                 <button
                                     key={each.id}
                                     type="button"
@@ -162,12 +163,12 @@ function Dashboard({ paneId, active, status }: { paneId: string; active: boolean
             />
             <main className="vercel-main">
                 <header className="vercel-topbar">
-                    {project && projects.data ? (
+                    {project && list ? (
                         <Dropdown
                             className="vercel-project-switch"
                             label="Project"
                             value={project.name}
-                            options={projects.data.map((each: VercelProject) => ({
+                            options={list.map((each: VercelProject) => ({
                                 value: each.name,
                                 label: each.name,
                                 detail: each.framework ?? undefined,
@@ -180,18 +181,25 @@ function Dashboard({ paneId, active, status }: { paneId: string; active: boolean
                     <span className="vercel-topbar-section">
                         {project ? (view.deployment ? "Deployment Details" : SECTIONS.find((each) => each.value === view.section)?.label) : ""}
                     </span>
-                    <button type="button" className="vercel-button" onClick={() => vercel.refresh()}>
+                    <button
+                        type="button"
+                        className="vercel-button"
+                        onClick={() => {
+                            vercel.refresh();
+                            void vercel.readAgain().catch(swallow("read Vercel again"));
+                        }}>
                         Refresh
                     </button>
                 </header>
                 <div className="vercel-page">
                     <StaleNotice handle={projects} />
-                    {!projects.data ? (
+                    {!list ? (
                         <Pending handle={projects} loading="Loading projects" />
                     ) : !project ? (
-                        <Projects projects={projects.data} find={view.find} onOpen={(name) => open({ project: name, section: "overview" })} />
+                        <Projects projects={list} find={view.find} onOpen={(name) => open({ project: name, section: "overview" })} />
                     ) : view.deployment ? (
                         <Deployment
+                            paneId={paneId}
                             active={active}
                             team={team}
                             id={view.deployment}
@@ -200,6 +208,7 @@ function Dashboard({ paneId, active, status }: { paneId: string; active: boolean
                         />
                     ) : view.section === "overview" ? (
                         <Overview
+                            paneId={paneId}
                             active={active}
                             team={team}
                             scopeSlug={scopeSlug}
@@ -209,6 +218,7 @@ function Dashboard({ paneId, active, status }: { paneId: string; active: boolean
                         />
                     ) : view.section === "deployments" ? (
                         <Deployments
+                            paneId={paneId}
                             active={active}
                             team={team}
                             project={project}
@@ -219,9 +229,9 @@ function Dashboard({ paneId, active, status }: { paneId: string; active: boolean
                             onOpen={(id) => updateVercelView(paneId, { deployment: id })}
                         />
                     ) : view.section === "env" ? (
-                        <Environment active={active} team={team} project={project.name} find={view.find} />
+                        <Environment paneId={paneId} active={active} team={team} project={project.name} find={view.find} />
                     ) : (
-                        <Domains active={active} team={team} project={project.name} />
+                        <Domains paneId={paneId} active={active} team={team} project={project.name} />
                     )}
                 </div>
             </main>

@@ -6,11 +6,11 @@ import { fetchResource, peekResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
 import { projectSessionId } from "../state/selectors";
 import { getState } from "../state/store";
+import { lastAgentType } from "../state/commands/agents";
 import { notify } from "../state/toast";
 import type { AgentType } from "../state/types";
 import { errorText } from "../lib/format";
-import { loadTrackedContext } from "./tracked";
-import type { RepoRef } from "./types";
+import { loadTrackedContext } from "./lists";
 
 /** The agent launched last when it can chat, or else the first installed one that can. */
 export function chatAgentFor(catalog: readonly AgentInfo[], last: AgentType | null): AgentType | null {
@@ -22,7 +22,7 @@ export function chatAgentFor(catalog: readonly AgentInfo[], last: AgentType | nu
  * Starts a chat in the issue's project with the issue already in its input.
  * The person reads it over, says what they want, and sends it themselves.
  */
-export async function workOnIssue(repo: RepoRef, number: number, cwd: string): Promise<void> {
+export async function workOnIssue(number: number, cwd: string): Promise<void> {
     const state = getState();
     const sessionId = projectSessionId(state, cwd);
     if (!sessionId) {
@@ -31,14 +31,14 @@ export async function workOnIssue(repo: RepoRef, number: number, cwd: string): P
     }
     const runtime = selectedAgentRuntimeProfiles(state.providerProfiles, state.selectedProviderProfileIds);
     const catalog = peekResource(agentCatalogR, runtime) ?? (await fetchResource(agentCatalogR, runtime).catch((): AgentInfo[] => []));
-    const type = chatAgentFor(catalog, state.lastAgentType);
+    const type = chatAgentFor(catalog, lastAgentType());
     if (!type) {
         notify("error", "No agent that can chat is installed");
         return;
     }
     let context;
     try {
-        context = await loadTrackedContext(repo, "issue", number);
+        context = await loadTrackedContext(cwd, "issue", number);
     } catch (failure) {
         notify("error", `Could not read #${number}: ${errorText(failure)}`);
         return;

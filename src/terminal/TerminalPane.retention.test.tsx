@@ -6,8 +6,8 @@ const { mounted } = vi.hoisted(() => ({ mounted: new Map<string, boolean>() }));
 vi.mock("./usePty", () => ({
     usePty: ({ context }: { context?: { paneId?: string } }) => ({ current: { testPaneId: context?.paneId } }),
 }));
-vi.mock("./useXterm", () => ({
-    useXterm: ({ ptyController, shouldMount }: { ptyController: { current: { testPaneId?: string } }; shouldMount: boolean }) => {
+vi.mock("./useTerminal", () => ({
+    useTerminal: ({ ptyController, shouldMount }: { ptyController: { current: { testPaneId?: string } }; shouldMount: boolean }) => {
         mounted.set(ptyController.current.testPaneId ?? "", shouldMount);
         return {
             find: vi.fn(),

@@ -4,6 +4,7 @@
 //! the same events the others watched arrive.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -12,16 +13,18 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use crate::protocol::{
-    encode_control, fits, ChatAttachment, ChatEvent, ChatEventKind, ChatMark, ChatStart, Event,
-    RequestId, Response, ServerMessage,
+    encode_control, fits, ChatAttachment, ChatContext, ChatMark, ChatStart, Event, RequestId,
+    Response, ServerMessage,
 };
+use sikemux_process::clock::epoch_ms;
+use sikemux_wire::chat::{ChatChange, ChatPage, QueuedMessage, SentContext, ToolDetail};
 
-use super::super::access::Peer;
 use super::super::connection::{ClientConn, ClientId};
-use super::history::{History, HistoryState, Page, Recovered, MAX_HISTORY_BYTES};
-use super::markdown::{annotate_replay, letter_trees, Answers};
+use super::history::{History, HistoryState, Page, Reader, Recovered, MAX_HISTORY_BYTES};
 use super::queue::{batch_len, Queued, MAX_QUEUED};
 use super::states::{Subagent, Task};
+use sikemux_fold::{ChatEvent, ChatEventKind, Place};
+use sikemux_fold::{Fold, PageOf, PAGE_BYTES as ROW_BYTES};
 
 /// One frame's worth of streamed updates travels as a single event. Each
 /// notification on its own costs a script eval in the webview, and an adapter
@@ -30,23 +33,10 @@ const FLUSH: Duration = Duration::from_millis(16);
 /// How long the newest event waits for more text to join it before it is
 /// written to the history, so a crash loses at most this much of the chat.
 const SETTLE: Duration = Duration::from_secs(1);
-/// Streamed updates go out early once a batch holds this much.
-const BATCH_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_REPLAY_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const MAX_REPLAY_EVENTS: usize = 20_000;
 /// Roughly what an event costs beyond its payload once it is on the wire.
 const EVENT_OVERHEAD: usize = 48;
-/// The events kept as sent, for a client that reconnects to hear only what
-/// it missed. Past this it rebuilds the chat from the replay.
-const MAX_RECENT_BYTES: usize = 1024 * 1024;
-const MAX_RECENT_EVENTS: usize = 4096;
-
-/// A client opening a chat is sent about a screen or two of its end, so it
-/// draws at once over a slow network, and pages back through the rest. A turn
-/// longer than that, such as one full of screenshots, is cut where a page of
-/// its history can start.
-const TAIL_TURNS: usize = 8;
-const TAIL_BYTES: usize = 256 * 1024;
 const MAX_PAGE_TURNS: usize = 100;
 const PAGE_BYTES: u64 = 1024 * 1024;
 /// A turn longer than a page is cut into pieces about this long.
@@ -82,10 +72,80 @@ struct Entry {
     on_disk: bool,
 }
 
-/// The newest of a chat's events, and where the history before them ends.
-pub(crate) struct Tail {
-    pub events: Vec<ChatEvent>,
-    pub older_before: Option<u64>,
+/// The rows a find reads: those the fold holds while the place it reads from is among them,
+/// else pages of the chat's history.
+struct FindRows<'a> {
+    feed: &'a Feed,
+    client: ClientId,
+    number: u64,
+}
+
+impl super::find::Rows for FindRows<'_> {
+    fn batch(
+        &self,
+        wanted: PageOf,
+        budget: usize,
+    ) -> Result<(Vec<sikemux_wire::chat::ChatMessage>, bool), String> {
+        let held = {
+            let mut inner = self.feed.inner.locked();
+            let fold = self.feed.fold(&mut inner);
+            let inside = fold.floor().is_some_and(|floor| match wanted {
+                PageOf::Before(before) => before > floor,
+                PageOf::After(after) => after >= floor,
+                PageOf::From(from) => from >= floor,
+            });
+            inside.then(|| fold.held(wanted, budget))
+        };
+        if let Some((rows, all)) = held {
+            let last = all && !matches!(wanted, PageOf::Before(_));
+            return Ok((rows, last));
+        }
+        let page = self.feed.page_of(wanted, MAX_PAGE_TURNS, budget, None)?;
+        let last = match wanted {
+            PageOf::Before(_) => page.older_before.is_none(),
+            PageOf::After(_) | PageOf::From(_) => page.newer_after.is_none(),
+        };
+        let mut rows = page.rows;
+        if matches!(wanted, PageOf::Before(_)) {
+            rows.reverse();
+        }
+        Ok((rows, last))
+    }
+
+    fn superseded(&self) -> bool {
+        self.feed.finding.locked().get(&self.client) != Some(&self.number)
+    }
+}
+
+/// Which rows of a chat a client asks for, by event index.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Anchor {
+    Before(u64),
+    After(u64),
+    /// The row holding the event, and about half a page either side of it.
+    Around(u64),
+}
+
+/// The events a page folds, chosen under the chat's lock. The part on disk is read once the
+/// lock is let go; the newest, not yet on disk, are copied with the choice.
+struct Planned {
+    reader: Option<Reader>,
+    lo: u64,
+    hi: u64,
+    held: Vec<(u64, ChatEvent)>,
+    /// The chat holds more on the side the page reads away from.
+    beyond: bool,
+}
+
+impl Planned {
+    /// Where a client goes on from past these events, when the chat goes on past them.
+    fn edge(&self, side: PageOf) -> Option<u64> {
+        let edge = match side {
+            PageOf::Before(_) => self.lo,
+            PageOf::After(_) | PageOf::From(_) => self.hi.saturating_sub(1),
+        };
+        self.beyond.then_some(edge)
+    }
 }
 
 /// The ordered events a late client replays. Text streamed into one message
@@ -207,15 +267,6 @@ struct Chunk<'a> {
 
 fn only_keys(object: &serde_json::Map<String, Value>, allowed: &[&str]) -> bool {
     object.keys().all(|key| allowed.contains(&key.as_str()))
-}
-
-/// What waits behind the running turn, as a session update apps that know
-/// nothing of it pass over.
-fn queue_update(inner: &Inner) -> Value {
-    json!({
-        "sessionId": inner.start.as_ref().map(|start| start.session_id.as_str()),
-        "update": { "sessionUpdate": "queued_messages", "messages": inner.queued },
-    })
 }
 
 /// The most of a chat's title that is kept.
@@ -385,7 +436,7 @@ fn task_ended(update: &Value) -> bool {
 
 fn chunk(payload: &Value) -> Option<Chunk<'_>> {
     let notification = payload.as_object()?;
-    if !only_keys(notification, &["sessionId", "update"]) {
+    if !only_keys(notification, &["sessionId", "update", "at", "until"]) {
         return None;
     }
     let update = notification.get("update")?.as_object()?;
@@ -418,15 +469,8 @@ fn is_kept(kind: ChatEventKind) -> bool {
     !matches!(kind, ChatEventKind::Status | ChatEventKind::Ready)
 }
 
-fn is_turn_edge(kind: ChatEventKind) -> bool {
-    matches!(
-        kind,
-        ChatEventKind::TurnStarted | ChatEventKind::TurnCompleted | ChatEventKind::Error
-    )
-}
-
-/// When a turn's edges happened, so a client rebuilding the chat later can
-/// tell how long each turn took.
+/// When the event happened, so the chat folded again later times its turns
+/// and answers as they ran.
 fn stamp(payload: &mut Value) {
     if let Some(fields) = payload.as_object_mut() {
         fields
@@ -525,6 +569,23 @@ impl Replay {
         self.trim();
     }
 
+    /// Writes every event not yet on disk to the history and lets go of them in memory, for a
+    /// chat that sleeps; answers how many bytes the history keeps.
+    fn rest(&mut self) -> u64 {
+        for entry in &mut self.entries {
+            Self::write(&mut self.history, entry);
+        }
+        if self
+            .history
+            .as_ref()
+            .is_some_and(|history| history.first().is_some())
+        {
+            self.entries.clear();
+            self.bytes = 0;
+        }
+        self.history.as_ref().map_or(0, History::size)
+    }
+
     /// Writes the newest event to the history, which nothing joins after.
     fn settle(&mut self) {
         if let Some(last) = self.entries.back_mut() {
@@ -597,20 +658,29 @@ impl Replay {
             return false;
         };
         text.push_str(later.text);
+        if let Some(at) = payload.get("at") {
+            last.event.payload["until"] = at.clone();
+        }
         last.bytes += later.text.len();
         self.bytes += later.text.len();
         self.since_point += later.text.len();
         true
     }
 
-    /// Keeps `payload`, answering with about how many bytes it took.
-    pub(crate) fn push(&mut self, kind: ChatEventKind, payload: &Value) -> usize {
+    /// Keeps `payload`, answering with the index it is kept at: an event not
+    /// kept answers with the next index, and text joined to the event before
+    /// it with that event's.
+    pub(crate) fn push(&mut self, kind: ChatEventKind, payload: &Value) -> u64 {
         if !is_kept(kind) {
-            return 0;
+            return self.next_index;
         }
         if kind == ChatEventKind::SessionUpdate && self.join_text(payload) {
+            let index = self
+                .entries
+                .back()
+                .map_or(self.next_index, |entry| entry.index);
             self.trim();
-            return chunk(payload).map_or(0, |chunk| chunk.text.len());
+            return index;
         }
         let starts_turn = self.starts_turn(kind, payload);
         if let Some(previous) = self.entries.back_mut() {
@@ -658,7 +728,7 @@ impl Replay {
         });
         self.bytes += bytes;
         self.trim();
-        bytes
+        index
     }
 
     fn note_subagent(&mut self, kind: ChatEventKind, index: u64, event: &ChatEvent) {
@@ -896,65 +966,59 @@ impl Replay {
         (said, skipped, self.next_index)
     }
 
-    /// The last turns from index `floor` on, as many as fit, and whatever set
-    /// how the chat stands before them. When not even the last turn fits, it is
-    /// cut where a page of its history can start.
-    pub(crate) fn tail(&self, floor: u64) -> Tail {
-        let lowest = self.entries.partition_point(|entry| entry.index < floor);
-        let mut chosen = None;
-        let mut piece = None;
-        let mut turns = 0;
-        let mut bytes = 0;
-        for (position, entry) in self.entries.iter().enumerate().skip(lowest).rev() {
-            bytes += entry.bytes;
-            if bytes > TAIL_BYTES && (chosen.is_some() || piece.is_some()) {
-                break;
+    /// Every event the replay holds, with what still stands from before
+    /// them and the starts of the subagents they speak of, for folding the
+    /// chat again.
+    pub(crate) fn fold_events(&self) -> Vec<(u64, ChatEvent)> {
+        let Some(first) = self.entries.front().map(|entry| entry.index) else {
+            return Vec::new();
+        };
+        let mut before: Vec<(u64, &ChatEvent)> = self
+            .standing
+            .iter()
+            .filter(|(_, index, _)| *index < first)
+            .map(|(_, index, event)| (*index, event))
+            .collect();
+        for (index, event) in
+            self.spawns_before(self.entries.iter().map(|entry| &entry.event), first)
+        {
+            if !before.iter().any(|(held, _)| *held == index) {
+                before.push((index, event));
             }
-            if entry.point {
-                piece = Some(position);
+        }
+        before.sort_by_key(|(index, _)| *index);
+        before
+            .into_iter()
+            .map(|(index, event)| (index, event.clone()))
+            .chain(
+                self.entries
+                    .iter()
+                    .map(|entry| (entry.index, entry.event.clone())),
+            )
+            .collect()
+    }
+
+    /// Everything said of the tool call `id` in the events held, settled.
+    fn tool_call(&self, id: &str) -> Option<serde_json::Map<String, Value>> {
+        let mut merged: Option<serde_json::Map<String, Value>> = None;
+        for entry in &self.entries {
+            if entry.event.kind != ChatEventKind::SessionUpdate {
+                continue;
             }
-            if entry.starts_turn {
-                chosen = Some(position);
-                turns += 1;
-                if turns >= TAIL_TURNS {
-                    break;
+            let Some(update) = entry.event.payload.get("update").and_then(Value::as_object) else {
+                continue;
+            };
+            if update.get("toolCallId").and_then(Value::as_str) != Some(id) {
+                continue;
+            }
+            let merged = merged.get_or_insert_with(serde_json::Map::new);
+            for (key, value) in update {
+                if !value.is_null() {
+                    merged.insert(key.clone(), value.clone());
                 }
             }
         }
-        let cut = chosen.or(piece);
-        let start = cut.unwrap_or(lowest);
-        let Some(first) = self.entries.get(start).map(|entry| entry.index) else {
-            return Tail {
-                events: Vec::new(),
-                older_before: None,
-            };
-        };
-        let oldest = self
-            .history
-            .as_ref()
-            .and_then(History::first)
-            .unwrap_or(first);
-        let mut standing: Vec<(u64, &ChatEvent)> = self
-            .standing
-            .iter()
-            .filter(|(_, index, _)| (floor..first).contains(index))
-            .map(|(_, index, event)| (*index, event))
-            .collect();
-        let named = self.entries.range(start..).map(|entry| &entry.event);
-        for (index, event) in self.spawns_before(named, first) {
-            if !standing.iter().any(|(held, _)| *held == index) {
-                standing.push((index, event));
-            }
-        }
-        standing.sort_by_key(|(index, _)| *index);
-        Tail {
-            events: standing
-                .into_iter()
-                .map(|(_, event)| event.clone())
-                .chain(self.entries.range(start..).map(|entry| entry.event.clone()))
-                .collect(),
-            older_before: (cut.is_some() && first > oldest).then_some(first),
-        }
+        merged
     }
 
     /// Forgets the person's message `message_id` and everything after it,
@@ -1022,20 +1086,142 @@ impl Replay {
         }
     }
 
+    /// The events of the turns before `before`, from the history on disk, or
+    /// from the replay when the chat keeps none.
+    #[cfg(test)]
     pub(crate) fn page(&self, before: u64, turns: usize) -> Result<Page, String> {
-        let Some(history) = self.history.as_ref() else {
-            return Ok(Page::default());
+        let planned = self.plan(PageOf::Before(before), turns.clamp(1, MAX_PAGE_TURNS))?;
+        let mut events = match &planned.reader {
+            Some(reader) => reader
+                .range(planned.lo, planned.hi)
+                .map_err(|error| error.to_string())?,
+            None => Vec::new(),
         };
-        let mut page = history
-            .page(before, turns.clamp(1, MAX_PAGE_TURNS), PAGE_BYTES)
-            .map_err(|error| error.to_string())?;
-        let spawns: Vec<ChatEvent> = self
-            .spawns_before(page.events.iter(), page.first)
+        events.extend(planned.held);
+        Ok(self.with_spawns(Page {
+            events,
+            older_before: planned.beyond.then_some(planned.lo),
+            first: planned.lo,
+        }))
+    }
+
+    /// The events of the turns `side` asks for, as many as `turns` while their events stay
+    /// under the page's size: whole turns, or from the nearest point inside a turn too big for
+    /// a page of its own.
+    fn plan(&self, side: PageOf, turns: usize) -> Result<Planned, String> {
+        let reader = self
+            .history
+            .as_ref()
+            .filter(|history| history.first().is_some())
+            .map(History::reader)
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .flatten();
+        let (first, on_disk) = reader.as_ref().map_or_else(
+            || {
+                let first = self
+                    .entries
+                    .front()
+                    .map_or(self.next_index, |entry| entry.index);
+                (first, first)
+            },
+            Reader::span,
+        );
+        let mut points: Vec<(u64, u64, bool)> = reader.iter().flat_map(Reader::points).collect();
+        let mut end = reader.as_ref().map_or(0, Reader::bytes);
+        for entry in self.entries.iter().filter(|entry| entry.index >= on_disk) {
+            if entry.point || entry.starts_turn {
+                points.push((entry.index, end, entry.starts_turn));
+            }
+            end += entry.bytes as u64;
+        }
+        let next = self.next_index;
+        let budget = PAGE_BYTES;
+        let forward = |from: u64| {
+            let start = points
+                .iter()
+                .rev()
+                .find(|(index, _, starts)| *index <= from && *starts)
+                .or_else(|| points.iter().rev().find(|(index, _, _)| *index <= from))
+                .map_or((first, 0), |&(index, at, _)| (index, at));
+            let mut hi = next;
+            let mut counted = 1;
+            for &(index, at, starts) in points.iter().filter(|(index, _, _)| *index > start.0) {
+                if at - start.1 > budget || (starts && counted >= turns) {
+                    hi = index;
+                    break;
+                }
+                counted += usize::from(starts);
+            }
+            (start.0, hi, hi < next)
+        };
+        let (lo, hi, beyond) = match side {
+            PageOf::Before(before) => {
+                let before = before.min(next);
+                let after = |turn: bool| {
+                    points
+                        .iter()
+                        .find(|(index, _, starts)| *index >= before && (*starts || !turn))
+                        .map(|&(index, at, _)| (index, at))
+                };
+                let (hi, to) = match (after(true), after(false)) {
+                    (Some(turn), Some(point)) if turn.1 - point.1 <= budget => turn,
+                    (_, Some(point)) => point,
+                    _ => (next, end),
+                };
+                let earlier: Vec<&(u64, u64, bool)> = points
+                    .iter()
+                    .rev()
+                    .filter(|(index, _, _)| *index < before)
+                    .collect();
+                let (mut turn, mut piece, mut counted) = (None, None, 0);
+                for &&(index, at, starts) in &earlier {
+                    if to - at > budget {
+                        break;
+                    }
+                    piece = Some(index);
+                    if starts {
+                        turn = Some(index);
+                        counted += 1;
+                        if counted >= turns {
+                            break;
+                        }
+                    }
+                }
+                let lo = turn
+                    .or(piece)
+                    .or_else(|| earlier.first().map(|point| point.0))
+                    .unwrap_or(first);
+                (lo, hi, lo > first)
+            }
+            PageOf::After(after) => forward(after.saturating_add(1)),
+            PageOf::From(from) => forward(from),
+        };
+        let held = self
+            .entries
+            .iter()
+            .filter(|entry| entry.index >= on_disk && (lo..hi).contains(&entry.index))
+            .filter(|entry| entry.event.kind != ChatEventKind::PermissionRequest)
+            .map(|entry| (entry.index, entry.event.clone()))
+            .collect();
+        Ok(Planned {
+            reader,
+            lo,
+            hi,
+            held,
+            beyond,
+        })
+    }
+
+    /// `page` with the starts of the subagents it speaks of that began before it.
+    fn with_spawns(&self, mut page: Page) -> Page {
+        let spawns: Vec<(u64, ChatEvent)> = self
+            .spawns_before(page.events.iter().map(|(_, event)| event), page.first)
             .into_iter()
-            .map(|(_, event)| event.clone())
+            .map(|(index, event)| (index, event.clone()))
             .collect();
         page.events.splice(0..0, spawns);
-        Ok(page)
+        page
     }
 
     /// An answered request is not asked again when the chat is replayed.
@@ -1063,106 +1249,70 @@ impl Replay {
         self.trimmed
     }
 
+    #[cfg(test)]
     pub(crate) fn events(&self) -> Vec<ChatEvent> {
-        self.events_from(0)
-    }
-
-    fn events_from(&self, floor: u64) -> Vec<ChatEvent> {
-        let lowest = self.entries.partition_point(|entry| entry.index < floor);
         self.entries
-            .range(lowest..)
+            .iter()
             .map(|entry| entry.event.clone())
             .collect()
     }
-}
 
-/// One event as clients heard it.
-#[derive(Serialize, Deserialize)]
-struct Sent {
-    seq: u64,
-    event: ChatEvent,
-    bytes: usize,
-    /// Who sent it, when it is a prompt the sender was not told of.
-    sender: Option<Peer>,
-}
-
-/// The newest events as sent, numbered, so a client that held everything
-/// up to some number can be told just the rest.
-#[derive(Default, Serialize, Deserialize)]
-struct Recent {
-    sent: VecDeque<Sent>,
-    bytes: usize,
-    /// Every event after this number is still kept.
-    kept_after: u64,
-}
-
-impl Recent {
-    fn push(&mut self, sent: Sent) {
-        self.bytes += sent.bytes;
-        self.sent.push_back(sent);
-        while self.bytes > MAX_RECENT_BYTES || self.sent.len() > MAX_RECENT_EVENTS {
-            let Some(dropped) = self.sent.pop_front() else {
-                break;
-            };
-            self.bytes -= dropped.bytes;
-            self.kept_after = dropped.seq;
-        }
-    }
-
-    /// A client catching up is not asked a request someone already answered.
-    fn forget_permission(&mut self, request_id: &str) {
-        let mut freed = 0;
-        self.sent.retain(|sent| {
-            let answered = asks(&sent.event, request_id);
-            if answered {
-                freed += sent.bytes;
-            }
-            !answered
-        });
-        self.bytes -= freed;
-    }
-
-    fn since(&self, seq: u64, peer: &Peer) -> Option<Vec<ChatEvent>> {
-        if seq < self.kept_after {
-            return None;
-        }
-        Some(
-            self.sent
-                .iter()
-                .filter(|sent| sent.seq > seq && sent.sender.as_ref() != Some(peer))
-                .map(|sent| sent.event.clone())
-                .collect(),
-        )
+    /// The change a tool call made and what it printed, read again from the
+    /// events held, for a call the fold no longer holds.
+    pub(crate) fn tool_detail(
+        &self,
+        id: &str,
+        work: Option<&(PathBuf, Place)>,
+    ) -> Option<ToolDetail> {
+        let work = work.map(|(folder, place)| (folder.as_path(), place));
+        self.tool_call(id)
+            .map(|raw| sikemux_fold::detail_of(&raw, work))
     }
 }
 
-/// What a client attaching now is told about the chat besides its replay.
+/// What a client attaching now is told about the chat besides its rows.
 pub(crate) struct Standing {
     pub running: bool,
     pub turned: bool,
 }
 
+/// A client hearing the chat, and the last change it was sent when it fell
+/// behind: a slow client is sent only how the chat stands once it catches up.
+struct Subscriber {
+    client: Arc<ClientConn>,
+    behind: Option<u64>,
+}
+
+/// Past this much waiting to go out to a client, it is not sent each change
+/// but caught up once it has read what it has.
+const SLOW_BYTES: usize = 512 * 1024;
+/// How often a client that fell behind is looked at again.
+const CATCH_UP: Duration = Duration::from_millis(50);
+
 struct Inner {
-    subscribers: HashMap<ClientId, Arc<ClientConn>>,
+    subscribers: HashMap<ClientId, Subscriber>,
     seq: u64,
-    recent: Recent,
     replay: Replay,
-    pending: Vec<Value>,
-    pending_bytes: usize,
+    /// The chat folded into rows, while a client watches it or a turn runs.
+    fold: Option<Fold>,
+    /// The agent always offers an effort picker.
+    offers_effort: bool,
     flush_scheduled: bool,
     settle_scheduled: bool,
+    catch_up_scheduled: bool,
     start: Option<ChatStart>,
     permission_mode: String,
     title: Option<String>,
     /// The session ended, so nobody new is let in to wait for events that
     /// will not come.
     closed: bool,
-    /// Events from this index on are kept but not sent yet.
-    holding: Option<u64>,
+    /// Events are kept and folded but not sent while a session loads.
+    holding: bool,
     /// What the person sent while the agent was at work, oldest first.
     queued: Vec<Queued>,
-    /// The answers being written, as their clients' trees of them stand.
-    answers: Answers,
+    /// The folder the chat's agent works in, and where its edits sit in their files,
+    /// for each fold made for it.
+    work: Option<(PathBuf, Place)>,
     /// A new chat whose agent waits for the person: clients take it up before it starts.
     waits_for_person: bool,
 }
@@ -1174,7 +1324,6 @@ struct Inner {
 pub(crate) struct FeedState {
     id: String,
     seq: u64,
-    recent: Recent,
     replay: Replay,
     history: Option<HistoryState>,
     start: Option<ChatStart>,
@@ -1183,16 +1332,67 @@ pub(crate) struct FeedState {
 }
 
 pub(crate) struct Feed {
+    me: std::sync::Weak<Feed>,
     agent_id: String,
     /// Names this run of the chat's agent in the marks clients hold.
     id: String,
     runtime: tokio::runtime::Handle,
     inner: Mutex<Inner>,
+    /// Each client's latest find in this chat, by number, so a newer one stops the one before.
+    finding: Mutex<HashMap<ClientId, u64>>,
+}
+
+fn queued_view(queued: &[Queued]) -> Vec<QueuedMessage> {
+    queued
+        .iter()
+        .map(|message| QueuedMessage {
+            id: message.id.clone(),
+            text: message.text.clone(),
+            paths: message.paths.clone(),
+            context: message
+                .context
+                .iter()
+                .map(|item| SentContext {
+                    uri: item.uri.clone(),
+                    title: item.title.clone(),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// A fold for a chat, showing an effort picker from the start when its agent
+/// always offers one.
+fn new_fold(permission_mode: &str, offers_effort: bool, work: Option<&(PathBuf, Place)>) -> Fold {
+    let mut fold = Fold::new(permission_mode);
+    if offers_effort {
+        fold.offer_effort();
+    }
+    if let Some((folder, place)) = work {
+        fold.work_in(folder.clone(), place.clone());
+    }
+    fold
+}
+
+/// The largest file an edit is looked for in; a bigger one leaves the edit's lines unnumbered.
+const MAX_PLACED_BYTES: u64 = 2 * 1024 * 1024;
+
+/// The line `text` starts on in the file at `path`, when it is there exactly once.
+fn line_of(path: &std::path::Path, text: &str) -> Option<u64> {
+    if text.is_empty() || std::fs::metadata(path).ok()?.len() > MAX_PLACED_BYTES {
+        return None;
+    }
+    let held = std::fs::read_to_string(path).ok()?;
+    let at = held.find(text)?;
+    if held[at + text.len()..].contains(text) {
+        return None;
+    }
+    Some(held[..at].matches('\n').count() as u64 + 1)
 }
 
 impl Feed {
     /// With `history`, everything the chat says is also kept in a file there,
-    /// for phones to page back through.
+    /// for clients to page back through.
     pub(crate) fn new(
         agent_id: String,
         permission_mode: String,
@@ -1200,27 +1400,29 @@ impl Feed {
     ) -> Arc<Self> {
         let id = uuid::Uuid::new_v4().to_string();
         let history = history.map(|dir| History::open(dir, &id, MAX_HISTORY_BYTES));
-        Arc::new(Self {
+        Arc::new_cyclic(|me| Self {
+            me: me.clone(),
             agent_id,
             id,
             runtime: tokio::runtime::Handle::current(),
+            finding: Mutex::default(),
             inner: Mutex::new(Inner {
                 subscribers: HashMap::new(),
                 seq: 0,
-                recent: Recent::default(),
                 replay: Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, history),
-                pending: Vec::new(),
-                pending_bytes: 0,
+                fold: Some(Fold::new(&permission_mode)),
+                offers_effort: false,
                 flush_scheduled: false,
                 settle_scheduled: false,
+                catch_up_scheduled: false,
                 start: None,
                 permission_mode,
                 title: None,
                 closed: false,
-                holding: None,
+                holding: false,
                 queued: Vec::new(),
+                work: None,
                 waits_for_person: false,
-                answers: Answers::default(),
             }),
         })
     }
@@ -1257,41 +1459,39 @@ impl Feed {
             .iter()
             .rev()
             .find_map(|(_, _, event)| session_title(&event.payload));
-        let answers =
-            Answers::read_back(replay.events_from(replay.turn_start().unwrap_or_default()));
         let mut inner = self.inner.locked();
         inner.replay = replay;
         inner.title = title;
-        inner.answers = answers;
+        inner.fold = None;
     }
 
     /// Takes up a feed an earlier core let go of.
     pub(crate) fn restored(agent_id: String, state: FeedState) -> Arc<Self> {
         let mut replay = state.replay;
         replay.history = state.history.map(History::reopen);
-        let answers =
-            Answers::read_back(replay.events_from(replay.turn_start().unwrap_or_default()));
-        Arc::new(Self {
+        Arc::new_cyclic(|me| Self {
+            me: me.clone(),
             agent_id,
             id: state.id,
             runtime: tokio::runtime::Handle::current(),
+            finding: Mutex::default(),
             inner: Mutex::new(Inner {
                 subscribers: HashMap::new(),
                 seq: state.seq,
-                recent: state.recent,
                 replay,
-                pending: Vec::new(),
-                pending_bytes: 0,
+                fold: None,
+                offers_effort: false,
                 flush_scheduled: false,
                 settle_scheduled: false,
+                catch_up_scheduled: false,
                 start: state.start,
                 permission_mode: state.permission_mode,
                 title: state.title,
                 closed: false,
-                holding: None,
+                holding: false,
                 queued: Vec::new(),
+                work: None,
                 waits_for_person: false,
-                answers,
             }),
         })
     }
@@ -1306,7 +1506,7 @@ impl Feed {
         let subscribers = inner
             .subscribers
             .drain()
-            .map(|(_, client)| client)
+            .map(|(_, subscriber)| subscriber.client)
             .collect();
         let history = inner.replay.history.take().map(History::release);
         let replay = std::mem::replace(
@@ -1316,7 +1516,6 @@ impl Feed {
         let state = FeedState {
             id: self.id.clone(),
             seq: inner.seq,
-            recent: std::mem::take(&mut inner.recent),
             replay,
             history,
             start: inner.start.clone(),
@@ -1331,10 +1530,6 @@ impl Feed {
         &self.id
     }
 
-    fn broadcast(&self, inner: &mut Inner, kind: ChatEventKind, payload: Value) {
-        self.broadcast_except(inner, kind, payload, None);
-    }
-
     fn mark(&self, inner: &Inner) -> ChatMark {
         ChatMark {
             feed: self.id.clone(),
@@ -1342,68 +1537,160 @@ impl Feed {
         }
     }
 
-    fn broadcast_except(
-        &self,
-        inner: &mut Inner,
-        kind: ChatEventKind,
-        payload: Value,
-        except: Option<ClientId>,
-    ) {
-        if matches!(
-            kind,
-            ChatEventKind::Prompt
-                | ChatEventKind::TurnStarted
-                | ChatEventKind::TurnCompleted
-                | ChatEventKind::Error
-        ) {
-            inner.answers.close_all();
-        }
-        inner.seq += 1;
-        let seq = inner.seq;
-        let event = ChatEvent { kind, payload };
-        let Ok(frame) = encode_control(&ServerMessage::Event {
+    fn frame(&self, seq: u64, changes: &[ChatChange]) -> Option<Arc<[u8]>> {
+        let frame = encode_control(&ServerMessage::Event {
             event: Event::Chat {
                 agent_id: self.agent_id.clone(),
                 seq,
-                event: event.clone(),
+                changes: serde_json::to_value(changes).ok()?,
             },
-        }) else {
-            return;
-        };
+        })
+        .ok()?;
         if !fits(&frame) {
             eprintln!(
-                "sikemux core: a chat event of {} bytes is too large to send",
+                "sikemux core: a chat change of {} bytes is too large to send",
                 frame.len()
             );
-            return;
+            return None;
         }
-        let sender = except
-            .and_then(|id| inner.subscribers.get(&id))
-            .map(|client| client.peer.clone());
-        inner.recent.push(Sent {
-            seq,
-            event,
-            bytes: frame.len(),
-            sender,
-        });
-        let frame: Arc<[u8]> = frame.into();
-        inner
-            .subscribers
-            .retain(|id, client| Some(*id) == except || client.send(frame.clone()));
+        Some(frame.into())
     }
 
+    /// The fold, built again from the chat's events when it was let go.
+    fn fold<'a>(&self, inner: &'a mut Inner) -> &'a mut Fold {
+        if inner.fold.is_none() {
+            let mut fold = new_fold(
+                &inner.permission_mode,
+                inner.offers_effort,
+                inner.work.as_ref(),
+            );
+            if let Some(start) = &inner.start {
+                fold.apply(
+                    inner.replay.next_index,
+                    ChatEventKind::Ready,
+                    &json!(start),
+                    0,
+                );
+            }
+            for (index, event) in inner.replay.fold_events() {
+                let at = event
+                    .payload
+                    .get("at")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default();
+                fold.apply(index, event.kind, &event.payload, at);
+            }
+            fold.set_queued(queued_view(&inner.queued));
+            if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
+                fold.set_earlier_lost();
+            }
+            fold.rebuilt(inner.seq);
+            inner.fold = Some(fold);
+        }
+        inner.fold.as_mut().expect("just built")
+    }
+
+    /// Whether the chat's events hold turns before the fold's first row.
+    fn holds_older(inner: &Inner) -> bool {
+        let Some(floor) = inner.fold.as_ref().and_then(Fold::floor) else {
+            return false;
+        };
+        let oldest = inner
+            .replay
+            .history
+            .as_ref()
+            .and_then(History::first)
+            .or_else(|| inner.replay.entries.front().map(|entry| entry.index));
+        oldest.is_some_and(|oldest| oldest < floor)
+    }
+
+    /// Sends every client what changed since the last flush. A client behind
+    /// on reading is left to catch up once it has.
     fn flush_locked(&self, inner: &mut Inner) {
-        if inner.pending.is_empty() {
+        let Some(fold) = inner.fold.as_mut() else {
+            return;
+        };
+        if !fold.is_dirty() {
             return;
         }
-        let mut updates = std::mem::take(&mut inner.pending);
-        inner.pending_bytes = 0;
-        inner.answers.annotate(&mut updates);
-        self.broadcast(
-            inner,
-            ChatEventKind::SessionUpdate,
-            json!({ "updates": updates }),
-        );
+        let seq = inner.seq + 1;
+        let changes = fold.flush(seq);
+        if inner.holding || changes.is_empty() {
+            return;
+        }
+        inner.seq = seq;
+        let frame = self.frame(seq, &changes);
+        let mut behind = false;
+        inner.subscribers.retain(|_, subscriber| {
+            if subscriber.behind.is_none() && subscriber.client.backlog() <= SLOW_BYTES {
+                return frame
+                    .as_ref()
+                    .is_none_or(|frame| subscriber.client.send(frame.clone()));
+            }
+            subscriber.behind.get_or_insert(seq - 1);
+            behind = true;
+            !subscriber.client.is_closed()
+        });
+        if behind {
+            self.catch_up_later(inner);
+        }
+    }
+
+    fn catch_up_later(&self, inner: &mut Inner) {
+        if inner.catch_up_scheduled {
+            return;
+        }
+        inner.catch_up_scheduled = true;
+        let feed = self.me.clone();
+        self.runtime.spawn(async move {
+            tokio::time::sleep(CATCH_UP).await;
+            if let Some(feed) = feed.upgrade() {
+                feed.catch_up();
+            }
+        });
+    }
+
+    /// Sends each client that fell behind how the chat stands, once it has
+    /// read what was waiting for it.
+    fn catch_up(&self) {
+        let mut inner = self.inner.locked();
+        inner.catch_up_scheduled = false;
+        self.flush_locked(&mut inner);
+        let seq = inner.seq;
+        let mut still = false;
+        let ready: Vec<(ClientId, u64)> = inner
+            .subscribers
+            .iter()
+            .filter_map(|(id, subscriber)| {
+                let since = subscriber.behind?;
+                if subscriber.client.backlog() > SLOW_BYTES / 2 {
+                    still = true;
+                    return None;
+                }
+                Some((*id, since))
+            })
+            .collect();
+        for (id, since) in ready {
+            let changes = {
+                let older = Self::holds_older(&inner);
+                let fold = self.fold(&mut inner);
+                fold.catch_up(since).unwrap_or_else(|| {
+                    vec![ChatChange::View {
+                        view: Box::new(fold.view(older)),
+                    }]
+                })
+            };
+            let frame = self.frame(seq, &changes);
+            if let Some(subscriber) = inner.subscribers.get_mut(&id) {
+                subscriber.behind = None;
+                if let Some(frame) = frame {
+                    subscriber.client.send(frame);
+                }
+            }
+        }
+        if still {
+            self.catch_up_later(&mut inner);
+        }
     }
 
     /// Writes the newest event to the history once it has had a while to
@@ -1426,87 +1713,95 @@ impl Feed {
         let mut inner = self.inner.locked();
         inner.flush_scheduled = false;
         self.flush_locked(&mut inner);
+        self.let_go(&mut inner);
     }
 
-    /// Anything that is not a streamed update reads as a reply to what came
-    /// before it, so the batch behind it goes out first and the order the
-    /// agent sent them in survives.
+    fn flush_later(self: &Arc<Self>, inner: &mut Inner) {
+        if inner.flush_scheduled {
+            return;
+        }
+        inner.flush_scheduled = true;
+        let feed = self.clone();
+        self.runtime.spawn(async move {
+            tokio::time::sleep(FLUSH).await;
+            feed.flush();
+        });
+    }
+
+    /// Lets go of the fold of a chat nobody watches and no turn runs in. It is
+    /// built again from the chat's events when a client comes.
+    fn let_go(&self, inner: &mut Inner) {
+        if inner.subscribers.is_empty()
+            && !inner.replay.in_turn
+            && !inner.holding
+            && inner.fold.as_ref().is_some_and(|fold| !fold.is_dirty())
+        {
+            inner.fold = None;
+        }
+    }
+
+    fn fold_in(&self, inner: &mut Inner, index: u64, kind: ChatEventKind, payload: &Value) {
+        let at = payload
+            .get("at")
+            .and_then(Value::as_u64)
+            .unwrap_or_else(epoch_ms);
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.apply(index, kind, payload, at);
+        }
+    }
+
+    /// Streamed updates go out once a frame; anything else goes out at once,
+    /// after what streamed before it.
     pub(crate) fn emit(self: &Arc<Self>, kind: ChatEventKind, mut payload: Value) {
         let mut inner = self.inner.locked();
-        if is_turn_edge(kind) {
+        if is_kept(kind) {
             stamp(&mut payload);
         }
-        let bytes = inner.replay.push(kind, &payload);
+        let index = inner.replay.push(kind, &payload);
         self.settle_later(&mut inner);
         if let Some(title) = session_title(&payload) {
             inner.title = Some(title);
         }
-        if inner.holding.is_some() && is_kept(kind) {
-            return;
-        }
+        self.fold_in(&mut inner, index, kind, &payload);
         if kind == ChatEventKind::SessionUpdate {
-            inner.pending.push(payload);
-            inner.pending_bytes += bytes;
-            // A loaded chat replays its history all at once, and in one batch
-            // it would outgrow what a client can be sent.
-            if inner.pending_bytes >= BATCH_BYTES {
-                self.flush_locked(&mut inner);
-                return;
-            }
-            if !inner.flush_scheduled {
-                inner.flush_scheduled = true;
-                let feed = self.clone();
-                self.runtime.spawn(async move {
-                    tokio::time::sleep(FLUSH).await;
-                    feed.flush();
-                });
-            }
+            self.flush_later(&mut inner);
             return;
         }
         self.flush_locked(&mut inner);
-        self.broadcast(&mut inner, kind, payload);
+        self.let_go(&mut inner);
     }
 
-    /// The client that sent a prompt already shows it; everyone else, and every
-    /// later replay, learns it here.
+    /// What a person sent the agent, as every client and every later reader
+    /// of the chat sees it.
     pub(crate) fn prompted(
         self: &Arc<Self>,
-        from: ClientId,
         message_id: Option<&str>,
         text: &str,
         paths: &[String],
+        context: &[ChatContext],
     ) {
-        let mut inner = self.inner.locked();
         let mut payload = json!({ "text": text, "paths": paths });
         if let Some(message_id) = message_id {
             payload["messageId"] = json!(message_id);
         }
-        if let Some(trees) = letter_trees(text) {
-            payload["letters"] = trees;
+        if !context.is_empty() {
+            payload["context"] = json!(context
+                .iter()
+                .map(|item| json!({ "uri": item.uri, "title": item.title }))
+                .collect::<Vec<_>>());
         }
-        stamp(&mut payload);
-        inner.replay.push(ChatEventKind::Prompt, &payload);
-        self.settle_later(&mut inner);
-        self.flush_locked(&mut inner);
-        self.broadcast_except(&mut inner, ChatEventKind::Prompt, payload, Some(from));
+        self.emit(ChatEventKind::Prompt, payload);
     }
 
-    /// The person took the chat back to before their message `message_id`.
-    /// It goes from the replay, and every client but the one that asked is
-    /// told to drop it and everything after it.
-    pub(crate) fn rewound(&self, from: ClientId, session_id: &str, message_id: &str) {
+    /// The person took the chat back to before their message `message_id`:
+    /// it goes, and everything after it.
+    pub(crate) fn rewound(&self, message_id: &str) {
         let mut inner = self.inner.locked();
-        self.flush_locked(&mut inner);
         inner.replay.rewind(message_id);
-        self.broadcast_except(
-            &mut inner,
-            ChatEventKind::SessionUpdate,
-            json!({
-                "sessionId": session_id,
-                "update": { "sessionUpdate": "message_rewound", "messageId": message_id },
-            }),
-            Some(from),
-        );
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.rewind(message_id);
+        }
+        self.flush_locked(&mut inner);
     }
 
     /// Keeps `message` until the running turn ends, unless as many already wait.
@@ -1551,14 +1846,23 @@ impl Feed {
     }
 
     fn queue_changed(&self, inner: &mut Inner) {
+        let queued = queued_view(&inner.queued);
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_queued(queued);
+        }
         self.flush_locked(inner);
-        let update = queue_update(inner);
-        self.broadcast(inner, ChatEventKind::SessionUpdate, update);
     }
 
     pub(crate) fn subscribe(&self, client: &Arc<ClientConn>) {
         let mut inner = self.inner.locked();
-        inner.subscribers.insert(client.id, client.clone());
+        self.fold(&mut inner);
+        inner.subscribers.insert(
+            client.id,
+            Subscriber {
+                client: client.clone(),
+                behind: None,
+            },
+        );
     }
 
     pub(crate) fn has_subscriber(&self, client: ClientId) -> bool {
@@ -1568,11 +1872,12 @@ impl Feed {
     pub(crate) fn unsubscribe(&self, client: ClientId) {
         let mut inner = self.inner.locked();
         inner.subscribers.remove(&client);
+        self.let_go(&mut inner);
     }
 
-    /// Answers the client with everything said so far, or everything since
+    /// Answers the client with the chat as it stands, or what changed since
     /// `since`, and adds it to the listeners in the same step, so it hears
-    /// every later event exactly once.
+    /// every later change exactly once.
     pub(crate) fn attach(
         &self,
         client: &Arc<ClientConn>,
@@ -1581,87 +1886,45 @@ impl Feed {
         since: Option<ChatMark>,
     ) {
         let mut inner = self.inner.locked();
-        self.flush_locked(&mut inner);
-        let attachment = self.attachment(&inner, &client.peer, standing, since);
-        let live = matches!(
-            attachment,
-            ChatAttachment::Live { .. } | ChatAttachment::Resumed { .. }
-        );
-        client.respond(request_id, Ok(Response::ChatAttached { attachment }));
-        if live {
-            inner.subscribers.insert(client.id, client.clone());
+        if inner.closed || (inner.start.is_none() && !inner.waits_for_person) {
+            client.respond(
+                request_id,
+                Ok(Response::ChatAttached {
+                    attachment: ChatAttachment::Missing,
+                }),
+            );
+            return;
         }
-    }
-
-    /// A phone, or the host's own app once the chat outgrew the replay, is sent
-    /// the chat's last turns and pages back through the rest. A chat that
-    /// outgrew the replay with nowhere to keep the rest starts with a note
-    /// that its earlier turns are gone.
-    fn attachment(
-        &self,
-        inner: &Inner,
-        peer: &Peer,
-        standing: Standing,
-        since: Option<ChatMark>,
-    ) -> ChatAttachment {
-        let missed = since
+        let fold = self.fold(&mut inner);
+        fold.set_running(standing.running);
+        fold.set_turned(standing.turned);
+        self.flush_locked(&mut inner);
+        let resumed = since
             .filter(|since| since.feed == self.id && since.seq <= inner.seq)
-            .and_then(|since| inner.recent.since(since.seq, peer));
-        let trimmed = inner.replay.is_trimmed();
-        let lost = trimmed && !inner.replay.keeps_history();
-        let paged = lost || (inner.replay.keeps_history() && (!peer.is_local() || trimmed));
-        // A new chat waiting for the person has no session yet; its start follows as a ready event.
-        let start = inner.start.clone().or_else(|| {
-            inner.waits_for_person.then(|| ChatStart {
-                session_id: String::new(),
-                capabilities: Value::Null,
-                setup: Value::Null,
-            })
-        });
-        match (start, missed) {
-            _ if inner.closed => ChatAttachment::Missing,
-            (Some(_), Some(events)) => ChatAttachment::Resumed {
-                events,
-                mark: self.mark(inner),
+            .and_then(|since| self.fold(&mut inner).catch_up(since.seq));
+        let mark = self.mark(&inner);
+        let attachment = match resumed {
+            Some(changes) => ChatAttachment::Resumed {
+                changes: serde_json::to_value(changes).unwrap_or_default(),
+                mark,
             },
-            (Some(start), None) => {
-                let (mut replay, older_before) = if paged {
-                    let tail = inner.replay.tail(0);
-                    (tail.events, tail.older_before)
-                } else {
-                    (inner.replay.events(), None)
-                };
-                if !inner.queued.is_empty() {
-                    replay.push(ChatEvent {
-                        kind: ChatEventKind::SessionUpdate,
-                        payload: queue_update(inner),
-                    });
-                }
-                annotate_replay(&mut replay);
-                if lost {
-                    replay.insert(
-                        0,
-                        ChatEvent {
-                            kind: ChatEventKind::SessionUpdate,
-                            payload: json!({
-                                "sessionId": start.session_id,
-                                "update": { "sessionUpdate": "earlier_turns_lost" },
-                            }),
-                        },
-                    );
-                }
+            None => {
+                let older = Self::holds_older(&inner);
+                let view = self.fold(&mut inner).view(older);
                 ChatAttachment::Live {
-                    start: Box::new(start),
-                    permission_mode: inner.permission_mode.clone(),
-                    running: standing.running,
-                    turned: standing.turned,
-                    replay,
-                    mark: self.mark(inner),
-                    older_before,
+                    view: serde_json::to_value(view).unwrap_or_default(),
+                    mark,
                 }
             }
-            (None, _) => ChatAttachment::Missing,
-        }
+        };
+        client.respond(request_id, Ok(Response::ChatAttached { attachment }));
+        inner.subscribers.insert(
+            client.id,
+            Subscriber {
+                client: client.clone(),
+                behind: None,
+            },
+        );
     }
 
     pub(crate) fn close(&self) {
@@ -1669,51 +1932,76 @@ impl Feed {
         inner.closed = true;
     }
 
+    /// Lets go of everything the chat holds in memory once it sleeps, writing out what is not
+    /// yet on disk, so clients can still attach, page and find through its history, and
+    /// hear the chat when it wakes in this feed. Answers how many bytes of history it keeps.
+    pub(crate) fn rest(&self) -> u64 {
+        let mut inner = self.inner.locked();
+        inner.closed = false;
+        inner.fold = None;
+        inner.subscribers.clear();
+        inner.replay.rest()
+    }
+
     /// Keeps what the agent says from the clients until [`Feed::let_out`]. A
     /// resumed session replays its whole saved history while it starts, more
-    /// than a client could be sent at once.
+    /// than a client could be sent a change at a time.
     pub(crate) fn hold(&self) {
         let mut inner = self.inner.locked();
         self.flush_locked(&mut inner);
-        inner.holding = Some(inner.replay.next_index);
+        inner.holding = true;
     }
 
-    /// Sends the clients the last turns of what was held back, then where
-    /// the turns before them can be paged from. Without a history on disk to
-    /// page through, they are sent all the replay still holds.
+    /// Sends every client the chat as it stands once the history is in.
     pub(crate) fn let_out(&self) {
         let mut inner = self.inner.locked();
-        let Some(floor) = inner.holding.take() else {
+        if !inner.holding {
             return;
-        };
-        let tail = if inner.replay.keeps_history() {
-            inner.replay.tail(floor)
-        } else {
-            Tail {
-                events: inner.replay.events_from(floor),
-                older_before: None,
-            }
-        };
-        for event in tail.events {
-            if event.kind != ChatEventKind::SessionUpdate {
-                self.flush_locked(&mut inner);
-                self.broadcast(&mut inner, event.kind, event.payload);
-                continue;
-            }
-            inner.pending_bytes +=
-                serde_json::to_vec(&event.payload).map_or(0, |bytes| bytes.len());
-            inner.pending.push(event.payload);
-            if inner.pending_bytes >= BATCH_BYTES {
-                self.flush_locked(&mut inner);
-            }
-        }
-        if let Some(before) = tail.older_before {
-            inner.pending.push(json!({
-                "sessionId": "",
-                "update": { "sessionUpdate": "earlier_turns", "feed": self.id, "before": before },
-            }));
         }
         self.flush_locked(&mut inner);
+        inner.holding = false;
+        if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
+            self.fold(&mut inner).set_earlier_lost();
+        }
+        let seq = inner.seq + 1;
+        self.fold(&mut inner).flush(seq);
+        inner.seq = seq;
+        let older = Self::holds_older(&inner);
+        let view = self.fold(&mut inner).view(older);
+        let frame = self.frame(
+            seq,
+            &[ChatChange::View {
+                view: Box::new(view),
+            }],
+        );
+        if let Some(frame) = frame {
+            inner
+                .subscribers
+                .retain(|_, subscriber| subscriber.client.send(frame.clone()));
+        }
+    }
+
+    /// Shows an effort picker from the start, as agents that offer effort on
+    /// every model do.
+    /// Makes the paths the chat's agent names whole against `cwd`, and numbers the lines
+    /// of its edits from where they sit in their files.
+    pub(crate) fn work_in(&self, cwd: PathBuf) {
+        let folder = cwd.clone();
+        let place: Place =
+            Arc::new(move |path: &str, text: &str| line_of(&folder.join(path), text));
+        let mut inner = self.inner.locked();
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.work_in(cwd.clone(), place.clone());
+        }
+        inner.work = Some((cwd, place));
+    }
+
+    pub(crate) fn offer_effort(&self) {
+        let mut inner = self.inner.locked();
+        inner.offers_effort = true;
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.offer_effort();
+        }
     }
 
     /// Lets clients take up a new chat whose agent has not started, as it waits for the person.
@@ -1731,11 +2019,27 @@ impl Feed {
         if let Some(start) = inner.start.as_mut() {
             start.setup = setup.clone();
         }
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_setup(setup);
+        }
+        self.flush_locked(&mut inner);
     }
 
     pub(crate) fn set_permission_mode(&self, mode: &str) {
         let mut inner = self.inner.locked();
         inner.permission_mode = mode.to_owned();
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_permission_mode(mode);
+        }
+        self.flush_locked(&mut inner);
+    }
+
+    pub(crate) fn set_changing_mode(&self, changing: bool) {
+        let mut inner = self.inner.locked();
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_changing_mode(changing);
+        }
+        self.flush_locked(&mut inner);
     }
 
     pub(crate) fn permission_mode(&self) -> String {
@@ -1789,10 +2093,10 @@ impl Feed {
     /// it had going went with it. The chat is told each one ended.
     pub(crate) fn agent_gone(&self) {
         let mut inner = self.inner.locked();
-        for payload in inner.replay.work.endings() {
-            let bytes = inner.replay.push(ChatEventKind::SessionUpdate, &payload);
-            inner.pending.push(payload);
-            inner.pending_bytes += bytes;
+        for mut payload in inner.replay.work.endings() {
+            stamp(&mut payload);
+            let index = inner.replay.push(ChatEventKind::SessionUpdate, &payload);
+            self.fold_in(&mut inner, index, ChatEventKind::SessionUpdate, &payload);
         }
         self.flush_locked(&mut inner);
     }
@@ -1804,19 +2108,133 @@ impl Feed {
     pub(crate) fn forget_permission(&self, request_id: &str) {
         let mut inner = self.inner.locked();
         inner.replay.forget_permission(request_id);
-        inner.recent.forget_permission(request_id);
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.forget_permission(request_id);
+        }
+        self.flush_locked(&mut inner);
     }
 
-    /// The turns before `before` in this run of the chat, which a client
+    /// The rows before `before` in this run of the chat, which a client
     /// shown only the chat's end scrolls back to.
-    pub(crate) fn history(&self, feed: &str, before: u64, turns: usize) -> Result<Page, String> {
+    pub(crate) fn history(
+        &self,
+        feed: &str,
+        before: u64,
+        turns: usize,
+    ) -> Result<ChatPage, String> {
         if feed != self.id {
             return Err("the chat started again; open it again to see its history".into());
         }
-        let inner = self.inner.locked();
-        let mut page = inner.replay.page(before, turns)?;
-        annotate_replay(&mut page.events);
-        Ok(page)
+        self.page(feed, Anchor::Before(before), turns, None)
+    }
+
+    /// The rows `anchor` asks for in this run of the chat, `turns` of them at most: those
+    /// before or after an event, or around the row holding one.
+    /// With `session`, the rows are that subagent's rather than the chat's own.
+    pub(crate) fn page(
+        &self,
+        feed: &str,
+        anchor: Anchor,
+        turns: usize,
+        session: Option<&str>,
+    ) -> Result<ChatPage, String> {
+        if feed != self.id {
+            return Err("the chat started again; open it again to see its history".into());
+        }
+        let turns = turns.clamp(1, MAX_PAGE_TURNS);
+        match anchor {
+            Anchor::Before(before) => {
+                self.page_of(PageOf::Before(before), turns, ROW_BYTES, session)
+            }
+            Anchor::After(after) => self.page_of(PageOf::After(after), turns, ROW_BYTES, session),
+            Anchor::Around(event) => {
+                let half = (turns / 2).max(1);
+                let before = PageOf::Before(event.saturating_add(1));
+                let mut page = self.page_of(before, half, ROW_BYTES / 2, session)?;
+                let newer = self.page_of(PageOf::After(event), half, ROW_BYTES / 2, session)?;
+                let held: HashSet<String> = page.rows.iter().map(|row| row.id.clone()).collect();
+                page.rows
+                    .extend(newer.rows.into_iter().filter(|row| !held.contains(&row.id)));
+                page.subagents.extend(newer.subagents);
+                page.newer_after = newer.newer_after;
+                Ok(page)
+            }
+        }
+    }
+
+    /// One step of `client`'s find through this run of the chat.
+    pub(crate) fn find(
+        &self,
+        client: ClientId,
+        params: &super::find::FindParams,
+    ) -> Result<super::find::FindAnswer, String> {
+        if params.feed != self.id {
+            return Err("the chat started again; open it again to find in it".into());
+        }
+        let number = {
+            let mut finding = self.finding.locked();
+            let number = finding.get(&client).map_or(0, |number| number + 1);
+            finding.insert(client, number);
+            number
+        };
+        let rows = FindRows {
+            feed: self,
+            client,
+            number,
+        };
+        let answer = super::find::step(&rows, params);
+        let mut finding = self.finding.locked();
+        if finding.get(&client) == Some(&number) {
+            finding.remove(&client);
+        }
+        answer
+    }
+
+    fn page_of(
+        &self,
+        side: PageOf,
+        turns: usize,
+        budget: usize,
+        session: Option<&str>,
+    ) -> Result<ChatPage, String> {
+        for _ in 0..2 {
+            let planned = self.inner.locked().replay.plan(side, turns)?;
+            let mut events = match &planned.reader {
+                Some(reader) => reader
+                    .range(planned.lo, planned.hi)
+                    .map_err(|error| error.to_string())?,
+                None => Vec::new(),
+            };
+            if planned
+                .reader
+                .as_ref()
+                .is_some_and(|reader| !reader.still_current())
+            {
+                continue;
+            }
+            let edge = planned.edge(side);
+            events.extend(planned.held);
+            let mut inner = self.inner.locked();
+            let page = inner.replay.with_spawns(Page {
+                events,
+                older_before: None,
+                first: planned.lo,
+            });
+            return Ok(self
+                .fold(&mut inner)
+                .page_of(&page.events, side, budget, edge, session));
+        }
+        Err("that part of the chat changed; ask again".into())
+    }
+
+    /// A tool call's change and output, line by line, for a client that opened its row.
+    pub(crate) fn tool_detail(&self, tool_call_id: &str) -> Option<ToolDetail> {
+        let mut inner = self.inner.locked();
+        if let Some(detail) = self.fold(&mut inner).tool_detail(tool_call_id) {
+            return Some(detail);
+        }
+        let inner = &*inner;
+        inner.replay.tool_detail(tool_call_id, inner.work.as_ref())
     }
 }
 
@@ -1896,6 +2314,7 @@ mod tests {
             let mut ids: Vec<String> = page
                 .events
                 .iter()
+                .map(|(_, event)| event)
                 .chain(replay.entries.iter().map(|entry| &entry.event))
                 .filter_map(|event| event.payload["messageId"].as_str().map(str::to_owned))
                 .collect();
@@ -2049,23 +2468,34 @@ mod tests {
 
     #[test]
     fn a_client_catching_up_is_not_asked_an_answered_permission_request() {
-        let mut recent = Recent::default();
-        for (seq, request_id) in [(1, "a"), (2, "b")] {
-            recent.push(Sent {
-                seq,
-                event: ChatEvent {
-                    kind: ChatEventKind::PermissionRequest,
-                    payload: json!({ "requestId": request_id }),
-                },
-                bytes: 10,
-                sender: None,
-            });
+        let mut fold = Fold::new("default");
+        for request_id in ["a", "b"] {
+            fold.apply(
+                0,
+                ChatEventKind::PermissionRequest,
+                &json!({
+                    "requestId": request_id,
+                    "sessionId": "s",
+                    "toolCall": { "toolCallId": request_id, "title": "Touch a file" },
+                    "options": [],
+                }),
+                0,
+            );
         }
-        recent.forget_permission("a");
-        let missed = recent.since(0, &Peer::Local).expect("still kept");
-        assert_eq!(missed.len(), 1);
-        assert_eq!(missed[0].payload["requestId"], "b");
-        assert_eq!(recent.bytes, 10);
+        fold.flush(1);
+        fold.forget_permission("a");
+        fold.flush(2);
+        let missed = fold.catch_up(0).expect("still holds what it missed");
+        let ChatChange::Head { set } = &missed[0] else {
+            panic!("a client catching up hears the head first");
+        };
+        let asked: Vec<&str> = set["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|ask| ask["requestId"].as_str())
+            .collect();
+        assert_eq!(asked, ["b"]);
     }
 
     #[test]
@@ -2125,9 +2555,9 @@ mod tests {
         })
     }
 
-    fn asked(events: &[ChatEvent]) -> Vec<String> {
+    fn asked<'a>(events: impl IntoIterator<Item = &'a ChatEvent>) -> Vec<String> {
         events
-            .iter()
+            .into_iter()
             .filter(|event| event.kind == ChatEventKind::Prompt)
             .map(|event| {
                 event.payload["text"]
@@ -2194,21 +2624,20 @@ mod tests {
         }
         assert!(replay.is_trimmed());
 
-        let tail = replay.tail(0);
-        assert_eq!(tail.events[0].payload, commands());
-        assert_eq!(tail.events[1].kind, ChatEventKind::Prompt);
-        assert_eq!(asked(&tail.events), asks(78..80));
-        assert_eq!(tail.older_before, Some(1 + 78 * 5));
+        let held = replay.fold_events();
+        assert_eq!(held[0].1.payload, commands());
+        assert_eq!(asked(held.iter().map(|(_, event)| event)), asks(78..80));
 
-        let mut earlier = Vec::new();
-        let mut before = tail.older_before;
+        let mut earlier: Vec<(u64, ChatEvent)> = Vec::new();
+        let mut before = Some(1 + 78 * 5);
         while let Some(cursor) = before {
             let page = replay.page(cursor, 30).unwrap();
-            assert!(asked(&page.events).len() <= 30);
+            assert!(asked(page.events.iter().map(|(_, event)| event)).len() <= 30);
             assert!(!page.events.is_empty());
             earlier.splice(0..0, page.events);
             before = page.older_before;
         }
+        let earlier: Vec<ChatEvent> = earlier.into_iter().map(|(_, event)| event).collect();
         assert_eq!(earlier[0].payload, commands());
         assert_eq!(asked(&earlier), asks(0..78));
         assert!(earlier
@@ -2221,9 +2650,10 @@ mod tests {
         json!({ "sessionId": session, "update": update })
     }
 
-    fn standing_kinds(tail: &Tail) -> Vec<(String, String)> {
-        tail.events
+    fn standing_kinds(events: &[(u64, ChatEvent)]) -> Vec<(String, String)> {
+        events
             .iter()
+            .map(|(_, event)| event)
             .filter(|event| event.kind == ChatEventKind::SessionUpdate)
             .map(|event| {
                 let update = &event.payload["update"];
@@ -2273,8 +2703,8 @@ mod tests {
     }
 
     #[test]
-    fn a_phone_shown_the_end_still_hears_the_plan_and_the_work_still_going() {
-        let mut replay = Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, None);
+    fn a_chat_folded_from_its_end_still_hears_the_plan_and_the_work_still_going() {
+        let mut replay = Replay::new(MAX_REPLAY_BYTES, 50 * 5, None);
         let plan = |step: &str| {
             update(
                 "s",
@@ -2326,11 +2756,11 @@ mod tests {
                 json!({ "sessionUpdate": "async_task_spawned", "asyncTaskId": "nested" }),
             ),
         );
-        for n in 0..TAIL_TURNS {
+        for n in 0..50 {
             turn(&mut replay, n);
         }
         assert_eq!(
-            standing_kinds(&replay.tail(0)),
+            standing_kinds(&replay.fold_events()),
             [
                 ("plan".to_owned(), "second".to_owned()),
                 ("async_task_spawned".to_owned(), "shell".to_owned()),
@@ -2381,8 +2811,8 @@ mod tests {
     }
 
     #[test]
-    fn a_tail_carries_the_start_of_every_subagent_it_speaks_of() {
-        let mut replay = Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, None);
+    fn a_chat_folded_from_its_end_carries_the_start_of_every_subagent_it_speaks_of() {
+        let mut replay = Replay::new(MAX_REPLAY_BYTES, 50 * 5 + 2, None);
         let spawned = |session: &str, id: &str| {
             update(
                 session,
@@ -2399,7 +2829,7 @@ mod tests {
         replay.push(ChatEventKind::SessionUpdate, &spawned("corpus", "fixtures"));
         replay.push(ChatEventKind::SessionUpdate, &spawned("s", "forgotten"));
         replay.push(ChatEventKind::SessionUpdate, &ended("forgotten"));
-        for n in 0..TAIL_TURNS {
+        for n in 0..50 {
             turn(&mut replay, n);
         }
         replay.push(
@@ -2412,9 +2842,9 @@ mod tests {
         replay.push(ChatEventKind::SessionUpdate, &ended("corpus"));
 
         let starts: Vec<String> = replay
-            .tail(0)
-            .events
+            .fold_events()
             .iter()
+            .map(|(_, event)| event)
             .filter(|event| session_update_kind(&event.payload) == Some("subagent_spawned"))
             .map(|event| {
                 event.payload["update"]["subagentSessionId"]
@@ -2465,7 +2895,7 @@ mod tests {
     async fn a_long_history_loaded_at_the_start_reaches_clients_as_its_last_turns() {
         let dir = tempfile::tempdir().unwrap();
         let core = crate::server::Core::new(Default::default(), None).unwrap();
-        let (client, mut frames) = ClientConn::inside(&core, Peer::Local);
+        let (client, mut frames) = ClientConn::inside(&core, crate::server::access::Peer::Local);
         let feed = Feed::new("agent".into(), "default".into(), Some(dir.path()));
         feed.subscribe(&client);
 
@@ -2488,40 +2918,47 @@ mod tests {
         assert!(heard.is_empty(), "nothing goes out while the history loads");
 
         feed.let_out();
-        let mut updates = Vec::new();
+        let mut views = Vec::new();
         while let Ok(frame) = frames.try_recv() {
             let frame = crate::protocol::read_frame_sync(&mut &frame[..])
                 .unwrap()
                 .unwrap();
             let Ok(ServerMessage::Event {
-                event: Event::Chat { event, .. },
+                event: Event::Chat { changes, .. },
             }) = serde_json::from_slice(&frame.payload)
             else {
                 continue;
             };
-            updates.extend(
-                event.payload["updates"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default(),
-            );
+            let changes: Vec<ChatChange> = serde_json::from_value(changes).unwrap();
+            views.extend(changes.into_iter().filter_map(|change| match change {
+                ChatChange::View { view } => Some(view),
+                _ => None,
+            }));
         }
-        let asked: Vec<String> = updates
-            .iter()
-            .filter(|update| update["update"]["sessionUpdate"] == "user_message_chunk")
-            .filter_map(|update| update["update"]["content"]["text"].as_str())
-            .map(str::to_owned)
-            .collect();
-        let first = 60 - TAIL_TURNS;
-        assert_eq!(asked, asks(first..60));
-        assert_eq!(
-            updates.last().unwrap()["update"],
-            json!({ "sessionUpdate": "earlier_turns", "feed": feed.id, "before": first * 2 })
-        );
+        let [view] = &views[..] else {
+            panic!(
+                "the history goes out as one view, not {} of them",
+                views.len()
+            );
+        };
+        let first = 60 - sikemux_fold::TAIL_TURNS;
+        assert_eq!(prompts(&view.rows), asks(first..60));
+        assert_eq!(view.older_before, Some(first as u64 * 2));
+    }
+
+    fn prompts(rows: &[sikemux_wire::chat::ChatMessage]) -> Vec<String> {
+        rows.iter()
+            .filter(|row| row.role == sikemux_wire::chat::ChatRole::User)
+            .flat_map(|row| row.parts.iter())
+            .filter_map(|part| match part {
+                sikemux_wire::chat::ChatPart::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     #[tokio::test]
-    async fn the_last_turns_go_to_a_phone_and_to_the_app_once_the_replay_is_trimmed() {
+    async fn a_long_chat_opens_at_its_last_turns_and_pages_back() {
         let dir = tempfile::tempdir().unwrap();
         let feed = Feed::new("agent".into(), "default".into(), Some(dir.path()));
         feed.set_start(ChatStart {
@@ -2529,30 +2966,23 @@ mod tests {
             capabilities: json!({}),
             setup: json!({}),
         });
-        let standing = || Standing {
-            running: false,
-            turned: true,
+        let view = |inner: &mut Inner| {
+            inner.fold = None;
+            feed.fold(inner);
+            let older = Feed::holds_older(inner);
+            feed.fold(inner).view(older)
         };
-        let phone = Peer::Device { id: "phone".into() };
         let mut inner = feed.inner.lock().unwrap();
         for n in 0..60 {
             turn(&mut inner.replay, n);
         }
-
-        let ChatAttachment::Live {
-            replay,
-            older_before,
-            ..
-        } = feed.attachment(&inner, &phone, standing(), None)
-        else {
-            panic!("a phone takes up a long chat");
-        };
-        let first = 60 - TAIL_TURNS;
-        assert_eq!(asked(&replay), asks(first..60));
-        assert_eq!(older_before, Some(first as u64 * 5));
+        let opened = view(&mut inner);
+        let first = 60 - sikemux_fold::TAIL_TURNS;
+        assert_eq!(prompts(&opened.rows), asks(first..60));
+        assert_eq!(opened.older_before, Some(first as u64 * 5));
         drop(inner);
         let page = feed.history(&feed.id, first as u64 * 5, 100).unwrap();
-        assert_eq!(asked(&page.events), asks(0..first));
+        assert_eq!(prompts(&page.rows), asks(0..first));
         assert_eq!(page.older_before, None);
         assert!(feed
             .history("an earlier run", first as u64 * 5, 100)
@@ -2564,38 +2994,17 @@ mod tests {
         for n in 0..60 {
             turn(&mut inner.replay, n);
         }
-        let ChatAttachment::Live { older_before, .. } =
-            feed.attachment(&inner, &Peer::Local, standing(), None)
-        else {
-            panic!("the app takes up a chat longer than the replay without restarting it");
-        };
-        assert_eq!(older_before, Some(58 * 5));
-        let ChatAttachment::Live { older_before, .. } =
-            feed.attachment(&inner, &phone, standing(), None)
-        else {
-            panic!("a phone takes up a chat longer than the replay");
-        };
-        assert_eq!(older_before, Some(58 * 5));
+        let opened = view(&mut inner);
+        assert_eq!(prompts(&opened.rows), asks(58..60));
+        assert_eq!(opened.older_before, Some(58 * 5));
+        assert!(!opened.head.earlier_lost);
 
         inner.replay = Replay::new(MAX_REPLAY_BYTES, 12, None);
         for n in 0..60 {
             turn(&mut inner.replay, n);
         }
-        for peer in [&Peer::Local, &phone] {
-            let ChatAttachment::Live {
-                replay,
-                older_before,
-                ..
-            } = feed.attachment(&inner, peer, standing(), None)
-            else {
-                panic!("a chat longer than the replay is taken up without its history");
-            };
-            assert_eq!(
-                session_update_kind(&replay[0].payload),
-                Some("earlier_turns_lost")
-            );
-            assert_eq!(asked(&replay), asks(58..60));
-            assert_eq!(older_before, None);
-        }
+        let opened = view(&mut inner);
+        assert!(opened.head.earlier_lost);
+        assert_eq!(prompts(&opened.rows), asks(58..60));
     }
 }

@@ -1,7 +1,7 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
-import { themeById } from "../themes";
+import { themeById } from "../test/themes";
 import type { Theme } from "../themes";
 import { buildEditorThemeExtensions } from "./themeExtensions";
 

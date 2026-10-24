@@ -23,7 +23,7 @@ use crate::cli::protocol::{
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
 use crate::harness::journal::{EventsPage, JournalRecord, Journals};
 use crate::harness::runs::{CommandLaunch, Launch, Run, RunStatus, Runs, RunsRecord};
-use crate::protocol::{SessionId, TaskSessionInfo, WindowCall};
+use crate::protocol::{Pane, SessionId, TaskSessionInfo, WindowCall};
 
 use super::connection::blocking;
 use super::messages::{self, Mailbox};
@@ -73,7 +73,7 @@ pub(crate) const AGENT_EVENT: &str = "agent.";
 /// What `workspace_inspect` takes from the window: the panes it shows.
 const LAYOUT_FIELDS: [&str; 4] = ["sessionId", "active", "activeWindowId", "windows"];
 const NO_WINDOW_NOTE: &str =
-    "No Sikemux window is open on this host, so there are no panes to list.";
+    "No Sikemux window is open on this host; any tabs listed are the ones it shows when it opens.";
 const AWAITING_TRUST_NOTE: &str = "Waiting for the person to trust this project's sikemux.json in Sikemux. Call task_start again with the same idempotencyKey, or events_wait with this executionId, to see when it starts.";
 const STARTING_NOTE: &str = "Still starting. Call task_start again with the same idempotencyKey, or events_wait with this executionId, to see when it runs.";
 const NOT_READY_NOTE: &str = "The task is running but readyWhen has not appeared yet. Wait with events_wait on this executionId, or task_read with search.";
@@ -477,12 +477,17 @@ async fn answer_of(
 }
 
 async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> {
+    let in_window = ["browser.", "sim."]
+        .iter()
+        .any(|prefix| request.method.starts_with(prefix));
+    let pinned = request.agent_id.as_deref().filter(|_| in_window);
     let call = core.window.call(
         WindowCall::Harness {
             request: serde_json::to_value(&request).map_err(|error| error.to_string())?,
         },
         purpose(&request.method),
         false,
+        pinned,
     )?;
     answer_of(core, call, CORE_REPLY_TIMEOUT, no_answer(&request.method)).await
 }
@@ -600,18 +605,63 @@ async fn dispatch(
         }
         PLUGINS_CHANGED_METHOD => plugins_wait(&core.harness, &request.params).await,
         "plugins.tools" => super::plugins::agent_tools(&request.project).await,
-        "plugins.call" => super::plugins::call_agent_tool(&request.params).await,
+        "plugins.call" => {
+            let answer = super::plugins::call_agent_tool(&request.params).await;
+            if let (Ok(_), Some(core), Some(tool)) =
+                (&answer, core.arc(), request.params["tool"].as_str())
+            {
+                super::plugin_views::tool_ran(&core, tool);
+            }
+            answer
+        }
         "skills.manage" => skills_call(core, &request).await,
         "task.start" => task_start(core, &request, false).await,
         "task.restart" => task_start(core, &request, true).await,
         "workspace.inspect" => inspect(core, request).await,
         "page.show" => show_page(core, request).await,
         "ui.open" => {
+            let mut request = request;
             let kind = text(&request.params, "kind")?.map(str::to_owned);
+            if kind.as_deref() == Some("file") {
+                let path = required_text(&request.params, "path")?.to_owned();
+                let project = request.project.clone();
+                let resolved =
+                    blocking(move || Ok(crate::files::confine_to_project(&project, &path)))
+                        .await
+                        .map_err(|error| error.to_string())?;
+                match resolved {
+                    Ok(Some(path)) if path.is_file() => {
+                        request.params["path"] = path.to_string_lossy().into_owned().into();
+                    }
+                    _ => return Err("File must be inside the project".into()),
+                }
+            }
             if kind.as_deref() == Some("terminal") {
                 let execution_id = required_text(&request.params, "executionId")?;
-                core.harness
+                let run = core
+                    .harness
                     .read(|state| state.run(&request.project, execution_id))?;
+                if let Some(session) = run.pty_id {
+                    request.params["session"] = session.into();
+                    request.params["title"] = run.label.unwrap_or(run.task_id).into();
+                }
+            }
+            if kind.as_deref() == Some("preview") {
+                if request.agent_id.is_none() {
+                    return Err("Opening a preview requires a Sikemux agent session".into());
+                }
+                let project = PathBuf::from(&request.project);
+                let config = blocking(move || Ok(crate::tasks::config::load(&project)))
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let url = match config {
+                    crate::tasks::config::ConfigLoad::Valid { config, .. } => {
+                        config.preview.and_then(|preview| preview.url)
+                    }
+                    _ => None,
+                };
+                let url = url.ok_or("No preview URL is configured in sikemux.json")?;
+                request.params["url"] = url.into();
             }
             let project = request.project.clone();
             let value = forward(core, request).await?;
@@ -676,11 +726,13 @@ async fn show_page(core: &Arc<Core>, mut request: HarnessRequest) -> Result<Valu
 async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, String> {
     let project = request.project.clone();
     let agent_id = request.agent_id.clone();
-    let layout = if core.window.is_open() {
+    let window_open = core.window.is_open();
+    let layout = if window_open {
         forward(core, request).await.ok()
     } else {
         None
-    };
+    }
+    .or_else(|| laid_out(core, &project));
     let mut value = {
         let (core, project) = (core.clone(), project.clone());
         blocking(move || Ok(super::tasks::inspect(&core, Path::new(&project))))
@@ -690,17 +742,15 @@ async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
     if let Some(object) = value.as_object_mut() {
         object.insert("project".into(), project.clone().into());
         object.insert("agentId".into(), agent_id.into());
-        match layout {
-            Some(Value::Object(mut layout)) => {
-                for key in LAYOUT_FIELDS {
-                    if let Some(value) = layout.remove(key) {
-                        object.insert(key.into(), value);
-                    }
+        if let Some(Value::Object(mut layout)) = layout {
+            for key in LAYOUT_FIELDS {
+                if let Some(value) = layout.remove(key) {
+                    object.insert(key.into(), value);
                 }
             }
-            _ => {
-                object.insert("note".into(), NO_WINDOW_NOTE.into());
-            }
+        }
+        if !window_open {
+            object.insert("note".into(), NO_WINDOW_NOTE.into());
         }
         core.harness.read(|state| {
             object.insert(
@@ -714,6 +764,45 @@ async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
         });
     }
     Ok(value)
+}
+
+/// The project's tabs and the views in them as the core keeps them, for a window that
+/// cannot list its own panes.
+fn laid_out(core: &Core, project: &str) -> Option<Value> {
+    let workspace = core.workspace_view();
+    let id = workspace
+        .projects
+        .iter()
+        .find(|known| known.path == Path::new(project))?
+        .id
+        .clone();
+    let (_, sessions) = core.ranked_infos();
+    let layout = super::layout::view(core, &workspace, &sessions, None);
+    let strip = layout.projects.get(&id)?;
+    let windows: Vec<Value> = strip
+        .tabs
+        .iter()
+        .map(|tab| {
+            let mut panes = Vec::new();
+            views(&tab.pane, &mut panes);
+            json!({ "id": tab.id, "name": tab.title, "panes": panes })
+        })
+        .collect();
+    Some(json!({
+        "sessionId": id,
+        "active": layout.active_project.as_deref() == Some(id.as_str()),
+        "activeWindowId": strip.active,
+        "windows": windows,
+    }))
+}
+
+fn views(pane: &Pane, found: &mut Vec<Value>) {
+    match pane {
+        Pane::View { id, kind, target } => {
+            found.push(json!({ "id": id, "kind": kind, "target": target }))
+        }
+        Pane::Split { panes, .. } => panes.iter().for_each(|pane| views(pane, found)),
+    }
 }
 
 const SKILL_LOADS: &str =

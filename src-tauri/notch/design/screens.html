@@ -470,10 +470,10 @@ code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
             one under the pointer. In a full-screen app the island stays hidden unless an agent needs you.</td></tr>
         <tr><td>Icons</td><td>The app's own set from <code>src/ui/Icons.tsx</code>: a 16-pt grid, 1.4 stroke, round caps and joins. Port each path as a SwiftUI
             <code>Shape</code> (or an SVG asset) so the island and the app never drift apart. Agent marks come from the same file.</td></tr>
-        <tr><td>Buddies</td><td>While buddies are on in the app, the inbox carries <code>buddies</code> and every agent's mark becomes its buddy, at the mark's size,
-            in the closed wing, the peeks, the rows and the drop target. The helper runs the app's own buddy script (<code>Buddies.generated.swift</code>) in
-            JavaScriptCore and draws the SVG it returns with <code>NSImage</code>. Needs you waits, working works, done and failed show done and error. They bob,
-            hop and shake as a whole as the app's do, unless the app turned motion off or the Mac asks for less; eyes and sparkles stay still.</td></tr>
+        <tr><td>Buddies</td><td>Each agent in the inbox carries the <code>face</code> the core gave it, or none while it shows its agent's mark. A face replaces
+            the mark at the mark's size, in the closed wing, the peeks, the rows and the drop target. The helper draws it with the app's own buddy script
+            (<code>Buddies.generated.swift</code>) in JavaScriptCore and shows the SVG it returns with <code>NSImage</code>. Needs you waits, working works, done and failed show done and error. They bob,
+            hop and shake as a whole as the app's do, unless the device view's <code>faceStyle</code> turned motion off or the Mac asks for less; eyes and sparkles stay still.</td></tr>
         <tr><td>Yolo</td><td>Label: <code>Text("YOLO").foregroundStyle(LinearGradient(colors: [acc, cmd, danger, warn, live, acc]))</code>. Ring: a 1-pt
             <code>strokeBorder</code> of the same gradient whose start point slides one full turn every 5 s. The bolt stays plain accent, as in the app.</td></tr>
         <tr><td>Colours</td><td>Ground pure black so it merges with the camera housing. Ink <code>#e7e5ef</code>, dim <code>#8b8898</code>, faint <code>#736f80</code>;

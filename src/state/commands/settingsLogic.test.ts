@@ -14,7 +14,7 @@ describe("settings command logic", () => {
                 null,
             ]),
         ).toEqual([
-            { path: "/repo/a", depth: 1 },
+            { path: "/repo/a", depth: 1, selfIndex: false },
             { path: "/repo/b", depth: 3, selfIndex: false },
             { path: "/repo/c", depth: 0, selfIndex: false },
             { path: "/repo/d", depth: 1, selfIndex: false },

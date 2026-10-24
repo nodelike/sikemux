@@ -1,13 +1,13 @@
 use git2::{BranchType, Repository};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{git_ok, open_repo, remote_names, run_blocking};
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct GitBranch {
-    name: String,
-    current: bool,
-    upstream: Option<String>,
+    pub name: String,
+    pub current: bool,
+    pub upstream: Option<String>,
 }
 
 pub(super) fn read_branches(repo: &Repository) -> Result<Vec<GitBranch>, String> {

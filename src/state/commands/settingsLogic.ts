@@ -4,7 +4,7 @@ export function normaliseProjectRoots(raw: unknown): ProjectRoot[] {
     if (!Array.isArray(raw)) return [];
     return raw
         .map((r): ProjectRoot | null => {
-            if (typeof r === "string") return { path: r, depth: 1 };
+            if (typeof r === "string") return { path: r, depth: 1, selfIndex: false };
             if (r && typeof r === "object" && typeof (r as ProjectRoot).path === "string") {
                 const depth = (r as ProjectRoot).depth;
                 return {

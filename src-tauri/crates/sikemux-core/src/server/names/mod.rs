@@ -282,6 +282,19 @@ impl Names {
         }
     }
 
+    /// Gives each agent the name it goes by.
+    pub(crate) fn fill(&self, agents: &mut [crate::protocol::WorkspaceAgent]) {
+        let book = self.book.locked();
+        let names: HashMap<&str, &str> = book
+            .agents
+            .iter()
+            .map(|entry| (entry.agent_id.as_str(), entry.name.as_str()))
+            .collect();
+        for agent in agents {
+            agent.name = names.get(agent.id.as_str()).map(|name| (*name).to_owned());
+        }
+    }
+
     pub(crate) fn name(&self, agent_id: &str) -> Option<String> {
         self.book
             .locked()

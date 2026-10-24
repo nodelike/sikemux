@@ -4,7 +4,7 @@ import { cyclops, glow, googly, matrix, peekers, soot } from "./packs/eyes";
 import { screens } from "./packs/screens";
 import type { BuddyPack, BuddyShape, BuddyState } from "./shared";
 import type { Agent } from "../state/types";
-import type { AgentGroup } from "../state/agentStatus";
+import type { AgentGroup } from "../api/generated/wire";
 import { EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";
 
 export { DEFAULT_BUDDY_STYLE, EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { secretNote, viaNote, type AgentQuestion } from "../agents/agentQuestions";
+import type { AgentQuestion } from "../api/agentQuestions";
 import { PRIMARY_SHORTCUT } from "../lib/platform";
 import { IconCheck, IconChevron, IconLock, IconPencil } from "../ui/Icons";
 import type { ChatQuestions } from "./useChatQuestions";
@@ -42,7 +42,7 @@ function SecretAnswer({ question, busy, onPick }: { question: AgentQuestion; bus
             </div>
             <div className="chat-ask-private">
                 <IconLock size={12} />
-                <span>{secretNote(question.name)}</span>
+                <span>{question.secretNote}</span>
             </div>
         </form>
     );
@@ -107,7 +107,7 @@ export function QuestionDock({
         ("choice" in picked.answer ? picked.answer.choice === index : "choices" in picked.answer && picked.answer.choices.includes(index));
     const multi = current.multi === true;
     const typed = picked && "answer" in picked.answer && !current.secret ? picked.shown : null;
-    const via = viaNote(current);
+    const via = current.viaNote;
     return (
         <div className="chat-group chat-questions" aria-label={`${count} ${word}`}>
             <div className="chat-questions-head">

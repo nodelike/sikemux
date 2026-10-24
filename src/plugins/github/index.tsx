@@ -12,7 +12,6 @@ registerCodeHost({
     icon: (size) => <GithubMark size={size} className="icon-github" />,
     capabilities: githubCapabilities,
     api: githubHostApi,
-    pullHeadRef: (number) => `pull/${number}/head`,
     avatarForEmail,
     avatarForLogin,
     SignIn: GithubSignIn,

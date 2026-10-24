@@ -1,5 +1,4 @@
 import { createContext, useContext, type ComponentType, type ReactNode } from "react";
-import type { PluginStream, PluginStreamHandlers } from "../plugin-api/backend";
 import { isPluginEnabled } from "../plugins/enabled";
 import type {
     Annotation,
@@ -9,7 +8,6 @@ import type {
     DownloadProgress,
     Issue,
     IssuePage,
-    JobLog,
     JobSummary,
     MergeMethod,
     NewPull,
@@ -25,11 +23,8 @@ import type {
     Resolved,
     Review,
     ReviewEvent,
-    RunDetail,
     RunPage,
     RunQuery,
-    RunTick,
-    RunTiming,
     SavedArtifact,
     TimelineItem,
     Workflow,
@@ -116,15 +111,9 @@ export interface CodeHostApi {
     workflows(repo: RepoRef): Promise<Workflow[]>;
     branches(repo: RepoRef): Promise<string[]>;
     runs(query: RunQuery): Promise<RunPage>;
-    run(repo: RepoRef, runId: string): Promise<RunDetail>;
-    runAttempt(repo: RepoRef, runId: string, attempt: number): Promise<RunDetail>;
-    jobLog(repo: RepoRef, jobId: string): Promise<JobLog>;
     annotations(repo: RepoRef, checkRunId: string): Promise<Annotation[]>;
     jobSummary(repo: RepoRef, checkRunId: string): Promise<JobSummary | null>;
-    runTiming(repo: RepoRef, runId: string): Promise<RunTiming>;
     workflowFile(repo: RepoRef, workflowId: string): Promise<WorkflowFile>;
-    /** A workflow file by its path at a commit, for hosts whose runs can call other workflow files. */
-    workflowFileAt?(repo: RepoRef, path: string, gitRef: string): Promise<WorkflowFile>;
     artifacts(repo: RepoRef, runId: string): Promise<Artifact[]>;
     pendingApprovals(repo: RepoRef, runId: string): Promise<PendingApproval[]>;
     dispatch(repo: RepoRef, workflowId: string, gitRef: string, inputs: Record<string, string>): Promise<void>;
@@ -135,8 +124,6 @@ export interface CodeHostApi {
     deleteRun(repo: RepoRef, runId: string): Promise<void>;
     reviewDeployment(repo: RepoRef, runId: string, environmentIds: number[], state: "approved" | "rejected", comment?: string): Promise<void>;
     downloadArtifact(repo: RepoRef, artifactId: string, name: string, onProgress?: (progress: DownloadProgress) => void): Promise<SavedArtifact>;
-    /** Follows a run while it goes, a tick a read, until it ends or the stream is stopped. */
-    watch(repo: RepoRef, runId: string, handlers: PluginStreamHandlers<RunTick>): PluginStream;
 
     pulls(repo: RepoRef, state: string): Promise<Pull[]>;
     /** How many pull requests the repository has open and closed, for hosts that can count them cheaply. */
@@ -185,8 +172,6 @@ export interface CodeHost {
     readonly avatarForEmail?: (email: string) => string | null;
     /** An account's picture from its name alone, for places the host named someone without sending their picture. */
     readonly avatarForLogin?: (login: string) => string | null;
-    /** The ref a pull request from a fork can be fetched by, such as GitHub's `pull/N/head`. */
-    readonly pullHeadRef?: (number: number) => string;
     /** Shown in the Git pane while nobody is signed in to this host, and to add another account. */
     readonly SignIn: ComponentType<{ onSignedIn: (account: string | null) => void }>;
 }

@@ -317,9 +317,7 @@ struct Answer {
 
 /// Where agents reach the core that started them.
 pub(super) fn endpoint() -> Option<PathBuf> {
-    std::env::var_os(vars::CLI_ENDPOINT)
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
+    sikemux_process::paths::handed_cli_endpoint()
         .or_else(crate::cli::endpoint::default_endpoint_path)
 }
 

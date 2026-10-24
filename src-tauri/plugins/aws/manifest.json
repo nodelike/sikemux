@@ -4,6 +4,19 @@
   "version": "0.1.0",
   "sikemux": ">=0.4",
   "callTimeoutSecs": 150,
+  "views": {
+    "accountView": { "everySecs": 300 },
+    "agentProfileView": { "everySecs": 300 },
+    "billingView": { "everySecs": 600 },
+    "ecsClustersView": { "everySecs": 30 },
+    "ecsServicesView": { "everySecs": 30 },
+    "ecsTasksView": { "everySecs": 15 },
+    "ec2View": { "everySecs": 60 },
+    "lambdaView": { "everySecs": 60 },
+    "sqsView": { "everySecs": 60 },
+    "s3View": { "everySecs": 300 }
+  },
+  "writes": ["pickAgentProfile"],
   "environment": [
     "AWS_CLI",
     "AWS_CONFIG_FILE",

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";
@@ -38,13 +38,13 @@ describe("new tab palette", () => {
         expect(screen.getAllByRole("button").map((row) => row.querySelector("kbd")?.textContent)).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
     });
 
-    it("opens a terminal on 1 and closes itself", () => {
+    it("opens a terminal on 1 and closes itself", async () => {
         const before = (getState().windowsBySession[getState().activeSessionId] ?? []).length;
         render(<NewTabPalette />);
 
         pressKey("1");
 
-        expect((getState().windowsBySession[getState().activeSessionId] ?? []).length).toBe(before + 1);
+        await waitFor(() => expect((getState().windowsBySession[getState().activeSessionId] ?? []).length).toBe(before + 1));
         expect(getState().newTabPaletteOpen).toBe(false);
     });
 

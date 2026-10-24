@@ -9,7 +9,7 @@ import {
   workflowAgentCount,
   workflowAgentDetail,
 } from '@mac/chat/transcript';
-import type { AcpWorkflowAgent } from '@mac/chat/types';
+import type { WorkflowAgent } from '@mac/chat/types';
 import { queuedLabel } from '@mac/chat/queuedMessages';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
@@ -177,7 +177,7 @@ function Line({
   );
 }
 
-function WorkflowAgentMark({ state }: { state: AcpWorkflowAgent['state'] }) {
+function WorkflowAgentMark({ state }: { state: WorkflowAgent['state'] }) {
   const colors = useColors();
   if (state === 'running') return <Working />;
   if (state === 'completed') return <Icon name="IconCheck" size={12} color={mixed(colors.live, colors.inkFaint, 0.58)} />;

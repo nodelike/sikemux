@@ -1,5 +1,5 @@
 use git2::{BranchType, Repository};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::branches::{read_branches, GitBranch};
 use super::status::{
@@ -8,38 +8,38 @@ use super::status::{
 };
 use super::{flight_key, git_walk_permit, open_repo, run_blocking, shared, Flights};
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GitCommit {
     /// Short, human-facing id (`8b075bd`).
-    hash: String,
+    pub hash: String,
     /// Full oid — used by the frontend graph to match parents/children.
-    full_hash: String,
+    pub full_hash: String,
     /// Full oids of this commit's parents (>1 == a merge).
-    parents: Vec<String>,
-    author: String,
+    pub parents: Vec<String>,
+    pub author: String,
     /// Stable key for the author colour chip (initials avatar).
-    author_email: String,
-    date: String,
+    pub author_email: String,
+    pub date: String,
     #[serde(skip)]
-    time: i64,
-    pub(super) subject: String,
+    pub time: i64,
+    pub subject: String,
     /// Its message ends in an agent footer, which only the core can check.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    footer: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub footer: bool,
     /// Ref decorations pointing at this commit: `HEAD`, local branches,
     /// `origin/main`, `tag: v0.1.11`. Rendered as lazygit-style badges.
-    refs: Vec<String>,
+    pub refs: Vec<String>,
     /// True when this commit is ahead of the current branch's upstream
     /// (reachable from HEAD but not from `@{u}`) — i.e. not yet pushed.
     /// Drives the unpushed-vs-pushed lane colour in the graph.
-    unpushed: bool,
+    pub unpushed: bool,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GitOverview {
-    status: GitStatus,
-    branches: Vec<GitBranch>,
-    log: Vec<GitCommit>,
+    pub status: GitStatus,
+    pub branches: Vec<GitBranch>,
+    pub log: Vec<GitCommit>,
 }
 
 pub(super) fn relative_time(secs: i64) -> String {

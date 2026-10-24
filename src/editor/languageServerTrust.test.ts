@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { languageServersAllowed } from "./languageServerTrust";
 import { getState, setState } from "../state/store";
+import { testPreferences } from "../test/preferences";
 
 describe("languageServersAllowed", () => {
-    beforeEach(() => setState({ languageServerTrust: {} }));
+    beforeEach(() => setState({ preferences: testPreferences() }));
 
     it("asks once per project, even when several files open together, and remembers the answer", async () => {
         const ask = vi.fn().mockResolvedValue(true);
@@ -13,7 +14,7 @@ describe("languageServersAllowed", () => {
         expect(answers).toEqual([true, true]);
         expect(ask).toHaveBeenCalledOnce();
         expect(ask.mock.calls[0][0]).toMatchObject({ title: "Start language servers for repo?" });
-        expect(getState().languageServerTrust).toEqual({ "/repo": true });
+        expect(getState().preferences?.languageServerTrust).toEqual({ "/repo": true });
         await expect(languageServersAllowed("/repo", ask)).resolves.toBe(true);
         expect(ask).toHaveBeenCalledOnce();
     });
@@ -25,6 +26,6 @@ describe("languageServersAllowed", () => {
         await expect(languageServersAllowed("/untrusted", ask)).resolves.toBe(false);
 
         expect(ask).toHaveBeenCalledOnce();
-        expect(getState().languageServerTrust).toEqual({ "/untrusted": false });
+        expect(getState().preferences?.languageServerTrust).toEqual({ "/untrusted": false });
     });
 });

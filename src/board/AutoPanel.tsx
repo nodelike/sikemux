@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { BoardAuto, SettingsChanges } from "../agents/agentBoard";
-import { type ChatAgentType } from "../agents/catalog";
 import { agentBoardApi } from "../api/agentBoard";
 import { LaunchPicker, type LaunchChoice } from "../chat/LaunchPicker";
 import { launcherId } from "../remote/workspace";
@@ -26,7 +25,7 @@ const FINISH_OPTIONS: DropdownOption[] = [
 function choiceOf(launcher: string | null | undefined, provider: string | null, model: string | null): LaunchChoice | null {
     if (!launcher) return null;
     const [type, profileId] = launcher.split(":");
-    return { type: type as ChatAgentType, profileId, provider, model };
+    return { type: type, profileId, provider, model };
 }
 
 /** How the project's board runs on its own, opened beside the board. */

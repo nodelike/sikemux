@@ -1,6 +1,5 @@
 import { git } from "../api/git";
 import { worktreeHasLiveOwners } from "../git/worktreeLifecycle";
-import { isAgentBusy } from "../state/agentStatus";
 import { emit } from "../state/bus";
 import * as cmd from "../state/commands";
 import { confirmDialog } from "../state/dialog";
@@ -35,7 +34,7 @@ export async function removeAgentWorktree(agentId: string, pullMerged = false): 
         notify("info", "Another agent or project still uses this worktree. Close it before removing the worktree.");
         return;
     }
-    if (isAgentBusy(state.agentStatus[agentId])) {
+    if (state.agentStatus[agentId]?.busy) {
         notify("info", "Stop the agent's turn before removing its worktree");
         return;
     }

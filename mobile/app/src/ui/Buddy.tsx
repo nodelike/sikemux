@@ -3,16 +3,21 @@ import { Animated, Easing } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 
 import { buddyStateOfGroup, type BuddyState } from '@mac/buddies/catalogue';
-import { publishedBuddy, type PublishedBuddies } from '@mac/buddies/published';
-import { buddyMarkup } from '@mac/buddies/render';
-import type { AgentGroup } from '@/core/protocol';
+import { drawnFace, type DrawnFace } from '@mac/buddies/faces';
+import { buddyMarkup, FULL_BOX } from '@mac/buddies/render';
+import type { AgentFace as Face, AgentGroup, FaceStyle } from '@/core/protocol';
 import { AgentIcon } from '@/ui/Icon';
 import { useAnimating } from '@/ui/motion';
 
-/** The buddies the host's app draws. */
-export const BuddiesContext = createContext<PublishedBuddies | undefined>(undefined);
+/** The faces the host's agents wear, by agent id, and the style they are drawn in. */
+export interface Faces {
+  readonly faces: Readonly<Record<string, Face | null>>;
+  readonly style: FaceStyle;
+}
 
-export const useBuddies = () => useContext(BuddiesContext);
+export const FacesContext = createContext<Faces | undefined>(undefined);
+
+export const useFaces = () => useContext(FacesContext);
 
 type Motion = { axis: 'translateX' | 'translateY'; ms: number; at: number[]; by: number[]; bounce?: boolean };
 
@@ -47,21 +52,22 @@ function Moving({ motion, scale, children }: { motion: Motion; scale: number; ch
 
 /** An agent's character as the host's app draws it, moving as it does there while motion is allowed. */
 export const Buddy = memo(function Buddy({
-  buddies,
-  agentId,
+  look,
+  moves,
   state,
   size,
 }: {
-  buddies: PublishedBuddies;
-  agentId: string;
+  look: DrawnFace;
+  moves: boolean;
   state: BuddyState;
   size: number;
 }) {
   const [uid] = useState(() => `bd${++nextUid}`);
-  const { pack, shape, color, box } = useMemo(() => publishedBuddy(buddies, agentId), [buddies, agentId]);
+  const { pack, shape, color } = look;
+  const box = look.box ?? FULL_BOX;
   const xml = useMemo(() => buddyMarkup(pack, shape, color, state, uid, box), [pack, shape, color, state, uid, box]);
   const animating = useAnimating();
-  const motion = buddies.motion && animating ? MOTION[state] : undefined;
+  const motion = moves && animating ? MOTION[state] : undefined;
   const art = <SvgXml xml={xml} width={size} height={size} />;
   if (!motion) return art;
   const side = Number(box.split(' ')[2]) || 24;
@@ -72,7 +78,10 @@ export const Buddy = memo(function Buddy({
   );
 });
 
-/** The agent's buddy while the host's app draws buddies, otherwise its agent's logo, as the app's own faces do. */
+/**
+ * The face the host gave the agent, otherwise its agent's logo. One the host has not listed, such as a chat about to
+ * start, wears the face the host's style gives it while faces are on.
+ */
 export function AgentFace({
   agentId,
   provider,
@@ -86,9 +95,15 @@ export function AgentFace({
   size: number;
   logoSize?: number;
 }) {
-  const buddies = useBuddies();
-  return buddies && agentId && buddies.on ? (
-    <Buddy buddies={buddies} agentId={agentId} state={buddyStateOfGroup(group)} size={size} />
+  const faces = useFaces();
+  const face = agentId ? faces?.faces[agentId] : undefined;
+  const wears = face === undefined ? !!faces?.style.on : face !== null;
+  const look = useMemo(
+    () => (faces && agentId && wears ? drawnFace({ id: agentId }, face, faces.style) : null),
+    [faces, agentId, wears, face],
+  );
+  return look && faces ? (
+    <Buddy look={look} moves={faces.style.motion} state={buddyStateOfGroup(group)} size={size} />
   ) : (
     <AgentIcon provider={provider} size={logoSize} />
   );

@@ -2,6 +2,8 @@ export enum CryptoDigestAlgorithm {
   SHA256 = 'SHA-256',
 }
 
+export const randomUUID = (): string => crypto.randomUUID();
+
 export const getRandomBytes = (count: number): Uint8Array => crypto.getRandomValues(new Uint8Array(count));
 
 export async function digestStringAsync(algorithm: CryptoDigestAlgorithm, text: string): Promise<string> {

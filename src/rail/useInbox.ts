@@ -3,7 +3,7 @@ import { INBOX_EVENT, inboxApi, type Inbox, type InboxItem } from "../api/inbox"
 import { getIpcTransport } from "../api/transport";
 import { externalValue, useExternalValue } from "../lib/externalValue";
 import { agentWindowId, ownerSessionId, projectSessionId } from "../state/selectors";
-import type { AgentShown } from "../state/agentStatus";
+import type { AgentShown } from "../api/generated/wire";
 import { setAgentStatus } from "../state/commands/agents";
 import type { StoreState } from "../state/store";
 import { swallow } from "../state/toast";
@@ -12,11 +12,13 @@ interface InboxState {
     inbox: Inbox;
 }
 
-const state = externalValue<InboxState>({ inbox: { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [] } });
+const state = externalValue<InboxState>({
+    inbox: { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [], projects: {}, rollup: null },
+});
 let started = false;
 
 function take(inbox: Inbox): void {
-    setAgentStatus(inbox.agents);
+    setAgentStatus(inbox);
     state.set({ inbox });
 }
 

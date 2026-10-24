@@ -18,9 +18,8 @@ export function BuddyPickerHost() {
 function BuddyPicker({ agent }: { agent: Agent }) {
     const modalRef = useRef<HTMLDivElement>(null);
     useModalFocus(modalRef);
-    const defaultPack = useStore((s) => s.buddyPack);
-    const defaultShape = useStore((s) => s.buddyShape);
-    const look = resolveBuddy(agent, { pack: defaultPack, shape: defaultShape });
+    const style = useStore((s) => s.faceStyle);
+    const look = resolveBuddy(agent, style);
     const [packId, setPackId] = useState(look.pack.id);
     const [hovered, setHovered] = useState<BuddyShape | null>(null);
     const pack = BUDDY_PACKS.find((candidate) => candidate.id === packId) ?? look.pack;

@@ -1,4 +1,5 @@
-import { publishedBuddy, type PublishedBuddies } from "./published";
+import type { AgentFace } from "../api/generated/wire";
+import { packById } from "./catalogue";
 import { buddyMarkup } from "./render";
 import type { BuddyState } from "./shared";
 
@@ -10,10 +11,12 @@ function firstAttributes(markup: string): string {
     });
 }
 
-/** An agent's buddy as a standalone SVG document, for the notch to draw without a page; null when it shows its agent's logo instead. */
-export function notchBuddy(buddies: PublishedBuddies, agentId: string, state: BuddyState): string | null {
-    if (!buddies.on) return null;
-    const { pack, shape, color, box } = publishedBuddy(buddies, agentId);
-    const markup = buddyMarkup(pack, shape, color, state, "notch", box).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
+/** The face the core gave an agent, as a standalone SVG document for the notch to draw; null for one it does not know. */
+export function notchFace(face: AgentFace, state: BuddyState): string | null {
+    const pack = packById(face.pack);
+    const shape = pack?.shapes.find((candidate) => candidate.id === face.shape);
+    if (!pack || !shape) return null;
+    const color = pack.colors[face.color % pack.colors.length];
+    const markup = buddyMarkup(pack, shape, color, state, "notch", face.box).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
     return firstAttributes(markup);
 }

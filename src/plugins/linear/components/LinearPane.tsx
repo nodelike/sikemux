@@ -3,9 +3,10 @@ import { copyWithNotice, notify, openUrl, reportError, swallow } from "../../../
 import { errorText, formatStamp } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { Dropdown, EmptyState, Loaded, Markdown, Pending, SendToAgentMenu, SignedIn, StaleNotice } from "../../../plugin-api/ui";
-import { linearApi, type LinearChange, type LinearIssue, type LinearStatus } from "../api";
-import { linear, linearIssueR, linearIssuesR } from "../resources";
-import { issueForAgent, updateLinearView, useLinearView } from "../state";
+import { linearApi, type LinearChange, type LinearStatus } from "../api";
+import { linear, linearIssueV, linearListV } from "../resources";
+import { updateLinearView, useLinearView } from "../state";
+import type { LinearIssueRow } from "../types.generated";
 import { LinearSignIn } from "./LinearSignIn";
 import "../linear.css";
 
@@ -26,10 +27,10 @@ function LinearWorkspace({ paneId, active, status }: { paneId: string; active: b
     const workspace =
         status.workspaces.find((each) => each.id === view.workspace) ?? status.workspaces.find((each) => each.isDefault) ?? status.workspaces[0];
     const [words, setWords] = useState(view.query);
-    const issues = useResourceEnabled(active && !!workspace, linearIssuesR, workspace?.id ?? "", view.query);
+    const issues = useResourceEnabled(active && !!workspace, linearListV, paneId, workspace?.id ?? "", view.query);
     if (!workspace) return null;
 
-    const row = (issue: LinearIssue) => (
+    const row = (issue: LinearIssueRow) => (
         <button
             key={issue.id}
             type="button"
@@ -75,13 +76,10 @@ function LinearWorkspace({ paneId, active, status }: { paneId: string; active: b
                     aria-label="Search Linear issues"
                     spellCheck={false}
                 />
-                <div className="plugin-heading">{view.query ? `Matching “${view.query}”` : "My open issues"}</div>
+                {issues.data && <div className="plugin-heading">{issues.data.heading}</div>}
                 <StaleNotice handle={issues} />
-                <Loaded
-                    handle={issues}
-                    loading="Loading issues"
-                    empty={(found) => (found.length > 0 ? null : view.query ? "No issue matches." : "Nothing assigned to you is open.")}>
-                    {(found) => <div className="linear-rows">{found.map(row)}</div>}
+                <Loaded handle={issues} loading="Loading issues" empty={(found) => (found.issues.length > 0 ? null : found.empty)}>
+                    {(found) => <div className="linear-rows">{found.issues.map(row)}</div>}
                 </Loaded>
                 <button
                     type="button"
@@ -96,7 +94,13 @@ function LinearWorkspace({ paneId, active, status }: { paneId: string; active: b
                 </button>
             </nav>
             {view.issue ? (
-                <IssueView active={active} workspace={workspace.id} id={view.issue} onClose={() => updateLinearView(paneId, { issue: null })} />
+                <IssueView
+                    paneId={paneId}
+                    active={active}
+                    workspace={workspace.id}
+                    id={view.issue}
+                    onClose={() => updateLinearView(paneId, { issue: null })}
+                />
             ) : (
                 <div className="linear-detail">
                     <EmptyState message="Pick an issue to read it, comment on it or move it." />
@@ -106,22 +110,30 @@ function LinearWorkspace({ paneId, active, status }: { paneId: string; active: b
     );
 }
 
-function IssueView({ active, workspace, id, onClose }: { active: boolean; workspace: string; id: string; onClose: () => void }) {
-    const found = useResourceEnabled(active, linearIssueR, workspace, id);
+function IssueView({
+    paneId,
+    active,
+    workspace,
+    id,
+    onClose,
+}: {
+    paneId: string;
+    active: boolean;
+    workspace: string;
+    id: string;
+    onClose: () => void;
+}) {
+    const found = useResourceEnabled(active, linearIssueV, `${paneId}/issue`, workspace, id);
     const [draft, setDraft] = useState("");
     const [busy, setBusy] = useState(false);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const issue = found.data;
 
-    const changed = () => linear.refresh(linearIssuesR, linearIssueR);
     const change = (what: LinearChange, done: string) => {
         setBusy(true);
         void linearApi
             .update(workspace, id, what)
-            .then(() => {
-                notify("success", done);
-                changed();
-            })
+            .then(() => notify("success", done))
             .catch((error: unknown) => notify("error", `Change ${id}: ${errorText(error)}`))
             .finally(() => setBusy(false));
     };
@@ -131,10 +143,7 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
         setBusy(true);
         void linearApi
             .comment(workspace, id, body)
-            .then(() => {
-                setDraft("");
-                changed();
-            })
+            .then(() => setDraft(""))
             .catch(reportError(`Comment on ${id}`))
             .finally(() => setBusy(false));
     };
@@ -147,7 +156,6 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
         );
     }
 
-    const states = [...issue.team.states].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     return (
         <section className="linear-detail" aria-label={`${issue.identifier} ${issue.title}`}>
             <StaleNotice handle={found} />
@@ -173,13 +181,13 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
                 <Dropdown
                     label="State"
                     value={issue.state.id}
-                    options={states.map((state) => ({ value: state.id, label: state.name }))}
+                    options={issue.states.map((state) => ({ value: state.id, label: state.name }))}
                     onChange={(stateId) => {
-                        const state = states.find((each) => each.id === stateId);
+                        const state = issue.states.find((each) => each.id === stateId);
                         if (state && state.id !== issue.state.id) change({ state: state.name }, `${issue.identifier} is ${state.name}`);
                     }}
                 />
-                <span className="linear-fact">{issue.assignee ? issue.assignee.displayName || issue.assignee.name : "Unassigned"}</span>
+                <span className="linear-fact">{issue.assignee ?? "Unassigned"}</span>
                 {!issue.assignee && (
                     <button
                         type="button"
@@ -189,16 +197,16 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
                         Assign to me
                     </button>
                 )}
-                {issue.priority > 0 && <span className="linear-fact">{issue.priorityLabel}</span>}
+                {issue.priority && <span className="linear-fact">{issue.priority}</span>}
                 {issue.labels.map((label) => (
-                    <span key={label.id} className="linear-label">
+                    <span key={label.name} className="linear-label">
                         <StateDot color={label.color} />
                         {label.name}
                     </span>
                 ))}
             </div>
             <div className="linear-body">
-                {issue.description?.trim() ? (
+                {issue.description ? (
                     <Markdown className="prose linear-description">{issue.description}</Markdown>
                 ) : (
                     <p className="plugin-note">No description.</p>
@@ -208,7 +216,7 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
                 {issue.comments.map((each) => (
                     <article key={each.id} className="linear-comment">
                         <header>
-                            <b>{each.user?.displayName || each.user?.name || "Someone"}</b>
+                            <b>{each.author}</b>
                             <span>{formatStamp(each.createdAt)}</span>
                         </header>
                         <Markdown className="prose">{each.body}</Markdown>
@@ -229,9 +237,7 @@ function IssueView({ active, workspace, id, onClose }: { active: boolean; worksp
                     {busy ? "Saving…" : "Comment"}
                 </button>
             </div>
-            {menu && (
-                <SendToAgentMenu x={menu.x} y={menu.y} alignRight delivery={() => ({ text: issueForAgent(issue) })} onClose={() => setMenu(null)} />
-            )}
+            {menu && <SendToAgentMenu x={menu.x} y={menu.y} alignRight delivery={() => ({ text: issue.forAgent })} onClose={() => setMenu(null)} />}
         </section>
     );
 }

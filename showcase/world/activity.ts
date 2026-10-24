@@ -29,6 +29,7 @@ function demoDays(today: number): ActivityDay[] {
     if (rest) continue;
     const ramp = Math.min(1, 0.15 + (day - first) / RAMP_DAYS);
     const load = ramp * swing * (weekend ? 0.45 : 1);
+    const level = Math.min(4, 1 + Math.floor(load * 3));
     days.push({
       day,
       sessions: Math.max(1, Math.round(7 * load)),
@@ -36,6 +37,13 @@ function demoDays(today: number): ActivityDay[] {
       commits: Math.round(11 * load * (0.4 + random() * 0.9)),
       tokens: Math.round(46_000_000 * load),
       costUsd: Math.round(4_100 * load * (0.8 + random() * 0.4)) / 100,
+      levels: {
+        sessions: level,
+        agentMs: level,
+        commits: level,
+        tokens: level,
+        costUsd: level,
+      },
     });
   }
   return days;
@@ -58,7 +66,7 @@ function share(
 
 export function demoActivity(): ActivitySummary {
   const days = demoDays(localDay());
-  const sum = (field: keyof Omit<ActivityDay, "day">) =>
+  const sum = (field: keyof Omit<ActivityDay, "day" | "levels">) =>
     days.reduce((total, day) => total + day[field], 0);
   const whole = {
     sessions: sum("sessions"),
@@ -101,6 +109,7 @@ export function demoActivity(): ActivitySummary {
       unpricedTokens: 0,
     },
     days,
+    streaks: { activeDays: days.length, longest: 23, current: 9 },
     agents: [
       share("claude", 0.54, whole),
       share("codex", 0.35, whole),

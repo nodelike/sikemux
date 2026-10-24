@@ -3,9 +3,10 @@ import { errorText, formatStamp } from "../../../plugin-api/format";
 import { copyWithNotice, notify, openUrl, reportError, swallow } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { Dropdown, EmptyState, Loaded, Markdown, SendToAgentMenu, SignedIn, StaleNotice } from "../../../plugin-api/ui";
-import { slackApi, type SlackChannel, type SlackMessage, type SlackStatus } from "../api";
-import { slack, slackChannelsR, slackHistoryR, slackThreadR } from "../resources";
-import { threadForAgent, updateSlackView, useSlackView } from "../state";
+import { slackApi, type SlackStatus } from "../api";
+import { slack, slackChannelsV, slackHistoryV, slackThreadV } from "../resources";
+import { updateSlackView, useSlackView } from "../state";
+import type { SlackChannel, SlackChannelKind, SlackMessage } from "../types.generated";
 import { SlackSignIn } from "./SlackSignIn";
 import "../slack.css";
 
@@ -17,23 +18,23 @@ export function SlackPane({ paneId, active }: { paneId: string; active: boolean 
     );
 }
 
-const KIND_MARK: Record<SlackChannel["kind"], string> = { channel: "#", private: "🔒", dm: "●", group: "◍" };
+const KIND_MARK: Record<SlackChannelKind, string> = { channel: "#", private: "🔒", dm: "●", group: "◍" };
 
 function SlackWorkspace({ paneId, active, status }: { paneId: string; active: boolean; status: SlackStatus }) {
     const view = useSlackView(paneId);
     const workspace =
         status.workspaces.find((each) => each.id === view.workspace) ?? status.workspaces.find((each) => each.isDefault) ?? status.workspaces[0];
-    const channels = useResourceEnabled(active && !!workspace, slackChannelsR, workspace?.id ?? "");
+    const channels = useResourceEnabled(active && !!workspace, slackChannelsV, paneId, workspace?.id ?? "");
     const [filter, setFilter] = useState("");
     const [link, setLink] = useState("");
     const [opening, setOpening] = useState(false);
     if (!workspace) return null;
 
     const words = filter.trim().toLowerCase();
-    const shown = (channels.data ?? []).filter((channel) => !words || channel.name.toLowerCase().includes(words));
-    const rooms = shown.filter((channel) => channel.kind === "channel" || channel.kind === "private");
-    const people = shown.filter((channel) => channel.kind === "dm" || channel.kind === "group");
-    const current = channels.data?.find((channel) => channel.id === view.channel) ?? null;
+    const matches = (channel: SlackChannel) => !words || channel.name.toLowerCase().includes(words);
+    const rooms = (channels.data?.rooms ?? []).filter(matches);
+    const people = (channels.data?.people ?? []).filter(matches);
+    const current = [...(channels.data?.rooms ?? []), ...(channels.data?.people ?? [])].find((channel) => channel.id === view.channel) ?? null;
 
     const openLink = async () => {
         if (!link.trim() || opening) return;
@@ -121,6 +122,7 @@ function SlackWorkspace({ paneId, active, status }: { paneId: string; active: bo
             </nav>
             {view.channel ? (
                 <ChannelView
+                    paneId={paneId}
                     active={active}
                     workspace={workspace.id}
                     channel={view.channel}
@@ -135,11 +137,11 @@ function SlackWorkspace({ paneId, active, status }: { paneId: string; active: bo
             )}
             {view.thread && (
                 <ThreadView
+                    paneId={paneId}
                     active={active}
                     workspace={workspace.id}
                     channel={view.thread.channel}
                     ts={view.thread.ts}
-                    channelName={current?.name ?? null}
                     onClose={() => updateSlackView(paneId, { thread: null })}
                 />
             )}
@@ -170,6 +172,7 @@ function MessageView({ message, onThread, open }: { message: SlackMessage; onThr
 }
 
 function ChannelView({
+    paneId,
     active,
     workspace,
     channel,
@@ -177,6 +180,7 @@ function ChannelView({
     openThread,
     onThread,
 }: {
+    paneId: string;
     active: boolean;
     workspace: string;
     channel: string;
@@ -184,20 +188,23 @@ function ChannelView({
     openThread: string | null;
     onThread: (ts: string | null) => void;
 }) {
-    const history = useResourceEnabled(active, slackHistoryR, workspace, channel);
+    const history = useResourceEnabled(active, slackHistoryV, paneId, workspace, channel);
     return (
         <section className="slack-main" aria-label={title}>
             <header className="slack-main-head">
                 <h2>{title}</h2>
-                <button type="button" className="plugin-chip" onClick={() => void history.refresh()}>
+                <button type="button" className="plugin-chip" onClick={() => void slack.readAgain("historyView").catch(swallow("read Slack again"))}>
                     Refresh
                 </button>
             </header>
             <StaleNotice handle={history} />
             <div className="slack-messages">
-                <Loaded handle={history} loading="Loading messages" empty={(messages) => (messages.length > 0 ? null : "No messages here yet.")}>
-                    {(messages) =>
-                        messages.map((message) => (
+                <Loaded
+                    handle={history}
+                    loading="Loading messages"
+                    empty={(history) => (history.messages.length > 0 ? null : "No messages here yet.")}>
+                    {(history) =>
+                        history.messages.map((message) => (
                             <MessageView
                                 key={message.ts}
                                 message={message}
@@ -213,21 +220,21 @@ function ChannelView({
 }
 
 function ThreadView({
+    paneId,
     active,
     workspace,
     channel,
     ts,
-    channelName,
     onClose,
 }: {
+    paneId: string;
     active: boolean;
     workspace: string;
     channel: string;
     ts: string;
-    channelName: string | null;
     onClose: () => void;
 }) {
-    const thread = useResourceEnabled(active, slackThreadR, workspace, channel, ts);
+    const thread = useResourceEnabled(active, slackThreadV, paneId, workspace, channel, ts);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const [draft, setDraft] = useState("");
     const [sending, setSending] = useState(false);
@@ -238,7 +245,6 @@ function ThreadView({
         try {
             await slackApi.reply(workspace, channel, ts, draft.trim());
             setDraft("");
-            slack.refresh(slackThreadR, slackHistoryR);
         } catch (error) {
             notify("error", `Reply: ${errorText(error)}`);
         } finally {
@@ -246,7 +252,7 @@ function ThreadView({
         }
     };
 
-    const found = thread.data;
+    const found = thread.data?.thread;
     return (
         <aside className="slack-thread" aria-label="Thread">
             <header className="slack-main-head">
@@ -283,7 +289,7 @@ function ThreadView({
             <StaleNotice handle={thread} />
             <div className="slack-messages">
                 <Loaded handle={thread} loading="Loading the thread" rows={4}>
-                    {(open) => open.messages.map((message) => <MessageView key={message.ts} message={message} />)}
+                    {(open) => open.thread.messages.map((message) => <MessageView key={message.ts} message={message} />)}
                 </Loaded>
             </div>
             <div className="slack-composer">
@@ -300,12 +306,12 @@ function ThreadView({
                     {sending ? "Sending…" : "Reply"}
                 </button>
             </div>
-            {menu && found && (
+            {menu && thread.data && (
                 <SendToAgentMenu
                     x={menu.x}
                     y={menu.y}
                     alignRight
-                    delivery={() => ({ text: threadForAgent(found, channelName) })}
+                    delivery={() => ({ text: thread.data?.forAgent ?? "" })}
                     onClose={() => setMenu(null)}
                 />
             )}

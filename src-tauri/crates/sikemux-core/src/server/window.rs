@@ -1,6 +1,10 @@
 //! The app's window as a client of the core. Tool calls that need the window,
-//! such as reading its layout or opening a file in it, are sent to whichever
-//! connection registered last, and its answer is handed back to the caller.
+//! such as reading its layout or driving its browser, are sent to the window
+//! that registered last, which a window does again when the person brings it
+//! forward, and its answer is handed back to the caller. When that window
+//! closes, the one before it takes the calls that follow. An agent's browser
+//! and simulator live in the window that first answered it, so its calls to
+//! them keep going there while that window is open.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,6 +21,8 @@ use super::connection::{ClientConn, ClientId};
 
 /// Calls the window has not answered yet, beyond which a new one is refused.
 const MAX_PENDING_CALLS: usize = 64;
+/// Agents remembered by the window that holds their browser.
+const MAX_PINS: usize = 1_024;
 const WINDOW_GONE: &str = "Sikemux's window closed before it answered";
 /// How long an agent asked for while no window was open is still shown once
 /// one opens, which covers the app starting.
@@ -35,7 +41,10 @@ struct Pending {
 
 #[derive(Default)]
 struct Inner {
-    client: Option<Arc<ClientConn>>,
+    /// Every window open, the one that registered last at the end.
+    clients: Vec<Arc<ClientConn>>,
+    /// The window each agent's browser and simulator live in, by agent id.
+    pins: HashMap<String, ClientId>,
     calls: HashMap<CallId, Pending>,
     focus: Option<(String, Instant)>,
 }
@@ -71,21 +80,13 @@ impl Window {
         self.next_call.fetch_max(mark, Ordering::AcqRel);
     }
 
-    pub(crate) fn is_window(&self, client: ClientId) -> bool {
-        self.inner
-            .locked()
-            .client
-            .as_ref()
-            .is_some_and(|window| window.id == client)
-    }
-
-    /// The connection the window speaks through, while one is open.
+    /// The connection the window in front speaks through, while one is open.
     pub(crate) fn client_id(&self) -> Option<ClientId> {
-        self.inner.locked().client.as_ref().map(|client| client.id)
+        self.inner.locked().clients.last().map(|client| client.id)
     }
 
     pub(crate) fn is_open(&self) -> bool {
-        self.inner.locked().client.is_some()
+        !self.inner.locked().clients.is_empty()
     }
 
     fn fail(calls: impl IntoIterator<Item = Pending>) {
@@ -102,7 +103,7 @@ impl Window {
     /// Sends the window an event no other client hears. False when no window
     /// is open.
     pub(crate) fn tell(&self, event: Event) -> bool {
-        let Some(client) = self.inner.locked().client.clone() else {
+        let Some(client) = self.inner.locked().clients.last().cloned() else {
             return false;
         };
         let Ok(frame) = encode_control(&ServerMessage::Event { event }) else {
@@ -123,30 +124,25 @@ impl Window {
         shown
     }
 
+    /// Puts the window `client` speaks for in front, so the calls that follow
+    /// go to it. Calls already sent to another window stay with that one.
     pub(crate) fn register(&self, client: Arc<ClientConn>) {
-        let (orphaned, focus) = {
+        let focus = {
             let mut inner = self.inner.locked();
-            let previous = inner.client.replace(client.clone());
-            if previous.is_some_and(|previous| previous.id == client.id) {
+            if inner
+                .clients
+                .last()
+                .is_some_and(|last| last.id == client.id)
+            {
                 return;
             }
-            let focus = inner
+            inner.clients.retain(|known| known.id != client.id);
+            inner.clients.push(client);
+            inner
                 .focus
                 .take()
-                .filter(|(_, asked)| asked.elapsed() < FOCUS_HELD);
-            let stale: Vec<CallId> = inner
-                .calls
-                .iter()
-                .filter(|(_, call)| call.client != client.id)
-                .map(|(id, _)| *id)
-                .collect();
-            let orphaned = stale
-                .into_iter()
-                .filter_map(|id| inner.calls.remove(&id))
-                .collect::<Vec<_>>();
-            (orphaned, focus)
+                .filter(|(_, asked)| asked.elapsed() < FOCUS_HELD)
         };
-        Self::fail(orphaned);
         if let Some((agent_id, _)) = focus {
             self.tell(Event::FocusAgent { agent_id });
         }
@@ -155,13 +151,8 @@ impl Window {
     pub(crate) fn unregister(&self, client: ClientId) {
         let orphaned = {
             let mut inner = self.inner.locked();
-            if inner
-                .client
-                .as_ref()
-                .is_some_and(|current| current.id == client)
-            {
-                inner.client = None;
-            }
+            inner.clients.retain(|known| known.id != client);
+            inner.pins.retain(|_, pinned| *pinned != client);
             let gone: Vec<CallId> = inner
                 .calls
                 .iter()
@@ -178,14 +169,29 @@ impl Window {
     /// Sends the call, or says why it cannot: `purpose` finishes the sentence
     /// "open Sikemux to …". A call that `waits` stays open after its answer
     /// until the window says its tabs closed.
+    /// `pinned` names the agent whose browser or simulator the call drives,
+    /// which goes to the window holding them.
     pub(crate) fn call(
         &self,
         call: WindowCall,
         purpose: &str,
         waits: bool,
+        pinned: Option<&str>,
     ) -> Result<Call, String> {
         let mut inner = self.inner.locked();
-        let client = inner.client.clone().ok_or_else(|| not_open(purpose))?;
+        let held = pinned
+            .and_then(|agent| inner.pins.get(agent))
+            .and_then(|id| inner.clients.iter().find(|client| client.id == *id));
+        let client = held
+            .or_else(|| inner.clients.last())
+            .cloned()
+            .ok_or_else(|| not_open(purpose))?;
+        if let Some(agent) = pinned {
+            if inner.pins.len() >= MAX_PINS && !inner.pins.contains_key(agent) {
+                inner.pins.clear();
+            }
+            inner.pins.insert(agent.to_owned(), client.id);
+        }
         if inner.calls.len() >= MAX_PENDING_CALLS {
             return Err("Sikemux's window has too many tool calls waiting; retry shortly".into());
         }

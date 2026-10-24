@@ -30,6 +30,7 @@ import { turnDegrees, TURNS } from "./orientation";
 import { playScreen, type ScreenPlayer } from "./screenStream";
 import { loadSimStatus, prepareSim, simUsable, useSimStatus } from "./simStatus";
 import "../styles/simulator.css";
+import { preferencesOf } from "../state/preferences";
 
 const NAMED_KEYS = new Set(["Enter", "Escape", "Backspace", "Delete", "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]);
 const REFRESH_MS = 5000;
@@ -212,7 +213,7 @@ export function SimulatorPane({
     const [streamAttempt, setStreamAttempt] = useState(0);
     const player = useRef<ScreenPlayer | null>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const showFrame = useStore((state) => state.simulatorFrame);
+    const showFrame = useStore((state) => preferencesOf(state).simulatorFrame);
     const [room, setRoom] = useState<{ width: number; height: number } | null>(null);
     const stageRef = useRef<HTMLDivElement>(null);
     useEffect(() => {

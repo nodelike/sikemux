@@ -8,7 +8,6 @@
 //!   remote mac <socket> chat [prompt]      starts a chat with it
 //!   remote mac <socket> say <agent> <text>
 //!   remote mac <socket> backdrop on|off [image.jpg]  publishes the pane backdrop
-//!   remote mac <socket> palette <name=colour>…  publishes theme colours
 //!   remote mac <socket> chats              lists the chats running on the core
 //!   remote mac <socket> sleepy             keeps a sleeping chat for a device to wake
 //! As a device, keeping its key in `<key-file>`:
@@ -39,7 +38,6 @@ async fn main() -> Result<(), Failure> {
         ["mac", socket, "say", agent, text @ ..] => say(Path::new(socket), agent, &text.join(" ")).await,
         ["mac", socket, "sleepy"] => sleepy(Path::new(socket)).await,
         ["mac", socket, "chats"] => chats(Path::new(socket)).await,
-        ["mac", socket, "palette", colours @ ..] => palette(Path::new(socket), colours).await,
         ["mac", socket, "backdrop", texture, image @ ..] => backdrop(Path::new(socket), *texture == "on", image.first().copied()).await,
         ["mac", socket, action] => mac(Path::new(socket), action).await,
         ["device", key, "sessions", core] => sessions(Path::new(key), core).await,
@@ -163,18 +161,6 @@ fn base64(bytes: &[u8]) -> String {
         }
     }
     out
-}
-
-async fn palette(socket: &Path, colours: &[&str]) -> Result<(), Failure> {
-    let (client, _events) = CoreClient::connect(socket).await?;
-    let palette = colours
-        .iter()
-        .filter_map(|pair| pair.split_once('='))
-        .map(|(name, colour)| (name.to_owned(), colour.to_owned()))
-        .collect();
-    client.publish_palette(palette).await?;
-    println!("published the palette");
-    Ok(())
 }
 
 async fn chats(socket: &Path) -> Result<(), Failure> {

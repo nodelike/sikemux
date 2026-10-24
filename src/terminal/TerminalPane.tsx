@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ISearchResultChangeEvent } from "@xterm/addon-search";
-import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { usePty } from "./usePty";
-import { useXterm } from "./useXterm";
+import { useTerminal } from "./useTerminal";
+import type { SearchResults } from "./view";
 import type { TerminalSearchOptions } from "./interactions";
 import { TerminalFindBar } from "./TerminalFindBar";
 import { TerminalContextMenu } from "./TerminalContextMenu";
 import type { PtyContext, PtyDirectCommand } from "../state/types";
-import { applyPtyShellMetadataEvent, ptyShellAtPrompt, type PtyShellMetadataEvent } from "../api/ptyShell";
+import { applyPtyShellMetadataEvent, type PtyShellMetadataEvent } from "../api/ptyShell";
+import { ptyCall } from "../api/core";
 import type { PtyShellMetadataSnapshot } from "./ptyController";
 import { basename } from "../lib/paths";
 import { SendToAgentMenu } from "../agents/SendToAgentMenu";
@@ -30,10 +30,8 @@ function enforceHiddenRendererBudget() {
 export function TerminalPane({
     cwd,
     startup,
-    reconnect,
+    reconnects,
     directCommand,
-    initialDropPaths,
-    initialInput,
     initialDraft,
     onInitialInputDelivered,
     active,
@@ -49,13 +47,9 @@ export function TerminalPane({
 }: {
     cwd?: string;
     startup?: string;
-    /** Typed in when the pane becomes active and its shell sits at the prompt, such as after SSH gave up. */
-    reconnect?: string;
+    /** An ssh terminal, which connects again when the pane becomes active and its shell sits at the prompt, as after SSH gave up. */
+    reconnects?: boolean;
     directCommand?: PtyDirectCommand;
-    /** Native file drops replayed before the first submitted task. */
-    initialDropPaths?: readonly string[];
-    /** First submitted task for interactive CLIs without an argv prompt. */
-    initialInput?: string;
     /** Pasted at the program's prompt once it starts, and never submitted. */
     initialDraft?: string;
     onInitialInputDelivered?: () => void;
@@ -80,7 +74,7 @@ export function TerminalPane({
     const [findOpen, setFindOpen] = useState(false);
     const [findQuery, setFindQuery] = useState("");
     const [findOptions, setFindOptions] = useState<TerminalSearchOptions>({ caseSensitive: false, regex: false, wholeWord: false });
-    const [findResult, setFindResult] = useState<ISearchResultChangeEvent>({ resultIndex: -1, resultCount: 0 });
+    const [findResult, setFindResult] = useState<SearchResults>({ resultIndex: -1, resultCount: 0 });
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const [sendMenu, setSendMenu] = useState<{ x: number; y: number; selection: string } | null>(null);
     const [shellMetadata, setShellMetadata] = useState<PtyShellMetadataSnapshot | null>(null);
@@ -100,8 +94,6 @@ export function TerminalPane({
         cwd,
         startup,
         directCommand,
-        initialDropPaths,
-        initialInput,
         initialDraft,
         onInitialInputDelivered,
         hostRef,
@@ -117,19 +109,12 @@ export function TerminalPane({
 
     useEffect(() => {
         const controller = ptyController.current;
-        if (!active || !reconnect || controller?.getSnapshot().status !== "running") return;
-        let cancelled = false;
+        if (!active || !reconnects || controller?.getSnapshot().status !== "running") return;
         void controller
             .start()
-            .then(ptyShellAtPrompt)
-            .then((atPrompt) => {
-                if (atPrompt && !cancelled) return controller.write(`${reconnect}\r`);
-            })
+            .then((id) => ptyCall(id, "reconnectSsh"))
             .catch(swallow("reconnect at the prompt"));
-        return () => {
-            cancelled = true;
-        };
-    }, [active, reconnect, ptyController]);
+    }, [active, reconnects, ptyController]);
 
     useEffect(() => {
         if (!shellIntegration) setShellMetadata(null);
@@ -157,7 +142,7 @@ export function TerminalPane({
         };
     }, [visible, shouldMount]);
 
-    const controller = useXterm({
+    const controller = useTerminal({
         hostRef,
         ptyController,
         shouldMount,

@@ -1,17 +1,34 @@
-//! How busy this host is, for the rows clients show it in.
+//! How busy this host is, for the rows clients show it in. It rides in the view while a client
+//! that shows it is attached, and the view goes out again when what those rows show moves.
 
-use serde::Serialize;
+use std::sync::Arc;
+use std::time::Duration;
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Load {
-    /// The last minute's load as a share of the host's cores, in percent.
-    cpu: u32,
-    /// Memory in use, in bytes, where the host says.
-    memory_used: Option<u64>,
+use super::Core;
+use crate::protocol::HostLoad;
+
+/// How often the load is looked at again while a client shows it.
+const LOOK_EVERY: Duration = Duration::from_secs(30);
+
+/// What a row shows of `load`: its CPU share, and its memory to a tenth of a gigabyte.
+pub(crate) fn shown(load: &HostLoad) -> (u32, Option<u64>) {
+    let tenths = |bytes: u64| (bytes as f64 / (1u64 << 30) as f64 * 10.).round() as u64;
+    (load.cpu, load.memory_used.map(tenths))
 }
 
-pub(crate) fn now() -> Load {
+/// Sends the view again whenever what the rows show of the load moved since it last went out.
+pub(crate) async fn watch(core: Arc<Core>) {
+    let mut ticker = tokio::time::interval(LOOK_EVERY);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        ticker.tick().await;
+        if core.shows_load() && core.load_moved(&now()) {
+            core.view_changed();
+        }
+    }
+}
+
+pub(crate) fn now() -> HostLoad {
     let mut averages = [0f64; 3];
     // SAFETY: getloadavg writes at most the count it is given into the array.
     let read = unsafe { libc::getloadavg(averages.as_mut_ptr(), 1) };
@@ -21,7 +38,7 @@ pub(crate) fn now() -> Load {
     } else {
         0
     };
-    Load {
+    HostLoad {
         cpu,
         memory_used: memory_used(),
     }

@@ -14,6 +14,7 @@ import { FileTree } from "./FileTree";
 import { RailEmpty } from "./RailEmpty";
 import { NewRow } from "./RailNewRow";
 import { RailToggle } from "./RailToggle";
+import { useSessionName } from "../terminal/railNames";
 import { NewOnHost, remoteTerminalRows, useHostProject } from "./RemoteRows";
 import { ScopeTabs } from "./ScopeTabs";
 import { HostTerminals } from "./HostLists";
@@ -53,6 +54,7 @@ function useProjectSession(): Session | undefined {
 /** The terminal tabs of this project, or of every open project. */
 export function TerminalsPage() {
     const session = useProjectSession();
+    const sessionName = useSessionName(session);
     const host = useStore((s) => s.chosenHost);
     const remoteHost = host.kind === "core" ? host.host : undefined;
     const hostLabel = useStore((s) => hostName(s, remoteHost));
@@ -92,7 +94,7 @@ export function TerminalsPage() {
                     <NewOnHost />
                     <NewRow icon={<IconPlus size={15} />} title="New terminal" shortcut="terminal.new" onClick={cmd.newTerminal} />
                 </div>
-                <ScopeTabs scope={scope} name={session.name} onChange={cmd.setTabRailScope} />
+                <ScopeTabs scope={scope} name={sessionName} onChange={cmd.setTabRailScope} />
             </div>
             <div className="rail-scroll">
                 {scope === "all" || host.kind === "ssh" ? (
@@ -100,7 +102,7 @@ export function TerminalsPage() {
                 ) : tabs.length === 0 && remoteTerminals.length === 0 ? (
                     <RailEmpty
                         icon={<IconTerminal size={20} />}
-                        title={hostLabel ? `No terminals in ${session.name} on ${hostLabel}` : "No terminals open"}
+                        title={hostLabel ? `No terminals in ${sessionName} on ${hostLabel}` : "No terminals open"}
                         shortcut="terminal.new"
                         doing="start one"
                     />

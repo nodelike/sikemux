@@ -1,7 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DatabaseProfile } from "../api";
-import { blankDraft, draftOf } from "../profileForm";
+import type { DatabaseProfileDraft, DatabaseProfileForm } from "../types.generated";
 
 const api = vi.hoisted(() => ({ save: vi.fn(), remove: vi.fn() }));
 const host = vi.hoisted(() => ({ pickFile: vi.fn(), confirmDialog: vi.fn() }));
@@ -10,18 +9,61 @@ vi.mock("../../../plugin-api/host", async (importOriginal) => ({ ...(await impor
 
 import { ProfileForm } from "./ProfileForm";
 
-const saved: DatabaseProfile = {
+const shop: DatabaseProfileDraft = {
     id: "p1",
     name: "Shop",
-    readOnly: false,
-    agentWrites: false,
-    hasPassword: true,
     engine: "postgres",
     host: "db.internal",
-    port: 6543,
+    port: "6543",
     database: "shop",
     user: "app",
     tls: "verify-full",
+    path: "",
+    readOnly: false,
+    agentWrites: false,
+};
+
+const choices: Omit<DatabaseProfileForm, "draft" | "hasPassword"> = {
+    engines: [
+        {
+            engine: "postgres",
+            label: "PostgreSQL",
+            defaultPort: 5432,
+            nameHint: "Production",
+            userHint: "postgres",
+            databaseHint: "Same as the user name",
+            pathHint: "",
+        },
+        {
+            engine: "mysql",
+            label: "MySQL",
+            defaultPort: 3306,
+            nameHint: "Production",
+            userHint: "root",
+            databaseHint: "Optional; pick a schema once connected",
+            pathHint: "",
+        },
+        {
+            engine: "sqlite",
+            label: "SQLite",
+            defaultPort: null,
+            nameHint: "Local app data",
+            userHint: "",
+            databaseHint: "",
+            pathHint: "~/data/app.db",
+        },
+    ],
+    tlsModes: [
+        { value: "prefer", label: "Prefer", detail: "Encrypt when the server offers it" },
+        { value: "verify-full", label: "Verify", detail: "Always encrypt, trusted certificate only" },
+    ],
+};
+
+const savedForm: DatabaseProfileForm = { ...choices, draft: shop, hasPassword: true };
+const newForm: DatabaseProfileForm = {
+    ...choices,
+    draft: { ...shop, id: null, name: "", host: "localhost", port: "", database: "", user: "", tls: "prefer" },
+    hasPassword: false,
 };
 
 afterEach(cleanup);
@@ -31,23 +73,23 @@ beforeEach(() => {
 });
 
 function renderNew(overrides: Partial<Parameters<typeof ProfileForm>[0]> = {}) {
-    const props = { initial: blankDraft(), saved: null, onSaved: vi.fn(), onRemoved: vi.fn(), onCancel: vi.fn(), ...overrides };
+    const props = { form: newForm, onSaved: vi.fn(), onRemoved: vi.fn(), onCancel: vi.fn(), ...overrides };
     render(<ProfileForm {...props} />);
     return props;
 }
 
 describe("ProfileForm", () => {
     it("keeps the saved password unless a new one is typed or it is forgotten", async () => {
-        api.save.mockResolvedValue(saved);
-        const props = renderNew({ initial: draftOf(saved), saved });
+        api.save.mockResolvedValue(undefined);
+        const props = renderNew({ form: savedForm });
         expect(screen.getByLabelText("Password")).toHaveAttribute("placeholder", "Saved in the Keychain");
         await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })));
-        expect(api.save).toHaveBeenLastCalledWith(draftOf(saved), undefined);
-        expect(props.onSaved).toHaveBeenCalledWith(saved);
+        expect(api.save).toHaveBeenLastCalledWith(shop, undefined);
+        expect(props.onSaved).toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole("checkbox", { name: "Forget the saved password" }));
         await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })));
-        expect(api.save).toHaveBeenLastCalledWith(draftOf(saved), "");
+        expect(api.save).toHaveBeenLastCalledWith(shop, "");
     });
 
     it("switches to SQLite and fills the file and name from the file chooser", async () => {
@@ -61,8 +103,8 @@ describe("ProfileForm", () => {
     });
 
     it("lets agents change data only when the connection is not read only", async () => {
-        api.save.mockResolvedValue(saved);
-        renderNew({ initial: draftOf(saved), saved });
+        api.save.mockResolvedValue(undefined);
+        renderNew({ form: savedForm });
         const agents = screen.getByRole("checkbox", { name: /Let agents change data/ });
         fireEvent.click(agents);
         await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save" })));
@@ -85,7 +127,7 @@ describe("ProfileForm", () => {
     });
 
     it("removes a saved connection only after it is confirmed", async () => {
-        const props = renderNew({ initial: draftOf(saved), saved });
+        const props = renderNew({ form: savedForm });
         host.confirmDialog.mockResolvedValue(false);
         await act(async () => fireEvent.click(screen.getByRole("button", { name: "Remove" })));
         expect(api.remove).not.toHaveBeenCalled();

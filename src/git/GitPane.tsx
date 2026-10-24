@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { defaultRepoAmong, isMissingRepository } from "./projectRepo";
+import { useProjectRepo } from "./projectRepo";
 import {
     git,
     hasUnstaged,
@@ -83,8 +83,8 @@ import { ShellAccount } from "../codehost/components/Bits";
 import type { Notification } from "../codehost/api";
 import { SkeletonRows } from "../ui/Skeleton";
 import { EmptyState } from "../ui/Panel";
-import { AI_MODELS, GIT_HELP, GIT_PANEL_BY_KEY, defaultAiModel } from "./gitPaneConstants";
-import { agentLabel, type CommitMessageAgentType } from "../agents/catalog";
+import { GIT_HELP, GIT_PANEL_BY_KEY } from "./gitPaneConstants";
+import { agentLabel, commitModels, commitWriterTypes } from "../agents/catalog";
 import { filterByQuery, isInRange } from "./gitPaneLogic";
 import { basename as basenameOf, dirname, joinPath } from "../lib/paths";
 import { openUrl } from "../api/system";
@@ -164,7 +164,7 @@ function GitWorkbench({
 
     const overview = useCachedResourceEnabled(fetching && !!repo, gitOverviewR, repo || "");
     const hostRepo = useHostRepo(repo || null, fetching && !!repo);
-    const branchPulls = useBranchPulls(hostRepo.repo, fetching && panel === "branches");
+    const branchPulls = useBranchPulls(hostRepo.repo ? repo : null, fetching && panel === "branches");
     const openBranchPull = (pull: Pull) => {
         cmd.setGitView(paneId, { area: "pulls" });
         showItem(paneId, pull.number);
@@ -475,12 +475,12 @@ function GitWorkbench({
     const openAgentMenu = (anchor: HTMLElement) =>
         openMenuAt(
             anchor,
-            (Object.keys(AI_MODELS) as CommitMessageAgentType[]).flatMap((provider, i) => [
+            commitWriterTypes().flatMap((provider, i) => [
                 ...(i > 0 ? [{ sep: true }] : []),
-                ...AI_MODELS[provider].map((model) => ({
+                ...commitModels(provider).map((model) => ({
                     label: `${agentLabel(provider)} · ${model}`,
                     icon: <AgentIcon type={provider} size={13} className={`agent-glyph ${provider}`} />,
-                    hint: provider === aiProvider && model === aiModel ? "✓" : undefined,
+                    hint: provider === aiProvider && model === (aiModel || commitModels(aiProvider)[0]) ? "✓" : undefined,
                     run: () => useGitWorkbench.setState({ provider, model }),
                 })),
             ]),
@@ -1541,7 +1541,6 @@ function GitWorkbench({
             title={commit.hash}
             subtitle={commit.subject}
             head={commitHead(commit)}
-            owners={commitOwners?.[commit.full_hash]}
             onOpenFile={cmd.requestOpenFile}
         />
     );
@@ -1552,7 +1551,7 @@ function GitWorkbench({
                 busy={!!busy}
                 generating={generating}
                 stagedCount={files.filter(isStaged).length}
-                agentLabel={`${agentLabel(aiProvider)} · ${(aiModel || defaultAiModel(aiProvider)).replace(/^[^/]+\//, "")}`}
+                agentLabel={`${agentLabel(aiProvider)} · ${(aiModel || commitModels(aiProvider)[0] || "").replace(/^[^/]+\//, "")}`}
                 messageRef={messageRef}
                 onCommit={doCommit}
                 onGenerate={generateCommitMessage}
@@ -1890,7 +1889,7 @@ function MoreButton({
 function GitRepoPicker({ paneId, root, active }: { paneId: string; root: string; active: boolean }) {
     const discovered = useCachedResourceEnabled(active && !!root, gitDiscoveredReposR, root || "");
     const repos = discovered.data ?? [];
-    const chosen = useStore((s) => s.defaultGitRepos[root]);
+    const chosen = useStore((s) => s.preferences?.defaultGitRepos[root]);
 
     if (discovered.status === "loading" && !discovered.data) {
         return (
@@ -1981,18 +1980,10 @@ export function GitPane({ paneId, cwd, active, visible }: { paneId: string; cwd:
     const fetching = useSettled(visible);
     const selectedRepo = useStore((s) => s.gitViews[paneId]?.repo ?? null);
     const listing = useStore((s) => s.gitViews[paneId]?.listing ?? false);
-    const chosen = useStore((s) => s.defaultGitRepos[cwd]);
-    const rootOverview = useCachedResourceEnabled(fetching && !!cwd && !selectedRepo, gitOverviewR, cwd || "");
-    const settledRoot = useRef<{ cwd: string; missing: boolean } | null>(null);
-    if (rootOverview.status !== "loading") {
-        settledRoot.current = { cwd, missing: rootOverview.status === "error" && !rootOverview.data && isMissingRepository(rootOverview.error) };
-    }
-    const rootMissing = settledRoot.current?.cwd === cwd && settledRoot.current.missing;
-    const discovered = useCachedResourceEnabled(fetching && rootMissing && !selectedRepo, gitDiscoveredReposR, cwd || "");
-    const fallback = rootMissing && discovered.data ? defaultRepoAmong(chosen, discovered.data) : null;
+    const found = useProjectRepo(cwd, fetching && !selectedRepo);
 
-    if (!selectedRepo && rootMissing && (listing || !fallback)) return <GitRepoPicker paneId={paneId} root={cwd} active={fetching} />;
-    const repo = selectedRepo ?? fallback ?? cwd;
+    if (!selectedRepo && found.repos && (listing || !found.repo)) return <GitRepoPicker paneId={paneId} root={cwd} active={fetching} />;
+    const repo = selectedRepo ?? found.repo ?? cwd;
     return (
         <GitWorkbench
             paneId={paneId}

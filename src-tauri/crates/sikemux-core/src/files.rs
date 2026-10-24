@@ -75,6 +75,11 @@ pub fn run(method: &str, params: Value, piece: u64) -> Result<Value> {
         "files.create" => answer(create(parse(params)?)?),
         "files.rename" => answer(rename(parse(params)?)?),
         "files.delete" => answer(delete(parse(params)?)?),
+        "files.readText" => answer(read_text(parse(params)?)?),
+        "files.copyInto" => answer(copy_into(parse(params)?)?),
+        "files.writeBytes" => answer(write_bytes(parse(params)?)?),
+        "files.preview" => answer(preview(parse(params)?)?),
+        "files.bytes" => answer(bytes(parse(params)?)?),
         _ => Err(format!("this host does not know {method}").into()),
     }
 }
@@ -195,11 +200,13 @@ fn repo_root(dir: &Path) -> Option<PathBuf> {
 
 /// Flags what git ignores, asking each repository once for all its folders.
 fn mark_ignored(listings: &mut [Listing]) {
-    let joined = |listing: &Listing, entry: &Entry| {
-        Path::new(&listing.dir)
-            .join(&entry.name)
-            .to_string_lossy()
-            .into_owned()
+    let joined = |dir: &Path, entry: &Entry| {
+        let path = dir.join(&entry.name).to_string_lossy().into_owned();
+        if entry.dir {
+            path + "/"
+        } else {
+            path
+        }
     };
     let mut by_repo: HashMap<PathBuf, Vec<String>> = HashMap::new();
     for listing in listings.iter() {
@@ -208,7 +215,8 @@ fn mark_ignored(listings: &mut [Listing]) {
         }
         if let Some(root) = repo_root(Path::new(&listing.dir)) {
             let paths = by_repo.entry(root).or_default();
-            paths.extend(listing.entries.iter().map(|entry| joined(listing, entry)));
+            let dir = Path::new(&listing.dir);
+            paths.extend(listing.entries.iter().map(|entry| joined(dir, entry)));
         }
     }
     let ignored: HashSet<String> = by_repo
@@ -221,7 +229,7 @@ fn mark_ignored(listings: &mut [Listing]) {
     for listing in listings.iter_mut() {
         let dir = Path::new(&listing.dir).to_owned();
         for entry in &mut listing.entries {
-            entry.ignored = ignored.contains(dir.join(&entry.name).to_string_lossy().as_ref());
+            entry.ignored = ignored.contains(&joined(&dir, entry));
         }
     }
 }
@@ -320,6 +328,190 @@ fn read(params: ReadParams, piece: u64) -> Result<Piece> {
         stamp: stamp(&meta),
         version,
     })
+}
+
+#[derive(Deserialize)]
+struct ReadTextParams {
+    path: String,
+    /// The most bytes the file may have, up to the read limit.
+    limit: u64,
+}
+
+/// A whole small text file, as an inline diff shows it.
+fn read_text(params: ReadTextParams) -> Result<String> {
+    let path = absolute(&params.path)?;
+    let limit = params.limit.min(MAX_TEXT_BYTES);
+    let file = open_regular(path)?;
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Err(format!("fs: {} is larger than {limit} bytes", path.display()).into());
+    }
+    if bytes.iter().take(8192).any(|byte| *byte == 0) {
+        return Err(not_text(path));
+    }
+    String::from_utf8(bytes).map_err(|_| not_text(path))
+}
+
+#[derive(Deserialize)]
+struct CopyIntoParams {
+    from: String,
+    dir: String,
+}
+
+/// Copies `from` into `dir` under its own name, never over anything there.
+fn copy_into(params: CopyIntoParams) -> Result<String> {
+    let from = absolute(&params.from)?;
+    let dir = absolute(&params.dir)?;
+    let name = from
+        .file_name()
+        .ok_or_else(|| format!("fs: {} has no file name", from.display()))?;
+    let mut source = open_regular(from)?;
+    write_new_in_dir(dir, name, |destination| {
+        std::io::copy(&mut source, destination).map(|_| ())
+    })
+}
+
+#[derive(Deserialize)]
+struct WriteBytesParams {
+    dir: String,
+    name: String,
+    base64: String,
+}
+
+/// Writes the bytes into `dir` under `name`, never over anything there.
+fn write_bytes(params: WriteBytesParams) -> Result<String> {
+    use base64::Engine;
+    let dir = absolute(&params.dir)?;
+    // The name may be a path an agent wrote. Only its last part can say where the file goes.
+    let name = Path::new(&params.name)
+        .file_name()
+        .ok_or("invalid argument: a saved file needs a name")?;
+    if params.base64.len() as u64 > MAX_TEXT_BYTES / 3 * 4 + 4 {
+        return Err(format!(
+            "fs: {} is larger than the {} MB write limit",
+            params.name,
+            MAX_TEXT_BYTES / 1024 / 1024
+        )
+        .into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(params.base64.as_bytes())
+        .map_err(|error| format!("invalid argument: the bytes are not base64: {error}"))?;
+    write_new_in_dir(dir, name, |destination| destination.write_all(&bytes))
+}
+
+#[derive(Deserialize)]
+struct PreviewParams {
+    path: String,
+}
+
+/// What a file is, for a preview: its type, size and when it last changed,
+/// in epoch milliseconds.
+#[derive(Serialize)]
+struct Preview {
+    mime: &'static str,
+    size: u64,
+    modified: u64,
+}
+
+fn preview(params: PreviewParams) -> Result<Preview> {
+    let path = absolute(&params.path)?;
+    let meta = open_regular(path)?.metadata()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_millis() as u64);
+    Ok(Preview {
+        mime: crate::http::mime_of(path)?,
+        size: meta.len(),
+        modified,
+    })
+}
+
+/// The most of a file one `files.bytes` answers with.
+const MAX_BYTES_PIECE: u64 = 1024 * 1024;
+
+#[derive(Deserialize)]
+struct BytesParams {
+    path: String,
+    #[serde(default)]
+    at: u64,
+    length: u64,
+}
+
+/// A piece of a file as base64, for a client that cannot read this host's
+/// disk to show a picture or play media.
+#[derive(Serialize)]
+struct Bytes {
+    base64: String,
+    size: u64,
+}
+
+fn bytes(params: BytesParams) -> Result<Bytes> {
+    use base64::Engine;
+    let path = absolute(&params.path)?;
+    let mut file = open_regular(path)?;
+    let size = file.metadata()?.len();
+    let at = params.at.min(size);
+    file.seek(SeekFrom::Start(at))?;
+    let mut piece = Vec::new();
+    file.take(params.length.min(MAX_BYTES_PIECE))
+        .read_to_end(&mut piece)?;
+    Ok(Bytes {
+        base64: base64::engine::general_purpose::STANDARD.encode(piece),
+        size,
+    })
+}
+
+/// Writes a new file into `dir` under `name`, or under "name (N)" when that
+/// is taken, so nothing already there is ever overwritten. Answers where it
+/// landed, and leaves nothing behind when the writing fails.
+pub fn write_new_in_dir(
+    dir: &Path,
+    name: &std::ffi::OsStr,
+    fill: impl FnOnce(&mut fs::File) -> std::io::Result<()>,
+) -> Result<String> {
+    fs::create_dir_all(dir)?;
+    let stem = Path::new(name)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ext = Path::new(name)
+        .extension()
+        .map(|ext| format!(".{}", ext.to_string_lossy()))
+        .unwrap_or_default();
+    let mut fill = Some(fill);
+    for n in 0..1000 {
+        let candidate = if n == 0 {
+            dir.join(name)
+        } else {
+            dir.join(format!("{stem} ({n}){ext}"))
+        };
+        let mut destination = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let written = fill.take().expect("a name is only opened once")(&mut destination)
+            .and_then(|()| destination.sync_all());
+        if let Err(error) = written {
+            drop(destination);
+            let _ = fs::remove_file(&candidate);
+            return Err(error.into());
+        }
+        return Ok(candidate.to_string_lossy().into_owned());
+    }
+    Err(format!(
+        "fs: no free name for {} after 1000 tries",
+        name.to_string_lossy()
+    )
+    .into())
 }
 
 fn not_text(path: &Path) -> Error {
@@ -648,10 +840,81 @@ fn delete(params: PathParams) -> Result<()> {
     Ok(())
 }
 
+/// `path`, taken from `project` with links followed, or `None` when that leads
+/// outside the project.
+pub fn confine_to_project(project: &str, path: &str) -> std::io::Result<Option<PathBuf>> {
+    let root = fs::canonicalize(project)?;
+    let target = fs::canonicalize(root.join(path))?;
+    Ok(target.starts_with(&root).then_some(target))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn read_text_of(path: &Path, limit: u64) -> Result<String> {
+        read_text(ReadTextParams {
+            path: path.to_string_lossy().into_owned(),
+            limit,
+        })
+    }
+
+    #[test]
+    fn text_reads_refuse_pipes_devices_and_folders_without_blocking() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pipe = dir.path().join("pipe");
+        let name = std::ffi::CString::new(pipe.to_string_lossy().as_bytes()).unwrap();
+        // SAFETY: `name` is a nul-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(read_text_of(&pipe, 1024).is_err());
+        assert!(read_text_of(Path::new("/dev/zero"), 1024).is_err());
+        assert!(read_text_of(dir.path(), 1024).is_err());
+
+        let file = dir.path().join("big");
+        fs::write(&file, vec![b'a'; 2048]).unwrap();
+        assert!(read_text_of(&file, 1024).is_err());
+        assert_eq!(read_text_of(&file, 4096).unwrap().len(), 2048);
+    }
+
+    fn write_picture(dir: &Path, name: &str, base64: &str) -> Result<String> {
+        write_bytes(WriteBytesParams {
+            dir: dir.to_string_lossy().into_owned(),
+            name: name.into(),
+            base64: base64.into(),
+        })
+    }
+
+    #[test]
+    fn a_saved_picture_never_lands_on_one_already_there() {
+        use base64::Engine;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bytes = base64::engine::general_purpose::STANDARD.encode(b"a picture");
+
+        let first =
+            write_picture(dir.path(), "shot.png", &bytes).expect("the first save must land");
+        let second = write_picture(dir.path(), "shot.png", &bytes)
+            .expect("the second save must land beside it");
+        assert_eq!(first, dir.path().join("shot.png").to_string_lossy());
+        assert_eq!(second, dir.path().join("shot (1).png").to_string_lossy());
+        assert_eq!(fs::read(&first).expect("read back"), b"a picture");
+        assert_eq!(fs::read(&second).expect("read back"), b"a picture");
+    }
+
+    #[test]
+    fn a_saved_picture_cannot_be_named_its_way_out_of_the_folder() {
+        use base64::Engine;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bytes = base64::engine::general_purpose::STANDARD.encode(b"a picture");
+
+        let landed =
+            write_picture(dir.path(), "../escaped.png", &bytes).expect("the save must land");
+        assert_eq!(landed, dir.path().join("escaped.png").to_string_lossy());
+        assert!(
+            write_picture(dir.path(), "shot.png", "not base64!").is_err(),
+            "contents that are not base64 must be refused"
+        );
+    }
 
     fn call(method: &str, params: Value) -> Result<Value> {
         run(method, params, MAX_TEXT_BYTES)

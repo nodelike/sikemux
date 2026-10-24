@@ -3,10 +3,9 @@ import { installAgent, signInAgent } from "../agents/AgentInstall";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { agentStatusLabel } from "../agents/agentStatus";
 import { agentAbout, installCommand, loginArgs } from "../agents/catalog";
-import { setupOrder, withMissingAgents } from "../agents/setupList";
 import type { AgentInfo } from "../api/agents";
 import { useResource } from "../state/resources";
-import { agentCatalogR } from "../state/resources.defs";
+import { agentSetupR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { AgentIcon } from "../ui/Icons";
 import { SettingsSection } from "./SettingsLayout";
@@ -18,8 +17,8 @@ export function AgentSetupSection() {
     const profiles = useStore((s) => s.providerProfiles);
     const selections = useStore((s) => s.selectedProviderProfileIds);
     const runtimeProfiles = useMemo(() => selectedAgentRuntimeProfiles(profiles, selections), [profiles, selections]);
-    const catalog = useResource(agentCatalogR, runtimeProfiles);
-    const agents = catalog.data ? setupOrder(withMissingAgents(catalog.data)) : [];
+    const catalog = useResource(agentSetupR, runtimeProfiles);
+    const agents = catalog.data ?? [];
     const ready = agents.filter((agent) => agent.available !== false && agent.status?.state === "ready").length;
     return (
         <SettingsSection

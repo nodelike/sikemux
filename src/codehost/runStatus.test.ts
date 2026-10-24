@@ -1,52 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { elapsedMs, checksSummary, isUnfinished, outcomeOf, watchIsNewer } from "./runStatus";
+import { elapsedMs } from "./runStatus";
 
 const NOW = Date.parse("2026-01-01T12:00:00Z");
-
-describe("outcomeOf", () => {
-    it("reads a finished run by its conclusion", () => {
-        expect(outcomeOf({ status: "completed", conclusion: "success" })).toBe("success");
-        expect(outcomeOf({ status: "completed", conclusion: "failure" })).toBe("failure");
-        expect(outcomeOf({ status: "completed", conclusion: "timed_out" })).toBe("failure");
-        expect(outcomeOf({ status: "completed", conclusion: "startup_failure" })).toBe("failure");
-        expect(outcomeOf({ status: "completed", conclusion: "cancelled" })).toBe("cancelled");
-        expect(outcomeOf({ status: "completed", conclusion: "skipped" })).toBe("skipped");
-    });
-
-    it("reads a run still going by its status", () => {
-        expect(outcomeOf({ status: "in_progress", conclusion: null })).toBe("running");
-        expect(outcomeOf({ status: "queued", conclusion: null })).toBe("queued");
-        expect(outcomeOf({ status: "waiting", conclusion: null })).toBe("blocked");
-    });
-
-    it("does not guess at a state it has not seen", () => {
-        expect(outcomeOf({ status: "completed", conclusion: null })).toBe("unknown");
-        expect(outcomeOf({ status: "something_new", conclusion: null })).toBe("unknown");
-    });
-
-    it("counts queued, running and waiting for approval as unfinished, and nothing that has completed", () => {
-        expect(isUnfinished({ status: "in_progress", conclusion: null })).toBe(true);
-        expect(isUnfinished({ status: "queued", conclusion: null })).toBe(true);
-        expect(isUnfinished({ status: "waiting", conclusion: null })).toBe(true);
-        expect(isUnfinished({ status: "completed", conclusion: "success" })).toBe(false);
-        expect(isUnfinished({ status: "completed", conclusion: "action_required" })).toBe(false);
-    });
-});
-
-describe("checksSummary", () => {
-    const done = (conclusion: string) => ({ status: "completed", conclusion });
-
-    it("only says all passed when every check succeeded, counting skipped and neutral as passing", () => {
-        expect(checksSummary([done("success"), done("skipped"), done("neutral")])).toBe("all passed");
-    });
-
-    it("names what did not pass instead of calling it a pass", () => {
-        expect(checksSummary([done("success"), done("cancelled")])).toBe("1 cancelled, 1 passed");
-        expect(checksSummary([done("failure"), { status: "in_progress", conclusion: null }, { status: "waiting", conclusion: null }])).toBe(
-            "1 failing, 1 running, 1 waiting",
-        );
-    });
-});
 
 describe("elapsedMs", () => {
     it("measures a finished span between its own two ends", () => {
@@ -65,24 +20,5 @@ describe("elapsedMs", () => {
 
     it("never reports a negative span from a clock that disagrees", () => {
         expect(elapsedMs("2026-01-01T12:05:00Z", null, NOW)).toBe(0);
-    });
-});
-
-describe("watchIsNewer", () => {
-    const at = (attempt: number, minute: number) => ({ attempt, updatedAt: `2026-09-28T10:${String(minute).padStart(2, "0")}:00Z` });
-
-    it("lets a re-run replace the finished run a watch last saw", () => {
-        expect(watchIsNewer(at(1, 30), at(2, 31))).toBe(false);
-        expect(watchIsNewer(at(2, 31), at(1, 30))).toBe(true);
-    });
-
-    it("lets a refresh of the same attempt win unless the watch saw something later", () => {
-        expect(watchIsNewer(at(1, 30), at(1, 30))).toBe(false);
-        expect(watchIsNewer(at(1, 32), at(1, 30))).toBe(true);
-    });
-
-    it("uses whichever there is", () => {
-        expect(watchIsNewer(null, at(1, 30))).toBe(false);
-        expect(watchIsNewer(at(1, 30), null)).toBe(true);
     });
 });

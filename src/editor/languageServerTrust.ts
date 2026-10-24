@@ -7,7 +7,7 @@ const asking = new Map<string, Promise<boolean>>();
 
 /** Asks the first time a project would start a language server, and remembers the answer. */
 export function languageServersAllowed(project: string, ask: (request: ConfirmRequest) => Promise<boolean> = confirmDialog): Promise<boolean> {
-    const decided = getState().languageServerTrust[project];
+    const decided = getState().preferences?.languageServerTrust[project];
     if (decided !== undefined) return Promise.resolve(decided);
     const pending = asking.get(project);
     if (pending) return pending;

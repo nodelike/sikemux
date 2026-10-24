@@ -2,10 +2,11 @@ import { useContext, type ReactNode } from "react";
 import { PRIMARY_SHORTCUT } from "../lib/platform";
 import { AgentIcon, IconCheck, IconChevron, IconClock, IconClose, IconCommand, IconTimer, IconWorkflow } from "../ui/Icons";
 import { ChatAgentContext } from "./chatAgent";
-import { queuedLabel, type QueuedMessage } from "./queuedMessages";
+import { queuedLabel } from "./queuedMessages";
+import type { QueuedMessage } from "./types";
 import { Shimmer } from "./Shimmer";
 import { groupTasks, subagentActivity, subagentCost, taskDetail, workflowAgentCost, workflowAgentCount, workflowAgentDetail } from "./transcript";
-import type { AcpAsyncTask, AcpSubagent, AcpWorkflowAgent } from "./types";
+import type { AsyncTask, SubagentCard, WorkflowAgent } from "./types";
 
 export type GroupFolds = {
     folded: ReadonlySet<string>;
@@ -18,7 +19,7 @@ function BackgroundTasks({
     onStop,
     folds,
 }: {
-    tasks: AcpAsyncTask[];
+    tasks: AsyncTask[];
     stopping: string[];
     /** Without it, as in a shared chat, a task cannot be stopped from here. */
     onStop?: (taskId: string) => void;
@@ -62,7 +63,7 @@ function BackgroundTasks({
     );
 }
 
-function WorkflowAgentRow({ agent }: { agent: AcpWorkflowAgent }) {
+function WorkflowAgentRow({ agent }: { agent: WorkflowAgent }) {
     const agentType = useContext(ChatAgentContext).type;
     const running = agent.state === "running";
     const detail = workflowAgentDetail(agent);
@@ -86,7 +87,7 @@ function WorkflowAgentRow({ agent }: { agent: AcpWorkflowAgent }) {
    — the strip over the composer that the background tasks use. Its card in the
    transcript is where its output went, which is not where you look to find out
    whether it is still going. */
-function RunningSubagents({ subagents, folds }: { subagents: AcpSubagent[]; folds: GroupFolds }) {
+function RunningSubagents({ subagents, folds }: { subagents: SubagentCard[]; folds: GroupFolds }) {
     const agentType = useContext(ChatAgentContext).type;
     if (subagents.length === 0) return null;
     const icon = <AgentIcon type={agentType} size={16} className={`agent-glyph ${agentType}`} />;
@@ -247,8 +248,8 @@ export default function LiveStack({
     queue,
 }: {
     questions?: ReactNode;
-    subagents: AcpSubagent[];
-    tasks: AcpAsyncTask[];
+    subagents: SubagentCard[];
+    tasks: AsyncTask[];
     folds: GroupFolds;
     stopping?: string[];
     onStop?: (taskId: string) => void;

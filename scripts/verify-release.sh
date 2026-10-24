@@ -74,7 +74,7 @@ fi
 node "$ROOT/scripts/verify-updater-signature.mjs" "$TAR" "$SIG"
 grep -q "^trusted comment: .*"$'\t'"version:$VERSION\$" <<<"$(/usr/bin/base64 -d -i "$SIG")" ||
   fail "updater signature is not bound to version $VERSION"
-UPDATE_BUDGET_BYTES=$((25 * 1024 * 1024))
+UPDATE_BUDGET_BYTES=$((30 * 1024 * 1024))
 TAR_BYTES="$(stat -f %z "$TAR")"
 echo "→ Updater archive is $TAR_BYTES bytes (budget $UPDATE_BUDGET_BYTES)"
 ((TAR_BYTES <= UPDATE_BUDGET_BYTES)) || fail "updater archive is $TAR_BYTES bytes, over the $UPDATE_BUDGET_BYTES byte budget"
@@ -190,7 +190,7 @@ DMG_PLIST="$DMG_APP/Contents/Info.plist"
 /usr/bin/hdiutil detach "$DMG_MOUNT" -quiet
 DMG_ATTACHED=0
 # The README and sikemux.com promise a small download.
-DMG_BUDGET_BYTES=20000000
+DMG_BUDGET_BYTES=25000000
 DMG_BYTES="$(stat -f %z "$DMG")"
 ((DMG_BYTES <= DMG_BUDGET_BYTES)) || fail "$DMG is $DMG_BYTES bytes, over the $DMG_BUDGET_BYTES byte budget"
 

@@ -11,7 +11,6 @@ import {
     type HostCapabilities,
     type JobSummary,
     type PendingApproval,
-    type RunDetail,
     type SavedArtifact,
     type WorkflowFile,
 } from "../../plugin-api/codehost";
@@ -135,8 +134,6 @@ export const githubHostApi: CodeHostApi = {
     accounts: () => backend.call<ListedAccount[]>("accounts").then((listed) => listed.map(entryOf)),
 
     workflowFile: (repo, workflowId) => call<WorkflowFile>("workflowFile", { ...repo, workflowId }),
-    workflowFileAt: (repo, path, gitRef) => call<WorkflowFile>("workflowFileAt", { ...repo, path, gitRef }),
-    runAttempt: (repo, runId, attempt) => call<RunDetail>("runAttempt", { ...repo, runId, attempt }),
     annotations: (repo, checkRunId) => call<Annotation[]>("annotations", { ...repo, checkRunId }),
     jobSummary: (repo, checkRunId) => call<JobSummary | null>("jobSummary", { ...repo, checkRunId }),
     artifacts: (repo, runId) => call<Artifact[]>("artifacts", { ...repo, runId }),

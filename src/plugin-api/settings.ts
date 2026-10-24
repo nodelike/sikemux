@@ -1,4 +1,5 @@
-import { getState, setState, useStore } from "../state/store";
+import { pluginSettingsOf, setPreference } from "../state/preferences";
+import { getState, useStore } from "../state/store";
 
 export interface PluginSettings<T> {
     useSelect<S>(select: (settings: T) => S): S;
@@ -23,11 +24,11 @@ export function definePluginSettings<T>(pluginId: string, decode: (saved: unknow
         return lastDecoded;
     };
     return {
-        useSelect: (select) => useStore((s) => select(read(s.pluginSettings[pluginId]))),
-        get: () => read(getState().pluginSettings[pluginId]),
+        useSelect: (select) => useStore((s) => select(read(pluginSettingsOf(s)[pluginId]))),
+        get: () => read(pluginSettingsOf(getState())[pluginId]),
         update: (recipe) => {
-            const all = getState().pluginSettings;
-            setState({ pluginSettings: { ...all, [pluginId]: recipe(read(all[pluginId])) } });
+            const all = pluginSettingsOf(getState());
+            setPreference("pluginSettings", { ...all, [pluginId]: recipe(read(all[pluginId])) });
         },
     };
 }

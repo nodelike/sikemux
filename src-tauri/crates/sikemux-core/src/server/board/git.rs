@@ -249,7 +249,7 @@ pub(super) fn head(tree: &Path) -> Result<String, String> {
     git(tree, &["rev-parse", "HEAD"])
 }
 
-pub(super) fn origin(repo: &Path) -> Option<String> {
+pub(crate) fn origin(repo: &Path) -> Option<String> {
     git(repo, &["remote", "get-url", "origin"])
         .ok()
         .filter(|url| !url.is_empty())

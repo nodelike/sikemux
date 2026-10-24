@@ -11,6 +11,8 @@ import {
     type GitRemoteBranch,
     type GitStash,
     type GitWorktree,
+    type LineOwners,
+    type ProjectRepo,
 } from "../api/git";
 import { settingsApi, type ProjectEntry } from "../api/settings";
 import { sshApi, type SshHost } from "../api/ssh";
@@ -34,6 +36,18 @@ export const gitCommitOwnersR = resource({
     kind: "git.commitOwners",
     fetch: (repo: string, commits: string): Promise<Record<string, CommitOwner[]>> => git.commitOwners(repo, commits.split(",")),
     staleAfterMs: 30_000,
+});
+
+export const gitCommitLinesR = resource({
+    kind: "git.commitLines",
+    fetch: (repo: string, commit: string): Promise<LineOwners> => git.commitLines(repo, commit),
+    staleAfterMs: 30_000,
+});
+
+export const gitProjectRepoR = resource({
+    kind: "git.projectRepo",
+    fetch: (project: string): Promise<ProjectRepo> => git.projectRepo(project),
+    staleAfterMs: 5_000,
 });
 
 export const gitDiscoveredReposR = resource({
@@ -66,9 +80,16 @@ export const gitStashesR = resource({
     staleAfterMs: 30_000,
 });
 
+// Both are keyed by the chosen accounts, so they are asked again when those change.
 export const agentCatalogR = resource({
     kind: "agents.catalog",
-    fetch: (profiles: AgentRuntimeProfile[]): Promise<AgentInfo[]> => agentApi.available(profiles),
+    fetch: (_accounts: AgentRuntimeProfile[]): Promise<AgentInfo[]> => agentApi.available(),
+    staleAfterMs: 60_000,
+});
+
+export const agentSetupR = resource({
+    kind: "agents.setup",
+    fetch: (_accounts: AgentRuntimeProfile[]): Promise<AgentInfo[]> => agentApi.setup(),
     staleAfterMs: 60_000,
 });
 

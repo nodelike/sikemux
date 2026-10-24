@@ -1,24 +1,10 @@
 import { create } from "zustand";
-import {
-    activeSurfacePane,
-    basename,
-    closeCorePalettes,
-    dirname,
-    files,
-    joinPath,
-    notify,
-    onPaneClosed,
-    openSurface,
-    pickFolder,
-    reportError,
-} from "../../plugin-api/host";
-import { invalidate, resource } from "../../plugin-api/resources";
+import { activeSurfacePane, basename, closeCorePalettes, notify, onPaneClosed, openSurface, pickFolder, reportError } from "../../plugin-api/host";
 import { definePluginSettings } from "../../plugin-api/settings";
+import { pluginView } from "../../plugin-api/views";
+import { brunoApi } from "./api";
 import { BRUNO_CLIENT, BRUNO_PLUGIN } from "./kinds";
-import { loadCollection } from "./lib/collection";
-import { parseRequest } from "./lib/parse";
-import { serializeRequest } from "./lib/serialize";
-import { emptyRequest, type BruCollection } from "./lib/types";
+import type { BruCollection, BruRequest, BruRequestView } from "./lib/types";
 import { brunoDrafts, forgetBrunoPane, setBrunoDraft, setBrunoSecret } from "./runtime";
 
 export type BrunoReqTab = "params" | "body" | "headers" | "auth" | "vars" | "script" | "docs";
@@ -71,11 +57,14 @@ function decodeSettings(saved: unknown): BrunoSettings {
 
 export const brunoSettings = definePluginSettings(BRUNO_PLUGIN.id, decodeSettings);
 
-export const brunoCollectionR = resource({
-    kind: "bruno.collection",
-    fetch: (rootPath: string): Promise<BruCollection> => loadCollection(rootPath),
-    staleAfterMs: 5 * 60_000,
-});
+/** The collection or workspace at `root`: its requests and environments, kept by the core. */
+export const brunoCollectionV = pluginView<[root: string], BruCollection>(BRUNO_PLUGIN, "collectionView", (root) => ({ root }));
+
+/** One request as its file says it, with the scopes above it, kept by the core. */
+export const brunoRequestV = pluginView<[root: string, path: string], BruRequestView>(BRUNO_PLUGIN, "requestView", (root, path) => ({
+    root,
+    path,
+}));
 
 interface BrunoPlugin {
     views: Record<string, BrunoView>;
@@ -200,36 +189,28 @@ export function brunoSelectEnv(collectionPath: string, envId: string | null): vo
 
 export const brunoSetSecret = (paneId: string, name: string, value: string): void => setBrunoSecret(paneId, name, value);
 
-/** Stash edited request text by file path; null clears the draft. */
-export const brunoSetDraft = (paneId: string, path: string, text: string | null): void => setBrunoDraft(paneId, path, text);
+/** Stash an edited request by file path; null clears the draft. */
+export const brunoSetDraft = (paneId: string, path: string, request: BruRequest | null): void => setBrunoDraft(paneId, path, request);
 
-const reloadCollection = (): void => {
-    const { collectionPath } = brunoSettings.get();
-    invalidate((kind, args) => kind === brunoCollectionR.kind && args[0] === collectionPath);
-};
+const root = (): string => brunoSettings.get().collectionPath;
 
 /** Writes a request's draft back to its .bru file. */
 export async function brunoSaveRequest(paneId: string, path: string): Promise<void> {
     const draft = brunoDrafts(paneId)[path];
     if (draft == null) return;
     try {
-        await files.writeFile(path, draft);
+        await brunoApi.saveRequest(root(), path, draft);
         brunoSetDraft(paneId, path, null);
-        reloadCollection();
         notify("success", `Saved ${basename(path)}`);
     } catch (error) {
         reportError("save request")(error);
     }
 }
 
-const safeFileName = (name: string): string => name.trim().replace(/[\\/:*?"<>|]/g, "_");
-
 export async function brunoNewRequest(paneId: string, dirPath: string, name: string): Promise<void> {
     if (!name.trim()) return;
-    const file = joinPath(dirPath, `${safeFileName(name)}.bru`);
     try {
-        await files.writeFileNew(file, serializeRequest(emptyRequest(name.trim())));
-        reloadCollection();
+        const file = await brunoApi.newRequest(root(), dirPath, name);
         brunoSelectRequest(paneId, file);
         notify("success", `Created ${name.trim()}`);
     } catch (error) {
@@ -239,11 +220,8 @@ export async function brunoNewRequest(paneId: string, dirPath: string, name: str
 
 export async function brunoNewFolder(parentPath: string, name: string): Promise<void> {
     if (!name.trim()) return;
-    const folder = joinPath(parentPath, safeFileName(name));
     try {
-        await files.createDir(folder);
-        await files.writeFileNew(joinPath(folder, "folder.bru"), `meta {\n  name: ${name.trim()}\n}\n`);
-        reloadCollection();
+        await brunoApi.newFolder(root(), parentPath, name);
         notify("success", `Created folder ${name.trim()}`);
     } catch (error) {
         reportError("create folder")(error);
@@ -253,18 +231,9 @@ export async function brunoNewFolder(parentPath: string, name: string): Promise<
 /** Renames a request: its meta.name, and the file to match. */
 export async function brunoRenameRequest(paneId: string, path: string, name: string): Promise<void> {
     if (!name.trim()) return;
-    const newPath = joinPath(dirname(path), `${safeFileName(name)}.bru`);
     try {
-        const text = brunoDrafts(paneId)[path] ?? (await files.readFile(path));
-        const request = parseRequest(text);
-        request.meta.name = name.trim();
-        if (newPath === path) await files.writeFile(path, serializeRequest(request));
-        else {
-            await files.writeFileNew(newPath, serializeRequest(request));
-            await files.deletePath(path);
-        }
+        const newPath = await brunoApi.renameRequest(root(), path, name, brunoDrafts(paneId)[path]);
         brunoSetDraft(paneId, path, null);
-        reloadCollection();
         patchView(paneId, (current) => ({
             ...current,
             openPaths: current.openPaths.map((open) => (open === path ? newPath : open)),
@@ -278,9 +247,8 @@ export async function brunoRenameRequest(paneId: string, path: string, name: str
 
 export async function brunoDeleteRequest(paneId: string, path: string): Promise<void> {
     try {
-        await files.deletePath(path);
+        await brunoApi.deletePath(root(), path);
         brunoSetDraft(paneId, path, null);
-        reloadCollection();
         brunoCloseTab(paneId, path);
         notify("success", `Deleted ${basename(path)}`);
     } catch (error) {

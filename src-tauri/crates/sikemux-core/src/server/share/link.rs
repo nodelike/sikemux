@@ -12,9 +12,8 @@ use sikemux_process::sync::Locked;
 use tokio::sync::mpsc;
 
 use super::super::Core;
-use serde_json::json;
 
-use super::{answer, published, save, take_snapshot, waiting_on, Running, ShareState, ToLink};
+use super::{answer, published, save, take_snapshot, Running, ShareState, ToLink};
 use crate::accounts::live::{rfc3339, socket_url};
 use crate::accounts::share::{
     ShareClientMessage, ShareClose, ShareCloseCode, ShareEndReason, ShareFrame, ShareHello,
@@ -138,13 +137,11 @@ fn refusal_text(reason: ShareRefusal) -> &'static str {
     }
 }
 
-/// Ends shares past their time, sends a snapshot of each chat that started
-/// again since its last one, and answers with what to tell viewers
-/// of the permission requests each chat now waits on.
-fn tick(core: &Arc<Core>) -> Vec<ShareClientMessage> {
+/// Ends shares past their time and sends a snapshot of each chat that
+/// started again since its last one.
+fn tick(core: &Arc<Core>) {
     let now = epoch_ms();
     let mut stale = Vec::new();
-    let mut told = Vec::new();
     {
         let mut inner = core.shares.inner.locked();
         let before = inner.running.len();
@@ -155,7 +152,7 @@ fn tick(core: &Arc<Core>) -> Vec<ShareClientMessage> {
         if inner.running.len() != before {
             save(core, &inner);
         }
-        for running in inner.running.values_mut() {
+        for running in inner.running.values() {
             if running.state != ShareState::Open {
                 continue;
             }
@@ -166,20 +163,11 @@ fn tick(core: &Arc<Core>) -> Vec<ShareClientMessage> {
             if current.is_some() && current != running.chat {
                 stale.push(running.stored.id.clone());
             }
-            let waiting = waiting_on(core, &running.stored.agent_id);
-            if waiting != running.waiting {
-                running.waiting = waiting;
-                let text = json!({ "type": "waiting", "requests": running.waiting });
-                if let Ok(plain) = serde_json::to_vec(&text) {
-                    told.extend(numbered(running, &plain, false));
-                }
-            }
         }
     }
     for id in stale {
         take_snapshot(core, &id);
     }
-    told
 }
 
 async fn session(
@@ -266,11 +254,7 @@ async fn session(
             }
             _ = ticker.tick() => {
                 if open {
-                    for message in tick(core) {
-                        if !send(&mut socket, &message).await {
-                            return retry(hint, open);
-                        }
-                    }
+                    tick(core);
                 }
                 let idle = {
                     let inner = core.shares.inner.locked();

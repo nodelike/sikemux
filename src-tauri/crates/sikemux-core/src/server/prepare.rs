@@ -36,6 +36,15 @@ pub(crate) struct Owner {
     /// The folder an agent keeps its account and sessions in, when the
     /// launch named one rather than leaving it to the CLI's default.
     pub account_home: Option<PathBuf>,
+    /// The SSH config host an ssh terminal connects to.
+    pub ssh_host: Option<String>,
+    /// What a terminal outside every project, agent and SSH host is called
+    /// in the rail, numbered from 1.
+    #[serde(default)]
+    pub rail_number: Option<u32>,
+    /// A shell started with no command, startup or name of its own.
+    #[serde(skip)]
+    pub plain: bool,
 }
 
 impl Owner {
@@ -53,7 +62,23 @@ impl Owner {
             task: None,
             started_by: None,
             account_home: None,
+            ssh_host: (context.session_kind == "ssh" && !context.session_name.is_empty())
+                .then(|| context.session_name.clone()),
+            rail_number: None,
+            plain: false,
         }
+    }
+
+    /// A plain shell outside every project, agent, task and SSH host, which
+    /// the rail can only tell apart by number.
+    pub(crate) fn wants_rail_number(&self, kind: SessionKind) -> bool {
+        kind == SessionKind::Terminal
+            && self.plain
+            && self.project.is_none()
+            && self.agent_id.is_none()
+            && self.task.is_none()
+            && self.task_execution_id.is_none()
+            && self.ssh_host.is_none()
     }
 }
 
@@ -67,7 +92,8 @@ pub(crate) struct PreparedLaunch {
     pub ssh: bool,
     pub initial_prompt_submitted: bool,
     pub continues: Option<Continuation>,
-    pub setup: Option<super::session::SetupLock>,
+    /// It sets a host up, so only the person's own app types into it.
+    pub setup: bool,
 }
 
 /// The command the app's `pty_spawn` builds, minus the parts only the app can
@@ -89,6 +115,14 @@ pub(crate) fn prepare_terminal(
     } = spawn;
     validate_pty_dimensions(cols, rows)?;
     let startup = startup.filter(|value| !value.is_empty());
+    let mut owner = Owner::from_context(context.as_ref());
+    let startup = startup.or_else(|| {
+        owner
+            .ssh_host
+            .as_deref()
+            .filter(|_| direct_command.is_none())
+            .map(super::ssh::startup)
+    });
     if startup.is_some() && direct_command.is_some() {
         return Err(
             "invalid argument: PTY startup and direct command are mutually exclusive".into(),
@@ -117,7 +151,11 @@ pub(crate) fn prepare_terminal(
         launch.cli_endpoint.as_deref(),
         &HashMap::new(),
     );
-    let mut owner = Owner::from_context(context.as_ref());
+    owner.plain = startup.is_none()
+        && direct_command.is_none()
+        && context
+            .as_ref()
+            .is_none_or(|context| context.session_name.is_empty());
     let variable = owner
         .agent_type
         .as_deref()
@@ -180,7 +218,9 @@ pub(crate) fn prepare_terminal(
             .as_ref()
             .is_some_and(|context| context.initial_prompt_submitted),
         continues,
-        setup: None,
+        setup: context
+            .as_ref()
+            .is_some_and(|context| context.session_kind == "setup"),
     })
 }
 
@@ -264,6 +304,6 @@ pub(crate) fn prepare_task(
         ssh: false,
         initial_prompt_submitted: false,
         continues: None,
-        setup: None,
+        setup: false,
     })
 }

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RundeckJob } from "../api";
 import { IconCommand, IconSearch, rankBy, useMouseActive } from "../../../plugin-api/ui";
 import * as cmd from "../state";
 import { useResource } from "../../../plugin-api/resources";
-import { rndJobIndexR, useProdEnvs } from "../resources";
-import { groupSegments, targetTone } from "../shape";
+import { rndCatalogV } from "../resources";
+import type { RundeckJobPlace } from "../types.generated";
 import { RUNDECK_DEPLOY } from "../kinds";
 import { useActiveProjectCwd, useActiveSurfacePane } from "../../../plugin-api/host";
 import "../rundeck.css";
@@ -14,7 +13,6 @@ const MAX_RESULTS = 400;
 export function RundeckJobPalette() {
     const paneId = useActiveSurfacePane(RUNDECK_DEPLOY);
     const activeCwd = useActiveProjectCwd();
-    const prodEnvs = useProdEnvs();
 
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
@@ -22,20 +20,15 @@ export function RundeckJobPalette() {
     const listRef = useRef<HTMLDivElement>(null);
     const mouseActive = useMouseActive();
 
-    const index = useResource(rndJobIndexR);
+    const index = useResource(rndCatalogV, "rundeck/palette");
 
     useEffect(() => {
+        cmd.markRundeckLooked();
         inputRef.current?.focus();
     }, []);
 
-    const all = useMemo<RundeckJob[]>(() => {
-        const rows = (index.data ?? []).flatMap((entry) => entry.jobs);
-        return rows.sort(
-            (a, b) => a.project.localeCompare(b.project) || (a.group ?? "").localeCompare(b.group ?? "") || a.name.localeCompare(b.name),
-        );
-    }, [index.data]);
-
-    const failedProjects = (index.data ?? []).filter((entry) => entry.error).length;
+    const all = useMemo(() => index.data?.jobs ?? [], [index.data]);
+    const failedProjects = index.data?.failedProjects ?? 0;
 
     const items = useMemo(
         () =>
@@ -56,11 +49,11 @@ export function RundeckJobPalette() {
         el?.scrollIntoView({ block: "nearest" });
     }, [sel]);
 
-    const activate = (job: RundeckJob | undefined) => {
+    const activate = (job: RundeckJobPlace | undefined) => {
         if (!job) return;
-        const repoPath = cmd.linkedRepoPath({ jobId: job.id, name: job.name }, activeCwd);
+        const repoPath = cmd.linkedRepoPath({ jobId: job.jobId, name: job.name }, activeCwd);
         cmd.closeRundeckJobPalette();
-        cmd.openRundeckJob({ project: job.project, jobId: job.id, name: job.name, group: job.group, repoPath }, { paneId, push: true });
+        cmd.openRundeckJob({ project: job.project, jobId: job.jobId, name: job.name, group: job.group, repoPath }, { paneId, push: true });
     };
 
     const onKeyDown = (e: React.KeyboardEvent) => {
@@ -105,7 +98,7 @@ export function RundeckJobPalette() {
                     )}
                     {items.map((job, i) => (
                         <button
-                            key={`${job.project}:${job.id}`}
+                            key={`${job.project}:${job.jobId}`}
                             className={`picker-item${i === sel ? " sel" : ""}`}
                             onMouseEnter={() => {
                                 if (mouseActive.current) setSel(i);
@@ -115,7 +108,7 @@ export function RundeckJobPalette() {
                                 <IconCommand size={14} />
                             </span>
                             <span className="picker-name">{job.name}</span>
-                            <JobTags job={job} prodEnvs={prodEnvs} />
+                            <JobTags job={job} />
                         </button>
                     ))}
                 </div>
@@ -129,9 +122,9 @@ export function RundeckJobPalette() {
     );
 }
 
-function JobTags({ job, prodEnvs }: { job: RundeckJob; prodEnvs: string[] }) {
-    const group = groupSegments(job.group).join("/");
-    const tone = targetTone(job.project, job.group, prodEnvs);
+function JobTags({ job }: { job: RundeckJobPlace }) {
+    const group = job.group ?? "";
+    const tone = job.tone;
     return (
         <span className="picker-tags">
             <span className="picker-tag proj">{job.project}</span>

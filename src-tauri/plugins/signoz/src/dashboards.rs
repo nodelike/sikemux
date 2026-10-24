@@ -14,56 +14,9 @@ use crate::client;
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Scope;
 use crate::query::View;
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct DashboardSummary {
-    pub id: String,
-    pub title: String,
-    pub description: String,
-    pub tags: Vec<String>,
-    pub panels: usize,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Variable {
-    pub name: String,
-    pub options: Vec<String>,
-    pub selected: String,
-}
-
-#[derive(Serialize, Debug, PartialEq, Clone, Copy, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct Layout {
-    pub x: u32,
-    pub y: u32,
-    pub w: u32,
-    pub h: u32,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Panel {
-    pub id: String,
-    pub title: String,
-    pub kind: String,
-    pub unit: String,
-    pub layout: Layout,
-    /// Whether Sikemux can draw it. Anything else links out to SigNoz.
-    pub drawable: bool,
-    /// The panel's saved query, handed back unchanged to run it.
-    pub query: Value,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Dashboard {
-    pub id: String,
-    pub title: String,
-    pub variables: Vec<Variable>,
-    pub panels: Vec<Panel>,
-}
+pub use sikemux_plugin_api::signoz::{
+    Column, Dashboard, DashboardSummary, Layout, Panel, PanelData, Series, Variable,
+};
 
 fn text(value: &Value, key: &str) -> String {
     value
@@ -178,7 +131,7 @@ pub async fn get(data_dir: &Path, request: DashboardRequest) -> SignozResult<Das
     })
 }
 
-async fn fetch(data_dir: &Path, id: &str) -> SignozResult<Dashboard> {
+pub async fn fetch(data_dir: &Path, id: &str) -> SignozResult<Dashboard> {
     let id = checked_id(id)?;
     let answer = client::request(
         data_dir,
@@ -313,35 +266,6 @@ pub struct PanelRequest {
     pub variables: BTreeMap<String, String>,
     #[serde(flatten)]
     pub scope: Scope,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-pub struct Series {
-    pub label: String,
-    /// Unix milliseconds and value.
-    pub points: Vec<(u64, f64)>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Column {
-    pub name: String,
-    pub aggregation: bool,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(tag = "shape", rename_all = "camelCase")]
-pub enum PanelData {
-    Series {
-        series: Vec<Series>,
-    },
-    Table {
-        columns: Vec<Column>,
-        rows: Vec<Vec<Value>>,
-    },
-    Value {
-        value: Option<f64>,
-    },
 }
 
 fn is_disabled(value: &Value) -> bool {

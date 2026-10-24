@@ -1,11 +1,11 @@
-export const DEFAULT_EDITOR_TEXT_SCALE = 1;
-const MIN_EDITOR_TEXT_SCALE = 0.7;
-const MAX_EDITOR_TEXT_SCALE = 2;
+import { DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE } from "../api/generated/wire";
+
+export const DEFAULT_EDITOR_TEXT_SCALE = DEFAULT_TEXT_SCALE;
 
 export function clampEditorTextScale(value: number): number {
     if (!Number.isFinite(value)) return DEFAULT_EDITOR_TEXT_SCALE;
     const rounded = Math.round(value * 100) / 100;
-    return Math.min(MAX_EDITOR_TEXT_SCALE, Math.max(MIN_EDITOR_TEXT_SCALE, rounded));
+    return Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, rounded));
 }
 
 // Set on the root so an editor opened later starts at the chosen size, without rebuilding its theme.

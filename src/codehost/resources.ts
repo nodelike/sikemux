@@ -2,31 +2,18 @@ import { resource } from "../plugin-api/resources";
 import {
     type Annotation,
     type JobSummary,
-    type RunTiming,
     type WorkflowFile,
-    type ChangedFile,
     type Issue,
-    type IssuePage,
     type Notification,
-    type Pull,
     type PullCommit,
     type CommitAuthor,
     type TimelineItem,
-    type Release,
-    type Review,
     type Artifact,
-    type PendingApproval,
-    type JobLog,
     type RepoListing,
     type RepoRef,
-    type RunDetail,
-    type RunPage,
-    type RunQuery,
     type RateLimit,
     type Workflow,
 } from "./types";
-import type { WorkflowFiles } from "./jobGraph";
-import { calledPath, readJobs } from "./workflowJobs";
 import { hostApi, type HostAccount, type HostAccountEntry, type ThreadOf } from "./registry";
 
 export const hostStatusR = resource({
@@ -71,18 +58,6 @@ export const hostBranchesR = resource({
     staleAfterMs: 5 * 60_000,
 });
 
-export const runsR = resource({
-    kind: "host.runs",
-    fetch: (query: RunQuery): Promise<RunPage> => hostApi(query.provider).runs(query),
-    staleAfterMs: 15_000,
-});
-
-export const runR = resource({
-    kind: "host.run",
-    fetch: (repo: RepoRef, runId: string): Promise<RunDetail> => hostApi(repo.provider).run(repo, runId),
-    staleAfterMs: 10_000,
-});
-
 export const annotationsR = resource({
     kind: "host.annotations",
     fetch: (repo: RepoRef, checkRunId: string): Promise<Annotation[]> => hostApi(repo.provider).annotations(repo, checkRunId),
@@ -95,90 +70,16 @@ export const jobSummaryR = resource({
     staleAfterMs: 5 * 60_000,
 });
 
-export const timingR = resource({
-    kind: "host.timing",
-    fetch: (repo: RepoRef, runId: string): Promise<RunTiming> => hostApi(repo.provider).runTiming(repo, runId),
-    staleAfterMs: 5 * 60_000,
-});
-
 export const workflowFileR = resource({
     kind: "host.workflowFile",
     fetch: (repo: RepoRef, workflowId: string): Promise<WorkflowFile> => hostApi(repo.provider).workflowFile(repo, workflowId),
     staleAfterMs: 10 * 60_000,
 });
 
-/** The jobs of a run's workflow file and of every file it calls, as they were at the run's commit. */
-export const workflowJobsR = resource({
-    kind: "host.workflowJobs",
-    fetch: async (repo: RepoRef, path: string, gitRef: string): Promise<WorkflowFiles> => {
-        const read = hostApi(repo.provider).workflowFileAt;
-        const files: WorkflowFiles = {};
-        if (!read) return files;
-        let pending = [path];
-        for (let depth = 0; depth < 4 && pending.length > 0; depth += 1) {
-            const texts = await Promise.all(
-                pending.map((each) =>
-                    read(repo, each, gitRef)
-                        .then((file) => file.text)
-                        .catch(() => null),
-                ),
-            );
-            const next = new Set<string>();
-            pending.forEach((each, index) => {
-                const jobs = readJobs(texts[index] ?? "");
-                files[each] = jobs;
-                for (const job of jobs ?? []) {
-                    const called = job.uses ? calledPath(job.uses) : null;
-                    if (called && !(called in files)) next.add(called);
-                }
-            });
-            pending = [...next];
-        }
-        return files;
-    },
-    staleAfterMs: 60 * 60_000,
-});
-
 export const artifactsR = resource({
     kind: "host.artifacts",
     fetch: (repo: RepoRef, runId: string): Promise<Artifact[]> => hostApi(repo.provider).artifacts(repo, runId),
     staleAfterMs: 60_000,
-});
-
-export const approvalsR = resource({
-    kind: "host.approvals",
-    fetch: (repo: RepoRef, runId: string): Promise<PendingApproval[]> => hostApi(repo.provider).pendingApprovals(repo, runId),
-    staleAfterMs: 15_000,
-});
-
-export const runAttemptR = resource({
-    kind: "host.runAttempt",
-    fetch: (repo: RepoRef, runId: string, attempt: number): Promise<RunDetail> => hostApi(repo.provider).runAttempt(repo, runId, attempt),
-    staleAfterMs: 5 * 60_000,
-});
-
-export const pullsR = resource({
-    kind: "host.pulls",
-    fetch: (repo: RepoRef, state: string): Promise<Pull[]> => hostApi(repo.provider).pulls(repo, state),
-    staleAfterMs: 60_000,
-});
-
-export const pullCountsR = resource({
-    kind: "host.pullCounts",
-    fetch: (repo: RepoRef): Promise<{ open: number; closed: number } | null> => hostApi(repo.provider).pullCounts?.(repo) ?? Promise.resolve(null),
-    staleAfterMs: 60_000,
-});
-
-export const pullR = resource({
-    kind: "host.pull",
-    fetch: (repo: RepoRef, number: number): Promise<Pull> => hostApi(repo.provider).pull(repo, number),
-    staleAfterMs: 30_000,
-});
-
-export const pullFilesR = resource({
-    kind: "host.pullFiles",
-    fetch: (repo: RepoRef, number: number): Promise<ChangedFile[]> => hostApi(repo.provider).pullFiles(repo, number),
-    staleAfterMs: 5 * 60_000,
 });
 
 export const timelineR = resource({
@@ -200,44 +101,14 @@ export const commitAuthorsR = resource({
     staleAfterMs: 10 * 60_000,
 });
 
-export const pullReviewsR = resource({
-    kind: "host.pullReviews",
-    fetch: (repo: RepoRef, number: number): Promise<Review[]> => hostApi(repo.provider).pullReviews(repo, number),
-    staleAfterMs: 60_000,
-});
-
-export const issuesR = resource({
-    kind: "host.issues",
-    fetch: (repo: RepoRef, state: string, page: number): Promise<IssuePage> => hostApi(repo.provider).issues(repo, state, page),
-    staleAfterMs: 60_000,
-});
-
-export const issueCountsR = resource({
-    kind: "host.issueCounts",
-    fetch: (repo: RepoRef): Promise<{ open: number; closed: number } | null> => hostApi(repo.provider).issueCounts?.(repo) ?? Promise.resolve(null),
-    staleAfterMs: 60_000,
-});
-
 export const issueR = resource({
     kind: "host.issue",
     fetch: (repo: RepoRef, number: number): Promise<Issue> => hostApi(repo.provider).issue(repo, number),
     staleAfterMs: 30_000,
 });
 
-export const releasesR = resource({
-    kind: "host.releases",
-    fetch: (repo: RepoRef): Promise<Release[]> => hostApi(repo.provider).releases(repo),
-    staleAfterMs: 5 * 60_000,
-});
-
 export const inboxR = resource({
     kind: "host.inbox",
     fetch: (provider: string, account: string | null, all: boolean): Promise<Notification[]> => hostApi(provider).inbox(account, all),
-    staleAfterMs: 30_000,
-});
-
-export const jobLogR = resource({
-    kind: "host.jobLog",
-    fetch: (repo: RepoRef, jobId: string): Promise<JobLog> => hostApi(repo.provider).jobLog(repo, jobId),
     staleAfterMs: 30_000,
 });

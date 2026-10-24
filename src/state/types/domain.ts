@@ -1,4 +1,4 @@
-import { ACCOUNT_AGENT_TYPES, agentBrand, agentLabel, type AccountAgentType, type AgentType } from "../../agents/catalog";
+import { accountAgentTypes, agentBrand, agentLabel, type AgentType } from "../../agents/catalog";
 import type { PluginKind } from "../../plugins/kinds";
 import type { SpaceIcon } from "../projectSpaces";
 
@@ -76,7 +76,7 @@ export type AgentEffort = (typeof AGENT_EFFORTS)[number];
 export interface ProviderProfile {
     id: string;
     name: string;
-    provider: AccountAgentType;
+    provider: AgentType;
     accent: string;
     executablePath?: string;
     configPath?: string;
@@ -85,18 +85,19 @@ export interface ProviderProfile {
 
 export type ProviderProfileSelection = Partial<Record<AgentType, string>>;
 
-const builtinProfileId = (type: AccountAgentType): string => `builtin-${type}`;
+const builtinProfileId = (type: AgentType): string => `builtin-${type}`;
 
-export const DEFAULT_PROVIDER_PROFILES: readonly ProviderProfile[] = ACCOUNT_AGENT_TYPES.map((type) => ({
-    id: builtinProfileId(type),
-    name: agentLabel(type),
-    provider: type,
-    accent: agentBrand(type),
-}));
+/** The account each agent that keeps accounts starts with. */
+export const defaultProviderProfiles = (): ProviderProfile[] =>
+    accountAgentTypes().map((type) => ({
+        id: builtinProfileId(type),
+        name: agentLabel(type),
+        provider: type,
+        accent: agentBrand(type),
+    }));
 
-export const DEFAULT_PROVIDER_PROFILE_SELECTION: Readonly<ProviderProfileSelection> = Object.fromEntries(
-    ACCOUNT_AGENT_TYPES.map((type) => [type, builtinProfileId(type)]),
-);
+export const defaultProviderProfileSelection = (): ProviderProfileSelection =>
+    Object.fromEntries(accountAgentTypes().map((type) => [type, builtinProfileId(type)]));
 
 export interface Agent {
     id: string;
@@ -185,8 +186,6 @@ export interface PtyContext {
 }
 
 export type RailDensity = "comfortable" | "compact";
-/** What a message sent while the agent works does: goes into the running turn, or waits for it to end. */
-export type MidTurnSend = "steer" | "queue";
 /** Whether the tab rail lists the open project or every open project. */
 export type TabRailScope = "project" | "all";
 /** Which of its pages the tab rail shows: the project's agents, its terminals or its open files. */
@@ -247,15 +246,7 @@ export interface RecentEntry {
     cwd: string;
 }
 
-export interface ProjectRoot {
-    path: string;
-    depth: number;
-    /**
-     * Index the root itself as a project, git repo or not, on top of whatever
-     * `depth` finds beneath it. Replaces the separate pinned-projects list.
-     */
-    selfIndex?: boolean;
-}
+export type { ProjectRoot } from "../../api/generated/wire";
 
 export interface Rect {
     x: number;

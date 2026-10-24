@@ -3,7 +3,6 @@
 //! answered in Rust, and the rest wait in a queue the page claims and answers.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
 use std::time::Duration;
 
@@ -124,10 +123,16 @@ fn run(app: &AppHandle, request: HarnessRequest) -> Result<Value, String> {
         return crate::agent_questions::changed(app, &request.params);
     }
     if is_browser_method(&request.method) {
-        return crate::browser::tools::execute(app, &request);
+        return crate::browser::tools::execute(
+            &app.state::<crate::browser::BrowserManager>(),
+            &request,
+        );
     }
     if is_sim_method(&request.method) {
-        return crate::simulator::tools::execute(app, &request);
+        return crate::simulator::tools::execute(
+            &app.state::<crate::simulator::SimulatorManager>(),
+            &request,
+        );
     }
     let id = request.id.clone();
     let method = request.method.clone();
@@ -156,7 +161,10 @@ fn run(app: &AppHandle, request: HarnessRequest) -> Result<Value, String> {
             if let Some(object) = value.as_object_mut() {
                 object.insert(
                     "simulator".into(),
-                    crate::simulator::tools::inspect(&app.state(), agent_id.as_deref()),
+                    crate::simulator::tools::inspect(
+                        &app.state::<crate::simulator::SimulatorManager>(),
+                        agent_id.as_deref(),
+                    ),
                 );
             }
             Ok(value)
@@ -235,18 +243,12 @@ pub async fn harness_resolve_path(project: String, path: String) -> Result<Strin
 }
 
 fn resolve_project_path(project: String, path: String) -> Result<String, String> {
-    match confine_to_project(&project, &path).map_err(|error| error.to_string())? {
+    match sikemux_core::files::confine_to_project(&project, &path)
+        .map_err(|error| error.to_string())?
+    {
         Some(target) if target.is_file() => Ok(target.to_string_lossy().into_owned()),
         _ => Err("File must be inside the project".into()),
     }
-}
-
-/// `path`, taken from `project` with links followed, or `None` when that leads
-/// outside the project.
-pub(crate) fn confine_to_project(project: &str, path: &str) -> std::io::Result<Option<PathBuf>> {
-    let root = std::fs::canonicalize(project)?;
-    let target = std::fs::canonicalize(root.join(path))?;
-    Ok(target.starts_with(&root).then_some(target))
 }
 
 #[cfg(test)]

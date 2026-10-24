@@ -1,23 +1,35 @@
+mod about;
 mod access;
+mod account;
 mod activity;
 pub(crate) mod activity_log;
 mod agent;
 mod agent_accounts;
 mod agent_sign_in;
+mod agent_view;
+mod agent_worktree;
+mod ansi;
 mod attachments;
 mod board;
 mod callers;
 mod calls;
+mod catalog;
 mod changed;
 mod chat;
 mod ci;
+mod cli_install;
+mod codehost;
 mod collisions;
 mod connection;
 mod custom_command;
+mod data_format;
 mod display;
+mod drafts;
 mod edits;
 mod entry;
+mod faces;
 mod follow;
+mod from_app;
 mod git;
 mod handover;
 mod harness;
@@ -25,36 +37,55 @@ mod host;
 mod host_key;
 mod hosts;
 mod inbox;
+mod job_graph;
 mod join;
 mod kept;
 mod launching;
+mod layout;
 mod lifecycle;
 mod load;
 mod local_peer;
+mod lsp;
 mod messages;
 mod model_providers;
+mod move_agent;
 mod names;
 mod network_watch;
+mod notch;
 mod notify;
+mod open_files;
+mod plugin_views;
 pub mod plugins;
 mod ports;
+mod preferences;
 mod prepare;
+mod project_files;
+mod project_roots;
+mod prompt_draft;
 mod questions;
 mod remote;
+mod remote_image;
 mod sandbox;
 mod saved;
 mod saved_sessions;
+pub mod search;
 mod seen;
 mod session;
 mod session_watch;
 mod share;
 mod skill_library;
+mod spare;
 mod spawn;
+mod ssh;
+mod streams;
 mod tasks;
+pub mod themes;
 mod tools;
 mod transcript;
+mod updates;
 mod upgrade;
 mod wake;
+mod wallpaper;
 mod warm;
 mod who_wrote;
 mod window;
@@ -64,7 +95,7 @@ pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
 pub use remote::trust_remote_file;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -99,6 +130,8 @@ const SESSION_POLL: Duration = Duration::from_millis(250);
 const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 const IDLE_TRIM: Duration = Duration::from_secs(10 * 60);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
+/// How long one step of stopping may take before the core gives up on it and stops anyway.
+const STOP_STEP_LIMIT: Duration = Duration::from_secs(5);
 /// How often what a paired device shows of this host is looked at again
 /// while something in it moves by itself, such as an agent mid-turn.
 const DEVICE_VIEW_INTERVAL: Duration = Duration::from_millis(400);
@@ -340,12 +373,36 @@ pub(crate) struct Core {
     pub(crate) view_watched: Notify,
     /// Sends the device view before its next tick, once an agent's state changed.
     pub(crate) view_stale: Notify,
+    /// Sends it at once, without waiting for more changes to go with it.
+    pub(crate) view_due: Notify,
     pub(crate) names: names::Names,
     pub(crate) boards: board::Boards,
     pub(crate) changes: changed::Changes,
     pub(crate) ports: ports::Ports,
+    pub(crate) spares: spare::Spares,
+    pub(crate) updates: updates::Updates,
+    pub(crate) remote_images: remote_image::RemoteImages,
+    /// Rings when a window opens, so the day's usage counts it at once.
+    pub(crate) usage_wake: Notify,
     pub(crate) tasks: tasks::Tasks,
     pub(crate) git_watches: crate::git::watch::Watches,
+    /// Each project's branch chip, by project folder.
+    pub(crate) git_chips: Mutex<HashMap<String, crate::protocol::ProjectGit>>,
+    /// Each project's code host and branch pull request, by project folder.
+    pub(crate) code_hosts: Mutex<HashMap<String, git::Hosted>>,
+    /// The code-host lists clients look at, kept and read again while they do.
+    pub(crate) code_host_lists: codehost::Lists,
+    /// The plugin views panes look at, kept and read again while they do.
+    pub(crate) plugin_views: plugin_views::Views,
+    /// The files clients have open, watched wherever they are.
+    pub(crate) open_files: open_files::OpenFiles,
+    pub(crate) layouts: layout::Layouts,
+    /// Who this host is signed in to Sikemux as.
+    pub(crate) account: account::Account,
+    /// The rail numbers running loose terminals have.
+    rail_numbers: Mutex<BTreeSet<u32>>,
+    /// Watches the SSH config once a client has listed its hosts.
+    pub(crate) ssh_watch: OnceLock<Option<::notify::RecommendedWatcher>>,
     pub(crate) ci: ci::Ci,
     pub(crate) edits: edits::Edits,
     pub(crate) collisions: collisions::Collisions,
@@ -353,8 +410,24 @@ pub(crate) struct Core {
     pub(crate) inbox: inbox::Inbox,
     /// Hosts linked with this one, and the agents of teams shared with them.
     pub(crate) hosts: hosts::Hosts,
+    /// The faces agents wear, and the style the person picked for them.
+    pub(crate) faces: faces::Faces,
+    /// How the person wants Sikemux to behave.
+    pub(crate) preferences: preferences::Prefs,
+    /// What the person has typed and not sent yet, by what it is for.
+    pub(crate) drafts: drafts::Drafts,
+    /// Answers in parts on the connections that asked for them.
+    pub(crate) streams: streams::Streams,
     /// The view paired devices were last sent, as sent.
-    device_view: Mutex<Vec<u8>>,
+    /// The view each client was last sent: by the device with what it has in front of its
+    /// own, or under none for every other client.
+    device_view: Mutex<HashMap<Option<String>, Vec<u8>>>,
+    /// What the rows showed of this host's load in the view that last went out.
+    shown_load: Mutex<Option<(u32, Option<u64>)>>,
+    /// The app's terminal theme, which programs asking for colours are told.
+    terminal_colors: Mutex<sikemux_wire::grid::TerminalColors>,
+    /// The person's theme resolved, kept until their preferences change.
+    palette: Mutex<sikemux_wire::theme::Palette>,
 }
 
 /// Session and window call ids start from the clock, so an id a client still
@@ -378,13 +451,16 @@ impl Core {
     }
 
     fn new(build: BuildIdentity, data_dir: Option<&Path>) -> Result<Arc<Self>, ServerError> {
+        if let Some(dir) = data_dir {
+            data_format::upgrade(dir);
+        }
         let detection = ManifestRegistry::bundled()
             .map_err(|error| ServerError::Manifests(error.to_string()))?;
         let names = names::Names::new(data_dir);
         let hosts = hosts::Hosts::new(data_dir);
         names.pin(hosts.team.ids());
         let harness = harness::Harness::new(data_dir, |agent_id| names.get(agent_id).is_some());
-        Ok(Arc::new_cyclic(|me| Self {
+        let core = Arc::new_cyclic(|me| Self {
             me: me.clone(),
             sessions: Mutex::new(HashMap::new()),
             next_session_id: AtomicU64::new(first_session_id()),
@@ -416,20 +492,44 @@ impl Core {
             activity_log: Arc::new(activity_log::ActivityLog::new(data_dir)),
             view_watched: Notify::new(),
             view_stale: Notify::new(),
+            view_due: Notify::new(),
             names,
             boards: board::Boards::new(data_dir),
             changes: changed::Changes::default(),
             ports: ports::Ports::default(),
+            spares: spare::Spares::default(),
+            updates: updates::Updates::default(),
+            remote_images: remote_image::RemoteImages::default(),
+            usage_wake: Notify::new(),
             tasks: tasks::Tasks::new(data_dir),
             git_watches: Default::default(),
+            git_chips: Default::default(),
+            code_hosts: Default::default(),
+            code_host_lists: Default::default(),
+            plugin_views: Default::default(),
+            open_files: Default::default(),
+            layouts: layout::Layouts::new(data_dir),
+            account: Default::default(),
+            rail_numbers: Mutex::default(),
+            ssh_watch: OnceLock::new(),
             ci: Default::default(),
             edits: edits::Edits::new(data_dir, me.clone()),
             collisions: collisions::Collisions::new(me.clone()),
             notify: notify::Notifier::default(),
             inbox: inbox::Inbox::default(),
             hosts,
-            device_view: Mutex::new(Vec::new()),
-        }))
+            faces: faces::Faces::new(data_dir),
+            preferences: preferences::Prefs::new(data_dir),
+            drafts: drafts::Drafts::new(data_dir),
+            streams: streams::Streams::default(),
+            device_view: Mutex::default(),
+            shown_load: Mutex::default(),
+            terminal_colors: Mutex::default(),
+            palette: Mutex::new(themes::default_palette()),
+        });
+        from_app::carry(&core, data_dir);
+        core.theme_changed();
+        Ok(core)
     }
 
     /// This core, for work that outlives the call it starts in.
@@ -439,6 +539,22 @@ impl Core {
 
     pub(crate) fn is_frozen(&self) -> bool {
         *self.frozen.borrow()
+    }
+
+    pub(crate) fn terminal_colors(&self) -> sikemux_wire::grid::TerminalColors {
+        self.terminal_colors.locked().clone()
+    }
+
+    /// Resolves the person's theme again, for apps, devices and programs' colour queries.
+    pub(crate) fn theme_changed(&self) {
+        let palette = themes::palette(&self.preferences.get());
+        *self.terminal_colors.locked() = themes::terminal_colors(&palette.theme);
+        *self.palette.locked() = palette;
+        self.view_changed();
+    }
+
+    pub(crate) fn palette(&self) -> sikemux_wire::theme::Palette {
+        self.palette.locked().clone()
     }
 
     /// Resolves once the core starts handing itself over.
@@ -566,6 +682,15 @@ impl Core {
         named
     }
 
+    /// Each ssh terminal's config host and how it reaches it.
+    pub(crate) fn ssh_links(&self) -> Vec<(String, Option<sikemux_pty::shell_protocol::SshLink>)> {
+        self.all_sessions()
+            .iter()
+            .filter(|session| session.is_running())
+            .filter_map(|session| session.ssh_link())
+            .collect()
+    }
+
     pub(crate) fn agent_session(&self, agent_id: &str) -> Option<Arc<Session>> {
         self.all_sessions().into_iter().find(|session| {
             session
@@ -583,8 +708,23 @@ impl Core {
         self.sessions.locked().values().cloned().collect()
     }
 
+    /// The lowest rail number no running loose terminal has, taken now.
+    fn take_rail_number(&self) -> u32 {
+        let mut taken = self.rail_numbers.locked();
+        let number = (1..).find(|number| !taken.contains(number)).unwrap_or(0);
+        taken.insert(number);
+        number
+    }
+
     fn insert_session(&self, session: Arc<Session>) {
+        if let Some(number) = session.rail_number() {
+            self.rail_numbers.locked().insert(number);
+        }
+        let ssh = session.ssh_link().is_some();
         self.sessions.locked().insert(session.id, session);
+        if ssh {
+            ssh::moved(self);
+        }
     }
 
     pub(crate) fn remove_session(&self, session: &Arc<Session>) -> bool {
@@ -620,7 +760,7 @@ impl Core {
         self.sessions
             .locked()
             .values()
-            .filter(|s| s.is_running())
+            .filter(|s| s.is_running() && !self.spares.is_spare(s.id))
             .count()
     }
 
@@ -630,6 +770,10 @@ impl Core {
             && self.running_sessions() == 0
             && self.chats.count() == 0
             && !board::auto_has_work(self)
+    }
+
+    pub(crate) fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>> {
+        self.clients.locked().get(&id).cloned()
     }
 
     fn register_client(&self, client: Arc<ClientConn>) {
@@ -642,10 +786,11 @@ impl Core {
         self.window.unregister(client.id);
         self.chats.forget_client(client.id);
         self.seen.client_gone(client.id);
+        lsp::orphan(client.id);
         self.clients.locked().remove(&client.id);
-        for id in client.take_subscriptions() {
+        for (stream, id) in client.take_streams() {
             if let Some(session) = self.session(id) {
-                session::detach(&session, client.id);
+                session::detach(&session, stream);
             }
         }
         self.view_changed();
@@ -679,8 +824,14 @@ impl Core {
     /// Every session, with what the app calls its agent and whether the
     /// person has seen what the agent last did.
     pub(crate) fn session_infos(&self) -> Vec<crate::protocol::SessionInfo> {
-        let mut sessions: Vec<_> = self.all_sessions().iter().map(|s| s.info()).collect();
+        let mut sessions: Vec<_> = self
+            .all_sessions()
+            .iter()
+            .map(|s| s.info())
+            .filter(|info| !self.spares.hides(info.pane_id.as_deref()))
+            .collect();
         sessions.sort_by_key(|info| info.id);
+        self.workspaces.place(&mut sessions);
         for info in &mut sessions {
             if let Some(agent_id) = &info.agent_id {
                 info.agent_name = self.names.name(agent_id);
@@ -729,8 +880,62 @@ impl Core {
         (chats, sessions)
     }
 
-    /// The view devices are sent, and whether anything in it moves by itself.
-    fn device_view_frame(&self) -> Option<(Vec<u8>, bool)> {
+    /// The face each agent wears, by agent id; one showing its logo has none.
+    pub(crate) fn agent_faces(&self) -> HashMap<String, crate::protocol::AgentFace> {
+        let mut agents = self.workspaces.view().agents;
+        self.names.fill(&mut agents);
+        self.faces.fill(&mut agents);
+        agents
+            .into_iter()
+            .filter_map(|agent| Some((agent.id, agent.face?)))
+            .collect()
+    }
+
+    /// The workspace as clients are sent it, each agent under its name and
+    /// in its face.
+    pub(crate) fn workspace_view(&self) -> crate::protocol::Workspace {
+        let preferences = self.preferences.get();
+        let mut workspace = self.workspaces.view();
+        workspace.palette = themes::by_name(&self.palette.locked().tokens);
+        self.names.fill(&mut workspace.agents);
+        self.faces.fill(&mut workspace.agents);
+        let chips = self.git_chips.locked();
+        let hosts = self.code_hosts.locked();
+        let accounts = self.workspaces.accounts();
+        let preferred = preferences.last_agent_type.as_deref().and_then(|kind| {
+            let ids = workspace
+                .launchers
+                .iter()
+                .map(|launcher| (launcher.id.as_str(), launcher.provider.as_str()));
+            workspace::launcher_for(ids, accounts.as_ref(), kind)
+        });
+        for project in &mut workspace.projects {
+            let folder = project.path.to_string_lossy();
+            project.worktree_default =
+                preferences.agent_worktree_defaults.get(&*folder) == Some(&true);
+            let fresh = !workspace
+                .agents
+                .iter()
+                .any(|agent| agent.project == project.id);
+            if fresh && preferred.is_some() {
+                project.launcher.clone_from(&preferred);
+            }
+            let hosted = hosts.get(&*folder);
+            project.code_host = hosted.and_then(|hosted| hosted.shown.clone());
+            project.git = chips.get(&*folder).cloned().map(|mut chip| {
+                let hosted =
+                    hosted.filter(|hosted| hosted.branch.as_deref() == Some(chip.branch.as_str()));
+                chip.pull = hosted.and_then(|hosted| hosted.pull.clone());
+                chip.needs_pull = hosted.is_some_and(|hosted| hosted.needs_pull);
+                chip
+            });
+        }
+        workspace
+    }
+
+    /// The view `device` is sent, or every client without a front of its own, and whether
+    /// anything in it moves by itself.
+    fn device_view_frame(&self, device: Option<&str>) -> Option<(Vec<u8>, bool)> {
         let (chats, sessions) = self.ranked_infos();
         let moving = chats.iter().any(|chat| {
             chat.group == AgentGroup::Working
@@ -744,16 +949,28 @@ impl Core {
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
         let recent = self.workspaces.recent(&chats);
         let inbox = serde_json::to_value(inbox::view(self, &chats, &sessions)).ok()?;
+        let workspace = self.workspace_view();
+        let layout = Box::new(layout::view(self, &workspace, &sessions, device));
         let view = DeviceView {
-            workspace: self.workspaces.view(),
+            workspace,
             sessions,
             chats,
             attentions,
             recent,
             inbox,
+            layout,
+            account: self.account.shown().map(Box::new),
+            face_style: Box::new(self.faces.style()),
+            load: self.shows_load().then(|| {
+                let load = load::now();
+                *self.shown_load.locked() = Some(load::shown(&load));
+                load
+            }),
         };
         let frame = encode_control(&ServerMessage::Event {
-            event: Event::DeviceView { view },
+            event: Event::DeviceView {
+                view: Box::new(view),
+            },
         })
         .ok()?;
         Some((frame, moving))
@@ -768,30 +985,59 @@ impl Core {
             .collect()
     }
 
+    /// Whether a client that shows this host's load watches the view: the app on this host, or
+    /// another host's app joined as a device. Phones show no load.
+    pub(crate) fn shows_load(&self) -> bool {
+        self.view_watchers()
+            .iter()
+            .any(|client| match &client.peer {
+                access::Peer::Device { id } => !self
+                    .remote
+                    .device_platform(id)
+                    .is_some_and(|platform| matches!(platform.as_str(), "ios" | "android")),
+                peer => !matches!(peer, access::Peer::Share { .. }),
+            })
+    }
+
+    /// Whether what the rows show of `load` moved since the view last went out.
+    pub(crate) fn load_moved(&self, load: &crate::protocol::HostLoad) -> bool {
+        *self.shown_load.locked() != Some(load::shown(load))
+    }
+
     /// Whether anything in the view moves by itself.
     fn publish_device_view(&self) -> bool {
         let devices = self.view_watchers();
         if devices.is_empty() {
             return false;
         }
+        let fronted = layout::fronted(self);
         let mut last = self.device_view.locked();
-        let Some((frame, moving)) = self.device_view_frame() else {
-            return false;
-        };
-        if *last != frame {
-            let shared: Arc<[u8]> = frame.as_slice().into();
-            for client in devices {
-                client.send(shared.clone());
+        let mut frames: HashMap<Option<String>, Option<Arc<[u8]>>> = HashMap::new();
+        let mut moving = false;
+        for client in devices {
+            let key = client.peer.device_id().filter(|id| fronted.contains(id));
+            let frame = frames.entry(key.clone()).or_insert_with(|| {
+                let (frame, moves) = self.device_view_frame(key.as_deref())?;
+                moving |= moves;
+                if last.get(&key) == Some(&frame) {
+                    return None;
+                }
+                let shared: Arc<[u8]> = frame.as_slice().into();
+                last.insert(key.clone(), frame);
+                Some(shared)
+            });
+            if let Some(frame) = frame {
+                client.send(frame.clone());
             }
-            *last = frame;
         }
+        last.retain(|key, _| frames.contains_key(key));
         moving
     }
 
     /// A device that just connected starts from the whole view.
     pub(crate) fn send_device_view(&self, client: &ClientConn) {
         let _last = self.device_view.locked();
-        if let Some((frame, _)) = self.device_view_frame() {
+        if let Some((frame, _)) = self.device_view_frame(client.peer.device_id().as_deref()) {
             client.send(frame.into());
         }
     }
@@ -873,7 +1119,10 @@ impl Core {
         }
     }
 
-    fn drain(&self) {
+    /// Stops every chat and session. Only reaping a killed process can hang, so each session is
+    /// reaped on a thread of its own within `STOP_STEP_LIMIT`, and one still unreaped then is
+    /// reported gone without its status, so every exit is still recorded.
+    fn drain(self: &Arc<Self>) {
         self.chats.stop_all();
         let sessions: Vec<Arc<Session>> = self
             .sessions
@@ -888,14 +1137,62 @@ impl Core {
             session::signal_for_drain(session);
         }
         std::thread::sleep(DRAIN_GRACE);
+        let (reaped, reaping) = std::sync::mpsc::channel();
         for session in &sessions {
-            session::finish_drain(self, session);
+            let (core, session, reaped) = (self.clone(), session.clone(), reaped.clone());
+            std::thread::spawn(move || {
+                session::finish_drain(&core, &session);
+                let _ = reaped.send(());
+            });
+        }
+        drop(reaped);
+        let deadline = Instant::now() + STOP_STEP_LIMIT;
+        let finished = (0..sessions.len())
+            .take_while(|_| {
+                reaping
+                    .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                    .is_ok()
+            })
+            .count();
+        if finished < sessions.len() {
+            eprintln!(
+                "sikemux core: {} sessions were not reaped within {}s; stopping without them",
+                sessions.len() - finished,
+                STOP_STEP_LIMIT.as_secs()
+            );
+        }
+        for session in &sessions {
+            session::report_exit(self, session, None);
             session::detach_all(session);
         }
     }
 
     fn begin_shutdown(&self) {
         self.shutdown.send_replace(true);
+    }
+
+    /// Stops every chat and session, off the async threads.
+    async fn stop_everything(self: &Arc<Self>) {
+        let draining = self.clone();
+        let _ = connection::blocking(move || {
+            draining.drain();
+            Ok(())
+        })
+        .await;
+    }
+}
+
+/// Waits for `step` of stopping the core, or gives up on it after `STOP_STEP_LIMIT`, saying
+/// which step it was, so one that hangs cannot keep the core from exiting.
+async fn within_stop_limit<T>(step: &str, stopping: impl std::future::Future<Output = T>) {
+    if tokio::time::timeout(STOP_STEP_LIMIT, stopping)
+        .await
+        .is_err()
+    {
+        eprintln!(
+            "sikemux core: stopping {step} took over {}s; stopping without it",
+            STOP_STEP_LIMIT.as_secs()
+        );
     }
 }
 
@@ -919,7 +1216,8 @@ fn shown_in_device_view(event: &Event) -> bool {
         | Event::FocusAgent { .. }
         | Event::Notice { .. }
         | Event::AccountDevice { .. }
-        | Event::Changed { .. } => false,
+        | Event::Changed { .. }
+        | Event::Stream { .. } => false,
     }
 }
 
@@ -999,9 +1297,8 @@ async fn poll_sessions(core: Arc<Core>) {
                 continue;
             }
             let update = session
-                .parser
+                .screen
                 .locked()
-                .callbacks_mut()
                 .shell
                 .as_mut()
                 .and_then(|shell| shell.take_due_event(now));
@@ -1036,8 +1333,13 @@ async fn device_views(core: Arc<Core>) {
         };
         if changed {
             let now = tokio::time::Instant::now();
-            tokio::time::sleep_until((now + DEVICE_VIEW_GATHER).max(built + DEVICE_VIEW_SPACING))
-                .await;
+            let gathered = tokio::time::sleep_until(
+                (now + DEVICE_VIEW_GATHER).max(built + DEVICE_VIEW_SPACING),
+            );
+            tokio::select! {
+                () = gathered => {}
+                () = core.view_due.notified() => {}
+            }
         }
         core.show_phones();
         let now = core.window.client_id();
@@ -1073,6 +1375,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
         .map_err(std::io::Error::other)??;
     let core = Core::new(config.build.clone(), config.data_dir.as_deref())?;
     chat::restore(&core);
+    workspace::restore(&core);
     core.chats.clear_history();
     if let Some(path) = config.cli_endpoint.clone() {
         match tools::ToolEndpoint::start(core.clone(), path).await {
@@ -1105,19 +1408,12 @@ pub(crate) async fn run_core(
     core.chats.resets.arm_saved(&core);
     git::follow_projects(&core);
     if let Some(data_dir) = config.data_dir.as_deref() {
+        crate::agent_accounts::usage::keep_readings_in(data_dir.join("plan-limits.json"));
         crate::git_guard::shim::install(data_dir, config.cli_endpoint.as_deref());
         tokio::spawn(workspace::refresh_launchers(core.clone()));
         skill_library::watch_global(&core);
-        if crate::usage::Install::Host.reports() {
-            let host = host_info();
-            let core = core.clone();
-            tokio::spawn(crate::usage::report_host(
-                data_dir.to_owned(),
-                host.version,
-                host.channel,
-                move || core.remote.owner(),
-            ));
-        }
+        account::start(&core);
+        tokio::spawn(crate::usage::serve(core.clone(), data_dir.to_owned()));
     }
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
@@ -1125,7 +1421,9 @@ pub(crate) async fn run_core(
         tokio::spawn(poll_sessions(core.clone())),
         tokio::spawn(sweep(core.clone())),
         tokio::spawn(device_views(core.clone())),
+        tokio::spawn(load::watch(core.clone())),
         tokio::spawn(lifecycle::serve(core.clone())),
+        tokio::spawn(updates::serve(core.clone())),
         tokio::spawn(changed::serve(core.clone())),
         tokio::spawn(tasks::publish_runs(core.clone())),
         tokio::spawn(wake::serve(
@@ -1167,6 +1465,11 @@ pub(crate) async fn run_core(
             core.clone(),
             |core| &core.ports.wake,
             ports::settle,
+        )),
+        tokio::spawn(wake::serve(
+            core.clone(),
+            |core| &core.spares.wake,
+            spare::settle,
         )),
         tokio::spawn(workspace::recents(core.clone())),
         tokio::spawn(notify::run(core.clone())),
@@ -1210,12 +1513,13 @@ pub(crate) async fn run_core(
             }
         }
     }
+    say_stopping(&core).await;
     for task in background {
         task.abort();
     }
     core.workspaces.flush();
     remote::stop_network(&core);
-    remote::stop(&core).await;
+    within_stop_limit("remote access", remote::stop(&core)).await;
     remote::stop_live(&core);
     let tools = core.tools.locked().take();
     if let Some(tools) = tools {
@@ -1228,12 +1532,32 @@ pub(crate) async fn run_core(
     Ok(())
 }
 
+/// How long the app and the notch get to hear that the core is stopping.
+const STOPPING_FLUSH: Duration = Duration::from_millis(200);
+
+/// Tells the app and the notch the core is stopping on purpose, before its socket closes, so
+/// neither starts it again. A core that dies without a word is started again.
+async fn say_stopping(core: &Core) {
+    core.broadcast_local(&Event::Changed {
+        topic: "stopping".into(),
+        project: None,
+        paths: None,
+    });
+    let deadline = Instant::now() + STOPPING_FLUSH;
+    for client in core.clients() {
+        client
+            .wait_flushed(deadline.saturating_duration_since(Instant::now()))
+            .await;
+    }
+}
+
 pub fn run(config: ServerConfig) -> Result<(), ServerError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("sikemux-core")
         .build()?;
     let result = runtime.block_on(serve(config));
+    lsp::drain_all();
     runtime.shutdown_timeout(Duration::from_millis(100));
     result
 }

@@ -1,19 +1,13 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PluginStreamHandlers } from "../../plugin-api/backend";
-import type { Job, Run, RunTick } from "../api";
+import type { Job, OpenRun, Run } from "../api";
 
 const api = vi.hoisted(() => ({
-    run: vi.fn(),
-    runAttempt: vi.fn(),
     pendingApprovals: vi.fn(() => Promise.resolve([])),
-    runTiming: vi.fn(),
     artifacts: vi.fn(),
-    watch: vi.fn(),
     rerun: vi.fn(),
     rerunJob: vi.fn(),
     cancel: vi.fn(() => Promise.resolve()),
-    jobLog: vi.fn(() => Promise.resolve({ lines: [], expired: false, truncated: false })),
     annotations: vi.fn(),
     jobSummary: vi.fn(),
     workflowFile: vi.fn(),
@@ -27,8 +21,14 @@ import { useToasts } from "../../state/toast";
 import { resetView, updateView, useHostView, viewOf } from "../state";
 import { RunMenu } from "./RunMenu";
 import { RunView } from "./RunView";
-import { InHost, registerTestHost, TEST_HOST } from "../testHost";
+import { ciCore, InHost, registerTestHost, TEST_HOST } from "../testHost";
 
+/** The run the core answers with, for what it was asked. */
+const runs = vi.fn<(params: Record<string, unknown>) => OpenRun>();
+const core = ciCore({}, undefined, {
+    codeHostRun: (params) => runs(params),
+    codeHostJobLog: () => ({ lines: [], from: 0, total: 0, sections: [], expired: false, truncated: false }),
+});
 const host = registerTestHost(api);
 const wrapper = ({ children }: { children: React.ReactNode }) => <InHost host={host}>{children}</InHost>;
 
@@ -45,6 +45,7 @@ const makeRun = (overrides: Partial<Run> = {}): Run => ({
     event: "push",
     status: "completed",
     conclusion: "failure",
+    outcome: "failure",
     branch: "main",
     sha: "abc123",
     shortSha: "abc123",
@@ -58,19 +59,23 @@ const makeRun = (overrides: Partial<Run> = {}): Run => ({
     ...overrides,
 });
 
-const waiting = makeRun({ status: "waiting", conclusion: null });
+const waiting = makeRun({ status: "waiting", conclusion: null, outcome: "blocked" });
 
-interface Watch {
-    handlers: PluginStreamHandlers<RunTick>;
-    stop: ReturnType<typeof vi.fn>;
-}
-
-/** Each watch opened so far, first one first. */
-const watches = (): Watch[] => api.watch.mock.results.map((result) => result.value as Watch);
-
-function setHidden(hidden: boolean) {
-    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
-    document.dispatchEvent(new Event("visibilitychange"));
+/** A run as the core opens it; what it works out from the jobs is the test's to say. */
+function opened(run: Run, jobs: Job[] = [], worked: Partial<OpenRun> = {}): OpenRun {
+    return {
+        run,
+        jobs: jobs.map((job) => ({ job, stoppedAt: null })),
+        attempts: run.attempt,
+        unfinished: run.status !== "completed",
+        done: 0,
+        failed: 0,
+        failedJob: null,
+        graph: { columns: [], edges: [] },
+        timing: null,
+        summaries: [],
+        ...worked,
+    };
 }
 
 const makeJob = (overrides: Partial<Job> = {}): Job => ({
@@ -78,6 +83,7 @@ const makeJob = (overrides: Partial<Job> = {}): Job => ({
     name: "build",
     status: "completed",
     conclusion: "success",
+    outcome: "success",
     startedAt: "2026-01-01T12:00:00Z",
     completedAt: "2026-01-01T12:01:05Z",
     runner: null,
@@ -100,7 +106,6 @@ beforeEach(() => {
     resetView("pane");
     useToasts.setState({ toasts: [] });
     for (const mock of Object.values(api)) mock.mockClear();
-    api.runTiming.mockReset().mockResolvedValue({ runDurationMs: null, billable: [] });
     api.artifacts.mockReset().mockResolvedValue([]);
     api.rerun.mockReset().mockResolvedValue(undefined);
     api.rerunJob.mockReset().mockResolvedValue(undefined);
@@ -109,21 +114,17 @@ beforeEach(() => {
     api.workflowFile.mockReset().mockResolvedValue({ path: ".github/workflows/ci.yml", text: "on: push" });
     api.deleteRun.mockReset().mockResolvedValue(undefined);
     api.deleteRunLogs.mockReset().mockResolvedValue(undefined);
-    api.watch.mockReset().mockImplementation((_repo, _runId, handlers: PluginStreamHandlers<RunTick>) => ({ handlers, stop: vi.fn() }));
-    api.runAttempt
-        .mockReset()
-        .mockImplementation((_repo, runId: string, attempt: number) => Promise.resolve({ run: makeRun({ id: runId, attempt }), jobs: [] }));
 });
 
 afterEach(() => {
     cleanup();
-    vi.useRealTimers();
-    Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
 });
 
 async function renderRun(run: Run, runId = run.id) {
-    api.run.mockReset().mockImplementation((_repo, id: string) => Promise.resolve({ run: { ...run, id }, jobs: [] }));
-    const view = render(<RunView paneId="pane" repo={repo} runId={runId} openJob={null} active canWrite />, { wrapper });
+    runs.mockReset().mockImplementation(({ runId: id, attempt }) =>
+        opened({ ...run, id: id as string, attempt: (attempt as number | null) ?? run.attempt }, [], { attempts: run.attempt }),
+    );
+    const view = render(<RunView paneId="pane" project={null} repo={repo} runId={runId} openJob={null} active canWrite />, { wrapper });
     await act(async () => {});
     return view;
 }
@@ -137,7 +138,7 @@ describe("a run waiting for approval", () => {
     });
 
     it("keeps its menu to the actions that do not need it to be over", () => {
-        render(<RunMenu run={waiting} repo={repo} canWrite onDeleted={() => {}} />, { wrapper });
+        render(<RunMenu run={waiting} unfinished repo={repo} canWrite onDeleted={() => {}} />, { wrapper });
         fireEvent.click(screen.getByRole("button", { name: "More run actions" }));
         expect(screen.getByRole("menuitem", { name: "Copy link" })).toBeTruthy();
         expect(screen.queryByRole("menuitem", { name: "Re-run all with debug logs" })).toBeNull();
@@ -145,9 +146,11 @@ describe("a run waiting for approval", () => {
         expect(screen.queryByRole("menuitem", { name: "Delete run" })).toBeNull();
     });
 
-    it("is watched live", async () => {
+    it("is read again when the core says it moved", async () => {
         await renderRun(waiting);
-        expect(api.watch).toHaveBeenCalledTimes(1);
+        expect(runs).toHaveBeenCalledTimes(1);
+        await act(async () => core.listsMoved(["run"]));
+        expect(runs).toHaveBeenCalledTimes(2);
     });
 });
 
@@ -165,71 +168,29 @@ describe("RunView", () => {
         const view = await renderRun(makeRun({ attempt: 2 }));
         fireEvent.click(screen.getByRole("button", { name: "Attempt 1" }));
         await act(async () => {});
-        expect(api.runAttempt).toHaveBeenCalledWith(repo, "7", 1);
-        api.runAttempt.mockClear();
+        expect(runs).toHaveBeenLastCalledWith(expect.objectContaining({ runId: "7", attempt: 1 }));
 
-        view.rerender(<RunView paneId="pane" repo={repo} runId="8" openJob={null} active canWrite />);
+        view.rerender(<RunView paneId="pane" project={null} repo={repo} runId="8" openJob={null} active canWrite />);
         await act(async () => {});
-        expect(api.runAttempt).not.toHaveBeenCalled();
-        expect(api.run).toHaveBeenCalledWith(repo, "8");
-    });
-
-    it("starts the watch again, and says why, when it gives up on a run still going", async () => {
-        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-        await renderRun(makeRun({ status: "in_progress", conclusion: null }));
-        const onTick = watches()[0].handlers.onItem;
-        act(() => {
-            onTick({ run: null, jobs: [], error: "GitHub is rate limiting this token", finished: true, fatal: false, signedOut: false });
-            watches()[0].handlers.onEnd?.();
-        });
-        expect(screen.getByText("GitHub is rate limiting this token")).toBeTruthy();
-        await act(async () => {
-            vi.advanceTimersByTime(60_000);
-        });
-        expect(api.watch).toHaveBeenCalledTimes(2);
-    });
-
-    it("stops for good, still saying why, when watching again cannot help", async () => {
-        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-        await renderRun(makeRun({ status: "in_progress", conclusion: null }));
-        const onTick = watches()[0].handlers.onItem;
-        act(() => onTick({ run: null, jobs: [], error: "github: not signed in", finished: true, fatal: true, signedOut: true }));
-        expect(screen.getByText("github: not signed in")).toBeTruthy();
-        await act(async () => {
-            vi.advanceTimersByTime(10 * 60_000);
-        });
-        await act(async () => setHidden(true));
-        await act(async () => setHidden(false));
-        expect(api.watch).toHaveBeenCalledTimes(1);
-    });
-
-    it("stops watching while the window is hidden and picks up again when it is shown", async () => {
-        await renderRun(makeRun({ status: "in_progress", conclusion: null }));
-        expect(api.watch).toHaveBeenCalledTimes(1);
-        await act(async () => setHidden(true));
-        expect(watches()[0].stop).toHaveBeenCalled();
-        await act(async () => setHidden(false));
-        expect(api.watch).toHaveBeenCalledTimes(2);
+        expect(runs).toHaveBeenLastCalledWith(expect.objectContaining({ runId: "8", attempt: null }));
     });
 });
 
 function Pane({ canWrite = true }: { canWrite?: boolean }) {
     const view = useHostView("pane");
-    return <RunView paneId="pane" repo={repo} runId="7" openJob={view.job} active canWrite={canWrite} />;
+    return <RunView paneId="pane" project={null} repo={repo} runId="7" openJob={view.job} active canWrite={canWrite} />;
 }
 
-async function renderPane(run: Run, jobs: Job[] = [], canWrite = true) {
-    api.run.mockReset().mockResolvedValue({ run, jobs });
+async function renderPane(run: Run, jobs: Job[] = [], canWrite = true, worked: Partial<OpenRun> = {}) {
+    runs.mockReset().mockReturnValue(opened(run, jobs, worked));
     const view = render(<Pane canWrite={canWrite} />, { wrapper });
     await act(async () => {});
     return view;
 }
 
-const card = () => document.querySelector(".git-side-head") as HTMLElement;
-
 describe("the run's card", () => {
     it("cancels a run only once the person confirms", async () => {
-        await renderPane(makeRun({ status: "in_progress", conclusion: null }));
+        await renderPane(makeRun({ status: "in_progress", conclusion: null, outcome: "running" }));
         fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
         await act(async () => {});
         answerDialog(false);
@@ -245,7 +206,7 @@ describe("the run's card", () => {
     });
 
     it("offers nothing that changes the run to someone who cannot write", async () => {
-        await renderPane(makeRun({ status: "in_progress", conclusion: null }), [], false);
+        await renderPane(makeRun({ status: "in_progress", conclusion: null, outcome: "running" }), [], false);
         expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
         cleanup();
         await renderPane(makeRun(), [], false);
@@ -257,14 +218,19 @@ describe("the run's card", () => {
 describe("a run opened from a failing check", () => {
     it("opens the log of the job that failed", async () => {
         updateView("pane", { pickFailed: true });
-        await renderPane(makeRun(), [makeJob({ id: "1", name: "lint" }), makeJob({ id: "2", name: "test", conclusion: "failure" })]);
+        await renderPane(
+            makeRun(),
+            [makeJob({ id: "1", name: "lint" }), makeJob({ id: "2", name: "test", conclusion: "failure", outcome: "failure" })],
+            true,
+            { failedJob: "2" },
+        );
         expect(viewOf("pane")).toMatchObject({ pickFailed: false, job: "2", runTab: "logs" });
         expect(screen.getByRole("tab", { name: "Logs · test" }).getAttribute("aria-selected")).toBe("true");
     });
 
     it("stays on the summary when no job failed", async () => {
         updateView("pane", { pickFailed: true });
-        await renderPane(makeRun({ conclusion: "success" }), [makeJob()]);
+        await renderPane(makeRun({ conclusion: "success", outcome: "success" }), [makeJob()]);
         expect(viewOf("pane")).toMatchObject({ pickFailed: false, job: null, runTab: "summary" });
     });
 
@@ -293,7 +259,7 @@ describe("a job's log", () => {
     });
 
     it("offers no re-run of a job still going, or to someone who cannot write", async () => {
-        await openJob(makeJob({ status: "in_progress", conclusion: null, completedAt: null }));
+        await openJob(makeJob({ status: "in_progress", conclusion: null, outcome: "running", completedAt: null }));
         expect(screen.queryByRole("button", { name: "Re-run this job" })).toBeNull();
         cleanup();
         await openJob(makeJob(), false);
@@ -319,48 +285,25 @@ describe("the run's summary", () => {
     });
 });
 
-describe("watching a run", () => {
-    const going = () => makeRun({ status: "in_progress", conclusion: null, updatedAt: "2026-01-01T12:01:00Z" });
-
-    it("shows what the watch sees once it is newer than the last read, and keeps the jobs it read until the watch has some", async () => {
-        await renderPane(going(), [makeJob({ status: "in_progress", conclusion: null, completedAt: null })]);
-        const onTick = watches()[0].handlers.onItem;
-        const newer = makeRun({ status: "in_progress", conclusion: null, updatedAt: "2026-01-01T12:02:00Z", title: "Ship it now" });
-        act(() => onTick({ run: newer, jobs: [], error: null, finished: false, fatal: false, signedOut: false }));
+describe("a run still going", () => {
+    it("shows what the core read last once it says the run moved", async () => {
+        await renderPane(makeRun({ status: "in_progress", conclusion: null, outcome: "running" }));
+        runs.mockReturnValue(opened(makeRun({ status: "in_progress", conclusion: null, outcome: "running", title: "Ship it now" })));
+        await act(async () => core.listsMoved(["run"]));
         expect(screen.getByRole("heading").textContent).toBe("Ship it now");
-        expect(document.querySelector(".pr-headline-who")?.textContent).toContain("#12");
-        expect(within(document.querySelector(".pr-files") as HTMLElement).getByText("build")).toBeTruthy();
-
-        act(() => onTick({ run: newer, jobs: [makeJob({ id: "9", name: "deploy" })], error: null, finished: false, fatal: false, signedOut: false }));
-        expect(within(document.querySelector(".pr-files") as HTMLElement).getByText("deploy")).toBeTruthy();
     });
 
-    it("stops once the run it watches has finished, and reads the list again", async () => {
-        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-        await renderPane(going());
-        const onTick = watches()[0].handlers.onItem;
-        api.run.mockClear();
-        const done = makeRun({ updatedAt: "2026-01-01T12:09:00Z", conclusion: "success" });
-        act(() => onTick({ run: done, jobs: [], error: null, finished: true, fatal: false, signedOut: false }));
-        await act(async () => {
-            vi.advanceTimersByTime(10 * 60_000);
-        });
-        expect(api.watch).toHaveBeenCalledTimes(1);
-        expect(api.run).toHaveBeenCalled();
-        expect(within(card()).getByRole("img", { name: "Passed" })).toBeTruthy();
-    });
-
-    it("stops the watch when the run is closed", async () => {
-        const view = await renderPane(going());
-        view.unmount();
-        expect(watches()[0].stop).toHaveBeenCalled();
+    it("is not read again for a change to another list", async () => {
+        await renderPane(makeRun({ status: "in_progress", conclusion: null, outcome: "running" }));
+        await act(async () => core.listsMoved(["pulls"]));
+        expect(runs).toHaveBeenCalledTimes(1);
     });
 });
 
 describe("the run's menu", () => {
     async function openMenu(run: Run = makeRun(), canWrite = true) {
         const onDeleted = vi.fn();
-        render(<RunMenu run={run} repo={repo} canWrite={canWrite} onDeleted={onDeleted} />, { wrapper });
+        render(<RunMenu run={run} unfinished={run.status !== "completed"} repo={repo} canWrite={canWrite} onDeleted={onDeleted} />, { wrapper });
         fireEvent.click(screen.getByRole("button", { name: "More run actions" }));
         return onDeleted;
     }

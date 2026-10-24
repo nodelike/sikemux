@@ -32,6 +32,13 @@ export type {
     GitWorktree,
 };
 
+export interface ProjectRepo {
+    /** Null while the person has to pick among several. */
+    readonly repo: string | null;
+    /** The repositories directly inside, when the project folder is not one itself. */
+    readonly repos: readonly DiscoveredRepo[] | null;
+}
+
 export interface CreateGitWorktreeOptions {
     path: string;
     branch: string;
@@ -87,12 +94,27 @@ export interface OwnedLines {
     over?: number;
 }
 
+/** What to say beside changed `line`: who wrote it when `named` (nobody known when `author` is left out), and whose lines it rewrote. */
+export interface OwnerNote {
+    line: number;
+    named: boolean;
+    author?: number;
+    over?: number;
+}
+
 /** The changed lines of a file agents wrote, numbered as in the working tree, or in the index for staged lines. */
 export interface FileOwners {
     path: string;
     lines: OwnedLines[];
     /** Lines `author` took out just before line `at`. */
     removed: { at: number; author: number }[];
+    notes?: OwnerNote[];
+}
+
+/** Who wrote which changed lines, the writers by name. */
+export interface LineOwners {
+    authors: { name: string }[];
+    files: FileOwners[];
 }
 
 /** Who wrote a checkout's uncommitted lines, as the core reads it from agents' edits. Lines no file lists have no known author. */
@@ -157,6 +179,8 @@ const call = <T>(method: string, params: Record<string, unknown>) => coreCall<T>
 export const git = {
     status: (repo: string) => call<GitStatus>("status", { repo }),
     discoverRepos: (root: string) => call<DiscoveredRepo[]>("discoverRepos", { root }),
+    /** The repository a project's Git views open on, as the core picks it, and the ones inside a folder that is not one. */
+    projectRepo: (project: string) => call<ProjectRepo>("projectRepo", { project }),
     overview: (repo: string) => call<GitOverview>("overview", { repo }),
     diff: (repo: string, path: string, staged: boolean) => call<string>("diff", { repo, path, staged }),
     stage: (repo: string, path: string) => call<void>("stage", { repo, path }),
@@ -223,6 +247,7 @@ export const git = {
     commit: (repo: string, message: string) => coreCall<string>("commitStaged", { dir: repo, message }),
     changeOwners: (repo: string, staged: boolean) => coreCall<ChangeOwners>("changeOwners", { dir: repo, staged }),
     commitOwners: (repo: string, commits: string[]) => coreCall<Record<string, CommitOwner[]>>("commitOwners", { dir: repo, commits }),
+    commitLines: (repo: string, commit: string) => coreCall<LineOwners>("commitLines", { dir: repo, commit }),
     push: (repo: string) => call<string>("push", { repo }),
     pull: (repo: string) => call<string>("pull", { repo }),
     aiMessage: (repo: string, provider: string, model: string) => call<string>("aiMessage", { repo, provider, model }),

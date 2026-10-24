@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { errorText } from "../../../plugin-api/format";
-import { databaseApi, type Connected, type DatabaseProfile } from "../api";
-import { database } from "../resources";
-import { defaultPort, engineLabel, isServer } from "../profileForm";
+import { databaseApi } from "../api";
+import type { DatabaseConnection } from "../types.generated";
 
 /** A saved connection that is not open: where it points, and a button to connect. */
-export function ProfileDetail({ profile, connected, onEdit }: { profile: DatabaseProfile; connected: Connected | null; onEdit: () => void }) {
+export function ProfileDetail({ profile, onEdit }: { profile: DatabaseConnection; onEdit: () => void }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const connected = profile.connected !== null;
 
     const toggle = async () => {
         setBusy(true);
@@ -15,7 +15,6 @@ export function ProfileDetail({ profile, connected, onEdit }: { profile: Databas
         try {
             if (connected) await databaseApi.disconnect(profile.id);
             else await databaseApi.connect(profile.id);
-            database.refresh();
         } catch (failure) {
             setError(errorText(failure));
         } finally {
@@ -30,31 +29,12 @@ export function ProfileDetail({ profile, connected, onEdit }: { profile: Databas
                 {profile.readOnly && <span className="db-badge">Read only</span>}
             </header>
             <dl className="db-facts">
-                <dt>Engine</dt>
-                <dd>{engineLabel(profile.engine)}</dd>
-                {isServer(profile) ? (
-                    <>
-                        <dt>Server</dt>
-                        <dd className="mono">
-                            {profile.host}:{profile.port ?? defaultPort(profile.engine)}
-                        </dd>
-                        <dt>Database</dt>
-                        <dd className="mono">{profile.database || profile.user}</dd>
-                        <dt>User</dt>
-                        <dd className="mono">{profile.user}</dd>
-                        <dt>Password</dt>
-                        <dd>{profile.hasPassword ? "Saved in the Keychain" : "None"}</dd>
-                    </>
-                ) : (
-                    <>
-                        <dt>File</dt>
-                        <dd className="mono">{profile.path}</dd>
-                    </>
-                )}
-                <dt>Agents</dt>
-                <dd>{profile.agentWrites ? "May change data" : "Read only"}</dd>
-                <dt>Status</dt>
-                <dd>{connected ? `Connected to ${connected.version}` : "Not connected"}</dd>
+                {profile.facts.map((fact) => (
+                    <Fragment key={fact.label}>
+                        <dt>{fact.label}</dt>
+                        <dd className={fact.mono ? "mono" : undefined}>{fact.value}</dd>
+                    </Fragment>
+                ))}
             </dl>
             {error && (
                 <div className="db-callout" data-tone="danger" role="alert">

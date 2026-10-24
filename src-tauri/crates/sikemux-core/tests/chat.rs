@@ -3,6 +3,8 @@
 //! Chat agents in the core, driven through a stand-in agent that speaks just
 //! enough ACP.
 
+mod folded;
+
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::os::unix::net::UnixStream as StdUnixStream;
@@ -10,15 +12,15 @@ use std::path::PathBuf;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
-use sikemux_core::client::{probe, ClientEvent, CoreClient};
+use folded::{Chat, Folded};
+use serde_json::json;
+use sikemux_core::client::{probe, CoreClient};
 use sikemux_core::protocol::{
-    encode_control, read_frame_sync, BuildIdentity, ChatAccount, ChatAttachment, ChatEvent,
-    ChatEventKind, ChatLaunch, ChatState, ClientMessage, Event, Request, PROTOCOL,
-    PROTOCOL_VERSION,
+    encode_control, read_frame_sync, BuildIdentity, ChatAccount, ChatAttachment, ChatLaunch,
+    ChatState, ClientMessage, Request, PROTOCOL, PROTOCOL_VERSION,
 };
 use sikemux_core::server::{self, ServerConfig, ServerError};
-use tokio::sync::mpsc::UnboundedReceiver;
+use sikemux_wire::chat::{ChatConnection, ChatPart, FailureKind, MoveReason, PermissionAsk};
 
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_sikemux-fake-acp-agent");
 const WAIT: Duration = Duration::from_secs(30);
@@ -56,9 +58,9 @@ impl TestCore {
         }
     }
 
-    async fn connect(&self) -> (CoreClient, Chat) {
+    async fn connect(&self, agent_id: &str) -> (CoreClient, Chat) {
         let (client, events) = CoreClient::connect(&self.socket).await.expect("connect");
-        (client, Chat::new(events))
+        (client, Chat::new(events, agent_id))
     }
 }
 
@@ -88,123 +90,15 @@ impl Drop for TestCore {
     }
 }
 
-/// Every chat event one client heard, in order.
-struct Chat {
-    events: UnboundedReceiver<ClientEvent>,
-    heard: Vec<ChatEvent>,
-    /// Waiting looks only at events after the last one waited for.
-    cursor: usize,
-}
-
-impl Chat {
-    fn new(events: UnboundedReceiver<ClientEvent>) -> Self {
-        Self {
-            events,
-            heard: Vec::new(),
-            cursor: 0,
-        }
-    }
-
-    async fn pump(&mut self) {
-        let event = tokio::time::timeout(WAIT, self.events.recv())
-            .await
-            .expect("timed out waiting for the core")
-            .expect("the core disconnected");
-        if let ClientEvent::Event(Event::Chat { event, .. }) = event {
-            self.heard.push(event);
-        }
-    }
-
-    async fn until(&mut self, mut found: impl FnMut(&ChatEvent) -> bool) -> ChatEvent {
-        loop {
-            if let Some(offset) = self.heard[self.cursor..].iter().position(&mut found) {
-                let index = self.cursor + offset;
-                self.cursor = index + 1;
-                return self.heard[index].clone();
-            }
-            self.pump().await;
-        }
-    }
-
-    async fn until_kind(&mut self, kind: ChatEventKind) -> ChatEvent {
-        self.until(|event| event.kind == kind).await
-    }
-
-    fn text(&self) -> String {
-        said(&self.heard)
-    }
-}
-
-/// Everything the agent said, read the way the chat reads it.
-fn said(events: &[ChatEvent]) -> String {
-    updates(events)
-        .iter()
-        .filter(|update| update["update"]["sessionUpdate"] == "agent_message_chunk")
-        .filter_map(|update| update["update"]["content"]["text"].as_str())
-        .collect()
-}
-
-/// Streamed updates one at a time, whether they came batched or not.
-fn updates(events: &[ChatEvent]) -> Vec<Value> {
-    events
-        .iter()
-        .filter(|event| event.kind == ChatEventKind::SessionUpdate)
-        .flat_map(|event| match event.payload.get("updates") {
-            Some(Value::Array(batch)) => batch.clone(),
-            _ => vec![event.payload.clone()],
-        })
-        .collect()
-}
-
-/// The events a replay keeps, with streamed text joined up the way the chat
-/// joins it, so what a client watched and what another replays compare.
-fn as_replayed(events: &[ChatEvent]) -> Vec<(ChatEventKind, Value)> {
-    let mut folded: Vec<(ChatEventKind, Value)> = Vec::new();
-    for event in events {
-        match event.kind {
-            ChatEventKind::Status | ChatEventKind::Ready => continue,
-            ChatEventKind::SessionUpdate => {
-                for mut update in updates(std::slice::from_ref(event)) {
-                    if let Some(ours) = update
-                        .pointer_mut("/update/_meta/sikemux")
-                        .and_then(Value::as_object_mut)
-                    {
-                        ours.remove("md");
-                    }
-                    if update["update"]["_meta"]["sikemux"]
-                        .as_object()
-                        .is_some_and(serde_json::Map::is_empty)
-                    {
-                        if let Some(update) = update["update"].as_object_mut() {
-                            update.remove("_meta");
-                        }
-                    }
-                    let joins = folded.last().is_some_and(|(kind, last)| {
-                        *kind == ChatEventKind::SessionUpdate
-                            && last["update"]["sessionUpdate"] == "agent_message_chunk"
-                            && update["update"]["sessionUpdate"] == "agent_message_chunk"
-                    });
-                    if joins {
-                        if let Some((_, last)) = folded.last_mut() {
-                            let joined = format!(
-                                "{}{}",
-                                last["update"]["content"]["text"]
-                                    .as_str()
-                                    .unwrap_or_default(),
-                                update["update"]["content"]["text"]
-                                    .as_str()
-                                    .unwrap_or_default()
-                            );
-                            last["update"]["content"]["text"] = json!(joined);
-                        }
-                    } else {
-                        folded.push((ChatEventKind::SessionUpdate, update));
-                    }
-                }
-            }
-            kind => folded.push((kind, event.payload.clone())),
-        }
-    }
+/// The chat a client attaching is sent.
+async fn attach(client: &CoreClient, agent_id: &str) -> Folded {
+    let attachment = client.acp_attach(agent_id.into()).await.expect("attach");
+    assert!(
+        matches!(attachment, ChatAttachment::Live { .. }),
+        "the chat was not live: {attachment:?}"
+    );
+    let mut folded = Folded::default();
+    folded.attached(&attachment);
     folded
 }
 
@@ -229,19 +123,18 @@ fn chat_launch(agent_id: &str, permission_mode: &str) -> ChatLaunch {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_starts_and_streams_a_turn() {
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("agent-a").await;
     let start = client
         .acp_start(chat_launch("agent-a", "workspace-write"))
         .await
         .expect("start");
     assert!(start.session_id.starts_with("fake-"), "{start:?}");
     assert_eq!(start.setup["configOptions"][0]["currentValue"], "slow");
-    chat.until(|event| {
-        event.kind == ChatEventKind::Status && event.payload["state"] == "initializing"
-    })
-    .await;
-    chat.until_kind(ChatEventKind::Ready).await;
+    chat.until(|chat| chat.head().connection == ChatConnection::Initializing)
+        .await;
+    chat.until_ready().await;
 
+    let frames = chat.frames;
     client
         .acp_prompt(
             "agent-a".into(),
@@ -252,20 +145,17 @@ async fn a_chat_starts_and_streams_a_turn() {
         )
         .await
         .expect("prompt");
-    chat.until_kind(ChatEventKind::TurnStarted).await;
-    let completed = chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(completed.payload["stopReason"], "end_turn");
+    chat.turn_started().await;
+    assert_eq!(chat.turn_ended().await.as_deref(), Some("end_turn"));
     let expected: String = (0..40).map(|index| format!("w{index} ")).collect();
     assert_eq!(chat.text(), expected);
-    let batches = chat
-        .heard
-        .iter()
-        .filter(|event| event.kind == ChatEventKind::SessionUpdate)
-        .count();
+    let answer = chat.view.rows.last().expect("the answer");
     assert!(
-        batches < 40,
-        "streamed text was not batched: {batches} events"
+        matches!(&answer.parts[..], [ChatPart::Text { text, .. }] if *text == expected),
+        "{answer:?}"
     );
+    let sent = chat.frames - frames;
+    assert!(sent < 40, "streamed text was not batched: {sent} frames");
 
     let listed = client.acp_list().await.expect("list");
     assert_eq!(listed.len(), 1);
@@ -281,7 +171,7 @@ async fn a_chat_starts_and_streams_a_turn() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_knows_how_its_agent_can_be_signed_in() {
     let core = TestCore::start();
-    let (client, _chat) = core.connect().await;
+    let (client, _chat) = core.connect("agent-sign-in").await;
     let start = client
         .acp_start(chat_launch("agent-sign-in", "workspace-write"))
         .await
@@ -298,7 +188,7 @@ async fn a_chat_knows_how_its_agent_can_be_signed_in() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_prompt_sent_mid_turn_is_kept_only_once_the_agent_takes_it() {
     let core = TestCore::start();
-    let (sender, mut heard) = core.connect().await;
+    let (sender, mut heard) = core.connect("agent-c").await;
     sender
         .acp_start(chat_launch("agent-c", "workspace-write"))
         .await
@@ -313,7 +203,7 @@ async fn a_prompt_sent_mid_turn_is_kept_only_once_the_agent_takes_it() {
         )
         .await
         .expect("prompt");
-    heard.until_kind(ChatEventKind::TurnStarted).await;
+    heard.turn_started().await;
     sender
         .acp_prompt(
             "agent-c".into(),
@@ -325,35 +215,21 @@ async fn a_prompt_sent_mid_turn_is_kept_only_once_the_agent_takes_it() {
         .await
         .expect("prompt");
 
-    let prompts = |replay: &[ChatEvent]| -> Vec<Value> {
-        replay
-            .iter()
-            .filter(|event| event.kind == ChatEventKind::Prompt)
-            .map(|event| event.payload["text"].clone())
-            .collect()
-    };
-    let (late, _) = core.connect().await;
-    let ChatAttachment::Live { replay, .. } =
-        late.acp_attach("agent-c".into()).await.expect("attach")
-    else {
-        panic!("the chat was not live");
-    };
-    assert_eq!(prompts(&replay), ["hold 400"]);
+    let (late, _) = core.connect("agent-c").await;
+    assert_eq!(attach(&late, "agent-c").await.prompts(), ["hold 400"]);
 
-    heard.until_kind(ChatEventKind::TurnCompleted).await;
-    heard.until_kind(ChatEventKind::TurnStarted).await;
-    let ChatAttachment::Live { replay, .. } =
-        late.acp_attach("agent-c".into()).await.expect("attach")
-    else {
-        panic!("the chat was not live");
-    };
-    assert_eq!(prompts(&replay), ["hold 400", "too soon"]);
+    heard.turn_ended().await;
+    heard.turn_started().await;
+    assert_eq!(
+        attach(&late, "agent-c").await.prompts(),
+        ["hold 400", "too soon"]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_that_attaches_replays_what_another_watched() {
     let core = TestCore::start();
-    let (watcher, mut watched) = core.connect().await;
+    let (watcher, mut watched) = core.connect("agent-b").await;
     watcher
         .acp_start(chat_launch("agent-b", "workspace-write"))
         .await
@@ -369,42 +245,34 @@ async fn a_client_that_attaches_replays_what_another_watched() {
             )
             .await
             .expect("prompt");
-        watched.until_kind(ChatEventKind::TurnCompleted).await;
+        watched.turn_ended().await;
     }
 
-    let (late, _) = core.connect().await;
-    let ChatAttachment::Live {
-        start,
-        running,
-        turned,
-        replay,
-        permission_mode,
-        ..
-    } = late.acp_attach("agent-b".into()).await.expect("attach")
-    else {
-        panic!("the chat was not live");
-    };
-    assert!(!running);
-    assert!(turned);
-    assert_eq!(permission_mode, "workspace-write");
-    assert!(start.session_id.starts_with("fake-"));
-    let (prompts, rest): (Vec<_>, Vec<_>) = replay
-        .iter()
-        .cloned()
-        .partition(|event| event.kind == ChatEventKind::Prompt);
-    let sent: Vec<_> = prompts
-        .iter()
-        .map(|event| event.payload["text"].clone())
-        .collect();
+    let (late, _) = core.connect("agent-b").await;
+    let replayed = attach(&late, "agent-b").await;
+    let head = replayed.head();
+    assert!(!head.running);
+    assert!(head.turned);
+    assert_eq!(head.permission_mode, "workspace-write");
+    assert!(head
+        .session_id
+        .as_deref()
+        .is_some_and(|session| session.starts_with("fake-")));
+    let sent = ["stream 25", "hello there", "stream 7"];
+    assert_eq!(replayed.prompts(), sent);
     assert_eq!(
+        watched.prompts(),
         sent,
-        ["stream 25", "hello there", "stream 7"],
-        "the watcher sent these, so it never heard them back"
+        "the watcher hears its own prompts as rows too"
     );
-    assert_eq!(as_replayed(&rest), as_replayed(&watched.heard));
-    assert!(said(&replay).contains("echo: hello there"));
+    assert_eq!(replayed.drawn(), watched.drawn());
+    assert!(replayed.text().contains("echo: hello there"));
+    let streamed: String = (0..25).map(|index| format!("w{index} ")).collect();
     assert!(
-        replay.len() < watched.heard.len(),
+        replayed.parts().any(|part| matches!(
+            part,
+            ChatPart::Text { text, .. } if *text == streamed
+        )),
         "streamed text was not joined in the replay"
     );
 
@@ -418,7 +286,7 @@ async fn a_client_that_attaches_replays_what_another_watched() {
 async fn a_permission_request_waits_for_a_client_that_comes_back() {
     let core = TestCore::start();
     let request_id = {
-        let (first, mut chat) = core.connect().await;
+        let (first, mut chat) = core.connect("agent-c").await;
         first
             .acp_start(chat_launch("agent-c", "workspace-write"))
             .await
@@ -427,31 +295,27 @@ async fn a_permission_request_waits_for_a_client_that_comes_back() {
             .acp_prompt("agent-c".into(), None, "ask".into(), Vec::new(), Vec::new())
             .await
             .expect("prompt");
-        let request = chat.until_kind(ChatEventKind::PermissionRequest).await;
-        request.payload["requestId"]
-            .as_str()
-            .expect("request id")
-            .to_owned()
+        chat.until(|chat| !chat.head().permissions.is_empty())
+            .await
+            .head()
+            .permissions[0]
+            .request_id
+            .clone()
     };
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let (second, mut chat) = core.connect().await;
+    let (second, mut chat) = core.connect("agent-c").await;
     let listed = second.acp_list().await.expect("list");
     assert_eq!(listed[0].pending_permissions, vec![request_id.clone()]);
     assert!(listed[0].running);
-    let ChatAttachment::Live {
-        running, replay, ..
-    } = second.acp_attach("agent-c".into()).await.expect("attach")
-    else {
-        panic!("the chat was not live");
+    let attachment = second.acp_attach("agent-c".into()).await.expect("attach");
+    chat.attached(&attachment);
+    assert!(chat.head().running);
+    let [asked]: &[PermissionAsk] = &chat.head().permissions[..] else {
+        panic!("the request is not shown: {:?}", chat.head().permissions);
     };
-    assert!(running);
-    let asked = replay
-        .iter()
-        .find(|event| event.kind == ChatEventKind::PermissionRequest)
-        .expect("the request is replayed");
-    assert_eq!(asked.payload["requestId"], request_id.as_str());
-    assert_eq!(asked.payload["toolCall"]["title"], "Touch a file");
+    assert_eq!(asked.request_id, request_id);
+    assert_eq!(asked.tool_call.title, "Touch a file");
 
     assert!(second
         .acp_permission_reply("agent-c".into(), request_id.clone(), Some("nope".into()))
@@ -461,26 +325,23 @@ async fn a_permission_request_waits_for_a_client_that_comes_back() {
         .acp_permission_reply("agent-c".into(), request_id.clone(), Some("allow".into()))
         .await
         .expect("reply");
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     assert_eq!(chat.text(), "answered allow");
 
-    let ChatAttachment::Live { replay, .. } =
-        second.acp_attach("agent-c".into()).await.expect("attach")
-    else {
-        panic!("the chat was not live");
-    };
     assert!(
-        replay
-            .iter()
-            .all(|event| event.kind != ChatEventKind::PermissionRequest),
-        "an answered request was replayed"
+        attach(&second, "agent-c")
+            .await
+            .head()
+            .permissions
+            .is_empty(),
+        "an answered request was still shown"
     );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn yolo_answers_permission_requests_for_the_person() {
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("agent-d").await;
     client
         .acp_start(chat_launch("agent-d", "bypass"))
         .await
@@ -489,30 +350,27 @@ async fn yolo_answers_permission_requests_for_the_person() {
         .acp_prompt("agent-d".into(), None, "ask".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     assert_eq!(chat.text(), "answered allow");
-    assert!(chat
-        .heard
-        .iter()
-        .all(|event| event.kind != ChatEventKind::PermissionRequest));
+    assert!(chat.heads.iter().all(|set| set
+        .get("permissions")
+        .and_then(|asks| asks.as_array())
+        .is_none_or(Vec::is_empty)));
 
     client
         .acp_set_permission_mode("agent-d".into(), "workspace-write".into())
         .await
         .expect("permission mode");
-    let ChatAttachment::Live {
-        permission_mode, ..
-    } = client.acp_attach("agent-d".into()).await.expect("attach")
-    else {
-        panic!("the chat was not live");
-    };
-    assert_eq!(permission_mode, "workspace-write");
+    assert_eq!(
+        attach(&client, "agent-d").await.head().permission_mode,
+        "workspace-write"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_config_change_is_what_a_later_client_sees() {
     let core = TestCore::start();
-    let (client, _chat) = core.connect().await;
+    let (client, _chat) = core.connect("agent-e").await;
     client
         .acp_start(chat_launch("agent-e", "workspace-write"))
         .await
@@ -522,18 +380,16 @@ async fn a_config_change_is_what_a_later_client_sees() {
         .await
         .expect("config");
     assert_eq!(changed["configOptions"][0]["currentValue"], "fast");
-    let ChatAttachment::Live { start, .. } =
-        client.acp_attach("agent-e".into()).await.expect("attach")
-    else {
-        panic!("the chat was not live");
-    };
-    assert_eq!(start.setup["configOptions"][0]["currentValue"], "fast");
+    assert_eq!(
+        attach(&client, "agent-e").await.head().setup["configOptions"][0]["currentValue"],
+        "fast"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn stopping_a_chat_ends_it() {
     let core = TestCore::start();
-    let (client, _chat) = core.connect().await;
+    let (client, _chat) = core.connect("agent-f").await;
     client
         .acp_start(chat_launch("agent-f", "workspace-write"))
         .await
@@ -544,7 +400,7 @@ async fn stopping_a_chat_ends_it() {
         .is_err());
     client.acp_stop("agent-f".into()).await.expect("stop");
     assert!(client.acp_list().await.expect("list").is_empty());
-    let refused = client
+    client
         .acp_prompt(
             "agent-f".into(),
             None,
@@ -553,8 +409,8 @@ async fn stopping_a_chat_ends_it() {
             Vec::new(),
         )
         .await
-        .expect_err("prompt after stop");
-    assert!(refused.to_string().contains("not running"), "{refused}");
+        .expect("a send starts the stopped chat again, on the program it ran");
+    assert_eq!(client.acp_list().await.expect("list").len(), 1);
 
     client
         .acp_start(chat_launch("agent-g", "workspace-write"))
@@ -567,7 +423,7 @@ async fn stopping_a_chat_ends_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_at_work_is_not_stopped_by_a_stop_meant_for_idle_chats() {
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("agent-s").await;
     client
         .acp_start(chat_launch("agent-s", "workspace-write"))
         .await
@@ -576,11 +432,13 @@ async fn a_chat_at_work_is_not_stopped_by_a_stop_meant_for_idle_chats() {
         .acp_prompt("agent-s".into(), None, "ask".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
-    let request = chat.until_kind(ChatEventKind::PermissionRequest).await;
-    let request_id = request.payload["requestId"]
-        .as_str()
-        .expect("request id")
-        .to_owned();
+    let request_id = chat
+        .until(|chat| !chat.head().permissions.is_empty())
+        .await
+        .head()
+        .permissions[0]
+        .request_id
+        .clone();
 
     let inbox = client.call("inbox", json!({})).await.expect("inbox");
     assert_eq!(inbox["agents"][0]["status"], "blocked", "{inbox}");
@@ -595,7 +453,7 @@ async fn a_chat_at_work_is_not_stopped_by_a_stop_meant_for_idle_chats() {
         .acp_permission_reply("agent-s".into(), request_id, Some("allow".into()))
         .await
         .expect("reply");
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    chat.turn_ended().await;
     let inbox = client.call("inbox", json!({})).await.expect("inbox");
     assert_eq!(inbox["agents"][0]["status"], "done", "{inbox}");
     let stopped = client
@@ -608,8 +466,10 @@ async fn a_chat_at_work_is_not_stopped_by_a_stop_meant_for_idle_chats() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_that_dies_carries_on_until_it_has_died_too_often() {
+    const RESTARTED: &str = "This agent stopped while it was working, and was started again";
+    const CARRIED_ON: &str = "Your process stopped while you were working";
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("agent-h").await;
     let history = tempfile::tempdir().expect("history");
     let mut launch = chat_launch("agent-h", "workspace-write");
     launch.env.insert(
@@ -631,31 +491,38 @@ async fn an_agent_that_dies_carries_on_until_it_has_died_too_often() {
         if restart == 3 {
             break;
         }
-        chat.until(|event| {
-            updates(std::slice::from_ref(event)).iter().any(|update| {
-                update["update"]["title"]
-                    == "This agent stopped while it was working, and was started again"
-            })
+        let restarts = restart + 1;
+        chat.until(|chat| {
+            chat.notices()
+                .iter()
+                .filter(|title| *title == RESTARTED)
+                .count()
+                == restarts
         })
         .await;
-        chat.until(|event| {
-            event.kind == ChatEventKind::TurnCompleted && event.payload["stopReason"] == "end_turn"
+        chat.until(|chat| {
+            !chat.head().running
+                && chat.head().stop_reason.as_deref() == Some("end_turn")
+                && chat.text().matches(CARRIED_ON).count() >= restarts
         })
         .await;
-        assert!(
-            chat.text()
-                .contains("Your process stopped while you were working"),
-            "{}",
-            chat.text()
-        );
     }
     let ended = chat
-        .until(|event| {
-            event.kind == ChatEventKind::Status
-                && matches!(event.payload["state"].as_str(), Some("stopped" | "error"))
+        .until(|chat| {
+            matches!(
+                chat.head().connection,
+                ChatConnection::Stopped | ChatConnection::Error
+            )
         })
-        .await;
-    assert_eq!(ended.payload["reason"], "exited", "{ended:?}");
+        .await
+        .head()
+        .ended
+        .clone();
+    assert_eq!(
+        ended.as_ref().map(|ended| ended.reason.as_str()),
+        Some("exited"),
+        "{ended:?}"
+    );
     let deadline = Instant::now() + WAIT;
     while !client.acp_list().await.expect("list").is_empty() {
         assert!(Instant::now() < deadline, "the dead chat stayed listed");
@@ -666,7 +533,7 @@ async fn an_agent_that_dies_carries_on_until_it_has_died_too_often() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_that_cannot_start_says_why() {
     let core = TestCore::start();
-    let (client, _chat) = core.connect().await;
+    let (client, _chat) = core.connect("agent-i").await;
     let mut launch = chat_launch("agent-i", "workspace-write");
     launch.program = PathBuf::from("/nonexistent/agent");
     let error = client.acp_start(launch).await.expect_err("start");
@@ -710,17 +577,16 @@ async fn switch_at_limit(client: &CoreClient) {
         .expect("the accounts");
 }
 
-fn turns_completed(events: &[ChatEvent]) -> usize {
-    events
-        .iter()
-        .filter(|event| event.kind == ChatEventKind::TurnCompleted)
-        .count()
+/// Waits until the turn the agent answers with `answer` has ended.
+async fn until_answered(chat: &mut Chat, answer: &str) {
+    chat.until(|chat| !chat.head().running && chat.text() == answer)
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_signs_in_by_its_own_method_and_the_refused_prompt_goes_again() {
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("agent-auth").await;
     let history = tempfile::tempdir().expect("history");
     let sign_in = history.path().join("signed-in");
     std::fs::write(&sign_in, "").expect("sign out");
@@ -740,8 +606,13 @@ async fn an_agent_signs_in_by_its_own_method_and_the_refused_prompt_goes_again()
         )
         .await
         .expect("prompt");
-    let refused = chat.until_kind(ChatEventKind::Error).await;
-    assert_eq!(refused.payload["failure"]["kind"], "signIn", "{refused:?}");
+    let refused = chat.until(|chat| chat.head().failure.is_some()).await;
+    assert_eq!(
+        refused.head().failure.as_ref().map(|failure| failure.kind),
+        Some(FailureKind::SignIn),
+        "{:?}",
+        refused.head()
+    );
 
     let unknown = client
         .call(
@@ -761,14 +632,13 @@ async fn an_agent_signs_in_by_its_own_method_and_the_refused_prompt_goes_again()
         .call("retryFailed", json!({ "agentId": "agent-auth" }))
         .await
         .expect("retry");
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(chat.text(), "account personal");
+    until_answered(&mut chat, "account personal").await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sign_in_made_elsewhere_reaches_the_chat_on_its_next_prompt() {
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("agent-k").await;
     let history = tempfile::tempdir().expect("history");
     let sign_in = history.path().join("signed-in");
     std::fs::write(&sign_in, "").expect("sign out");
@@ -783,9 +653,16 @@ async fn a_sign_in_made_elsewhere_reaches_the_chat_on_its_next_prompt() {
         .acp_prompt("agent-k".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
-    let refused = chat.until_kind(ChatEventKind::Error).await;
-    assert_eq!(refused.payload["failure"]["kind"], "signIn", "{refused:?}");
-    assert_eq!(refused.payload["failure"]["account"], "personal");
+    let failure = chat
+        .until(|chat| chat.head().failure.is_some())
+        .await
+        .head()
+        .failure
+        .clone()
+        .expect("a failure");
+    assert_eq!(failure.kind, FailureKind::SignIn, "{failure:?}");
+    assert_eq!(failure.account.as_deref(), Some("personal"));
+    assert_eq!(chat.errors, 1);
 
     // The agent read the sign-in once, when it started, so only a new one
     // sees the person sign in.
@@ -794,10 +671,8 @@ async fn a_sign_in_made_elsewhere_reaches_the_chat_on_its_next_prompt() {
         .acp_prompt("agent-k".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(chat.text(), "account personal");
-    let after = &chat.heard[chat.cursor..];
-    assert!(after.iter().all(|event| event.kind != ChatEventKind::Error));
+    until_answered(&mut chat, "account personal").await;
+    assert_eq!(chat.errors, 1, "{:?}", chat.head());
     let listed = client.acp_list().await.expect("list");
     assert_eq!(listed.len(), 1);
     assert!(!listed[0].running);
@@ -806,47 +681,42 @@ async fn a_sign_in_made_elsewhere_reaches_the_chat_on_its_next_prompt() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_that_runs_out_carries_on_with_the_next_account() {
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("agent-l").await;
     switch_at_limit(&client).await;
     let history = tempfile::tempdir().expect("history");
     let mut launch = account_launch("agent-l", history.path(), "personal");
     launch.fallbacks = vec![account("work", "Work")];
-    let start = client.acp_start(launch).await.expect("start");
+    client.acp_start(launch).await.expect("start");
 
     client
         .acp_prompt("agent-l".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
-    let switched = chat
-        .until(|event| {
-            event.kind == ChatEventKind::SessionUpdate
-                && updates(std::slice::from_ref(event))
-                    .iter()
-                    .any(|update| update["update"]["sessionUpdate"] == "account_switched")
+    let moved = chat
+        .until(|chat| {
+            chat.parts()
+                .any(|part| matches!(part, ChatPart::Account { .. }))
         })
-        .await;
-    let notice = updates(std::slice::from_ref(&switched))
-        .into_iter()
-        .find(|update| update["update"]["sessionUpdate"] == "account_switched")
-        .expect("notice");
-    assert_eq!(notice["sessionId"], start.session_id.as_str());
-    assert_eq!(notice["update"]["account"], "work");
-    assert_eq!(notice["update"]["from"], "Personal");
-    assert_eq!(notice["update"]["reason"], "limit");
+        .await
+        .parts()
+        .find_map(|part| match part {
+            ChatPart::Account { moved, .. } => Some(moved.clone()),
+            _ => None,
+        })
+        .expect("the move");
+    assert_eq!(moved.label, "Work");
+    assert_eq!(moved.from.as_deref(), Some("Personal"));
+    assert_eq!(moved.reason, MoveReason::Limit);
 
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(chat.text(), "account work");
-    assert_eq!(turns_completed(&chat.heard), 1);
-    assert!(chat
-        .heard
-        .iter()
-        .all(|event| event.kind != ChatEventKind::Error));
+    until_answered(&mut chat, "account work").await;
+    assert_eq!(chat.turns_ended(), 1, "{:?}", chat.ends);
+    assert_eq!(chat.errors, 0, "{:?}", chat.head());
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_out_of_accounts_says_so_and_takes_one_the_person_picks() {
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("agent-m").await;
     switch_at_limit(&client).await;
     let history = tempfile::tempdir().expect("history");
     let mut launch = account_launch("agent-m", history.path(), "personal,work");
@@ -857,24 +727,29 @@ async fn a_chat_out_of_accounts_says_so_and_takes_one_the_person_picks() {
         .acp_prompt("agent-m".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
-    let failed = chat.until_kind(ChatEventKind::Error).await;
-    assert_eq!(failed.payload["failure"]["kind"], "limit", "{failed:?}");
-    assert_eq!(failed.payload["failure"]["account"], "work");
-    assert_eq!(failed.payload["message"], "work hit its usage limit");
-    assert_eq!(turns_completed(&chat.heard), 1);
+    let head = chat
+        .until(|chat| chat.head().failure.is_some())
+        .await
+        .head()
+        .clone();
+    let failure = head.failure.expect("a failure");
+    assert_eq!(failure.kind, FailureKind::Limit, "{failure:?}");
+    assert_eq!(failure.account.as_deref(), Some("work"));
+    assert_eq!(head.error.as_deref(), Some("work hit its usage limit"));
+    assert!(!head.running);
+    assert_eq!(chat.turns_ended(), 1, "{:?}", chat.ends);
 
     client
         .acp_switch_account("agent-m".into(), account("spare", "Spare"))
         .await
         .expect("switch");
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(chat.text(), "account spare");
+    until_answered(&mut chat, "account spare").await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_chat_signed_in_after_its_agent_started_answers_on_a_fresh_session() {
     let core = TestCore::start();
-    let (client, mut chat) = core.connect().await;
+    let (client, mut chat) = core.connect("agent-n").await;
     let history = tempfile::tempdir().expect("history");
     let sign_in = history.path().join("signed-in");
     std::fs::write(&sign_in, "").expect("sign out");
@@ -892,17 +767,15 @@ async fn a_new_chat_signed_in_after_its_agent_started_answers_on_a_fresh_session
         .acp_prompt("agent-n".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
-    let ready = chat
-        .until(|event| {
-            event.kind == ChatEventKind::Ready
-                && event.payload["sessionId"] != start.session_id.as_str()
-        })
-        .await;
-    assert_ne!(ready.payload["sessionId"], start.session_id.as_str());
-    chat.until_kind(ChatEventKind::TurnCompleted).await;
-    assert_eq!(chat.text(), "account personal");
-    assert!(chat
-        .heard
-        .iter()
-        .all(|event| event.kind != ChatEventKind::Error));
+    chat.until(|chat| {
+        chat.ready()
+            && chat
+                .head()
+                .session_id
+                .as_deref()
+                .is_some_and(|session| session != start.session_id)
+    })
+    .await;
+    until_answered(&mut chat, "account personal").await;
+    assert_eq!(chat.errors, 0, "{:?}", chat.head());
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { previewSql, quoteIdentifier, splitStatements, statementAt } from "./sql";
+import { splitStatements, statementAt } from "./sql";
 
 const texts = (script: string) => splitStatements(script).map((statement) => statement.text);
 
@@ -37,13 +37,5 @@ describe("sql", () => {
         expect(statementAt(script, 12)?.text).toBe("select 2");
         expect(statementAt(script, script.length)?.text).toBe("select 2");
         expect(statementAt("", 0)).toBeNull();
-    });
-
-    it("quotes identifiers the way each engine reads them", () => {
-        expect(quoteIdentifier("postgres", 'odd "name"')).toBe('"odd ""name"""');
-        expect(quoteIdentifier("mysql", "odd `name`")).toBe("`odd ``name```");
-        expect(previewSql("postgres", "public", "orders")).toBe('select * from "public"."orders" limit 100;');
-        expect(previewSql("mysql", "shop", "orders", 10)).toBe("select * from `shop`.`orders` limit 10;");
-        expect(previewSql("sqlite", "", "orders")).toBe('select * from "orders" limit 100;');
     });
 });

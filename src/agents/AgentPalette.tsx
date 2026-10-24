@@ -7,7 +7,7 @@ import { rankBy } from "../lib/fuzzy";
 import * as cmd from "../state/commands";
 import { fetchResource, peekResource, useResource } from "../state/resources";
 import { agentCatalogR, agentSessionsR } from "../state/resources.defs";
-import { agentDisplayOf, agentForChat, agentIdsOf, chatKey, hasChat } from "../state/selectors";
+import { agentForChat, agentIdsOf, chatKey, hasChat } from "../state/selectors";
 import { useStore } from "../state/store";
 import type { Agent, AgentPermissionMode, AgentType, PinnedChat } from "../state/types";
 import { AgentFace } from "../buddies/Buddy";
@@ -142,7 +142,7 @@ export function AgentPalette() {
      *
      * This used to ride the picker's own `onKeyDown`, which only fires while
      * focus is inside the picker. Anything that took focus first — a terminal
-     * pane being the usual one — left the palette unclosable: xterm saw the
+     * pane being the usual one — left the palette unclosable: the terminal saw the
      * key, wrote an escape byte to the PTY, and the dialog never heard it. Same
      * window-capture pattern DialogHost uses, for the same reason.
      */
@@ -340,7 +340,7 @@ export function AgentPalette() {
                         const provider = agents.find((agent) => agent.type === type);
                         const install = installable(item, provider);
                         const available = provider?.available !== false || install;
-                        const display = item.kind === "resume" && item.agent ? agentDisplayOf({ agentStatus }, item.agent.id) : null;
+                        const display = item.kind === "resume" && item.agent ? agentStatus[item.agent.id] : undefined;
                         const signIn = item.kind === "new" && !!item.signIn;
                         const key = item.kind === "new" ? `${signIn ? "sign-in" : "new"}-${type}` : `${type}-${item.row.id}`;
                         const name = signIn
@@ -377,7 +377,7 @@ export function AgentPalette() {
                                     )}
                                     <span className="picker-name">{name}</span>
                                     {item.kind === "resume" && item.agent?.name && <span className="picker-sub">{agentHandle(item.agent.name)}</span>}
-                                    {display && showsAgentState(display) ? (
+                                    {showsAgentState(display) ? (
                                         <span className="picker-state">
                                             <AgentStateIndicator display={display} />
                                         </span>

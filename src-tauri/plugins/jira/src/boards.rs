@@ -6,64 +6,21 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_plugin_api::http;
+use sikemux_plugin_api::jira::{Board, BoardView, Column, Sprint};
 
 use crate::auth;
 use crate::client::{self, Credentials};
 use crate::error::{JiraError, JiraResult};
-use crate::issues::{
-    custom_fields, issue_path, summarise, text, CustomFields, IssueSummary, SUMMARY_FIELDS,
-};
+use crate::issues::{custom_fields, issue_path, summarise, text, CustomFields, SUMMARY_FIELDS};
 
 /// How many issues one board shows; a board this full is better narrowed in Jira itself.
 const BOARD_ISSUES_MAX: usize = 300;
 const PAGE: usize = 100;
 
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Board {
-    pub id: u64,
-    pub name: String,
-    /// `scrum` or `kanban`.
-    pub kind: String,
-    pub project: Option<String>,
-    /// The project's key when the board belongs to one rather than to a person.
-    pub project_key: Option<String>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Sprint {
-    pub id: u64,
-    pub name: String,
-    pub end: Option<String>,
-    pub goal: Option<String>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Column {
-    pub name: String,
-    pub status_ids: Vec<String>,
-    pub issues: Vec<IssueSummary>,
-}
-
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct BoardView {
-    pub id: u64,
-    pub name: String,
-    pub kind: String,
-    /// The scrum board's sprint in progress; its issues are the board's.
-    pub sprint: Option<Sprint>,
-    pub columns: Vec<Column>,
-    /// More issues matched than the board shows.
-    pub truncated: bool,
-}
-
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct BoardsRequest {
     #[serde(default)]
     pub query: String,

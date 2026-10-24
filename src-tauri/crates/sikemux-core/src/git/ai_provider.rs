@@ -25,7 +25,7 @@ impl GitAiProvider {
             .and_then(|kind| {
                 Some(Self {
                     kind,
-                    default_model: kind.entry().commit_model?,
+                    default_model: kind.entry().commit_models.first()?,
                 })
             })
             .ok_or_else(|| format!("unknown local AI provider: {name}"))
@@ -175,6 +175,12 @@ impl AiStreamDecoder {
 }
 
 fn command_candidates(name: &str) -> Vec<String> {
+    if sikemux_process::user_environment::search_path_only() {
+        return sikemux_process::user_environment::find_executable(name)
+            .map(|path| path.to_string_lossy().into_owned())
+            .into_iter()
+            .collect();
+    }
     let home = std::env::var("HOME").unwrap_or_default();
     let mut candidates = vec![
         name.to_string(),

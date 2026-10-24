@@ -41,11 +41,9 @@ export async function signOutOfAccount(): Promise<void> {
 
 export const doneWithAccountPhones = (): void => useAccount.setState({ phonesToAllow: [] });
 
-/** Shows what is cached first, then asks for a newer name and picture if the cached ones are old. */
+/** Shows the account as the core has it; the core asks for a newer name and picture itself. */
 export async function loadAccount(): Promise<void> {
-    const cached = await accountApi.status();
-    setAccount(cached);
-    if (cached.signedIn) setAccount(await accountApi.refreshProfile());
+    setAccount(await accountApi.status());
 }
 
 /** Keeps the account current when it changes without the app asking. */

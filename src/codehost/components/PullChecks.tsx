@@ -1,7 +1,5 @@
-import { useResourceEnabled } from "../../plugin-api/resources";
-import type { RepoRef } from "../api";
-import { runsR } from "../resources";
-import { checksSummary, elapsedMs, eventLabel, isUnfinished, outcomeOf, OUTCOME_LABEL, overallOutcome } from "../runStatus";
+import type { CheckTally, ListedRun, RepoRef } from "../api";
+import { elapsedMs, eventLabel, outcomeOf, OUTCOME_LABEL, tallySummary } from "../runStatus";
 import { StatusMark } from "./ActionsIcon";
 import { useNow } from "../../plugin-api/hooks";
 import { useCiWatch } from "../ciWatch";
@@ -9,31 +7,29 @@ import { formatDuration } from "../../lib/format";
 
 interface Props {
     repo: RepoRef;
-    sha: string;
+    /** The runs on the pull request's head commit, as the core counted them. */
+    checks: CheckTally | null;
+    runs: readonly ListedRun[];
     active: boolean;
     onOpenRun: (runId: string) => void;
 }
 
 /** The checks part of a pull request's merge box, one row per workflow run on its head commit. */
-export function PullChecks({ repo, sha, active, onOpenRun }: Props) {
-    const found = useResourceEnabled(active, runsR, { ...repo, headSha: sha, perPage: 30 });
-    const runs = found.data?.runs ?? [];
-    const live = active && runs.some(isUnfinished);
-    const now = useNow(live);
+export function PullChecks({ repo, checks, runs, active, onOpenRun }: Props) {
+    const now = useNow(active && runs.some((listed) => listed.unfinished));
     useCiWatch(repo, active);
-    if (runs.length === 0) return null;
+    if (!checks || runs.length === 0) return null;
 
-    const summary = checksSummary(runs);
+    const summary = tallySummary(checks);
     return (
         <div className="gha-merge-part">
             <div className="gha-merge-row">
-                <StatusMark outcome={overallOutcome(runs)} size={14} />
+                <StatusMark outcome={checks.outcome} size={14} />
                 <span className="gha-merge-title">{summary === "all passed" ? "All checks passed" : `Checks: ${summary}`}</span>
             </div>
             <div className="gha-checks">
-                {runs.map((run) => {
+                {runs.map(({ run, unfinished }) => {
                     const outcome = outcomeOf(run);
-                    const going = isUnfinished(run);
                     return (
                         <button key={run.id} type="button" className="gha-check" data-outcome={outcome} onClick={() => onOpenRun(run.id)}>
                             <StatusMark outcome={outcome} size={13} />
@@ -44,7 +40,7 @@ export function PullChecks({ repo, sha, active, onOpenRun }: Props) {
                             <span className="gha-check-spacer" />
                             <span className="gha-dim">{OUTCOME_LABEL[outcome]}</span>
                             <span className="gha-check-took">
-                                {formatDuration(elapsedMs(run.startedAt ?? run.createdAt, going ? null : run.updatedAt, now))}
+                                {formatDuration(elapsedMs(run.startedAt ?? run.createdAt, unfinished ? null : run.updatedAt, now))}
                             </span>
                         </button>
                     );

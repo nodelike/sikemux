@@ -5,7 +5,7 @@ import { rundeckApi, type RundeckStatus } from "../api";
 import * as cmd from "../state";
 import { DEFAULT_BRANCH_OPTIONS, DEFAULT_PROD_ENVS, splitList } from "../shape";
 import { useMenuKeys } from "./hooks";
-import { rundeck, rndJobCellsR, rndListsR, rndMatrixR, rndPlanR, useBranchOptions, useProdEnvs } from "../resources";
+import { rundeck, rndListsR, useBranchOptions, useProdEnvs } from "../resources";
 import { hostFromUrl, Status } from "./parts";
 
 /** The server card at the foot of the sidebar; it opens the plugin's settings above itself. */
@@ -95,7 +95,7 @@ function SettingsForm({ onSignedOut }: { onSignedOut: () => void }) {
                 onCommit={(list) =>
                     void rundeckApi
                         .setLists({ branchOptions: list })
-                        .then(() => rundeck.refresh(rndListsR, rndMatrixR, rndJobCellsR, rndPlanR))
+                        .then(() => rundeck.refresh(rndListsR))
                         .catch((e: unknown) => setError(errorText(e)))
                 }
             />

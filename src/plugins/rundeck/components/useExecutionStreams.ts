@@ -1,8 +1,7 @@
 import { useRef, useState } from "react";
-import { errorText } from "../../../plugin-api/format";
 import { useVisibleStream } from "../../../plugin-api/hooks";
 import { swallow } from "../../../plugin-api/host";
-import { rundeckApi, type LogEntry, type LogTick, type RundeckExecution, type RundeckWorkflowState } from "../api";
+import { rundeckApi, type LogEntry, type LogTick } from "../api";
 
 export const MAX_LOG_ENTRIES = 10_000;
 
@@ -41,36 +40,14 @@ export function appendLogTick(prev: LogState, tick: LogTick, firstSeq: number): 
 }
 
 /**
- * Follows one execution's status and log output while the pane is showing.
- * Hiding the window stops both streams; showing it again resumes the log from
- * where it stopped, keeping the lines already read.
+ * Follows one execution's log output while the pane is showing. Hiding the
+ * window stops the stream; showing it again resumes from where it stopped,
+ * keeping the lines already read.
  */
-export function useExecutionStreams(executionId: number, active: boolean) {
-    const [execution, setExecution] = useState<RundeckExecution | null>(null);
-    const [state, setState] = useState<RundeckWorkflowState | null>(null);
-    const [terminal, setTerminal] = useState(false);
-    const [watchErr, setWatchErr] = useState<string | null>(null);
+export function useExecutionLog(executionId: number, active: boolean): LogState {
     const [logs, setLogs] = useState<LogState>(EMPTY_LOGS);
     const offset = useRef<string | null>(null);
     const seq = useRef(0);
-
-    useVisibleStream(
-        active && !terminal
-            ? (life) =>
-                  rundeckApi.watch(executionId, {
-                      onItem: (update) => {
-                          if (update.execution) setExecution(update.execution);
-                          if (update.state) setState(update.state);
-                          setTerminal(update.terminal);
-                          setWatchErr(update.error);
-                          if (update.terminal) life.finish();
-                      },
-                      onError: (error) => setWatchErr(errorText(error)),
-                  })
-            : null,
-        [executionId],
-        { pauseWhenHidden: true },
-    );
 
     useVisibleStream(
         active && !logs.completed
@@ -90,5 +67,5 @@ export function useExecutionStreams(executionId: number, active: boolean) {
         { pauseWhenHidden: true },
     );
 
-    return { execution, state, terminal, watchErr, logs };
+    return logs;
 }

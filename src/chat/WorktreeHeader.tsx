@@ -42,7 +42,7 @@ function useRecheckOnChange(worktree: AgentWorktree, enabled: boolean): void {
 /** The agent header's word on its worktree branch: the pull request it has, and a way out once that work is merged. */
 export default function WorktreeHeader({ agentId, worktree, visible }: { agentId: string; worktree: AgentWorktree; visible: boolean }) {
     const host = useHostRepo(worktree.path, visible);
-    const pull = useBranchPull(host.repo, worktree.branch, visible);
+    const pull = useBranchPull(host.repo ? worktree.path : null, worktree.branch, visible);
     const local = useResourceEnabled(
         visible && !!worktree.base,
         worktreeMergedR,

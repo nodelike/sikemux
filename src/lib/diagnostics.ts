@@ -221,14 +221,14 @@ function memorySnapshot(): MemoryInfo | null {
 function domSnapshot() {
     return {
         elements: document.getElementsByTagName("*").length,
-        xterms: document.querySelectorAll(".xterm").length,
+        terminalViews: document.querySelectorAll(".terminal-surface").length,
         canvases: document.querySelectorAll("canvas").length,
         terminalRenderers: {
             dom: document.querySelectorAll('[data-terminal-renderer="dom"]').length,
             webgl: document.querySelectorAll('[data-terminal-renderer="webgl"]').length,
         },
-        visibleTerminals: document.querySelectorAll(".window-layer.live .xterm").length,
-        hiddenTerminals: document.querySelectorAll(".window-layer:not(.live) .xterm").length,
+        visibleTerminals: document.querySelectorAll(".window-layer.live .terminal-surface").length,
+        hiddenTerminals: document.querySelectorAll(".window-layer:not(.live) .terminal-surface").length,
         codeMirrorEditors: document.querySelectorAll(".cm-editor").length,
         visibleWindowLayers: document.querySelectorAll(".window-layer.live").length,
     };

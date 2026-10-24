@@ -20,8 +20,8 @@ const { gitStatus, gitOverview } = vi.hoisted(() => {
 
 vi.mock("../state/resources", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../state/resources")>();
-    const handle = (kind: string, enabled = true) => ({
-        data: enabled && kind === "git.overview" ? gitOverview : undefined,
+    const handle = (kind: string, enabled = true, folder?: unknown) => ({
+        data: !enabled ? undefined : kind === "git.overview" ? gitOverview : kind === "git.projectRepo" ? { repo: folder, repos: null } : undefined,
         status: "ok" as const,
         error: undefined,
         refresh: async () => {},
@@ -30,6 +30,7 @@ vi.mock("../state/resources", async (importOriginal) => {
         ...actual,
         useResource: (def: { kind: string }) => handle(def.kind),
         useResourceEnabled: (enabled: boolean, def: { kind: string }) => handle(def.kind, enabled),
+        useCachedResourceEnabled: (enabled: boolean, def: { kind: string }, folder: unknown) => handle(def.kind, enabled, folder),
     };
 });
 

@@ -14,14 +14,14 @@ use tauri::http::{header, Request, Response, StatusCode};
 use tauri::{Manager, Runtime, State, UriSchemeContext, UriSchemeResponder};
 
 use crate::error::{AppError, AppResult};
-use crate::file_serving::{content_type, parse_range, percent_decode, sniff};
+use sikemux_core::http::mime_of;
+use sikemux_core::http::{parse_range, percent_decode};
 
 pub const SCHEME: &str = "preview";
 
 /* A media element asks for the rest of the file from wherever it is reading;
 answering in slices keeps a long video from being read into memory whole. */
 const MAX_RANGE_BYTES: u64 = 1024 * 1024;
-const SNIFF_BYTES: usize = 64;
 
 #[derive(Default)]
 pub struct Previews {
@@ -56,18 +56,6 @@ pub async fn preview_file(previews: State<'_, Previews>, path: String) -> AppRes
         size: metadata.len(),
         modified,
     })
-}
-
-fn mime_of(path: &Path) -> std::io::Result<&'static str> {
-    let named = content_type(path);
-    if named != "application/octet-stream" {
-        return Ok(named);
-    }
-    let mut head = Vec::with_capacity(SNIFF_BYTES);
-    File::open(path)?
-        .take(SNIFF_BYTES as u64)
-        .read_to_end(&mut head)?;
-    Ok(sniff(&head).unwrap_or(named))
 }
 
 pub fn handle<R: Runtime>(

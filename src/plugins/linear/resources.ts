@@ -1,9 +1,15 @@
 import { defineService } from "../../plugin-api/service";
 import { linearApi } from "./api";
 import { LINEAR_PLUGIN } from "./kinds";
+import type { LinearIssueList, LinearIssueView } from "./types.generated";
 
 export const linear = defineService(LINEAR_PLUGIN, linearApi.status);
 
-export const linearIssuesR = linear.resource("issues", (workspace: string, query: string) => linearApi.search(workspace, query), 30_000);
+/** The person's open issues, or those `query` finds, kept by the core. */
+export const linearListV = linear.view<[workspace: string, query: string], LinearIssueList>("listView", (workspace, query) => ({
+    workspace,
+    query,
+}));
 
-export const linearIssueR = linear.resource("issue", (workspace: string, id: string) => linearApi.issue(workspace, id), 20_000);
+/** One issue with its team's states and its comments, kept by the core. */
+export const linearIssueV = linear.view<[workspace: string, id: string], LinearIssueView>("issueView", (workspace, id) => ({ workspace, id }));

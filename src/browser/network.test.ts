@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /* The recorder is injected into every browser tab before the page's own
    scripts. It is plain interception with no layout in it, so it can be
    exercised here against stand-ins for fetch and XHR. */
-const RECORDER = readFileSync(resolve(__dirname, "../../src-tauri/src/browser/recorder.js"), "utf8");
+const RECORDER = readFileSync(resolve(__dirname, "../../src-tauri/crates/sikemux-browser/src/recorder.js"), "utf8");
 
 interface Entry {
     kind: string;

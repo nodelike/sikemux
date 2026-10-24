@@ -1,12 +1,10 @@
 import type { PromptContext } from "../api/acp";
-
 /** Where an `@` mention of another agent points; the message's own text already shows the mention. */
 export const MENTION_URI = "sikemux://agent/";
 
 export const isMention = (uri: string): boolean => uri.startsWith(MENTION_URI);
 
-/** What a sent message keeps of a context item: enough to name it, not its whole text. */
-export type SentContext = Pick<PromptContext, "uri" | "title">;
+import type { SentContext } from "./types";
 
 export interface ContextChip {
     kind: "issue" | "pull" | null;
@@ -27,19 +25,4 @@ const fenceFor = (text: string) => "`".repeat(Math.max(2, ...(text.match(/`+/g) 
 export function contextAsText(item: PromptContext): string {
     const fence = fenceFor(item.text);
     return `### ${item.title}\n${item.uri}\n\n${fence}\n${item.text}\n${fence}`;
-}
-
-/** A sent message's text with its context items read back out of it, for a session loaded from disk. */
-export function splitSentContext(text: string): { text: string; context: SentContext[] } {
-    const context: SentContext[] = [];
-    let rest = text.replace(/\n?<context ref="([^"]+)">\n([\s\S]*?)\n<\/context>/g, (_whole, uri: string, body: string) => {
-        context.push({ uri, title: body.split("\n", 1)[0] });
-        return "";
-    });
-    for (const { uri } of context) rest = rest.replace(uri, "");
-    rest = rest.replace(/(?:^|\n\n)### (.+)\n(\S+)\n\n(`{3,})\n[\s\S]*?\n\3(?=\n\n###|$)/g, (_whole, title: string, uri: string) => {
-        context.push({ uri, title });
-        return "";
-    });
-    return { text: context.length ? rest.trim() : text, context };
 }

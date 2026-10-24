@@ -1,47 +1,10 @@
-import { recordOf } from "../lib/guards";
-import type { AcpToolCall } from "./types";
-
-export interface DiffLine {
-    sign: " " | "+" | "-";
-    text: string;
-    oldLine?: number;
-    newLine?: number;
-    /** The span that actually changed, when one deleted line pairs with one added line. */
-    mark?: [number, number];
-}
-
-export interface ToolDiff {
-    path: string;
-    adds: number;
-    dels: number;
-    lines: DiffLine[];
-}
-
-/* Past this the transcript is the wrong place to read the change — the row
-   still names the file, and the diff pane shows the whole thing. */
-const MAX_LINES = 1200;
+import type { DiffLine } from "./types";
 
 function splitLines(text: string): string[] {
     if (text === "") return [];
     const lines = text.split("\n");
     if (lines.length > 1 && lines.at(-1) === "") lines.pop();
     return lines;
-}
-
-function textOf(value: unknown): string | undefined {
-    return typeof value === "string" ? value : undefined;
-}
-
-/* The longest run of lines the two sides share, as a grid of match lengths.
-   Only ever asked about the middle, which is what keeps the grid small. */
-function commonRuns(before: string[], after: string[]): number[][] {
-    const grid: number[][] = Array.from({ length: before.length + 1 }, () => new Array<number>(after.length + 1).fill(0));
-    for (let i = before.length - 1; i >= 0; i -= 1) {
-        for (let j = after.length - 1; j >= 0; j -= 1) {
-            grid[i][j] = before[i] === after[j] ? grid[i + 1][j + 1] + 1 : Math.max(grid[i + 1][j], grid[i][j + 1]);
-        }
-    }
-    return grid;
 }
 
 /* Where a single deleted line and a single added line differ, so the row can
@@ -72,55 +35,6 @@ function markPairs(lines: DiffLine[]): void {
     }
 }
 
-export function diffLines(oldText: string, newText: string): DiffLine[] | null {
-    const before = splitLines(oldText);
-    const after = splitLines(newText);
-    if (before.length + after.length > MAX_LINES) return null;
-
-    const lines: DiffLine[] = [];
-    let oldLine = 1;
-    let newLine = 1;
-
-    let head = 0;
-    while (head < before.length && head < after.length && before[head] === after[head]) head += 1;
-    let tail = 0;
-    while (tail < before.length - head && tail < after.length - head && before[before.length - 1 - tail] === after[after.length - 1 - tail]) {
-        tail += 1;
-    }
-
-    for (let index = 0; index < head; index += 1) {
-        lines.push({ sign: " ", text: before[index], oldLine: oldLine++, newLine: newLine++ });
-    }
-
-    const middleBefore = before.slice(head, before.length - tail);
-    const middleAfter = after.slice(head, after.length - tail);
-    const grid = commonRuns(middleBefore, middleAfter);
-    let i = 0;
-    let j = 0;
-    while (i < middleBefore.length && j < middleAfter.length) {
-        if (middleBefore[i] === middleAfter[j]) {
-            lines.push({ sign: " ", text: middleBefore[i], oldLine: oldLine++, newLine: newLine++ });
-            i += 1;
-            j += 1;
-        } else if (grid[i + 1][j] >= grid[i][j + 1]) {
-            lines.push({ sign: "-", text: middleBefore[i], oldLine: oldLine++ });
-            i += 1;
-        } else {
-            lines.push({ sign: "+", text: middleAfter[j], newLine: newLine++ });
-            j += 1;
-        }
-    }
-    while (i < middleBefore.length) lines.push({ sign: "-", text: middleBefore[i++], oldLine: oldLine++ });
-    while (j < middleAfter.length) lines.push({ sign: "+", text: middleAfter[j++], newLine: newLine++ });
-
-    for (let index = before.length - tail; index < before.length; index += 1) {
-        lines.push({ sign: " ", text: before[index], oldLine: oldLine++, newLine: newLine++ });
-    }
-
-    markPairs(lines);
-    return lines;
-}
-
 /* A fenced block the agent wrote is sometimes a patch. It has no line numbers
    to speak of, but the signs alone are worth colouring, and a reader should not
    have to compare two near-identical lines by eye. */
@@ -144,62 +58,6 @@ export function fencedDiff(text: string, language?: string): DiffLine[] | null {
     }));
     markPairs(lines);
     return lines;
-}
-
-/* An adapter that follows the ACP spec hands us the change itself. */
-function fromContent(tool: AcpToolCall): { path: string; oldText: string; newText: string } | null {
-    if (!Array.isArray(tool.content)) return null;
-    for (const item of tool.content) {
-        const block = recordOf(item);
-        const inner = recordOf(block?.content) ?? block;
-        if (!inner || inner.type !== "diff") continue;
-        const path = textOf(inner.path);
-        const newText = textOf(inner.newText);
-        if (path === undefined || newText === undefined) continue;
-        return { path, oldText: textOf(inner.oldText) ?? "", newText };
-    }
-    return null;
-}
-
-/* One that does not still tells us what it was asked to write. */
-function fromRawInput(tool: AcpToolCall): { path: string; oldText: string; newText: string } | null {
-    const input = recordOf(tool.rawInput);
-    if (!input) return null;
-    const path = textOf(input.file_path) ?? textOf(input.path) ?? textOf(input.filePath);
-    if (path === undefined) return null;
-    const oldText = textOf(input.old_string) ?? textOf(input.oldText);
-    const newText = textOf(input.new_string) ?? textOf(input.newText) ?? textOf(input.content);
-    if (newText === undefined) return null;
-    return { path, oldText: oldText ?? "", newText };
-}
-
-/* What a failed call left behind, short enough to sit under it. Anything
-   longer belongs in the terminal the call came from. */
-const MAX_FAILURE_CHARS = 400;
-
-export function toolFailure(tool: AcpToolCall): string | null {
-    if (tool.status !== "failed") return null;
-    const output = tool.rawOutput;
-    const record = recordOf(output);
-    const raw = typeof output === "string" ? output : (textOf(record?.output) ?? textOf(record?.stderr) ?? textOf(record?.error) ?? null);
-    const trimmed = raw?.trim();
-    if (!trimmed) return null;
-    return trimmed.length > MAX_FAILURE_CHARS ? `${trimmed.slice(0, MAX_FAILURE_CHARS)}…` : trimmed;
-}
-
-export function toolDiff(tool: AcpToolCall): ToolDiff | null {
-    const source = fromContent(tool) ?? fromRawInput(tool);
-    if (!source) return null;
-    const lines = diffLines(source.oldText, source.newText);
-    if (!lines) return null;
-    let adds = 0;
-    let dels = 0;
-    for (const line of lines) {
-        if (line.sign === "+") adds += 1;
-        else if (line.sign === "-") dels += 1;
-    }
-    if (adds === 0 && dels === 0) return null;
-    return { path: source.path, adds, dels, lines };
 }
 
 export interface DiffView {

@@ -1,5 +1,5 @@
-import { Channel } from "@tauri-apps/api/core";
-import { invokeCommand as invoke } from "./invoke";
+import { coreCall } from "./core";
+import { cancelCoreStream, coreStream } from "./coreStream";
 
 export interface SearchOptions {
     caseSensitive: boolean;
@@ -17,7 +17,7 @@ export interface SearchRange {
 export interface SearchHit {
     line: number; // 1-based
     text: string;
-    truncated_text?: boolean;
+    truncatedText?: boolean;
     ranges: SearchRange[];
 }
 
@@ -28,16 +28,16 @@ export interface SearchFile {
 
 export interface SearchResults {
     files: SearchFile[];
-    file_count: number;
-    match_count: number;
+    fileCount: number;
+    matchCount: number;
     truncated: boolean;
     cancelled?: boolean;
-    elapsed_ms: number;
+    elapsedMs: number;
 }
 
 export interface ReplaceFile {
     path: string;
-    match_count: number;
+    matchCount: number;
 }
 
 export interface ReplaceError {
@@ -47,41 +47,50 @@ export interface ReplaceError {
 
 export interface ReplaceResults {
     files: ReplaceFile[];
-    file_count: number;
-    match_count: number;
+    fileCount: number;
+    matchCount: number;
     errors: ReplaceError[];
-    dry_run: boolean;
-    elapsed_ms: number;
+    dryRun: boolean;
+    elapsedMs: number;
 }
 
 export interface FileWindow {
     doc: string;
-    start_line: number;
-    total_lines: number;
-    clipped_head: boolean;
-    clipped_tail: boolean;
+    startLine: number;
+    totalLines: number;
+    clippedHead: boolean;
+    clippedTail: boolean;
 }
 
+type SearchSummary = Omit<SearchResults, "files">;
+
+/** The search running in each project, by project folder, so a newer one or the pane's cancel can stop it. */
+const running = new Map<string, number>();
+
 export const searchApi = {
-    project: (repo: string, query: string, options: SearchOptions, onFile: (file: SearchFile) => void): Promise<SearchResults> => {
-        const channel = new Channel<SearchFile>();
-        channel.onmessage = onFile;
-        return invoke<SearchResults>("project_search", {
-            repo,
-            query,
-            options,
-            onFile: channel,
+    project: async (repo: string, query: string, options: SearchOptions, onFile: (file: SearchFile) => void): Promise<SearchResults> => {
+        let summary: SearchSummary = { fileCount: 0, matchCount: 0, truncated: false, elapsedMs: 0 };
+        const { stream, done } = await coreStream("searchStream", { project: repo, query, options }, (item) => {
+            const part = item as { file?: SearchFile; summary?: SearchSummary };
+            if (part.file) onFile(part.file);
+            if (part.summary) summary = part.summary;
         });
+        running.set(repo, stream);
+        try {
+            await done;
+        } finally {
+            if (running.get(repo) === stream) running.delete(repo);
+        }
+        return { files: [], ...summary };
     },
-    cancel: (repo: string): Promise<void> => invoke("project_search_cancel", { repo }),
+    cancel: async (repo: string): Promise<void> => {
+        const stream = running.get(repo);
+        if (stream === undefined) return;
+        running.delete(repo);
+        await cancelCoreStream(stream);
+    },
     replace: (repo: string, query: string, replace: string, options: SearchOptions, dryRun: boolean): Promise<ReplaceResults> =>
-        invoke<ReplaceResults>("project_search_replace", {
-            repo,
-            query,
-            replace,
-            options,
-            dryRun,
-        }),
+        coreCall<ReplaceResults>("searchReplace", { project: repo, query, replace, options, dryRun }),
     readFileWindow: (path: string, line: number, before: number, after: number): Promise<FileWindow> =>
-        invoke<FileWindow>("read_file_window", { path, line, before, after }),
+        coreCall<FileWindow>("fileWindow", { path, line, before, after }),
 };

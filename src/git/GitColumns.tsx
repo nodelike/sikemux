@@ -3,6 +3,7 @@ import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { PaneField } from "../ui/ShaderField";
 import { LEFT_MIN, RIGHT_MIN, ResizeHandle } from "./ResizeHandle";
+import { preferencesOf } from "../state/preferences";
 
 /** Lets columns inside a framed host screen take the frame onto their right column, so the left stands outside it. */
 export const ShellFrameContext = createContext<{ claim: () => () => void } | null>(null);
@@ -24,7 +25,7 @@ export function GitColumns({
     framed?: boolean;
 }) {
     const leftRef = useRef<HTMLDivElement>(null);
-    const paneShader = useStore((s) => s.paneShader);
+    const paneShader = useStore((s) => preferencesOf(s).paneShader);
     const shellFrame = useContext(ShellFrameContext);
     useLayoutEffect(() => shellFrame?.claim(), [shellFrame]);
     framed ||= !!shellFrame;

@@ -160,6 +160,12 @@ pub fn var_os(name: &str) -> Option<std::ffi::OsString> {
         .or_else(|| std::env::var_os(name))
 }
 
+/// Whether programs are looked up only on the PATH this process was started with, as a
+/// sandbox's environment asks so that it never finds the person's own agent CLIs.
+pub fn search_path_only() -> bool {
+    std::env::var(crate::vars::AGENT_SEARCH).is_ok_and(|value| value == "path")
+}
+
 pub fn find_executable(name: &str) -> Option<PathBuf> {
     find_executables(name).into_iter().next()
 }

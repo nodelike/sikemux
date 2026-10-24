@@ -80,12 +80,7 @@ pub(crate) async fn answer(
         }
         Ok(FrozenRequest::StopEverything) => {
             reply(writer, &FrozenReply::Accepted).await;
-            let draining = core.clone();
-            let _ = blocking(move || {
-                draining.drain();
-                Ok(())
-            })
-            .await;
+            core.stop_everything().await;
             core.begin_shutdown();
         }
         Err(error) => reply(writer, &refused(format!("unknown request: {error}"))).await,
@@ -212,6 +207,7 @@ fn upgrade_info(binary: &Path) -> Result<UpgradeInfo, String> {
 /// Stops taking work, lets what is in flight land, and replaces the process.
 /// Returns only if that failed.
 async fn hand_over(core: &Arc<Core>, binary: PathBuf) -> String {
+    super::spare::discard(core);
     if !core.launching.settle(LAUNCH_SETTLE).await {
         return "a session was still starting".into();
     }

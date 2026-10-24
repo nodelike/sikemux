@@ -2,18 +2,35 @@ import { useEffect, useMemo, useState, type ReactNode, type RefObject, type UIEv
 import type { Agent } from "../state/types";
 import { ChatActivity } from "./ChatActivity";
 import { ChatMessageRow } from "./ChatMessageRow";
-import { EARLIER_LOST } from "./earlier";
 import { FoldMemoryContext, type FoldMemory } from "./longText";
-import { rowMeta } from "./messageMeta";
+import { copyText } from "./messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
-import { formatDetail, outlivesFold, workFolds } from "./transcript";
-import type { AcpPermissionRequest, ChatMessage, ChatState } from "./types";
+import { formatDetail, outlivesFold } from "./transcript";
+import type { PermissionAsk, ChatMessage, ChatRows } from "./types";
 import { WorkSummary } from "./WorkSummary";
 
 /* A long transcript mounts its newest rows first and the older ones above
    them a slice at a time. Laid out from the bottom, rows added above the view
    never move it. */
 const FIRST_ROWS = 40;
+
+/** Said above a chat whose host no longer keeps its first turns. */
+export const EARLIER_LOST = "Earlier messages are no longer kept.";
+
+/** Where each finished turn that folds starts and ends among the rows, by the index of each row in it. */
+function foldSpans(messages: readonly ChatMessage[]): Map<number, { start: number; end: number }> {
+    const spans = new Map<number, { start: number; end: number }>();
+    let start = -1;
+    for (let index = 0; index < messages.length; index += 1) {
+        const fold = messages[index].fold;
+        if (!fold) continue;
+        if (fold.id === messages[index].id || start < 0) start = index;
+        if (fold.last !== messages[index].id) continue;
+        for (let at = start; at <= index; at += 1) spans.set(at, { start, end: index });
+        start = -1;
+    }
+    return spans;
+}
 const ROWS_PER_SLICE = 60;
 
 function useOlderRows(count: number): number {
@@ -35,7 +52,7 @@ function useOlderRows(count: number): number {
 }
 
 export interface TranscriptPermissions {
-    requests: readonly AcpPermissionRequest[];
+    requests: readonly PermissionAsk[];
     /** The request whose answer is on its way. */
     busy: string | null;
     /** Without it the requests are shown but cannot be answered. */
@@ -61,7 +78,7 @@ export function ChatTranscript({
     before,
     after,
 }: {
-    state: ChatState;
+    state: ChatRows;
     agentType: Agent["type"];
     foldMemory: FoldMemory;
     /** Shows every fold open, as while finding in the chat. */
@@ -78,7 +95,7 @@ export function ChatTranscript({
     after?: ReactNode;
 }) {
     const firstRow = useOlderRows(state.messages.length);
-    const folds = useMemo(() => workFolds(state.messages, state.running), [state.messages, state.running]);
+    const spans = useMemo(() => foldSpans(state.messages), [state.messages]);
     const [openWork, setOpenWork] = useState<ReadonlySet<string>>(() => new Set());
     const toggleWork = (id: string) =>
         setOpenWork((open) => {
@@ -86,7 +103,7 @@ export function ChatTranscript({
             if (!next.delete(id)) next.add(id);
             return next;
         });
-    const plan = useMemo(() => (state.plan === null ? null : formatDetail(state.plan)), [state.plan]);
+    const plan = useMemo(() => (state.plan === undefined ? null : formatDetail(state.plan)), [state.plan]);
 
     return (
         <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
@@ -100,21 +117,22 @@ export function ChatTranscript({
                 <FoldMemoryContext value={foldMemory}>
                     {state.messages.slice(firstRow).map((message, offset) => {
                         const index = firstRow + offset;
-                        const meta = rowMeta(state.messages, index);
-                        const fold = folds.get(index);
+                        const meta = message.meta;
+                        const span = spans.get(index);
+                        const fold = span && message.fold;
                         const workId = fold ? fold.id : "";
-                        const folded = fold !== undefined && !unfolded && !openWork.has(workId);
-                        const summary = fold && index === Math.max(fold.start, firstRow) && (
+                        const folded = span !== undefined && !unfolded && !openWork.has(workId);
+                        const summary = span && fold && index === Math.max(span.start, firstRow) && (
                             <WorkSummary
                                 agent={agentType}
-                                took={fold.took}
+                                took={fold.took ?? null}
                                 calls={fold.calls}
                                 thought={fold.thought}
                                 open={!folded}
                                 onToggle={() => toggleWork(workId)}
                             />
                         );
-                        if (fold && folded && index < fold.end && !message.parts.some(outlivesFold))
+                        if (span && folded && index < span.end && !message.parts.some(outlivesFold))
                             return (
                                 <div key={message.id} data-index={index} className="chat-row">
                                     {summary}
@@ -124,13 +142,13 @@ export function ChatTranscript({
                             <div key={message.id} data-index={index} className="chat-row">
                                 {summary}
                                 <ChatMessageRow
-                                    from={fold && folded ? (index < fold.end ? message.parts.length : fold.from) : 0}
+                                    from={span && fold && folded ? (index < span.end ? message.parts.length : fold.from) : 0}
                                     message={message}
                                     live={state.running && index === state.messages.length - 1}
-                                    copyable={meta.text}
-                                    rate={meta.rate}
-                                    at={meta.at}
-                                    took={meta.took}
+                                    copyable={copyText(state.messages, index)}
+                                    rate={meta?.rate ?? null}
+                                    at={message.role === "user" ? (message.sentAt ?? null) : (meta?.at ?? null)}
+                                    took={meta?.took ?? null}
                                     onEdit={onEdit && message.role === "user" && message.promptId ? onEdit : undefined}
                                 />
                             </div>

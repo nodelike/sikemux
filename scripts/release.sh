@@ -134,14 +134,21 @@ TAURI_VER="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 if ! CARGO_METADATA="$(cargo metadata --manifest-path src-tauri/Cargo.toml --locked --no-deps --format-version 1)"; then
   fail "Cargo.lock is missing or out of date"
 fi
-CARGO_VER="$(node -e '
-  const metadata = JSON.parse(require("fs").readFileSync(0, "utf8"));
-  const root = metadata.packages.find((pkg) => pkg.manifest_path === metadata.workspace_root + "/Cargo.toml");
-  if (!root) process.exit(1);
-  process.stdout.write(root.version);
-' <<<"$CARGO_METADATA")" || fail "could not read the Cargo package version"
-[[ "$PKG_VER" == "$TAURI_VER" && "$PKG_VER" == "$CARGO_VER" ]] || \
-  fail "current versions disagree (package=$PKG_VER tauri=$TAURI_VER cargo=$CARGO_VER)"
+root_version() {
+  node -e '
+    const metadata = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    const root = metadata.packages.find((pkg) => pkg.manifest_path === metadata.workspace_root + "/Cargo.toml");
+    if (!root) process.exit(1);
+    process.stdout.write(root.version);
+  '
+}
+CARGO_VER="$(root_version <<<"$CARGO_METADATA")" || fail "could not read the Cargo package version"
+if ! GPUI_METADATA="$(cargo metadata --manifest-path src-tauri/crates/sikemux-gpui/Cargo.toml --locked --no-deps --format-version 1)"; then
+  fail "the GPUI app's Cargo.lock is missing or out of date"
+fi
+GPUI_VER="$(root_version <<<"$GPUI_METADATA")" || fail "could not read the GPUI app's version"
+[[ "$PKG_VER" == "$TAURI_VER" && "$PKG_VER" == "$CARGO_VER" && "$PKG_VER" == "$GPUI_VER" ]] || \
+  fail "current versions disagree (package=$PKG_VER tauri=$TAURI_VER cargo=$CARGO_VER gpui=$GPUI_VER)"
 CURRENT_VERSION="$PKG_VER" NEXT_VERSION="$VERSION" node - <<'NODE' || fail "version must not be less than $PKG_VER"
 const parse = (value) => {
   const [, major, minor, patch, prerelease] = value.match(/^(\d+)\.(\d+)\.(\d+)(?:-([^+]+))?(?:\+.*)?$/);
@@ -206,7 +213,8 @@ else
   echo "✓ Preflight passed; bumping version to $VERSION"
 fi
 BACKUP="$(mktemp -d)"
-FILES=(package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock latest.json)
+FILES=(package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+  src-tauri/crates/sikemux-gpui/Cargo.toml src-tauri/crates/sikemux-gpui/Cargo.lock latest.json)
 for file in "${FILES[@]}"; do
   if [[ -e "$file" ]]; then mkdir -p "$BACKUP/$(dirname "$file")"; cp "$file" "$BACKUP/$file"; fi
 done
@@ -248,18 +256,21 @@ for name in ("package.json", "src-tauri/tauri.conf.json"):
     data = json.loads(path.read_text())
     data["version"] = version
     path.write_text(json.dumps(data, indent=2) + "\n")
-path = pathlib.Path("src-tauri/Cargo.toml")
-text = path.read_text()
-updated, count = re.subn(r'(?m)^(version = ")[^"]+("\s*)$', rf'\g<1>{version}\2', text, count=1)
-if count != 1:
-    raise SystemExit("could not update Cargo.toml package version")
-path.write_text(updated)
+for name in ("src-tauri/Cargo.toml", "src-tauri/crates/sikemux-gpui/Cargo.toml"):
+    path = pathlib.Path(name)
+    text = path.read_text()
+    updated, count = re.subn(r'(?m)^(version = ")[^"]+("\s*)$', rf'\g<1>{version}\2', text, count=1)
+    if count != 1:
+        raise SystemExit(f"could not update {name} package version")
+    path.write_text(updated)
 PY
 # Cargo.lock records the workspace version and the sidecar builds with --locked,
 # so the bump has to reach the lock file or the build fails partway through.
 if [[ "$VERSION" != "$PKG_VER" ]]; then
   cargo metadata --manifest-path src-tauri/Cargo.toml --offline --format-version 1 >/dev/null \
     || fail "could not refresh Cargo.lock for $VERSION"
+  cargo metadata --manifest-path src-tauri/crates/sikemux-gpui/Cargo.toml --offline --format-version 1 >/dev/null \
+    || fail "could not refresh the GPUI app's Cargo.lock for $VERSION"
 fi
 snapshot_expected
 

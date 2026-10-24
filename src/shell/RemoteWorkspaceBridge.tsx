@@ -1,35 +1,28 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useMemo, useState } from "react";
-import { publishBuddies, type PublishedBuddies } from "../buddies/published";
+import { useEffect, useState } from "react";
+import { coreCall } from "../api/core";
 import { remoteApi } from "../api/remote";
-import { backdropPicture, grainDotColor } from "../remote/backdrop";
+import { backdropPicture } from "../remote/backdrop";
 import { usePaneImage } from "../lib/paneImage";
-import { readPalette } from "../remote/palette";
 import { activeAgentId } from "../state/selectors";
-import { currentTheme, subscribeTheme } from "../themes/bus";
 import { swallow } from "../state/toast";
 import { useStore } from "../state/store";
+import { preferencesOf } from "../state/preferences";
 
 /** Long enough that changing several settings publishes once. */
 export const PUBLISH_DELAY_MS = 400;
 
 /**
- * Tells the core the buddies the app draws for the notch and paired devices, and which agent is on screen. While remote access is on, also the theme and backdrop devices draw in.
+ * Tells the core which agent is on screen and which project is in front. While remote access is on, also the backdrop devices draw in.
  */
 export function RemoteWorkspaceBridge() {
     const [enabled, setEnabled] = useState(false);
-    const [themeChanges, setThemeChanges] = useState(0);
-    const agents = useStore((s) => s.agents);
-    const buddiesOn = useStore((s) => s.buddies);
-    const buddyPack = useStore((s) => s.buddyPack);
-    const buddyShape = useStore((s) => s.buddyShape);
-    const buddyMotion = useStore((s) => s.buddyMotion);
-    const buddies = useMemo(
-        () => JSON.stringify(publishBuddies(Object.values(agents), { pack: buddyPack, shape: buddyShape }, buddyMotion, buddiesOn)),
-        [buddiesOn, agents, buddyPack, buddyShape, buddyMotion],
-    );
     const active = useStore((s) => activeAgentId(s, s.sessions[s.activeSessionId]));
     const focused = useWindowFocused();
+    const frontProject = useStore((s) => {
+        const session = s.sessions[s.activeSessionId];
+        return session?.kind === "project" && !session.host ? session.id : null;
+    });
 
     useEffect(() => {
         const controller = new AbortController();
@@ -45,7 +38,7 @@ export function RemoteWorkspaceBridge() {
         return () => controller.abort();
     }, []);
 
-    const texture = useStore((s) => s.paneShader);
+    const texture = useStore((s) => preferencesOf(s).paneShader);
     const paneImage = usePaneImage();
     useEffect(() => {
         if (!enabled) return;
@@ -56,27 +49,14 @@ export function RemoteWorkspaceBridge() {
         return () => window.clearTimeout(timer);
     }, [enabled, texture, paneImage]);
 
-    useEffect(() => subscribeTheme(() => setThemeChanges((count) => count + 1)), []);
-
-    useEffect(() => {
-        if (!enabled) return;
-        const timer = window.setTimeout(() => {
-            const palette = readPalette({ shaderDot: grainDotColor(currentTheme()) });
-            remoteApi.publishPalette(palette).catch(swallow("publish the theme to paired devices"));
-        }, PUBLISH_DELAY_MS);
-        return () => window.clearTimeout(timer);
-    }, [enabled, themeChanges]);
-
-    useEffect(() => {
-        const timer = window.setTimeout(() => {
-            remoteApi.publishBuddies(JSON.parse(buddies) as PublishedBuddies).catch(swallow("publish buddies to the core"));
-        }, PUBLISH_DELAY_MS);
-        return () => window.clearTimeout(timer);
-    }, [buddies]);
-
     useEffect(() => {
         remoteApi.publishOnScreen(active ? [active] : [], focused).catch(swallow("tell the core which agent is on screen"));
     }, [active, focused]);
+
+    // The core keeps a shell ready for the project in front. A project it does not know yet is refused until the person comes back to it.
+    useEffect(() => {
+        if (frontProject) coreCall("activateProject", { project: frontProject }).catch(() => {});
+    }, [frontProject]);
 
     return null;
 }

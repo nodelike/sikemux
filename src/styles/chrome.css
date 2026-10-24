@@ -793,53 +793,6 @@
     width: 100%;
     height: 100%;
 }
-.terminal-host .xterm {
-    height: 100%;
-}
-.terminal-host .xterm-viewport {
-    /* xterm 6 scrolls through its nested xterm-scrollable-element. Its legacy
-       viewport still forces a native scrollbar, which WKWebView may paint as
-       a light gutter even when the track pseudo-element is transparent. */
-    overflow: hidden !important;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-}
-/* No ground of its own, transparency or not. theme.terminal.background mirrors
-   chrome.bg in all nine themes while the stage draws --surface (a lift off
-   chrome.bgDim), so painting it here put a rectangle a shade off the rest of
-   the frame inside every terminal and agent TUI. terminalThemeFor() already
-   strips the same value out of xterm's canvas, and every theme ships
-   editor.bg: transparent for the same reason: the stage owns the surface.
-   xterm also writes an inline background onto the nested scroll container. */
-.terminal-host .xterm-viewport,
-.terminal-host .xterm-scrollable-element {
-    background-color: transparent !important;
-}
-.terminal-host .xterm-viewport::-webkit-scrollbar {
-    display: none;
-    width: 0;
-    height: 0;
-}
-.terminal-host .xterm-viewport::-webkit-scrollbar-track,
-.terminal-host .xterm-viewport::-webkit-scrollbar-corner,
-.terminal-host .xterm-viewport::-webkit-scrollbar-thumb {
-    background: transparent;
-    border: none;
-}
-
-/* xterm 6 uses a VS Code-style overlay scrollbar inside the viewport. Keep its
-   scroll machinery for wheels and trackpads, but remove the injected chrome so
-   crossing a terminal with the pointer cannot flash a gutter into the pane. */
-.terminal-host .xterm-scrollable-element > .scrollbar.vertical {
-    width: 0 !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-    background: transparent !important;
-}
-.terminal-host .xterm-scrollable-element > .scrollbar.vertical > .slider {
-    display: none !important;
-}
-
 .divider {
     position: absolute;
     z-index: 10;

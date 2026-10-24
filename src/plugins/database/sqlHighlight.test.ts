@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Engine } from "./api";
+import type { DatabaseEngine as Engine } from "./types.generated";
 import { nextToken, startState, type SqlState, type SqlStyle } from "./sqlHighlight";
 
 /** Every token on each line with its style, spaces left out, carrying state across lines as the editor does. */

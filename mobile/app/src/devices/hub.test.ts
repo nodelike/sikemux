@@ -25,6 +25,7 @@ class FakeConnection {
   host = vi.fn(async () => ({ name: 'Studio', model: 'Mac mini', version: '1', channel: 2 }));
   setForeground = vi.fn(async (_foreground: boolean) => {});
   clearNotifications = vi.fn(async () => {});
+  call = vi.fn(async (_method: string, _params: string) => '[]');
   close() {
     this.closed = true;
   }
@@ -53,7 +54,7 @@ const VIEW = {
   chats: [],
   attentions: [],
   recent: [],
-  inbox: { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [] },
+  inbox: { items: [], working: 0, away: false, agentMessages: {}, remoteAgents: [], agents: [], projects: {} },
 };
 
 let hub: Hub;
@@ -135,7 +136,7 @@ describe('the hub', () => {
       throw new Error('a broken screen');
     });
     hub.onChatEvents('host', (deliveries) => heard.push(deliveries.length));
-    const chat = (seq: bigint) => CoreEvent.Chat.new({ agentId: 'a', seq, eventJson: '{}' });
+    const chat = (seq: bigint) => CoreEvent.Chat.new({ agentId: 'a', seq, changesJson: '[]' });
     fake.calls[0].listener.events([chat(1n), chat(2n), chat(3n)] as never);
     expect(heard).toEqual([3]);
   });
@@ -295,8 +296,8 @@ describe('the hub', () => {
     await vi.waitFor(() => expect(fake.calls).toHaveLength(2));
     const heard: bigint[] = [];
     hub.onChatEvents('host', (deliveries) => heard.push(...deliveries.map((delivery) => delivery.seq)));
-    old.events([CoreEvent.Chat.new({ agentId: 'a', seq: 9n, eventJson: '{}' })] as never);
-    fake.calls[1].listener.events([CoreEvent.Chat.new({ agentId: 'a', seq: 1n, eventJson: '{}' })] as never);
+    old.events([CoreEvent.Chat.new({ agentId: 'a', seq: 9n, changesJson: '[]' })] as never);
+    fake.calls[1].listener.events([CoreEvent.Chat.new({ agentId: 'a', seq: 1n, changesJson: '[]' })] as never);
     expect(heard).toEqual([1n]);
   });
 
@@ -307,7 +308,7 @@ describe('the hub', () => {
     const last = { ...VIEW, chats: [] };
     fake.calls[0].listener.events([
       CoreEvent.View.new({ viewJson: JSON.stringify(VIEW) }),
-      CoreEvent.Chat.new({ agentId: 'a', seq: 1n, eventJson: '{}' }),
+      CoreEvent.Chat.new({ agentId: 'a', seq: 1n, changesJson: '[]' }),
       CoreEvent.View.new({ viewJson: JSON.stringify(last) }),
     ] as never);
     expect(order).toEqual(['chat with view unset']);

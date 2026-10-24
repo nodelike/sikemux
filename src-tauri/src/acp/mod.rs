@@ -10,10 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_core::acp::bounded_text;
 use sikemux_core::agent_accounts;
-use sikemux_core::client::{ClientError, CoreClient, Reply};
-use sikemux_core::protocol::{
-    ChatAccount, ChatAttachment, ChatEvent, ChatEventKind, ChatStart, Request, Response,
-};
+use sikemux_core::client::{ClientError, CoreClient};
+use sikemux_core::protocol::{ChatAccount, ChatAttachment};
 use sikemux_process::sync::Locked;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -21,15 +19,17 @@ use crate::hosts::{self, Hosts};
 use crate::pty::PtyManager;
 
 const MAX_AGENT_ID: usize = 200;
-/// Streamed updates in one replayed event, so a long chat comes back in a
-/// few script evals rather than one per update.
-const REPLAY_BATCH: usize = 2_000;
 
+/// What the page hears of a chat: `changes` the core made to it, numbered by
+/// `seq`; `reattach` when its core came back still running it; `stopped`
+/// when it came back without it.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct AcpEvent<'a, Kind> {
+struct AcpEvent<'a> {
     agent_id: &'a str,
-    kind: Kind,
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seq: Option<u64>,
     payload: Value,
 }
 
@@ -63,64 +63,38 @@ impl AcpManager {
     }
 }
 
-fn emit(app: &AppHandle, agent_id: &str, kind: impl Serialize + Clone, payload: Value) {
+fn emit(app: &AppHandle, agent_id: &str, kind: &'static str, seq: Option<u64>, payload: Value) {
     let _ = app.emit_to(
         "main",
         "acp_event",
         AcpEvent {
             agent_id,
             kind,
+            seq,
             payload,
         },
     );
 }
 
-/// Hands one event from the core to the page.
-pub(crate) fn deliver(app: &AppHandle, agent_id: &str, event: ChatEvent) {
-    let ended = event.kind == ChatEventKind::Status
-        && matches!(event.payload["state"].as_str(), Some("stopped" | "error"));
-    if let (true, Some(manager)) = (ended, app.try_state::<AcpManager>()) {
+/// Whether `changes` say the chat's agent stopped.
+pub(crate) fn ended(changes: &Value) -> bool {
+    changes.as_array().is_some_and(|changes| {
+        changes.iter().any(|change| {
+            change["op"] == "head"
+                && matches!(
+                    change["set"]["connection"].as_str(),
+                    Some("stopped" | "error")
+                )
+        })
+    })
+}
+
+/// Hands what changed in a chat to the page.
+pub(crate) fn deliver(app: &AppHandle, agent_id: &str, seq: u64, changes: Value) {
+    if let (true, Some(manager)) = (ended(&changes), app.try_state::<AcpManager>()) {
         manager.forget(agent_id);
     }
-    emit(app, agent_id, event.kind, event.payload);
-}
-
-/// A permission request was answered or withdrawn, wherever that happened.
-pub(crate) fn permission_cleared(app: &AppHandle, agent_id: &str, request_id: String) {
-    emit(
-        app,
-        agent_id,
-        "permission_cleared",
-        json!({ "requestId": request_id }),
-    );
-}
-
-/// Replays a chat to the page as the events it would have heard, with
-/// streamed updates sent in large batches.
-fn replay(app: &AppHandle, agent_id: &str, events: Vec<ChatEvent>) {
-    let mut updates = Vec::new();
-    let flush = |updates: &mut Vec<Value>| {
-        if !updates.is_empty() {
-            emit(
-                app,
-                agent_id,
-                ChatEventKind::SessionUpdate,
-                json!({ "updates": std::mem::take(updates) }),
-            );
-        }
-    };
-    for event in events {
-        if event.kind == ChatEventKind::SessionUpdate {
-            updates.push(event.payload);
-            if updates.len() >= REPLAY_BATCH {
-                flush(&mut updates);
-            }
-            continue;
-        }
-        flush(&mut updates);
-        emit(app, agent_id, event.kind, event.payload);
-    }
-    flush(&mut updates);
+    emit(app, agent_id, "changes", Some(seq), changes);
 }
 
 /// The core of `host`, or this host's own, went away and came back, still
@@ -149,16 +123,12 @@ pub(crate) async fn reconnected(
         None => HashSet::new(),
     };
     for agent_id in shown {
-        if live.contains(&agent_id) {
-            emit(app, &agent_id, "reattach", json!({}));
+        let kind = if live.contains(&agent_id) {
+            "reattach"
         } else {
-            emit(
-                app,
-                &agent_id,
-                ChatEventKind::Status,
-                json!({ "state": "stopped", "reason": "exited" }),
-            );
-        }
+            "stopped"
+        };
+        emit(app, &agent_id, kind, None, json!({}));
     }
 }
 
@@ -194,8 +164,7 @@ async fn core(
         .map_err(|error| error.to_string())
 }
 
-/// What the page hears back from an attach. The replay itself arrives as
-/// `acp_event`s before any live event.
+/// What the page hears back from an attach.
 #[derive(Serialize)]
 #[serde(
     tag = "status",
@@ -203,16 +172,13 @@ async fn core(
     rename_all_fields = "camelCase"
 )]
 pub enum Attachment {
+    /// The chat as the core folded it, a `ChatView`; changes numbered past
+    /// `seq` follow as `acp_event`s.
     Live {
-        start: Box<ChatStart>,
-        permission_mode: String,
-        running: bool,
-        turned: bool,
+        view: Value,
         /// The core's run of this chat, which paging back names.
         feed: String,
-        /// Set when the replay holds only the chat's last turns: the event
-        /// before which `acpHistory` pages back.
-        older_before: Option<u64>,
+        seq: u64,
     },
     Missing,
 }
@@ -220,7 +186,6 @@ pub enum Attachment {
 /// Takes up a chat the core already runs, if it runs one for this agent.
 #[tauri::command]
 pub async fn acp_attach(
-    app: AppHandle,
     manager: State<'_, AcpManager>,
     pty: State<'_, PtyManager>,
     hosts: State<'_, Hosts>,
@@ -229,51 +194,16 @@ pub async fn acp_attach(
 ) -> Result<Attachment, String> {
     bounded_text("agent id", &agent_id, MAX_AGENT_ID)?;
     let client = core(&pty, &hosts, host.as_deref()).await?;
-    let replaying = app.clone();
-    let replay_agent = agent_id.clone();
-    // The replay goes to the page on the connection's reader, before any
-    // event the core sent after it.
-    let replied = client
-        .submit(
-            Request::AcpAttach {
-                agent_id: agent_id.clone(),
-                since: None,
-            },
-            move |reply| match reply {
-                Ok(Reply::Response(Response::ChatAttached { attachment })) => {
-                    Ok(match attachment {
-                        ChatAttachment::Live {
-                            start,
-                            permission_mode,
-                            running,
-                            turned,
-                            replay: events,
-                            mark,
-                            older_before,
-                        } => {
-                            replay(&replaying, &replay_agent, events);
-                            Attachment::Live {
-                                start,
-                                permission_mode,
-                                running,
-                                turned,
-                                feed: mark.feed,
-                                older_before,
-                            }
-                        }
-                        ChatAttachment::Missing => Attachment::Missing,
-                        // Only an attach that names a mark is resumed, and the core no longer restarts chats.
-                        ChatAttachment::Restart | ChatAttachment::Resumed { .. } => {
-                            return Err(ClientError::UnexpectedReply)
-                        }
-                    })
-                }
-                Ok(_) => Err(ClientError::UnexpectedReply),
-                Err(error) => Err(error),
-            },
-        )
-        .map_err(failure)?;
-    let attachment = replied.await.map_err(failure)?.map_err(failure)?;
+    let attachment = match client.acp_attach(agent_id.clone()).await.map_err(failure)? {
+        ChatAttachment::Live { view, mark } => Attachment::Live {
+            view,
+            feed: mark.feed,
+            seq: mark.seq,
+        },
+        ChatAttachment::Missing => Attachment::Missing,
+        // Only an attach that names a mark is resumed.
+        ChatAttachment::Resumed { .. } => return Err(failure(ClientError::UnexpectedReply)),
+    };
     if let Attachment::Live { .. } = &attachment {
         manager.show(&agent_id, host);
     }
@@ -322,28 +252,23 @@ mod tests {
     #[test]
     fn an_attachment_reads_as_the_page_expects() {
         let live = Attachment::Live {
-            start: Box::new(ChatStart {
-                session_id: "s".into(),
-                capabilities: json!({}),
-                setup: json!({}),
-            }),
-            permission_mode: "bypass".into(),
-            running: true,
-            turned: false,
+            view: json!({ "rows": [] }),
             feed: "f".into(),
-            older_before: Some(7),
+            seq: 7,
         };
         assert_eq!(
             serde_json::to_value(live).unwrap(),
-            json!({
-                "status": "live",
-                "start": { "sessionId": "s", "capabilities": {}, "setup": {} },
-                "permissionMode": "bypass",
-                "running": true,
-                "turned": false,
-                "feed": "f",
-                "olderBefore": 7,
-            })
+            json!({ "status": "live", "view": { "rows": [] }, "feed": "f", "seq": 7 })
         );
+    }
+
+    #[test]
+    fn a_head_change_to_stopped_ends_the_chat() {
+        assert!(ended(
+            &json!([{ "op": "head", "set": { "connection": "stopped" } }])
+        ));
+        assert!(!ended(
+            &json!([{ "op": "head", "set": { "running": false } }])
+        ));
     }
 }

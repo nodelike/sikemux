@@ -3,7 +3,8 @@ import Foundation
 extension DeviceView {
     static let empty = DeviceView(
         workspace: Workspace(projects: [], launchers: []), sessions: [], chats: [], attentions: [],
-        inbox: Inbox(items: [], working: 0, agents: [], buddies: nil)
+        inbox: Inbox(items: [], working: 0, agents: [], rollup: nil),
+        faceStyle: FaceStyle(motion: true)
     )
 }
 
@@ -46,26 +47,6 @@ struct Ask: Equatable {
     }
 }
 
-/// A question an agent put to the person or its lead, as the core lists it.
-struct AgentQuestion: Decodable, Equatable {
-    let id: String
-    let text: String
-    let choices: [QuestionChoice]
-    /// The lead it went to first, once it reached the person.
-    let via: String?
-    /// That lead passed it on itself rather than leaving it unanswered.
-    let passed: Bool
-
-    /// Why it reached the person rather than its lead.
-    var why: String? {
-        via.map { passed ? "\($0) didn't know" : "\($0) didn't answer" }
-    }
-}
-
-struct QuestionChoice: Decodable, Equatable {
-    let label: String
-}
-
 /// One row of the island: an inbox item with how the core shows its agent.
 struct Entry: Identifiable, Equatable {
     let item: InboxItem
@@ -104,12 +85,17 @@ struct Entry: Identifiable, Equatable {
 
     /// What the item says, and for a question why it reached the person rather than its lead.
     var what: String {
-        [item.what, question?.why].compactMap { $0 }.joined(separator: " · ")
+        [item.what, question?.viaNote].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
+/// What the core calls each agent, from the catalog it sends once the island connects.
+enum AgentCatalog {
+    static var names: [String: String] = [:]
+}
+
 func agentName(_ provider: String) -> String {
-    agentNames[provider] ?? provider.capitalized
+    AgentCatalog.names[provider] ?? provider.capitalized
 }
 
 extension DeviceView {

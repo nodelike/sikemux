@@ -1,9 +1,8 @@
-import { memo, useEffect, useState, type ReactNode } from 'react';
+import { createContext, memo, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { durationLabel } from '@mac/chat/durationLabel';
 import { toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from '@mac/chat/toolLabels';
-import { sikemuxToolRow } from '@mac/chat/toolRows';
 import { attachmentName } from '@mac/chat/transcript';
 import {
   callCount,
@@ -15,7 +14,8 @@ import {
   toolRowKind,
   type ToolIconName,
 } from '@mac/chat/toolView';
-import type { AcpToolCall, ChatPart } from '@mac/chat/types';
+import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@mac/chat/types';
+import { problem as problemOf } from '@/core/problem';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
@@ -28,6 +28,35 @@ import { useFold } from './folds';
 import { ImageViewerHost, useShowImage } from './ImageViewer';
 
 export type ToolPart = Extract<ChatPart, { kind: 'tool' }>;
+
+/**
+ * Reads a call's whole change and output from the host, or null when it will not say; `done` says the call will not
+ * change any more. Absent where nothing can read it.
+ */
+export const ToolDetailContext = createContext<((toolCallId: string, done: boolean) => Promise<Detail | null>) | null>(null);
+
+type Fetched = { detail: Detail | null; problem: string | null };
+
+/** What an opened row shows beyond its summary, fetched when it opens and again as a running call goes on. */
+function useToolDetail(part: ToolPart): Fetched {
+  const read = useContext(ToolDetailContext);
+  const [fetched, setFetched] = useState<Fetched>({ detail: null, problem: null });
+  const done = !toolRunning(part.tool);
+  const id = part.tool.toolCallId;
+  const lines = part.output?.lines;
+  useEffect(() => {
+    if (!read) return;
+    let current = true;
+    read(id, done).then(
+      (detail) => current && setFetched(detail ? { detail, problem: null } : { detail: null, problem: 'the host did not send it' }),
+      (error: unknown) => current && setFetched((before) => ({ ...before, problem: problemOf(error) })),
+    );
+    return () => {
+      current = false;
+    };
+  }, [read, id, done, lines]);
+  return read ? fetched : { detail: null, problem: 'the host is not here to send it' };
+}
 
 /** Lines of output shown before "Show all", as on the Mac. */
 const OUTPUT_FOLD_LINES = 12;
@@ -111,8 +140,8 @@ const KIND_COLORS: Readonly<Record<string, keyof Palette>> = {
 };
 
 /** The icon and colour of a call, as the Mac's tool rows draw them. */
-function look(tool: AcpToolCall, colors: Palette): { icon: IconName; color: string } {
-  const plugin = tool.status === 'failed' ? undefined : sikemuxToolRow(tool)?.plugin;
+function look(tool: ToolCall, colors: Palette): { icon: IconName; color: string } {
+  const plugin = tool.status === 'failed' ? undefined : tool.row.plugin;
   const icon = (plugin && PLUGIN_MARKS[plugin]) || TOOL_ICONS[toolIconName(tool)];
   if (tool.status === 'failed') return { icon, color: colors.danger };
   const kind = toolRowKind(tool);
@@ -145,11 +174,24 @@ function Sideways({ children }: { children: ReactNode }) {
 }
 
 /** A command and what it printed, the way a terminal would have shown them. */
-function Terminal({ part, command, group }: { part: ToolPart; command: string | null; group: string }) {
+function Terminal({
+  part,
+  command,
+  group,
+  output,
+  waiting,
+}: {
+  part: ToolPart;
+  command: string | null;
+  group: string;
+  output: ToolOutput | undefined;
+  /** Stands in for the output until the host has sent it. */
+  waiting: string | null;
+}) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const show = useShowImage();
-  const output = part.output;
+  const summary = part.output;
   const picture = output?.image
     ? { uri: `data:${output.image.mimeType};base64,${output.image.data}`, name: attachmentName(output.image.mimeType) }
     : null;
@@ -191,7 +233,9 @@ function Terminal({ part, command, group }: { part: ToolPart; command: string | 
           )}
           <CopyButton value={output.text} label="output" size={12} style={styles.copyOutput} />
         </View>
-      ) : output && !output.image ? (
+      ) : waiting ? (
+        <Text style={[styles.note, command !== null && styles.ruled]}>{waiting}</Text>
+      ) : summary && !output?.image ? (
         <Text style={[styles.note, command !== null && styles.ruled]}>No output</Text>
       ) : null}
       {folds ? (
@@ -199,20 +243,28 @@ function Terminal({ part, command, group }: { part: ToolPart; command: string | 
           <Text style={styles.moreText}>{folded ? `Show all ${lines.length} lines` : 'Show fewer lines'}</Text>
         </Pressable>
       ) : null}
-      {output?.cut && (!folds || whole) ? <Text style={[styles.note, styles.ruled]}>The rest of the output was not kept</Text> : null}
-      {failed && output?.exitCode !== undefined ? <Text style={styles.exit}>exit {output.exitCode}</Text> : null}
+      {(output ?? summary)?.cut && (!folds || whole) ? (
+        <Text style={[styles.note, styles.ruled]}>The rest of the output was not kept</Text>
+      ) : null}
+      {failed && summary?.exitCode !== undefined ? <Text style={styles.exit}>exit {summary.exitCode}</Text> : null}
     </View>
   );
 }
 
 function ToolDetail({ part, command, group }: { part: ToolPart; command: string | null; group: string }) {
   const styles = useStyles(makeStyles);
+  const { detail, problem } = useToolDetail(part);
+  const waiting = detail ? null : problem ? `Could not load it: ${problem}` : 'Loading…';
   return (
     <View style={styles.detail}>
       {part.diff ? (
-        <DiffBody diff={part.diff} fold={`${group}/${part.id}/diff`} />
+        <DiffBody
+          diff={detail?.diff ?? part.diff}
+          fold={`${group}/${part.id}/diff`}
+          waiting={detail?.diff ? undefined : (waiting ?? undefined)}
+        />
       ) : command !== null || part.output ? (
-        <Terminal part={part} command={command} group={group} />
+        <Terminal part={part} command={command} group={group} output={detail?.output} waiting={part.output ? waiting : null} />
       ) : (
         <Text style={styles.failure} selectable>
           {part.failure}
@@ -223,7 +275,7 @@ function ToolDetail({ part, command, group }: { part: ToolPart; command: string 
 }
 
 /** What a call acted on: a file as the Mac's file ref, a web address as a link, anything else as written. */
-function Target({ tool, target }: { tool: AcpToolCall; target: string }) {
+function Target({ tool, target }: { tool: ToolCall; target: string }) {
   const styles = useStyles(makeStyles);
   const file = toolPath(tool);
   if (file) return <FileRef raw={file} label={target} look="plain" />;
@@ -243,13 +295,11 @@ function Target({ tool, target }: { tool: AcpToolCall; target: string }) {
 const ToolRow = memo(function ToolRow({
   part,
   last,
-  untimed,
   group,
   kindWidth,
 }: {
   part: ToolPart;
   last: boolean;
-  untimed: boolean;
   group: string;
   kindWidth: number;
 }) {
@@ -265,7 +315,7 @@ const ToolRow = memo(function ToolRow({
   // The row holds one line of a command, so the whole of it is worth opening while it runs or when the row shortened it.
   const opens = Boolean(part.diff || part.output || part.failure) || (command !== null && (running || command !== target));
   const [open, setOpen] = useFold(`${group}/${part.id}`, false);
-  const elapsed = toolElapsed(part, !untimed);
+  const elapsed = toolElapsed(part);
   return (
     <View style={status === 'cancelled' && styles.cancelled}>
       <Pressable
@@ -331,7 +381,7 @@ const sameCalls = (a: ToolPart[], b: ToolPart[]) => a.length === b.length && a.e
  * While a call runs, the header says what the agent said it is for.
  */
 export const ToolGroup = memo(
-  function ToolGroup({ id, parts, untimed, live }: { id: string; parts: ToolPart[]; untimed: boolean; live: boolean }) {
+  function ToolGroup({ id, parts, live }: { id: string; parts: ToolPart[]; live: boolean }) {
     const colors = useColors();
     const styles = useStyles(makeStyles);
     const summary = toolGroupSummary(parts);
@@ -361,7 +411,7 @@ export const ToolGroup = memo(
             {said !== null && parts.length > 1 ? <Text style={styles.summaryTime}>{callCount(parts.length)}</Text> : null}
             {current ? (
               <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
-            ) : !untimed && spent > 0 ? (
+            ) : spent > 0 ? (
               <Text style={styles.summaryTime}>{durationLabel(spent)}</Text>
             ) : null}
             <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
@@ -371,7 +421,7 @@ export const ToolGroup = memo(
           {open ? (
             <View style={styles.body}>
               {parts.map((part, index) => (
-                <ToolRow key={part.id} part={part} last={index === parts.length - 1} untimed={untimed} group={id} kindWidth={kindWidth} />
+                <ToolRow key={part.id} part={part} last={index === parts.length - 1} group={id} kindWidth={kindWidth} />
               ))}
             </View>
           ) : null}
@@ -379,8 +429,7 @@ export const ToolGroup = memo(
       </ImageViewerHost>
     );
   },
-  (before, after) =>
-    before.id === after.id && before.untimed === after.untimed && before.live === after.live && sameCalls(before.parts, after.parts),
+  (before, after) => before.id === after.id && before.live === after.live && sameCalls(before.parts, after.parts),
 );
 
 const makeStyles = (colors: Palette) => {

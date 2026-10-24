@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { AccountSignIn } from "../agents/AccountSignIn";
 import { accountName, accountsOf, openAccountDialog, signOut, switchAccount, useSignIn } from "../agents/accounts";
-import type { AccountAgentType } from "../agents/catalog";
+import type { AgentType } from "../agents/catalog";
 import { selectedProviderProfile } from "../agents/agentProfiles";
-import { ACCOUNT_AGENT_TYPES, agentLabel } from "../agents/catalog";
+import { accountAgentTypes, agentLabel } from "../agents/catalog";
 import * as cmd from "../state/commands";
 import { useResource } from "../state/resources";
 import { agentAccountR } from "../state/resources.defs";
@@ -16,24 +16,22 @@ import { planLabel } from "../rail/usageFormat";
 import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
 import { SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";
 
-const PROVIDERS = ACCOUNT_AGENT_TYPES.map((id) => ({ id, label: agentLabel(id) }));
-
 /** Where the person keeps their Claude and Codex accounts: who each is signed in as, and everything done to them. */
 export function AccountsSections() {
     return (
         <>
-            {PROVIDERS.map((provider) => (
-                <ProviderAccounts key={provider.id} provider={provider.id} label={provider.label} />
+            {accountAgentTypes().map((type) => (
+                <ProviderAccounts key={type} provider={type} label={agentLabel(type)} />
             ))}
         </>
     );
 }
 
-export function accountsSectionTitle(provider: AccountAgentType): string {
+export function accountsSectionTitle(provider: AgentType): string {
     return `${agentLabel(provider)} accounts`;
 }
 
-function ProviderAccounts({ provider, label }: { provider: AccountAgentType; label: string }) {
+function ProviderAccounts({ provider, label }: { provider: AgentType; label: string }) {
     const profiles = useStore((s) => s.providerProfiles);
     const selections = useStore((s) => s.selectedProviderProfileIds);
     const autoSwitch = useStore((s) => s.accountAutoSwitch[provider] === true);
@@ -69,7 +67,7 @@ function ProviderAccounts({ provider, label }: { provider: AccountAgentType; lab
     );
 }
 
-function AccountRow({ provider, account, inUse }: { provider: AccountAgentType; account: ProviderProfile; inUse: boolean }) {
+function AccountRow({ provider, account, inUse }: { provider: AgentType; account: ProviderProfile; inUse: boolean }) {
     const status = useResource(agentAccountR, provider, account.configPath);
     const signing = useSignIn(account.id);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);

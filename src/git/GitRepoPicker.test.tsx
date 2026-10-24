@@ -2,18 +2,13 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { GitPane } from "./GitPane";
-import { gitDiscoveredReposR, gitOverviewR } from "../state/resources.defs";
+import { gitDiscoveredReposR, gitProjectRepoR } from "../state/resources.defs";
 import { getState, setState } from "../state/store";
 import { useGitWorkbench } from "../state/gitWorkbench";
 import { DEFAULT_GIT_VIEW } from "../state/types";
 
 const resources = vi.hoisted(() => ({
-    overview: {
-        status: "error",
-        data: null,
-        error: "could not find repository at '/container'",
-        refresh: vi.fn(),
-    },
+    overview: { status: "ok", refresh: vi.fn() },
     discovered: {
         status: "ok",
         data: [
@@ -29,7 +24,7 @@ const resources = vi.hoisted(() => ({
 vi.mock("../state/resources", async (original) => ({
     ...(await original<typeof import("../state/resources")>()),
     useCachedResourceEnabled: (enabled: boolean, definition: unknown) => {
-        if (definition === gitOverviewR) return resources.overview;
+        if (definition === gitProjectRepoR) return { ...resources.overview, data: { repo: null, repos: resources.discovered.data } };
         if (definition === gitDiscoveredReposR) {
             resources.listing(enabled);
             return resources.discovered;

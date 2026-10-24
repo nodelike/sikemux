@@ -383,6 +383,84 @@ const full = (key: string) => {
   };
 };
 
+type Issue = (typeof ISSUES)[number];
+
+const RANK: Record<string, number> = { indeterminate: 0, new: 1, done: 3 };
+
+/** What the core counts of a list's statuses. */
+const statusesOf = (issues: Issue[]) => {
+  const counts = new Map<
+    string,
+    { status: string; category: string; count: number }
+  >();
+  for (const each of issues) {
+    const seen = counts.get(each.status);
+    if (seen) seen.count += 1;
+    else
+      counts.set(each.status, {
+        status: each.status,
+        category: each.statusCategory,
+        count: 1,
+      });
+  }
+  return [...counts.values()].sort(
+    (a, b) =>
+      (RANK[a.category] ?? 2) - (RANK[b.category] ?? 2) ||
+      a.status.localeCompare(b.status),
+  );
+};
+
+/** The issues a pane's list holds, as the core's JQL would find them. */
+const listOf = (list: Params) => {
+  const kind = String(list.kind);
+  if (kind === "search")
+    return search({ jql: `text ~ "${String(list.text)}"` }).issues;
+  if (kind === "mine")
+    return search({ jql: "assignee = currentUser()" }).issues;
+  if (kind === "unassigned") return search({ jql: "assignee is EMPTY" }).issues;
+  if (kind === "project")
+    return search({ jql: "statusCategory != Done" }).issues;
+  return search({ jql: "" }).issues;
+};
+
+/** The board split by assignee, busiest first and nobody last, as the core lays it out. */
+const lanesOf = (
+  columns: { name: string; statusIds: string[]; issues: Issue[] }[],
+) => {
+  const lanes = new Map<
+    string,
+    {
+      id: string;
+      person: Issue["assignee"];
+      count: number;
+      columns: typeof columns;
+    }
+  >();
+  columns.forEach((column, index) => {
+    for (const each of column.issues) {
+      const id = each.assignee?.accountId ?? "";
+      let lane = lanes.get(id);
+      if (!lane) {
+        lane = {
+          id,
+          person: each.assignee,
+          count: 0,
+          columns: columns.map((one) => ({ ...one, issues: [] })),
+        };
+        lanes.set(id, lane);
+      }
+      lane.count += 1;
+      lane.columns[index]?.issues.push(each);
+    }
+  });
+  return [...lanes.values()].sort(
+    (a, b) =>
+      Number(!a.person) - Number(!b.person) ||
+      b.count - a.count ||
+      (a.person?.name ?? "").localeCompare(b.person?.name ?? ""),
+  );
+};
+
 export const JIRA: Record<string, (params: Params) => unknown> = {
   status: () => ({
     configured: true,
@@ -465,6 +543,65 @@ export const JIRA: Record<string, (params: Params) => unknown> = {
   },
   search,
   issue: ({ key }) => full(String(key)),
+  listView: ({ list }) => {
+    const issues = listOf(list as Params);
+    return { issues, statuses: statusesOf(issues) };
+  },
+  spacesView: () => {
+    const projects = JIRA.projects!({}) as { key: string }[];
+    const boards = JIRA.boards!({}) as { projectKey: string | null }[];
+    const keys = new Set(projects.map((project) => project.key));
+    return {
+      spaces: projects.map((project) => ({
+        project,
+        boards: boards.filter((board) => board.projectKey === project.key),
+      })),
+      otherBoards: boards.filter(
+        (board) => !board.projectKey || !keys.has(board.projectKey),
+      ),
+      filters: JIRA.filters!({}),
+      boardsFailed: null,
+    };
+  },
+  boardView: (params) => {
+    const board = JIRA.board!(params) as {
+      columns: { name: string; statusIds: string[]; issues: Issue[] }[];
+    };
+    const people = new Map<
+      string,
+      {
+        accountId: string;
+        name: string;
+        avatarUrl: string | null;
+        count: number;
+      }
+    >();
+    for (const each of ISSUES) {
+      if (!each.assignee) continue;
+      const seen = people.get(each.assignee.accountId);
+      if (seen) seen.count += 1;
+      else people.set(each.assignee.accountId, { ...each.assignee, count: 1 });
+    }
+    return {
+      board,
+      people: [...people.values()].sort(
+        (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+      ),
+      unassigned: ISSUES.filter((each) => !each.assignee).length,
+      lanes: lanesOf(board.columns),
+    };
+  },
+  issueView: ({ key }) => {
+    const { comments, ...found } = full(String(key));
+    return {
+      ...found,
+      issue: found,
+      activity: [...comments].reverse().map((comment) => ({
+        kind: "comment",
+        comment: { authorAvatarUrl: null, ...comment },
+      })),
+    };
+  },
   assignable: () => PEOPLE,
   keys: () => [],
   image: ({ url }) => faceOf(String(url)),

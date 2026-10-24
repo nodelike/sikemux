@@ -1,19 +1,15 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { currentBranch, git, openUrl, swallow } from "../../../plugin-api/host";
-import { useNow, useRefreshEvery } from "../../../plugin-api/hooks";
+import { useNow } from "../../../plugin-api/hooks";
 import { errorText, formatAgo, formatDuration } from "../../../plugin-api/format";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconExternal, IconFetch, IconGit, IconRun, IconWarning, SkeletonRows, Tooltip } from "../../../plugin-api/ui";
-import { type RundeckExecution } from "../api";
-import { rndExecutionsR, rndJobDetailR, rndJobsR, useBranchOptions, useProdEnvs } from "../resources";
+import { rndJobV } from "../resources";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
-import { branchOf, branchOptionName, isProdTarget } from "../shape";
-import { executionProgress, newestExecutions } from "./executionProgress";
-import { reusableOptions } from "./options";
+import type { RundeckLiveRun, RundeckRun } from "../types.generated";
 import { FolderChip, Header, Tag, levelCrumbs } from "./parts";
 import { DeployTimes, RunHistory } from "./RunHistory";
-import { endedAt, fastestAndSlowest, liveRun, runSeconds, usualSeconds } from "./runStats";
 
 interface Props {
     paneId: string;
@@ -25,35 +21,22 @@ const HISTORY = 30;
 
 export function RundeckService({ paneId, active, level }: Props) {
     const job = cmd.jobRefOf(level);
-    const branchOptions = useBranchOptions();
-    const isProd = isProdTarget(job.project, job.group, useProdEnvs());
-    const detail = useResourceEnabled(active, rndJobDetailR, job.jobId);
-    const jobs = useResourceEnabled(active, rndJobsR, job.project);
-    const execs = useResourceEnabled(active, rndExecutionsR, job.jobId, job.project, HISTORY);
+    const page = useResourceEnabled(active, rndJobV, paneId, job.jobId, job.project);
+    const data = page.data;
     const [actionError, setActionError] = useState<string | null>(null);
 
-    const runs = useMemo(() => newestExecutions(execs.data ?? []), [execs.data]);
-    const running = liveRun(runs);
+    const runs = data?.runs ?? [];
+    const running = data?.live ?? null;
     const now = useNow(active && !!running);
-    useRefreshEvery(execs, !active ? null : running ? 3_000 : 20_000);
-
-    const branchFor = (ex: RundeckExecution) => branchOf(ex.job?.options, branchOptions);
-    const summary = jobs.data?.find((j) => j.id === job.jobId) ?? null;
-    const runsBranch = detail.data
-        ? branchOptionName(
-              detail.data.options.map((o) => o.name),
-              branchOptions,
-          ) !== null
-        : runs.some((ex) => branchFor(ex) !== null);
-    const runWord = runsBranch ? "Deploy" : "Run";
-    const executionEnabled = detail.data?.execution_enabled !== false;
-    const secureNames = useMemo(() => new Set(detail.data?.options.filter((o) => o.secure).map((o) => o.name) ?? []), [detail.data]);
-    const lastGood = runs.find((ex) => ex.status === "succeeded" && (!runsBranch || branchFor(ex) !== null)) ?? null;
-    const lastGoodBranch = lastGood ? branchFor(lastGood) : null;
-    const finished = runs.filter((ex) => ex.status !== "running");
-    const succeeded = finished.filter((ex) => ex.status === "succeeded").length;
-    const usual = usualSeconds(runs, now);
-    const range = fastestAndSlowest(runs, now);
+    const runsBranch = data?.runsBranch ?? false;
+    const runWord = data?.runWord ?? "Run";
+    const isProd = data?.prod ?? false;
+    const executionEnabled = data?.executionEnabled !== false;
+    const lastGood = data?.lastGood ?? null;
+    const lastGoodBranch = lastGood?.branch ?? null;
+    const finished = data?.finished ?? 0;
+    const usual = data?.usualSecs ?? null;
+    const range = data?.fastestSecs != null && data.slowestSecs != null ? [data.fastestSecs, data.slowestSecs] : null;
 
     const openForm = (branch: string | undefined, options?: Record<string, string>) => {
         setActionError(null);
@@ -68,7 +51,7 @@ export function RundeckService({ paneId, active, level }: Props) {
             setActionError(errorText(e));
         }
     };
-    const openRun = (ex: RundeckExecution) => cmd.rundeckPush(paneId, { kind: "execution", ...job, executionId: ex.id });
+    const openRun = (executionId: number) => cmd.rundeckPush(paneId, { kind: "execution", ...job, executionId });
 
     return (
         <div className="rnd-main">
@@ -76,14 +59,14 @@ export function RundeckService({ paneId, active, level }: Props) {
                 paneId={paneId}
                 crumbs={levelCrumbs(paneId, level, job.project, job.group)}
                 title={job.name}
-                aside={<FolderChip project={job.project} group={job.group} />}
+                aside={<FolderChip project={job.project} group={job.group} prod={isProd} />}
                 tools={
                     <>
-                        {summary?.permalink && (
+                        {data?.permalink && (
                             <Tooltip label="Open in Rundeck">
                                 <button
                                     className="rnd-btn rnd-icon-btn"
-                                    onClick={() => void openUrl(summary.permalink!).catch(swallow("open Rundeck URL"))}
+                                    onClick={() => void openUrl(data.permalink!).catch(swallow("open Rundeck URL"))}
                                     aria-label="Open in Rundeck">
                                     <IconExternal size={13} />
                                 </button>
@@ -97,13 +80,11 @@ export function RundeckService({ paneId, active, level }: Props) {
                                 </button>
                             </Tooltip>
                         )}
-                        <Tooltip label={lastGood ? `Prefill from #${lastGood.id}` : `No successful ${runWord.toLowerCase()} to repeat yet`}>
+                        <Tooltip label={lastGood ? `Prefill from #${lastGood.executionId}` : `No successful ${runWord.toLowerCase()} to repeat yet`}>
                             <span className="rnd-btn-wrap">
                                 <button
                                     className="rnd-btn"
-                                    onClick={() =>
-                                        lastGood && openForm(lastGoodBranch ?? undefined, reusableOptions(lastGood.job?.options, secureNames))
-                                    }
+                                    onClick={() => lastGood && openForm(lastGoodBranch ?? undefined, data?.repeatOptions)}
                                     disabled={!lastGood || !executionEnabled}>
                                     <IconFetch size={13} />
                                     {runsBranch ? `Redeploy${lastGoodBranch ? ` ${lastGoodBranch}` : ""}` : "Run again"}
@@ -116,15 +97,15 @@ export function RundeckService({ paneId, active, level }: Props) {
                         </button>
                     </>
                 }
-                onRefresh={() => void execs.refresh()}
-                refreshing={execs.status === "loading"}
+                onRefresh={() => void page.refresh()}
+                refreshing={page.status === "loading"}
             />
             <div className="rnd-service">
-                {detail.data?.description && <p className="rnd-service-desc">{detail.data.description}</p>}
-                {(!executionEnabled || detail.data?.node_filter) && (
+                {data?.description && <p className="rnd-service-desc">{data.description}</p>}
+                {(!executionEnabled || data?.nodeFilter) && (
                     <div className="rnd-insp-tags">
                         {!executionEnabled && <Tag tone="warn">executions disabled</Tag>}
-                        {detail.data?.node_filter && <Tag>nodes: {detail.data.node_filter}</Tag>}
+                        {data?.nodeFilter && <Tag>nodes: {data.nodeFilter}</Tag>}
                     </div>
                 )}
                 {actionError && <div className="rnd-banner danger">{actionError}</div>}
@@ -139,15 +120,15 @@ export function RundeckService({ paneId, active, level }: Props) {
                     <div>
                         <dt>{runsBranch ? "Deployed" : "Last success"}</dt>
                         <dd>
-                            {lastGood && endedAt(lastGood) ? formatAgo(endedAt(lastGood)!, now) : "—"}
+                            {lastGood?.endedAt ? formatAgo(lastGood.endedAt, now) : "—"}
                             {lastGood?.user && <small> by {lastGood.user}</small>}
                         </dd>
                     </div>
                     <div>
                         <dt>Success</dt>
                         <dd>
-                            {finished.length ? `${Math.round((succeeded / finished.length) * 100)}%` : "—"}
-                            {finished.length > 0 && <small> of {finished.length}</small>}
+                            {finished ? `${Math.round(((data?.succeeded ?? 0) / finished) * 100)}%` : "—"}
+                            {finished > 0 && <small> of {finished}</small>}
                         </dd>
                     </div>
                     <div>
@@ -164,28 +145,19 @@ export function RundeckService({ paneId, active, level }: Props) {
                     )}
                 </dl>
 
-                {running && (
-                    <LiveRun
-                        run={running}
-                        stepNames={detail.data?.steps ?? []}
-                        usual={usual}
-                        now={now}
-                        branch={branchFor(running)}
-                        onOpen={() => openRun(running)}
-                    />
-                )}
+                {running && <LiveRun run={running} usual={usual} now={now} onOpen={() => openRun(running.executionId)} />}
 
-                {execs.error && !execs.data && (
+                {page.error && !data && (
                     <EmptyState
                         tone="error"
                         icon={<IconWarning size={14} />}
                         title="Couldn't load runs"
-                        message={execs.error}
-                        action={{ label: "Retry", onClick: () => void execs.refresh() }}
+                        message={page.error}
+                        action={{ label: "Retry", onClick: () => void page.refresh() }}
                     />
                 )}
-                {!execs.data && !execs.error && <SkeletonRows rows={5} label="Loading runs" />}
-                {execs.data && runs.length === 0 && <EmptyState message={`${job.name} hasn't run yet.`} />}
+                {!data && !page.error && <SkeletonRows rows={5} label="Loading runs" />}
+                {data && runs.length === 0 && <EmptyState message={`${job.name} hasn't run yet.`} />}
 
                 {runs.length > 0 && (
                     <>
@@ -196,14 +168,14 @@ export function RundeckService({ paneId, active, level }: Props) {
                                     last {Math.min(runs.length, HISTORY)} {runs.length === 1 ? "run" : "runs"}
                                 </span>
                             </div>
-                            <DeployTimes runs={runs} usual={usual} now={now} branchOf={branchFor} onOpen={openRun} />
+                            <DeployTimes runs={runs} usual={usual} now={now} onOpen={(run: RundeckRun) => openRun(run.executionId)} />
                         </section>
                         <section className="rnd-card rnd-service-card">
                             <div className="rnd-card-head">
                                 <b>History</b>
                                 <span className="rnd-dim">{runs.length}</span>
                             </div>
-                            <RunHistory runs={runs} branchOf={branchFor} usualOf={() => usual} now={now} showJob={false} onOpen={openRun} />
+                            <RunHistory runs={runs} now={now} showJob={false} onOpen={(run) => openRun(run.executionId)} />
                         </section>
                     </>
                 )}
@@ -212,54 +184,39 @@ export function RundeckService({ paneId, active, level }: Props) {
     );
 }
 
-function LiveRun({
-    run,
-    stepNames,
-    usual,
-    now,
-    branch,
-    onOpen,
-}: {
-    run: RundeckExecution;
-    stepNames: string[];
-    usual: number | null;
-    now: number;
-    branch: string | null;
-    onOpen: () => void;
-}) {
-    const steps = run.workflowState?.steps ?? [];
-    const progress = executionProgress(run.workflowState);
-    const current = progress ? Math.min(progress.total, progress.completed + 1) : null;
-    const elapsed = runSeconds(run, now);
+function LiveRun({ run, usual, now, onOpen }: { run: RundeckLiveRun; usual: number | null; now: number; onOpen: () => void }) {
+    const current = run.total ? Math.min(run.total, run.completed + 1) : null;
+    const started = Date.parse(run.startedAt ?? "");
+    const elapsed = Number.isNaN(started) ? 0 : Math.max(0, (now - started) / 1000);
     return (
-        <button className="rnd-card rnd-live-run" onClick={onOpen} title={`Open run #${run.id}`}>
+        <button className="rnd-card rnd-live-run" onClick={onOpen} title={`Open run #${run.executionId}`}>
             <span className="rnd-live-run-top">
                 <span className="rnd-live-dot" />
                 <b>
-                    {branch ? "Deploying " : "Running"}
-                    {branch && <span className="mono">{branch}</span>}
+                    {run.branch ? "Deploying " : "Running"}
+                    {run.branch && <span className="mono">{run.branch}</span>}
                 </b>
                 <span className="rnd-dim">
-                    #{run.id} · {run.user ?? ""}
+                    #{run.executionId} · {run.user ?? ""}
                 </span>
                 <span className="rnd-grow" />
                 <span className="rnd-dim">
-                    {current && progress ? `step ${current} of ${progress.total} · ` : ""}
+                    {current ? `step ${current} of ${run.total} · ` : ""}
                     {formatDuration(elapsed * 1000)}
                     {usual !== null ? ` of about ${formatDuration(usual * 1000)}` : ""}
                 </span>
             </span>
-            {steps.length > 0 && (
+            {run.steps.length > 0 && (
                 <>
                     <span className="rnd-progress-track">
-                        {steps.map((step, i) => (
-                            <i key={step.stepctx ?? i} className={stepClass(step.executionState)} />
+                        {run.steps.map((step, i) => (
+                            <i key={i} className={step.state} />
                         ))}
                     </span>
                     <span className="rnd-live-run-steps">
-                        {steps.map((step, i) => (
-                            <span key={step.stepctx ?? i} className={stepClass(step.executionState) === "running" ? "on" : undefined}>
-                                {stepNames[i] || `step ${i + 1}`}
+                        {run.steps.map((step, i) => (
+                            <span key={i} className={step.state === "running" ? "on" : undefined}>
+                                {step.name}
                             </span>
                         ))}
                     </span>
@@ -267,22 +224,4 @@ function LiveRun({
             )}
         </button>
     );
-}
-
-function stepClass(state: string | null | undefined): "pending" | "running" | "ok" | "fail" | "skip" {
-    switch ((state ?? "").toUpperCase()) {
-        case "RUNNING":
-        case "RUNNING_HANDLER":
-            return "running";
-        case "SUCCEEDED":
-            return "ok";
-        case "FAILED":
-        case "ABORTED":
-            return "fail";
-        case "NOT_ELIGIBLE":
-        case "SKIPPED":
-            return "skip";
-        default:
-            return "pending";
-    }
 }

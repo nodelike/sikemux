@@ -47,6 +47,9 @@ pub fn user_environment() -> UserEnvironment {
 fn user_path() -> Option<String> {
     let home = std::env::var("HOME").unwrap_or_default();
     let inherited = std::env::var("PATH").unwrap_or_default();
+    if sikemux_process::user_environment::search_path_only() {
+        return Some(inherited);
+    }
     let cli = crate::cli_paths::cli_link_directory().and_then(Path::to_str);
     Some(join_user_path(
         cli,

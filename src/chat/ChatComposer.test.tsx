@@ -10,6 +10,7 @@ import type { WorktreeSwitchState } from "./worktreeSwitch";
 import { handleVoiceEvent, toggleDictation, useVoice } from "../voice/dictation";
 import { setState } from "../state/store";
 import { draftOf, typeDraft } from "../test/draft";
+import { testPreferences } from "../test/preferences";
 
 const repo = { provider: "github", owner: "o", name: "r", account: null };
 
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
     list: vi.fn(async () => ["src/main.ts", "src/lib/util.ts", "README.md"]),
     onSend: vi.fn((): boolean => true),
     tracked: vi.fn((): TrackedList => ({ state: "loading" })),
-    load: vi.fn(async (_repo: unknown, kind: string, number: number) => ({
+    load: vi.fn(async (_project: string, kind: string, number: number) => ({
         uri: `https://github.com/o/r/${kind === "issue" ? "issues" : "pull"}/${number}`,
         title: `#${number} Login crashes`,
         text: `Issue #${number}: Login crashes`,
@@ -60,7 +61,6 @@ function renderComposer(worktree?: { state: WorktreeSwitchState; toggle: () => v
                 running={false}
                 steerable={false}
                 commands={[]}
-                setup={{}}
                 awaitingPermission={false}
                 agentLocked={false}
                 changingConfig={false}
@@ -165,7 +165,7 @@ describe("ChatComposer # and ! pickers", () => {
                 true,
             ),
         );
-        expect(mocks.load).toHaveBeenCalledWith(repo, "issue", 12);
+        expect(mocks.load).toHaveBeenCalledWith("/repo", "issue", 12);
     });
 });
 
@@ -202,7 +202,7 @@ describe("sending while dictating", () => {
         const pane = document.createElement("div");
         document.body.append(pane);
         const paneRef = { current: pane };
-        setState({ voiceDictation: true });
+        setState({ preferences: testPreferences({ voiceDictation: true }) });
         useVoice.setState({ phase: "ready", reason: null, stage: null, fraction: 0, target: null, partial: "" });
         const editor = renderComposer(undefined, paneRef);
         type(editor, "fix the");
@@ -221,7 +221,7 @@ describe("sending while dictating", () => {
     it("lets a message that is only spoken be sent", () => {
         const pane = document.createElement("div");
         document.body.append(pane);
-        setState({ voiceDictation: true });
+        setState({ preferences: testPreferences({ voiceDictation: true }) });
         useVoice.setState({ phase: "ready", reason: null, stage: null, fraction: 0, target: null, partial: "" });
         renderComposer(undefined, { current: pane });
         expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();

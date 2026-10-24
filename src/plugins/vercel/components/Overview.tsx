@@ -3,7 +3,7 @@ import { useResourceEnabled } from "../../../plugin-api/resources";
 import { ContextMenu, EmptyState } from "../../../plugin-api/ui";
 import { useState } from "react";
 import type { VercelProject } from "../api";
-import { vercelDeploymentsR, vercelDomainsR } from "../resources";
+import { vercelDeploymentsV, vercelDomainsV } from "../resources";
 import {
     Avatar,
     EnvBadge,
@@ -22,6 +22,7 @@ import {
 
 /** A project's front page, as Vercel's: the deployment serving production, and each branch's latest preview. */
 export function Overview({
+    paneId,
     active,
     team,
     scopeSlug,
@@ -29,6 +30,7 @@ export function Overview({
     onOpen,
     onDeployments,
 }: {
+    paneId: string;
     active: boolean;
     team: string;
     scopeSlug: string;
@@ -36,14 +38,14 @@ export function Overview({
     onOpen: (id: string) => void;
     onDeployments: () => void;
 }) {
-    const deployments = useResourceEnabled(active, vercelDeploymentsR, team, project.name);
-    const domains = useResourceEnabled(active, vercelDomainsR, team, project.name);
+    const deployments = useResourceEnabled(active, vercelDeploymentsV, paneId, team, project.name).data?.deployments;
+    const domains = useResourceEnabled(active, vercelDomainsV, paneId, team, project.name).data?.domains;
     const actions = useDeploymentActions(team);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const production = project.production;
-    const current = deployments.data?.find((each) => each.id === production?.id);
-    const previous = deployments.data?.find((each) => each.target === "production" && each.state === "READY" && each.id !== production?.id);
-    const branches = latestPerBranch((deployments.data ?? []).filter((each) => each.target === "preview"));
+    const current = deployments?.find((each) => each.id === production?.id);
+    const previous = deployments?.find((each) => each.target === "production" && each.state === "READY" && each.id !== production?.id);
+    const branches = latestPerBranch((deployments ?? []).filter((each) => each.target === "preview"));
 
     return (
         <div className="vercel-overview">
@@ -121,7 +123,7 @@ export function Overview({
                             <div>
                                 <dt>Domains</dt>
                                 <dd className="vercel-domain-list">
-                                    {(domains.data ?? [])
+                                    {(domains ?? [])
                                         .filter((domain) => !domain.redirect && !domain.gitBranch)
                                         .map((domain) => (
                                             <button
@@ -133,7 +135,7 @@ export function Overview({
                                                 <IconExternal />
                                             </button>
                                         ))}
-                                    {domains.data?.length === 0 && <span className="vercel-muted">None</span>}
+                                    {domains?.length === 0 && <span className="vercel-muted">None</span>}
                                 </dd>
                             </div>
                             <div className="vercel-facts-pair">

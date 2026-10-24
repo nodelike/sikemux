@@ -1,27 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { isTerminalFindShortcut, terminalBufferText } from "./interactions";
+import { isTerminalFindShortcut } from "./interactions";
 
 describe("terminal interactions", () => {
-    it("copies buffer text without adding newlines inside wrapped output", () => {
-        const rows = [
-            { text: "long ", isWrapped: false },
-            { text: "command", isWrapped: true },
-            { text: " output", isWrapped: true },
-            { text: "", isWrapped: false },
-            { text: "done", isWrapped: false },
-            { text: "", isWrapped: false },
-        ];
-        const buffer = {
-            length: rows.length,
-            getLine: (row: number) => {
-                const line = rows[row];
-                return line ? { isWrapped: line.isWrapped, translateToString: () => line.text } : undefined;
-            },
-        };
-
-        expect(terminalBufferText(buffer as never)).toBe("long command output\n\ndone");
-    });
-
     it("uses the platform primary modifier for terminal find", () => {
         const key = { code: "KeyF", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false };
         expect(isTerminalFindShortcut(key, true)).toBe(true);

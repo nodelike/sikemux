@@ -1,8 +1,9 @@
 import { create } from "zustand";
+import type { BruRequest } from "./lib/types";
 
 /*
- * The parts of a Bruno session that never reach disk: the unsaved text of a
- * request, and the secret environment values typed in this session.
+ * The parts of a Bruno session that never reach disk: a request's unsaved
+ * edits, and the secret environment values typed in this session.
  *
  * They used to live inside `sessions`, so every character typed into a request
  * body wrote to the slice the side rail, the top bar, the lifecycle manager and
@@ -11,13 +12,14 @@ import { create } from "zustand";
  * has ever needed to see either one.
  */
 interface BrunoRuntimeState {
-    /** Unsaved request text, by pane and then by file path. */
-    drafts: Record<string, Record<string, string>>;
+    /** Requests with unsaved edits, by pane and then by file path. */
+    drafts: Record<string, Record<string, BruRequest>>;
     /** Secret environment values, by pane and then by name. */
     secretVars: Record<string, Record<string, string>>;
 }
 
 const EMPTY: Record<string, string> = {};
+const NO_DRAFTS: Record<string, BruRequest> = {};
 
 export const useBrunoRuntime = create<BrunoRuntimeState>(() => ({ drafts: {}, secretVars: {} }));
 
@@ -28,19 +30,19 @@ export const useBrunoRuntime = create<BrunoRuntimeState>(() => ({ drafts: {}, se
  */
 const DRAFT_WRITE_DELAY_MS = 150;
 
-let pendingDraft: { paneId: string; path: string; text: string | null } | null = null;
+let pendingDraft: { paneId: string; path: string; request: BruRequest | null } | null = null;
 let draftTimer: number | null = null;
 
-function commitDraft({ paneId, path, text }: { paneId: string; path: string; text: string | null }): void {
+function commitDraft({ paneId, path, request }: { paneId: string; path: string; request: BruRequest | null }): void {
     useBrunoRuntime.setState((state) => {
-        const current = state.drafts[paneId] ?? EMPTY;
-        if (text === null) {
+        const current = state.drafts[paneId] ?? NO_DRAFTS;
+        if (request === null) {
             if (!(path in current)) return state;
             const { [path]: _removed, ...rest } = current;
             return { drafts: { ...state.drafts, [paneId]: rest } };
         }
-        if (current[path] === text) return state;
-        return { drafts: { ...state.drafts, [paneId]: { ...current, [path]: text } } };
+        if (current[path] === request) return state;
+        return { drafts: { ...state.drafts, [paneId]: { ...current, [path]: request } } };
     });
 }
 
@@ -55,16 +57,16 @@ export function flushBrunoDrafts(): void {
     if (write) commitDraft(write);
 }
 
-/** Stash edited request text by file path; pass null to clear the draft. */
-export function setBrunoDraft(paneId: string, path: string, text: string | null): void {
+/** Stash an edited request by file path; pass null to clear the draft. */
+export function setBrunoDraft(paneId: string, path: string, request: BruRequest | null): void {
     if (pendingDraft && (pendingDraft.paneId !== paneId || pendingDraft.path !== path)) flushBrunoDrafts();
-    pendingDraft = { paneId, path, text };
+    pendingDraft = { paneId, path, request };
     if (draftTimer === null) draftTimer = window.setTimeout(flushBrunoDrafts, DRAFT_WRITE_DELAY_MS);
 }
 
-export function brunoDrafts(paneId: string): Record<string, string> {
+export function brunoDrafts(paneId: string): Record<string, BruRequest> {
     flushBrunoDrafts();
-    return useBrunoRuntime.getState().drafts[paneId] ?? EMPTY;
+    return useBrunoRuntime.getState().drafts[paneId] ?? NO_DRAFTS;
 }
 
 export function setBrunoSecret(paneId: string, name: string, value: string): void {
@@ -91,8 +93,8 @@ export function forgetBrunoPane(paneId: string): void {
     });
 }
 
-export function useBrunoDrafts(paneId: string): Record<string, string> {
-    return useBrunoRuntime((state) => state.drafts[paneId] ?? EMPTY);
+export function useBrunoDrafts(paneId: string): Record<string, BruRequest> {
+    return useBrunoRuntime((state) => state.drafts[paneId] ?? NO_DRAFTS);
 }
 
 export function useBrunoSecretVars(paneId: string): Record<string, string> {

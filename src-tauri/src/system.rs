@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use sikemux_pty::user_shell::configured_shell;
 use tauri::async_runtime::spawn_blocking;
 
 use crate::{
@@ -17,36 +16,6 @@ pub use sikemux_host::environment::{child_path, user_environment};
 
 pub fn user_home() -> PathBuf {
     sikemux_process::paths::home().unwrap_or_default()
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IntegrationHealth {
-    shell: String,
-    git: bool,
-    aws: bool,
-    rnd: bool,
-}
-
-#[tauri::command]
-pub async fn integration_health() -> IntegrationHealth {
-    spawn_blocking(read_integration_health)
-        .await
-        .unwrap_or_else(|_| IntegrationHealth {
-            shell: configured_shell(),
-            git: false,
-            aws: false,
-            rnd: false,
-        })
-}
-
-fn read_integration_health() -> IntegrationHealth {
-    IntegrationHealth {
-        shell: configured_shell(),
-        git: sikemux_process::user_environment::find_executable("git").is_some(),
-        aws: sikemux_process::user_environment::find_executable("aws").is_some(),
-        rnd: sikemux_process::user_environment::find_executable("rnd").is_some(),
-    }
 }
 
 /// Existing modules use HOME for established ~/.config, ~/.ssh and ~/.aws
@@ -160,10 +129,6 @@ pub struct RuntimeDiagnostics {
     agent_ptys_blocked: usize,
     agent_ptys_idle: usize,
     agent_ptys_unknown: usize,
-    lsp_servers: usize,
-    lsp_open_documents: usize,
-    lsp_idle_servers: usize,
-    plugin_streams: usize,
     observability: crate::observability::ObservabilitySnapshot,
 }
 
@@ -198,7 +163,6 @@ fn current_fd_limit() -> (Option<u64>, Option<u64>) {
 #[tauri::command]
 pub async fn runtime_diagnostics(
     ptys: tauri::State<'_, PtyManager>,
-    plugins: tauri::State<'_, crate::plugins::PluginStreams>,
 ) -> AppResult<RuntimeDiagnostics> {
     // Counting /dev/fd is a directory read, so it goes to the blocking pool
     // even though everything else here is in-memory bookkeeping.
@@ -209,7 +173,6 @@ pub async fn runtime_diagnostics(
     .await
     .unwrap_or((None, None, None));
     let pty_diagnostics = ptys.diagnostics().await;
-    let (lsp_open_documents, lsp_idle_servers) = crate::lsp::document_counts();
     Ok(RuntimeDiagnostics {
         pid: std::process::id(),
         fd_count,
@@ -224,10 +187,6 @@ pub async fn runtime_diagnostics(
         agent_ptys_blocked: pty_diagnostics.blocked_agents,
         agent_ptys_idle: pty_diagnostics.idle_agents,
         agent_ptys_unknown: pty_diagnostics.unknown_agents,
-        lsp_servers: crate::lsp::server_count(),
-        lsp_open_documents,
-        lsp_idle_servers,
-        plugin_streams: plugins.count(),
         observability: crate::observability::global_observability().snapshot(),
     })
 }

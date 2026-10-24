@@ -31,39 +31,22 @@ impl From<ChatMark> for core::ChatMark {
     }
 }
 
-/// A chat's events cross as JSON, `{ kind, payload }` each: the chat screen
-/// reads them with the host app's own chat code.
+/// A chat crosses as the core's JSON: the phone draws what the core folded.
 #[derive(uniffi::Enum)]
 pub enum ChatAttachment {
-    /// Live events follow, numbered from `mark.seq + 1`.
+    /// The chat as it stands, the core's `ChatView`. Changes follow,
+    /// numbered from `mark.seq + 1`.
     Live {
-        session_id: String,
-        capabilities_json: String,
-        setup_json: String,
-        permission_mode: String,
-        running: bool,
-        turned: bool,
-        replay_json: String,
+        view_json: String,
         mark: ChatMark,
-        /// The replay is the chat's end. `chat_history` pages back from here.
-        older_before: Option<u64>,
     },
-    /// What the phone missed since the mark it attached with.
+    /// What changed since the mark the phone attached with, a list of the
+    /// core's `ChatChange`.
     Resumed {
-        events_json: String,
+        changes_json: String,
         mark: ChatMark,
     },
     Missing,
-    /// The chat said more than the host keeps; the host app has to open it.
-    Restart,
-}
-
-/// Earlier events of a chat, as `{ kind, payload }` JSON, oldest first.
-#[derive(uniffi::Record)]
-pub struct ChatHistory {
-    pub events_json: String,
-    /// Where the page before this one ends; absent at the chat's start.
-    pub older_before: Option<u64>,
 }
 
 pub(crate) fn json(value: &impl serde::Serialize) -> String {
@@ -73,31 +56,15 @@ pub(crate) fn json(value: &impl serde::Serialize) -> String {
 impl From<core::ChatAttachment> for ChatAttachment {
     fn from(attachment: core::ChatAttachment) -> Self {
         match attachment {
-            core::ChatAttachment::Live {
-                start,
-                permission_mode,
-                running,
-                turned,
-                replay,
-                mark,
-                older_before,
-            } => Self::Live {
-                session_id: start.session_id,
-                capabilities_json: json(&start.capabilities),
-                setup_json: json(&start.setup),
-                permission_mode,
-                running,
-                turned,
-                replay_json: json(&replay),
+            core::ChatAttachment::Live { view, mark } => Self::Live {
+                view_json: json(&view),
                 mark: mark.into(),
-                older_before,
             },
-            core::ChatAttachment::Resumed { events, mark } => Self::Resumed {
-                events_json: json(&events),
+            core::ChatAttachment::Resumed { changes, mark } => Self::Resumed {
+                changes_json: json(&changes),
                 mark: mark.into(),
             },
             core::ChatAttachment::Missing => Self::Missing,
-            core::ChatAttachment::Restart => Self::Restart,
         }
     }
 }
@@ -105,11 +72,11 @@ impl From<core::ChatAttachment> for ChatAttachment {
 /// What the host sends without being asked.
 #[derive(uniffi::Enum)]
 pub enum CoreEvent {
-    /// One of a chat's events, as `{ kind, payload }` JSON.
+    /// What changed in a chat, a list of the core's `ChatChange` as JSON.
     Chat {
         agent_id: String,
         seq: u64,
-        event_json: String,
+        changes_json: String,
     },
     /// Everything the phone shows of one host, as the core's `DeviceView` JSON.
     View { view_json: String },
@@ -121,11 +88,11 @@ impl CoreEvent {
             core::Event::Chat {
                 agent_id,
                 seq,
-                event,
+                changes,
             } => Self::Chat {
                 agent_id,
                 seq,
-                event_json: json(&event),
+                changes_json: json(&changes),
             },
             core::Event::DeviceView { view } => Self::View {
                 view_json: json(&view),

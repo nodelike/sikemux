@@ -43,7 +43,7 @@ export function agentMenu(
     const items: CtxItem[] = [
         { label: "Rename…", icon: menuIcon(IconPencil), run: () => void renameAgentNamePrompt(agent) },
         { label: "Edit Title…", icon: menuIcon(IconPencil), run: retitle },
-        ...(getState().buddies
+        ...(getState().faceStyle.on
             ? [{ label: "Change Buddy…", icon: createElement(AgentBuddy, { agent, size: 13 }), run: () => openBuddyPicker(agent.id) }]
             : []),
         ...(resumeId

@@ -1,5 +1,4 @@
 import { pluginDocuments } from "../../plugins/documents";
-import { sshStartup } from "../../terminal/sshStartup";
 import { getState, mutate, type StoreState } from "../store";
 import { agentPaneId, editorPaneOf, ownerSessionId, paneToSeparate, tabSplitAllowed, type SplitSide } from "../selectors";
 import {
@@ -35,7 +34,7 @@ import { closeAgentPalette } from "./ui";
 
 export function splitActivePane(dir: SplitDir): void {
     withActiveWindow((d, w, session) => {
-        const np = makePane(session.cwd, session.kind === "ssh" ? { startup: sshStartup(session.name) } : {});
+        const np = makePane(session.cwd);
         const win = d.windows[w.id];
         if (!win) return;
         win.root = splitPane(w.root, w.activePaneId, dir, np);

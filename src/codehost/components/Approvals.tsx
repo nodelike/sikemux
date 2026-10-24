@@ -1,29 +1,16 @@
 import { useState } from "react";
 import { confirmDialog, notify, reportError } from "../../plugin-api/host";
-import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
-import { hostApi, type RepoRef } from "../api";
-import { approvalsR } from "../resources";
-
-/**
- * Only a run GitHub is actually holding has anybody to ask. Every other run
- * would spend a request to be told nothing is waiting.
- */
-export function mayBeWaiting(status: string, conclusion: string | null): boolean {
-    return status === "waiting" || status === "action_required" || conclusion === "action_required";
-}
+import { hostApi, type PendingApproval, type RepoRef } from "../api";
 
 interface Props {
     repo: RepoRef;
     runId: string;
-    status: string;
-    conclusion: string | null;
-    active: boolean;
+    /** The deployments the run waits on, as the core read them. */
+    pending: readonly PendingApproval[];
 }
 
-export function Approvals({ repo, runId, status, conclusion, active }: Props) {
-    const found = useResourceEnabled(active && mayBeWaiting(status, conclusion), approvalsR, repo, runId);
+export function Approvals({ repo, runId, pending }: Props) {
     const [busy, setBusy] = useState(false);
-    const pending = found.data ?? [];
     if (pending.length === 0) return null;
 
     const answer = async (state: "approved" | "rejected") => {
@@ -47,7 +34,6 @@ export function Approvals({ repo, runId, status, conclusion, active }: Props) {
                 state,
             );
             notify("success", state === "approved" ? `Approved ${names}` : `Rejected ${names}`);
-            invalidate((kind) => kind === "host.approvals" || kind === "host.run" || kind === "host.runs");
         } catch (error) {
             reportError("Could not answer the deployment")(error);
         } finally {

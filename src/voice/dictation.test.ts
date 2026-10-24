@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerTextInsert } from "../state/textInsertRegistry";
+import { testPreferences } from "../test/preferences";
 
 const api = vi.hoisted(() => ({
     status: vi.fn(async () => ({ supported: true, installed: true, reason: null })),
@@ -33,7 +34,7 @@ describe("voice dictation", () => {
     beforeEach(() => {
         vi.useFakeTimers();
         useVoice.setState({ phase: "ready", reason: null, stage: null, fraction: 0, target: null, partial: "" });
-        setState({ voiceDictation: true });
+        setState({ preferences: testPreferences({ voiceDictation: true }) });
     });
 
     afterEach(() => {
@@ -173,9 +174,9 @@ describe("voice dictation", () => {
     });
 
     it("turns dictation on from the microphone when it was off", () => {
-        setState({ voiceDictation: false });
+        setState({ preferences: testPreferences({ voiceDictation: false }) });
         toggleDictation(mountTarget().host);
-        expect(getState().voiceDictation).toBe(true);
+        expect(getState().preferences?.voiceDictation).toBe(true);
         expect(api.start).not.toHaveBeenCalled();
     });
 });

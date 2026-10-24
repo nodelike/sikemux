@@ -2,8 +2,8 @@ import { useMemo } from "react";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, SkeletonRows } from "../../../plugin-api/ui";
 import type { Scope } from "../api";
-import { mergeByService, percent } from "../health";
-import { signoz, signozDashboardsR, signozServicesR } from "../resources";
+import { percent } from "../health";
+import { signoz, signozDashboardsR, useServices } from "../resources";
 import {
     WINDOWS,
     scopeOf,
@@ -97,14 +97,9 @@ function PinButton({ pin }: { pin: Pin }) {
     );
 }
 
-function ServiceBadge({ service, active }: { service: string; active: boolean }) {
-    const minutes = signozSettings.useSelect((settings) => settings.minutes);
-    const environment = signozSettings.useSelect((settings) => settings.environment);
-    const health = useResourceEnabled(active, signozServicesR, { minutes });
-    const row = useMemo(
-        () => mergeByService(health.data ?? [], environment).find((candidate) => candidate.service === service),
-        [environment, health.data, service],
-    );
+function ServiceBadge({ paneId, service, active }: { paneId: string; service: string; active: boolean }) {
+    const health = useServices(active, paneId);
+    const row = health.data?.rows.find((candidate) => candidate.service === service);
     if (!row || row.errors === 0) return null;
     return <span className="sgz-badge bad">{percent(row.errorRate)} errors</span>;
 }
@@ -138,7 +133,7 @@ function Title({ paneId, view, active }: { paneId: string; view: ExploreView; ac
                 /
             </span>
             <h2 className={`sgz-crumb-current${entity.mono ? " mono" : ""}`}>{entity.name}</h2>
-            {view.section === "services" && view.service && <ServiceBadge service={view.service} active={active} />}
+            {view.section === "services" && view.service && <ServiceBadge paneId={paneId} service={view.service} active={active} />}
             <PinButton pin={entity.pin} />
         </div>
     );

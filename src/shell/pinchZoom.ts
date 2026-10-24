@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import * as cmd from "../state/commands";
-import { getState } from "../state/store";
 
 interface TextSurface {
     size: () => number;
@@ -8,9 +7,9 @@ interface TextSurface {
 }
 
 const SURFACES: readonly [selector: string, surface: TextSurface][] = [
-    [".agent-chat-pane", { size: () => getState().chatTextScale, setSize: cmd.setChatTextScale }],
-    [".cm-editor", { size: () => getState().editorTextScale, setSize: cmd.setEditorTextScale }],
-    [".terminal-shell", { size: () => getState().terminalFontSize, setSize: cmd.setTerminalFontSize }],
+    [".agent-chat-pane", { size: cmd.chatTextScale, setSize: cmd.setChatTextScale }],
+    [".cm-editor", { size: cmd.editorTextScale, setSize: cmd.setEditorTextScale }],
+    [".terminal-shell", { size: cmd.terminalFontSize, setSize: cmd.setTerminalFontSize }],
 ];
 
 /** How long a pause in ctrl-wheel events ends one pinch and starts the next. */

@@ -1,26 +1,19 @@
-import type { Agent } from "../state/types";
-import type { ChatState } from "./types";
+import type { ChatRows } from "./types";
 
-export function knownEffort(effort: string | undefined): Agent["effort"] {
-    return ["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(effort ?? "")
-        ? (effort as Agent["effort"])
-        : undefined;
-}
-
-export function connectingLabel(connection: ChatState["connection"]): string | null {
+export function connectingLabel(connection: ChatRows["connection"]): string | null {
     if (connection === "starting") return "Starting agent…";
     if (connection === "connecting" || connection === "initializing") return "Connecting to agent session…";
     return null;
 }
 
-function retryingText({ attempt, connection }: NonNullable<ChatState["retrying"]>): string {
+function retryingText({ attempt, connection }: NonNullable<ChatRows["retrying"]>): string {
     return `${connection ? "Reconnecting…" : "Retrying…"}${attempt ? ` (attempt ${attempt})` : ""}`;
 }
 
 /* A permission card already says what the turn is waiting on, so a spinner
    beside it would only compete with it. */
 export function activityText(
-    state: Pick<ChatState, "permissions" | "running" | "messages" | "connection" | "retrying">,
+    state: Pick<ChatRows, "permissions" | "running" | "messages" | "connection" | "retrying">,
     activeTool: string | null,
 ): string | null {
     return state.permissions.length > 0
@@ -38,7 +31,7 @@ export function activityText(
     A message written while the agent starts goes out as soon as it is up, so the
     composer reads the same then as once it is ready. */
 export function composerPlaceholder(
-    state: Pick<ChatState, "connection" | "running">,
+    state: Pick<ChatRows, "connection" | "running">,
     { resuming, disconnected, commands = true }: { resuming: boolean; disconnected: boolean; commands?: boolean },
 ): string {
     return resuming

@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { scanPathCandidates } from '@mac/chat/filePath';
 import { localImagePath } from '@mac/lib/imagePaths';
 import { basename } from '@mac/lib/paths';
 import { Icon } from '@/ui/Icon';
@@ -27,21 +26,6 @@ export function namesFile(raw: string): boolean {
 export function hostImagePath(raw: string): string | null {
   const path = localImagePath(raw.replace(LOCATION, ''));
   return path && !/\.svg$/i.test(path) ? path : null;
-}
-
-/** A run of prose with the files it names picked out. */
-export function fileRuns(text: string): (string | { raw: string })[] {
-  const found = scanPathCandidates(text).filter((candidate) => namesFile(candidate.raw));
-  if (found.length === 0) return [text];
-  const runs: (string | { raw: string })[] = [];
-  let cursor = 0;
-  for (const candidate of found) {
-    if (candidate.start > cursor) runs.push(text.slice(cursor, candidate.start));
-    runs.push({ raw: candidate.raw });
-    cursor = candidate.end;
-  }
-  if (cursor < text.length) runs.push(text.slice(cursor));
-  return runs;
 }
 
 /**

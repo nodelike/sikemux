@@ -1,21 +1,29 @@
 import { defineService } from "../../plugin-api/service";
-import { jiraApi } from "./api";
+import { jiraApi, type JiraBoardPage, type JiraIssueList, type JiraIssueListKind, type JiraIssueView, type JiraSpaces } from "./api";
 import { JIRA_PLUGIN } from "./kinds";
 
 export const jira = defineService(JIRA_PLUGIN, jiraApi.status);
 
-export const jiraSearchR = jira.resource("search", (jql: string, site: string) => jiraApi.search(jql, site || undefined), 30_000);
+/** The site shown, or the default one when empty. */
+const siteOf = (site: string) => site || undefined;
 
-export const jiraIssueR = jira.resource("issue", (key: string, site: string) => jiraApi.issue(key, site || undefined), 30_000);
+export const jiraListV = jira.view<[list: JiraIssueListKind, site: string], JiraIssueList>("listView", (list, site) => ({
+    list,
+    site: siteOf(site),
+}));
 
-export const jiraFiltersR = jira.resource("filters", (site: string) => jiraApi.filters(site || undefined), 300_000);
+export const jiraIssueV = jira.view<[key: string, site: string], JiraIssueView>("issueView", (key, site) => ({ key, site: siteOf(site) }));
 
-export const jiraProjectsR = jira.resource("projects", (site: string) => jiraApi.projects(site || undefined), 600_000);
+export const jiraSpacesV = jira.view<[site: string], JiraSpaces>("spacesView", (site) => ({ site: siteOf(site) }));
 
-export const jiraBoardsR = jira.resource("boards", (site: string) => jiraApi.boards(site || undefined), 600_000);
-
-export const jiraBoardR = jira.resource(
-    "board",
-    (id: number, site: string, picked: string) => jiraApi.board(id, site || undefined, picked ? picked.split(",") : []),
-    30_000,
-);
+/** A board, narrowed to the cards of the people picked: account ids, plus "me" and "none" for nobody. */
+export const jiraBoardV = jira.view<[id: number, site: string, picked: string], JiraBoardPage>("boardView", (id, site, picked) => {
+    const people = picked ? picked.split(",") : [];
+    return {
+        id,
+        site: siteOf(site),
+        people: people.filter((each) => each !== "me" && each !== "none"),
+        mine: people.includes("me"),
+        unassigned: people.includes("none"),
+    };
+});

@@ -16,6 +16,7 @@ mod error;
 mod images;
 mod issues;
 mod oauth;
+mod views;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -73,10 +74,10 @@ impl Plugin for Jira {
                 "edit" => answer(issues::edit(data_dir, params(input)?)).await,
                 "link" => answer(issues::link(data_dir, params(input)?)).await,
                 "worklog" => answer(issues::worklog(data_dir, params(input)?)).await,
-                "filters" => answer(issues::filters(data_dir, params(input)?)).await,
-                "projects" => answer(issues::projects(data_dir, params(input)?)).await,
-                "boards" => answer(boards::boards(data_dir, params(input)?)).await,
-                "board" => answer(boards::board(data_dir, params(input)?)).await,
+                "listView" => answer(views::list_view(data_dir, params(input)?)).await,
+                "spacesView" => answer(views::spaces_view(data_dir, params(input)?)).await,
+                "boardView" => answer(views::board_view(data_dir, params(input)?)).await,
+                "issueView" => answer(views::issue_view(data_dir, params(input)?)).await,
                 "moveIssue" => answer(boards::move_issue(data_dir, params(input)?)).await,
                 "image" => answer(images::image(params(input)?)).await,
                 "siteImage" => answer(images::site_image(data_dir, params(input)?)).await,

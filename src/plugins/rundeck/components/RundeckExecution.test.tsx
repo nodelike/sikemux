@@ -3,17 +3,43 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginStreamHandlers } from "../../../plugin-api/backend";
 import type { LogTick, WatchUpdate } from "../api";
 
-const { watch, logs } = vi.hoisted(() => ({ watch: vi.fn(), logs: vi.fn() }));
+const { watch, logs, page } = vi.hoisted(() => ({ watch: vi.fn(), logs: vi.fn(), page: { live: false } }));
 vi.mock("../api", () => ({
     rundeckApi: {
         watch,
         logs,
         abort: vi.fn(),
-        jobDetail: () => new Promise(() => {}),
-        executions: () => new Promise(() => {}),
         lists: async () => ({ branchOptions: ["BRANCH"], prodEnvs: ["prod"] }),
     },
     errorText: (e: unknown) => String(e),
+}));
+vi.mock("../../../api/core", async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    coreCall: async (method: string) =>
+        method === "pluginView"
+            ? {
+                  value: {
+                      executionId: 42,
+                      status: page.live ? "running" : "succeeded",
+                      statusKind: page.live ? "running" : "succeeded",
+                      live: page.live,
+                      user: null,
+                      startedAt: null,
+                      endedAt: null,
+                      permalink: null,
+                      branch: null,
+                      runWord: "Run",
+                      steps: [],
+                      completed: 0,
+                      total: 0,
+                      percent: null,
+                      usualSecs: null,
+                      canRunAgain: false,
+                      repeatOptions: {},
+                      readAgainSecs: null,
+                  },
+              }
+            : undefined,
 }));
 vi.mock("../../../plugin-api/ui", async (importOriginal) => ({ ...(await importOriginal<object>()), VirtualLogList: () => null }));
 
@@ -47,10 +73,9 @@ afterEach(() => {
 });
 
 describe("RundeckExecution", () => {
-    it("stops both streams when it closes", () => {
+    it("stops the log stream when it closes", () => {
         const { unmount } = render(<RundeckExecution paneId="pane" active level={level} />);
         unmount();
-        expect(opened(watch)[0].stop).toHaveBeenCalled();
         expect(opened(logs)[0].stop).toHaveBeenCalled();
     });
 
@@ -71,18 +96,11 @@ describe("RundeckExecution", () => {
 
 describe("RundeckExecution notices", () => {
     it("offers to say when a running run ends, and then says it will", async () => {
-        const { unmount } = render(<RundeckExecution paneId="pane" active level={level} />);
-        act(() =>
-            opened<WatchUpdate>(watch)[0].handlers.onItem({
-                execution: { id: 42, status: "running", customStatus: null, job: null, project: "ops", permalink: null } as never,
-                state: null,
-                error: null,
-                terminal: false,
-            }),
-        );
+        page.live = true;
+        const { unmount } = render(<RundeckExecution paneId="pane" active level={{ ...level, executionId: 43 }} />);
         const button = await screen.findByRole("button", { name: /Notify me/ });
         await act(async () => fireEvent.click(button));
-        expect(watch).toHaveBeenCalledTimes(2);
+        expect(watch).toHaveBeenCalledTimes(1);
         expect(screen.getByRole("button", { name: /Will notify/ })).toBeDisabled();
         unmount();
     });

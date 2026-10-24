@@ -15,6 +15,7 @@ import { useOccludeNativeViews } from "../state/nativeViews";
 import { canFlushPersist, flushPersist } from "../state/persist";
 import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
+import { updateChannelOf } from "../state/preferences";
 
 function useUpdateRequired(): UpdateRequired | null {
     const [required, setRequired] = useState<UpdateRequired | null>(null);
@@ -48,7 +49,7 @@ export function UpdateRequiredPrompt() {
 
 function Prompt({ required }: { required: UpdateRequired }) {
     const pending = useStore((s) => s.pendingUpdate);
-    const channel = useStore((s) => s.updateChannel);
+    const channel = useStore(updateChannelOf);
     const checked = useStore((s) => s.lastUpdateCheck);
     useOccludeNativeViews(true);
     useEffect(() => {

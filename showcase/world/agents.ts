@@ -968,6 +968,7 @@ export const MODEL_OPTIONS: Record<string, unknown[]> = {
     {
       type: "select",
       id: "effort",
+      category: "thought_level",
       name: "Effort",
       currentValue: "high",
       options: [
@@ -987,6 +988,7 @@ export const MODEL_OPTIONS: Record<string, unknown[]> = {
     {
       type: "select",
       id: "reasoning_effort",
+      category: "thought_level",
       name: "Effort",
       currentValue: "medium",
       options: [

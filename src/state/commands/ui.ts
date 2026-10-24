@@ -2,8 +2,11 @@ import { clampRailWidth, type RailEdge } from "../../lib/railWidths";
 import { invalidate } from "../resources";
 import { selectFocusMode } from "../selectors";
 import { getState, mutate, setState } from "../store";
+import { whatsNew } from "../../api/releases";
+import { swallow } from "../toast";
 import type { SettingsPageId } from "../../settings/settingsIndex";
 import type { PickerMode } from "../types";
+import { setPreference } from "../preferences";
 
 export const setHome = (home: string): void => setState({ home });
 export const setLastSessionId = (id: string): void => setState({ lastSessionId: id });
@@ -34,12 +37,19 @@ export const toggleCommandPalette = (): void => setState((s) => ({ commandPalett
 export const openThemePalette = (): void => setState({ themePaletteOpen: true, commandPaletteOpen: false });
 export const closeThemePalette = (): void => setState({ themePaletteOpen: false });
 export const openOnboarding = (): void => setState({ onboardingOpen: true, diagnosticsOpen: false, whatsNewOpen: false });
-export const closeOnboarding = (complete = true): void => setState({ onboardingOpen: false, ...(complete ? { onboardingComplete: true } : {}) });
+export function closeOnboarding(complete = true): void {
+    setState({ onboardingOpen: false });
+    if (complete) setPreference("onboardingComplete", true);
+}
 export const openDiagnostics = (): void => setState({ diagnosticsOpen: true, onboardingOpen: false, whatsNewOpen: false });
 export const closeDiagnostics = (): void => setState({ diagnosticsOpen: false });
 export const openWhatsNew = (): void => setState({ whatsNewOpen: true, onboardingOpen: false, diagnosticsOpen: false });
-export const closeWhatsNew = (): void =>
-    setState((s) => ({ whatsNewOpen: false, lastSeenVersion: s.lastReleaseNotes?.version ?? s.lastSeenVersion }));
+export function closeWhatsNew(): void {
+    setState({ whatsNewOpen: false });
+    void whatsNew()
+        .then(({ version }) => setPreference("lastSeenVersion", version))
+        .catch(swallow("mark the news read"));
+}
 export const openNewTabPalette = (): void =>
     setState({ newTabPaletteOpen: true, filePaletteOpen: false, agentPaletteOpen: false, pickerOpen: false });
 export const closeNewTabPalette = (): void => setState({ newTabPaletteOpen: false });

@@ -8,7 +8,8 @@ import { SectionIcon } from "./ActionsIcon";
 import { GitColumns } from "../../git/GitColumns";
 import { hostApi, type Issue, type RepoRef } from "../api";
 import { errorText } from "../../lib/format";
-import { issueCountsR, issueR, issuesR, timelineR } from "../resources";
+import { issueR, timelineR } from "../resources";
+import { issueListR } from "../lists";
 import { compose, setListState, showItem, updateView } from "../state";
 import { Comments, Labels, ListTitle, ShellAccount, StateMark } from "./Bits";
 import { CommentThread, Face } from "./CommentThread";
@@ -23,9 +24,9 @@ import { formatAgo } from "../../lib/format";
 const LIST_STATES = ["open", "closed", "all"];
 
 /** Starts a chat in the project with this issue in its input. Only offered where the issue's repository is the project's own. */
-function WorkOnThis({ repo, number, cwd, compact = false }: { repo: RepoRef; number: number; cwd: string; compact?: boolean }) {
+function WorkOnThis({ number, cwd, compact = false }: { number: number; cwd: string; compact?: boolean }) {
     const [busy, runBusy] = useBusy();
-    const start = () => runBusy(() => workOnIssue(repo, number, cwd));
+    const start = () => runBusy(() => workOnIssue(number, cwd));
     if (compact)
         return (
             <Tooltip label="Work on this">
@@ -197,7 +198,7 @@ export function IssueDetail({ repo, number, active, cwd = null }: { repo: RepoRe
                         <StateMark kind="issue" state={found.state} reason={found.stateReason} size={14} />
                         <h2 className="git-detail-title pr-headline-title">{found.title}</h2>
                         <span className="issue-head-actions">
-                            {cwd && <WorkOnThis repo={repo} number={found.number} cwd={cwd} />}
+                            {cwd && <WorkOnThis number={found.number} cwd={cwd} />}
                             <Tooltip label={`Open on ${host.name}`}>
                                 <button
                                     type="button"
@@ -248,6 +249,7 @@ export function IssueDetail({ repo, number, active, cwd = null }: { repo: RepoRe
 interface Props {
     paneId: string;
     repo: RepoRef;
+    project: string;
     listState: string;
     item: number | null;
     composing: boolean;
@@ -257,10 +259,10 @@ interface Props {
     active: boolean;
 }
 
-export function IssuesView({ paneId, repo, listState, item, composing, page, cwd, active }: Props) {
-    const issues = useResourceEnabled(active && !composing, issuesR, repo, listState, page);
+export function IssuesView({ paneId, repo, project, listState, item, composing, page, cwd, active }: Props) {
+    const issues = useResourceEnabled(active && !composing, issueListR, project, listState, page);
     const [sidePage, setSidePage] = useState("facts");
-    const counts = useResourceEnabled(active && !composing && item === null, issueCountsR, repo).data;
+    const counts = issues.data?.counts;
     const now = useNow(false);
 
     if (composing) return <NewIssueForm repo={repo} onCreated={(number) => showItem(paneId, number)} onCancel={() => compose(paneId, null)} />;
@@ -312,7 +314,7 @@ export function IssuesView({ paneId, repo, listState, item, composing, page, cwd
                                 issue={issue}
                                 now={now}
                                 onOpen={() => showItem(paneId, issue.number)}
-                                work={cwd && issue.state === "open" && <WorkOnThis repo={repo} number={issue.number} cwd={cwd} compact />}
+                                work={cwd && issue.state === "open" && <WorkOnThis number={issue.number} cwd={cwd} compact />}
                             />
                         ))}
                     </div>

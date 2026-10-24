@@ -6,21 +6,12 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use serde_json::Value;
 
 use super::{check_agent, dress, is_chat_provider, Kept, Saved};
 use crate::protocol::{
     ChatAccount, CodeHostChoice, PinnedChat, ProjectInfo, SpaceInfo, WorkspaceAgent,
-};
-
-/// The app's data folder in this build, which is the core's when the app
-/// started it, and the only core that may read the app's state.
-const APP_DATA_DIR: &str = if cfg!(debug_assertions) {
-    "com.nodelike.sikemux.dev"
-} else {
-    "com.nodelike.sikemux"
 };
 
 #[derive(Default, Deserialize)]
@@ -54,9 +45,7 @@ struct EarlierAsleep {
 
 pub(super) fn carry_over(saved: &mut Saved, read: &Value, data_dir: Option<&Path>) {
     let earlier: Earlier = serde_json::from_value(read.clone()).unwrap_or_default();
-    let app = data_dir
-        .filter(|dir| dir.file_name() == Some(APP_DATA_DIR.as_ref()))
-        .and_then(|_| app_state());
+    let app = super::super::from_app::app_state(data_dir);
     if let Some(app) = &app {
         from_app(saved, app, &earlier);
     }
@@ -78,20 +67,6 @@ pub(super) fn dress_agents(saved: &mut Saved) {
         dress(&mut agent, &saved.agents);
         saved.agents[index].agent = agent;
     }
-}
-
-/// What the app last saved of its workspace.
-fn app_state() -> Option<Value> {
-    let path = sikemux_process::paths::config_file("state", "sqlite3")?;
-    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
-    let json: String = connection
-        .query_row(
-            "SELECT core_json FROM workspace_snapshots WHERE slot = 0",
-            [],
-            |row| row.get(0),
-        )
-        .ok()?;
-    serde_json::from_str(&json).ok()
 }
 
 fn text(value: &Value, key: &str) -> Option<String> {
@@ -150,6 +125,10 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 path: cwd.into(),
                 pinned: session["pinned"].as_bool().unwrap_or(false),
                 identity: None,
+                git: None,
+                launcher: None,
+                code_host: None,
+                worktree_default: false,
             })
         })
         .filter(|project| project.path.is_absolute())
@@ -208,6 +187,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
             .unwrap_or(is_chat_provider(&provider) && pty_id.is_none());
         let stopped = earlier.asleep.iter().find(|asleep| asleep.agent_id == id);
         let mut record = WorkspaceAgent {
+            name: None,
             cwd: text(agent, "cwd")
                 .map(Into::into)
                 .unwrap_or_else(|| project.path.clone()),
@@ -231,6 +211,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 .get("buddy")
                 .filter(|buddy| buddy.is_object())
                 .cloned(),
+            face: None,
             pty_id,
             created_at: 0,
             provider,
@@ -248,6 +229,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 fallbacks: stopped
                     .map(|stopped| stopped.fallbacks.clone())
                     .unwrap_or_default(),
+                program: None,
             });
         }
     }

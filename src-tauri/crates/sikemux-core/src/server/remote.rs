@@ -34,6 +34,7 @@ use crate::push::NotificationKey;
 use crate::remote::CORE_ALPN;
 
 use super::access::{Peer, Setup, Standing};
+use super::changed::Topic;
 use super::connection::{blocking, serve_client};
 use super::host_key::{secret_from_hex, HostKey, Keeper};
 use super::{Core, CoreError, CoreResult, ServerConfig};
@@ -449,6 +450,18 @@ impl Remote {
             owners: stored.owner.is_some()
                 && stored.joined_through.get(id) == stored.owner.as_ref(),
         })
+    }
+
+    pub(crate) fn device_platform(&self, id: &str) -> Option<String> {
+        let inner = self.inner.locked();
+        let device = inner.stored.devices.iter().find(|device| device.id == id)?;
+        Some(device.platform.clone())
+    }
+
+    pub(crate) fn device_name(&self, id: &str) -> Option<String> {
+        let inner = self.inner.locked();
+        let device = inner.stored.devices.iter().find(|device| device.id == id)?;
+        Some(device.name.clone())
     }
 
     pub(crate) fn setup(&self) -> Setup {
@@ -2039,6 +2052,10 @@ pub(crate) fn change_device(core: &Core, change: DeviceChange) -> CoreResult<Pai
 
 /// Tells the app what changed, and answers with the same status.
 pub(crate) fn announce(core: &Core) -> RemoteStatus {
+    if let Some(core) = core.arc() {
+        tokio::spawn(async move { super::account::show(&core).await });
+    }
+    core.changes.changed(Topic::Hosts, None, None);
     let status = core.remote.status();
     core.broadcast_local(&Event::Remote {
         status: status.clone(),

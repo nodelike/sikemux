@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import { getIpcTransport } from "../api/transport";
 import { swallow } from "../state/toast";
-import { getState, setState, useStore, type StoreState } from "../state/store";
+import { getState, useStore, type StoreState } from "../state/store";
+import { setPreference } from "../state/preferences";
 
 let audio: AudioContext | null = null;
 const audioContext = (): AudioContext => (audio ??= new AudioContext());
@@ -42,8 +43,8 @@ export function sendTestNotification(): void {
  */
 export function introduceNotifications(): void {
     const state = getState();
-    if (!state.agentNotifications || state.notificationsIntroduced) return;
-    setState({ notificationsIntroduced: true });
+    if (!state.preferences?.agentNotifications || state.preferences.notificationsIntroduced) return;
+    setPreference("notificationsIntroduced", true);
     sendTestNotification();
 }
 
@@ -82,7 +83,7 @@ export function installAgentNotifications(hasFocus: () => boolean = () => docume
         .subscribe<AgentNotice>(
             "agent_notice",
             ({ payload }) => {
-                if (!getState().agentNotifications || hasFocus()) return;
+                if (!getState().preferences?.agentNotifications || hasFocus()) return;
                 getCurrentWindow().requestUserAttention(UserAttentionType.Informational).catch(swallow("bounce dock icon"));
                 postNotification(payload.title, payload.body, payload.agentId).catch(swallow("agent notification"));
             },

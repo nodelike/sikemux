@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
-import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconSearch, SkeletonRows, StaleNotice, rankBy } from "../../../plugin-api/ui";
 import { errorText } from "../../../plugin-api/format";
-import { SORTERS, mergeByService, perMinute, percent } from "../health";
-import { signozServicesR } from "../resources";
+import { perMinute, percent } from "../health";
+import { useServices } from "../resources";
 import { showService, signozSettings, updateSettings, type ServiceSort } from "../state";
 import { formatValue } from "./charts";
 
@@ -16,15 +15,14 @@ const COLUMNS: { sort: ServiceSort; label: string; numeric: boolean }[] = [
 
 export function ServicesTable({ paneId, active }: { paneId: string; active: boolean }) {
     const minutes = signozSettings.useSelect((settings) => settings.minutes);
-    const environment = signozSettings.useSelect((settings) => settings.environment);
     const sort = signozSettings.useSelect((settings) => settings.serviceSort);
-    const health = useResourceEnabled(active, signozServicesR, { minutes });
+    const health = useServices(active, paneId);
     const [query, setQuery] = useState("");
 
     const rows = useMemo(() => {
-        const merged = mergeByService(health.data ?? [], environment).sort(SORTERS[sort]);
-        return query.trim() ? rankBy(query.trim(), merged, (row) => row.service) : merged;
-    }, [environment, health.data, query, sort]);
+        const all = health.data?.rows ?? [];
+        return query.trim() ? rankBy(query.trim(), all, (row) => row.service) : all;
+    }, [health.data, query]);
 
     return (
         <div className="sgz-page">

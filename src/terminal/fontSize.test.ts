@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Terminal } from "@xterm/xterm";
 import {
     applyTerminalFontSize,
     clampTerminalFontSize,
@@ -9,7 +8,8 @@ import {
 } from "./fontSize";
 
 function fakeTerminal() {
-    return { options: {} } as unknown as Terminal;
+    const terminal = { fontSize: 0, setFontSize: (size: number) => (terminal.fontSize = size) };
+    return terminal;
 }
 
 describe("terminal font size", () => {
@@ -29,14 +29,14 @@ describe("terminal font size", () => {
         const second = fakeTerminal();
         const refitFirst = vi.fn();
         const refitSecond = vi.fn();
-        registerTerminalFontSize({ term: first, refit: refitFirst });
-        registerTerminalFontSize({ term: second, refit: refitSecond });
+        registerTerminalFontSize({ setFontSize: first.setFontSize, refit: refitFirst });
+        registerTerminalFontSize({ setFontSize: second.setFontSize, refit: refitSecond });
 
         applyTerminalFontSize(20);
 
         expect(currentTerminalFontSize()).toBe(20);
-        expect(first.options.fontSize).toBe(20);
-        expect(second.options.fontSize).toBe(20);
+        expect(first.fontSize).toBe(20);
+        expect(second.fontSize).toBe(20);
         expect(refitFirst).toHaveBeenCalledTimes(1);
         expect(refitSecond).toHaveBeenCalledTimes(1);
     });
@@ -44,12 +44,12 @@ describe("terminal font size", () => {
     it("leaves a disposed terminal alone", () => {
         const term = fakeTerminal();
         const refit = vi.fn();
-        const dispose = registerTerminalFontSize({ term, refit });
+        const dispose = registerTerminalFontSize({ setFontSize: term.setFontSize, refit });
         dispose();
 
         applyTerminalFontSize(22);
 
-        expect(term.options.fontSize).toBe(DEFAULT_TERMINAL_FONT_SIZE);
+        expect(term.fontSize).toBe(DEFAULT_TERMINAL_FONT_SIZE);
         expect(refit).not.toHaveBeenCalled();
     });
 });

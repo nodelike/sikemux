@@ -4,25 +4,25 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use git2::{BranchType, Repository, Status, StatusOptions};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::{flight_key, git_walk_permit, open_repo, run_blocking, shared, Flights};
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct GitFile {
-    path: String,
-    index: String,
-    worktree: String,
+    pub path: String,
+    pub index: String,
+    pub worktree: String,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GitStatus {
-    branch: String,
-    upstream: Option<String>,
-    ahead: i32,
-    behind: i32,
-    files: Vec<GitFile>,
+    pub branch: String,
+    pub upstream: Option<String>,
+    pub ahead: i32,
+    pub behind: i32,
+    pub files: Vec<GitFile>,
 }
 
 impl GitStatus {
@@ -411,6 +411,55 @@ pub async fn git_discover_repos(root: String) -> Result<Vec<DiscoveredRepo>, Str
         Ok(found)
     })
     .await
+}
+
+/// The repository a project's Git views open on, and the repositories inside the project
+/// folder when it is not one itself.
+#[derive(Serialize, Debug)]
+pub struct ProjectRepo {
+    /// None while the person has to pick among several.
+    repo: Option<String>,
+    repos: Option<Vec<DiscoveredRepo>>,
+}
+
+/// The folder itself when it is in a repository, else the one the person chose among the
+/// repositories directly inside it while it is still there, else the only one.
+pub async fn git_project_repo(
+    project: String,
+    chosen: Option<String>,
+) -> Result<ProjectRepo, String> {
+    let folder = project.clone();
+    let inside = run_blocking(move || Ok::<_, String>(open_repo(&folder).is_ok())).await?;
+    if inside {
+        return Ok(ProjectRepo {
+            repo: Some(project),
+            repos: None,
+        });
+    }
+    let repos = git_discover_repos(project).await?;
+    let repo = chosen
+        .filter(|chosen| repos.iter().any(|repo| &repo.path == chosen))
+        .or_else(|| match repos.as_slice() {
+            [only] => Some(only.path.clone()),
+            _ => None,
+        });
+    Ok(ProjectRepo {
+        repo,
+        repos: Some(repos),
+    })
+}
+
+/// The repository's branch chip, read from the same cached walk as its status.
+pub(crate) async fn git_chip(repo: String) -> Result<crate::protocol::ProjectGit, String> {
+    let status = git_status(repo).await?;
+    Ok(crate::protocol::ProjectGit {
+        branch: status.branch,
+        ahead: u32::try_from(status.ahead).unwrap_or(0),
+        behind: u32::try_from(status.behind).unwrap_or(0),
+        dirty: !status.files.is_empty(),
+        pull: None,
+        needs_pull: false,
+    })
 }
 
 pub async fn git_status(repo: String) -> Result<GitStatus, String> {

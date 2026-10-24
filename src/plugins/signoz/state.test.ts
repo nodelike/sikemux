@@ -1,5 +1,4 @@
-import { describe, expect, it } from "vitest";
-import { mergeByService } from "./health";
+import { describe, expect, it, beforeEach } from "vitest";
 import {
     addFilter,
     removeFilter,
@@ -14,6 +13,9 @@ import {
     zoomTo,
     type SignozSettings,
 } from "./state";
+import { answerPreferencesForTests } from "../../plugin-api/testPreferences";
+
+beforeEach(answerPreferencesForTests);
 
 describe("signozSettings", () => {
     it("falls back to usable settings whatever was saved", () => {
@@ -65,29 +67,6 @@ describe("scopeOf", () => {
         expect(scopeOf(viewOf("pane-zoom"), { minutes: 15, environment: null })).toMatchObject({ start: 1_000, end: 5_000 });
         setLive("pane-zoom", true);
         expect(scopeOf(viewOf("pane-zoom"), { minutes: 15, environment: null })).toMatchObject({ minutes: 15 });
-    });
-});
-
-describe("mergeByService", () => {
-    const rows = [
-        { service: "reel-worker", environment: "production", calls: 90, errors: 9, errorRate: 0.1, p99Ms: 10 },
-        { service: "reel-worker", environment: "dev", calls: 10, errors: 1, errorRate: 0.1, p99Ms: 40 },
-        { service: "api", environment: "dev", calls: 5, errors: 0, errorRate: 0, p99Ms: 1 },
-    ];
-
-    it("adds a service up across environments and keeps its worst p99", () => {
-        const merged = mergeByService(rows, null);
-        expect(merged.find((row) => row.service === "reel-worker")).toEqual({
-            service: "reel-worker",
-            calls: 100,
-            errors: 10,
-            errorRate: 0.1,
-            p99Ms: 40,
-        });
-    });
-
-    it("keeps only the chosen environment", () => {
-        expect(mergeByService(rows, "production").map((row) => row.service)).toEqual(["reel-worker"]);
     });
 });
 

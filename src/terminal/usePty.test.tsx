@@ -8,7 +8,7 @@ import { resetPaneResourcesForTests } from "./paneResources";
 import { resetPtyShellSubscriptionsForTests, type PtyShellMetadataEvent } from "../api/ptyShell";
 import { setTaskRunsForTests } from "../tasks/coreTasks";
 import type { NativePtyController } from "./usePty";
-import { encodePosixShellLiteral, encodePowerShellLiteral, ptyResourceFingerprint, shellSemanticsForExecutable, usePty } from "./usePty";
+import { ptyResourceFingerprint, usePty } from "./usePty";
 
 function attachResponse(subId: number, snapshot = new Uint8Array()): ArrayBuffer {
     const header = new TextEncoder().encode(JSON.stringify({ subId, alternateScreen: false }));
@@ -74,8 +74,7 @@ function run(ptyId: number, executionId: string) {
 
 function Harness({
     context,
-    initialDropPaths,
-    initialInput,
+    initialDraft,
     onInitialInputDelivered,
     durable = false,
     cwd = "/repo",
@@ -85,8 +84,7 @@ function Harness({
     onController,
 }: {
     context: PtyContext;
-    initialDropPaths?: readonly string[];
-    initialInput?: string;
+    initialDraft?: string;
     onInitialInputDelivered?: () => void;
     durable?: boolean;
     cwd?: string;
@@ -99,8 +97,7 @@ function Harness({
     const controllerRef = usePty({
         cwd,
         startup,
-        initialDropPaths,
-        initialInput,
+        initialDraft,
         onInitialInputDelivered,
         hostRef,
         context,
@@ -114,32 +111,7 @@ function Harness({
     return <div ref={hostRef} />;
 }
 
-describe("terminal path literal encoding", () => {
-    it("preserves POSIX metacharacters inside a single-quoted literal", () => {
-        const path = "-literal path\n$(touch nope)`whoami`;pipe|glob*?[x]>out<in\\slash'quote";
-
-        expect(encodePosixShellLiteral(path)).toBe("'-literal path\n$(touch nope)`whoami`;pipe|glob*?[x]>out<in\\slash'\\''quote'");
-    });
-
-    it("preserves PowerShell metacharacters and doubles embedded single quotes", () => {
-        const path = "C:\\O'Brien\\-literal path\n$env:TEMP\\$(x)`x;pipe|glob*?>out<in";
-
-        expect(encodePowerShellLiteral(path)).toBe("'C:\\O''Brien\\-literal path\n$env:TEMP\\$(x)`x;pipe|glob*?>out<in'");
-    });
-
-    it("rejects NUL in both shell encoders", () => {
-        expect(() => encodePosixShellLiteral("safe\0unsafe")).toThrow(/NUL/);
-        expect(() => encodePowerShellLiteral("safe\0unsafe")).toThrow(/NUL/);
-    });
-
-    it("selects semantics from the configured executable rather than its host platform", () => {
-        expect(shellSemanticsForExecutable("/bin/zsh")).toBe("posix");
-        expect(shellSemanticsForExecutable("C:\\Program Files\\Git\\bin\\bash.exe")).toBe("posix");
-        expect(shellSemanticsForExecutable('"C:\\Program Files\\PowerShell\\7\\pwsh.exe"')).toBe("powershell");
-        expect(shellSemanticsForExecutable("/opt/microsoft/powershell/7/PWSH")).toBe("powershell");
-        expect(shellSemanticsForExecutable("/bin/custom-shell")).toBeNull();
-    });
-
+describe("PTY resource identity", () => {
     it("fingerprints every launch field that can change PTY identity", () => {
         const base = {
             cwd: "/repo",
@@ -149,7 +121,6 @@ describe("terminal path literal encoding", () => {
         expect(ptyResourceFingerprint(base)).toBe(ptyResourceFingerprint({ ...base }));
         expect(ptyResourceFingerprint(base)).not.toBe(ptyResourceFingerprint({ ...base, cwd: "/other" }));
         expect(ptyResourceFingerprint(base)).not.toBe(ptyResourceFingerprint({ ...base, startup: "bash" }));
-        expect(ptyResourceFingerprint(base)).not.toBe(ptyResourceFingerprint({ ...base, initialDropPaths: ["/tmp/image.png"] }));
         expect(ptyResourceFingerprint(base)).not.toBe(ptyResourceFingerprint({ ...base, context: { ...base.context, sessionName: "renamed" } }));
 
         const taskBinding = Object.freeze({ ptyId: 70, executionId: "execution-1", terminalKey: "task" });
@@ -420,7 +391,7 @@ describe("usePty", () => {
             agentId: "agent-1",
             agentType: "hermes",
         };
-        const view = render(<Harness context={context} initialInput="one shot" />);
+        const view = render(<Harness context={context} initialDraft="one shot" />);
         await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "pty_spawn")).toHaveLength(1));
 
         view.rerender(<Harness context={{ ...context, initialPromptSubmitted: true }} />);
@@ -430,12 +401,7 @@ describe("usePty", () => {
         expect(invoke.mock.calls.filter(([command]) => command === "pty_kill")).toHaveLength(0);
     });
 
-    it("quotes every dropped path with the semantics of the configured POSIX shell", async () => {
-        invoke.mockImplementation(async (command: string) => {
-            if (command === "pty_spawn") return 42;
-            if (command === "integration_health") return { shell: "C:\\Program Files\\Git\\bin\\bash.exe" };
-            return null;
-        });
+    it("hands dropped paths to the core as they are", async () => {
         const context: PtyContext = {
             sessionId: "session-1",
             sessionName: "repo",
@@ -446,43 +412,18 @@ describe("usePty", () => {
         await waitFor(() => expect(invoke).toHaveBeenCalledWith("pty_spawn", expect.anything()));
 
         const host = view.container.firstElementChild as HTMLElement;
-        expect(dispatchPaths(host, ["/tmp/a b", "/tmp/O'Brien", "-$(touch nope);|*?>\nfile"])).toBe(true);
+        expect(dispatchPaths(host, ["/tmp/a b", "/tmp/O'Brien"])).toBe(true);
 
         await waitFor(() => {
-            expect(invoke).toHaveBeenCalledWith("pty_paste", {
-                id: 42,
-                text: "'/tmp/a b' '/tmp/O'\\''Brien' '-$(touch nope);|*?>\nfile'",
-                submit: false,
-                starting: false,
-            });
+            expect(invoke).toHaveBeenCalledWith("pty_input", { id: 42, input: { type: "paths", paths: ["/tmp/a b", "/tmp/O'Brien"] } });
         });
     });
 
-    it("rejects the whole drop when any path contains NUL", async () => {
-        const rejected = vi.spyOn(performanceTelemetry, "incrementCounter");
-        const context: PtyContext = {
-            sessionId: "session-1",
-            sessionName: "repo",
-            sessionKind: "project",
-            project: "/repo",
-        };
-        const view = render(<Harness context={context} />);
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith("pty_spawn", expect.anything()));
-
-        const host = view.container.firstElementChild as HTMLElement;
-        expect(dispatchPaths(host, ["/tmp/safe", "/tmp/unsafe\0suffix"])).toBe(true);
-
-        expect(invoke.mock.calls.some(([command]) => command === "integration_health")).toBe(false);
-        expect(invoke.mock.calls.some(([command]) => command === "pty_write")).toBe(false);
-        expect(rejected.mock.calls.filter(([name]) => name === "terminal.drop.rejected.nul")).toHaveLength(1);
-    });
-
-    it("reports a failed drop write exactly once", async () => {
-        const writeError = new Error("write failed");
+    it("reports a failed drop exactly once", async () => {
+        const writeError = new Error("input failed");
         invoke.mockImplementation(async (command: string) => {
             if (command === "pty_spawn") return 42;
-            if (command === "integration_health") return { shell: "/bin/zsh" };
-            if (command === "pty_paste") throw writeError;
+            if (command === "pty_input") throw writeError;
             return null;
         });
         const errors = vi.spyOn(performanceTelemetry, "incrementCounter");
@@ -497,10 +438,10 @@ describe("usePty", () => {
 
         const host = view.container.firstElementChild as HTMLElement;
         expect(dispatchPaths(host, ["/tmp/file"])).toBe(true);
-        await waitFor(() => expect(invoke.mock.calls.some(([command]) => command === "pty_paste")).toBe(true));
+        await waitFor(() => expect(invoke.mock.calls.some(([command]) => command === "pty_input")).toBe(true));
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(errors.mock.calls.filter(([name]) => name === "terminal.controller.errors.write")).toHaveLength(1);
+        expect(errors.mock.calls.filter(([name]) => name === "terminal.controller.errors.input")).toHaveLength(1);
     });
 });

@@ -41,8 +41,7 @@ export function ChatWelcome({ cwd, agent }: { cwd: string; agent: Agent }) {
             </div>
             {!failed && (
                 <Calendar
-                    days={summary?.days ?? []}
-                    loaded={!!summary}
+                    summary={summary}
                     metric="tokens"
                     onHover={setHovered}
                     footer={

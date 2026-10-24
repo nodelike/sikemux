@@ -147,3 +147,105 @@ impl MessageLog {
         entries
     }
 }
+
+/// Whether a message still waits for its agent, or never reached it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Tone {
+    Held,
+    Failed,
+}
+
+/// One message between agents, from being sent to what last became of it.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Row {
+    pub sent_at: u64,
+    pub at: u64,
+    /// The sending agent's id, or `person`, `board`, `auto` or `sikemux`.
+    pub from: Option<String>,
+    /// The sending agent's name now, else when it was logged; none for those that are
+    /// not agents.
+    pub from_name: Option<String>,
+    pub to: String,
+    pub to_name: Option<String>,
+    pub kind: Option<Kind>,
+    pub outcome: Outcome,
+    /// It waited for its agent before it got where it is.
+    pub waited: bool,
+    pub tone: Option<Tone>,
+}
+
+const NOT_AGENTS: [&str; 4] = ["person", "board", "auto", "sikemux"];
+
+fn still_going(outcome: Outcome) -> bool {
+    matches!(
+        outcome,
+        Outcome::Typed | Outcome::Waiting | Outcome::Returned
+    )
+}
+
+fn tone(outcome: Outcome) -> Option<Tone> {
+    match outcome {
+        Outcome::Waiting | Outcome::Returned => Some(Tone::Held),
+        Outcome::Refused | Outcome::Dropped => Some(Tone::Failed),
+        _ => None,
+    }
+}
+
+/// The log, newest first, as one row per message. A message is logged when it is sent
+/// and again when one that waited is delivered, taken back or dropped; a later line
+/// belongs to the oldest message still waiting for the same agent from the same sender.
+/// `name_of` gives an open agent's name now, ahead of the one it was logged with.
+pub(crate) fn rows(entries: &[Entry], name_of: impl Fn(&str) -> Option<String>) -> Vec<Row> {
+    let name = |id: Option<&str>, logged: &Option<String>| {
+        let id = id.filter(|id| !NOT_AGENTS.contains(id))?;
+        name_of(id).or_else(|| logged.clone())
+    };
+    let mut rows: Vec<Row> = Vec::with_capacity(entries.len());
+    let mut going: Vec<usize> = Vec::new();
+    for entry in entries.iter().rev() {
+        let later = matches!(
+            entry.outcome,
+            Outcome::Delivered | Outcome::Returned | Outcome::Dropped
+        );
+        let earlier = later
+            .then(|| {
+                going.iter().position(|&place| {
+                    let row = &rows[place];
+                    row.to == entry.to
+                        && (entry.from.is_none() || row.from == entry.from)
+                        && (entry.kind.is_none() || row.kind == entry.kind)
+                })
+            })
+            .flatten();
+        if let Some(waiting) = earlier {
+            let row = &mut rows[going[waiting]];
+            row.waited |= !matches!(row.outcome, Outcome::Typed);
+            row.outcome = entry.outcome;
+            row.tone = tone(entry.outcome);
+            row.at = entry.at;
+            if !still_going(entry.outcome) {
+                going.remove(waiting);
+            }
+            continue;
+        }
+        if still_going(entry.outcome) {
+            going.push(rows.len());
+        }
+        rows.push(Row {
+            sent_at: entry.at,
+            at: entry.at,
+            from: entry.from.clone(),
+            from_name: name(entry.from.as_deref(), &entry.from_name),
+            to: entry.to.clone(),
+            to_name: name(Some(&entry.to), &entry.to_name),
+            kind: entry.kind,
+            outcome: entry.outcome,
+            waited: false,
+            tone: tone(entry.outcome),
+        });
+    }
+    rows.reverse();
+    rows
+}

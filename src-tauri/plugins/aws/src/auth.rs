@@ -3,6 +3,7 @@
 //   profiles     — parse ~/.aws/{config,credentials}, classify
 //   resolve      — which profile and region an agent's call runs as
 //   identity     — `sts get-caller-identity`, 60s per-process cache
+//   status       — whether the profile agents start on can sign in
 //   sso_login    — `aws sso login` (spawn-and-wait)
 
 use std::collections::HashMap;
@@ -13,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use sikemux_plugin_api::PluginContext;
+use sikemux_plugin_api::{PluginContext, SignInStatus};
 use sikemux_process::sync::Locked;
 
 use crate::common::{classify_cli_err, run_aws_cli_async, Target};
@@ -34,13 +35,13 @@ pub enum AwsKind {
 
 #[derive(Serialize, Clone)]
 pub struct AwsProfile {
-    name: String,
-    region: Option<String>,
-    sso_start_url: Option<String>,
-    sso_region: Option<String>,
-    sso_account_id: Option<String>,
-    sso_role_name: Option<String>,
-    kind: AwsKind,
+    pub(crate) name: String,
+    pub(crate) region: Option<String>,
+    pub(crate) sso_start_url: Option<String>,
+    pub(crate) sso_region: Option<String>,
+    pub(crate) sso_account_id: Option<String>,
+    pub(crate) sso_role_name: Option<String>,
+    pub(crate) kind: AwsKind,
 }
 
 /// Where the AWS CLI looks, so the profiles listed are the ones it can use.
@@ -277,7 +278,8 @@ fn id_cache() -> &'static Mutex<HashMap<String, (Instant, AwsIdentity)>> {
 const ID_TTL: Duration = Duration::from_secs(60);
 const ID_CACHE_CAPACITY: usize = 128;
 
-pub(crate) async fn identity(profile: String, force: bool) -> AwsIdentity {
+pub(crate) async fn identity(target: Target, force: bool) -> AwsIdentity {
+    let profile = target.label().to_string();
     if !force {
         let cached = id_cache().locked().get(&profile).cloned();
         if let Some(cached) = cached {
@@ -287,7 +289,6 @@ pub(crate) async fn identity(profile: String, force: bool) -> AwsIdentity {
         }
     }
 
-    let target = Target::named(&profile);
     let id = match run_aws_cli_async(&["sts", "get-caller-identity"], &target).await {
         Err(AwsError::CliMissing(msg)) => AwsIdentity {
             arn: None,
@@ -350,6 +351,40 @@ pub(crate) async fn identity(profile: String, force: bool) -> AwsIdentity {
     cache.insert(profile, (Instant::now(), id.clone()));
     drop(cache);
     id
+}
+
+#[derive(Serialize)]
+pub(crate) struct Signed {
+    profile: Option<String>,
+    account: Option<String>,
+}
+
+/// Whether AWS calls work as the profile the AWS pane shows.
+pub(crate) async fn status(ctx: &PluginContext) -> SignInStatus<Signed> {
+    let Some(profile) = crate::agent_profile::pane_profile(ctx) else {
+        return SignInStatus {
+            configured: false,
+            ok: false,
+            auth_failed: false,
+            message: None,
+            details: Signed {
+                profile: None,
+                account: None,
+            },
+        };
+    };
+    let id = identity(Target::named(&profile), false).await;
+    let profile = Some(profile);
+    SignInStatus {
+        configured: true,
+        ok: id.status == AwsStatus::Authed,
+        auth_failed: matches!(id.status, AwsStatus::Expired | AwsStatus::NoCredentials),
+        message: id.message,
+        details: Signed {
+            profile,
+            account: id.account,
+        },
+    }
 }
 
 // ============================================================

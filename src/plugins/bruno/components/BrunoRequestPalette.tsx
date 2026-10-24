@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useActiveSurfacePane } from "../../../plugin-api/host";
-import { useResourceEnabled } from "../../../plugin-api/resources";
 import { IconSearch, rankBy, useMouseActive } from "../../../plugin-api/ui";
 import { BRUNO_CLIENT } from "../kinds";
 import type { BruTreeNode, HttpMethod } from "../lib/types";
-import { brunoCollectionR, brunoSelectRequest, brunoSettings, closePalettes } from "../state";
+import { brunoSelectRequest, closePalettes, useBruno } from "../state";
 import "../bruno.css";
 
 const MAX_RESULTS = 300;
@@ -27,7 +26,6 @@ function flatten(nodes: BruTreeNode[], trail: string[] = [], acc: ReqRow[] = [])
 
 export function BrunoRequestPalette() {
     const paneId = useActiveSurfacePane(BRUNO_CLIENT);
-    const collectionPath = brunoSettings.useSelect((settings) => settings.collectionPath);
 
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
@@ -35,8 +33,7 @@ export function BrunoRequestPalette() {
     const listRef = useRef<HTMLDivElement>(null);
     const mouseActive = useMouseActive();
 
-    const coll = useResourceEnabled(!!collectionPath, brunoCollectionR, collectionPath);
-    const collection = coll.data;
+    const collection = useBruno((state) => state.collection);
 
     useEffect(() => {
         inputRef.current?.focus();
@@ -95,9 +92,7 @@ export function BrunoRequestPalette() {
                 </div>
 
                 <div className="picker-list" ref={listRef}>
-                    {items.length === 0 && (
-                        <div className="picker-empty">{coll.status === "loading" && !collection ? "loading…" : "no requests"}</div>
-                    )}
+                    {items.length === 0 && <div className="picker-empty">{collection ? "no requests" : "loading…"}</div>}
                     {items.map((row, i) => (
                         <button
                             key={row.path}

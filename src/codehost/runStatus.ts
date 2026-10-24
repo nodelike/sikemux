@@ -1,54 +1,24 @@
-import type { Job, Run, RunStatus, Step } from "./api";
+import type { CheckTally, Outcome, Run, RunStatus } from "./api";
 import type { StatusFilter } from "./state";
 
-export type Outcome = "running" | "queued" | "success" | "failure" | "cancelled" | "skipped" | "blocked" | "unknown";
+export type { Outcome };
 
-const BY_CONCLUSION: Record<string, Outcome> = {
-    success: "success",
-    failure: "failure",
-    timed_out: "failure",
-    startup_failure: "failure",
-    cancelled: "cancelled",
-    stale: "cancelled",
-    skipped: "skipped",
-    neutral: "skipped",
-    action_required: "blocked",
-};
-
-const BY_STATUS: Record<string, Outcome> = {
-    in_progress: "running",
-    queued: "queued",
-    requested: "queued",
-    pending: "queued",
-    waiting: "blocked",
-    action_required: "blocked",
-};
-
-export function outcomeOf(thing: Pick<Run, "status" | "conclusion">): Outcome {
-    if (thing.status === "completed") return BY_CONCLUSION[thing.conclusion ?? ""] ?? "unknown";
-    return BY_STATUS[thing.status] ?? "unknown";
-}
-
-/** Still going, including a run held for approval, which can still be cancelled but not re-run. */
-export function isUnfinished(thing: Pick<Run, "status" | "conclusion">): boolean {
-    if (thing.status === "completed") return false;
-    const outcome = outcomeOf(thing);
-    return outcome === "running" || outcome === "queued" || outcome === "blocked";
+/** What the host's status and conclusion come to, as the plugin worked it out. */
+export function outcomeOf(thing: Pick<Run, "outcome">): Outcome {
+    return thing.outcome;
 }
 
 /** Skipped and neutral checks count as passing, the way GitHub counts them. */
-export function checksSummary(runs: readonly Pick<Run, "status" | "conclusion">[]): string {
-    const tally: Record<Outcome, number> = { running: 0, queued: 0, success: 0, failure: 0, cancelled: 0, skipped: 0, blocked: 0, unknown: 0 };
-    for (const run of runs) tally[outcomeOf(run)] += 1;
-    const passed = tally.success + tally.skipped;
-    if (passed === runs.length) return "all passed";
+/** A commit's runs, counted by the core, in words. */
+export function tallySummary(tally: CheckTally): string {
+    if (tally.passed === tally.total) return "all passed";
     const parts: [number, string][] = [
-        [tally.failure, "failing"],
+        [tally.failing, "failing"],
         [tally.running + tally.queued, "running"],
-        [tally.blocked, "waiting"],
+        [tally.waiting, "waiting"],
         [tally.cancelled, "cancelled"],
         [tally.unknown, "unknown"],
-        [passed, "passed"],
+        [tally.passed, "passed"],
     ];
     return parts
         .filter(([count]) => count > 0)
@@ -57,14 +27,6 @@ export function checksSummary(runs: readonly Pick<Run, "status" | "conclusion">[
 }
 
 /** One outcome for a commit's runs: any failure fails it, then anything still going keeps it running. */
-export function overallOutcome(runs: readonly Pick<Run, "status" | "conclusion">[]): Outcome {
-    const outcomes = runs.map(outcomeOf);
-    if (outcomes.includes("failure")) return "failure";
-    if (outcomes.some((outcome) => outcome === "running" || outcome === "queued")) return "running";
-    if (outcomes.includes("blocked")) return "blocked";
-    return "success";
-}
-
 export const OUTCOME_LABEL: Record<Outcome, string> = {
     running: "Running",
     queued: "Queued",
@@ -89,43 +51,8 @@ export function elapsedMs(started: string | null, finished: string | null, now: 
     return Math.max(0, to - from);
 }
 
-export function failedStep(job: Job): Step | undefined {
-    return job.steps.find((step) => outcomeOf(step) === "failure");
-}
-
-export function jobsSummary(jobs: Job[]): { done: number; total: number; failed: number } {
-    let done = 0;
-    let failed = 0;
-    for (const job of jobs) {
-        if (job.status === "completed") done += 1;
-        if (outcomeOf(job) === "failure") failed += 1;
-    }
-    return { done, total: jobs.length, failed };
-}
-
+/** Each job's summary is its own call, so only this many load until the person asks for the rest. */
 export const SUMMARY_LIMIT = 10;
-
-/**
- * The jobs whose summaries are worth a request. Each one is its own call, so a
- * run still going waits until it ends, and a wide matrix only loads the first few.
- */
-export function summaryJobs(jobs: readonly Job[], runFinished: boolean, everything: boolean): Job[] {
-    if (!runFinished) return [];
-    const done = jobs.filter((job) => job.status === "completed" && job.checkRunId !== null && job.conclusion !== "skipped");
-    return everything ? done : done.slice(0, SUMMARY_LIMIT);
-}
-
-/**
- * Whether what a watch last pushed is newer than what was just read. A re-run
- * is a later attempt, and a refresh reads the same attempt again, so the read
- * wins unless the watch has seen something since.
- */
-export function watchIsNewer(watched: Pick<Run, "attempt" | "updatedAt"> | null, read: Pick<Run, "attempt" | "updatedAt"> | null): boolean {
-    if (!watched) return false;
-    if (!read) return true;
-    if (watched.attempt !== read.attempt) return watched.attempt > read.attempt;
-    return Date.parse(watched.updatedAt) > Date.parse(read.updatedAt);
-}
 
 const EVENT_LABEL: Record<string, string> = {
     push: "Push",

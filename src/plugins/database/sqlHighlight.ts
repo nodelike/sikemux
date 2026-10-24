@@ -1,5 +1,5 @@
 import { StreamLanguage, type Extension, type StreamParser } from "../../plugin-api/editor";
-import type { Engine } from "./api";
+import type { DatabaseEngine as Engine } from "./types.generated";
 
 const KEYWORDS = new Set(
     (

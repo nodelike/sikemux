@@ -140,14 +140,6 @@ pub enum CliClientCommand {
         token: String,
         request: CliOpenRequest,
     },
-    /// The window collecting a plugin stream it was given a ticket for. The
-    /// core writes each event as a `Result` line until the stream ends, and
-    /// stops it when the window closes the connection.
-    PluginStream {
-        protocol: u16,
-        token: String,
-        ticket: String,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

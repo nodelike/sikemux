@@ -53,9 +53,8 @@ interface Piece {
 const SAVE_PIECE = 512 * 1024;
 const READ_TRIES = 3;
 
-/** This host's disk is read in the app itself; another host's through its core. */
 function call<T>(host: FilesHost, method: string, params: unknown): Promise<T> {
-    return host === undefined ? invoke<T>("files_call", { method, params }) : coreCall<T>(method, params, host);
+    return coreCall<T>(method, params, host);
 }
 
 async function readDirs(host: FilesHost, dirs: readonly string[]): Promise<DirListing[]> {
@@ -102,8 +101,7 @@ async function readFileVersioned(host: FilesHost, path: string): Promise<FileSna
     }
 }
 
-function pieces(host: FilesHost, content: string): string[] {
-    if (host === undefined) return [content];
+function pieces(content: string): string[] {
     const out: string[] = [];
     let at = 0;
     do {
@@ -118,7 +116,7 @@ function pieces(host: FilesHost, content: string): string[] {
 
 /** Saves over the file at `version`, as a new file with `new`, or over whatever is there with neither. */
 async function write(host: FilesHost, path: string, content: string, options: { version?: string; new?: boolean }): Promise<FileWriteResult> {
-    const parts = pieces(host, content);
+    const parts = pieces(content);
     let upload: string | null = null;
     for (let index = 0; ; index++) {
         const more = index < parts.length - 1;
@@ -159,16 +157,19 @@ export function filesOn(host: FilesHost) {
 
 export type HostFiles = ReturnType<typeof filesOn>;
 
+/** The largest file an inline diff reads whole. */
+const INLINE_TEXT_LIMIT = 1024 * 1024;
+
 export const fsapi = {
     ...filesOn(undefined),
     keepDroppedPaths: (paths: string[]) => invoke<string[]>("keep_dropped_paths", { paths }),
-    readTextFileLimited: (path: string) => invoke<string>("read_text_file_limited", { path }),
+    readTextFileLimited: (path: string) => coreCall<string>("files.readText", { path, limit: INLINE_TEXT_LIMIT }),
     previewFile: (path: string) => invoke<FilePreview>("preview_file", { path }),
-    copyIntoDir: (src: string, dir: string) => invoke<string>("copy_into_dir", { src, dir }),
+    copyIntoDir: (src: string, dir: string) => coreCall<string>("files.copyInto", { from: src, dir }),
     downloadsDir: () => invoke<string>("downloads_dir"),
     chatAttachmentDir: () => invoke<string>("chat_attachment_dir"),
     saveClipboardImage: (name: string) => invoke<string | null>("save_clipboard_image", { name }),
-    saveBase64IntoDir: (dir: string, name: string, data: string) => invoke<string>("save_base64_into_dir", { dir, name, data }),
+    saveBase64IntoDir: (dir: string, name: string, data: string) => coreCall<string>("files.writeBytes", { dir, name, base64: data }),
     openInDefaultApp: (path: string) => invoke<void>("open_in_default_app", { path }),
     revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
 };

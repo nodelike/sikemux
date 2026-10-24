@@ -23,7 +23,7 @@ struct IslandView: View {
         .scaleEffect(island.pullScale, anchor: .top)
         .animation(.smooth, value: island.pull)
         .preferredColorScheme(.dark)
-        .environment(\.buddies, store.view.inbox.buddies)
+        .environment(\.faceMotion, store.view.faceStyle.motion)
         .onChange(of: store.entries) { _, entries in island.entriesChanged(entries) }
         .onChange(of: store.devices) { _, devices in island.devicesChanged(devices) }
     }
@@ -215,7 +215,7 @@ struct ClosedWings: View {
             if wings.left > 0 {
                 HStack(spacing: -3) {
                     ForEach(shown.prefix(3)) { entry in
-                        AgentFace(entry: entry, size: 20)
+                        AgentLook(entry: entry, size: 20)
                             .matchedGeometryEffect(id: entry.id, in: marks)
                     }
                     if shown.count > 3 {
@@ -264,7 +264,7 @@ struct FinishedWings: View {
         HStack(spacing: 0) {
             HStack(spacing: 8) {
                 if let entry {
-                    AgentFace(entry: entry, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
+                    AgentLook(entry: entry, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
                 }
                 Text(entry?.mark == .failed ? "Failed" : "Finished").font(Theme.ui(12.5, .semibold)).foregroundStyle(Theme.ink)
             }
@@ -310,7 +310,7 @@ struct AskHeader: View {
     var body: some View {
         HeaderBand(geometry: geometry) {
             if let entry {
-                AgentFace(entry: entry, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
+                AgentLook(entry: entry, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
                 Text(entry.item.name ?? agentName(entry.provider)).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
             }
         } trailing: {

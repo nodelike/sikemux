@@ -645,10 +645,13 @@ export function AgentIcon({ type, size, className }: { type: AgentType; size?: n
 }
 
 /** A battery drawn the way macOS draws it: a thin rounded case, a soft cap, and the charge filling it; charging, a bolt breaks out of it top and bottom. */
+/** The bolt a charging battery wears, on the battery's 28×13 drawing. */
+export const BATTERY_BOLT = "M14.6 -1.6 L8.4 7.4 H12.6 L11.4 14.6 L17.6 5.6 H13.4 Z";
+
 export function IconBattery({ size = 14, percent, charging, className }: IconProps & { percent: number; charging?: boolean }) {
     const knockout = useId();
     const level = Math.max(0, Math.min(100, percent)) / 100;
-    const bolt = "M14.6 -1.6 L8.4 7.4 H12.6 L11.4 14.6 L17.6 5.6 H13.4 Z";
+    const bolt = BATTERY_BOLT;
     return (
         <svg width={(size * 28) / 13} height={size} viewBox="0 0 28 13" fill="none" className={className} aria-hidden="true" overflow="visible">
             {charging && (

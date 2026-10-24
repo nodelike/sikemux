@@ -9,8 +9,7 @@ import { effectiveMode } from "../agents/agentLaunch";
 import { canBypassPermissions, agentSupportsChat } from "../agents/catalog";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { putDraft, takeDraft } from "./draftHandoff";
-import { promptDraft } from "../terminal/promptDraft";
-import { screenWithin } from "../state/terminalScreens";
+import { ptyCall } from "../api/core";
 import { isResumableSession, offerResumableSessions } from "../terminal/sessionResume";
 import { AgentBuddy } from "../buddies/Buddy";
 import { openBuddyPicker } from "../buddies/commands";
@@ -86,7 +85,7 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
     const working = useStore((state) => state.agentStatus[agent.id]?.group === "working");
     const busy = chatBusy || working;
     const [renaming, setRenaming] = useState(false);
-    const buddies = useStore((state) => state.buddies);
+    const buddies = useStore((state) => state.faceStyle.on);
     /* The core starts a terminal agent again after a crash, in a terminal of its own that the pane takes up. */
     const [terminal, setTerminal] = useState({ ptyId: agent.ptyId, generation: 0 });
     useEffect(() => {
@@ -102,12 +101,15 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
             if (next === view || switching || busy) return;
             setSwitching(true);
             setCarried(next === "tui" ? takeDraft(agent.id) : "");
-            if (next === "gui" && tuiLayer.current) putDraft(agent.id, promptDraft(screenWithin(tuiLayer.current)));
+            if (next === "gui" && terminal.ptyId !== undefined) {
+                const read = await ptyCall<{ draft: string }>(terminal.ptyId, "promptDraft").catch(swallow("read the TUI's draft"));
+                putDraft(agent.id, read?.draft ?? "");
+            }
             if (view === "gui") await acpApi.stop(agent.id).catch(swallow("stop the chat agent"));
             setView(next);
             window.requestAnimationFrame(() => setSwitching(false));
         },
-        [agent.id, busy, switching, view],
+        [agent.id, busy, switching, terminal.ptyId, view],
     );
 
     /* The window layer stays mounted so a live agent keeps its process, so the

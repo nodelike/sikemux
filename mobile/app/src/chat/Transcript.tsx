@@ -1,18 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { messageLetters } from '@mac/chat/agentLetters';
-import { EARLIER_LOST } from '@mac/chat/earlier';
 import { durationLabel } from '@mac/chat/durationLabel';
+import { recordOf } from '@mac/lib/guards';
 import { basename } from '@mac/lib/paths';
-import { rateLabel, sentLabel, type RowMeta } from '@mac/chat/messageMeta';
+import { rateLabel, sentLabel } from '@mac/chat/messageMeta';
 import { cutLongBlocks, showRestLabel } from '@mac/chat/longText';
+import type { MdElement } from '@mac/markdown/types';
 import { revealBlocks, visibleText } from '@mac/markdown/visible';
-import { contextChip, type ContextChip, type SentContext } from '@mac/chat/promptContext';
+import { contextChip, type ContextChip } from '@mac/chat/promptContext';
 import {
   attachmentName,
   groupParts,
-  sentParts,
   shownParts,
   SUBAGENT_MARKS,
   SUBAGENT_WORDS,
@@ -21,16 +20,15 @@ import {
   type SubagentMark,
 } from '@mac/chat/transcript';
 import { callsLabel, workedLabel } from '@mac/chat/toolView';
-import type { PageRef } from '@mac/api/pages';
 import type {
   AccountMove,
-  AcpContentBlock,
-  AcpSubagent,
-  AcpTaskNotice,
   AgentNotice,
   ChatMessage,
   ChatPart,
   PartTree,
+  SentContext,
+  SubagentCard,
+  TaskNotice as Notice,
 } from '@mac/chat/types';
 import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
@@ -48,6 +46,7 @@ import { SentAttachments } from './Attachments';
 import { hostImagePath } from './FileRef';
 import { useHostFile } from './hostFiles';
 import { ImageViewer } from './ImageViewer';
+import type { Strip as StripMeta } from './messageMeta';
 import type { Held, Unsent } from './session';
 import type { Attachment } from './uploads';
 import { ToolGroup } from './Tools';
@@ -55,11 +54,30 @@ import { AnsweredQuestion } from './Question';
 
 /** The chat's agent, whose mark its subagents carry. */
 export const ProviderContext = createContext('agent');
+/** The chat's own agent, which an answer to its own question needs no name for. */
+export const AgentContext = createContext('');
 
-/** Every subagent in the chat by its session, so a notice that names one can show its card. */
-export const SubagentsContext = createContext<ReadonlyMap<string, AcpSubagent>>(new Map());
+/** The chat's subagents: each one's card by its session, for a notice that names one, and the rows it wrote. */
+export type Subagents = { card: (sessionId: string) => SubagentCard | undefined; rows: Readonly<Record<string, ChatMessage[]>> };
 
-/** How long a press is held before it opens a message's actions. */
+export const SubagentsContext = createContext<Subagents>({ card: () => undefined, rows: {} });
+
+/** The cards of the chat's subagents as its rows carry them, looked up only when a notice names one. */
+export function subagentsOf(messages: readonly ChatMessage[], rows: Readonly<Record<string, ChatMessage[]>>): Subagents {
+  const card = (sessionId: string) => {
+    for (const held of [messages, ...Object.values(rows)]) {
+      for (let at = held.length - 1; at >= 0; at -= 1) {
+        for (const part of held[at].parts) if (part.kind === 'subagent' && part.subagent.sessionId === sessionId) return part.subagent;
+      }
+    }
+    return undefined;
+  };
+  return { card, rows };
+}
+
+type PageRef = NonNullable<Extract<ChatPart, { kind: 'tool' }>['page']>;
+
+const EARLIER_LOST = 'Earlier messages are no longer kept.';
 
 /**
  * A message too long to draw at once shows its start and the rest on a tap, unless the person
@@ -69,7 +87,7 @@ function LongText({ id, text, md, live, style }: { id: string; text: string; md?
   const styles = useStyles(makeStyles);
   const folds = useContext(FoldsContext);
   const [whole, setWhole] = useFold(`whole/${id}`, false);
-  const blocks = useMemo(() => md?.blocks ?? plainBlocks(text), [md, text]);
+  const blocks = useMemo(() => (md?.blocks as MdElement[] | undefined) ?? plainBlocks(text), [md, text]);
   const plain = useMemo(() => visibleText(blocks), [blocks]);
   const streamed = useStreamedText(id, plain, live);
   if (live) folds.streamed.add(id);
@@ -87,7 +105,7 @@ function LongText({ id, text, md, live, style }: { id: string; text: string; md?
   );
 }
 
-function SubagentMarkView({ state }: { state: AcpSubagent['state'] }) {
+function SubagentMarkView({ state }: { state: SubagentCard['state'] }) {
   const colors = useColors();
   const mark: SubagentMark = SUBAGENT_MARKS[state];
   if (mark === 'spinner') return <Working />;
@@ -98,12 +116,13 @@ function SubagentMarkView({ state }: { state: AcpSubagent['state'] }) {
 }
 
 /** What a subagent did, kept to one line until it is opened; what it is doing now is over the composer. */
-function Subagent({ subagent, untimed }: { subagent: AcpSubagent; untimed: boolean }) {
+function Subagent({ subagent }: { subagent: SubagentCard }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const provider = useContext(ProviderContext);
+  const rows = useContext(SubagentsContext).rows[subagent.sessionId];
   const [open, setOpen] = useFold(`subagent/${subagent.sessionId}`, false);
-  const parts = subagent.messages.flatMap((message) => message.parts);
+  const parts = useMemo(() => (rows ?? []).flatMap((message) => message.parts), [rows]);
   const cost = subagentCost(subagent);
   const running = subagent.state === 'running';
   return (
@@ -138,7 +157,7 @@ function Subagent({ subagent, untimed }: { subagent: AcpSubagent; untimed: boole
       {open ? (
         <View style={styles.subagentBody}>
           {parts.length ? (
-            <Parts id={`subagent/${subagent.sessionId}`} parts={parts} untimed={untimed} live={running} />
+            <Parts id={`subagent/${subagent.sessionId}`} parts={parts} live={running} />
           ) : (
             <Text style={styles.empty}>No output yet.</Text>
           )}
@@ -149,13 +168,13 @@ function Subagent({ subagent, untimed }: { subagent: AcpSubagent; untimed: boole
 }
 
 /** A background task that reached its end, and what it said of how it went. */
-function Notice({ id, notice, untimed }: { id: string; notice: AcpTaskNotice; untimed: boolean }) {
-  const subagent = useContext(SubagentsContext).get(notice.subagent ?? '');
-  if (subagent) return <Subagent subagent={subagent} untimed={untimed} />;
+function TaskNoticeOrCard({ id, notice }: { id: string; notice: Notice }) {
+  const subagent = useContext(SubagentsContext).card(notice.subagent ?? '');
+  if (subagent) return <Subagent subagent={subagent} />;
   return <TaskNotice id={id} notice={notice} />;
 }
 
-function TaskNotice({ id, notice }: { id: string; notice: AcpTaskNotice }) {
+function TaskNotice({ id, notice }: { id: string; notice: Notice }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const [open, setOpen] = useFold(`notice/${id}`, false);
@@ -274,15 +293,14 @@ function ContextChips({ items }: { items: SentContext[] }) {
 }
 
 /** A message's parts in order, with each run of tool calls drawn as one group. */
-function Parts({ id, parts, untimed, live }: { id: string; parts: ChatPart[]; untimed: boolean; live: boolean }) {
+function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boolean }) {
   const styles = useStyles(makeStyles);
   const groups = groupParts(parts);
   return (
     <>
       {groups.map((group, index) => {
         const last = live && index === groups.length - 1;
-        if ('tools' in group)
-          return <ToolGroup key={group.id} id={`${id}/${group.id}`} parts={group.tools} untimed={untimed} live={last} />;
+        if ('tools' in group) return <ToolGroup key={group.id} id={`${id}/${group.id}`} parts={group.tools} live={last} />;
         const run = group.part;
         switch (run.kind) {
           case 'text':
@@ -296,9 +314,9 @@ function Parts({ id, parts, untimed, live }: { id: string; parts: ChatPart[]; un
               </View>
             ) : null;
           case 'subagent':
-            return <Subagent key={run.id} subagent={run.subagent} untimed={untimed} />;
+            return <Subagent key={run.id} subagent={run.subagent} />;
           case 'notice':
-            return <Notice key={run.id} id={run.id} notice={run.notice} untimed={untimed} />;
+            return <TaskNoticeOrCard key={run.id} id={run.id} notice={run.notice} />;
           case 'content':
             return <Content key={run.id} block={run.content} />;
           case 'agent_notice':
@@ -348,34 +366,39 @@ function HostPicture({ path, name }: { path: string; name: string }) {
   return uri ? <Picture uri={uri} name={name} /> : <ResourceChip name={name} image />;
 }
 
-/** An image or file the agent put in its answer. */
-function Content({ block }: { block: AcpContentBlock }) {
+const textOf = (value: unknown) => (typeof value === 'string' ? value : undefined);
+
+/** An image or file the agent put in its answer, as its protocol gave it. */
+function Content({ block: given }: { block: unknown }) {
   const styles = useStyles(makeStyles);
-  if (block.type === 'text' && block.text?.trim()) return <Markdown blocks={plainBlocks(block.text)} style={styles.prose} />;
-  if (block.type === 'image' && block.data && block.mimeType?.startsWith('image/')) {
-    return <Picture uri={`data:${block.mimeType};base64,${block.data}`} name={attachmentName(block.mimeType)} />;
+  const block = recordOf(given) ?? {};
+  const text = textOf(block.text);
+  const mimeType = textOf(block.mimeType);
+  const data = textOf(block.data);
+  if (block.type === 'text' && text?.trim()) return <Markdown blocks={plainBlocks(text)} style={styles.prose} />;
+  if (block.type === 'image' && data && mimeType?.startsWith('image/')) {
+    return <Picture uri={`data:${mimeType};base64,${data}`} name={attachmentName(mimeType)} />;
   }
-  const resource = typeof block.resource === 'object' && block.resource !== null ? (block.resource as { uri?: unknown }) : null;
-  const uri = block.uri ?? (typeof resource?.uri === 'string' ? resource.uri : undefined);
-  const name = block.title ?? block.name ?? (uri ? basename(uri) : undefined);
+  const uri = textOf(block.uri) ?? textOf(recordOf(block.resource)?.uri);
+  const name = textOf(block.title) ?? textOf(block.name) ?? (uri ? basename(uri) : undefined);
   if (!name) return null;
   const image = uri ? hostImagePath(uri) : null;
   if (image) return <HostPicture path={image} name={name} />;
-  return <ResourceChip name={name} image={Boolean(block.mimeType?.startsWith('image/'))} />;
+  return <ResourceChip name={name} image={Boolean(mimeType?.startsWith('image/'))} />;
 }
 
 /** What the Mac shows under a message on hover: Copy, when it was sent or finished and how long it took, and how fast it was written. */
-function Strip({ meta, mine }: { meta: RowMeta; mine: boolean }) {
+function Strip({ meta, mine }: { meta: StripMeta; mine: boolean }) {
   const styles = useStyles(makeStyles);
   return (
     <View style={[styles.strip, mine && styles.stripMine]}>
       <CopyButton value={meta.text} label={mine ? 'message' : 'reply'} size={15} style={styles.stripCopy} />
-      {meta.at !== null ? (
+      {meta.at !== undefined ? (
         <Text style={styles.stripTime}>
-          {meta.took === null ? sentLabel(meta.at) : `${sentLabel(meta.at)} · took ${durationLabel(meta.took)}`}
+          {meta.took === undefined ? sentLabel(meta.at) : `${sentLabel(meta.at)} · took ${durationLabel(meta.took)}`}
         </Text>
       ) : null}
-      {meta.rate !== null ? <Text style={styles.stripRate}>{rateLabel(meta.rate)}</Text> : null}
+      {meta.rate !== undefined ? <Text style={styles.stripRate}>{rateLabel(meta.rate)}</Text> : null}
     </View>
   );
 }
@@ -386,7 +409,6 @@ const keepLongPress = () => {};
 export function Message({
   message,
   live = false,
-  untimed = false,
   unsent,
   onRetry,
   onTap,
@@ -396,38 +418,39 @@ export function Message({
 }: {
   message: ChatMessage;
   live?: boolean;
-  untimed?: boolean;
   unsent?: Unsent;
   onRetry?: (messageId: string) => void;
   /** A tap, which shows or hides the strip under the message it belongs to. */
   onTap?: (message: ChatMessage) => void;
   /** The strip under this message, while it is shown. */
-  strip?: RowMeta | null;
+  strip?: StripMeta | null;
   sentFiles: ReadonlyMap<string, Attachment>;
   /** Where the shown parts start, when the work before them is folded away. */
   from?: number;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const chatAgent = useContext(AgentContext);
   const tap = onTap
     ? () => {
         haptics.select();
         onTap(message);
       }
     : undefined;
-  const letters = messageLetters(message);
-  if (letters) {
+  const letters = message.letters;
+  if (letters?.length) {
     return (
       <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? 'Tap for copy and the time it came' : undefined}>
         {letters.map((letter, index) =>
           letter.kind === 'answer' ? (
             <AnsweredQuestion
               key={index}
-              asker={letter.asker}
+              own={letter.agentId === chatAgent}
+              asker={letter.name}
               cli={letter.cli}
-              question={letter.question}
+              question={letter.question ?? ''}
               answer={letter.text}
-              secret={letter.secret}
+              secret={letter.secret ?? false}
             />
           ) : (
             <View key={index}>
@@ -439,13 +462,7 @@ export function Message({
                 </Text>
                 <View style={styles.letterRule} />
               </View>
-              <LongText
-                id={`${message.id}/letter/${index}`}
-                text={letter.text}
-                md={letter.tree && { blocks: letter.tree, n: letter.text.length }}
-                live={false}
-                style={styles.prose}
-              />
+              <LongText id={`${message.id}/letter/${index}`} text={letter.text} md={letter.tree} live={false} style={styles.prose} />
             </View>
           ),
         )}
@@ -455,8 +472,8 @@ export function Message({
   }
   if (message.role === 'user') {
     const failed = unsent?.state === 'failed';
-    const { parts, context } = sentParts(message);
-    const text = parts.flatMap((part) => (part.kind === 'text' ? [part.text] : [])).join('\n\n');
+    const context = message.context ?? [];
+    const text = message.parts.flatMap((part) => (part.kind === 'text' ? [part.text] : [])).join('\n\n');
     return (
       <View style={styles.userRow}>
         {message.attachments?.length ? <SentAttachments paths={message.attachments} sentFiles={sentFiles} /> : null}
@@ -494,7 +511,7 @@ export function Message({
   }
   return (
     <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? 'Tap for copy and how long it took' : undefined}>
-      <Parts id={message.id} parts={shownParts(message.parts, from)} untimed={untimed} live={live} />
+      <Parts id={message.id} parts={shownParts(message.parts, from)} live={live} />
       {strip ? <Strip meta={strip} mine={false} /> : null}
     </Pressable>
   );
@@ -508,7 +525,7 @@ export function WorkSummary({
   open,
   onToggle,
 }: {
-  took: number | null;
+  took: number | undefined;
   calls: number;
   thought: boolean;
   open: boolean;
@@ -517,7 +534,7 @@ export function WorkSummary({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const provider = useContext(ProviderContext);
-  const worked = workedLabel(took, thought);
+  const worked = workedLabel(took ?? null, thought);
   const counted = callsLabel(calls);
   return (
     <View style={styles.work}>

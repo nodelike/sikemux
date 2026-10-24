@@ -17,19 +17,19 @@ use crate::common::{aws_json, Target};
 
 #[derive(Serialize, Clone)]
 pub struct BillingMonth {
-    period_start: String,
-    period_end: String,
-    total: String,
-    unit: String,
-    is_current: bool,
-    by_service: Vec<BillingService>,
+    pub(crate) period_start: String,
+    pub(crate) period_end: String,
+    pub(crate) total: String,
+    pub(crate) unit: String,
+    pub(crate) is_current: bool,
+    pub(crate) by_service: Vec<BillingService>,
 }
 
 #[derive(Serialize, Clone)]
 pub struct BillingService {
-    service: String,
-    amount: String,
-    unit: String,
+    pub(crate) service: String,
+    pub(crate) amount: String,
+    pub(crate) unit: String,
 }
 
 pub(crate) async fn months(target: &Target, months_back: u32) -> AwsResult<Vec<BillingMonth>> {

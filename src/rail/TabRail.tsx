@@ -2,18 +2,17 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import type { AgentInfo } from "../api/agents";
 import { usePageVisible } from "../hooks/usePageVisible";
 import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agents/agentProfiles";
-import { hasUsage, USAGE_AGENT_TYPES, type UsageAgentType } from "../agents/catalog";
+import { hasUsage, usageAgentTypes } from "../agents/catalog";
 import * as cmd from "../state/commands";
 import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
 import { useResource, useResourceEnabled, type ResourceHandle } from "../state/resources";
 import { agentCatalogR, agentUsageR } from "../state/resources.defs";
 import type { AgentUsage } from "../api/agents";
 import { useStore } from "../state/store";
-import { activeAgentId, agentDisplayOf, agentIdsOf, chatKey, hasChat } from "../state/selectors";
+import { activeAgentId, agentIdsOf, chatKey, hasChat } from "../state/selectors";
 import { type Agent, type AgentType, type PinnedChat } from "../state/types";
 import { AgentIcon, IconAgent, IconDownload, IconGlobe, IconInbox, IconPin, IconPlus, IconSearch, IconTerminal } from "../ui/Icons";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
-import { inTeams, type TeamLink } from "../agents/teams";
 import { AgentContextMenu } from "../workspace/AgentContextMenu";
 import { Tooltip } from "../ui/Tooltip";
 import { Dropdown } from "../ui/Dropdown";
@@ -22,6 +21,7 @@ import { TreeContextMenu } from "./FileTree";
 import { animate, type Box, contentBox, EASE_LEAVE, glideSelection, leavingRef } from "../lib/motion";
 import { leavingRail } from "./railMotion";
 import { RailToggle } from "./RailToggle";
+import { useSessionName } from "../terminal/railNames";
 import { AgentAccountsPanel } from "./AgentAccounts";
 import { RailEmpty } from "./RailEmpty";
 import { AGENT_SETUP_SECTION } from "../settings/AgentSetupSection";
@@ -32,14 +32,15 @@ import { ScopeTabs } from "./ScopeTabs";
 import { NewRow } from "./RailNewRow";
 import { RailPages } from "./RailPages";
 import { FilesPage, TerminalsPage } from "./ProjectPages";
-import { foldTeams, useTeamFolds, type TeamFold } from "./teams";
+import { coreTeams, foldTeams, useTeamFolds, type TeamFold, type TeamLink } from "./teams";
 import { useRecentChats } from "./useRecentChats";
 import { inCoreOrder, itemSessionId, useInbox } from "./useInbox";
-import { isRemoteWorker, RemoteAgentRow, withRemoteWorkers } from "./RemoteAgentRow";
+import { isRemoteWorker, RemoteAgentRow } from "./RemoteAgentRow";
 import { NewOnHost, remoteChatRows, useHostProject } from "./RemoteRows";
 import { hostName, openInstallPane } from "../hosts/hosts";
 import { HostTerminals } from "./HostLists";
 import { LEAVES_SETTINGS } from "../settings/leaveSettings";
+import { preferencesOf } from "../state/preferences";
 
 const USAGE_REFRESH_MS = 5 * 60_000;
 const ALL_AGENTS = "all";
@@ -88,7 +89,7 @@ function arriveRow(wrap: HTMLElement): void {
 }
 
 export const TabRail = memo(function TabRail() {
-    const density = useStore((s) => s.railDensity);
+    const density = useStore((s) => preferencesOf(s).railDensity);
     return (
         <aside ref={leavingRail} className="workspace-rail tab-rail" aria-label="Agents" data-density={density} {...LEAVES_SETTINGS}>
             <RailPages pages={{ agents: <TabRailBody />, terminals: <TerminalsPage />, files: <FilesPage /> }} />
@@ -99,6 +100,7 @@ export const TabRail = memo(function TabRail() {
 export function TabRailBody() {
     const pageVisible = usePageVisible();
     const session = useStore((s) => s.sessions[s.activeSessionId]);
+    const sessionName = useSessionName(session);
     const host = useStore((s) => s.chosenHost);
     const remoteHost = host.kind === "core" ? host.host : undefined;
     const local = host.kind === "core" && !remoteHost;
@@ -121,7 +123,7 @@ export function TabRailBody() {
     const usages = useAgentUsages(availableAgents);
     const usageRefreshRef = useRef(usages);
     usageRefreshRef.current = usages;
-    const usageDetected = USAGE_AGENT_TYPES.some((usageType) => usages[usageType].detected);
+    const usageDetected = usageAgentTypes().some((usageType) => usages[usageType].detected);
 
     const [type, setType] = useState<AgentType | null>(null);
     const allAgents = useStore((s) => s.tabRailAllAgents);
@@ -168,7 +170,7 @@ export function TabRailBody() {
 
     const selectedProvider = availableAgents.find((agent) => agent.type === selectedType);
     const selectedUsage = hasUsage(selectedType) ? usages[selectedType].handle : null;
-    const usagePeaks = Object.fromEntries(USAGE_AGENT_TYPES.map((usageType) => [usageType, usagePeak(usages[usageType].handle.data)]));
+    const usagePeaks = Object.fromEntries(usageAgentTypes().map((usageType) => [usageType, usagePeak(usages[usageType].handle.data)]));
 
     const projectCwds = useMemo(
         () =>
@@ -352,7 +354,7 @@ export function TabRailBody() {
         <OpenAgentRow
             key={a.id}
             agent={a}
-            display={agentDisplayOf({ agentStatus }, a.id)}
+            display={agentStatus[a.id]}
             link={link}
             fold={fold}
             active={activeAgentId({ windows: windowsById }, session) === a.id}
@@ -426,7 +428,7 @@ export function TabRailBody() {
             )}
             <div className="tab-rail-top">
                 {actions}
-                <ScopeTabs scope={scope} name={session.name} waitingElsewhere={waitingElsewhere} onChange={cmd.setTabRailScope} />
+                <ScopeTabs scope={scope} name={sessionName} waitingElsewhere={waitingElsewhere} onChange={cmd.setTabRailScope} />
             </div>
             <div className="rail-scroll" ref={scrollRef} onScroll={onRailScroll}>
                 {scope === "all" && <AllProjectsAgents showEmpty={noRecents} host={remoteHost} />}
@@ -450,7 +452,7 @@ export function TabRailBody() {
 
                 {scope === "project" && (opens.length > 0 || workers.length > 0 || remoteChats.length > 0) && (
                     <Panel variant="group" className="agent-group">
-                        {foldTeams(inTeams(withRemoteWorkers(opens, workers)), folded, toggleTeam).map(({ agent: a, link, fold }) =>
+                        {foldTeams(coreTeams(opens, inbox.agents, workers), folded, toggleTeam).map(({ agent: a, link, fold }) =>
                             isRemoteWorker(a) ? <RemoteAgentRow key={a.id} agent={a.remote} link={link} /> : openRow(a, link, fold),
                         )}
                         {remoteChats}
@@ -520,16 +522,16 @@ export function TabRailBody() {
 }
 
 /** How much of each plan is used, for the agents found on this machine. */
-function useAgentUsages(available: readonly AgentInfo[]): Record<UsageAgentType, { detected: boolean; handle: ResourceHandle<AgentUsage> }> {
+function useAgentUsages(available: readonly AgentInfo[]): Record<AgentType, { detected: boolean; handle: ResourceHandle<AgentUsage> }> {
     return Object.fromEntries(
-        USAGE_AGENT_TYPES.map((type) => {
+        usageAgentTypes().map((type) => {
             const provider = available.find((agent) => agent.type === type);
-            // USAGE_AGENT_TYPES is a module constant, so these hooks run in the same order every render.
+            // The app reads the catalog once, before it first draws, so these hooks run in the same order every render.
             // eslint-disable-next-line react-hooks/rules-of-hooks
             const handle = useResourceEnabled(!!provider, agentUsageR, type, provider?.configPath ?? undefined);
             return [type, { detected: !!provider, handle }];
         }),
-    ) as Record<UsageAgentType, { detected: boolean; handle: ResourceHandle<AgentUsage> }>;
+    ) as Record<AgentType, { detected: boolean; handle: ResourceHandle<AgentUsage> }>;
 }
 
 function AgentHeader({
@@ -547,7 +549,7 @@ function AgentHeader({
     setType: (t: AgentType) => void;
     searchOpen: boolean;
     onToggleSearch: () => void;
-    usagePeaks: Partial<Record<UsageAgentType, number | undefined>>;
+    usagePeaks: Partial<Record<AgentType, number | undefined>>;
     canOpenPalette: boolean;
     allAgents: boolean;
 }) {
@@ -599,7 +601,7 @@ function AgentHeader({
                         checkAtEnd
                         onChange={(value) => {
                             if (value === ALL_AGENTS) return cmd.setTabRailAllAgents(true);
-                            setType(value as AgentType);
+                            setType(value);
                             cmd.setTabRailAllAgents(false);
                         }}
                     />

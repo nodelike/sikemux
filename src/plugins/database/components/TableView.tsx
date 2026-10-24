@@ -1,29 +1,30 @@
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, SkeletonRows } from "../../../plugin-api/ui";
-import type { DatabaseProfile } from "../api";
-import { databaseTableR } from "../resources";
-import { previewSql } from "../sql";
+import { databaseTableV } from "../resources";
 import type { OpenTable } from "../tabs";
+import type { DatabaseConnection } from "../types.generated";
 
 export function TableView({
+    slot,
     profile,
     table,
     active,
     onQuery,
     onOpenTable,
 }: {
-    profile: DatabaseProfile;
+    /** Where the pane shows it, so the core keeps it for this pane. */
+    slot: string;
+    profile: DatabaseConnection;
     table: OpenTable;
     active: boolean;
     /** Puts SQL in the editor, running it when asked. */
     onQuery: (sql: string, run: boolean) => void;
     onOpenTable: (table: OpenTable) => void;
 }) {
-    const found = useResourceEnabled(active, databaseTableR, profile.id, table.schema, table.name);
+    const found = useResourceEnabled(active, databaseTableV, slot, profile.id, table.schema, table.name);
     if (found.status === "error") return <EmptyState message={found.error ?? `Sikemux could not read ${table.name}.`} tone="error" />;
     if (!found.data) return <SkeletonRows rows={6} label={`Loading ${table.name}`} />;
     const info = found.data;
-    const preview = previewSql(profile.engine, profile.engine === "sqlite" && info.schema === "main" ? "" : info.schema, info.name);
 
     return (
         <article className="db-table-view" aria-label={`${info.schema}.${info.name}`}>
@@ -32,12 +33,12 @@ export function TableView({
                     <span className="db-meta">{info.schema}.</span>
                     {info.name}
                 </h2>
-                {info.kind !== "table" && <span className="db-badge">{info.kind.replace("-", " ")}</span>}
+                {info.kind !== "table" && <span className="db-badge">{info.kindName}</span>}
                 <span className="db-grow" />
-                <button type="button" className="db-button" onClick={() => onQuery(preview, false)}>
+                <button type="button" className="db-button" onClick={() => onQuery(info.preview, false)}>
                     Query this table
                 </button>
-                <button type="button" className="db-button primary" onClick={() => onQuery(preview, true)}>
+                <button type="button" className="db-button primary" onClick={() => onQuery(info.preview, true)}>
                     Preview rows
                 </button>
             </header>
@@ -78,9 +79,7 @@ export function TableView({
                         {info.indexes.map((index) => (
                             <li key={index.name}>
                                 <span className="mono">{index.name}</span>
-                                <span className="db-meta">
-                                    ({index.columns.join(", ")}){index.primary ? " primary" : index.unique ? " unique" : ""}
-                                </span>
+                                <span className="db-meta">{index.detail}</span>
                             </li>
                         ))}
                     </ul>
@@ -90,22 +89,19 @@ export function TableView({
                 <section aria-label="Foreign keys">
                     <div className="db-heading">Foreign keys</div>
                     <ul className="db-facts-list">
-                        {info.foreignKeys.map((key, at) => {
-                            const schema = key.referencesSchema ?? info.schema;
-                            return (
-                                <li key={key.name ?? at}>
-                                    <span className="mono">{key.columns.join(", ")}</span>
-                                    <span className="db-meta">→</span>
-                                    <button
-                                        type="button"
-                                        className="db-link mono"
-                                        title={`Open ${schema}.${key.referencesTable}`}
-                                        onClick={() => onOpenTable({ schema, name: key.referencesTable })}>
-                                        {key.referencesTable}({key.referencesColumns.join(", ")})
-                                    </button>
-                                </li>
-                            );
-                        })}
+                        {info.foreignKeys.map((key, at) => (
+                            <li key={at}>
+                                <span className="mono">{key.columns}</span>
+                                <span className="db-meta">→</span>
+                                <button
+                                    type="button"
+                                    className="db-link mono"
+                                    title={`Open ${key.schema}.${key.table}`}
+                                    onClick={() => onOpenTable({ schema: key.schema, name: key.table })}>
+                                    {key.target}
+                                </button>
+                            </li>
+                        ))}
                     </ul>
                 </section>
             )}

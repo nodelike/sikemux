@@ -14,10 +14,9 @@ import { useResourceEnabled } from "../../plugin-api/resources";
 import { EmptyState, IconCopy, IconMessage, SkeletonRows } from "../../plugin-api/ui";
 import { FileReviewList } from "../../git/FileReviewList";
 import { hostFileStatus } from "../../git/gitFileStatus";
-import { type ChangedFile, type RepoRef } from "../api";
+import { type RepoRef } from "../api";
 import { errorText } from "../../lib/format";
-import { patchToRows } from "../patchRows";
-import { pullFilesR } from "../resources";
+import { pullFilesR, type PulledFile } from "../lists";
 
 const LINE_HEIGHT = 19;
 const DIFF_PADDING = 16;
@@ -36,10 +35,10 @@ interface LinesMenu {
     sending: boolean;
 }
 
-const FileDiff = memo(function FileDiff({ file, dark, pull, cwd }: { file: ChangedFile; dark: boolean; pull: PullRef; cwd: string | null }) {
-    const rows = useMemo(() => (file.patch ? patchToRows(file.patch) : []), [file.patch]);
+const FileDiff = memo(function FileDiff({ file, dark, pull, cwd }: { file: PulledFile; dark: boolean; pull: PullRef; cwd: string | null }) {
+    const { rows } = file;
     const [menu, setMenu] = useState<LinesMenu | null>(null);
-    if (!file.patch)
+    if (rows.length === 0)
         return (
             <div className="merge-review-content gha-side-empty">
                 The host did not send a diff for this file, which it does for very large or binary ones.
@@ -89,6 +88,8 @@ const FileDiff = memo(function FileDiff({ file, dark, pull, cwd }: { file: Chang
 });
 
 interface Props {
+    /** The project the pull request is of, or none for one the inbox opened. */
+    project: string | null;
     repo: RepoRef;
     pull: PullRef;
     /** The project folder, when the pull request is on its own repository, so a file can open in the editor. */
@@ -99,8 +100,8 @@ interface Props {
 }
 
 /** A pull request's changed files, reviewed the way the git pane reviews local changes. */
-export function PullFiles({ repo, pull, cwd, active, focusPath }: Props) {
-    const files = useResourceEnabled(active, pullFilesR, repo, pull.number);
+export function PullFiles({ project, repo, pull, cwd, active, focusPath }: Props) {
+    const files = useResourceEnabled(active, pullFilesR, project, repo, pull.number);
     const dark = useDarkTheme();
     const byPath = useMemo(() => new Map((files.data ?? []).map((file) => [file.path, file])), [files.data]);
     const paths = useMemo(() => (files.data ?? []).map((file) => file.path), [files.data]);
@@ -115,7 +116,7 @@ export function PullFiles({ repo, pull, cwd, active, focusPath }: Props) {
                 focusPath={focusPath}
                 estimate={(path) => {
                     const file = byPath.get(path);
-                    return file?.patch ? Math.min(600, file.patch.split("\n").length * LINE_HEIGHT + DIFF_PADDING) : 60;
+                    return file?.rows.length ? Math.min(600, file.rows.length * LINE_HEIGHT + DIFF_PADDING) : 60;
                 }}
                 onOpenFile={cwd ? (path) => requestOpenFile(joinPath(cwd, path)) : undefined}
                 status={(path) => {

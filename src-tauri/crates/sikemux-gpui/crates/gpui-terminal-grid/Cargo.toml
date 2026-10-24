@@ -1,0 +1,17 @@
+[package]
+name = "gpui-terminal-grid"
+version = "0.1.0"
+edition = "2021"
+description = "Draws a terminal's grid of cells in GPUI, from cells emulated anywhere"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["gpui", "terminal", "grid"]
+categories = ["gui"]
+publish = false
+
+[dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.9" }
+
+[dev-dependencies]
+gpui = { package = "gpui-pre", version = "=0.3.9", features = ["test-support"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = ["font-kit", "test-support", "bench-support"] }

@@ -8,6 +8,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_plugin_api::slack::{Channel, ChannelKind, Channels, History, Message, Thread};
 use sikemux_process::sync::Locked;
 
 use crate::client::Session;
@@ -116,22 +117,6 @@ pub struct MessageRow {
     subtype: Option<String>,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Message {
-    pub ts: String,
-    pub user: Option<String>,
-    pub name: String,
-    pub bot: bool,
-    /// The text as markdown, people and channels named.
-    pub text: String,
-    /// When it was written, as an RFC 3339 time.
-    pub at: String,
-    pub thread_ts: Option<String>,
-    pub reply_count: u64,
-    pub files: Vec<String>,
-}
-
 /// Slack's `1700000000.123456` as `2023-11-14T22:13:20Z`.
 pub fn time_of(ts: &str) -> String {
     let secs: i64 = ts
@@ -216,24 +201,14 @@ pub struct ChannelRow {
     updated: Option<u64>,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Channel {
-    pub id: String,
-    pub name: String,
-    /// `channel`, `private`, `dm` or `group`.
-    pub kind: &'static str,
-    pub updated: Option<u64>,
-}
-
 #[derive(Deserialize)]
 pub struct WorkspaceRef {
     #[serde(default)]
     pub workspace: Option<String>,
 }
 
-/// The channels the person is in and their direct messages, channels first, each group by name.
-pub async fn channels(data_dir: &Path, input: WorkspaceRef) -> SlackResult<Vec<Channel>> {
+/// The channels the person is in, then their direct messages, each group by name.
+pub async fn channels_view(data_dir: &Path, input: WorkspaceRef) -> SlackResult<Channels> {
     let session = Session::of(data_dir, input.workspace.as_deref()).await?;
     let rows: Vec<ChannelRow> = session
         .get_all(
@@ -258,16 +233,18 @@ pub async fn channels(data_dir: &Path, input: WorkspaceRef) -> SlackResult<Vec<C
         .filter(|row| row.is_im || row.is_mpim || row.is_member)
         .map(|row| {
             let kind = if row.is_im {
-                "dm"
+                ChannelKind::Dm
             } else if row.is_mpim {
-                "group"
+                ChannelKind::Group
             } else if row.is_private {
-                "private"
+                ChannelKind::Private
             } else {
-                "channel"
+                ChannelKind::Channel
             };
             let name = match (&row.user, kind) {
-                (Some(user), "dm") => names.get(user).cloned().unwrap_or_else(|| user.clone()),
+                (Some(user), ChannelKind::Dm) => {
+                    names.get(user).cloned().unwrap_or_else(|| user.clone())
+                }
                 _ => row.name.clone().unwrap_or_else(|| row.id.clone()),
             };
             Channel {
@@ -278,12 +255,11 @@ pub async fn channels(data_dir: &Path, input: WorkspaceRef) -> SlackResult<Vec<C
             }
         })
         .collect();
-    channels.sort_by(|a, b| {
-        (a.kind == "dm" || a.kind == "group")
-            .cmp(&(b.kind == "dm" || b.kind == "group"))
-            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-    Ok(channels)
+    channels.sort_by_key(|channel| channel.name.to_lowercase());
+    let (people, rooms) = channels
+        .into_iter()
+        .partition(|channel| matches!(channel.kind, ChannelKind::Dm | ChannelKind::Group));
+    Ok(Channels { rooms, people })
 }
 
 fn channel_id(raw: &str) -> SlackResult<String> {
@@ -306,7 +282,7 @@ pub struct HistoryRef {
 }
 
 /// A channel's latest messages, oldest first, each saying how many replies its thread has.
-pub async fn history(data_dir: &Path, input: HistoryRef) -> SlackResult<Vec<Message>> {
+pub async fn history_view(data_dir: &Path, input: HistoryRef) -> SlackResult<History> {
     let session = Session::of(data_dir, input.workspace.as_deref()).await?;
     let answer = session
         .get(
@@ -320,19 +296,9 @@ pub async fn history(data_dir: &Path, input: HistoryRef) -> SlackResult<Vec<Mess
     let mut rows: Vec<MessageRow> =
         serde_json::from_value(answer.get("messages").cloned().unwrap_or(json!([])))?;
     rows.reverse();
-    Ok(messages_of(&session, rows).await)
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Thread {
-    pub workspace: String,
-    pub channel: String,
-    pub ts: String,
-    pub permalink: Option<String>,
-    pub messages: Vec<Message>,
-    /// The thread is longer than what came back.
-    pub truncated: bool,
+    Ok(History {
+        messages: messages_of(&session, rows).await,
+    })
 }
 
 #[derive(Deserialize)]
@@ -380,7 +346,7 @@ fn resolve(data_dir: &Path, input: &ThreadRef) -> SlackResult<(Option<String>, S
     }
 }
 
-const THREAD_MAX: usize = 1000;
+pub(crate) const THREAD_MAX: usize = 1000;
 
 pub async fn thread(data_dir: &Path, input: ThreadRef) -> SlackResult<Thread> {
     let (workspace, channel, ts) = resolve(data_dir, &input)?;
@@ -423,6 +389,41 @@ pub async fn thread(data_dir: &Path, input: ThreadRef) -> SlackResult<Thread> {
         permalink,
         truncated,
     })
+}
+
+#[derive(Deserialize)]
+struct ChannelInfo {
+    name: Option<String>,
+    user: Option<String>,
+    #[serde(default)]
+    is_im: bool,
+}
+
+/// How a pane or an agent names where a channel is: `#name`, or the person a direct message is with.
+pub(crate) async fn place_of(data_dir: &Path, workspace: &str, channel: &str) -> String {
+    let Ok(session) = Session::of(data_dir, Some(workspace)).await else {
+        return channel.to_string();
+    };
+    let info = session
+        .get("conversations.info", &[("channel", channel.to_string())])
+        .await
+        .ok()
+        .and_then(|answer| answer.get("channel").cloned())
+        .and_then(|info| serde_json::from_value::<ChannelInfo>(info).ok());
+    match info {
+        Some(ChannelInfo {
+            is_im: true,
+            user: Some(user),
+            ..
+        }) => names_of(&session, std::slice::from_ref(&user))
+            .await
+            .remove(&user)
+            .unwrap_or(user),
+        Some(ChannelInfo {
+            name: Some(name), ..
+        }) => format!("#{name}"),
+        _ => channel.to_string(),
+    }
 }
 
 #[derive(Deserialize)]

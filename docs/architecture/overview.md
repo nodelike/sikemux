@@ -48,7 +48,7 @@ sends events and byte streams back.
 | App web view      | `src/main.tsx`, window label `main`                | The React UI. It loads `dist/` in builds and `http://localhost:1420` in dev. A guard in `lib.rs` stops it from ever navigating anywhere else.                                                                                                                                                                                  |
 | Browser tabs      | `src-tauri/src/browser/`                           | Each tab is a native child web view placed over the main window. React draws only the tab chrome and reports where the page area is. `without_page_script.rs` keeps the app's own page scripts out of these tabs.                                                                                                              |
 | `sikemux-host`    | `src-tauri/crates/sikemux-host/` → `cli_client.rs` | The `sikemux` launcher, which asks the running app to open files and projects. With `--tools-mcp` it is the MCP server (Model Context Protocol) agents launch over stdio; with `core` it is the background core, with the built-in plugins. It never links the app's window code, so a host with no screen installs only this. |
-| `sikemux-voice`   | `src-tauri/voice/` (Swift package)                 | Speech-to-text helper, downloaded with the speech model. `voice.rs` starts it, writes JSON lines to its stdin and relays its `voice` events.                                                                                                                                                                                   |
+| `sikemux-voice`   | `src-tauri/voice/` (Swift package)                 | Speech-to-text helper, downloaded with the speech model. The `sikemux-voice` crate starts it, writes JSON lines to its stdin and puts its events on a channel; the app's `voice.rs` relays them as `voice` events.                                                                                                             |
 | Shells and agents | spawned by the background core                     | Children of the core, not of the app, so reloading, closing or quitting the app leaves them running.                                                                                                                                                                                                                           |
 | Language servers  | spawned by `lsp/`                                  | Children of the app. When the main web view reloads or the window closes, `lib.rs` drains them.                                                                                                                                                                                                                                |
 
@@ -57,11 +57,11 @@ the app. `scripts/build-cli-sidecar.mjs` builds it into `src-tauri/binaries/` an
 `tauri.sidecar.conf.json` adds it to the Linux and Windows bundles. On macOS it is the
 executable of an app of its own, `Contents/Helpers/Sikemux Core.app`
 (`com.nodelike.sikemux.core`), because only an app can carry the provisioning profile
-that lets it keep secrets in the keychain group it shares with the app. `tauri.core.conf.json`
-adds it, with a `Contents/MacOS/sikemux-host` link to it for installed `sikemux`
-commands, and `scripts/sign-mac.sh` embeds the profiles in `src-tauri/macos/`. `scripts/build-voice-helper.mjs` builds
+that lets it keep secrets in the keychain group it shares with the app. `scripts/build-mac.sh`
+puts it in the bundle beside the GPUI app and the notch helper, with a
+`Contents/MacOS/sikemux-host` link to it for installed `sikemux` commands, and `scripts/sign-mac.sh` embeds the profiles in `src-tauri/macos/`. `scripts/build-voice-helper.mjs` builds
 and signs `sikemux-voice` there too, but it stays out of the app: each release publishes
-it as an asset, `build.rs` records its hash, and `voice_models.rs` downloads it with the
+it as an asset, and the `sikemux-voice` crate records its hash and downloads it with the
 speech model. `pnpm sidecar:dev` builds both beside the dev app, which runs them in place.
 
 ### The background core
@@ -256,7 +256,7 @@ After adding or removing a command, run `pnpm ipc:generate` and commit the three
 | `observability/`                              | Bounded spans, counters and latency history, the UI heartbeat and hang watchdog; `autopsy.rs` saves evidence |
 | `system.rs`                                   | Login-shell `PATH`, the file descriptor limit, finding executables                                           |
 | `updates.rs`                                  | Stable and nightly update checks and installs; `release_credits.rs` reads release notes                      |
-| `voice.rs`                                    | The voice helper process                                                                                     |
+| `voice.rs`                                    | Dictation's commands, over the `sikemux-voice` crate                                                         |
 | `settings.rs`, `ssh.rs`                       | Project root scanning and `~/.ssh/config` hosts                                                              |
 | `transparency.rs`, `wallpaper.rs`, `wheel.rs` | macOS window blur, wallpaper stills and trackpad state                                                       |
 
@@ -266,6 +266,7 @@ Internal crates in `src-tauri/crates/`:
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sikemux-plugin-api` | The contract between the app and a plugin: a method name and JSON in, JSON or a stream out                                                                                                                                                                                                                  |
 | `sikemux-process`    | Runs a subprocess with a timeout and an output size limit                                                                                                                                                                                                                                                   |
+| `sikemux-voice`      | Dictation for every app: downloads the speech model and the `sikemux-voice` helper this build was made with, starts the helper, and puts what it hears on a channel                                                                                                                                         |
 | `sikemux-markdown`   | Parses markdown into the block tree the chat transcript draws (`markdown_parse`)                                                                                                                                                                                                                            |
 | `sikemux-keychain`   | Reads and writes secrets in the system keychain; used by the GitHub, GitLab, Bitbucket, Database, Jira and SigNoz plugins                                                                                                                                                                                   |
 | `sikemux-loopback`   | Waits for the browser to come back from a sign-in, on one port where each plugin has its own path; used by the Bitbucket and Jira plugins                                                                                                                                                                   |

@@ -7,6 +7,7 @@ import {
     getKeybindingAction,
     keybindingHasModifier,
     keybindingLabel,
+    keybindingOverridesOf,
     normaliseKeybindingOverrides,
     pluginOpenedBy,
     pluginShortcutFor,
@@ -14,6 +15,7 @@ import {
     resolvedKeybinding,
 } from "./keybindings";
 import { getState, setState } from "../state/store";
+import { testPreferences } from "../test/preferences";
 
 function key(code: string, modifiers: Partial<Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "altKey" | "shiftKey">> = {}) {
     return {
@@ -158,5 +160,16 @@ describe("a plugin's own shortcuts", () => {
         expect(pluginShortcutFor("plugin.run:test.shortcuts/go")?.run()).toBe(false);
         expect(pluginShortcutFor("plugin.run:test.shortcuts/missing")).toBeNull();
         setState({ pluginManifests: manifests });
+    });
+});
+
+describe("the rebound keys a window reads", () => {
+    it("keeps only those that name an action and a key with a modifier", () => {
+        setState({
+            preferences: testPreferences({
+                keybindingOverrides: { "project.open": "Meta+Shift+KeyO", "pane.zoom": "KeyZ", unknown: "Meta+KeyU" },
+            }),
+        });
+        expect(keybindingOverridesOf(getState())).toEqual({ "project.open": "Meta+Shift+KeyO" });
     });
 });

@@ -2,7 +2,9 @@ import { parse, SvgAst, type JsxAST } from 'react-native-svg';
 
 import { DRAWN_ICONS } from './drawnIcons';
 import { ICONS, type IconName } from './icons.generated';
-import { brand, type Provider, useColors } from './theme';
+import { useAgentBrand } from '@mac/agents/catalog';
+
+import { type Provider, useColors } from './theme';
 
 export type DeviceKind = 'laptop' | 'desktop' | 'mini';
 
@@ -49,6 +51,7 @@ export function isProvider(name: string): name is Provider {
 /** An agent's logo in its brand colour, as the Mac's AgentIcon draws it. */
 export function AgentIcon({ provider, size = 20 }: { provider: string; size?: number }) {
   const colors = useColors();
+  const brand = useAgentBrand(provider);
   if (!isProvider(provider)) return <Icon name="IconAgent" size={size} color={colors.secondary} />;
-  return <Icon name={PROVIDER_ICONS[provider]} size={size} color={brand[provider]} />;
+  return <Icon name={PROVIDER_ICONS[provider]} size={size} color={brand ?? colors.secondary} />;
 }

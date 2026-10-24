@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorText } from "../lib/format";
 import { checkWords, modelProvidersApi, modelWords, type ModelHelper, type ModelProvider, type ModelProviderKind } from "../api/modelProviders";
-import { agentLabel, CHAT_AGENT_TYPES } from "../agents/catalog";
+import { agentLabel, chatAgentTypes } from "../agents/catalog";
 import { reportError } from "../state/toast";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";
@@ -256,7 +256,7 @@ function HelpersSection({ providers }: { providers: ModelProvider[] }) {
                         value={helper?.agent ?? SAME_AS_LEAD}
                         options={[
                             { value: SAME_AS_LEAD, label: "As the agent that starts them" },
-                            ...CHAT_AGENT_TYPES.map((type) => ({ value: type, label: agentLabel(type) })),
+                            ...chatAgentTypes().map((type) => ({ value: type, label: agentLabel(type) })),
                         ]}
                         onChange={(agent) => void save(agent ? { agent } : null)}
                     />

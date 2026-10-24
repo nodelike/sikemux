@@ -35,7 +35,7 @@ use super::chat::Chat;
 use super::names::project_of;
 use super::Core;
 pub(crate) use lines::{changed, hunk, replaced, Lines, Replaced};
-pub(crate) use owners::{authors, before, git, owners_at, Owners};
+pub(crate) use owners::{authors, before, commit_lines, git, owners_at, CommitLines, Owners};
 
 const FOLDER: &str = "edits";
 const MAX_PER_PROJECT: usize = 5000;
