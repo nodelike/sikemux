@@ -1,6 +1,6 @@
 // Builds screens.html from screens.src.html: `{{IconName}}` or `{{IconName:size}}`
 // becomes that icon's SVG, the same markup the phone app draws. `--serve` also
-// serves the Mac app's fonts from public/fonts, which the page loads, and the
+// serves the app's fonts from shared/fonts, which the page loads, and the
 // showcases' pane picture, which the Picture backdrop draws.
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -15,7 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
 const app = resolve(here, '../app');
 const PORT = 8791;
-const SERVED = [here, join(repo, 'public/fonts')];
+const SERVED = [here, join(repo, 'shared/fonts')];
 
 await generate();
 const text = readFileSync(resolve(app, 'src/ui/icons.generated.ts'), 'utf8');

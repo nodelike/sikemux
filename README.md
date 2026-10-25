@@ -6,7 +6,7 @@
 
 Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, logs and deploys, in one 22 MB native app.
 
-![Sikemux with a Claude Code agent and its browser tab](public/screenshots/sikemux-hero.png)
+![Sikemux with a Claude Code agent and its browser tab](docs/screenshots/sikemux-hero.png)
 
 [![Latest release](https://img.shields.io/github/v/release/nodelike/sikemux?display_name=tag)](https://github.com/nodelike/sikemux/releases/latest)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/UKfmHpF9kX)

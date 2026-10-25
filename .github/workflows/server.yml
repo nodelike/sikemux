@@ -7,12 +7,10 @@ on:
       - "server/**"
       - "src-tauri/crates/sikemux-core/src/accounts/**"
       - "src-tauri/crates/sikemux-wire/src/accounts/**"
-      # A shared chat's page draws with shared/, the core's themes and markdown, the mark, and the app's fonts and file icons.
+      # A shared chat's page draws with shared/ and its fonts, the core's themes and markdown, and the mark.
       - "shared/**"
       - "brand/mark/**"
       - "src-tauri/crates/sikemux-core/src/server/themes/**"
-      - "public/fonts/**"
-      - "public/file-icons/**"
       - "src-tauri/crates/sikemux-markdown/**"
       - "src-tauri/crates/sikemux-markdown-wasm/**"
       - mobile/app/certs/updates-certificate.pem
@@ -23,12 +21,10 @@ on:
       - "server/**"
       - "src-tauri/crates/sikemux-core/src/accounts/**"
       - "src-tauri/crates/sikemux-wire/src/accounts/**"
-      # A shared chat's page draws with shared/, the core's themes and markdown, the mark, and the app's fonts and file icons.
+      # A shared chat's page draws with shared/ and its fonts, the core's themes and markdown, and the mark.
       - "shared/**"
       - "brand/mark/**"
       - "src-tauri/crates/sikemux-core/src/server/themes/**"
-      - "public/fonts/**"
-      - "public/file-icons/**"
       - "src-tauri/crates/sikemux-markdown/**"
       - "src-tauri/crates/sikemux-markdown-wasm/**"
       - mobile/app/certs/updates-certificate.pem

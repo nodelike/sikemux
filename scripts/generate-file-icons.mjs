@@ -5,7 +5,7 @@ import { createServer } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
 const themeDir = resolve(root, "node_modules/material-icon-theme");
-const iconsOutputDir = resolve(root, "public/file-icons");
+const iconsOutputDir = resolve(root, "server/app/public/file-icons");
 const indexOutputPath = resolve(iconsOutputDir, "index.json");
 const gpuiBundlePath = resolve(
   root,

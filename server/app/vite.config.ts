@@ -49,13 +49,13 @@ function buildMarkdown() {
   );
 }
 
-/** Files the chat view loads by address: the markdown parser, the fonts and the file icons. */
+/** Files the chat view loads by address that live outside public/: the markdown parser and the app's fonts. */
 function chatFiles(): Map<string, string> {
   const files = new Map<string, string>([["markdown.wasm", WASM]]);
-  for (const folder of ["fonts", "file-icons"])
-    for (const name of readdirSync(join(repo, "public", folder)))
-      if ([".woff2", ".svg", ".json"].includes(extname(name)))
-        files.set(`${folder}/${name}`, join(repo, "public", folder, name));
+  const fonts = join(repo, "shared/fonts");
+  for (const name of readdirSync(fonts))
+    if (extname(name) === ".woff2")
+      files.set(`fonts/${name}`, join(fonts, name));
   return files;
 }
 

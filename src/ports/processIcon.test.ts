@@ -18,7 +18,7 @@ describe("processIcon", () => {
 
     it("names only icons the app ships", () => {
         for (const process of ["node", "deno", "python", "ruby", "java", "php", "elixir", "docker"]) {
-            expect(existsSync(resolve(__dirname, `../../public/file-icons/${processIcon(process)}.svg`))).toBe(true);
+            expect(existsSync(resolve(__dirname, `../../server/app/public/file-icons/${processIcon(process)}.svg`))).toBe(true);
         }
     });
 });

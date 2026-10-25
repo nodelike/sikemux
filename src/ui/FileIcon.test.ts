@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fileIconOf, fileIconTables, type FileIconIndex } from "./FileIcon";
 
-const index = JSON.parse(readFileSync(resolve(__dirname, "../../public/file-icons/index.json"), "utf8")) as FileIconIndex;
+const index = JSON.parse(readFileSync(resolve(__dirname, "../../server/app/public/file-icons/index.json"), "utf8")) as FileIconIndex;
 const tables = fileIconTables(index);
 const iconOf = (name: string) => fileIconOf(tables, name);
 
