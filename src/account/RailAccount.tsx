@@ -4,7 +4,7 @@ import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
 import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
 import * as cmd from "../state/commands";
 import { swallow } from "../state/toast";
-import { IconLaptop, IconLogIn, IconLogOut, IconSettings, IconUser } from "../ui/Icons";
+import { IconLaptop, IconLogIn, IconLogOut, IconSettings, IconUser } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { AccountAvatar } from "./AccountAvatar";
 import { loadAccount, signInToAccount, signOutOfAccount, useAccount, watchAccount } from "./account";

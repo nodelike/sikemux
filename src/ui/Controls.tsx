@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { IconCheck } from "./Icons";
+import { IconCheck } from "@shared/ui/Icons";
 
 /**
  * Shared form primitives.

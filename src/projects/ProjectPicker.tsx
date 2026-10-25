@@ -6,7 +6,7 @@ import { projectRootsScanR } from "../state/resources.defs";
 import { projectRootsOf } from "../state/preferences";
 import { useStore } from "../state/store";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
-import { IconFolder } from "../ui/Icons";
+import { IconFolder } from "@shared/ui/Icons";
 import { dirname } from "@shared/lib/paths";
 import { projectChoices, type ProjectChoice } from "./projectChoices";
 

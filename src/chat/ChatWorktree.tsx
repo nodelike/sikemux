@@ -1,6 +1,6 @@
 import { prettyPath } from "@shared/lib/paths";
 import type { AgentWorktree } from "../state/types";
-import { IconGit } from "../ui/Icons";
+import { IconGit } from "@shared/ui/Icons";
 import type { WorktreeSwitchState } from "./worktreeSwitch";
 import "../styles/chat/worktree.css";
 

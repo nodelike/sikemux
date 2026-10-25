@@ -62,7 +62,7 @@ import {
     IconWindow,
     IconWorkflow,
     IconWrench,
-} from "../ui/Icons";
+} from "@shared/ui/Icons";
 import { ChatFileRef, useFileRef } from "./FileRef";
 import { ChatAgentContext, openLink, ToolDetailContext } from "./chatAgent";
 import { ChatImage } from "./ChatImage";

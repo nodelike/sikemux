@@ -2,7 +2,7 @@ import { type MouseEvent, type ReactNode, useState } from "react";
 import * as cmd from "../state/commands";
 import { getState } from "../state/store";
 import type { TabRef } from "../state/types";
-import { IconClose } from "../ui/Icons";
+import { IconClose } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { AgentRowProject } from "./AgentRowTree";
 import { type CtxItem, TreeContextMenu } from "./FileTree";

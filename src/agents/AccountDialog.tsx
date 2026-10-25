@@ -8,7 +8,7 @@ import { agentAccountR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { reportError } from "../state/toast";
 import type { ProviderProfile } from "../state/types";
-import { AgentIcon, IconTrash } from "../ui/Icons";
+import { AgentIcon, IconTrash } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { SignInError, SignInScreen, SignInWaiting } from "../plugin-api/SignIn";
 import {

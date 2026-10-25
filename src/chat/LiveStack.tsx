@@ -1,6 +1,6 @@
 import { useContext, type ReactNode } from "react";
 import { PRIMARY_SHORTCUT } from "@shared/lib/platform";
-import { AgentIcon, IconCheck, IconChevron, IconClock, IconClose, IconCommand, IconTimer, IconWorkflow } from "../ui/Icons";
+import { AgentIcon, IconCheck, IconChevron, IconClock, IconClose, IconCommand, IconTimer, IconWorkflow } from "@shared/ui/Icons";
 import { ChatAgentContext } from "./chatAgent";
 import { queuedLabel } from "@shared/chat/queuedMessages";
 import type { QueuedMessage } from "@shared/chat/types";

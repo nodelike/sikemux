@@ -11,7 +11,7 @@ import { useStore } from "../state/store";
 import { reportError } from "../state/toast";
 import type { ProviderProfile } from "../state/types";
 import { Switch } from "../ui/Controls";
-import { IconLogOut, IconMore, IconPlus, IconTrash } from "../ui/Icons";
+import { IconLogOut, IconMore, IconPlus, IconTrash } from "@shared/ui/Icons";
 import { planLabel } from "../rail/usageFormat";
 import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
 import { SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";

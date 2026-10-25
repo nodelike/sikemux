@@ -11,7 +11,7 @@ import type { AgentUsage } from "../api/agents";
 import { useStore } from "../state/store";
 import { activeAgentId, agentIdsOf, chatKey, hasChat } from "../state/selectors";
 import { type Agent, type AgentType, type PinnedChat } from "../state/types";
-import { AgentIcon, IconAgent, IconDownload, IconGlobe, IconInbox, IconPin, IconPlus, IconSearch, IconTerminal } from "../ui/Icons";
+import { AgentIcon, IconAgent, IconDownload, IconGlobe, IconInbox, IconPin, IconPlus, IconSearch, IconTerminal } from "@shared/ui/Icons";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
 import { AgentContextMenu } from "../workspace/AgentContextMenu";
 import { Tooltip } from "../ui/Tooltip";

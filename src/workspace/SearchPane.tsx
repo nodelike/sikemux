@@ -13,7 +13,7 @@ import { DEFAULT_GLOBAL_SEARCH_VIEW } from "../state/types";
 import { notify, swallow } from "../state/toast";
 import { errorText } from "@shared/lib/format";
 import { FileIcon } from "../ui/FileIcon";
-import { IconSearch } from "../ui/Icons";
+import { IconSearch } from "@shared/ui/Icons";
 import { basename, dirname, isPathWithin, joinPath, normalizePath } from "@shared/lib/paths";
 import { PRIMARY_SHORTCUT, SHIFT_SHORTCUT } from "@shared/lib/platform";
 import { ENTER_GLYPH } from "../commands/keybindings";

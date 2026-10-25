@@ -6,7 +6,7 @@ the core sends.
 ## Run
 
 ```sh
-node icons.mjs     # after an icon in src/ui/Icons.tsx changes
+node icons.mjs     # after an icon in shared/ui/Icons.tsx changes
 python3 fonts.py   # after the mono font in public/fonts changes (needs fontTools, brotli)
 cargo build --manifest-path ../../Cargo.toml -p sikemux-host --target-dir target
 cargo run

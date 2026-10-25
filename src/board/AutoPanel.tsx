@@ -7,7 +7,7 @@ import * as cmd from "../state/commands";
 import { reportError } from "../state/toast";
 import { Switch } from "../ui/Controls";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
-import { IconClose } from "../ui/Icons";
+import { IconClose } from "@shared/ui/Icons";
 
 const MAX_SLOTS = 8;
 

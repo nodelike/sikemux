@@ -107,7 +107,10 @@ export default defineConfig({
   clearScreen: false,
   resolve: {
     alias: [
-      { find: /^@shared\//, replacement: `${resolve("shared")}/` },
+      {
+        find: /^@shared\//,
+        replacement: `${resolve(import.meta.dirname, "shared")}/`,
+      },
       { find: /^shiki$/, replacement: resolve("src/vendor/shiki.ts") },
       {
         find: /^shiki\/(wasm|engine\/oniguruma)$/,

@@ -5,7 +5,7 @@ import { inboxApi } from "../api/inbox";
 import { formatAge } from "@shared/lib/format";
 import { useInbox } from "../rail/useInbox";
 import { reportError } from "../state/toast";
-import { IconClose } from "../ui/Icons";
+import { IconClose } from "@shared/ui/Icons";
 
 /** The project's messages, read again whenever the core says the project logged another. */
 function useMessageLog(folder: string): AgentMessageRows | null {

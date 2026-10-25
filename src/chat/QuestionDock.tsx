@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { AgentQuestion } from "../api/agentQuestions";
 import { PRIMARY_SHORTCUT } from "@shared/lib/platform";
-import { IconCheck, IconChevron, IconLock, IconPencil } from "../ui/Icons";
+import { IconCheck, IconChevron, IconLock, IconPencil } from "@shared/ui/Icons";
 import type { ChatQuestions } from "./useChatQuestions";
 
 /** What the person picks a question by: the agent's own short name for it, or its place. */

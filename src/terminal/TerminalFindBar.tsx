@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import type { TerminalController } from "./useTerminal";
 import type { SearchResults } from "./view";
 import type { TerminalSearchOptions } from "./interactions";
-import { IconArrowDown, IconArrowUp, IconClose } from "../ui/Icons";
+import { IconArrowDown, IconArrowUp, IconClose } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 
 export function TerminalFindBar({

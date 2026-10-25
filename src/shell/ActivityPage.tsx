@@ -12,7 +12,7 @@ import { calendarColumns, dayDate, localDay } from "../lib/activityCalendar";
 import { basename, prettyPath } from "@shared/lib/paths";
 import { agentLabel } from "@shared/agents/catalog";
 import { useStore } from "../state/store";
-import { AgentIcon, IconFolder } from "../ui/Icons";
+import { AgentIcon, IconFolder } from "@shared/ui/Icons";
 import { SettingsPage, SettingsSection } from "../settings/SettingsLayout";
 import { onCoreChanged } from "../api/coreChanged";
 import { swallow } from "../state/toast";

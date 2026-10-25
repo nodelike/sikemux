@@ -1,7 +1,7 @@
 import { useLayoutEffect, type KeyboardEvent, type RefObject } from "react";
 import { PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import { setGitDraft, useGitWorkbench } from "../state/gitWorkbench";
-import { IconChevron, IconSparkle } from "../ui/Icons";
+import { IconChevron, IconSparkle } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 
 export function GitComposer({

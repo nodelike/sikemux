@@ -24,7 +24,7 @@ import {
     IconPencil,
     IconSearch,
     IconTrash,
-} from "../ui/Icons";
+} from "@shared/ui/Icons";
 import { FileIcon } from "../ui/FileIcon";
 import { Tooltip } from "../ui/Tooltip";
 import { gitFileDecoration, gitFolderDecorations, type GitStatusDecoration } from "../git/gitFileStatus";

@@ -1,6 +1,6 @@
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
-import { IconPanelLeft, IconPanelRight } from "../ui/Icons";
+import { IconPanelLeft, IconPanelRight } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 
 const RAILS = {

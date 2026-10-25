@@ -1,4 +1,4 @@
-import { IconFolder, IconLaptop, IconServer } from "../ui/Icons";
+import { IconFolder, IconLaptop, IconServer } from "@shared/ui/Icons";
 import type { HostChoice } from "./hosts";
 
 /** A host's mark in the side rail's colour for its kind: this host, one on the account, or an SSH host. */

@@ -468,7 +468,7 @@ code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
         <tr><td>Hit area</td><td>The drawn shape plus the menu-bar band beneath a closed island. Everything else in the canvas passes clicks through.</td></tr>
         <tr><td>Displays</td><td>One panel per screen, keyed by display UUID, rebuilt when the screen setup changes. Setting: every display / the built-in only / the
             one under the pointer. In a full-screen app the island stays hidden unless an agent needs you.</td></tr>
-        <tr><td>Icons</td><td>The app's own set from <code>src/ui/Icons.tsx</code>: a 16-pt grid, 1.4 stroke, round caps and joins. Port each path as a SwiftUI
+        <tr><td>Icons</td><td>The app's own set from <code>shared/ui/Icons.tsx</code>: a 16-pt grid, 1.4 stroke, round caps and joins. Port each path as a SwiftUI
             <code>Shape</code> (or an SVG asset) so the island and the app never drift apart. Agent marks come from the same file.</td></tr>
         <tr><td>Buddies</td><td>Each agent in the inbox carries the <code>face</code> the core gave it, or none while it shows its agent's mark. A face replaces
             the mark at the mark's size, in the closed wing, the peeks, the rows and the drop target. The helper draws it with the app's own buddy script
@@ -504,7 +504,7 @@ const ICONS = {};
 let GLYPH = {};
 
 async function loadIcons() {
-    const source = await (await fetch("../../../src/ui/Icons.tsx")).text();
+    const source = await (await fetch("../../../shared/ui/Icons.tsx")).text();
     const pattern = /export const (Icon\w+) = makeSvgIcon\(\s*([\s\S]*?)\s*(?:,\s*(\{[^{}]*\}))?\s*,?\s*\);\n/g;
     for (const [, name, jsx, opts = ""] of source.matchAll(pattern)) {
         const body = jsx

@@ -6,7 +6,7 @@ import { subscribe } from "../state/bus";
 import * as cmd from "../state/commands";
 import { invalidate, resource, useResourceEnabled } from "../state/resources";
 import type { AgentWorktree } from "../state/types";
-import { IconPullRequest } from "../ui/Icons";
+import { IconPullRequest } from "@shared/ui/Icons";
 import "../styles/chat/worktree.css";
 
 const RECHECK_AFTER_CHANGE_MS = 1_500;

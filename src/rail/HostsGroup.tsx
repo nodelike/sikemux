@@ -35,7 +35,7 @@ import {
     IconServer,
     IconTerminal,
     IconTrash,
-} from "../ui/Icons";
+} from "@shared/ui/Icons";
 import { StatusDot } from "../ui/StatusDot";
 import type { CtxItem } from "./FileTree";
 

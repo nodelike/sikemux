@@ -1,5 +1,5 @@
 import type { TabRailScope } from "../state/types";
-import { IconFolder, IconStack } from "../ui/Icons";
+import { IconFolder, IconStack } from "@shared/ui/Icons";
 
 /** This project, by name, or every open project, as one track the choice slides along. */
 export function ScopeTabs({

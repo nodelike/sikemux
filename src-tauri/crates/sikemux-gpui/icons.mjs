@@ -12,7 +12,7 @@ const crate = import.meta.dirname;
 const root = resolve(crate, "../../..");
 const out = resolve(crate, "assets/icons");
 
-const ICONS = "/src/ui/Icons.tsx";
+const ICONS = "/shared/ui/Icons.tsx";
 const SECTIONS = "/src/codehost/components/ActionsIcon.tsx";
 
 /** File name → the module, its export and the props it is drawn with. */
@@ -147,10 +147,10 @@ const DRAWN = {
 };
 /** Marks the app draws as pictures of their own, copied as they are. */
 const PICTURES = {
-  codex: "src/assets/agent-logos/codex.svg",
-  omp: "src/assets/agent-logos/omp.svg",
-  muse: "src/assets/agent-logos/muse.svg",
-  bruno: "src/assets/bruno.svg",
+  codex: "shared/assets/agent-logos/codex.svg",
+  omp: "shared/assets/agent-logos/omp.svg",
+  muse: "shared/assets/agent-logos/muse.svg",
+  bruno: "shared/assets/bruno.svg",
   signoz: "src/plugins/signoz/signoz.svg",
 };
 /** GPUI's SVG renderer has no oklch(), which WebKit draws, so a picture's oklch colours are

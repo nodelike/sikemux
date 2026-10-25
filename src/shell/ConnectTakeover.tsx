@@ -4,7 +4,7 @@ import { AccountAvatar } from "../account/AccountAvatar";
 import { useAccount } from "../account/account";
 import type { DeviceAccess, PendingDevice } from "../api/remote";
 import { ACCESS_OPTIONS } from "@shared/remote/access";
-import { IconCommand, IconEye, IconLaptop, IconPhone } from "../ui/Icons";
+import { IconCommand, IconEye, IconLaptop, IconPhone } from "@shared/ui/Icons";
 import { ENTER_GLYPH } from "../commands/keybindings";
 import "../styles/connect-takeover.css";
 import { formatClock } from "@shared/lib/format";

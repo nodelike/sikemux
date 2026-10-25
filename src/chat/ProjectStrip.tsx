@@ -6,7 +6,7 @@ import * as cmd from "../state/commands";
 import { useResource } from "../state/resources";
 import { gitOverviewR } from "../state/resources.defs";
 import { useStore } from "../state/store";
-import { IconChevron, IconGit } from "../ui/Icons";
+import { IconChevron, IconGit } from "@shared/ui/Icons";
 import { THIS_HOST, hostName } from "../hosts/hosts";
 import { hostMark, projectMark } from "../hosts/placeMarks";
 import { WorktreeToggle } from "./ChatWorktree";

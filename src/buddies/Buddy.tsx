@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, type CSSProperties } from "react";
 import { useStore } from "../state/store";
-import { AgentIcon } from "../ui/Icons";
+import { AgentIcon } from "@shared/ui/Icons";
 import type { Agent } from "../state/types";
 import { buddyStateOfGroup, type BuddyPack, type BuddyShape, type BuddyState } from "@shared/buddies/catalogue";
 import { drawnFace } from "@shared/buddies/faces";

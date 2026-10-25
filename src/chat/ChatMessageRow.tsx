@@ -14,7 +14,7 @@ import {
     IconUser,
     IconWarning,
     IconWorkflow,
-} from "../ui/Icons";
+} from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { AgentMark } from "../agents/AgentMark";
 import sikemuxMark from "../../brand/mark/mark-purple.svg";

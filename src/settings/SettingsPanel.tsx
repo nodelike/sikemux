@@ -54,7 +54,7 @@ import {
     IconSave,
     IconSearch,
     IconTrash,
-} from "../ui/Icons";
+} from "@shared/ui/Icons";
 import { Dropdown } from "../ui/Dropdown";
 import { Checkbox, Slider, Switch } from "../ui/Controls";
 import { Tooltip } from "../ui/Tooltip";

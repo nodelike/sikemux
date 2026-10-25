@@ -1,4 +1,4 @@
-import { IconShieldBolt } from "../ui/Icons";
+import { IconShieldBolt } from "@shared/ui/Icons";
 import type { PermissionAsk } from "@shared/chat/types";
 
 export function PermissionRequest({

@@ -1,8 +1,5 @@
 import { useId, type ReactNode } from "react";
-import type { AgentType } from "../state/types";
-import type { CoreWindowRole, WindowRole } from "../state/windowRoles";
-import { isPluginKind } from "../plugins/kinds";
-import { pluginSurface } from "../plugins/registry";
+import type { AgentType } from "../agents/catalog";
 
 const brunoLogo = new URL("../assets/bruno.svg", import.meta.url).href;
 const codexLogo = new URL("../assets/agent-logos/codex.svg", import.meta.url).href;
@@ -912,24 +909,3 @@ export const IconDashboard = makeSvgIcon24(
         <rect x="3" y="15" width="7.5" height="6" rx="1.5" />
     </>,
 );
-
-const WINDOW_ICONS: Record<CoreWindowRole, (props: IconProps) => ReactNode> = {
-    term: IconTerminal,
-    files: IconEditor,
-    git: IconGit,
-    diff: IconCommit,
-    search: IconSearch,
-    "ssh-config": IconWindow,
-    named: IconWindow,
-    agent: IconAgent,
-    shared: IconEye,
-    board: IconBoard,
-    "project-settings": IconSettings,
-    install: IconDownload,
-};
-
-export function WindowIcon({ role, size }: { role: WindowRole; size?: number }) {
-    if (isPluginKind(role)) return pluginSurface(role)?.icon(size ?? 14) ?? <IconWindow size={size} />;
-    const Icon = WINDOW_ICONS[role];
-    return <Icon size={size} />;
-}

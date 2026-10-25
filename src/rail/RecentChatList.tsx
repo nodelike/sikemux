@@ -5,7 +5,7 @@ import { AgentTitleInput } from "../agents/AgentTitleInput";
 import * as cmd from "../state/commands";
 import { chatKey, projectSessionId } from "../state/selectors";
 import { useStore } from "../state/store";
-import { AgentIcon, IconMessage, IconPencil, IconPin, IconTrash } from "../ui/Icons";
+import { AgentIcon, IconMessage, IconPencil, IconPin, IconTrash } from "@shared/ui/Icons";
 import { Panel, PanelHeader } from "../ui/Panel";
 import { TreeContextMenu } from "./FileTree";
 import type { RecentChats } from "./useRecentChats";

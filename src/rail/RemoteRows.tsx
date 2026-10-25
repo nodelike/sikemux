@@ -5,7 +5,7 @@ import type { ChatInfo, SessionInfo } from "@shared/wire.generated";
 import { chatsIn, hostTitle, newWorkHost, openRemoteChat, openRemoteTerminal, hostProjectOf, terminalsIn, type HostProject } from "../hosts/hosts";
 import { useStore } from "../state/store";
 import type { Session } from "../state/types";
-import { AgentIcon, IconAgent, IconTerminal } from "../ui/Icons";
+import { AgentIcon, IconAgent, IconTerminal } from "@shared/ui/Icons";
 import { AgentRowProject } from "./AgentRowTree";
 
 /** The project a session on another host is, as that host shows it. */

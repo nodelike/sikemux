@@ -1,4 +1,4 @@
-export * from "../ui/Icons";
+export * from "@shared/ui/Icons";
 export { Checkbox, Switch } from "../ui/Controls";
 export { Filter, Seg, StaleNotice, type SegOption } from "./Controls";
 export { Dropdown, type DropdownOption } from "../ui/Dropdown";

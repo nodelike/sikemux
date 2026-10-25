@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { IconArrowDown, IconArrowUp, IconClose } from "../ui/Icons";
+import { IconArrowDown, IconArrowUp, IconClose } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import type { ChatFindOptions } from "./chatSearch";
 

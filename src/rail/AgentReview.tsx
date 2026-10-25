@@ -7,7 +7,7 @@ import { requestOpenFile } from "../state/commands/editor";
 import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
 import type { AgentWorktree } from "../state/types";
-import { IconCheck, IconClose, IconExternal } from "../ui/Icons";
+import { IconCheck, IconClose, IconExternal } from "@shared/ui/Icons";
 
 const SHOWN_FILES = 6;
 

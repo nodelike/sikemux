@@ -17,7 +17,7 @@ import { useHost } from "../registry";
 import { useBusy } from "./hooks";
 import { useNow } from "../../plugin-api/hooks";
 import { NewIssueForm } from "./NewIssueForm";
-import { IconAgent } from "../../ui/Icons";
+import { IconAgent } from "@shared/ui/Icons";
 import { workOnIssue } from "../workOnIssue";
 import { formatAgo } from "@shared/lib/format";
 

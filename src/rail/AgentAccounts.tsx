@@ -7,7 +7,7 @@ import { fetchResource, invalidate, peekResource, type ResourceHandle, useResour
 import { agentAccountR, agentUsageR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import type { ProviderProfile } from "../state/types";
-import { IconChevron, IconLogOut, IconPlus, IconRefresh, IconUser } from "../ui/Icons";
+import { IconChevron, IconLogOut, IconPlus, IconRefresh, IconUser } from "@shared/ui/Icons";
 import { reportError, swallow } from "../state/toast";
 import { CountUp } from "../ui/RollingText";
 import { Tooltip } from "../ui/Tooltip";

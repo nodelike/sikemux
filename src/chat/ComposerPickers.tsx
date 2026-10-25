@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AgentIcon, IconChevron, IconUser } from "../ui/Icons";
+import { AgentIcon, IconChevron, IconUser } from "@shared/ui/Icons";
 import { agentLabel, hasAccounts, type AgentType } from "@shared/agents/catalog";
 import { modelProvidersApi, modelWords, type ModelProvider, type ServedModels } from "../api/modelProviders";
 import { accountName, accountsOf, moveChat } from "../agents/accounts";

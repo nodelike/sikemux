@@ -7,7 +7,7 @@ import * as cmd from "../state/commands";
 import { DEFAULT_THEME_ID, type ThemeSummary } from "../themes";
 import { useThemeSummaries } from "../themes/summaries";
 import { usePreference } from "../state/preferences";
-import { IconSearch } from "../ui/Icons";
+import { IconSearch } from "@shared/ui/Icons";
 
 /** Every theme by name. Moving through the list wears each one; Enter keeps it and Escape puts the old one back. */
 export function ThemePalette() {

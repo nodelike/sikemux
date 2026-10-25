@@ -63,7 +63,7 @@ import {
     IconStack,
     IconTrash,
     IconWarning,
-} from "../ui/Icons";
+} from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { SwipePages } from "../ui/SwipePages";
 import { withShortcut } from "../commands/useShortcutLabel";

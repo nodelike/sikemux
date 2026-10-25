@@ -6,7 +6,7 @@ import { useResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { defaultProviderProfileSelection, type Agent, type ProviderProfile } from "../state/types";
-import { AgentIcon, IconCheck } from "../ui/Icons";
+import { AgentIcon, IconCheck } from "@shared/ui/Icons";
 import type { ConfigChoice } from "@shared/wire.generated";
 
 export interface Choice extends ConfigChoice {

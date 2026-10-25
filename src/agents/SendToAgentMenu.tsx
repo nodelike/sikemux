@@ -3,7 +3,7 @@ import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
 import { useResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
 import { useStore } from "../state/store";
-import { AgentIcon } from "../ui/Icons";
+import { AgentIcon } from "@shared/ui/Icons";
 import type { AgentDelivery } from "./agentInbox";
 import { selectedAgentRuntimeProfiles } from "./agentProfiles";
 import { agentChoices, nearestProjectSessionId, type AgentChoice } from "./agentTargets";

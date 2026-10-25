@@ -1,4 +1,4 @@
-import { IconFile, IconIssue, IconPullRequest } from "../ui/Icons";
+import { IconFile, IconIssue, IconPullRequest } from "@shared/ui/Icons";
 import { contextChip } from "@shared/chat/promptContext";
 import type { SentContext } from "@shared/chat/types";
 

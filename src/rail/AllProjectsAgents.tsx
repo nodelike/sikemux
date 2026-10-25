@@ -8,7 +8,7 @@ import type { AgentShown } from "@shared/wire.generated";
 import { activeAgentId, hasChat, openAgents } from "../state/selectors";
 import type { Agent } from "../state/types";
 import { AgentFace } from "../buddies/Buddy";
-import { IconAgent, IconChevron, IconClose, IconPin } from "../ui/Icons";
+import { IconAgent, IconChevron, IconClose, IconPin } from "@shared/ui/Icons";
 import { RailEmpty } from "./RailEmpty";
 import { AgentContextMenu } from "../workspace/AgentContextMenu";
 import { Panel } from "../ui/Panel";

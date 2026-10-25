@@ -6,7 +6,7 @@ import { sessionName, useRailNames } from "../terminal/railNames";
 import type { SessionKind } from "../state/types";
 import { modifierGlyph } from "../commands/keybindings";
 import { pluginSurface } from "../plugins/registry";
-import { IconFolder, IconServer, IconTerminal } from "../ui/Icons";
+import { IconFolder, IconServer, IconTerminal } from "@shared/ui/Icons";
 
 function kindIcon(kind: SessionKind): ReactNode {
     if (kind === "project") return <IconFolder size={16} />;

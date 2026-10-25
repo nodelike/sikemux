@@ -16,7 +16,7 @@ import * as cmd from "../state/commands";
 import { confirmDialog } from "../state/dialog";
 import { reportError } from "../state/toast";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
-import { IconClose, IconExternal } from "../ui/Icons";
+import { IconClose, IconExternal } from "@shared/ui/Icons";
 import { Owner } from "./cardParts";
 
 const STATUS_OPTIONS: DropdownOption[] = (["open", "progress", "done"] as const).map((value) => ({

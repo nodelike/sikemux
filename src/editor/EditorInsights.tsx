@@ -10,7 +10,7 @@ import { copyText } from "../lib/clipboard";
 import { basename } from "@shared/lib/paths";
 import { reportError } from "../state/toast";
 import { problemDelivery, problemLocation } from "./problemDelivery";
-import { IconCopy, IconEditor, IconMessage } from "../ui/Icons";
+import { IconCopy, IconEditor, IconMessage } from "@shared/ui/Icons";
 
 export type EditorInsightsTab = "problems" | "outline";
 

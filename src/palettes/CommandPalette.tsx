@@ -12,7 +12,7 @@ import {
 import { useMouseActive } from "../hooks/useMouseActive";
 import { rankBy } from "@shared/lib/fuzzy";
 import type { KeybindingOverrides } from "../commands/keybindings";
-import { IconSearch } from "../ui/Icons";
+import { IconSearch } from "@shared/ui/Icons";
 import { runMeasuredAction } from "../lib/instrumentation";
 import { contentBox, glideSelection, leavingOverlay } from "../lib/motion";
 

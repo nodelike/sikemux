@@ -6,7 +6,7 @@ import { hideImage, useShownImage, type ShownImage } from "../state/imageViewer"
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { notify } from "../state/toast";
 import { errorText } from "@shared/lib/format";
-import { IconClose, IconDownload } from "../ui/Icons";
+import { IconClose, IconDownload } from "@shared/ui/Icons";
 import { basename } from "@shared/lib/paths";
 
 /** The base64 half of a data URL, which is all a file needs of one. */

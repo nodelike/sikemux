@@ -11,7 +11,7 @@ import { registerTextInsert } from "../state/textInsertRegistry";
 import type { Agent, ProviderProfile } from "../state/types";
 import * as cmd from "../state/commands";
 import { usePreference } from "../state/preferences";
-import { IconArrowUp, IconClose, IconPlus } from "../ui/Icons";
+import { IconArrowUp, IconClose, IconPlus } from "@shared/ui/Icons";
 import { FileTypeIcon } from "../ui/FileIcon";
 import { usePathRoots } from "./FileRef";
 import { useImagePreview } from "./imagePreview";

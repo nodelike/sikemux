@@ -5,7 +5,7 @@ import { useProjectPorts } from "../ports/useProjectPorts";
 import { SendToAgentMenu } from "../agents/SendToAgentMenu";
 import { getState } from "../state/store";
 import { reportError } from "../state/toast";
-import { IconAgent, IconCheck, IconChevron, IconClose, IconExternal, IconPlus, IconRefresh, IconRun, IconStop, IconTerminal } from "../ui/Icons";
+import { IconAgent, IconCheck, IconChevron, IconClose, IconExternal, IconPlus, IconRefresh, IconRun, IconStop, IconTerminal } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { tasksApi, useProjectTasks, useTaskRuns, type ProjectTask, type TaskRun } from "./coreTasks";
 import { dismissPendingCheck, personRuns, runProjectTask, stopTaskRun, usePendingCheck, type PendingCheck } from "./projectTaskActions";

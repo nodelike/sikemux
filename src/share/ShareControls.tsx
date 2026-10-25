@@ -7,7 +7,7 @@ import { useStore } from "../state/store";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { notify, reportError, swallow } from "../state/toast";
 import type { Agent } from "../state/types";
-import { IconCopy, IconEye, IconShare } from "../ui/Icons";
+import { IconCopy, IconEye, IconShare } from "@shared/ui/Icons";
 import { Kbd } from "../ui/Kbd";
 import {
     closeShareDialog,

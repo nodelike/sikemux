@@ -22,7 +22,7 @@ import type { DeskSimulator } from "../state/types";
 import { notify, reportError, swallow } from "../state/toast";
 import { errorText as message } from "@shared/lib/format";
 import { Dropdown } from "../ui/Dropdown";
-import { IconCamera, IconHome, IconLock, IconPhone, IconPower, IconRotate, IconTablet } from "../ui/Icons";
+import { IconCamera, IconHome, IconLock, IconPhone, IconPower, IconRotate, IconTablet } from "@shared/ui/Icons";
 import { EmptyState } from "../ui/Panel";
 import { Tooltip } from "../ui/Tooltip";
 import { usePageVisible } from "../hooks/usePageVisible";

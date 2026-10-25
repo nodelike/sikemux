@@ -14,7 +14,7 @@ import { AgentFace } from "../buddies/Buddy";
 import { agentHandle } from "./AgentLabel";
 import { AgentStateIndicator, showsAgentState } from "./AgentStateIndicator";
 import { inCoreOrder, useInbox } from "../rail/useInbox";
-import { AgentIcon, IconSearch, IconShield, IconShieldBolt } from "../ui/Icons";
+import { AgentIcon, IconSearch, IconShield, IconShieldBolt } from "@shared/ui/Icons";
 import { formatAge } from "@shared/lib/format";
 import { agentAbout, agentLabel, canBypassPermissions, installCommand, loginArgs } from "@shared/agents/catalog";
 import { installAgent, signInAgent } from "./AgentInstall";

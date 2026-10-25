@@ -1,6 +1,6 @@
 import { effectiveMode as permissionModeOf, isYolo } from "@shared/agents/agentLaunch";
 import type { Agent } from "../state/types";
-import { IconShield, IconShieldBolt } from "../ui/Icons";
+import { IconShield, IconShieldBolt } from "@shared/ui/Icons";
 import * as cmd from "../state/commands";
 import { useShortcutLabel } from "../commands/useShortcutLabel";
 

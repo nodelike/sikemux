@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CardStream, type CardStreamHandle } from "../ui/CardStream";
 import { FileIcon } from "../ui/FileIcon";
-import { IconCollapseAll, IconExpandAll } from "../ui/Icons";
+import { IconCollapseAll, IconExpandAll } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { basename, dirname } from "@shared/lib/paths";
 

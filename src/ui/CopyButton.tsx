@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IconCheck, IconCopy } from "./Icons";
+import { IconCheck, IconCopy } from "@shared/ui/Icons";
 import { reportError } from "../state/toast";
 import { copyText } from "../lib/clipboard";
 import { Tooltip } from "./Tooltip";

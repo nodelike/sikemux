@@ -13,7 +13,7 @@ import { gitOverviewR } from "../state/resources.defs";
 import { useInstalledPlugins } from "../plugins/installed";
 import { selectFocusMode } from "../state/selectors";
 import { useStore } from "../state/store";
-import { IconBattery, IconFocus, IconGit, IconMic } from "../ui/Icons";
+import { IconBattery, IconFocus, IconGit, IconMic } from "@shared/ui/Icons";
 import { WorkspaceTabs } from "../workspace/Workspace";
 import { LEAVES_SETTINGS } from "../settings/leaveSettings";
 import { useVoice } from "../voice/dictation";

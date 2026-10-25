@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { createPortal } from "react-dom";
 import { browserApi, takeKeyboardFromPages, type AddressSuggestions } from "../api/browser";
 import { swallow } from "../state/toast";
-import { IconLock, IconSearch } from "../ui/Icons";
+import { IconLock, IconSearch } from "@shared/ui/Icons";
 import { SiteIcon } from "../ui/SiteIcon";
 
 interface Row {

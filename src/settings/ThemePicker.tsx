@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import type { Theme, ThemeSummary } from "../themes";
 import { currentTheme, subscribeTheme } from "../themes/bus";
 import * as cmd from "../state/commands";
-import { IconCheck, IconImage, IconPencil, IconSearch, IconTrash } from "../ui/Icons";
+import { IconCheck, IconImage, IconPencil, IconSearch, IconTrash } from "@shared/ui/Icons";
 
 type Tone = "all" | "dark" | "light";
 

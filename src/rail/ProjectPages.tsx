@@ -7,7 +7,7 @@ import { getState, useStore, type StoreState } from "../state/store";
 import type { FilesPlace } from "../state/commands/shared";
 import type { Session } from "../state/types";
 import { FileIcon } from "../ui/FileIcon";
-import { IconFile, IconPlus, IconTerminal } from "../ui/Icons";
+import { IconFile, IconPlus, IconTerminal } from "@shared/ui/Icons";
 import { Panel } from "../ui/Panel";
 import { fileTabMenu, windowTabMenu } from "../workspace/tabMenus";
 import { FileTree } from "./FileTree";

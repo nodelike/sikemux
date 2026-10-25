@@ -1,6 +1,6 @@
 import { useEffect, useImperativeHandle, useRef, type CSSProperties, type ReactNode, type Ref } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { IconChevron } from "./Icons";
+import { IconChevron } from "@shared/ui/Icons";
 import { Tooltip } from "./Tooltip";
 
 export const CARD_HEADER_HEIGHT = 29;

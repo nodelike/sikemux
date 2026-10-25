@@ -1,6 +1,6 @@
 import { setUpOverSsh, SSH_WORK, sshSetUp, type SshWork } from "./hosts";
 import { useStore } from "../state/store";
-import { IconDownload, IconLogIn, IconPower } from "../ui/Icons";
+import { IconDownload, IconLogIn, IconPower } from "@shared/ui/Icons";
 import { EmptyState } from "../ui/Panel";
 
 /** What each way of setting an SSH host up does there, said before the person does it. */

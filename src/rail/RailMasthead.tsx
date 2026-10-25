@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { swallow } from "../state/toast";
-import { Logo } from "../ui/Icons";
+import { Logo } from "@shared/ui/Icons";
 import { RailToggle } from "./RailToggle";
 import { Tooltip } from "../ui/Tooltip";
 import { splitVersion } from "@shared/lib/format";

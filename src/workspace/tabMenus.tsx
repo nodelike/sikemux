@@ -10,7 +10,7 @@ import { editorPaneOf, expandTabRefs, terminalLabel } from "../state/selectors";
 import { getState } from "../state/store";
 import { notify, reportError } from "../state/toast";
 import type { Window as WindowT } from "../state/types";
-import { IconClose, IconCopy, IconFolder, IconPencil, IconRotate, IconSquarePlus } from "../ui/Icons";
+import { IconClose, IconCopy, IconFolder, IconPencil, IconRotate, IconSquarePlus } from "@shared/ui/Icons";
 
 const copyPath = (text: string, label: string) => copyText(text).then(() => notify("success", `copied ${label}`), reportError("copy"));
 

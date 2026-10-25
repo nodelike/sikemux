@@ -44,7 +44,7 @@ import { useGitBaseline } from "../hooks/useGitBaseline";
 import { useGitBlame } from "../hooks/useGitBlame";
 import { refreshBlame } from "./gitBlame";
 import type { CliPendingEditorOpen, DeskReveal } from "../state/types";
-import { IconClose, IconEditor, IconEye, IconFile } from "../ui/Icons";
+import { IconClose, IconEditor, IconEye, IconFile } from "@shared/ui/Icons";
 import { FileIcon } from "../ui/FileIcon";
 import { TabBar } from "../workspace/TabBar";
 import { EditorFindBar } from "./EditorFindBar";

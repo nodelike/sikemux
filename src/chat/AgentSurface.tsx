@@ -13,7 +13,7 @@ import { ptyCall } from "../api/core";
 import { isResumableSession, offerResumableSessions } from "../terminal/sessionResume";
 import { AgentBuddy } from "../buddies/Buddy";
 import { openBuddyPicker } from "../buddies/commands";
-import { AgentIcon, IconAgent, IconMoreVertical, IconPanelRight, IconTerminal } from "../ui/Icons";
+import { AgentIcon, IconAgent, IconMoreVertical, IconPanelRight, IconTerminal } from "@shared/ui/Icons";
 import { useStore } from "../state/store";
 import { shownDeskPaneId } from "../state/selectors";
 import { AgentTitleInput } from "../agents/AgentTitleInput";

@@ -15,7 +15,7 @@ import { tasksApi, useProjectTasks, type ProjectTask } from "../tasks/coreTasks"
 import { runProjectTask } from "../tasks/projectTaskActions";
 import { Switch } from "../ui/Controls";
 import { Dropdown } from "../ui/Dropdown";
-import { IconChevron, IconCode, IconFolder, IconGit, IconPencil, IconPlus, IconRun, IconSettings, IconTrash } from "../ui/Icons";
+import { IconChevron, IconCode, IconFolder, IconGit, IconPencil, IconPlus, IconRun, IconSettings, IconTrash } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { loadProjectConfig, type ProjectConfigLoadResult } from "./projectConfig";
 import { trustProjectConfig } from "./projectConfigRuntime";

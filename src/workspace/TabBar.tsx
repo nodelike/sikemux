@@ -3,7 +3,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { animate, type Box, contentBox, EASE_LEAVE, glideSelection, leavingRef, prefersReducedMotion } from "../lib/motion";
 import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
-import { IconClose } from "../ui/Icons";
+import { IconClose } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { useTabReorder, type TabDragOut, type TabDropRule, type TabReorderHandler } from "./useTabReorder";
 

@@ -13,7 +13,7 @@ import { activeToolLabel } from "@shared/chat/toolLabels";
 import { subagentCards } from "@shared/chat/transcript";
 import { useMessageArrival } from "../chat/useMessageArrival";
 import { useStickToBottom } from "../chat/useStickToBottom";
-import { AgentIcon, IconArrowDown, IconEye, IconPlug } from "../ui/Icons";
+import { AgentIcon, IconArrowDown, IconEye, IconPlug } from "@shared/ui/Icons";
 import { sharedChatTitle, type ShareSession, type ShareSnapshot } from "@shared/share/session";
 import "../styles/chat.css";
 import "../styles/share.css";

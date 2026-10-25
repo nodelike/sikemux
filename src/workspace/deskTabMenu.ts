@@ -3,7 +3,7 @@ import { basename, relativePath } from "@shared/lib/paths";
 import { FILE_MANAGER_NAME } from "@shared/lib/platform";
 import { menuIcon, type CtxItem } from "../rail/FileTree";
 import type { DeskItem } from "../state/desks";
-import { IconClose, IconCopy, IconFolder } from "../ui/Icons";
+import { IconClose, IconCopy, IconFolder } from "@shared/ui/Icons";
 
 export interface DeskTabActions {
     copy: (text: string, label: string) => void;

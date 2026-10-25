@@ -7,7 +7,7 @@ import { useResourceEnabled } from "../state/resources";
 import { filesListR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { useMouseActive } from "../hooks/useMouseActive";
-import { IconSearch } from "../ui/Icons";
+import { IconSearch } from "@shared/ui/Icons";
 import { FileIcon } from "../ui/FileIcon";
 import { leavingOverlay } from "../lib/motion";
 

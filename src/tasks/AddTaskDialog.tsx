@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { notify, reportError } from "../state/toast";
 import { Segmented } from "../ui/Controls";
-import { IconPencil, IconPlus } from "../ui/Icons";
+import { IconPencil, IconPlus } from "@shared/ui/Icons";
 import { Modal } from "../ui/Modal";
 import { tasksApi, type ProjectTask } from "./coreTasks";
 

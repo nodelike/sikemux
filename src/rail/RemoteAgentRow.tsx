@@ -3,7 +3,7 @@ import { AgentMark } from "../agents/AgentMark";
 import { AgentStateIndicator, showsAgentState } from "../agents/AgentStateIndicator";
 import { isAgentType } from "@shared/agents/catalog";
 import type { RemoteAgent } from "../api/inbox";
-import { IconAgent } from "../ui/Icons";
+import { IconAgent } from "@shared/ui/Icons";
 import type { TeamLink, TeamMember } from "./teams";
 
 /** A worker an agent here started on a linked host, as a row of its lead's team. */

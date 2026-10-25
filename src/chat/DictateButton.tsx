@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { IconMic } from "../ui/Icons";
+import { IconMic } from "@shared/ui/Icons";
 import { IS_MACOS } from "@shared/lib/platform";
 import { toggleDictation, useVoice } from "../voice/dictation";
 

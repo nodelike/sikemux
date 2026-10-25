@@ -1,5 +1,5 @@
 import { requestOpenFile } from "../state/commands/editor";
-import { IconAgent, IconClose, IconRefresh, IconTerminal } from "../ui/Icons";
+import { IconAgent, IconClose, IconRefresh, IconTerminal } from "@shared/ui/Icons";
 import type { ProjectTask, TestResults } from "./coreTasks";
 import { basename } from "@shared/lib/paths";
 

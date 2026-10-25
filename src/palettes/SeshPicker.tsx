@@ -19,7 +19,7 @@ import { useMouseActive } from "../hooks/useMouseActive";
 import { isPluginKind } from "../plugins/kinds";
 import { enabledFrontendPlugins } from "../plugins/enabled";
 import { pluginSurface } from "../plugins/registry";
-import { IconClose, IconFolder, IconSearch, IconServer, IconTerminal } from "../ui/Icons";
+import { IconClose, IconFolder, IconSearch, IconServer, IconTerminal } from "@shared/ui/Icons";
 import { leavingOverlay } from "../lib/motion";
 import { pluginSettingsOf, projectRootsOf } from "../state/preferences";
 

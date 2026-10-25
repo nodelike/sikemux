@@ -3,7 +3,7 @@ import { ENTER_GLYPH } from "../commands/keybindings";
 import { hasPrimaryModifier, PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import { AgentMark } from "../agents/AgentMark";
 import { useStore } from "../state/store";
-import { IconAgent, IconCopy, IconExternal, IconGlobe, IconRun, IconTerminal, IconWindow } from "../ui/Icons";
+import { IconAgent, IconCopy, IconExternal, IconGlobe, IconRun, IconTerminal, IconWindow } from "@shared/ui/Icons";
 import { ThemeIcon } from "../ui/FileIcon";
 import { Tooltip } from "../ui/Tooltip";
 import { copyPortUrl, openPortExternally, openPortOnDesk, revealPortOwner } from "./portActions";

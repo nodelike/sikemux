@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import type { TabRailPage } from "../state/types";
-import { IconAgents, IconFile, IconTerminal } from "../ui/Icons";
+import { IconAgents, IconFile, IconTerminal } from "@shared/ui/Icons";
 import { SwipePages } from "../ui/SwipePages";
 
 /** The tab rail's pages: the project's agents, its terminals and its files. */

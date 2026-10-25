@@ -21,7 +21,8 @@ import { animate, EASE_IN, EASE_PAN, EASE_POP, EASE_SWAP, foldedFrames, leavingR
 import { getState, useStore } from "../state/store";
 import { useShallow } from "zustand/react/shallow";
 import { AgentFace } from "../buddies/Buddy";
-import { IconAgent, IconClose, IconFolder, IconMove, IconPencil, IconPlus, IconServer, IconSettings, IconTerminal, WindowIcon } from "../ui/Icons";
+import { IconAgent, IconClose, IconFolder, IconMove, IconPencil, IconPlus, IconServer, IconSettings, IconTerminal } from "@shared/ui/Icons";
+import { WindowIcon } from "../ui/WindowIcon";
 import { useHostRepo } from "../codehost/project";
 import { codeHost } from "../codehost/registry";
 import { isTreeSection } from "../codehost/state";

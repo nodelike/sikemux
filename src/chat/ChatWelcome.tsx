@@ -5,7 +5,7 @@ import { projectMark } from "../hosts/placeMarks";
 import { basename } from "@shared/lib/paths";
 import * as cmd from "../state/commands";
 import type { Agent } from "../state/types";
-import { IconChevron } from "../ui/Icons";
+import { IconChevron } from "@shared/ui/Icons";
 import "../styles/activity.css";
 
 export function ChatWelcome({ cwd, agent }: { cwd: string; agent: Agent }) {

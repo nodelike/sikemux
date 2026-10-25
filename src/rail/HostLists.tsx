@@ -4,7 +4,7 @@ import { hostTitle, openRemoteChat, openRemoteTerminal, placeOn, showTab, type H
 import { collectPanes } from "../state/layout";
 import { terminalLabel } from "../state/selectors";
 import { getState, useStore, type StoreState } from "../state/store";
-import { IconTerminal } from "../ui/Icons";
+import { IconTerminal } from "@shared/ui/Icons";
 import { Panel } from "../ui/Panel";
 import { windowTabMenu } from "../workspace/tabMenus";
 import { TabRow, useTabMenu } from "./TabRow";

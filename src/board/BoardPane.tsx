@@ -12,7 +12,7 @@ import { agentBoardApi } from "../api/agentBoard";
 import * as cmd from "../state/commands";
 import { reportError } from "../state/toast";
 import { useStore } from "../state/store";
-import { IconBoard, IconChevron, IconLink, IconPlus, IconSearch } from "../ui/Icons";
+import { IconBoard, IconChevron, IconLink, IconPlus, IconSearch } from "@shared/ui/Icons";
 import { EmptyState } from "../ui/Panel";
 import { useCardDrag } from "../ui/kanbanDrag";
 import { Segmented } from "../ui/Controls";

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { animate, EASE_IN, foldedFrames, leavingRef } from "../lib/motion";
-import { IconChevron } from "../ui/Icons";
+import { IconChevron } from "@shared/ui/Icons";
 import { LiveSeconds } from "./LiveSeconds";
 import { Shimmer } from "./Shimmer";
 import { ToolRow } from "./ToolRow";

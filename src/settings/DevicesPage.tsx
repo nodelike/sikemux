@@ -16,7 +16,7 @@ import { ACCESS_OPTIONS, platformName } from "@shared/remote/access";
 import { reportError, swallow } from "../state/toast";
 import { Dropdown } from "../ui/Dropdown";
 import { Switch } from "../ui/Controls";
-import { IconGlobe, IconLock, IconMore, IconPencil, IconTrash } from "../ui/Icons";
+import { IconGlobe, IconLock, IconMore, IconPencil, IconTrash } from "@shared/ui/Icons";
 import { QrCode } from "./QrCode";
 import { confirmDialog } from "../state/dialog";
 import { TreeContextMenu, type CtxItem } from "../rail/FileTree";

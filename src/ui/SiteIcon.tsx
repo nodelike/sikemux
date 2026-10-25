@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IconGlobe } from "./Icons";
+import { IconGlobe } from "@shared/ui/Icons";
 
 /** The site's own mark once it has arrived, and a globe until then. */
 export function SiteIcon({ src }: { src: string | null }) {

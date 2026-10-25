@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { AgentFace } from "../buddies/Buddy";
 import type { Agent } from "../state/types";
 import { FileIcon } from "../ui/FileIcon";
-import { IconImage } from "../ui/Icons";
+import { IconImage } from "@shared/ui/Icons";
 import { tagStarts } from "@shared/chat/composerInput";
 import { ContextMark } from "./ContextChip";
 

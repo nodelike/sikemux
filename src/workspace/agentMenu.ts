@@ -23,7 +23,7 @@ import {
     IconShield,
     IconShieldBolt,
     IconTrash,
-} from "../ui/Icons";
+} from "@shared/ui/Icons";
 import { hasChat } from "../state/selectors";
 
 /**

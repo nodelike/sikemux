@@ -1,5 +1,5 @@
 import type { AgentQuestion } from "../api/agentQuestions";
-import { IconCheck } from "../ui/Icons";
+import { IconCheck } from "@shared/ui/Icons";
 import { AnsweredQuestion } from "./AgentQuestions";
 import type { ChatQuestions } from "./useChatQuestions";
 

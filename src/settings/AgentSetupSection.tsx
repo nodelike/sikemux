@@ -7,7 +7,7 @@ import type { AgentInfo } from "../api/agents";
 import { useResource } from "../state/resources";
 import { agentSetupR } from "../state/resources.defs";
 import { useStore } from "../state/store";
-import { AgentIcon } from "../ui/Icons";
+import { AgentIcon } from "@shared/ui/Icons";
 import { SettingsSection } from "./SettingsLayout";
 
 export const AGENT_SETUP_SECTION = "Agents on this machine";

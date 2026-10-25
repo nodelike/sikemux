@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo, useState, type MouseEvent, type Rea
 import { fsapi, type FilesHost } from "../api/fs";
 import { FileIcon, FileTypeIcon } from "../ui/FileIcon";
 import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
-import { IconCopy, IconEditor, IconFile, IconFolder, IconPanelRight } from "../ui/Icons";
+import { IconCopy, IconEditor, IconFile, IconFolder, IconPanelRight } from "@shared/ui/Icons";
 import { copyText } from "../lib/clipboard";
 import { basename, dirname, relativePath } from "@shared/lib/paths";
 import { FILE_MANAGER_NAME } from "@shared/lib/platform";

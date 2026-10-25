@@ -7,7 +7,7 @@ import { dirname } from "@shared/lib/paths";
 import { useResourceEnabled } from "../state/resources";
 import { filesListR } from "../state/resources.defs";
 import { FileIcon } from "../ui/FileIcon";
-import { AgentIcon, IconFolder } from "../ui/Icons";
+import { AgentIcon, IconFolder } from "@shared/ui/Icons";
 import type { Mate } from "./agentMentions";
 import {
     commandMatches,

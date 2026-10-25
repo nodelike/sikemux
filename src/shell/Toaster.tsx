@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { animate, EASE_LEAVE, leavingRef } from "../lib/motion";
 import { useToasts, type ToastKind } from "../state/toast";
-import { IconCheck, IconClose, IconExclamation, IconInfoMark } from "../ui/Icons";
+import { IconCheck, IconClose, IconExclamation, IconInfoMark } from "@shared/ui/Icons";
 
 const KIND_ICON: Record<ToastKind, typeof IconCheck> = {
     success: IconCheck,

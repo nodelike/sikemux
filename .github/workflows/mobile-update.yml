@@ -28,8 +28,6 @@ on:
       - "shared/**"
       - "src/agents/collisions.ts"
       - "src/terminal/interactions.ts"
-      - "src/ui/Icons.tsx"
-      - "src/assets/agent-logos/**"
       - "server/protocol/generated/client.ts"
       - "server/protocol/generated/types.ts"
       - "server/protocol/src/account.ts"

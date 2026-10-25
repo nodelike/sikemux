@@ -8,7 +8,7 @@ import { prettyPath } from "@shared/lib/paths";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import type { Agent, AgentWorktree } from "../state/types";
-import { IconFolder, IconGit, IconPullRequest } from "../ui/Icons";
+import { IconFolder, IconGit, IconPullRequest } from "@shared/ui/Icons";
 
 const OPEN_AFTER_MS = 450;
 const CLOSE_AFTER_MS = 140;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { acceptDialog, chooseOther, dismissDialog, useDialogs, type PendingDialog } from "../state/dialog";
-import { IconInfo, IconWarning } from "../ui/Icons";
+import { IconInfo, IconWarning } from "@shared/ui/Icons";
 import { Modal } from "../ui/Modal";
 
 /**

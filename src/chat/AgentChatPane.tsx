@@ -5,7 +5,7 @@ import type { ConfigPicker } from "@shared/wire.generated";
 import type { Agent, ProviderProfile } from "../state/types";
 import { useStore } from "../state/store";
 import { hasPrimaryModifier } from "@shared/lib/platform";
-import { IconArrowDown, IconFile, IconPlug, IconWarning } from "../ui/Icons";
+import { IconArrowDown, IconFile, IconPlug, IconWarning } from "@shared/ui/Icons";
 import { EarlierTurns } from "./EarlierTurns";
 import type { ChatMessage } from "@shared/chat/types";
 import { PathRootsProvider } from "./FileRef";

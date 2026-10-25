@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { IconPlug } from "../ui/Icons";
+import { IconPlug } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { useProjectPorts } from "./useProjectPorts";
 

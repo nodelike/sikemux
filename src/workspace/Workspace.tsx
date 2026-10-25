@@ -30,7 +30,8 @@ import { agentMenu, renameAgentNamePrompt, renameAgentPrompt } from "./agentMenu
 import { TabBar, type TabDescriptor } from "./TabBar";
 import type { TabDragOut, TabPoint } from "./useTabReorder";
 import { AgentFace } from "../buddies/Buddy";
-import { IconArrowUp, IconClose, IconMove, IconPlus, WindowIcon } from "../ui/Icons";
+import { IconArrowUp, IconClose, IconMove, IconPlus } from "@shared/ui/Icons";
+import { WindowIcon } from "../ui/WindowIcon";
 import { agentNaming } from "../agents/AgentLabel";
 import { AgentStateIndicator, BackgroundCounts, showsAgentState } from "../agents/AgentStateIndicator";
 import { renderWorkbenchItem } from "../workbench/renderers";

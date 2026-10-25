@@ -14,8 +14,6 @@ on:
       - "server/protocol/**"
       - "shared/**"
       - "src/terminal/interactions.ts"
-      - "src/ui/Icons.tsx"
-      - "src/assets/agent-logos/**"
       - .github/workflows/mobile-ci.yml
       - .github/workflows/mobile-update.yml
   pull_request:
@@ -28,8 +26,6 @@ on:
       - "server/protocol/**"
       - "shared/**"
       - "src/terminal/interactions.ts"
-      - "src/ui/Icons.tsx"
-      - "src/assets/agent-logos/**"
       - .github/workflows/mobile-ci.yml
       - .github/workflows/mobile-update.yml
   workflow_dispatch:

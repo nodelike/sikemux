@@ -40,7 +40,7 @@ import {
     IconTrash,
     IconUser,
     IconWrench,
-} from "../ui/Icons";
+} from "@shared/ui/Icons";
 import { TreeContextMenu, useFloatingPosition, type CtxItem } from "./FileTree";
 
 const GLYPHS: Record<SpaceIcon, ComponentType<{ size?: number }>> = {

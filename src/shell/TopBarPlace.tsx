@@ -4,7 +4,7 @@ import { chooseHost, setUpFor, setUpOverSsh, SSH_WORK, sshSetUp, THIS_HOST, type
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
-import { IconChevron, IconDownload, IconLogIn, IconPower } from "../ui/Icons";
+import { IconChevron, IconDownload, IconLogIn, IconPower } from "@shared/ui/Icons";
 import { hostMark } from "../hosts/placeMarks";
 import { ProjectPicker } from "../projects/ProjectPicker";
 import { LEAVES_SETTINGS } from "../settings/leaveSettings";

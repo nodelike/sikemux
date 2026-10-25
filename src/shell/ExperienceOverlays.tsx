@@ -8,7 +8,7 @@ import * as cmd from "../state/commands";
 import { agentDetectionApi, type ManifestReport } from "../api/agentDetection";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { actionForEvent, keybindingLabelForAction, type CoreKeybindingActionId, keybindingOverridesOf } from "../commands/keybindings";
-import { AgentIcon, IconAgent, IconFolder, IconSearch, IconServer, Logo } from "../ui/Icons";
+import { AgentIcon, IconAgent, IconFolder, IconSearch, IconServer, Logo } from "@shared/ui/Icons";
 import { agentStatusLabel } from "../agents/agentStatus";
 import { installAgent, signInAgent } from "../agents/AgentInstall";
 import { installCommand, loginArgs } from "@shared/agents/catalog";

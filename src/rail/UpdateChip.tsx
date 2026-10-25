@@ -1,7 +1,7 @@
 import { isUpdateBusy, updateDownloadPercent, updateStatusLabel } from "../api/updater";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
-import { IconDownload, IconRefresh, IconWarning } from "../ui/Icons";
+import { IconDownload, IconRefresh, IconWarning } from "@shared/ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 
 export function UpdateChip() {
