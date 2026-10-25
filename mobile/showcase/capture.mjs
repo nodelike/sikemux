@@ -12,7 +12,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { chromium } from '../../node_modules/playwright-core/index.mjs';
 
-import { PANE_IMAGE_FILE } from '../../showcase/world/paneImage.ts';
+import { PANE_IMAGE_FILE } from './paneImage.ts';
 
 const here = import.meta.dirname;
 const app = resolve(here, '../app');

@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { PANE_IMAGE_FILE } from '../../showcase/world/paneImage.ts';
+import { PANE_IMAGE_FILE } from '../showcase/paneImage.ts';
 import { generate } from '../app/scripts/generate.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));

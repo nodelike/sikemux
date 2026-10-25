@@ -31,7 +31,7 @@
 - Never write a test that restates the implementation: same branches, same constants,
   mocks of everything it calls.
 - Keep the checks that hold things we decided: the stale-output checks in `pnpm check`
-  (`ipc:check`, `grammars:check`, `file-icons:check`, `release:check`, the notch icons,
+  (`grammars:check`, `file-icons:check`, `release:check`, the notch icons,
   the server protocol), contract tests such as `mobile/app/test/updatePaths.test.ts`,
   and the end-to-end runs. Do not weaken or delete them to get a change through.
 - When a change breaks an existing test, decide whether the behaviour it pins was meant
@@ -51,9 +51,6 @@
 - Size and speed trade against each other; make that trade only where nobody can
   feel it. Build cold code for size and keep hot paths (terminal output,
   serialization, search, git) at full speed. Measure both sides before choosing.
-- `pnpm perf:budget` (the bundle) and `pnpm perf` (timings in WebKit) are for
-  measuring, not gates: neither runs in CI or `pnpm check`. Run them when a
-  change touches startup or a hot path.
 - A change that adds weight (a dependency, a font, an image, a crate in the
   core) says what it costs the DMG.
 
@@ -91,6 +88,9 @@
   catalog. The Mac, the phone and every other client keep one store of what the core
   sends and draw it with their own words, icons, formatting and markdown drawing; none
   reads an agent's messages or repeats the core's logic. ADR 0010 records why.
+- TypeScript the phone and the share page both use lives in `shared/`, imported as
+  `@shared/*`. It is plain source, not a package: each workspace that imports it resolves
+  its packages from its own install, and its tests run under the phone's vitest.
 - Phone builds need rustup's Rust first on `PATH` as well; Homebrew's has no phone
   targets.
 - The bindings `uniffi-bindgen-react-native` generates are build output; do not commit or
@@ -145,9 +145,9 @@
 - It is designed in `src-tauri/notch/design/screens.html` before it is built, and must keep
   matching it. Change the design in the same commit as the island; view it by serving the repo
   root (`python3 -m http.server`) and opening `/src-tauri/notch/design/screens.html`.
-- Its icons come from `src/ui/Icons.tsx`, the agent marks and `brand/`. After changing one it
+- Its icons come from `shared/ui/Icons.tsx`, the agent marks and `brand/`. After changing one it
   uses, run `node scripts/generate-notch-icons.mjs`; the release checks fail on a stale copy.
-- Its agent rows are laid out like the app's tab rail rows (`src/rail/AllProjectsAgents.tsx`):
+- Its agent rows are laid out like the app's tab rail rows (`sikemux-gpui/src/agents.rs`):
   the task with how long ago, the project, then the name, counts and state together at the end.
   When the rail's row changes, change the island's and its design to match.
 - `swift run --package-path src-tauri/notch notch-snapshots <dir>` renders every state to PNGs,
@@ -163,9 +163,9 @@
   release breaks every Download button. Nightlies are pre-releases and never show up.
 - The README rounds the download to "about 16 MB" and the site says it is smaller than
   Ghostty (33.8 MB). Update both if a release moves the DMG past either.
-- Its screenshots come from this repo. `pnpm shots` in the site runs the Mac showcase
-  (`showcase/`) and the phone showcase (`mobile/showcase/`), then cuts the feature cards;
-  a showcase scene that stops matching the app shows up there.
+- Its screenshots come from this repo. `pnpm shots` in the site runs the phone showcase
+  (`mobile/showcase/`) and cuts the feature cards from the Mac pictures already in the
+  site, which stay as they are until the GPUI app has a showcase of its own.
 - Its copy must stay true of the shipped app and its look follows `DESIGN.md`. When a
   change adds, removes or renames something the site describes, say so, so the site
   can be updated.

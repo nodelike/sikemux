@@ -389,132 +389,6 @@ const TS_ROOTS = [
   "UpdateStatus",
 ];
 
-/** What the code-host plugins hand the Git pane. */
-const CODEHOST_ROOTS = [
-  "PullList",
-  "RunList",
-  "IssueList",
-  "ReleaseList",
-  "TrackedItem",
-  "OpenPull",
-  "OpenRun",
-  "OpenJobLog",
-  "RateLimit",
-  "Resolved",
-  "RepoListing",
-  "Workflow",
-  "RunPage",
-  "RunDetail",
-  "RunTiming",
-  "JobLog",
-  "LogExcerpt",
-  "Annotation",
-  "JobSummary",
-  "WorkflowFile",
-  "Artifact",
-  "SavedArtifact",
-  "PendingApproval",
-  "Comment",
-  "Pull",
-  "PullCounts",
-  "TimelineItem",
-  "CommitAuthor",
-  "PullCommit",
-  "ChangedFile",
-  "Review",
-  "IssuePage",
-  "Release",
-  "Notification",
-];
-
-/** What the Jira plugin's views hand its pane. */
-const JIRA_ROOTS = [
-  "JiraIssueList",
-  "JiraIssueListKind",
-  "JiraSpaces",
-  "JiraBoardPage",
-  "JiraIssueView",
-];
-
-/** What the Bruno plugin's views hand its pane. */
-const BRUNO_ROOTS = [
-  "BruCollection",
-  "BruRequestView",
-  "BruRunResult",
-  "BruKnownWorkspaces",
-];
-
-/** What the Database plugin's views hand its pane. */
-const DATABASE_ROOTS = [
-  "DatabaseExplorer",
-  "DatabaseTableView",
-  "DatabaseHistory",
-  "DatabaseQueryOutcome",
-  "DatabaseCopyFormat",
-  "DatabaseProfileForm",
-];
-
-/** What the Linear plugin's views hand its pane. */
-const LINEAR_ROOTS = ["LinearIssueList", "LinearIssueView"];
-
-/** What the AWS plugin's views hand its pane. */
-const AWS_ROOTS = [
-  "AwsAccount",
-  "AwsAgentProfiles",
-  "AwsBilling",
-  "AwsEcsClusters",
-  "AwsEcsServices",
-  "AwsEcsTasks",
-  "AwsEc2",
-  "AwsLambda",
-  "AwsSqs",
-  "AwsS3",
-  "AwsLogLine",
-];
-
-/** What the Rundeck plugin's views hand its pane. */
-const RUNDECK_ROOTS = [
-  "RundeckTree",
-  "RundeckJobs",
-  "RundeckJobPage",
-  "RundeckActivityPage",
-  "RundeckDeployForm",
-  "RundeckRunCheck",
-  "RundeckOptionChoice",
-  "RundeckPlan",
-  "RundeckExecutionPage",
-  "RundeckRunNotice",
-  "RundeckDeployTarget",
-  "RundeckJobCatalog",
-  "RundeckStyledText",
-];
-
-/** What the SigNoz plugin's views hand its pane. */
-const SIGNOZ_ROOTS = [
-  "SignozServices",
-  "SignozServicePage",
-  "SignozLogPage",
-  "SignozVolumeBucket",
-  "SignozTracePage",
-  "SignozTrace",
-  "SignozDashboardSummary",
-  "SignozDashboard",
-  "SignozPanelData",
-  "SignozFieldKey",
-];
-
-/** What the Slack plugin's views hand its pane. */
-const SLACK_ROOTS = ["SlackChannels", "SlackHistory", "SlackOpenThread"];
-
-/** What the Vercel plugin's views hand its pane. */
-const VERCEL_ROOTS = [
-  "VercelProjects",
-  "VercelDeployments",
-  "VercelOpenLog",
-  "VercelDomains",
-  "VercelVariables",
-];
-
 /** The fields the notch reads of each type. Swift's decoder ignores the rest. */
 const SWIFT_FIELDS = {
   DeviceView: "workspace chats sessions attentions inbox faceStyle",
@@ -567,16 +441,6 @@ const LIMITS = [
 
 const OUTPUTS = {
   mac: "shared/wire.generated.ts",
-  codehost: "src/codehost/types.generated.ts",
-  jira: "src/plugins/jira/types.generated.ts",
-  rundeck: "src/plugins/rundeck/types.generated.ts",
-  aws: "src/plugins/aws/types.generated.ts",
-  linear: "src/plugins/linear/types.generated.ts",
-  database: "src/plugins/database/types.generated.ts",
-  bruno: "src/plugins/bruno/types.generated.ts",
-  slack: "src/plugins/slack/types.generated.ts",
-  vercel: "src/plugins/vercel/types.generated.ts",
-  signoz: "src/plugins/signoz/types.generated.ts",
   phone: "mobile/app/src/core/wire.generated.ts",
   notch: "src-tauri/notch/Sources/NotchKit/Wire.generated.swift",
 };
@@ -1273,15 +1137,5 @@ await emit(
   OUTPUTS.mac,
   `${typescript(false, TS_ROOTS, `${limits}\n\n`)}\n${defaults}\n`,
 );
-await emit(OUTPUTS.codehost, typescript(false, CODEHOST_ROOTS, ""));
-await emit(OUTPUTS.jira, typescript(false, JIRA_ROOTS, ""));
-await emit(OUTPUTS.rundeck, typescript(false, RUNDECK_ROOTS, ""));
-await emit(OUTPUTS.aws, typescript(false, AWS_ROOTS, ""));
-await emit(OUTPUTS.linear, typescript(false, LINEAR_ROOTS, ""));
-await emit(OUTPUTS.database, typescript(false, DATABASE_ROOTS, ""));
-await emit(OUTPUTS.bruno, typescript(false, BRUNO_ROOTS, ""));
-await emit(OUTPUTS.slack, typescript(false, SLACK_ROOTS, ""));
-await emit(OUTPUTS.vercel, typescript(false, VERCEL_ROOTS, ""));
-await emit(OUTPUTS.signoz, typescript(false, SIGNOZ_ROOTS, ""));
 await emit(OUTPUTS.phone, typescript(true, TS_ROOTS, `${limits}\n\n`));
 await emit(OUTPUTS.notch, swift());

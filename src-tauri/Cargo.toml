@@ -163,10 +163,6 @@ opt-level = "s"
 opt-level = "s"
 [profile.release.package.minisign-verify]
 opt-level = "s"
-[profile.release.package.infer]
-opt-level = "s"
-[profile.release.package.cfb]
-opt-level = "s"
 [profile.release.package.quick-xml]
 opt-level = "s"
 [profile.release.package.toml]

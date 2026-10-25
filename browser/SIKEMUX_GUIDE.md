@@ -481,11 +481,6 @@ folder, pass its absolute path, a `~/` path or a `file://` url to
 `browser_navigate`: Sikemux serves its folder to the tab from a private
 address on this machine, so relative links and assets load too.
 
-To see Sikemux's own interface in a tab, as when checking a change to it,
-run `pnpm showcase:serve` in the Sikemux repository and navigate to
-`http://localhost:1471/showcase/`. It is the real frontend with hot reload
-over demo data.
-
 A tab's viewport follows the pane, so it changes size when the person resizes
 the pane, and a tab the pane is not showing lays out at the size it last had.
 `browser_viewport` holds the current tab at `width` and `height` in CSS pixels

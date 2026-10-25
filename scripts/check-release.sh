@@ -35,8 +35,6 @@ node - <<'NODE'
 const fs = require("node:fs");
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const app = JSON.parse(require("node:child_process").execFileSync("node", ["scripts/app-metadata.mjs"], { encoding: "utf8" }));
-const windowsConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.windows.conf.json", "utf8"));
-const sidecarConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.sidecar.conf.json", "utf8"));
 const macBuild = fs.readFileSync("scripts/build-mac.sh", "utf8");
 const linuxBuild = fs.readFileSync("scripts/build-linux.sh", "utf8");
 const installer = fs.readFileSync("scripts/install.sh", "utf8");
@@ -56,10 +54,6 @@ if (!macBuild.includes('-c "Merge $ROOT/src-tauri/Info.plist"')) fail("pre-signi
 if (app["minimum-macos"] !== "11.0") fail("unexpected minimum macOS version");
 if (!app.description) fail("the app has no description for its Linux packages");
 if (!macBuild.includes('--entitlements "$ROOT/src-tauri/Entitlements.plist"')) fail("microphone entitlement is not configured");
-if (JSON.stringify(windowsConfig.bundle?.targets) !== JSON.stringify(["nsis"])) fail("Windows bundle target must be NSIS");
-if (windowsConfig.bundle?.createUpdaterArtifacts !== false) fail("unsigned Windows builds must not require updater credentials");
-if (!windowsConfig.bundle?.icon?.includes("icons/icon.ico")) fail("Windows icon is not configured");
-if (windowsConfig.bundle?.windows?.nsis?.installMode !== "currentUser") fail("unexpected Windows install mode");
 if (pkg.scripts?.["build:linux"] !== "scripts/build-linux.sh") fail("pnpm build:linux does not run scripts/build-linux.sh");
 if (!linuxBuild.includes("node scripts/build-cli-sidecar.mjs")) fail("Linux build does not build the core");
 if (!linuxBuild.includes("cargo build --release --locked --bin sikemux")) fail("Linux build does not build the GPUI app");
@@ -79,18 +73,14 @@ if (!signHost.includes('"${HOSTS[@]}" "$APPIMAGE"')) fail("releases do not sign 
 if (!publish.includes('"$INSTALLER" "$APPIMAGE_SIG"')) fail("releases do not publish the AppImage's update signature");
 if (!publish.includes('manifest["platforms"]["linux-x86_64"]')) fail("the update feed does not offer the AppImage");
 if (!releaseWorkflow.includes("scripts/smoke-host-install.sh")) fail("the Release workflow does not install the host core with its own installer");
-if (JSON.stringify(sidecarConfig.bundle?.externalBin) !== JSON.stringify(["binaries/sikemux-host"])) fail("sidecar bundle mapping is incomplete");
 if (!macBuild.includes("build-voice-helper.mjs")) fail("macOS build does not build the voice helper");
 if (!macBuild.includes("build-notch-helper.mjs")) fail("macOS build does not build the notch helper");
 if (!macBuild.includes('"$ROOT/src-tauri/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"')) fail("the macOS bundle must carry the notch helper app");
 if (!publish.includes('"$SIG" "$VOICE"')) fail("releases do not publish the voice helper the app downloads");
 if (!macBuild.includes("build-sim-helper.mjs")) fail("macOS build does not build the simulator helper");
 if (!publish.includes('"$VOICE" "$SIM"')) fail("releases do not publish the simulator helper the app downloads");
-if (sidecarConfig.bundle?.resources?.["resources/sikemux_pi_tools.ts"] !== "sikemux_pi_tools.ts") fail("Pi browser extension resource mapping is missing");
-if (!pkg.scripts?.["build:windows"]?.includes("build:sidecar")) fail("Windows build does not build sidecars");
-if (!pkg.scripts?.["build:windows"]?.includes("tauri.sidecar.conf.json")) fail("Windows build does not bundle the CLI sidecar");
+if (!linuxBuild.includes('"$PI_TOOLS" "$PACKAGE/usr/lib/sikemux/sikemux_pi_tools.ts"')) fail("Linux packages do not carry the Pi browser extension");
 if (!macBuild.includes("build-cli-sidecar.mjs")) fail("macOS build does not build the CLI sidecar");
-if (macBuild.includes("tauri.sidecar.conf.json")) fail("macOS build must bundle the core as its own app, not as a sidecar");
 if (!macBuild.includes('"$ROOT/src-tauri/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"')) fail("the macOS bundle must carry the core app");
 if (!macBuild.includes('ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Contents/MacOS/sikemux-host"')) fail("the macOS bundle must link Contents/MacOS/sikemux-host to the core");
 for (const profile of ["sikemux-developer-id", "sikemux-core-developer-id"]) {

@@ -94,8 +94,8 @@ jobs:
               echo "Skipped $name: nothing it checks changed" >>"$GITHUB_STEP_SUMMARY"
             fi
           }
-          area rust '^(src-tauri/|browser/|server/protocol/|src/test/markdownFixtures\.json$|rust-toolchain\.toml$)'
-          area simulator '^(src-tauri/sim/|src-tauri/crates/sikemux-simulator/|src-tauri/src/simulator\.rs$|src-tauri/Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|rust-toolchain\.toml$)'
+          area rust '^(src-tauri/|browser/|server/protocol/|rust-toolchain\.toml$)'
+          area simulator '^(src-tauri/sim/|src-tauri/crates/sikemux-simulator/|src-tauri/Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|rust-toolchain\.toml$)'
           area packaging '^(scripts/build-linux\.sh$|scripts/build-cli-sidecar\.mjs$|src-tauri/linux/|src-tauri/icons/|src-tauri/resources/sikemux_pi_tools\.ts$)'
 
   # The same check as `pnpm deps:audit`: any vulnerability fails it, and so does any unsound or
@@ -150,23 +150,20 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install frontend dependencies
+      - name: Install the generators' dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Check project formatting
         run: pnpm format:check
 
-      - name: Lint frontend
+      - name: Lint shared code
         run: pnpm lint
 
-      - name: Typecheck frontend
+      - name: Typecheck shared code
         run: pnpm typecheck
 
       - name: Check the grammar manifest matches the installed grammars
         run: pnpm grammars:check
-
-      - name: Check the generated IPC contracts match the Rust commands
-        run: pnpm ipc:check
 
       - name: Check the generated wire types match the core's Rust
         run: pnpm wire:check
@@ -182,12 +179,6 @@ jobs:
 
       - name: Check the file icons match the installed icon theme
         run: pnpm file-icons:check
-
-      - name: Check each plugin's TypeScript, tools and service name agree with its Rust side
-        run: pnpm plugin-contract:check
-
-      - name: Run frontend tests
-        run: pnpm test
 
       - name: Check release tooling without credentials
         run: pnpm release:check
@@ -216,9 +207,6 @@ jobs:
           workspaces: src-tauri
           key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
           cache-on-failure: true
-
-      - name: Prepare Tauri resource placeholder
-        run: mkdir -p src-tauri/icons/build && touch src-tauri/icons/build/Assets.car
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
@@ -572,9 +560,6 @@ jobs:
 
       - name: Build the app the end-to-end test drives
         run: node scripts/build-sim-fixture.mjs
-
-      - name: Prepare Tauri resource placeholder
-        run: mkdir -p src-tauri/icons/build && touch src-tauri/icons/build/Assets.car
 
       - name: Build the simulator tests
         working-directory: src-tauri

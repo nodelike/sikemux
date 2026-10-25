@@ -5,19 +5,16 @@
       {
         "id": "link-build-outputs",
         "label": "Link the app's build outputs",
-        "command": "main=\"$(git rev-parse --path-format=absolute --git-common-dir)/..\"; for built in dist src-tauri/binaries src-tauri/icons/build src-tauri/gen; do if [ -e \"$main/$built\" ] && [ ! -e \"$built\" ]; then ln -s \"$main/$built\" \"$built\"; fi; done"
+        "command": "main=\"$(git rev-parse --path-format=absolute --git-common-dir)/..\"; for built in src-tauri/binaries src-tauri/icons/build src-tauri/gen; do if [ -e \"$main/$built\" ] && [ ! -e \"$built\" ]; then ln -s \"$main/$built\" \"$built\"; fi; done"
       }
     ]
   },
   "generate": {
-    "command": "pnpm -s wire:generate && pnpm -s ipc:generate",
+    "command": "pnpm -s wire:generate",
     "outputs": [
       "shared/wire.generated.ts",
       "mobile/app/src/core/wire.generated.ts",
-      "src-tauri/notch/Sources/NotchKit/Wire.generated.swift",
-      "src-tauri/src/generated_command_names.rs",
-      "src/api/generated/ipcCommands.ts",
-      "src-tauri/capabilities/default.json"
+      "src-tauri/notch/Sources/NotchKit/Wire.generated.swift"
     ]
   }
 }

@@ -1,6 +1,6 @@
 // Draws each `data-buddy="pack shape colour state"` mark with the app's own buddy code, cropped as the app crops it.
-import { packById } from '../../src/buddies/catalogue';
-import { buddyMarkup } from '../../src/buddies/render';
+import { packById } from '../../shared/buddies/catalogue';
+import { buddyMarkup } from '../../shared/buddies/render';
 
 document.querySelectorAll('[data-buddy]').forEach((mark, index) => {
   const [packId, shapeId, slot, state] = mark.dataset.buddy.split(' ');

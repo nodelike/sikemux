@@ -26,8 +26,6 @@ on:
       - "mobile/app/scripts/publish-update.mjs"
       - "mobile/app/scripts/rust-sources.js"
       - "shared/**"
-      - "src/agents/collisions.ts"
-      - "src/terminal/interactions.ts"
       - "server/protocol/generated/client.ts"
       - "server/protocol/generated/types.ts"
       - "server/protocol/src/account.ts"

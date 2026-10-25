@@ -2,8 +2,9 @@
 
 Quiet, dense and beautiful, in the spirit of shadcn: neutral surfaces, one
 hairline where two things meet, and colour only where it means something. Every
-value lives in `src/styles/tokens.css`. Each component sheet owns its own look
-and builds it from those tokens.
+value lives in the app's `Tokens` (`sikemux-gpui/src/theme.rs`); the share page
+carries the same values as the CSS variables named below. Each component builds
+its own look from those tokens.
 
 ## Principles
 
@@ -41,16 +42,13 @@ and builds it from those tokens.
 | Space    | `--space-0` 2 · `-1` 4 · `-1h` 6 · `-2` 8 · `-3` 12 · `-4` 16 · `-5` 20 · `-6` 24                                                                 |
 | Motion   | `--dur-1` 90ms · `--dur-2` 140ms · `--dur-3` 220ms, `--ease-out` in, `--ease-in-out` between; all zero under reduced motion                       |
 
-A theme is one tuple in `src/themes/index.ts`; `src/themes/bus.ts` writes it on
-`:root` and every token above derives from it.
+A theme is one entry in the core's `themes/curated.json`; the app wears the palette
+the core resolves from it (`theme::apply`), and every token above derives from it.
 
 ## Things that are easy to break
 
-- **WebGL contexts.** The page gets about sixteen. Terminals draw on 2D canvases
-  and take none; decoration may use at most two (`SURFACE_BUDGET` in
-  `src/lib/shaderField.ts`), and the app must look finished with none.
-- **Window transparency.** Below full opacity, `html.is-transparent` clears the
-  ground of every surface listed in `base.css` at once. A new opaque surface goes
-  on that list, or it shows as a dark slab over the desktop.
-- **Blur on large surfaces.** `backdrop-filter` on the rails or the stage costs
-  frame time next to busy terminals. Keep it to small floating surfaces.
+- **Window transparency.** Below full opacity the shell's ground takes the theme's
+  colour at that opacity and the rails clear (`see_through.rs`). A new opaque
+  surface must clear with them, or it shows as a dark slab over the desktop.
+- **Blur on large surfaces.** Blur on the rails or the stage costs frame time
+  next to busy terminals. Keep it to small floating surfaces.

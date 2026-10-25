@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Writes the icons the GPUI screens draw as SVG files, by rendering the app's own
-// React icon components, so each file is exactly what the app draws.
+// Writes the icons the GPUI screens draw as SVG files, by rendering shared/ui/Icons.tsx,
+// the set the phone and the notch draw too. The plugin marks, code-host section icons,
+// outcome marks and phone QR code in assets/icons are kept as they are.
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -13,7 +14,6 @@ const root = resolve(crate, "../../..");
 const out = resolve(crate, "assets/icons");
 
 const ICONS = "/shared/ui/Icons.tsx";
-const SECTIONS = "/src/codehost/components/ActionsIcon.tsx";
 
 /** File name → the module, its export and the props it is drawn with. */
 const DRAWN = {
@@ -71,18 +71,8 @@ const DRAWN = {
   "file-plus": [ICONS, "IconFilePlus"],
   "folder-plus": [ICONS, "IconFolderPlus"],
   "collapse-all": [ICONS, "IconCollapseAll"],
-  actions: [SECTIONS, "SectionIcon", { section: "actions" }],
-  issues: [SECTIONS, "SectionIcon", { section: "issues" }],
-  releases: [SECTIONS, "SectionIcon", { section: "releases" }],
-  github: ["/src/plugins/github/components/GithubMark.tsx", "GithubMark"],
   aws: [ICONS, "IconAws"],
   rundeck: [ICONS, "IconRundeck"],
-  database: ["/src/plugins/database/components/DatabaseMark.tsx", "DatabaseMark"],
-  jira: ["/src/plugins/jira/components/JiraMark.tsx", "JiraMark"],
-  linear: ["/src/plugins/linear/components/LinearMark.tsx", "LinearMark"],
-  slack: ["/src/plugins/slack/components/SlackMark.tsx", "SlackMark"],
-  vercel: ["/src/plugins/vercel/components/VercelMark.tsx", "VercelMark"],
-  "phone-qr": ["/src/settings/QrCode.tsx", "QrCode", { text: "https://sikemux.com/phone", label: "QR code for https://sikemux.com/phone" }],
   activity: [ICONS, "IconActivity"],
   book: [ICONS, "IconBook"],
   user: [ICONS, "IconUser"],
@@ -151,7 +141,6 @@ const PICTURES = {
   omp: "shared/assets/agent-logos/omp.svg",
   muse: "shared/assets/agent-logos/muse.svg",
   bruno: "shared/assets/bruno.svg",
-  signoz: "src/plugins/signoz/signoz.svg",
 };
 /** GPUI's SVG renderer has no oklch(), which WebKit draws, so a picture's oklch colours are
  * written as the sRGB they come to. */
@@ -210,11 +199,6 @@ try {
   );
   await writeFile(resolve(out, "battery-bolt.svg"), bolt(""));
   await writeFile(resolve(out, "battery-bolt-gap.svg"), bolt(' stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"'));
-  const { MARK_INNER } = await server.ssrLoadModule(SECTIONS);
-  for (const [outcome, d] of Object.entries(MARK_INNER)) {
-    const mark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"></path></svg>`;
-    await writeFile(resolve(out, `mark-${outcome}.svg`), `${mark}\n`);
-  }
 } finally {
   await server.close();
 }

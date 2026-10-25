@@ -1,6 +1,6 @@
 # ADR 0001: Keep React and Tauri; do not rewrite Sikemux in GPUI
 
-- Status: Accepted
+- Status: Superseded by [ADR 0020](./0020-gpui-desktop-and-web.md)
 - Decision date: 2026-08-10
 - Revisit: only after the measured triggers below are met
 

@@ -148,13 +148,16 @@ const server = await createServer({
   server: { middlewareMode: true, hmr: false },
   appType: "custom",
   optimizeDeps: { noDiscovery: true, include: [] },
+  resolve: {
+    alias: [{ find: /^@shared\//, replacement: `${resolve(root, "shared")}/` }],
+  },
 });
 try {
   const { FILE_NAMES, EXTENSIONS } = await server.ssrLoadModule(
-    "/src/languages/index.ts",
+    "/server/app/src/chat/languages/index.ts",
   );
   const { GRAMMARS, GRAMMAR_ALIASES } = await server.ssrLoadModule(
-    "/src/languages/generated/grammars.ts",
+    "/server/app/src/chat/languages/generated/grammars.ts",
   );
   const known = sorted({
     ...Object.fromEntries(Object.keys(GRAMMARS).map((id) => [id, id])),

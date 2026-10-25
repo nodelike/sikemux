@@ -1,19 +1,9 @@
 #!/usr/bin/env bash
 #
 # Compile sikemux.icon → Liquid Glass Assets.car + legacy .icns, in one
-# pass. Called from macOS `make dev` (via tauri.macos.conf.json) and
-# `make build` (via build-mac.sh), so the same
-# `src-tauri/icons/sikemux.icon` is the single source of truth for
-# every icon surface:
-#
-#   * Dev binary (target/debug/sikemux):
-#       embeds icon.icns via tauri-build's build.rs. We overwrite that
-#       .icns with the actool-generated one so the dev dock icon matches
-#       release geometry/padding (flat fallback, no Liquid Glass effect).
-#
-#   * Release bundle (target/release/bundle/macos/sikemux.app):
-#       tauri.macos.conf.json copies Assets.car into Resources/ and merges
-#       CFBundleIconName=sikemux from Info.plist before code signing.
+# pass. Called from `make dev` and `make build` (via build-mac.sh), so
+# `src-tauri/icons/sikemux.icon` is the single source of every icon the app
+# wears: build-mac.sh copies Assets.car and icon.icns into the bundle.
 #
 set -euo pipefail
 
@@ -24,7 +14,7 @@ ICON_BUILD="$ROOT/src-tauri/icons/build"
 
 # Skip the rebuild when the .icon source hasn't changed since the last
 # compile — actool takes a couple of seconds and we don't want to add
-# that to every `tauri dev` restart loop.
+# that to every `make dev` restart.
 STAMP="$ICON_BUILD/.stamp"
 if [[ -f "$STAMP" ]]; then
   NEWEST_SRC="$(find "$ICON_SOURCE" -type f -newer "$STAMP" -print -quit)"
@@ -58,7 +48,7 @@ if [[ ! -f "$ICON_BUILD/Assets.car" ]]; then
   exit 1
 fi
 
-# Sync the legacy .icns the dev binary embeds via tauri-build.
+# Sync the legacy .icns macOS shows before Liquid Glass.
 if [[ -f "$ICON_BUILD/sikemux.icns" ]]; then
   cp "$ICON_BUILD/sikemux.icns" "$ROOT/src-tauri/icons/icon.icns"
 fi

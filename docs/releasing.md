@@ -7,7 +7,7 @@ make preflight
 git tag v0.4.1 && git push origin v0.4.1
 ```
 
-Pushes run no checks locally; CI checks every push to `main`, so tag only a commit whose CI run is green. `make preflight` launches the real app the way CI's desktop E2E job does and builds the DMG against its size limit, which otherwise surfaces only in the Release run.
+Pushes run no checks locally; CI checks every push to `main`, so tag only a commit whose CI run is green. `make preflight` builds the DMG against its size limit, which otherwise surfaces only in the Release run.
 
 A run is titled with its tag, so the approval names what it will publish, and it stops if the tag disagrees with `package.json` or the release already exists. The workflow reads the version from `package.json` and builds, signs and verifies the Mac release while the full CI suite runs. No job that runs the build's dependencies holds signing material, and no job that holds it runs them or anything they built:
 

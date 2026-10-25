@@ -1,16 +1,16 @@
 {
   "reviewBy": "2026-11-01",
   "allowedRustWarnings": {
-    "RUSTSEC-2024-0370": "proc-macro-error, a build-time macro dependency of glib-macros, reached only through the GTK3 graph of the Linux builds (the Tauri shell, and wry's WebKitGTK browser in the GPUI app); nothing it generates ships on macOS.",
+    "RUSTSEC-2024-0370": "proc-macro-error, a build-time macro dependency of glib-macros, reached only through the GTK3 graph of the Linux build (the GPUI app's WebKitGTK browser); nothing it generates ships on macOS.",
     "RUSTSEC-2024-0384": "instant, behind GPUI Kit (gpui-base, gpui-component); no release replaces it with web-time yet, so it goes when GPUI Kit moves.",
-    "RUSTSEC-2024-0429": "Unsound GLib Variant string iterator in glib 0.18, the last GLib that GTK3's bindings take; the Linux builds reach it through GTK3 (the Tauri shell, and wry's WebKitGTK browser in the GPUI app). The fix, glib 0.20, needs GTK4 and WebKitGTK 6. No macOS build links GLib.",
+    "RUSTSEC-2024-0429": "Unsound GLib Variant string iterator in glib 0.18, the last GLib that GTK3's bindings take; the Linux build reaches it through GTK3 (the GPUI app's WebKitGTK browser). The fix, glib 0.20, needs GTK4 and WebKitGTK 6. No macOS build links GLib.",
     "RUSTSEC-2024-0436": "paste, a build-time macro, reached through GPUI Kit and Metal in the GPUI app and iroh's Linux network monitor in the core; no release of them drops it yet.",
     "RUSTSEC-2025-0134": "rustls-pemfile, a thin wrapper now archived in favour of rustls-pki-types, reached only through the reqwest fork GPUI Kit's asset loader uses; it goes when that fork moves.",
     "RUSTSEC-2026-0192": "ttf-parser, under fontdb and cosmic-text in the GPUI fork's Linux and web text stack and under usvg; skrifa replaces it once those crates move.",
     "RUSTSEC-2026-0206": "rustybuzz, under usvg (resvg) in GPUI Kit and the GPUI fork; harfrust replaces it once usvg moves.",
-    "RUSTSEC-2026-0370": "zvariant, merged into zbus 6, reached through zbus 5 in the Linux builds: the Tauri shell's notification and single-instance plugins, and the GPUI app's Linux accessibility (accesskit, atspi) and desktop portals.",
-    "RUSTSEC-2026-0371": "zbus_names, merged into zbus 6, reached through zbus 5 in the Linux builds: the Tauri shell's notification and single-instance plugins, and the GPUI app's Linux accessibility (accesskit, atspi) and desktop portals.",
-    "RUSTSEC-2026-0372": "zvariant_derive, merged into zbus 6, reached through zbus 5 in the Linux builds: the Tauri shell's notification and single-instance plugins, and the GPUI app's Linux accessibility (accesskit, atspi) and desktop portals.",
+    "RUSTSEC-2026-0370": "zvariant, merged into zbus 6, reached through zbus 5 in the GPUI app's Linux accessibility (accesskit, atspi) and desktop portals.",
+    "RUSTSEC-2026-0371": "zbus_names, merged into zbus 6, reached through zbus 5 in the GPUI app's Linux accessibility (accesskit, atspi) and desktop portals.",
+    "RUSTSEC-2026-0372": "zvariant_derive, merged into zbus 6, reached through zbus 5 in the GPUI app's Linux accessibility (accesskit, atspi) and desktop portals.",
     "RUSTSEC-2026-0374": "Unmaintained TOML parser behind askama in uniffi_bindgen, which is in the lockfile only as an optional dependency of uniffi's bindgen feature; no crate we build enables it, so no binary compiles it."
   }
 }

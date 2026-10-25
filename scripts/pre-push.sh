@@ -92,9 +92,9 @@ if [ "${PREPUSH_FULL:-}" = "1" ] || [ -z "$CHANGED" ]; then
 else
   RUST=0 FRONTEND=0 SHELL_SCRIPTS=0 RELEASE=0 SERVER=0
   touches '^(src-tauri/|rust-toolchain\.toml$)' && RUST=1
-  touches '^(src/|public/|index\.html|package\.json|pnpm-lock\.yaml|vite\.config\.ts|eslint\.config\.js|tsconfig\.json)' && FRONTEND=1
+  touches '^(shared/|package\.json|pnpm-lock\.yaml|eslint\.config\.js|tsconfig\.json)' && FRONTEND=1
   touches '^scripts/.*\.sh$' && SHELL_SCRIPTS=1
-  touches '^(scripts/|package\.json|latest\.json|src-tauri/tauri.*\.conf\.json)' && RELEASE=1
+  touches '^(scripts/|package\.json|latest\.json)' && RELEASE=1
   touches '^(server/|src-tauri/crates/sikemux-(core|wire)/src/accounts/)' && SERVER=1
 fi
 
@@ -109,7 +109,6 @@ step 'prettier format' pnpm format:check
 [ "$RUST" = 1 ] && needs cargo-audit 'rust security audit' && step 'rust security audit' cargo audit --file src-tauri/Cargo.lock
 [ "$FRONTEND" = 1 ] && step 'eslint' pnpm lint
 [ "$FRONTEND" = 1 ] && step 'typescript' pnpm typecheck
-[ "$FRONTEND" = 1 ] && step 'ipc contracts' pnpm ipc:check
 [ "$FRONTEND" = 1 ] && step 'grammar manifest' pnpm grammars:check
 
 if [ "${#FAILED[@]}" -ne 0 ]; then
@@ -119,9 +118,6 @@ fi
 
 [ "$RUST" = 1 ] && step 'clippy' pnpm rust:clippy
 [ "$RUST" = 1 ] && step 'rust tests' pnpm rust:test
-[ "$FRONTEND" = 1 ] && step 'frontend tests' pnpm test
-[ "$FRONTEND" = 1 ] && step 'frontend build' pnpm build
-[ "$FRONTEND" = 1 ] && step 'performance budget' pnpm perf:budget
 [ "$RELEASE" = 1 ] && step 'release tooling' pnpm release:check
 # The server is its own workspace, so its install and checks run inside server/.
 if [ "$SERVER" = 1 ]; then

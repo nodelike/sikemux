@@ -20,7 +20,10 @@ const simulatorHandlersPath = resolve(
   root,
   "src-tauri/crates/sikemux-simulator/src/tools.rs",
 );
-const windowHandlersPath = resolve(root, "src/harness/service.ts");
+const windowHandlersPath = resolve(
+  root,
+  "src-tauri/crates/sikemux-gpui/src/desk.rs",
+);
 const pluginsPath = resolve(root, "src-tauri/plugins");
 const rowsOutputPath = resolve(
   root,
@@ -128,18 +131,59 @@ for (const method of coreHandled) {
     );
   coreHandled.delete(method);
 }
+const windowSource = await readFile(windowHandlersPath, "utf8");
+const windowHandled = handlersIn(
+  windowSource,
+  /^\s*("[a-z]+\.[a-z]+")\s*=>/gmu,
+  "",
+);
 compare(
   harnessMethods,
-  new Set([
-    ...coreHandled,
-    ...handlersIn(
-      await readFile(windowHandlersPath, "utf8"),
-      /case ("[a-z]+\.[a-z]+"):/gu,
-      "",
-    ),
-  ]),
-  "the core's harness dispatch and src/harness/service.ts",
+  new Set([...coreHandled, ...windowHandled]),
+  "the core's harness dispatch and the GPUI window's in sikemux-gpui/src/desk.rs",
 );
+
+// A method the core hands on to the window needs a GPUI handler, unless the core
+// answers by itself when the window cannot.
+const functionBody = (name) => {
+  const start = coreSource.indexOf(`async fn ${name}(`);
+  return start < 0
+    ? ""
+    : coreSource.slice(start, coreSource.indexOf("\n}\n", start));
+};
+const armBody = (method) => {
+  const arm = new RegExp(
+    `\\n {8}(?:"[a-z.]+" \\| )*"${method.replaceAll(".", "\\.")}"[^\\n]*=>`,
+    "u",
+  ).exec(coreDispatch);
+  if (!arm) return null;
+  const rest = coreDispatch.slice(arm.index + arm[0].length);
+  const next = /\n {8}(?:"[a-z.]+"|[A-Z_]+|_)\s*(?:\||=>)/u.exec(rest);
+  const body = next ? rest.slice(0, next.index) : rest;
+  const called = [...body.matchAll(/\b([a-z_]+)\(core,/gu)].map(([, name]) =>
+    functionBody(name),
+  );
+  return [body, ...called].join("\n");
+};
+const missingInWindow = harnessMethods.filter((method) => {
+  const body = armBody(method);
+  const forwarded = body === null || body.includes("forward(");
+  const fallsBack =
+    body !== null && /forward\(core, request\)\.await\.ok\(\)/u.test(body);
+  return forwarded && !fallsBack && !windowHandled.has(method);
+});
+if (missingInWindow.length > 0)
+  throw new Error(
+    `the core hands ${missingInWindow.join(", ")} to the window, which has no GPUI handler in sikemux-gpui/src/desk.rs`,
+  );
+for (const [prefix, dispatcher] of [
+  ["browser.", "is_browser_method"],
+  ["sim.", "is_sim_method"],
+])
+  if (!windowSource.includes(`${dispatcher}(&request.method)`))
+    throw new Error(
+      `the GPUI window no longer hands ${prefix}* calls on through ${dispatcher}`,
+    );
 
 const list = (values) =>
   values.map((value) => `    ${JSON.stringify(value)},`).join("\n");
