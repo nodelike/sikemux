@@ -5,7 +5,6 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { createServer } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
 const out = resolve(root, "docs-site/src/content/docs/reference");
@@ -31,37 +30,47 @@ const cell = (text) =>
     .replaceAll("\n", " ")
     .replace(/[{}<]/g, (char) => `\\${char}`);
 
-// The docs describe the Mac app, so the shortcuts are read as a Mac sees them.
-Object.defineProperty(globalThis, "navigator", {
-  value: { userAgent: "Macintosh", platform: "MacIntel" },
-  configurable: true,
-});
-const vite = await createServer({
-  root,
-  logLevel: "error",
-  server: { middlewareMode: true },
-  appType: "custom",
-});
-let keybindings;
-try {
-  keybindings = await vite.ssrLoadModule("/src/commands/keybindings.ts");
-} finally {
-  await vite.close();
-}
+// The app's default shortcuts, from the table GPUI's keymap reads, labelled as a Mac shows them.
+const keybindings = JSON.parse(
+  await readFile(
+    resolve(root, "src-tauri/crates/sikemux-core/src/assets/keybindings.json"),
+    "utf8",
+  ),
+);
+const CATEGORIES = ["Workspace", "Agents", "Panes", "Navigation", "Browser"];
+const MODIFIERS = { Meta: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧" };
+const KEYS = {
+  Backquote: "`",
+  Backslash: "\\",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Comma: ",",
+  Enter: "↵",
+  Equal: "=",
+  Escape: "Esc",
+  Minus: "-",
+  Period: ".",
+  Quote: "'",
+  Semicolon: ";",
+  Slash: "/",
+};
+const label = (keys) => {
+  const parts = keys.split("+");
+  const code = parts.pop();
+  const key = KEYS[code] ?? code.replace(/^(Key|Digit|Arrow)/, "");
+  return parts.map((part) => MODIFIERS[part] ?? part).join("") + key;
+};
 
-const actions = keybindings.keybindingActions();
-const shortcuts = keybindings
-  .keybindingCategories()
-  .map((category) => {
-    const rows = actions
-      .filter((action) => action.category === category && action.defaultBinding)
-      .map(
-        (action) =>
-          `| ${cell(action.label)} | \`${keybindings.keybindingLabel(action.defaultBinding)}\` | ${cell(action.detail)} |`,
-      );
-    if (rows.length === 0) return "";
-    return `## ${category}\n\n| Action | Shortcut | What it does |\n|---|---|---|\n${rows.join("\n")}\n`;
-  })
+const shortcuts = CATEGORIES.map((category) => {
+  const rows = keybindings
+    .filter((action) => action.category === category && action.mac)
+    .map(
+      (action) =>
+        `| ${cell(action.label)} | \`${label(action.mac)}\` | ${cell(action.detail)} |`,
+    );
+  if (rows.length === 0) return "";
+  return `## ${category}\n\n| Action | Shortcut | What it does |\n|---|---|---|\n${rows.join("\n")}\n`;
+})
   .filter(Boolean)
   .join("\n");
 await emit(
@@ -116,5 +125,5 @@ await emit(
 );
 
 console.log(
-  `✓ docs reference: ${actions.length} actions, ${tools.length} tools`,
+  `✓ docs reference: ${keybindings.length} actions, ${tools.length} tools`,
 );
