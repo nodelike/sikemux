@@ -371,6 +371,12 @@ impl Tab {
                 })
                 .build_as_child(&X11Parent(clip.window))
                 .map_err(|error| error.to_string())?;
+            // wry sizes a new child window by the screen's DPI over 96, but every later
+            // placement by GTK's own scale, so the page is sized once more the later way.
+            let _ = view.set_bounds(wry::Rect {
+                position: wry::dpi::LogicalPosition::new(0., 0.).into(),
+                size: wry::dpi::LogicalSize::new(size.0, size.1).into(),
+            });
             crate::linux_page::attach(&view.webview(), &agent_id, &tab_id, attached);
             Ok(Held::new(Page::new(view, clip, parent.ground)))
         };

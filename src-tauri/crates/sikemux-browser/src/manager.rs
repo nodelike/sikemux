@@ -37,6 +37,8 @@ const DOWNLOAD_WINDOW: Duration = Duration::from_secs(30);
 const HELD_DOWNLOAD_LIFETIME: Duration = Duration::from_secs(7 * 24 * 3600);
 /// What a parked page lays out at before its pane has ever shown one.
 const PARKED_SIZE: (f64, f64) = (1200.0, 800.0);
+/// The longest a new tab waits for the app to bring its agent's desk on screen.
+const DESK_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
 
 const ACTING_LINGER: Duration = Duration::from_secs(3);
 /// A hidden page runs no animation frames, and React reveals streamed content
@@ -189,6 +191,9 @@ pub(crate) struct AgentBrowser {
     pub(crate) bounds: Option<BrowserBounds>,
     /// The size of the page area the last time it showed a page.
     pub(crate) seen: Option<(f64, f64)>,
+    /// The app was told the agent took the wheel and has not yet said where its desk shows,
+    /// or that it will not.
+    pub(crate) desk_coming: bool,
     pub(crate) viewports: HashMap<String, viewport::Viewport>,
     /// What each tab's view was last given, so a swipe moving one page every
     /// frame does not also re-place every tab parked behind it.
@@ -238,6 +243,8 @@ pub struct BrowserManager {
     pub(crate) local_files: local_files::LocalFiles,
     pub(crate) recordings: Mutex<HashMap<String, recording::Session>>,
     pub(crate) relieving: AtomicBool,
+    /// Rung whenever the app says where an agent's desk shows, or that it does not.
+    pub(crate) desk_answers: tokio::sync::Notify,
     pub(crate) host: HostRef,
     pub(crate) me: Weak<BrowserManager>,
 }
@@ -315,7 +322,27 @@ impl BrowserManager {
         }
         self.relayout(agent_id);
         self.announce();
+        self.until_desk_answers(agent_id).await;
         Ok(tab_id)
+    }
+
+    /// While the app brings the agent's desk on screen, a new tab waits a moment to be laid
+    /// out in it, so what the agent reads first is the page at the pane's size.
+    async fn until_desk_answers(&self, agent_id: &str) {
+        let deadline = tokio::time::Instant::now() + DESK_WAIT;
+        loop {
+            let answered = self.desk_answers.notified();
+            tokio::pin!(answered);
+            answered.as_mut().enable();
+            let coming = self
+                .agents
+                .locked()
+                .get(agent_id)
+                .is_some_and(|agent| agent.desk_coming);
+            if !coming || tokio::time::timeout_at(deadline, answered).await.is_err() {
+                return;
+            }
+        }
     }
 
     /// Adds the tab's page to the main window, parked off screen.
@@ -718,8 +745,10 @@ impl BrowserManager {
                 agent.seen = Some((area.width, area.height));
             }
             agent.bounds = bounds;
+            agent.desk_coming = false;
         }
         self.relayout(agent_id);
+        self.desk_answers.notify_waiters();
         Ok(())
     }
 
@@ -922,6 +951,11 @@ impl BrowserManager {
     /// Tells the app which agent took the wheel, so its browser can come on
     /// screen even before it has a tab.
     pub fn announce_acting(&self, agent_id: &str) {
+        {
+            let mut agents = self.agents.locked();
+            let agent = agents.entry(agent_id.to_owned()).or_default();
+            agent.desk_coming = agent.bounds.is_none();
+        }
         self.host().acting(agent_id);
     }
 

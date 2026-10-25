@@ -5,7 +5,7 @@ python3 -I ci/linux-window.py --app APP --core CORE --agent FAKE_AGENT --seed FA
 The arguments are desk-checks.py's, run under an X server and a window manager (DISPLAY set). L1 opens the app
 and checks it shows a window with the seeded chat. With --browser, L6 has the fake agent show a page in its
 reply with page_show, which must draw in the chat, and L2 has it open a desk browser tab on a local page
-through the agent browser tool; with --input as well, L4 has it type into the page's field,
+through the agent browser tool, whose answer must report the desk's page area as its viewport; with --input as well, L4 has it type into the page's field,
 press a key there and read the field back, L5 has the page ask a prompt the person sees in a dialog and the agent
 answers, L9 records the tab for a few seconds and checks the video with ffprobe, and L3 clicks a link there, all
 with the same tools. L7 starts the app again with a sikemux:// link to
@@ -98,8 +98,13 @@ def page_from_tool(run):
     said = run.prompt(desk.json_tool("browser.navigate", {"url": f"{run.site}/page.html"}))
     page = desk.until(lambda: (lambda page: page if page.get("url", "").endswith("/page.html") and not page.get("loading") else None)(desk.active_page(run.desk())), 20) or {}
     drawn, seen = page_drawn(run, "L2")
-    run.say("L2", "PASS" if page and drawn else "FAIL",
-            f"browser.navigate answered {said[:160]!r}; the desk's page {page.get('url')} titled {page.get('title')!r}; {seen}")
+    reported = desk.answered(said).get("viewport") or {}
+    frame = run.desk().get("pageBounds") or [0, 0, 0, 0]
+    fits = [reported.get("width"), reported.get("height")] == [round(frame[2]), round(frame[3])]
+    run.say("L2", "PASS" if page and drawn and fits else "FAIL",
+            f"browser.navigate answered {said[:160]!r}; the desk's page {page.get('url')} titled {page.get('title')!r}; "
+            f"it reported a {reported.get('width')}x{reported.get('height')} viewport for a "
+            f"{round(frame[2])}x{round(frame[3])} page area; {seen}")
 
 
 def typing_from_tool(run):

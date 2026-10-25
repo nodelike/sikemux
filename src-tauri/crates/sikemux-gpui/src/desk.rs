@@ -443,6 +443,11 @@ impl Workbench {
             Heard::Acting(agent) => {
                 self.read_strips();
                 self.show_pages(&agent);
+                if !self.desk_in_sight(&agent) {
+                    if let Some(engine) = self.desks.engine.clone() {
+                        let _ = engine.set_bounds(&agent, None);
+                    }
+                }
             }
         }
         self.parts.redraw(&self.parts.stage, cx);
@@ -486,6 +491,16 @@ impl Workbench {
                 view_of(&tab.pane, PaneKind::Agent, agent)
                     .map(|view| (Strip::Project(project.clone()), tab.id.clone(), view))
             })
+        })
+    }
+
+    /// Whether the agent's desk is in the tab in front, or about to be, as `show_pages` brings
+    /// it out beside the agent there. The engine holds a new tab back until it knows.
+    fn desk_in_sight(&self, agent: &str) -> bool {
+        self.tab().is_some_and(|tab| {
+            view_of(&tab.pane, PaneKind::Desk, agent).is_some()
+                || (!self.desk_open_anywhere(agent)
+                    && view_of(&tab.pane, PaneKind::Agent, agent).is_some())
         })
     }
 
