@@ -20,4 +20,4 @@ workspace-members = ["sikemux-client", "sikemux-linked", "sikemux-mobile", "sike
 # Tests turn on test-only features of these; unifying them would ship those
 # features in the app.
 [final-excludes]
-third-party = [{ name = "tauri" }, { name = "tokio" }]
+third-party = [{ name = "tokio" }]

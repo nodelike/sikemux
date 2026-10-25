@@ -17,7 +17,7 @@ struct Fixture {
 }
 
 fn fixtures_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../src/test/markdownFixtures.json")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures.json")
 }
 
 #[test]

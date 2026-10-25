@@ -20,7 +20,7 @@ import {
   signalProcessTree,
   stopProcessTree,
   withoutTerminalSession,
-} from "./dev-desktop.mjs";
+} from "./dev-process.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const debug = join(root, "src-tauri", "target", "debug");

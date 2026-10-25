@@ -581,10 +581,10 @@ fn ghostty_theme(
 mod tests {
     use super::default_palette;
 
-    /// The shared chat page and the showcase draw with this copy, having no core to ask.
+    /// The shared chat page draws with this copy, having no core to ask.
     const COPY: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../src/themes/defaultPalette.json"
+        "/../../../server/app/src/chat/themes/defaultPalette.json"
     );
 
     #[test]
@@ -599,7 +599,7 @@ mod tests {
                 .expect("the copy parses");
         assert!(
             copy == serde_json::to_value(&palette).expect("a palette serializes"),
-            "src/themes/defaultPalette.json is out of date: in src-tauri, run \
+            "server/app/src/chat/themes/defaultPalette.json is out of date: in src-tauri, run \
              SIKEMUX_WRITE_DEFAULT_PALETTE=1 cargo test -p sikemux-core --lib default_palette_copy"
         );
     }

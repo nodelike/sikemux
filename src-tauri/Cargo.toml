@@ -1,13 +1,6 @@
-[package]
-name = "sikemux"
-version.workspace = true
-description = "The IDE for you and your coding agents"
-authors = ["nodelike"]
-edition = "2021"
-default-run = "sikemux"
-
 [workspace]
 members = ["crates/*", "plugins/*"]
+resolver = "2"
 exclude = ["crates/sikemux-gpui"]
 
 [workspace.package]
@@ -26,82 +19,6 @@ unimplemented = "deny"
 unreachable = "deny"
 undocumented_unsafe_blocks = "deny"
 
-[lints.clippy]
-undocumented_unsafe_blocks = "deny"
-
-[lib]
-name = "sikemux_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
-
-[features]
-ipc-command-tests = ["tauri/test"]
-
-[build-dependencies]
-tauri-build = { version = "2", features = [] }
-sha2 = "0.11"
-hex = "0.4"
-
-[dependencies]
-tauri = { version = "2", default-features = false, features = ["macos-private-api", "wry", "unstable", "compression"] }
-rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
-tauri-plugin-process = "2"
-tauri-plugin-single-instance = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order"] }
-toml = "1"
-base64 = "0.23"
-sha2 = "0.11"
-hex = "0.4"
-rusqlite = { version = "0.40", features = ["bundled"] }
-notify = "8"
-regex = "1"
-rayon = "1"
-url = "2"
-tempfile = "3"
-thiserror = "1"
-time = { version = "0.3", features = ["formatting", "macros"] }
-uuid = { version = "1", features = ["v4", "v7"] }
-futures = "0.3"
-semver = "1"
-sikemux-plugin-api = { path = "crates/sikemux-plugin-api" }
-sikemux-keychain = { path = "crates/sikemux-keychain" }
-sikemux-process = { path = "crates/sikemux-process" }
-sikemux-markdown = { path = "crates/sikemux-markdown" }
-sikemux-pty = { path = "crates/sikemux-pty" }
-sikemux-core = { path = "crates/sikemux-core" }
-sikemux-voice = { path = "crates/sikemux-voice" }
-sikemux-browser = { path = "crates/sikemux-browser" }
-sikemux-simulator = { path = "crates/sikemux-simulator" }
-sikemux-host = { path = "crates/sikemux-host", default-features = false }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls-no-provider", "gzip", "stream", "cookies", "multipart"] }
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
-open = "5"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-notify-rust = "4"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-workspace-hack = { version = "0.1", path = "crates/workspace-hack" }
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAlert", "NSApplication", "NSBitmapImageRep", "NSControl", "NSEvent", "NSGraphicsContext", "NSImage", "NSImageRep", "NSPasteboard", "NSResponder", "NSScreen", "NSTextField", "NSView", "NSWindow", "NSWorkspace", "block2", "objc2-core-graphics"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSObject", "NSProcessInfo", "NSString", "NSThread", "NSURL", "NSURLResponse", "NSUserNotification", "NSValue"] }
-objc2-web-kit = { version = "0.3", default-features = false, features = ["WKContentWorld", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKOpenPanelParameters", "WKPDFConfiguration", "WKSecurityOrigin", "WKSnapshotConfiguration", "WKUIDelegate", "WKWebView", "WKWebViewConfiguration", "WKWindowFeatures", "block2", "objc2-app-kit"] }
-block2 = "0.6"
-objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVAssetWriter", "AVAssetWriterInput", "AVMediaFormat", "AVVideoSettings", "block2", "objc2-core-media", "objc2-core-video"] }
-objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFString"] }
-objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColor", "CGColorSpace", "CGContext", "CGImage", "CGPath"] }
-objc2-quick-look-ui = { version = "0.3", default-features = false, features = ["std", "QLPreviewItem", "QLPreviewView", "objc2-app-kit"] }
-objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAShapeLayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics"] }
-objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMTime"] }
-objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferPool", "CVReturn"] }
-
-# Full debug info on our own code costs roughly 15 MB of DWARF per codegen
-# unit, and cargo keeps every past build's copy of it forever. Line tables keep
-# backtraces pointing at real files without the stored type and variable data.
 [profile.dev]
 debug = "line-tables-only"
 
@@ -232,10 +149,6 @@ opt-level = 3
 opt-level = "s"
 [profile.release.package.plist]
 opt-level = "s"
-[profile.release.package.muda]
-opt-level = "s"
-[profile.release.package.tao]
-opt-level = "s"
 [profile.release.package.agent-client-protocol-schema]
 opt-level = "s"
 [profile.release.package.reqwest]
@@ -249,8 +162,6 @@ opt-level = "s"
 [profile.release.package.serde_with]
 opt-level = "s"
 [profile.release.package.minisign-verify]
-opt-level = "s"
-[profile.release.package.rfd]
 opt-level = "s"
 [profile.release.package.infer]
 opt-level = "s"

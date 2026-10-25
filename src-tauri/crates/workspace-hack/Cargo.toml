@@ -17,12 +17,8 @@ publish = false
 [dependencies]
 aho-corasick = { version = "1" }
 bitflags = { version = "2", default-features = false, features = ["serde"] }
-crc32fast = { version = "1" }
 crossbeam-utils = { version = "0.8" }
-derive_more = { version = "2", features = ["display", "from"] }
 digest = { version = "0.11", features = ["alloc", "mac", "oid"] }
-fastrand = { version = "2" }
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
@@ -31,76 +27,41 @@ futures-sink = { version = "0.3" }
 futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
-icu_properties = { version = "2" }
+hashbrown = { version = "0.17" }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
-phf = { version = "0.13", features = ["macros"] }
-phf_shared = { version = "0.13", default-features = false, features = ["std"] }
 regex-automata = { version = "0.4" }
+regex-syntax = { version = "0.8" }
 reqwest = { version = "0.13", default-features = false, features = ["cookies", "form", "gzip", "json", "multipart", "query", "rustls-no-provider", "stream"] }
-rusqlite = { version = "0.40", features = ["bundled", "column_decltype"] }
 rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-schemars-dff4ba8e3ae991db = { package = "schemars", version = "1" }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
-serde_with = { version = "3", features = ["json", "schemars_1"] }
-tauri-utils = { version = "2", default-features = false, features = ["compression", "resources"] }
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
-typenum = { version = "1", default-features = false, features = ["const-generics"] }
-url = { version = "2", features = ["serde"] }
-uuid = { version = "1", features = ["serde", "v4", "v7"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 vte = { version = "0.15", features = ["ansi", "serde"] }
 
 [build-dependencies]
-aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
-crc32fast = { version = "1" }
-derive_more = { version = "2", features = ["add", "add_assign"] }
-derive_more-impl = { version = "2", features = ["add", "add_assign", "display", "from"] }
 digest = { version = "0.11", features = ["alloc", "oid"] }
-flate2 = { version = "1" }
-foldhash = { version = "0.2" }
-form_urlencoded = { version = "1", default-features = false, features = ["std"] }
-icu_properties = { version = "2" }
-memchr = { version = "2" }
-percent-encoding = { version = "2", default-features = false, features = ["std"] }
-phf = { version = "0.13", features = ["macros"] }
-phf_shared = { version = "0.13" }
-proc-macro2 = { version = "1", features = ["span-locations"] }
+proc-macro2 = { version = "1" }
 quote = { version = "1" }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
-schemars-c38e5c1d305a1b54 = { package = "schemars", version = "0.8", features = ["preserve_order", "url", "uuid1"] }
-semver = { version = "1", features = ["serde"] }
-serde = { version = "1", features = ["alloc", "derive"] }
-serde_core = { version = "1", features = ["alloc"] }
-serde_json = { version = "1", features = ["alloc", "unbounded_depth"] }
-serde_with = { version = "3" }
-serde_with_macros = { version = "3", default-features = false, features = ["schemars_1"] }
-simd-adler32 = { version = "0.3" }
-stable_deref_trait = { version = "1" }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
-syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit", "visit-mut"] }
-tauri-build = { version = "2" }
-tauri-utils = { version = "2", default-features = false, features = ["build-2", "compression", "resources"] }
-time = { version = "0.3", features = ["formatting", "parsing"] }
+syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit-mut"] }
 time-macros = { version = "0.2", default-features = false, features = ["formatting", "parsing"] }
-typenum = { version = "1", default-features = false, features = ["const-generics"] }
-url = { version = "2", features = ["serde"] }
-uuid = { version = "1", features = ["serde", "v4"] }
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
+block2 = { version = "0.6" }
+crc32fast = { version = "1" }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["rand_core"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
 data-encoding = { version = "2" }
-derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "debug", "deref", "deref_mut", "from_str", "into_iterator", "try_into"] }
 digest = { version = "0.11", default-features = false, features = ["rand_core"] }
 dispatch2 = { version = "0.3" }
 errno = { version = "0.3" }
@@ -108,18 +69,14 @@ flate2 = { version = "1" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 idna = { version = "1" }
-objc2 = { version = "0.6", features = ["disable-encoding-assertions", "exception"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAccessibilityProtocols", "NSAlert", "NSAnimation", "NSAppearance", "NSApplication", "NSAttributedString", "NSBitmapImageRep", "NSBox", "NSButton", "NSCell", "NSColor", "NSControl", "NSDragging", "NSEvent", "NSFont", "NSGlassEffectView", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSMenu", "NSMenuItem", "NSOpenGLView", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSPopover", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSRunningApplication", "NSSavePanel", "NSScreen", "NSTextField", "NSTextFinder", "NSTextView", "NSUserActivity", "NSUserInterfaceItemIdentification", "NSUserInterfaceValidation", "NSView", "NSViewController", "NSVisualEffectView", "NSWindow", "NSWorkspace", "block2", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core", "std"] }
-objc2-core-foundation = { version = "0.3", features = ["CFBase"] }
-objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGBitmapContext", "CGColor", "CGColorSpace", "CGContext", "CGDirectDisplay", "CGEventTypes", "CGFont", "CGImage", "CGPath", "objc2", "std"] }
-objc2-foundation = { version = "0.3" }
-objc2-quartz-core = { version = "0.3", default-features = false, features = ["CADisplayLink", "CALayer", "CAMediaTiming", "CAMediaTimingFunction", "CAOpenGLLayer", "CAShapeLayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics", "std"] }
+objc2 = { version = "0.6" }
+objc2-core-foundation = { version = "0.3" }
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSAppleEventDescriptor", "NSArray", "NSAttributedString", "NSBundle", "NSCoder", "NSData", "NSDate", "NSDictionary", "NSEnumerator", "NSError", "NSException", "NSFileManager", "NSFileWrapper", "NSFormatter", "NSGeometry", "NSItemProvider", "NSJSONSerialization", "NSKeyValueCoding", "NSKeyValueObserving", "NSLocale", "NSNotification", "NSNull", "NSObjCRuntime", "NSObject", "NSOrthography", "NSProcessInfo", "NSProgress", "NSRange", "NSSet", "NSString", "NSTextCheckingResult", "NSThread", "NSURL", "NSURLAuthenticationChallenge", "NSURLCredential", "NSURLRequest", "NSURLResponse", "NSURLSession", "NSUUID", "NSUndoManager", "NSUserActivity", "NSValue", "objc2-core-foundation", "std"] }
 objc2-system-configuration = { version = "0.3" }
-objc2-web-kit = { version = "0.3", default-features = false, features = ["WKContentWorld", "WKDownload", "WKDownloadDelegate", "WKFrameInfo", "WKHTTPCookieStore", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKOpenPanelParameters", "WKPDFConfiguration", "WKPreferences", "WKScriptMessage", "WKScriptMessageHandler", "WKSecurityOrigin", "WKSnapshotConfiguration", "WKUIDelegate", "WKURLSchemeHandler", "WKURLSchemeTask", "WKUserContentController", "WKUserScript", "WKWebView", "WKWebViewConfiguration", "WKWebpagePreferences", "WKWebsiteDataStore", "WKWindowFeatures", "block2", "objc2-app-kit", "objc2-core-foundation", "std"] }
+rusqlite = { version = "0.40", features = ["bundled", "column_decltype"] }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "termios", "time"] }
 security-framework = { version = "3", features = ["OSX_10_15"] }
 security-framework-sys = { version = "2", features = ["OSX_10_15"] }
-simd-adler32 = { version = "0.3" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new"] }
 subtle = { version = "2", default-features = false, features = ["const-generics"] }
@@ -129,19 +86,15 @@ toml_datetime = { version = "1", default-features = false, features = ["serde", 
 toml_parser = { version = "1", default-features = false, features = ["std"] }
 tower-http = { version = "0.6", default-features = false, features = ["decompression-gzip", "follow-redirect"] }
 tracing = { version = "0.1", features = ["log"] }
+url = { version = "2", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
-crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
 data-encoding = { version = "2", default-features = false, features = ["alloc"] }
-derive_more-impl = { version = "2", default-features = false, features = ["debug", "deref", "deref_mut", "from_str", "into_iterator", "try_into"] }
-idna = { version = "1", default-features = false, features = ["compiled_data", "std"] }
 libc = { version = "0.2" }
-objc2 = { version = "0.6", default-features = false, features = ["std"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["NSProcessInfo", "std"] }
-smallvec = { version = "1", default-features = false, features = ["const_generics"] }
-toml_datetime = { version = "1", features = ["serde"] }
+semver = { version = "1" }
+syn-f595c2ba2a3f28df = { package = "syn", version = "2", default-features = false, features = ["visit"] }
+toml_datetime = { version = "1" }
 toml_parser = { version = "1" }
 winnow = { version = "1" }
 
