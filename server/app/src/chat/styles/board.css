@@ -1,0 +1,472 @@
+.board-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.board-pane.with-card {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.42fr);
+}
+
+/* The board's toolbar and the open card's head form one band across the pane, on the ground the commit header uses. */
+.board-pane .kanban-head,
+.board-panel-head {
+  background: color-mix(
+    in srgb,
+    var(--surface) var(--panel-solidity),
+    transparent
+  );
+  border-bottom: 1px solid var(--border);
+}
+
+.board-pane .kanban-head {
+  justify-content: center;
+  min-height: 45px;
+  padding: 0 12px;
+}
+
+.board-pane .kanban-lanes {
+  padding-top: 10px;
+}
+
+.board-pane .kanban > .empty-state {
+  margin: auto;
+  padding: var(--space-6);
+}
+
+/* A lane's head is the card the lane's cards sit under; it opens that card, its chevron folds the lane. */
+.kanban-lane-head.board-lane-head {
+  gap: 2px;
+  width: 100%;
+  padding: 0;
+}
+
+.board-lane-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: var(--radius-2);
+  font-size: var(--text-sm);
+  text-align: left;
+  background: none;
+}
+
+button.board-lane-title:hover,
+.board-lane-title[aria-pressed="true"] {
+  background: var(--surface-hover);
+}
+
+.board-lane-title b {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-lane-title .kanban-meta {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.board-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.board-owner b {
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-owner-paid {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-owner .agent-activity {
+  display: inline-grid;
+  place-items: center;
+}
+
+.board-nobody {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.board-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.board-sub {
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.board-after {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.board-after svg {
+  flex: none;
+}
+
+.board-ask {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--text-secondary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.board-ask b {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.board-card-done .kanban-card-summary {
+  color: var(--text-secondary);
+}
+
+.board-card-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 0 12px 12px;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+/* The panel's head runs edge to edge under a hairline, like the side panels in git. */
+.board-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 45px;
+  margin: 0 -12px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.board-panel-ticket {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.board-panel-title {
+  margin: 0 -7px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-2);
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  background: transparent;
+}
+
+.board-panel-title:hover,
+.board-panel-title:focus {
+  border-color: var(--border);
+}
+
+.board-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.board-fact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.board-fact > .dd {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.board-fact .dd-btn {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.board-waits {
+  flex-wrap: wrap;
+}
+
+.board-waits > .dd {
+  flex: 0 1 auto;
+}
+
+.board-waits .dd-btn {
+  width: auto;
+}
+
+.board-fact-name {
+  width: 64px;
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.board-section-name {
+  font-size: var(--text-3xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* A settings group runs edge to edge under a hairline, its name above its fields. */
+.board-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px -12px 0;
+  padding: 12px 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.board-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.board-panel-details {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  resize: vertical;
+}
+
+.board-result,
+.board-under {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.board-result p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.board-under-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.board-under-row:hover {
+  border-color: var(--border-strong);
+}
+
+.board-panel-foot {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.board-auto-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--text-disabled);
+}
+
+.board-auto-dot.on {
+  background: var(--live);
+}
+
+.board-ask.board-run {
+  color: var(--text-tertiary);
+}
+
+.board-panel-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.board-auto-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.board-auto-about,
+.board-auto-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.board-auto-note {
+  color: var(--text-primary);
+}
+
+.board-auto-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+.board-auto-input:focus {
+  border-color: var(--border-selected);
+}
+
+.board-auto-hint {
+  font-size: var(--text-2xs);
+  line-height: 1.45;
+  color: var(--text-tertiary);
+}
+
+.board-run-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.board-run-fact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.board-run-fact code {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-run-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* One list edge to edge across the panel, a hairline between messages; only how one went carries colour. */
+.board-messages {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -12px;
+  padding: 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+
+.board-message {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.board-message-who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.board-message-who b {
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-message-to {
+  color: var(--text-tertiary);
+}
+
+.board-message-at {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.board-message.held .board-message-outcome {
+  color: var(--warn);
+}
+
+.board-message.failed .board-message-outcome {
+  color: var(--danger);
+}

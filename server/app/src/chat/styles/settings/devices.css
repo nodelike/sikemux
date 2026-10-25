@@ -1,0 +1,203 @@
+/* ── devices ────────────────────────────────────────── */
+.devices-top {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.devices-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--s-raised);
+}
+label.devices-row {
+  cursor: pointer;
+}
+.devices-row-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  color: var(--text-primary);
+}
+.devices-avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  background: var(--surface-active);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  object-fit: cover;
+  user-select: none;
+}
+.devices-row-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.devices-row-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.devices-row-desc {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+.devices-row-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.devices-panel {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-6);
+  overflow: hidden;
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--s-raised);
+}
+.devices-phone::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in oklab, var(--ink) 10%, transparent) 0.8px,
+    transparent 1.2px
+  );
+  background-size: 4px 4px;
+  mask-image: radial-gradient(300px 220px at 85% 50%, #000, transparent 75%);
+}
+.devices-panel-copy {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.devices-panel-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-display);
+}
+.devices-panel-lede {
+  max-width: 420px;
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+.devices-panel-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.devices-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: devices-step;
+}
+.devices-steps li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  counter-increment: devices-step;
+}
+.devices-steps li::before {
+  content: counter(devices-step);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--surface-active);
+  color: var(--text-primary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+/* A QR code reads only dark on light, whatever the theme. */
+.devices-qr {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  border-radius: var(--radius-3);
+  background: #fff;
+}
+.qr-code {
+  display: block;
+}
+
+.devices-phones,
+.devices-hosts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.devices-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-3xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.devices-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.devices-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+.devices-waiting-loader {
+  color: var(--live);
+}
+
+.device-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.device-warning {
+  color: var(--warn);
+}

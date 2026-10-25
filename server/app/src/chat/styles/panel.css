@@ -1,0 +1,355 @@
+/*
+ * Shared panel vocabulary — surface, header, body, empty state.
+ *
+ * Lifted out of the git pane, which was the only place that had a real panel
+ * abstraction. Feature stylesheets should now only describe what differs from
+ * this, not restate it.
+ */
+
+/* ---- Surface ------------------------------------------------------------ */
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.panel-block {
+  /* Header plus a row: a panel with few items still shows what it has. */
+  min-height: 54px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  background: transparent;
+}
+.panel-block.focused {
+  border-color: var(--border-selected);
+}
+.panel-group {
+  margin-top: var(--space-4);
+}
+.panel-group:first-child {
+  margin-top: 0;
+}
+
+/* ---- Header ------------------------------------------------------------- */
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+.panel-block > .panel-head {
+  height: 30px;
+  padding: 0 var(--gutter-row);
+  border-bottom: 1px solid var(--border);
+}
+.panel-group > .panel-head {
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1h) var(--space-1h) var(--space-3);
+}
+
+.panel-index {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: 999px;
+  font-size: var(--text-3xs);
+  font-weight: var(--weight-semibold);
+  color: var(--surface-sunken);
+  background: var(--text-tertiary);
+}
+.panel.focused .panel-index {
+  background: var(--acc);
+}
+
+.panel-label {
+  font-size: var(--text-3xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.panel-group > .panel-head .panel-label {
+  letter-spacing: 0.2em;
+}
+.panel.focused .panel-label {
+  color: var(--text-primary);
+}
+
+/* Fills the gap between the label and the actions in the rail grouping. */
+.panel-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ---- Header actions ----------------------------------------------------- */
+.panel-actions {
+  display: none;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+.panel.focused .panel-actions,
+.panel:hover .panel-actions {
+  display: flex;
+}
+/* The rail grouping keeps its actions visible; there is no focused state. */
+.panel-group .panel-actions {
+  display: flex;
+  margin-left: 0;
+}
+
+.panel-abtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 18px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+.panel-abtn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.panel-abtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.panel-abtn.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 36%, transparent);
+}
+.panel-abtn.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+.panel-akbd {
+  font-family: var(--kbd);
+  font-size: 8px;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-1);
+}
+.panel-abtn:hover:not(:disabled) .panel-akbd {
+  color: var(--text-secondary);
+}
+
+/* ---- Body ------------------------------------------------------------- */
+.panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ---- Empty state -------------------------------------------------------- */
+.empty-state {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1h);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--text-tertiary);
+}
+.rail-scroll > .empty-state {
+  min-height: 100%;
+}
+.empty-state-media {
+  display: grid;
+  place-items: center;
+  margin-bottom: var(--space-0);
+  color: var(--text-tertiary);
+  opacity: 0.7;
+}
+.empty-state-title {
+  font-family: var(--ui);
+  font-size: 12.5px;
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+}
+.empty-state-msg {
+  max-width: 34ch;
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+}
+.empty-state-msg kbd {
+  padding: 1px 5px;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--ui);
+  font-size: var(--text-2xs);
+}
+.empty-state-action {
+  margin-top: var(--space-1);
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--ui);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.empty-state-action:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.empty-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--text-tertiary);
+}
+.empty-stage-title {
+  font-family: var(--ui);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.empty-stage-moves {
+  display: flex;
+  gap: var(--space-2);
+}
+.empty-stage-move {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--ui);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.empty-stage-move:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.empty-stage-move kbd {
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+}
+
+.empty-state.tone-error {
+  color: var(--danger);
+}
+.empty-state.tone-error .empty-state-media {
+  color: var(--danger);
+}
+.empty-state.tone-error .empty-state-title {
+  color: var(--danger);
+}
+
+/* One-line form for the rails, where the block form would dwarf its group. */
+.empty-state.inline {
+  flex: none;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: var(--space-1h);
+  padding: var(--space-3) var(--space-3);
+  text-align: left;
+  font-size: var(--text-2xs);
+  line-height: 1.45;
+}
+.empty-state.inline svg {
+  flex: none;
+}
+.empty-state.inline.interactive {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+.empty-state.inline.interactive:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+/* Pages side by side in one track that a swipe or the icons at their foot
+   slide along. Pages off to the side are neither laid out nor painted until
+   the track moves across them, and their animations stand still. */
+.swipe-pages {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.swipe-pager {
+  flex: 1;
+  min-height: 0;
+  overflow: clip;
+}
+.swipe-track {
+  display: flex;
+  height: 100%;
+  will-change: transform;
+}
+.swipe-page {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 100%;
+  min-width: 0;
+  min-height: 0;
+}
+/* Side by side mid-swipe, the pages part on a hairline, and the outer pages close on one when pulled past the end. */
+.swipe-page {
+  box-shadow: -1px 0 0 var(--border);
+}
+.swipe-page:last-child {
+  box-shadow:
+    -1px 0 0 var(--border),
+    1px 0 0 var(--border);
+}
+.swipe-page:not(.is-current, [data-shown]) {
+  visibility: hidden;
+  content-visibility: hidden;
+}
+.swipe-switch {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.swipe-switch button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: var(--control-hit);
+  color: var(--text-tertiary);
+  transition:
+    color var(--dur-1) linear,
+    background-color var(--dur-1) linear;
+}
+.swipe-switch button:hover {
+  color: var(--text-primary);
+}
+.swipe-switch button[aria-selected="true"] {
+  background: var(--surface-chosen);
+  color: var(--text-primary);
+}

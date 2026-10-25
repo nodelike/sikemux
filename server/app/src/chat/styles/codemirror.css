@@ -1,0 +1,288 @@
+.file-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.theme-icon {
+  display: block;
+  flex: none;
+}
+.theme-light .theme-icon-dark,
+:root:not(.theme-light) .theme-icon-light {
+  display: none;
+}
+
+.tree-row.git-m,
+.git-status.git-m,
+.git-status-symbol.git-m,
+.rail-file.git-m {
+  color: var(--git-modified);
+}
+.tree-row.git-u,
+.git-status.git-u,
+.git-status-symbol.git-u,
+.rail-file.git-u {
+  color: var(--git-untracked);
+}
+.tree-row.git-a,
+.git-status.git-a,
+.git-status-symbol.git-a,
+.rail-file.git-a {
+  color: var(--git-added);
+}
+.tree-row.git-d,
+.git-status.git-d,
+.git-status-symbol.git-d,
+.rail-file.git-d {
+  color: var(--git-deleted);
+}
+.tree-row.git-r,
+.git-status.git-r,
+.git-status-symbol.git-r,
+.rail-file.git-r {
+  color: var(--git-renamed);
+}
+.tree-row.git-c,
+.git-status.git-c,
+.git-status-symbol.git-c,
+.rail-file.git-c {
+  color: var(--danger);
+}
+.git-status-symbol {
+  display: inline-flex;
+  justify-content: center;
+  width: 11px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.tree-git {
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: auto;
+  padding-left: 8px;
+  opacity: 0.8;
+}
+
+.tree-git-dot {
+  font-size: 7px;
+}
+
+.cm-content {
+  cursor: text;
+}
+
+.cm-git-gutter {
+  width: 3px;
+  padding: 0;
+}
+.cm-git-marker {
+  width: 3px;
+  height: 100%;
+  margin-left: 0;
+}
+.cm-git-add {
+  background: #4ade80;
+}
+.cm-git-mod {
+  background: #60a5fa;
+}
+.cm-git-del {
+  background: transparent;
+  position: relative;
+  overflow: visible;
+}
+.cm-git-del::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -3px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid #ef4444;
+  border-right: 4px solid transparent;
+}
+
+.cm-editor {
+  position: relative;
+}
+.cm-git-ruler {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  z-index: 4;
+}
+.cm-git-ruler-bar {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  min-height: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition:
+    width 0.1s,
+    filter 0.1s;
+}
+.cm-git-ruler-bar:hover {
+  width: 8px;
+  filter: brightness(1.25);
+}
+.cm-git-ruler-bar.add {
+  background: #4ade80;
+}
+.cm-git-ruler-bar.mod {
+  background: #60a5fa;
+}
+.cm-git-ruler-bar.del {
+  background: #ef4444;
+  height: 4px !important;
+}
+
+.cm-blame {
+  display: inline-flex;
+  align-items: center;
+  height: 1em;
+  line-height: 1;
+  margin-left: 26px;
+  color: var(--ink-faint);
+  font-size: 0.92em;
+  font-style: italic;
+  white-space: pre;
+  cursor: default;
+  pointer-events: none;
+  user-select: none;
+  vertical-align: middle;
+  /* truncate runaway summaries so a long subject never widens the scroll */
+  max-width: 60ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-blame-uncommitted {
+  opacity: 0.7;
+}
+
+.cm-lsp-link {
+  text-decoration: underline;
+  text-decoration-color: var(--acc);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.cm-peek {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+  margin: 6px 0;
+  font-size: 12px;
+  user-select: none;
+}
+.cm-peek-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-dim);
+}
+.cm-peek-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.cm-peek-count {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.cm-peek-close {
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-size: 13px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.cm-peek-close:hover {
+  color: var(--danger);
+}
+.cm-peek-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.cm-peek-group {
+  margin-bottom: 2px;
+}
+.cm-peek-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+.cm-peek-group-name {
+  color: var(--ink);
+}
+.cm-peek-group-path {
+  color: var(--ink-faint);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-peek-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  height: 24px;
+  padding: 0 14px 0 24px;
+  color: var(--ink-dim);
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 0.1s,
+    color 0.1s;
+}
+.cm-peek-row:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.cm-peek-row-line {
+  width: 32px;
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cm-peek-row-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ed-tree-resizer {
+  width: var(--shell-gap);
+  flex: 0 0 auto;
+  cursor: col-resize;
+  background: transparent;
+}
+.ed-tree-resizer:hover,
+.ed-tree-resizer:active {
+  background: linear-gradient(var(--acc-line), var(--acc-line)) center / 2px
+    100% no-repeat;
+}

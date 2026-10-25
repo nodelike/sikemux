@@ -7,10 +7,10 @@ import {
   type ShareLink,
 } from "@shared/share/link";
 import { ShareSession } from "@shared/share/session";
-import { SharedChat } from "@mac/share/SharedChat";
-import { wearPicked } from "@mac/themes/bus";
-import defaultPalette from "@mac/themes/defaultPalette.json";
-import "@mac/styles.css";
+import { SharedChat } from "./SharedChat.tsx";
+import { wearPicked } from "../chat/themes/bus.ts";
+import defaultPalette from "../chat/themes/defaultPalette.json";
+import "../chat/styles.css";
 
 import { config } from "../config.ts";
 
@@ -20,7 +20,7 @@ const ShareSignIn = lazy(() => import("./ShareSignIn.tsx"));
 const SOCKET = `${config.apiUrl.replace(/^http/, "ws")}/v1/share`;
 
 /**
- * A chat someone shared, at `/s/<id>#<key>`: the Mac's own chat view, read-only, for anyone
+ * A chat someone shared, at `/s/<id>#<key>`: the app's chat view, read-only, for anyone
  * signed in. The key after `#` never leaves the browser.
  */
 export default function SharePage() {

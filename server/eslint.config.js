@@ -23,4 +23,13 @@ export default defineConfig(
     languageOptions: { globals: { ...globals.browser } },
     extends: [reactHooks.configs.flat["recommended-latest"]],
   },
+  {
+    // The chat view came from the desktop app, whose checks never ran the React Compiler's rules.
+    files: ["app/src/chat/**"],
+    rules: {
+      "react-hooks/refs": "off",
+      "react-hooks/immutability": "off",
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
 );

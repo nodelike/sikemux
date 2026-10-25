@@ -1,0 +1,586 @@
+.desk {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--ink);
+}
+
+.desk-body {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.desk-body > * {
+  position: absolute;
+  inset: 0;
+}
+
+.desk-body > [hidden] {
+  display: none;
+}
+
+.desk-page {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The desk draws its own edge (`.desk-outline`), so its pane gives up the
+   border but keeps the inset, and clips at its outer corner, where the
+   switcher's own corner sits. */
+.pane.pane-desk {
+  padding: 1px;
+  border: 0;
+}
+
+.pane-desk .desk {
+  position: relative;
+  overflow: visible;
+}
+
+/* Over the desk's content, as the pane's own border was: it only ever runs
+   through the pane's 1px inset, but anything inside reaching the desk's edge
+   would otherwise paint over it. */
+.desk-outline {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.desk-outline path {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+/* No line under the tabs: the desk's edge stepping round the switcher is the
+   only one. The tabs start a pane's gap past that step. */
+.desk-head {
+  --desk-kinds-w: calc(
+    var(--desk-kinds) * 24px + (var(--desk-kinds) - 1) * 2px + 2 * 4px
+  );
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: calc(var(--desk-kinds-w) + var(--pane-gutter) - 1px);
+}
+
+/* The pill, its three states and its close come from the shared strip rule in
+   modern-shell.css. What is left here is the two things a desk tab does not
+   share with a workspace tab: it sits over a pane of its own, and a page title
+   is long enough to need a cap on how much room it may take. */
+/* The simulator's controls, at the strip's right end while its tab is shown. */
+.desk-head-tools {
+  display: flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+}
+
+/* With the simulator shown the strip holds no tabs, only the device, which opens its menu. */
+.desk-device {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 28px;
+  margin-left: 6px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.desk-device:hover,
+.desk-device[aria-expanded="true"] {
+  background: var(--surface-hover);
+}
+
+.desk-device > svg:first-child {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.desk-device-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-device-dot:empty {
+  display: none;
+}
+
+.desk-device-chev {
+  flex: none;
+  color: var(--ink-faint);
+  transform: rotate(90deg);
+}
+
+.desk-head .tabbar.v-desk {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding-inline: 6px;
+  background: transparent;
+}
+
+/* Outside the desk, in the corner its edge steps round: flush with the pane's
+   outer top and left, a pane's gap clear of the desk below and beside it. The
+   icons sit 3px inside its line, which takes the pane's corner. */
+.desk-kinds {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  display: flex;
+  gap: 2px;
+  width: var(--desk-kinds-w);
+  height: calc(34px - var(--pane-gutter));
+  padding: 4px;
+  border-radius: var(--radius-panel);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.desk-kind {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 21px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) linear,
+    color var(--dur-1) linear;
+}
+
+.desk-kind:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.desk-kind.on {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  color: var(--text-primary);
+}
+
+.desk-kind.busy {
+  color: var(--desk-agent);
+}
+
+.desk-kind:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A width, not a share of the strip or a flex basis. The tab list is as wide
+   as its tabs, and WebKit measures a tab for that from its title at full length
+   unless the tab has a width of its own, which left the add button stranded. */
+.tabbar.v-desk .tab-wrap {
+  flex: 0 1 auto;
+  width: 180px;
+  min-width: 120px;
+}
+
+/* Desk tabs sit on the same faint fill as the address field under them, with
+   no outline. */
+.desk .tabbar.v-desk .tab-wrap {
+  height: 24px;
+  background-color: color-mix(in srgb, var(--ink) 5%, transparent);
+  box-shadow: none;
+}
+
+.tabbar.v-desk .tab {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.tabbar.v-desk .tab-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  text-align: left;
+}
+
+.desk .tabbar.v-desk .tab-wrap.acting {
+  --tab-tint: color-mix(in srgb, var(--desk-agent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--desk-agent) 70%, transparent);
+  color: var(--text-primary);
+}
+
+/* Site icons arrive at whatever shape the site chose, so the box holds them
+   rather than the other way round. */
+.tabbar.v-desk .tab-favicon {
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
+}
+
+.tabbar.v-desk .tab-add,
+.browser-toolbar button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.tabbar.v-desk .tab-add {
+  width: 24px;
+  height: 24px;
+}
+
+.tabbar.v-desk .tab-add:hover,
+.browser-toolbar button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+/* The strip and the bar under it sit inside a pane that is already the
+   surface, so like the editor's strip they paint nothing. A second fill here
+   stacked on the pane's and left the top of the desk more solid than the
+   rest of the window. */
+.browser-toolbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 6px 4px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+.browser-toolbar button {
+  width: 24px;
+  height: 24px;
+}
+
+.browser-back-icon {
+  transform: rotate(180deg);
+}
+
+.browser-address-field {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  margin-left: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.browser-address-field:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.browser-address-field:focus-within {
+  border-color: var(--border-selected);
+  background: color-mix(in srgb, var(--void) 80%, transparent);
+}
+
+/* The field's edge and fill sit on the wrapper: every input takes the control
+   corner, and the field has to square its lower corners while its list is open. */
+.browser-address {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+/* The app's own selection tint is too faint over the field, and here it is
+   what shows the part of an address the bar has finished for you. */
+.browser-address::selection {
+  background: color-mix(in srgb, var(--acc) 42%, transparent);
+}
+
+/* The full address is still in the input underneath, drawn clear so the one
+   over it, without its scheme and with the site picked out, is all that reads
+   until the field is focused. */
+.browser-address-field:has(.browser-address-site) .browser-address:not(:focus) {
+  color: transparent;
+}
+
+.browser-address-site {
+  position: absolute;
+  inset: 0 8px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.browser-address-site svg {
+  flex: none;
+  margin-right: 6px;
+  color: var(--ink-faint);
+}
+
+.browser-address-host,
+.browser-address-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-address-host {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
+.browser-address-path {
+  flex: 0 1 auto;
+  color: var(--ink-faint);
+}
+
+.browser-address-field:focus-within .browser-address-site {
+  visibility: hidden;
+}
+
+.browser-viewport {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  outline: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.browser-toolbar.loading::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--desk-agent),
+    transparent
+  );
+  animation: browser-progress 900ms ease-in-out infinite;
+}
+
+@keyframes browser-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-toolbar.loading::after {
+    animation: none;
+  }
+}
+
+.browser-blank {
+  position: absolute;
+  inset: 0;
+  background: color-mix(
+    in srgb,
+    var(--pane) calc(var(--window-opacity, 1) * 100%),
+    transparent
+  );
+}
+
+/* Fitted the way the live page is: never scaled up, and along the top of the
+   area when a fixed viewport leaves room around it. */
+.browser-still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+  object-position: top center;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* A page that is there is shaded natively; a blank one has only this. */
+.browser-dim {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  pointer-events: none;
+}
+
+/* The list continues the field it drops from: one fill, one border, and square
+   corners where the two meet so neither edge bends at the join. */
+.browser-address-field.open {
+  border-bottom-color: transparent;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  background: var(--surface-overlay);
+}
+
+.address-suggestions {
+  position: fixed;
+  z-index: var(--layer-menu);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 5px 4px 4px;
+  border: 1px solid var(--border-selected);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-2);
+  list-style: none;
+}
+
+.address-suggestions::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 8px;
+  left: 8px;
+  height: 1px;
+  background: var(--line);
+}
+
+.address-suggestions li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-2);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: var(--text-xs);
+  cursor: default;
+}
+
+.address-suggestions li:hover {
+  background: var(--surface-hover);
+}
+
+.address-suggestions li.selected {
+  background: var(--surface-chosen);
+}
+
+.address-suggestion-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  color: var(--ink-faint);
+}
+
+.address-suggestion-icon .tab-favicon {
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
+}
+
+.address-suggestion-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.address-suggestion-title b {
+  font-weight: var(--weight-semibold);
+}
+
+.address-suggestion-detail {
+  color: var(--ink-faint);
+}
+
+.address-suggestion-detail b {
+  color: var(--text-secondary);
+  font-weight: var(--weight-medium);
+}
+
+/* ⌘L's address floats over the page. The panel is the edge, so the field and
+   the list inside it draw none of their own. */
+.address-float {
+  position: fixed;
+  z-index: var(--layer-menu);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-4);
+}
+
+.address-float .browser-address-field,
+.address-float .browser-address-field:hover,
+.address-float .browser-address-field:focus-within {
+  align-items: center;
+  height: 38px;
+  margin: 0;
+  padding-left: 10px;
+  border: 0;
+  background: transparent;
+}
+
+.address-float .browser-address-icon {
+  flex: none;
+  color: var(--ink-faint);
+}
+
+.address-float .browser-address {
+  padding: 0 10px;
+  font-size: var(--text-sm);
+}
+
+.address-float .address-suggestions {
+  position: relative;
+  z-index: auto;
+  padding: 5px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.address-float .address-suggestions li {
+  height: 32px;
+}

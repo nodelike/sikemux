@@ -59,7 +59,6 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: |
-            pnpm-lock.yaml
             mobile/pnpm-lock.yaml
 
       - name: Use the runner's Java 17 and Android NDK
@@ -80,10 +79,6 @@ jobs:
           workspaces: src-tauri
           shared-key: mobile-android
           save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      # The phone shares chat and UI code with the desktop app, which needs its packages to typecheck.
-      - name: Install the desktop app's dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Install phone dependencies
         working-directory: mobile

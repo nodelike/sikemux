@@ -11,9 +11,11 @@
   "dependencies": {
     "@clerk/react": "^6.17.5",
     "@paper-design/shaders": "0.0.81",
+    "@shikijs/langs": "^4.5.0",
     "@sikemux/protocol": "workspace:*",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "shiki": "^4.5.0"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

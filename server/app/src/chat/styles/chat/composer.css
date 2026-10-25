@@ -1,0 +1,480 @@
+.chat-composer-wrap {
+  /* The composer and the jump button float over the same transcript, so they
+       share one fill and fade together with the window. */
+  --chat-composer-fill: color-mix(
+    in srgb,
+    var(--s-raised) 55%,
+    var(--s-sunken)
+  );
+  /* The gap the field keeps from the box. */
+  --chat-inset: 8px;
+  /* How much narrower the stack is than the composer, each side. */
+  --chat-step: 20px;
+  position: relative;
+  padding: 0 16px 16px;
+}
+
+/*
+ * Two surfaces, one step apart. The box is the sunken tier and the field is
+ * the raised one sitting in it, which is what separates the thing you write in
+ * from the settings around it — a step, not a shadow.
+ */
+.chat-composer {
+  position: relative;
+  width: min(100%, 820px);
+  margin: 0 auto;
+  padding: var(--chat-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: var(--chat-composer-fill);
+  transition: border-color var(--dur-2) var(--ease-out);
+}
+
+.chat-composer:focus-within {
+  border-color: var(--border-selected);
+}
+
+.chat-draft,
+.chat-dictation-preview {
+  display: block;
+  width: 100%;
+  max-height: min(320px, 40vh);
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: calc(14.5px * var(--chat-text-em, 1));
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  user-select: text;
+}
+
+.chat-draft {
+  position: relative;
+  min-height: calc(14.5px * var(--chat-text-em, 1) * 1.5 * 2 + 20px);
+  cursor: text;
+}
+
+.chat-draft[data-empty]::before {
+  position: absolute;
+  content: attr(data-placeholder);
+  color: var(--ink-faint);
+  pointer-events: none;
+}
+
+/* While dictating, the preview over the text box draws its text, so the two never show different scroll positions. */
+.chat-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.chat-field > .chat-draft,
+.chat-dictation-preview {
+  grid-area: 2 / 1;
+}
+
+.chat-field > .chat-draft:has(+ .chat-dictation-preview) {
+  color: transparent;
+}
+
+.chat-field > .chat-draft:has(+ .chat-dictation-preview) .chat-chip {
+  visibility: hidden;
+}
+
+.chat-dictation-preview {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.chat-dictation-preview span {
+  color: var(--ink-faint);
+}
+
+/* A tag in the draft. It sits on the text's centre line rather than its baseline, so it reads as part of the sentence. */
+.chat-chip {
+  position: relative;
+  top: -1.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  height: 20px;
+  margin: 0 1px;
+  padding: 0 6px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--ink);
+  font-size: calc(12px * var(--chat-text-em, 1));
+  line-height: 1;
+  vertical-align: middle;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.chat-chip[data-selected] {
+  border-color: color-mix(in oklab, var(--ink) 30%, transparent);
+  background: var(--surface-chosen);
+}
+
+.chat-chip-mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.chat-chip-mark[data-kind="issue"],
+.chat-chip-mark[data-kind="pull"] {
+  color: var(--live);
+}
+
+.chat-chip code {
+  flex: none;
+  color: var(--text-primary);
+  font-family: var(--mono);
+  font-size: calc(11px * var(--chat-text-em, 1));
+}
+
+.chat-chip-label,
+.chat-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-chip-label {
+  color: var(--ink-dim);
+}
+
+.chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 6px 6px 0;
+}
+
+.chat-attachments > .file,
+.chat-attachments > .image {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--void) 48%, transparent);
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+
+.chat-attachments > .file:hover,
+.chat-attachments > .image:hover {
+  border-color: var(--border-strong);
+}
+
+.chat-attachments > .image {
+  width: 76px;
+}
+
+.chat-attachments > .image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-attachments .chat-attachment-open {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+.chat-attachment-number {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  padding: 2px 4px;
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--void) 72%, transparent);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.chat-attachments .chat-attachment-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+
+.chat-attachments > :hover > .chat-attachment-remove,
+.chat-attachments .chat-attachment-remove:focus-visible {
+  opacity: 1;
+}
+
+.chat-context-chip {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 6px;
+  width: 205px;
+  min-height: 42px;
+  padding: 6px 5px 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--void) 48%, transparent);
+  color: var(--ink-dim);
+}
+
+.chat-context-chip.answering {
+  width: auto;
+  max-width: min(100%, 360px);
+}
+
+.chat-context-chip > span:not(.chat-context-mark) {
+  overflow: hidden;
+  font-size: calc(10.5px * var(--chat-text-em, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-attachments button {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--void);
+}
+
+.chat-composer-bar {
+  --control-h: 31px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 8px 2px 1px;
+}
+
+.chat-composer-icon,
+.chat-send {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.chat-composer-icon {
+  width: 31px;
+  height: 31px;
+  color: var(--ink-dim);
+  border-radius: var(--radius-2);
+}
+
+.chat-composer-icon:hover {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  color: var(--ink);
+}
+
+.chat-dictate.listening,
+.chat-dictate.listening:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  animation: tb-update-pulse 1.4s ease-in-out infinite;
+}
+
+.chat-dictate:disabled {
+  opacity: 0.5;
+}
+
+/* Beside the borderless pickers the toggle is text too: the rainbow word
+   carries YOLO, and the key hint stays in the pane header. */
+.chat-composer-bar .yolo-toggle {
+  padding: 0 11px;
+  border-color: transparent;
+  background: none;
+  transition:
+    background-color 200ms var(--ease-out),
+    border-color 200ms var(--ease-out),
+    color 200ms var(--ease-out);
+  border-radius: var(--radius-full);
+}
+
+.chat-composer-bar .yolo-toggle:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.chat-composer-bar .yolo-hint {
+  display: none;
+}
+
+.chat-context {
+  --usage-signal: var(--acc);
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border-radius: 50%;
+}
+
+.chat-context.claude {
+  --usage-signal: var(--brand-claude);
+}
+
+.chat-context.codex {
+  --usage-signal: var(--brand-codex);
+}
+
+.chat-context[data-tone="warm"] {
+  --usage-signal: var(--warn);
+}
+
+.chat-context[data-tone="hot"] {
+  --usage-signal: var(--danger);
+}
+
+.chat-context:hover {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.chat-context svg {
+  width: 14px;
+  height: 14px;
+  transform: rotate(-90deg);
+}
+
+.chat-context circle {
+  fill: none;
+  stroke-width: 2.2;
+}
+
+.chat-context-track {
+  stroke: var(--line);
+}
+
+.chat-context-fill {
+  stroke: var(--usage-signal);
+  stroke-linecap: round;
+  transition: stroke-dasharray 240ms ease-out;
+}
+
+.chat-context-tip {
+  display: grid;
+  gap: 2px;
+}
+
+.chat-context-tip span {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-composer-spacer {
+  flex: 1;
+}
+
+.chat-send {
+  width: 30px;
+  height: 30px;
+  margin-left: 3px;
+  background: var(--ink);
+  color: var(--void);
+}
+
+.chat-send:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.chat-send:disabled {
+  cursor: default;
+  opacity: 0.28;
+}
+
+.chat-send.stop span {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.chat-composer-error {
+  padding: 0 16px 5px;
+  color: var(--danger);
+  font-size: calc(10.5px * var(--chat-text-em, 1));
+}
+
+.chat-drop-target {
+  position: absolute;
+  inset: 10px;
+  z-index: 4;
+  display: none;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  border: 1px dashed var(--acc);
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--pane) 88%, var(--acc));
+  color: var(--ink);
+  font-size: var(--text-xs);
+  pointer-events: none;
+}
+
+.agent-chat-pane[data-native-path-drag-over="true"] .chat-drop-target {
+  display: grid;
+}
+
+@media (max-width: 760px) {
+  .agent-surface-mark,
+  .agent-surface-title {
+    display: none;
+  }
+
+  .agent-surface-name {
+    padding: 0 3px;
+  }
+
+  .chat-message {
+    padding-inline: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-surface-menu,
+  .agent-view-switch button,
+  .yolo-toggle,
+  .chat-picker-trigger,
+  .chat-project-trigger,
+  .chat-composer-bar .yolo-toggle,
+  .chat-project-strip .worktree-toggle {
+    transition: none;
+  }
+
+  /* The elapsed seconds keep saying the turn is alive without any motion. */
+  .chat-shimmer-band,
+  .chat-shimmer-copy,
+  .chat-activity-loader,
+  .chat-activity-mark,
+  .chat-tool.live .chat-tool-icon,
+  .chat-subagent-spinner,
+  .chat-menu-loading i {
+    animation: none;
+  }
+
+  .chat-activity-loader {
+    border-color: var(--live);
+  }
+
+  .chat-context-fill {
+    transition: none;
+  }
+}

@@ -1,0 +1,213 @@
+.desk-simulator {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sim-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sim-live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--live);
+}
+
+.sim-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: transparent;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition:
+    border-color 0.12s,
+    background 0.12s,
+    color 0.12s;
+}
+
+.sim-chip:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.sim-chip:disabled {
+  opacity: 0.45;
+}
+
+.sim-tool {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.sim-tool:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.sim-tool:disabled {
+  opacity: 0.45;
+}
+
+.sim-tools-gap {
+  width: 8px;
+}
+
+.sim-fps {
+  align-self: end;
+  justify-self: end;
+  padding: 2px 6px;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklab, var(--surface-sunken) 80%, transparent);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-1) linear;
+}
+
+.sim-stage:hover .sim-fps {
+  opacity: 1;
+}
+
+.sim-problem {
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+  color: var(--danger);
+}
+
+.sim-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.sim-stage {
+  display: grid;
+  flex: 1;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+}
+
+.sim-stage > * {
+  grid-area: 1 / 1;
+}
+
+.sim-overlay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  margin-bottom: 24px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklab, var(--surface-sunken) 85%, transparent);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.sim-overlay[role="status"] {
+  pointer-events: none;
+}
+
+.sim-device {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sim-device.framed .sim-screen {
+  position: absolute;
+}
+
+/* The bezel and side buttons are still images, turned with the device; only the screen inside them redraws. */
+.sim-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  pointer-events: none;
+}
+
+.sim-bezel {
+  position: absolute;
+  user-select: none;
+}
+
+.sim-side {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.sim-side[aria-disabled="true"] {
+  cursor: default;
+}
+
+.sim-side img {
+  position: absolute;
+  top: 0;
+  left: var(--rest);
+  pointer-events: none;
+  user-select: none;
+  transition: left var(--dur-1) ease-out;
+}
+
+.sim-side:not([aria-disabled="true"]):hover img,
+.sim-side.held img {
+  left: var(--out);
+}
+
+/* The canvas fills the stage and holds exactly the pixels it shows, so the phone is scaled once,
+   with care, rather than again by the compositor. */
+.sim-screen {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  touch-action: none;
+  cursor: default;
+  opacity: 0;
+}
+
+.sim-screen.locked {
+  cursor: not-allowed;
+}
+
+.sim-screen.framed {
+  opacity: 1;
+}
+
+.sim-screen:focus {
+  outline: none;
+}

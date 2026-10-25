@@ -12,39 +12,6 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
-const MAC = `${join(repo, "src")}/`;
-const mac = (path: string) => join(MAC, path);
-const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
-
-/** The Mac modules a browser cannot run, and what stands in for each on a shared chat's page. */
-const STAND_INS = new Map([
-  [mac("state/store.ts"), here("src/share/standins/store.ts")],
-  [mac("state/commands/index.ts"), here("src/share/standins/commands.ts")],
-  [mac("rail/FileTree.tsx"), here("src/share/standins/fileTree.tsx")],
-  [mac("api/markdown.ts"), here("src/share/standins/markdown.ts")],
-]);
-const TAURI = new Map([
-  ["@tauri-apps/api/core", here("src/share/standins/tauri-core.ts")],
-  ["@tauri-apps/api/event", here("src/share/standins/tauri-event.ts")],
-]);
-
-function macStandIns(): Plugin {
-  return {
-    name: "sikemux-mac-stand-ins",
-    enforce: "pre",
-    async resolveId(source, importer, options) {
-      const tauri = TAURI.get(source);
-      if (tauri) return tauri;
-      if (!importer?.startsWith(MAC) || !source.startsWith(".")) return null;
-      const resolved = await this.resolve(source, importer, {
-        ...options,
-        skipSelf: true,
-      });
-      return (resolved && STAND_INS.get(resolved.id)) ?? null;
-    },
-  };
-}
-
 const WASM = join(
   repo,
   "src-tauri/target/wasm32-unknown-unknown/release/sikemux_markdown_wasm.wasm",
@@ -56,7 +23,7 @@ const TYPES: Record<string, string> = {
   ".wasm": "application/wasm",
 };
 
-/** The Mac's markdown parser for the browser, built from the same Rust. Needs rustup's cargo, which reads rust-toolchain.toml. */
+/** The core's markdown parser for the browser, built from the same Rust. Needs rustup's cargo, which reads rust-toolchain.toml. */
 function buildMarkdown() {
   const rustup = join(homedir(), ".cargo/bin");
   execFileSync(
@@ -82,8 +49,8 @@ function buildMarkdown() {
   );
 }
 
-/** Files the Mac's chat view loads by address, served from where the Mac keeps them. */
-function macFiles(): Map<string, string> {
+/** Files the chat view loads by address: the markdown parser, the fonts and the file icons. */
+function chatFiles(): Map<string, string> {
   const files = new Map<string, string>([["markdown.wasm", WASM]]);
   for (const folder of ["fonts", "file-icons"])
     for (const name of readdirSync(join(repo, "public", folder)))
@@ -92,15 +59,15 @@ function macFiles(): Map<string, string> {
   return files;
 }
 
-function macAssets(): Plugin {
+function chatAssets(): Plugin {
   return {
-    name: "sikemux-mac-assets",
+    name: "sikemux-chat-assets",
     buildStart() {
       buildMarkdown();
     },
     configureServer(server) {
       buildMarkdown();
-      const files = macFiles();
+      const files = chatFiles();
       server.middlewares.use((request, response, next) => {
         const path = new URL(request.url ?? "/", "http://app").pathname.slice(
           1,
@@ -115,19 +82,16 @@ function macAssets(): Plugin {
       });
     },
     generateBundle() {
-      for (const [fileName, file] of macFiles())
+      for (const [fileName, file] of chatFiles())
         this.emitFile({ type: "asset", fileName, source: readFileSync(file) });
     },
   };
 }
 
 export default defineConfig({
-  plugins: [react(), macStandIns(), macAssets()],
+  plugins: [react(), chatAssets()],
   resolve: {
-    alias: [
-      { find: /^@mac\//, replacement: MAC },
-      { find: /^@shared\//, replacement: `${join(repo, "shared")}/` },
-    ],
+    alias: [{ find: /^@shared\//, replacement: `${join(repo, "shared")}/` }],
     dedupe: ["react", "react-dom"],
   },
   server: { port: 5173, strictPort: true, fs: { allow: [repo] } },

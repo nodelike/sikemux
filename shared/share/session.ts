@@ -153,7 +153,10 @@ export class ShareSession {
     private answers = new Map<number, (answer: Answer | null) => void>();
     private images = new Map<string, Promise<string | null>>();
 
-    constructor(private readonly options: ShareSessionOptions) {
+    private readonly options: ShareSessionOptions;
+
+    constructor(options: ShareSessionOptions) {
+        this.options = options;
         this.snap = this.build();
     }
 

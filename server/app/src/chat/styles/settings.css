@@ -1,0 +1,10 @@
+@import "./settings/pane.css";
+@import "./settings/rail.css";
+@import "./settings/page.css";
+@import "./settings/controls.css";
+@import "./settings/theme-picker.css";
+@import "./settings/theme-editor.css";
+@import "./settings/keymap.css";
+@import "./settings/agents.css";
+@import "./settings/commands.css";
+@import "./settings/devices.css";

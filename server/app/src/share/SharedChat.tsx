@@ -1,0 +1,257 @@
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import { agentLabel, isAgentType } from "@shared/agents/catalog";
+import {
+  ChatAgentContext,
+  ChatSubagentsContext,
+  ReaderScrollContext,
+  ToolDetailContext,
+} from "../chat/chatAgent";
+import { warmTranscript } from "../chat/ChatMessageRow";
+import { ChatTranscript } from "../chat/ChatTranscript";
+import { EarlierTurns } from "../chat/EarlierTurns";
+import { activityText } from "@shared/chat/chatStatus";
+import { PathRootsProvider } from "../chat/FileRef";
+import LiveStack from "../chat/LiveStack";
+import { newFoldMemory } from "@shared/chat/longText";
+import { RemoteOriginContext } from "../chat/origin";
+import { activeToolLabel } from "@shared/chat/toolLabels";
+import { subagentCards } from "@shared/chat/transcript";
+import { useMessageArrival } from "../chat/useMessageArrival";
+import { useStickToBottom } from "../chat/useStickToBottom";
+import { AgentIcon, IconArrowDown, IconEye, IconPlug } from "@shared/ui/Icons";
+import {
+  sharedChatTitle,
+  type ShareSession,
+  type ShareSnapshot,
+} from "@shared/share/session";
+import "../chat/styles/chat.css";
+import "../chat/styles/share.css";
+import { formatTimeLeft } from "@shared/lib/format";
+import { useNow } from "../chat/hooks/useNow";
+
+const PROBLEMS: Partial<Record<ShareSnapshot["status"], string>> = {
+  missing: "This chat is not running on its host right now.",
+  notFound: "No chat is shared at this link.",
+  signedOut: "Sign in to Sikemux to watch shared chats.",
+  unreadable:
+    "This link does not open the chat it points at. Check that the whole link was copied.",
+};
+
+function endedText(snapshot: ShareSnapshot): string {
+  return snapshot.endedBecause === "expired"
+    ? "This share has expired."
+    : "Sharing this chat has stopped.";
+}
+
+/**
+ * Someone's chat, shared read-only: the same header and transcript as the agent's own pane,
+ * without a composer, and a line under it saying whose it is and how long it stays open.
+ */
+export function SharedChat({
+  session,
+  visible,
+  actions,
+}: {
+  session: ShareSession;
+  visible: boolean;
+  actions?: ReactNode;
+}) {
+  const snapshot = useSyncExternalStore(session.subscribe, session.snapshot);
+  const { agent: state, chat } = snapshot;
+  const [foldMemory] = useState(newFoldMemory);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  useMessageArrival(scrollRef, state.messages);
+  useEffect(() => void warmTranscript(state.messages), [state.messages]);
+  const { atBottom, onScroll, jumpToBottom } = useStickToBottom({
+    scrollRef,
+    contentRef,
+    visible,
+  });
+  const scrollByReader = useCallback(
+    (deltaY: number) => scrollRef.current?.scrollBy({ top: deltaY }),
+    [],
+  );
+  const [foldedLive, setFoldedLive] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const liveFolds = useMemo(
+    () => ({
+      folded: foldedLive,
+      toggle: (kind: string) =>
+        setFoldedLive((folded) => {
+          const next = new Set(folded);
+          if (!next.delete(kind)) next.add(kind);
+          return next;
+        }),
+    }),
+    [foldedLive],
+  );
+
+  const provider = chat?.provider;
+  const type = isAgentType(provider) ? provider : "claude";
+  const chatAgent = useMemo(() => ({ id: "", type }), [type]);
+  const origin = useMemo(() => ({ readImage: session.readImage }), [session]);
+  const toolDetail = useCallback(
+    (toolCallId: string) =>
+      session.readToolDetail(toolCallId).then((detail) => detail ?? {}),
+    [session],
+  );
+  const activeTool = useMemo(() => activeToolLabel(state), [state]);
+  const activity =
+    snapshot.status === "live" ? activityText(state, activeTool) : null;
+  const { messages, subagentRows, runningSubagents } = state;
+  const subagents = useMemo(
+    () => ({
+      cards: subagentCards({ messages, subagentRows, runningSubagents }),
+      rows: subagentRows,
+    }),
+    [messages, subagentRows, runningSubagents],
+  );
+  const problem =
+    snapshot.status === "ended"
+      ? endedText(snapshot)
+      : PROBLEMS[snapshot.status];
+  const title = sharedChatTitle(snapshot) ?? `${agentLabel(type)} chat`;
+
+  const before = (
+    <>
+      {snapshot.hasEarlier && (
+        <EarlierTurns
+          state={snapshot.earlier}
+          onLoad={session.loadEarlier}
+          scrollRef={scrollRef}
+        />
+      )}
+      {state.messages.length === 0 && (
+        <div
+          className={`chat-connection-state ${problem ? "stopped" : "connecting"}`}
+          role="status"
+        >
+          {!problem && (
+            <span className="chat-activity-loader" aria-hidden="true" />
+          )}
+          <span>{problem ?? "Opening the shared chat…"}</span>
+        </div>
+      )}
+    </>
+  );
+  const after = state.messages.length > 0 && problem && (
+    <div className="chat-reconnect" role="status">
+      <IconPlug size={13} />
+      <span>{problem}</span>
+    </div>
+  );
+
+  return (
+    <RemoteOriginContext value={origin}>
+      <PathRootsProvider cwd={chat?.cwd ?? ""} home={chat?.home ?? undefined}>
+        <ChatAgentContext.Provider value={chatAgent}>
+          <ChatSubagentsContext.Provider value={subagents}>
+            <ReaderScrollContext.Provider value={scrollByReader}>
+              <ToolDetailContext.Provider value={toolDetail}>
+                <section className="agent-surface shared-chat" data-view="gui">
+                  <header className="agent-surface-header">
+                    <div className="agent-surface-name">
+                      <span
+                        className={`agent-surface-mark agent-glyph ${type}`}
+                        aria-hidden="true"
+                      >
+                        <AgentIcon type={type} size={16} />
+                      </span>
+                      <span className="agent-surface-title" title={title}>
+                        {title}
+                      </span>
+                    </div>
+                    <div className="agent-surface-controls">
+                      <span className="shared-chat-badge">
+                        <IconEye size={13} />
+                        <span>Read-only</span>
+                      </span>
+                      {actions}
+                    </div>
+                  </header>
+                  <div className="agent-surface-body">
+                    <div className="agent-gui-layer visible">
+                      <div className="agent-chat-pane">
+                        <ChatTranscript
+                          state={state}
+                          agentType={type}
+                          foldMemory={foldMemory}
+                          unfolded={false}
+                          scrollRef={scrollRef}
+                          contentRef={contentRef}
+                          onScroll={onScroll}
+                          activity={activity}
+                          permissions={{
+                            requests: state.permissions,
+                            busy: null,
+                          }}
+                          before={before}
+                          after={after}
+                        />
+                        <div className="chat-composer-wrap">
+                          {!atBottom && state.messages.length > 0 && (
+                            <button
+                              type="button"
+                              className="chat-jump-bottom"
+                              aria-label="Jump to latest message"
+                              onClick={jumpToBottom}
+                            >
+                              <IconArrowDown size={14} />
+                            </button>
+                          )}
+                          {(state.runningSubagents.length > 0 ||
+                            state.tasks.length > 0) && (
+                            <LiveStack
+                              subagents={state.runningSubagents}
+                              tasks={state.tasks}
+                              folds={liveFolds}
+                            />
+                          )}
+                          <SharedChatFoot snapshot={snapshot} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </ToolDetailContext.Provider>
+            </ReaderScrollContext.Provider>
+          </ChatSubagentsContext.Provider>
+        </ChatAgentContext.Provider>
+      </PathRootsProvider>
+    </RemoteOriginContext>
+  );
+}
+
+function SharedChatFoot({ snapshot }: { snapshot: ShareSnapshot }) {
+  const now = useNow(true, 60_000);
+  const live = snapshot.status === "live" || snapshot.status === "missing";
+  const state = !live
+    ? null
+    : snapshot.hostOnline
+      ? snapshot.agent.running
+        ? "Working now"
+        : "Live"
+      : "The sharer's computer is offline, so this is the chat as it last was";
+  return (
+    <div className="shared-chat-foot" role="status">
+      <span
+        className={`shared-chat-state${snapshot.hostOnline && live ? " live" : ""}`}
+      >
+        {state ?? "Read-only"}
+      </span>
+      {live && snapshot.expiresAt !== null && (
+        <span>Link ends in {formatTimeLeft(snapshot.expiresAt, now)}</span>
+      )}
+    </div>
+  );
+}

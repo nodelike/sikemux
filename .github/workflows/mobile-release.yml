@@ -107,10 +107,6 @@ jobs:
             --target aarch64-linux-android --target x86_64-linux-android
           cargo install cargo-ndk --locked
 
-      # The phone shares chat and UI code with the desktop app, which needs its packages to typecheck.
-      - name: Install the desktop app's dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Install phone dependencies
         working-directory: mobile
         run: pnpm install --frozen-lockfile
@@ -359,9 +355,6 @@ jobs:
           channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
           "$HOME/.cargo/bin/rustup" toolchain install "$channel" --profile minimal --no-self-update \
             --target aarch64-apple-ios --target aarch64-apple-ios-sim
-
-      - name: Install the desktop app's dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Install phone dependencies
         working-directory: mobile

@@ -1,0 +1,304 @@
+/* ── a phone asking to connect, over the whole window ─────────────────── */
+.connect-takeover {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  font-family: var(--ui);
+  background: radial-gradient(
+    900px 620px at 50% 40%,
+    color-mix(in oklab, var(--surface-sunken) 90%, var(--acc) 10%),
+    var(--surface-sunken) 70%
+  );
+}
+.connect-ground {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in oklab, var(--ink) 10%, transparent) 0.8px,
+    transparent 1.2px
+  );
+  background-size: 4px 4px;
+  mask-image: radial-gradient(560px 420px at 50% 38%, #000 0%, transparent 75%);
+}
+.connect-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 72px var(--space-6) 96px;
+  text-align: center;
+}
+
+.connect-handshake {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.connect-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 520px;
+  height: 300px;
+  translate: -50% -50%;
+  border-radius: var(--radius-full);
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--acc) 16%, transparent),
+    transparent
+  );
+  pointer-events: none;
+}
+.connect-tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border: 1px solid var(--border-strong);
+  border-radius: 22px;
+  background: var(--surface-overlay);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-4);
+}
+.connect-tile-phone::before,
+.connect-tile-phone::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+.connect-tile-phone::before {
+  inset: -14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 30px;
+}
+.connect-tile-phone::after {
+  inset: -30px;
+  border: 1px solid var(--border);
+  border-radius: 44px;
+}
+.connect-line {
+  position: relative;
+  width: 132px;
+  height: 2px;
+  margin: 0 10px;
+  background-image: linear-gradient(90deg, var(--gray-700) 50%, transparent 0);
+  background-size: 6px 2px;
+}
+.connect-line::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--live);
+  box-shadow: 0 0 10px var(--live);
+  animation: connect-travel 1.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+@keyframes connect-travel {
+  from {
+    left: 0;
+  }
+  to {
+    left: calc(100% - 6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connect-line::after {
+    animation: none;
+  }
+}
+
+.connect-title {
+  margin: 30px 0 0;
+  color: var(--text-primary);
+  font-size: 30px;
+  font-weight: var(--weight-semibold);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+.connect-names {
+  max-width: 480px;
+  margin: var(--space-3) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.connect-who {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  margin: var(--space-3) 0 0;
+  padding: 0 var(--space-3) 0 var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: color-mix(in oklab, var(--surface-raised) 70%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.connect-who b {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.connect-avatar {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--surface-active);
+  color: var(--text-primary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  object-fit: cover;
+}
+
+.connect-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 480px;
+  margin-top: 28px;
+}
+.connect-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 14px var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+}
+.connect-choice:hover {
+  border-color: var(--border-strong);
+}
+.connect-choice[aria-checked="true"] {
+  background: var(--surface-chosen);
+}
+.connect-choice:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.connect-choice-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-2);
+  background: var(--surface-active);
+}
+.connect-choice-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.connect-choice-label {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+}
+.connect-choice-detail {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+.connect-radio {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 1.5px solid var(--gray-700);
+  border-radius: var(--radius-full);
+}
+.connect-choice[aria-checked="true"] .connect-radio {
+  border: 5px solid var(--acc);
+}
+
+.connect-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  width: 480px;
+  margin-top: var(--space-4);
+}
+.connect-waits {
+  flex: 1;
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+.connect-btn {
+  height: 44px;
+  padding: 0 22px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.connect-btn:hover {
+  background: var(--surface-hover);
+}
+.connect-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.connect-allow {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: var(--weight-semibold);
+}
+.connect-allow:hover {
+  background: color-mix(in oklab, var(--ink) 88%, var(--bg));
+}
+
+.connect-hints {
+  display: flex;
+  gap: 18px;
+  margin-top: var(--space-4);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+.connect-hints span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1h);
+}
+.connect-hints kbd {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-1);
+  font-family: var(--kbd);
+  font-size: var(--text-2xs);
+  line-height: 17px;
+}
+.connect-foot {
+  position: absolute;
+  right: 0;
+  bottom: 30px;
+  left: 0;
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  text-align: center;
+}

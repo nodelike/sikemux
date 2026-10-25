@@ -1,0 +1,1115 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background: transparent;
+}
+
+.boot-shell {
+  align-items: center;
+  justify-content: center;
+  background: color-mix(
+    in srgb,
+    var(--bg, var(--surface-sunken)) calc(var(--window-opacity, 1) * 100%),
+    transparent
+  );
+}
+
+.boot-state {
+  width: min(440px, calc(100vw - 48px));
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.boot-state-mark {
+  width: 34px;
+  height: 34px;
+  opacity: 0.9;
+}
+
+/* Hangs under the mark, so the mark stays where it was when the line appears. */
+.boot-state:has(> .boot-state-wait) {
+  position: relative;
+}
+
+.boot-state-wait {
+  position: absolute;
+  top: calc(100% + 14px);
+  width: max-content;
+}
+
+.boot-state h1 {
+  margin: 4px 0 0;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+.boot-state p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  line-height: 1.65;
+}
+
+.boot-state button {
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--acc);
+  border-radius: var(--radius-control);
+  background: var(--acc);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+
+.boot-state button:hover {
+  filter: brightness(1.08);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+}
+.stage--settings > .window-area {
+  visibility: hidden;
+  pointer-events: none;
+}
+.top-bar {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  flex: 0 0 auto;
+  background: color-mix(
+    in srgb,
+    var(--surface) calc(var(--window-opacity, 1) * 100%),
+    transparent
+  );
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 5;
+  border-radius: var(--radius-2);
+}
+
+.tb-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-left: 80px;
+  flex: 0 0 auto;
+}
+
+/* The empty middle of the bar, which drags the window. */
+.tb-grow {
+  flex: 1 1 0;
+  align-self: stretch;
+  min-width: 0;
+}
+
+/* Where the window is, host then project, at the bar's true middle whatever sits either side. */
+.tb-place {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transform: translate(-50%, -50%);
+}
+
+.top-bar .tb-place .tb-place-btn {
+  height: 26px;
+  max-width: 220px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.top-bar .tb-place .tb-place-btn:hover,
+.top-bar .tb-place .tb-place-btn[aria-expanded="true"] {
+  border-color: transparent;
+  background: var(--surface-chosen);
+}
+
+/* Hosts and projects keep the colours the side rail gives them. */
+.place-mark {
+  display: inline-flex;
+}
+
+.place-mark.project {
+  color: var(--live);
+}
+
+.place-mark.host-sikemux {
+  color: color-mix(in oklab, var(--acc) 80%, var(--ink-dim));
+}
+
+.place-mark.host-ssh {
+  color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
+}
+
+.tb-place-sep {
+  display: grid;
+  place-items: center;
+  padding: 0 2px;
+  color: var(--text-tertiary);
+}
+
+/* The tabs, on a row of their own under the bar, from the window's left edge to its right. */
+/* Spaced from the hairline above and the panels below by the same gutter that parts the panels from each other. */
+.tab-row {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  padding: var(--shell-gap) var(--shell-gap) 0;
+  margin-bottom: calc(var(--shell-gap) - var(--space-1));
+}
+
+.tab-row:empty {
+  display: none;
+}
+
+.tb-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+  padding-right: 14px;
+}
+/* Status readouts and toggles keep their size; only the branch chips
+   (.tb-git, .tb-deploy-actions, .env-dd) give up width as the bar narrows. */
+.tb-right > * {
+  flex: 0 0 auto;
+}
+
+/* Dictation is a mic in the bar: it pulses while listening and dims while the words are written out. */
+.voice-mic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--danger);
+}
+.voice-mic.listening::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  animation: voice-mic-pulse 1.4s ease-out infinite;
+}
+.voice-mic.transcribing {
+  color: var(--ink-dim);
+  animation: voice-mic-breathe 1.6s ease-in-out infinite alternate;
+}
+@keyframes voice-mic-pulse {
+  from {
+    opacity: 1;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+@keyframes voice-mic-breathe {
+  to {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-mic.listening::after,
+  .voice-mic.transcribing {
+    animation: none;
+  }
+}
+.voice-caption {
+  position: fixed;
+  z-index: var(--layer-menu);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 560px;
+  padding: 8px 12px;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-2);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  pointer-events: none;
+}
+/* Scrolls rather than clips; the caption keeps the newest words in view. */
+.voice-caption-lines {
+  max-height: 4lh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+}
+.voice-caption p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.voice-caption.settling {
+  color: var(--ink-dim);
+}
+
+.tb-clock {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+}
+.tb-ampm {
+  margin-left: 4px;
+  font-size: var(--text-3xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+@keyframes tb-update-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.tb-batt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--acc);
+}
+.tb-batt-pct {
+  line-height: 1;
+}
+.tb-batt-ok {
+  color: var(--acc);
+}
+.tb-batt-warn {
+  color: var(--warn);
+}
+.tb-batt-danger {
+  color: var(--danger);
+}
+.tb-batt.charging.tb-batt-ok {
+  color: var(--live);
+}
+
+.tb-toggles {
+  display: flex;
+  gap: 2px;
+}
+.tb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  color: var(--text-tertiary);
+  transition:
+    color 0.12s,
+    background 0.12s;
+  border-radius: var(--radius-2);
+}
+.tb-btn:hover {
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+}
+.tb-btn.on {
+  color: var(--text-primary);
+}
+
+.side-rail {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  background: color-mix(
+    in srgb,
+    var(--surface) calc(var(--window-opacity, 1) * 100%),
+    transparent
+  );
+  overflow: hidden;
+  border-radius: var(--radius-3);
+}
+.side-rail {
+  width: 238px;
+  border-right: 1px solid var(--border);
+}
+
+.rail-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 8px 12px;
+}
+
+.rail-group-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-tertiary);
+  transition:
+    color 0.12s,
+    background 0.12s;
+}
+.rail-group-add:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+.rail-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rail-group-kbd {
+  font-family: var(--kbd);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text-tertiary);
+}
+.session-row-shell {
+  display: flex;
+  align-items: stretch;
+  position: relative;
+  width: 100%;
+}
+.session-row-shell > .sess-row,
+.session-row-shell > .proj-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sess-row {
+  gap: var(--space-2);
+  width: auto;
+  border-radius: var(--radius-2);
+}
+.sess-icon-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sess-icon.command {
+  color: var(--live);
+}
+.sess-icon.project {
+  color: var(--live);
+}
+.icon-github,
+.icon-linear,
+.icon-vercel {
+  color: var(--text-primary);
+}
+.sess-name {
+  flex: 1;
+  text-align: left;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sess-row.active .sess-name {
+  font-weight: 600;
+}
+
+.proj-row {
+  gap: var(--space-2);
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--radius-2);
+}
+.proj-row.expanded .proj-name {
+  font-weight: 600;
+}
+
+.proj-folder {
+  color: var(--live);
+}
+.proj-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+}
+
+.proj-tree.active {
+  padding-bottom: 4px;
+}
+.project-row-shell,
+.proj-tree {
+  position: relative;
+  transform-origin: center;
+  transition:
+    opacity 140ms ease,
+    filter 140ms ease;
+}
+.project-row-shell.project-drag-source,
+.proj-tree.project-drag-source {
+  opacity: 0.24;
+  filter: saturate(0.45);
+}
+.project-row-shell.project-drag-source .proj-row,
+.proj-tree.project-drag-source > .project-row-shell .proj-row {
+  background: color-mix(in srgb, var(--acc) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 22%, transparent);
+}
+.project-row-shell.project-drop-before::before,
+.proj-tree.project-drop-before::before,
+.project-row-shell.project-drop-after::after,
+.proj-tree.project-drop-after::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--acc);
+  box-shadow:
+    -5px 0 0 -1px var(--acc),
+    0 0 10px color-mix(in srgb, var(--acc) 52%, transparent);
+  pointer-events: none;
+  transform-origin: left center;
+  animation: project-drop-line-in 120ms var(--ease-pan) both;
+}
+.project-row-shell.project-drop-before::before,
+.proj-tree.project-drop-before::before {
+  top: -1px;
+}
+.project-row-shell.project-drop-after::after,
+.proj-tree.project-drop-after::after {
+  bottom: -1px;
+}
+.side-rail .proj-row {
+  cursor: default;
+  touch-action: none;
+}
+.proj-row[aria-grabbed="true"],
+.is-sorting-projects,
+.is-sorting-projects * {
+  cursor: grabbing;
+  user-select: none;
+}
+.project-drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  background: color-mix(
+    in srgb,
+    var(--surface) calc(var(--window-opacity, 1) * 96%),
+    transparent
+  );
+  box-shadow:
+    0 9px 22px rgba(0, 0, 0, 0.3),
+    0 2px 7px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.project-drag-ghost,
+.project-drag-ghost * {
+  pointer-events: none !important;
+}
+.project-drag-ghost-row {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  animation: project-ghost-lift 110ms var(--ease-pan) both !important;
+}
+@keyframes project-ghost-lift {
+  from {
+    opacity: 0.72;
+    transform: translateY(1px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes project-drop-line-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.32);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-row-shell,
+  .proj-tree,
+  .project-drag-ghost-row {
+    transition: none;
+    animation: none !important;
+  }
+  .project-row-shell.project-drop-before::before,
+  .proj-tree.project-drop-before::before,
+  .project-row-shell.project-drop-after::after,
+  .proj-tree.project-drop-after::after {
+    animation: none;
+  }
+}
+
+.window-area {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  /* Empty track between one screen and the next, so a swipe shows a channel of
+       shell between two cards instead of their two edges meeting as one line.
+       Twice the gutter above the card, so it reads as a choice next to it. */
+  --window-card-gap: var(--space-3);
+  /* The track slides its neighbouring screens in from off stage, so the stage
+       has to clip them. The clip cannot live on the track itself: a transformed
+       box carries its own overflow, and the visible window would slide with it.
+       Clipped rather than hidden, because a hidden box still scrolls: bringing
+       the last tab of the strip into view would drag the whole stage sideways,
+       and nothing would ever put it back. */
+  overflow: clip;
+}
+/* One session's screens laid end to end. The track slides sideways to bring a
+   screen to the front. */
+.window-track {
+  position: absolute;
+  inset: 0;
+  /* Kept on its own compositing layer all the time. Promoting the track only
+       when a swipe began rebuilt the layers of the whole stage, and WebKit drew
+       it blank for several frames at both ends of every swipe. Opacity is the
+       hint that does this without trapping `position: fixed` overlays. */
+  will-change: opacity;
+}
+/* On a pane in a split tab: puts it back as a tab of its own. Top centre,
+   since the pane's own controls sit in its corners, and out of the way until
+   the pointer is over the pane. */
+.pane-unsplit {
+  position: absolute;
+  z-index: 6;
+  top: var(--space-2);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-1) linear,
+    color var(--dur-1) linear;
+}
+.pane:hover > .pane-unsplit,
+.pane-unsplit:focus-visible {
+  opacity: 1;
+}
+.pane-unsplit:hover {
+  color: var(--acc);
+}
+/* The half of a pane a tab pulled down out of the strip will split into. */
+.split-preview {
+  position: fixed;
+  z-index: 20;
+  pointer-events: none;
+  border-radius: var(--radius-panel);
+  background: color-mix(in oklab, var(--acc) 14%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--acc) 55%, transparent);
+}
+/* A transform here would trap the `position: fixed` overlays panes put on
+   screen, so the track only carries one, inline, for the length of a slide. */
+/* Those offsets have to be on screen before the travel starts, or the track
+   would animate in from nothing on the first frame. */
+.window-track.sliding {
+  transition: transform var(--window-pan-ms) var(--ease-pan);
+}
+@media (prefers-reduced-motion: reduce) {
+  .window-track.sliding {
+    transition: none;
+  }
+}
+.window-layer {
+  position: absolute;
+  inset: 0;
+  --slot: 0;
+  /* The frame belongs to the thing that moves: a screen carries its own edge,
+       rounds it and clips to it, so a swipe slides a card rather than sliding
+       content behind a frame that stays put. */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  /* Clipped for the same reason the stage is: a card is not a thing that
+       scrolls, so nothing focused inside it may push its contents sideways. */
+  overflow: clip;
+  /* The card is already a stacking context while it slides, because a pan
+       transforms it. Stated outright so the field inside it sits under the
+       panes the same way standing still as it does mid-swipe. */
+  isolation: isolate;
+  /* Composited for good, like the track, so a swipe only moves layers that
+       already exist rather than building them with the stage in full view. */
+  will-change: opacity;
+}
+.window-track.panning .window-layer {
+  transform: translate(calc(var(--slot) * (100% + var(--window-card-gap))), 0);
+}
+/* A layer paints while it is the tab on screen, and also while it is sliding in
+   or out of a pan. Hidden layers keep their layout so terminals and editors stay
+   measured. */
+.window-layer:not(.painted) {
+  visibility: hidden;
+}
+.window-area.holding-screens .window-layer:not(.painted) {
+  right: auto;
+  width: var(--held-screen-width);
+}
+/* A hidden layer is still a running layer. `visibility: hidden` takes it off
+   the screen but leaves its animations ticking, and every tick still resolves
+   style and recomputes what the compositor needs — for a pane nobody can see.
+   With a live agent per layer that was most of the window's idle cost. A pane
+   hidden behind a zoomed one is the same. */
+.window-layer:not(.painted),
+.window-layer:not(.painted) *,
+.pane-cell.unshown * {
+  /* `!important` earns its place here: every component writes its animation
+       with the `animation` shorthand, and the shorthand resets play-state back
+       to running. Any sheet loaded after this one would restart what this rule
+       just stopped, which is how the AWS spinner kept turning off screen. */
+  animation-play-state: paused !important;
+}
+/* Every session lays a track of its own across the whole stage, one on top of
+   the next, and a track is an empty box: nothing to see, and until this was
+   here, everything to click. So the screen being read is the only thing on the
+   stage that takes a click — not the track holding it, and not the screens of
+   sessions that are not on screen at all. */
+.window-track {
+  pointer-events: none;
+}
+.window-layer.live {
+  pointer-events: auto;
+}
+
+/* How far along its screens the session is. A readout only: it never takes a
+   click, and the bar itself paints nothing so the screen keeps the ground. It
+   sits inside the screen's border and stops where its corners start, rather
+   than crossing either. */
+.window-scroll {
+  position: absolute;
+  left: var(--radius-panel);
+  right: var(--radius-panel);
+  bottom: 1px;
+  height: 2px;
+  z-index: 2;
+  pointer-events: none;
+}
+.window-scroll-thumb {
+  height: 100%;
+  background: var(--ink-faint);
+  transition: transform var(--window-pan-ms) var(--ease-pan);
+}
+@media (prefers-reduced-motion: reduce) {
+  .window-scroll-thumb {
+    transition: none;
+  }
+}
+
+/* Two documents of one screen swap in place, so the screen itself clips the
+   swap and a still copy of the document leaving travels out of it. */
+.doc-sliding {
+  position: relative;
+  overflow: hidden;
+}
+.doc-snapshot {
+  position: absolute;
+  pointer-events: none;
+}
+/* Promoted and offset only for the length of the slide: a transform here would
+   trap the `position: fixed` overlays a document puts on screen. */
+.doc-sliding > .doc-snapshot,
+.doc-sliding > .doc-slide-in {
+  will-change: transform;
+}
+.doc-sliding.doc-travelling > .doc-snapshot,
+.doc-sliding.doc-travelling > .doc-slide-in {
+  transition: transform var(--window-pan-ms) var(--ease-pan);
+}
+
+.pane-cell {
+  position: absolute;
+}
+
+/* A stack shows one pane at a time, so its strip sits along the top of the
+   stack's own area and the panes under it start below the strip. */
+.window-layer {
+  --stack-strip-h: 32px;
+}
+.stack-strip {
+  position: absolute;
+  z-index: 3;
+  height: var(--stack-strip-h);
+}
+.pane-cell.in-stack .pane {
+  top: calc(var(--stack-strip-h) + var(--pane-gutter));
+}
+
+.pane {
+  position: absolute;
+  inset: 0;
+  background: color-mix(
+    in srgb,
+    var(--surface) calc(var(--window-opacity, 1) * 100%),
+    transparent
+  );
+  overflow: hidden;
+}
+.pane-terminal,
+.pane-agent {
+  padding: var(--space-1h);
+}
+
+.terminal-host {
+  width: 100%;
+  height: 100%;
+}
+.divider {
+  position: absolute;
+  z-index: 10;
+}
+/* The centre line is the divider's only highlight, focus included. A drag focuses
+   the handle so the arrow keys keep working, which would otherwise leave the app's
+   focus ring drawn round the whole grab area. */
+.divider[tabindex]:focus-visible {
+  box-shadow: none;
+}
+.divider-row {
+  width: 11px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+}
+.divider-column {
+  height: 11px;
+  transform: translateY(-50%);
+  cursor: row-resize;
+}
+/* Nothing at rest: the panes carry their own edges and the gutter between them
+   is the separation, so a line drawn there as well says it twice. It shows up
+   under the pointer, which is the only time it is a control. */
+.divider::after {
+  content: "";
+  position: absolute;
+  background: var(--border);
+  opacity: 0;
+  transition:
+    background 0.12s,
+    opacity 0.12s,
+    width 0.12s,
+    height 0.12s;
+}
+.divider-row::after {
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+}
+.divider-column::after {
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-50%);
+}
+.divider-row:hover::after,
+.divider-row.dragging::after,
+.divider-row:focus-visible:not(.pointer-focus)::after {
+  width: 2px;
+  background: var(--acc);
+  opacity: 1;
+}
+.divider-column:hover::after,
+.divider-column.dragging::after,
+.divider-column:focus-visible:not(.pointer-focus)::after {
+  height: 2px;
+  background: var(--acc);
+  opacity: 1;
+}
+.space-switch {
+  display: flex;
+  margin: 0 0 6px;
+}
+.space-track {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius-2) + 3px);
+}
+.space-track::-webkit-scrollbar {
+  display: none;
+}
+.space-track > button {
+  display: flex;
+  flex: 1 0 auto;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  transition:
+    color 0.12s,
+    background 0.12s,
+    border-color 0.12s;
+}
+.space-track > button:hover {
+  color: var(--text-primary);
+}
+.space-track > button.active {
+  color: var(--text-primary);
+  background: var(--surface-active);
+}
+.space-track > button.active svg {
+  color: var(--text-primary);
+}
+.space-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.space-new {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px dashed var(--border);
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+}
+.space-new:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.space-pop {
+  position: fixed;
+  z-index: 61;
+  padding: 4px;
+}
+.space-icon-picker {
+  width: 212px;
+}
+.space-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 2px;
+}
+.space-icon-grid > button {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+}
+.space-icon-grid > button:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+.space-icon-grid > button.active {
+  color: var(--text-primary);
+  background: var(--surface-chosen);
+}
+.space-icon-none {
+  width: 100%;
+  height: 26px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+}
+.space-icon-none:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+.space-icon-none.active {
+  color: var(--text-primary);
+  background: var(--surface-chosen);
+}
+.space-editor {
+  min-width: 220px;
+}
+.space-edit-list.dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.space-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 2px;
+  border-radius: var(--radius-2);
+}
+.space-edit-row:hover,
+.space-edit-row.lifted {
+  background: var(--surface-hover);
+}
+.space-edit-grip {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 24px;
+  color: var(--text-tertiary);
+  cursor: grab;
+  touch-action: none;
+}
+.space-edit-list.dragging .space-edit-grip {
+  cursor: grabbing;
+}
+.space-edit-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 24px;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.space-edit-icon.empty {
+  border-style: dashed;
+  color: var(--text-tertiary);
+}
+.space-edit-icon:hover {
+  border-color: var(--border-strong);
+}
+.space-edit-name {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--surface-sunken);
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  outline: none;
+}
+.space-edit-name:focus {
+  border-color: var(--border-selected);
+}
+.space-edit-delete {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  color: var(--text-tertiary);
+}
+.space-edit-row:not(:hover) .space-edit-delete:not(:focus-visible) {
+  visibility: hidden;
+}
+.space-edit-delete:hover {
+  color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 14%, transparent);
+}
+.space-edit-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding: 4px 2px 0;
+  border-top: 1px solid var(--border);
+}
+.space-edit-foot > button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+}
+.space-edit-foot > button:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+.space-edit-foot > button.done {
+  color: var(--on-accent);
+  background: var(--acc);
+  border-color: var(--acc);
+}
+
+/* A strip that scrolls sideways fades at whichever end has more; useSideScroll says which. */
+.side-scroll.clipped-start {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px);
+  mask-image: linear-gradient(90deg, transparent, #000 20px);
+}
+.side-scroll.clipped-end {
+  -webkit-mask-image: linear-gradient(-90deg, transparent, #000 20px);
+  mask-image: linear-gradient(-90deg, transparent, #000 20px);
+}
+.side-scroll.clipped-start.clipped-end {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 20px,
+    #000 calc(100% - 20px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 20px,
+    #000 calc(100% - 20px),
+    transparent
+  );
+}

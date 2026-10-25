@@ -1,0 +1,162 @@
+/*
+ * Surfaces for the WebGL fields in `src/lib/shaderField.ts`.
+ *
+ * Each host is an empty element the shader paints into, sized and masked here
+ * so the surface still looks deliberate when no shader ever arrives: with no
+ * canvas in it, every rule below paints nothing.
+ *
+ * The runtime injects its own canvas positioning as a `<style data-paper-shader>`
+ * in `@layer paper-shaders`, which this app's CSP permits via `style-src
+ * 'unsafe-inline'`. Nothing here needs to duplicate it.
+ */
+
+/*
+ * A field's alpha is its strength and the global gain. Deliberately NOT
+ * `--window-opacity`.
+ *
+ * It used to be. The reasoning was sound for the version of this that hung one
+ * surface behind the whole shell: window transparency here is subtractive, so a
+ * full-bleed field at full strength would have put a floor exactly where the
+ * desktop is meant to show through.
+ *
+ * That reasoning did not survive the field moving inside a pane. A pane already
+ * fades with the window on its own, so multiplying the decoration by the same
+ * factor a second time squares it — and anyone running a see-through window,
+ * which is the whole point of the feature, got `0.2 * 0.5` and saw nothing at
+ * all. The surface it sits on handles transparency; this must not do it again.
+ */
+[data-shader-field] canvas {
+  opacity: calc(var(--shader-field-strength, 1) * var(--shader-field-gain, 1));
+}
+
+/*
+ * One number for how present every field is. Turn this down to taste rather
+ * than editing each surface — and to nothing to switch them all off without
+ * touching a shader.
+ */
+:root {
+  --shader-field-gain: 1;
+}
+
+/* The shell is a stacking context so the negative z-indexes below stay inside
+   it and cannot slide behind the window's own background. */
+.shell {
+  position: relative;
+  isolation: isolate;
+}
+
+/* ── The pane's surface ──────────────────────────────────────── */
+
+/*
+ * One field per pane on the screen being read.
+ *
+ * It sits above the ground the pane paints and under the pane's own content,
+ * held there by the isolation on the pane. A pane off stage asks for nothing —
+ * a texture nobody is looking at is a WebGL context taken from a terminal that
+ * needs one.
+ */
+.pane-field {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  /*
+     * High, because the field is dots of a surface tone with nothing painted
+     * between them. Opacity buys texture here rather than haze.
+     */
+  --shader-field-strength: calc(0.85 * var(--pane-strength, 1));
+  /*
+     * Weighted to the top and gone by the middle. A pane fills downward —
+     * scrollback, a document, a diff — so the top is the one band reliably
+     * free of anything being read.
+     */
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    rgba(0, 0, 0, 0.45) 20%,
+    rgba(0, 0, 0, 0.08) 38%,
+    transparent 50%
+  );
+  /*
+     * Clips itself rather than trusting the pane to do it: the mask forces this
+     * into its own composited layer, and a rounded overflow clip on an ancestor
+     * is what WebKit stops applying to a composited descendant. The radius is
+     * the pane's inner edge, inside its border.
+     */
+  clip-path: inset(0 round calc(var(--radius-panel) - 1px));
+}
+
+/* A field comes up a frame or two after its pane, once its shader has built,
+   so it fades in rather than appearing on a pane already in view. */
+.pane-field > canvas {
+  animation: pane-field-in 180ms ease-out;
+}
+@keyframes pane-field-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The picture only covers the band the grain would have reached, so it is framed
+   to that band rather than to the whole pane, and fades over it the same way. */
+.pane-field-image {
+  bottom: auto;
+  height: 60%;
+  --shader-field-strength: calc(0.38 * var(--pane-strength, 1));
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    rgba(0, 0, 0, 0.45) 40%,
+    rgba(0, 0, 0, 0.08) 76%,
+    transparent 100%
+  );
+  clip-path: inset(
+    0 round calc(var(--radius-panel) - 1px) calc(var(--radius-panel) - 1px) 0 0
+  );
+}
+
+/*
+ * The optional full-window image, under the shader and over the ground.
+ *
+ * `--backdrop-image` is `none` until something sets it, and `background-image:
+ * none` paints nothing, so this element costs a layer and no pixels in the
+ * default build. Set it on `:root` to give the app a photographic ground:
+ *
+ *     :root { --backdrop-image: url("/backdrops/dunes.avif"); }
+ *
+ * It is deliberately dim and blurred by default. A backdrop that competes with
+ * a diff is a backdrop that gets turned off.
+ */
+.shell-image {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image: var(--backdrop-image);
+  background-size: cover;
+  background-position: center;
+  opacity: var(--backdrop-image-opacity);
+  filter: blur(var(--backdrop-blur)) saturate(0.75);
+  /* Fades into the ground rather than meeting the window edge as a hard
+       photograph, which is what made the first version look like wallpaper. */
+  mask-image: radial-gradient(
+    130% 100% at 50% 0%,
+    #000 0%,
+    rgba(0, 0, 0, 0.55) 45%,
+    transparent 85%
+  );
+}
+
+/*
+ * Panes stop painting grounds of their own — the screen they sit on carries one
+ * surface for the whole of it. Without this each pane would cover that with an
+ * opaque copy of the colour it already sits on.
+ */
+.pane {
+  background: transparent;
+}
+
+/* Plugin panes are panels in their own right, so they take the rails' ground. */
+.pane-plugin {
+  background: var(--pane-ground);
+}

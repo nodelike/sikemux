@@ -1,0 +1,391 @@
+/* A board of cards in columns, shared by the project board and the Jira plugin's board. */
+
+.kanban {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.kanban-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 8px;
+}
+
+.kanban-head p {
+  margin: 0;
+}
+
+.kanban-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-height: 26px;
+}
+
+.kanban-title h2 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kanban-goal {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.kanban-tag {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
+.kanban-meta {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.kanban-key {
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+}
+
+.kanban-grow {
+  flex: 1;
+}
+
+.kanban-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-2);
+  color: var(--text-tertiary);
+}
+
+.kanban-icon-button:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.kanban-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.kanban-find {
+  flex: 0 1 200px;
+  min-width: 120px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  color: var(--text-tertiary);
+  background: color-mix(in srgb, var(--surface-sunken) 50%, transparent);
+}
+
+.kanban-find:focus-within {
+  border-color: var(--border-selected);
+}
+
+.kanban-search {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  background: none;
+  outline: none;
+}
+
+.kanban-pick,
+.kanban-clear,
+.kanban-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--surface-sunken) 50%, transparent);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.kanban-clear {
+  border-color: transparent;
+  background: none;
+}
+
+.kanban-pick:hover,
+.kanban-clear:hover,
+.kanban-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.kanban-pick[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--surface-chosen);
+}
+
+.kanban-pick-count {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.kanban-button:disabled {
+  opacity: 0.5;
+}
+
+.kanban-button.primary {
+  border-color: transparent;
+  color: var(--on-accent);
+  background: var(--acc);
+}
+
+.kanban-button.danger:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--danger) 50%, transparent);
+  color: var(--danger);
+}
+
+.kanban-lanes {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 0 12px 12px;
+  overflow: auto;
+}
+
+.kanban-lanes > .kanban-columns {
+  flex: 1;
+}
+
+.kanban-columns {
+  display: flex;
+  gap: 8px;
+  min-height: 0;
+}
+
+.kanban-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kanban-lane + .kanban-lane {
+  margin-top: 6px;
+}
+
+/* A short column ends with its cards rather than running down to the tallest one. */
+.kanban-lane > .kanban-columns {
+  flex: none;
+  align-items: flex-start;
+}
+
+/* With several lanes, a long column scrolls past most of the screen so the next lane is never far; its title stays put. */
+.kanban-lane:not(:only-child) .kanban-column {
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.kanban-lane:not(:only-child) .kanban-column-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--surface-sunken) 72%, var(--surface));
+}
+
+.kanban-lane-head {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  height: 30px;
+  padding: 0 10px 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: none;
+}
+
+.kanban-lane-head:hover {
+  color: var(--text-primary);
+}
+
+.kanban-lane-head b {
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-lane-chevron {
+  flex: none;
+  color: var(--text-tertiary);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+[aria-expanded="true"] .kanban-lane-chevron {
+  transform: rotate(90deg);
+}
+
+/* The lane sinks below the pane, the card rises above it on a solid surface. */
+.kanban-column {
+  display: flex;
+  flex: 1 0 160px;
+  flex-direction: column;
+  max-width: 320px;
+  gap: 6px;
+  min-height: 0;
+  padding: 0 6px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-3);
+  background: color-mix(in srgb, var(--surface-sunken) 72%, transparent);
+}
+
+.kanban-column.drop {
+  border-color: var(--border-selected);
+  background: color-mix(
+    in oklab,
+    var(--acc) 10%,
+    color-mix(in srgb, var(--surface-sunken) 72%, transparent)
+  );
+}
+
+/* An empty column is only its head, so the head alone sets its height and centres its name. */
+.kanban-column:not(:has(.kanban-card)) {
+  padding-bottom: 0;
+}
+
+.kanban-column-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 6px;
+  font-size: var(--text-3xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.kanban-column-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-count {
+  padding: 0 5px;
+  border-radius: var(--radius-1);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 16px;
+  color: var(--text-secondary);
+  background: var(--gray-300);
+}
+
+.kanban-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-2);
+  background: var(--gray-200);
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 0.5),
+    0 0 1px rgb(0 0 0 / 0.5);
+  text-align: left;
+  cursor: grab;
+  touch-action: none;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+
+.kanban-card:hover {
+  border-color: var(--border-strong);
+  background: var(--gray-300);
+}
+
+.kanban-card.active {
+  background: var(--surface-chosen);
+}
+
+.kanban-card.dragging {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  opacity: 0.4;
+}
+
+.kanban-card-lifted {
+  z-index: 1000;
+  box-shadow:
+    0 12px 28px rgb(0 0 0 / 28%),
+    0 2px 6px rgb(0 0 0 / 18%);
+  background: var(--surface-raised);
+  opacity: 0.96;
+  transition: none;
+  will-change: transform;
+}
+
+.kanban-card.moving {
+  opacity: 0.7;
+}
+
+.kanban-card-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  color: var(--text-primary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.kanban-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* While a card is carried, everything under the pointer shows it is being dragged, and no text gets selected. */
+.kanban-dragging,
+.kanban-dragging * {
+  cursor: grabbing;
+  user-select: none;
+}

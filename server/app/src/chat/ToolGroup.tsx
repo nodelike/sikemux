@@ -1,0 +1,147 @@
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
+import { animate, EASE_IN, foldedFrames, leavingRef } from "./lib/motion";
+import { IconChevron } from "@shared/ui/Icons";
+import { LiveSeconds } from "./LiveSeconds";
+import { Shimmer } from "./Shimmer";
+import { ToolRow } from "./ToolRow";
+import { durationLabel } from "@shared/chat/durationLabel";
+import { callCount, callsLabel, toolGroupSummary } from "@shared/chat/toolView";
+import type { ChatPart } from "@shared/chat/types";
+
+/* A run of tool calls is worth watching while the agent is still adding to it
+   and worth folding away once it has moved on, so it stays open until
+   something else follows it or the turn ends, unless the reader says
+   otherwise. Watching each call instead would shut the run in the gaps
+   between calls, and open it again on the next one. */
+/* Closing folds the calls away. The transcript measures every row as it
+   changes size, so the rows below follow the fold rather than jumping. */
+const foldToolBody = leavingRef<HTMLDivElement>((body) => {
+  const [open, closed] = foldedFrames(body);
+  body.style.overflow = "hidden";
+  return animate(
+    body,
+    [
+      { ...open, opacity: 1 },
+      { ...closed, opacity: 0 },
+    ],
+    { duration: 140, easing: EASE_IN },
+  );
+});
+
+/* Rows past these arrive with the group's own fade; stepping every row would
+   keep the end of a long run hidden for seconds. */
+const STEPPED_ROWS = 8;
+
+/* Opening grows the calls in and steps them down one after another. Only a
+   change of state animates: a group mounted with the rest of a transcript just shows. */
+function useToolGroupUnfold(
+  group: RefObject<HTMLDivElement | null>,
+  open: boolean,
+): void {
+  const was = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    const before = was.current;
+    was.current = open;
+    const body = group.current?.querySelector<HTMLElement>(
+      ":scope > .chat-tools-body",
+    );
+    if (before === null || before === open || !open || !body) return;
+    const [rest, flat] = foldedFrames(body);
+    body.style.overflow = "hidden";
+    const run = animate(
+      body,
+      [
+        { ...flat, opacity: 0 },
+        { ...rest, opacity: 1 },
+      ],
+      { duration: 180 },
+    );
+    const settle = () => (body.style.overflow = "");
+    if (run) run.finished.then(settle, settle);
+    else settle();
+    [...body.children].slice(0, STEPPED_ROWS).forEach((row, i) =>
+      animate(
+        row,
+        [
+          { opacity: 0, transform: "translateX(-4px)" },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: 160, delay: 30 + i * 20, fill: "backwards" },
+      ),
+    );
+  }, [group, open]);
+}
+
+export function ToolGroup({
+  tools,
+  live,
+}: {
+  tools: Extract<ChatPart, { kind: "tool" }>[];
+  live: boolean;
+}) {
+  const [reader, setReader] = useState<boolean | null>(null);
+  const { current, said, spent, kindWidth } = toolGroupSummary(tools);
+  const open = reader ?? (live || current !== undefined);
+  const groupRef = useRef<HTMLDivElement>(null);
+  useToolGroupUnfold(groupRef, open);
+  const calls = callsLabel(tools.length);
+  return (
+    <div className="chat-tools" ref={groupRef}>
+      <button
+        type="button"
+        className={`chat-tools-sum${current ? " live" : ""}`}
+        aria-expanded={open}
+        onClick={() => setReader(!open)}
+      >
+        {said ? (
+          <>
+            <span className="chat-tools-label said chat-shimmer">
+              <Shimmer>{said}</Shimmer>
+            </span>
+            {tools.length > 1 && (
+              <span className="chat-tools-calls">
+                {callCount(tools.length)}
+              </span>
+            )}
+          </>
+        ) : (
+          <span className={`chat-tools-label${current ? " chat-shimmer" : ""}`}>
+            {current ? <Shimmer>{calls}</Shimmer> : calls}
+          </span>
+        )}
+        {current ? (
+          <LiveSeconds
+            key={current.id}
+            since={current.startedAt}
+            spent={spent}
+          />
+        ) : (
+          spent > 0 && (
+            <span className="chat-tools-time">{durationLabel(spent)}</span>
+          )
+        )}
+        <IconChevron size={10} className="chat-tools-chevron" />
+      </button>
+      {/* The extra pixel is for layout rounding, which otherwise cuts an exact fit. */}
+      {open && (
+        <div
+          className="chat-tools-body"
+          ref={foldToolBody}
+          style={
+            { "--chat-kind": `calc(${kindWidth}ch + 1px)` } as CSSProperties
+          }
+        >
+          {tools.map((part) => (
+            <ToolRow key={part.id} part={part} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

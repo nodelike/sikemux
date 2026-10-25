@@ -1,0 +1,158 @@
+.git-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  outline: none;
+}
+/* The git pane's surface is its review column, or the whole of a host screen the project tree opened, so the pane
+   itself draws no frame, ground or focus ring and the side panel stands beside the surface as a card of its own. */
+.pane.pane-git {
+  border-color: transparent;
+  background: none;
+}
+.git-pane:focus-visible {
+  box-shadow: none;
+}
+.git-framed {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--pane-ground);
+}
+.git-right.git-framed {
+  padding: var(--space-2);
+}
+/* A commit's or branch's card heads the framed column edge to edge, closed by a hairline, like the side panel's head. */
+.git-right.git-framed > .git-right-review {
+  overflow: visible;
+}
+.git-right.git-framed .git-right-review .git-detail {
+  margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) var(--space-2);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+
+/* The changes view is panels on the pane's picture: the commit box, the files and the history, each with its own
+   edge and corner and a gap between them, never a shared line. The review's files are cards of their own. */
+.git-body {
+  display: flex;
+  flex: 1;
+  gap: var(--space-2);
+  min-height: 0;
+  width: 100%;
+  padding: 0;
+}
+
+.git-left {
+  width: clamp(320px, 30%, 400px);
+  min-width: 260px;
+  max-width: calc(100% - 360px);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+}
+:is(.git-left, .git-left .swipe-page) > .git-compose,
+:is(.git-left, .git-left .swipe-page) > .git-list,
+:is(.git-left, .git-left .swipe-page) > .git-history {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: color-mix(
+    in srgb,
+    var(--surface) var(--panel-solidity),
+    transparent
+  );
+}
+:is(.git-left, .git-left .swipe-page) > .git-list {
+  padding-top: 2px;
+}
+/* Changes is one card: the commit box, then the files it will commit. */
+:is(.git-left, .git-left .swipe-page) > .git-changes {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: color-mix(
+    in srgb,
+    var(--surface) var(--panel-solidity),
+    transparent
+  );
+}
+/* The side panel's branch and sync controls, its lists and the icons that switch them share one card, so the lists
+   inside it draw no card of their own. */
+.git-left > .git-side {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: clip;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+  background: color-mix(
+    in srgb,
+    var(--surface) var(--panel-solidity),
+    transparent
+  );
+}
+.git-left
+  .swipe-page
+  > :is(.git-compose, .git-list, .git-history, .git-changes) {
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.git-changes > .git-compose {
+  margin-bottom: var(--space-1h);
+  border-bottom: 1px solid var(--border);
+}
+/* History is a screen of its own, so the graph takes the whole column under its search. */
+:is(.git-left, .git-left .swipe-page) > .git-history.open {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+:is(.git-left, .git-left .swipe-page) > .git-history > .git-history-head {
+  height: auto;
+  padding: 6px;
+}
+:is(.git-left, .git-left .swipe-page) > .git-history > .git-history-head:hover {
+  background: none;
+}
+.git-split {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  width: var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+.git-split::before,
+:is(.git-left, .git-left .swipe-page) > .git-history-split::before {
+  content: "";
+  position: absolute;
+  background: transparent;
+  transition: background var(--dur-1);
+}
+.git-split::before {
+  inset: 0 calc(50% - 1px);
+}
+:is(.git-left, .git-left .swipe-page) > .git-history-split {
+  position: relative;
+}
+:is(.git-left, .git-left .swipe-page) > .git-history-split::before {
+  inset: calc(50% - 1px) 0;
+}
+.git-split:is(:hover, :active, :focus-visible)::before,
+:is(.git-left, .git-left .swipe-page)
+  > .git-history-split:is(:hover, :active, :focus-visible)::before {
+  background: var(--acc);
+}

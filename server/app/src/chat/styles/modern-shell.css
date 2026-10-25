@@ -1,0 +1,1556 @@
+/*
+ * The shell: the frame you are looking at 100% of the time.
+ *
+ * The product is a developer tool, so the terminal grain and the provider
+ * colours stay exactly as they are. Everything around them is deliberately
+ * quiet — a neutral ramp for every surface, hairlines instead of shadows, one
+ * type scale, and the accent spent only on what is selected or focused. The
+ * discipline is the design: when the chrome stops competing, the code is the
+ * only coloured thing on screen, which is the right answer for an editor.
+ *
+ * Type, spacing, radius, elevation and the ramp itself live in tokens.css.
+ * This sheet is layout and surfaces. See DESIGN.md.
+ */
+
+body {
+  font-family: var(--ui);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-normal);
+  color: var(--text-secondary);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: var(--ui);
+}
+
+/*
+ * One ring for everything focusable.
+ *
+ * `box-shadow` rather than `outline` so it follows each element's own radius
+ * on every engine, and `:focus-visible` rather than `:focus` so clicking a row
+ * does not light it up — only arriving there from the keyboard does.
+ *
+ * Not wrapped in `:where()`: at zero specificity the component sheets that set
+ * a `box-shadow` of their own would silently win, and a focus ring that
+ * disappears on exactly the dense rows people keyboard through is worse than
+ * no ring at all.
+ */
+button:focus-visible,
+select:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+textarea:focus,
+[contenteditable="true"]:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* The chrome owns the window edges. Content surfaces get a soft inset line so
+ * the app still reads clearly when macOS window transparency is enabled. */
+.shell {
+  background: color-mix(
+    in srgb,
+    var(--void) calc(var(--window-opacity, 1) * 100%),
+    transparent
+  );
+}
+
+/* Its chips centre on the line macOS puts the window buttons on, set by trafficLightPosition in tauri.macos.conf.json;
+   the two move together. */
+.top-bar {
+  box-sizing: border-box;
+  height: 36px;
+}
+
+.tb-right {
+  gap: 8px;
+  padding-right: 16px;
+}
+
+.tb-btn {
+  width: 30px;
+  height: 30px;
+}
+
+/* Widths only. Both rails take their surface and their border from the one
+ * rule at the foot of this sheet, so they can never drift apart again. */
+.side-rail {
+  width: var(--side-rail-w);
+}
+
+/* Tab rail: a little wider so titles, provider identity, and timestamps do
+ * not compete for the same 250px. The 34px icon gutter is added to that, not
+ * taken out of it — a rail that pays for its own chrome by truncating agent
+ * titles is a worse rail. */
+.workspace-rail {
+  width: var(--tab-rail-w);
+}
+
+.rail-scroll {
+  padding: var(--gutter-rail) var(--gutter-rail) var(--space-4);
+}
+
+/* The brand was a 62px slab: a bordered, tinted logo tile next to heavily
+ * tracked caps and a version chip, all above the first thing you actually use.
+ * It is a quiet single line now. */
+.rail-masthead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1h);
+  flex: 0 0 auto;
+  height: 40px;
+  padding: 0 var(--space-2) 0 calc(var(--gutter-rail) + var(--space-2));
+  border-bottom: 1px solid var(--border);
+}
+
+.rail-masthead-logo {
+  flex: 0 0 auto;
+  color: var(--acc);
+}
+
+.rail-masthead-name {
+  margin-left: 1px;
+  font-family: var(--ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+
+.rail-masthead-version {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-top: 1px;
+  font-family: var(--mono);
+  font-size: var(--text-3xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.rail-masthead-channel {
+  padding: 1px var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-1);
+  font-family: var(--ui);
+  font-size: var(--text-3xs);
+  font-weight: var(--weight-medium);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-masthead-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+/* The rail's foot: who is signed in, or a card asking them to. */
+.rail-account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+  padding: var(--space-1h) var(--gutter-rail);
+  border-top: 1px solid var(--border);
+}
+
+.rail-account-row {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 36px;
+  padding: 0 var(--space-1h);
+  border-radius: var(--radius-2);
+  background: transparent;
+  text-align: left;
+  transition: background var(--dur-1) linear;
+}
+
+.rail-account-row:hover,
+.rail-account-row.open {
+  background: var(--surface-hover);
+}
+
+.rail-account-face {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 0 1px var(--border);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  object-fit: cover;
+}
+
+.rail-account-who {
+  display: grid;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.rail-account-who > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-account-who > b {
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.rail-account-who > span {
+  color: var(--text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.rail-account-settings {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-tertiary);
+  background: transparent;
+  transition:
+    background var(--dur-1) linear,
+    color var(--dur-1) linear;
+}
+
+.rail-account-settings:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.rail-sign-in {
+  display: grid;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  margin: 0 var(--gutter-rail) var(--gutter-rail);
+  padding: var(--space-2);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+}
+
+.rail-sign-in > p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.rail-sign-in-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.rail-sign-in-actions > .rail-sign-in-btn {
+  flex: 1;
+}
+
+.rail-account-loading {
+  justify-content: flex-end;
+}
+
+.rail-sign-in-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1h);
+  height: 28px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.rail-sign-in-btn:hover {
+  background: var(--surface-hover);
+}
+
+.rail-sign-in-btn.primary {
+  border-color: var(--acc);
+  background: var(--acc);
+  color: var(--on-accent);
+}
+
+.rail-sign-in-btn.primary:hover {
+  background: var(--acc);
+  filter: brightness(1.08);
+}
+
+.rail-update {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  margin: 0 var(--gutter-rail) var(--space-2);
+  height: 30px;
+  padding: 0 11px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-align: left;
+  transition:
+    background var(--dur-1),
+    border-color var(--dur-1),
+    color var(--dur-1);
+}
+
+.rail-update:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.rail-update-available {
+  border-color: var(--acc);
+  background: var(--acc);
+  color: var(--on-accent);
+}
+
+.rail-update-available:hover:not(:disabled) {
+  border-color: var(--acc);
+  background: var(--acc);
+  filter: brightness(1.08);
+}
+
+.rail-update-preparing,
+.rail-update-downloading,
+.rail-update-installing,
+.rail-update-restarting {
+  color: var(--text-secondary);
+  animation: tb-update-pulse 1.4s ease-in-out infinite;
+  cursor: progress;
+}
+
+.rail-update-waiting {
+  color: var(--text-secondary);
+}
+
+.rail-update-error > svg {
+  color: var(--danger);
+}
+
+.rail-update-measured {
+  animation: none;
+}
+
+.rail-update-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: var(--surface-chosen);
+  transition: transform 0.18s linear;
+  pointer-events: none;
+}
+
+.rail-update > svg,
+.rail-update-label {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.rail-update-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-update {
+    animation: none;
+  }
+}
+
+.side-rail .panel-group,
+.workspace-rail .panel-group {
+  margin-top: var(--space-4);
+}
+
+.side-rail .panel-head,
+.workspace-rail .panel-head {
+  padding: var(--space-0) var(--space-2) var(--space-1h);
+}
+
+/* A section label is a signpost, not a headline. It used to be 700 weight at
+ * 0.09em, which made the four words above each list louder than the rows they
+ * were labelling. */
+.side-rail .panel-label,
+.workspace-rail .panel-label {
+  font-family: var(--ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  color: var(--text-tertiary);
+}
+
+.session-row-shell {
+  margin: 0;
+}
+
+/*
+ * One row grammar for both rails.
+ *
+ * The project navigator used to be styled twice — once as a rounded row and
+ * again, further down, as a square monospace tree with a 2px accent edge and
+ * no hover at all. The second block won, so the first was dead weight and
+ * clickable rows silently gave no feedback under the pointer. This is the one
+ * definition: same height, same radius, same three states.
+ */
+.sess-row,
+.proj-row,
+.proj-child,
+.agent-row {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  height: 28px;
+  padding-inline: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--text-secondary);
+  transition:
+    background var(--dur-1) linear,
+    color var(--dur-1) linear;
+}
+
+/*
+ * Hover is neutral, selection is accent. Keeping them the same colour at
+ * different strengths meant the pointer resting on a row looked like it had
+ * selected it — the two states have to differ in hue, not just in weight.
+ */
+.sess-row:hover,
+.proj-row:hover,
+.proj-child:hover,
+.agent-row:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+/* What you are on is lifted by a soft grey fill alone, with no colour or edge. */
+.sess-row.active,
+.proj-row.expanded,
+.proj-child.active,
+.agent-row.active {
+  background: var(--surface-chosen);
+  color: var(--text-primary);
+}
+
+/*
+ * The two pieces of furniture a row carries: a mark saying what it holds, and
+ * a close.
+ *
+ * Both were drawn four times. The rail laid its close on top of the mark and
+ * faded the mark out to make room, so pointing at a row erased the icon that
+ * said which agent it was and put a destructive control where a pointer merely
+ * passing through would land. The project rows put a grey one on a filled
+ * square, the tabs a round 16px one, the browser strip a fourth. Same object,
+ * four answers.
+ *
+ * The mark is a slot, not a surface: a fixed box the glyph is centred in, so
+ * rows whose glyphs differ by a pixel or two still start their labels on one
+ * edge. It paints nothing — a filled tile behind an icon that already carries
+ * its provider colour is a second background for the row to argue with.
+ *
+ * Its size is `--mark`, set by the list rather than by the rule, because
+ * alignment only has to hold down one column. A rail of folders does not need
+ * the box a provider logo needs, and sizing every slot for the largest glyph in
+ * the app pushed a 12px folder 5px off its own left edge.
+ */
+.shell {
+  --mark: 16px;
+  --row-inset: var(--space-1);
+  --row-slot: 20px;
+}
+
+/* The leading mark sits in a column the same width and inset as the trailing
+   close, so a row's two ends mirror each other. */
+.sess-row,
+.proj-row,
+.agent-row {
+  padding-left: calc(
+    var(--row-inset) + (var(--row-slot) - var(--mark, 16px)) / 2
+  );
+}
+
+.proj-row {
+  padding-right: var(--row-inset);
+}
+
+.side-rail .panel-group > .panel-head,
+.workspace-rail .panel-group > .panel-head {
+  padding-left: calc(var(--row-inset) + var(--space-1));
+}
+
+.agent-row,
+.tabbar.v-agent {
+  --mark: 22px;
+}
+
+.agent-row .agent-glyph,
+.proj-row .proj-folder,
+.sess-row .sess-icon,
+.tab-mark {
+  display: grid;
+  place-items: center;
+  min-width: var(--mark, 16px);
+  height: var(--mark, 16px);
+  flex: 0 0 auto;
+}
+
+.tab-badge {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.row-x,
+.row-pin,
+.tab-x {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  align-self: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-1) linear,
+    background var(--dur-1) linear,
+    color var(--dur-1) linear;
+}
+
+/* A rail row is a button, so its close cannot sit inside it — it sits on top
+   of the row's trailing edge instead, and the row keeps the room free. */
+.row-x {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: var(--row-inset);
+  transform: translateY(-50%);
+  border-radius: var(--radius-2);
+}
+
+.row-pin {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: calc(var(--row-inset) + var(--row-slot));
+  transform: translateY(-50%);
+}
+
+.agent-row-wrap:has(> .row-pin):is(:hover, :focus-within) > .agent-row {
+  padding-right: calc(var(--row-inset) + 2 * var(--row-slot) + var(--space-1));
+}
+
+.session-row-shell > .sess-row,
+.agent-row-wrap > .agent-row {
+  padding-right: calc(var(--row-inset) + var(--row-slot) + var(--space-1));
+}
+
+/*
+ * One slot at the trailing edge holds both marks.
+ *
+ * What a tab or a row is doing — a spinner, an activity dot — and the close
+ * button are the same size and want the same corner, so they share it: the
+ * status sits there until the pointer arrives and the close takes over. Two
+ * slots side by side left the close floating a full mark away from the edge.
+ */
+.tab-tail {
+  position: relative;
+  display: grid;
+  flex: 0 0 20px;
+  align-self: center;
+  width: 20px;
+  height: 20px;
+  margin-right: var(--space-2);
+}
+
+.tab-tail > * {
+  grid-area: 1 / 1;
+}
+
+.tab-status,
+.row-status {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  transition: opacity var(--dur-1) linear;
+}
+
+/* A rail row is a button, so what trails it sits on top of the row's trailing
+   edge, in the room the row keeps free. */
+.row-status {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: var(--row-inset);
+  transform: translateY(-50%);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+}
+
+.status-dot.ok {
+  background: var(--live);
+}
+
+.status-dot.pending {
+  background: var(--warn);
+  animation: statusDotPulse 1.2s ease-in-out infinite alternate;
+}
+
+.status-dot.idle {
+  box-shadow: inset 0 0 0 1.5px var(--text-tertiary);
+}
+
+.status-dot.failed {
+  background: var(--danger);
+}
+
+@keyframes statusDotPulse {
+  to {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.pending {
+    animation: none;
+  }
+}
+
+/* Revealed by the pointer, and by the keyboard when it lands there — a close
+   you can only reach with a mouse is a close half the app cannot use. Selection
+   does not reveal it: a row you are looking at is not a row you are closing. */
+.session-row-shell:hover > .row-x,
+.agent-row-wrap:hover > .row-x,
+.agent-row-wrap:hover > .row-pin,
+.row-pin:focus-visible,
+.tab-wrap:hover .tab-x,
+.row-x:focus-visible,
+.tab-x:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tab-wrap:hover .tab-status,
+.tab-wrap:has(.tab-x:focus-visible) .tab-status,
+.session-row-shell:hover:has(> .row-x) > .row-status,
+.session-row-shell:has(> .row-x:focus-visible) > .row-status,
+.agent-row-wrap:hover > .row-status,
+.agent-row-wrap:has(> .row-x:focus-visible) > .row-status {
+  opacity: 0;
+}
+
+/* An agent tab with no status lets its name reach the end, and gives that end to the close on hover. */
+.tab-wrap:has(.tab-note):not(:has(.tab-status)) {
+  position: relative;
+}
+
+.tab-wrap:has(.tab-note):not(:has(.tab-status)) > .tab-tail {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  margin: 0;
+  transform: translateY(-50%);
+}
+
+.tab-wrap:has(.tab-note):not(:has(.tab-status)) :is(.tab-note, .tab-badge) {
+  transition: opacity var(--dur-1) linear;
+}
+
+.tab-wrap:has(.tab-note):not(:has(.tab-status)):is(
+    :hover,
+    :has(.tab-x:focus-visible)
+  )
+  :is(.tab-note, .tab-badge) {
+  opacity: 0;
+}
+
+/* With no status to show, a row's subagent and shell counts take the trailing
+   slot themselves and give it to the close on hover, as the spinner does. */
+.agent-row-wrap:not(:has(> .row-status)) > .agent-row {
+  padding-right: calc(var(--row-inset) + var(--space-1));
+}
+
+.agent-row-wrap:not(:has(> .row-status)) .work-counts,
+.agent-row-wrap:not(:has(> .row-status)) .agent-row-name {
+  transition: opacity var(--dur-1) linear;
+}
+
+.agent-row-wrap:not(:has(> .row-status)):hover .work-counts,
+.agent-row-wrap:not(:has(> .row-status)):hover .agent-row-name,
+.agent-row-wrap:not(:has(> .row-status)):has(> .row-x:focus-visible)
+  .work-counts,
+.agent-row-wrap:not(:has(> .row-status)):has(> .row-x:focus-visible)
+  .agent-row-name {
+  opacity: 0;
+}
+
+.session-row-shell:hover > .sess-row:not(.active),
+.session-row-shell:hover > .proj-row:not(.expanded),
+.agent-row-wrap:hover > .agent-row:not(.active) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.agent-row.remote,
+.agent-row-wrap:hover > .agent-row.remote {
+  background: transparent;
+  cursor: default;
+}
+
+.proj-row-status {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  margin-left: -6px;
+  transition: opacity var(--dur-1) linear;
+}
+
+/* Project rows keep no room for the close, so it covers whatever ends the row. */
+.project-row-shell .proj-child-icons > :last-child {
+  transition: opacity var(--dur-1) linear;
+}
+
+.project-row-shell:hover .proj-row-status,
+.project-row-shell:has(> .row-x:focus-visible) .proj-row-status,
+.project-row-shell:not(:has(.proj-row-status)):hover
+  .proj-child-icons
+  > :last-child,
+.project-row-shell:not(:has(.proj-row-status)):has(> .row-x:focus-visible)
+  .proj-child-icons
+  > :last-child {
+  opacity: 0;
+}
+
+.row-x:hover,
+.tab-x:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.row-pin:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.row-pin.pinned {
+  color: var(--text-secondary);
+}
+
+.sess-name,
+.proj-name,
+.proj-child-label {
+  font-family: var(--ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1.2;
+}
+
+.proj-child-kbd {
+  font-size: var(--text-2xs);
+}
+
+.side-rail .empty-state.inline {
+  font-size: var(--text-xs);
+}
+
+/* The tree's spine. One hairline, no accent in it — the indent is what says
+ * "child of", and tinting the line as well said it twice. */
+.proj-children {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-0) 0 var(--space-0) var(--space-2);
+  margin-left: 11px;
+  border-left: 1px solid var(--border);
+}
+
+.proj-child {
+  min-height: 26px;
+  height: 26px;
+  gap: var(--space-2);
+}
+
+.agent-header {
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 0;
+  padding: var(--space-2) var(--gutter-rail);
+  gap: var(--space-3);
+  border-bottom-color: var(--line-soft);
+}
+
+.agent-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+/* Now the rail's only name for this panel — the tab strip that used to say it
+ * first is gone — but a rail header is a signpost, not a masthead. */
+.agent-header-label {
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-normal);
+}
+
+.agent-usage {
+  margin: var(--space-3) var(--gutter-rail) var(--space-4);
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+/* The rows sit on the same inset as the header above them; without this the
+ * meters ran wider than the rule they belong under. */
+.agent-usage-row,
+.agent-usage-empty {
+  padding-inline: var(--space-2);
+}
+
+.agent-usage-head {
+  margin-bottom: 9px;
+}
+
+.rail-search {
+  height: 34px;
+  margin: 10px 12px 2px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(
+    in srgb,
+    var(--rail-2) calc(var(--window-opacity, 1) * 62%),
+    transparent
+  );
+}
+
+.agent-group {
+  margin-inline: 0;
+}
+
+.agent-row-wrap {
+  margin: 1px 0;
+}
+
+/* Gap and family only — height, surface, radius and the three states come from
+ * the shared row rule above, so an agent row and a session row cannot drift. */
+.agent-row {
+  gap: var(--space-2);
+  font-family: var(--ui);
+}
+
+.agent-title {
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+.agent-ago {
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+}
+
+/* The editor's strip sits inside a pane that already is the surface, and a
+ * second near-identical tint on top of it drew a seam across the window. */
+.tabbar.v-editor {
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Tabs are pills, so the active one is filled rather than underlined — a hard
+ * 2px bar under a rounded corner reads as a rendering fault, not a selection. */
+.tabbar.v-agent,
+.tabbar.v-editor,
+.tabbar.v-desk,
+.tabbar.v-stack {
+  gap: var(--space-1);
+  padding-inline: var(--space-1);
+  align-items: center;
+}
+
+/* The panes of one split, outlined together. Each keeps its own pill inside. */
+.tabbar .tab-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px;
+  border-radius: calc(var(--radius-2) + 2px);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: box-shadow var(--dur-1) linear;
+}
+
+.tabbar .tab-group.active {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* Registered so the tint can fade; a gradient on its own snaps between states. */
+@property --tab-tint {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
+/*
+ * Every tab sits on the same ground as the rails; only the selected one is tinted.
+ *
+ * Hover and selection lay their translucent tint over that ground rather than
+ * replacing it, so a tab never turns see-through when you touch it.
+ */
+.tabbar.v-agent .tab-wrap,
+.tabbar.v-editor .tab-wrap,
+.tabbar.v-desk .tab-wrap,
+.tabbar.v-stack .tab-wrap {
+  height: 26px;
+  border-right: 0;
+  border-radius: var(--radius-2);
+  background: color-mix(
+    in srgb,
+    var(--surface) var(--panel-solidity),
+    transparent
+  );
+  background-image: linear-gradient(var(--tab-tint), var(--tab-tint));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 6%, transparent);
+  color: var(--text-secondary);
+  overflow: hidden;
+  transition:
+    --tab-tint 200ms var(--ease-out),
+    color 200ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabbar.v-agent .tab-wrap,
+  .tabbar.v-editor .tab-wrap,
+  .tabbar.v-desk .tab-wrap,
+  .tabbar.v-stack .tab-wrap {
+    transition: none;
+  }
+}
+
+.tabbar.v-agent .tab-wrap:hover,
+.tabbar.v-editor .tab-wrap:hover,
+.tabbar.v-desk .tab-wrap:hover,
+.tabbar.v-stack .tab-wrap:hover {
+  --tab-tint: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+/* The chosen tab is lifted by a soft grey fill alone; the others keep only a faint edge and step back. */
+.tabbar.v-agent .tab-wrap.active,
+.tabbar.v-editor .tab-wrap.active,
+.tabbar.v-desk .tab-wrap.active,
+.tabbar.v-stack .tab-wrap.active {
+  --tab-tint: var(--surface-chosen);
+  box-shadow: none;
+  color: var(--text-primary);
+}
+
+/* A label takes its tab's ink, so the chosen one reads brighter. Weight stays put between states: a
+ * label that gains 100 weight on selection reflows the strip by a pixel or two. */
+.tabbar.v-agent .tab-label,
+.tabbar.v-editor .tab-label,
+.tabbar.v-desk .tab-label,
+.tabbar.v-stack .tab-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: inherit;
+}
+
+.pane {
+  border-radius: var(--radius-md);
+}
+
+/*
+ * Anything that floats: one surface, one hairline, one shadow.
+ *
+ * These are the only elements in the app that get height. Everything flat is
+ * separated by a border instead, because on a dark ground a shadow under a
+ * panel that is not actually above anything just reads as a smudge.
+ */
+.env-dd-menu,
+.picker,
+.command-palette,
+.session-switcher,
+.tree-ctx-menu,
+.space-pop,
+.terminal-menu,
+.chat-picker-menu {
+  border: 1px solid var(--border);
+  /* Not scaled by --window-opacity. A translucent window is a choice about
+       chrome; a menu is a thing you have to read, and at half opacity the
+       transcript behind it came through the model names. It blurs what is
+       under it instead, which §6 allows a float to do. */
+  background: color-mix(in srgb, var(--surface-overlay) 94%, transparent);
+  backdrop-filter: blur(20px) saturate(1.3);
+  box-shadow: var(--shadow-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .top-bar,
+  .side-rail,
+  .workspace-rail {
+    animation: none;
+  }
+}
+
+/* ---- Scrollbars ---------------------------------------------------------
+ * Only three surfaces used to be styled; everywhere else fell back to the
+ * default WebKit bar, which paints a light track on the dark chrome. This is
+ * the app-wide default. The terminal and CodeMirror keep their own rules.
+ */
+*:not(.cm-scroller) {
+  &::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  &::-webkit-scrollbar-track,
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  /* Any styled bar stops macOS hiding it on its own, so the thumb shows only
+       while the pointer is over its list. */
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  &:hover::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--ink-faint) 42%, transparent);
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--ink-faint) 78%, transparent);
+  }
+}
+
+/* Sidebars and menus scroll by gesture alone, like macOS's own menus. */
+:is(
+  .rail-scroll,
+  .ed-tree-scroll,
+  .settings-nav,
+  .git-repo-list,
+  .git-list,
+  .dd-menu,
+  .dd-list,
+  .env-dd-menu,
+  .picker-list,
+  .dlg-commands,
+  .session-switcher-list,
+  .tb-run-tests-list,
+  .chat-picker-options,
+  .theme-pick-list
+) {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ---- Loading skeleton ---------------------------------------------------
+ * Replaces bare "loading…" strings, which read as content rather than as a
+ * pending state and cause a layout jump when the real rows arrive.
+ */
+.skel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+}
+.skel {
+  height: 11px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--ink-faint) 14%, transparent) 25%,
+    color-mix(in srgb, var(--ink-faint) 26%, transparent) 50%,
+    color-mix(in srgb, var(--ink-faint) 14%, transparent) 75%
+  );
+  background-size: 240% 100%;
+  animation: skelShimmer 1.25s ease-in-out infinite;
+}
+
+@keyframes skelShimmer {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel {
+    animation: none;
+  }
+}
+
+/* ---- Shell gutters -------------------------------------------------------
+ * The rails and the stage used to sit flush against each other and against the
+ * window edge, divided only by 1px borders. They are separate surfaces now:
+ * a real gutter runs between them and around the frame, and the shell
+ * background (and the desktop, at reduced window opacity) shows through it.
+ */
+.body {
+  position: relative;
+  gap: var(--shell-gap);
+  /* Half gutter under the bar: it is window chrome, not another panel, so it
+       sits closer than the panels do to each other. The bar's own slack under
+       its tabs is most of it; this tops it up to match the gap above. */
+  padding: var(--space-1) var(--shell-gap) var(--shell-gap);
+}
+
+/* The rail handles sit in the middle of the gutter beside each rail. */
+.rail-resizer {
+  top: var(--space-1);
+  bottom: var(--shell-gap);
+}
+.rail-resizer--start {
+  left: calc(var(--shell-gap) * 1.5 + var(--side-rail-w));
+}
+.rail-resizer--end {
+  right: calc(var(--shell-gap) * 1.5 + var(--tab-rail-w));
+  transform: translateX(50%);
+}
+
+/* Panes hold a gutter back from their cell, so the window area reaches out by
+   that much to put the outer panes flush with the stage's edges. */
+.window-area {
+  inset: calc(-1 * var(--pane-gutter));
+}
+
+.rail-peek {
+  --rail-peek-width: var(--side-rail-w);
+  position: absolute;
+  inset-block: 0;
+  z-index: 4;
+  width: calc(var(--rail-peek-width) + var(--shell-gap));
+  pointer-events: none;
+}
+
+.rail-peek--start {
+  --rail-peek-offset: calc(-100% - var(--shell-gap));
+  left: 0;
+}
+
+.rail-peek--end {
+  --rail-peek-width: var(--tab-rail-w);
+  --rail-peek-offset: calc(100% + var(--shell-gap));
+  right: 0;
+}
+
+.rail-peek-sensor {
+  position: absolute;
+  inset-block: 0;
+  width: var(--shell-gap);
+  pointer-events: auto;
+}
+
+.rail-peek--start .rail-peek-sensor {
+  left: 0;
+}
+
+.rail-peek--end .rail-peek-sensor {
+  right: 0;
+}
+
+.rail-peek-panel {
+  position: absolute;
+  top: var(--space-1);
+  bottom: var(--space-3);
+  width: var(--rail-peek-width);
+  display: flex;
+  opacity: 1;
+  pointer-events: auto;
+  will-change: opacity, transform;
+  filter: drop-shadow(0 18px 28px rgb(0 0 0 / 34%));
+}
+
+.rail-peek--start .rail-peek-panel {
+  left: var(--space-3);
+}
+
+.rail-peek--end .rail-peek-panel {
+  right: var(--space-3);
+}
+
+.rail-peek-panel > .side-rail,
+.rail-peek-panel > .workspace-rail {
+  width: 100%;
+  height: 100%;
+  animation: none;
+}
+
+/* A docked rail lets the wallpaper through a transparent window. A peeked one
+   floats over the stage, where the same tint would let the panes show through. */
+html.is-transparent .rail-peek-panel > .side-rail,
+html.is-transparent .rail-peek-panel > .workspace-rail {
+  background: var(--surface);
+}
+
+.rail-peek-panel--open {
+  animation: railPeekIn 180ms var(--ease-pop) both;
+}
+
+.rail-peek-panel--closing {
+  opacity: 0;
+  transform: translate3d(var(--rail-peek-offset), 0, 0);
+  pointer-events: none;
+  animation: railPeekOut 140ms cubic-bezier(0.4, 0, 0.8, 0.2) both;
+}
+
+@keyframes railPeekIn {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--rail-peek-offset), 0, 0);
+  }
+}
+
+@keyframes railPeekOut {
+  to {
+    opacity: 0;
+    transform: translate3d(var(--rail-peek-offset), 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-peek-panel {
+    animation: none;
+  }
+}
+
+.side-rail,
+.workspace-rail {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-3);
+}
+
+/* The gutter replaces the dividing borders the rails used to carry. */
+.side-rail {
+  border-right-width: 1px;
+}
+.workspace-rail {
+  border-right-width: 1px;
+}
+
+/* The stage draws no edge and no corner of its own — the strip and the screen
+   each carry theirs — so this only clips the screens waiting off to the side.
+   Clipped rather than hidden: the window area reaches a gutter past the stage,
+   and a hidden box would scroll by that much whenever something inside it
+   takes focus, leaving the screen shifted left until a restart. */
+.stage {
+  overflow: clip;
+}
+
+.pane {
+  inset: 0;
+  border-radius: 0;
+}
+
+.git-toolbar {
+  border-radius: 0;
+}
+
+/* ---- Geometry ------------------------------------------------------------
+ * Corners for elements no sheet has given one. Each component sets its own;
+ * these only stop a bare control or a float from being square.
+ */
+:where(
+  button,
+  select,
+  textarea,
+  input:not([type="range"], [type="color"], [type="checkbox"], [type="radio"])
+) {
+  border-radius: var(--radius-2);
+}
+
+:where(kbd, code) {
+  border-radius: var(--radius-1);
+}
+
+:where(pre) {
+  border-radius: var(--radius-2);
+}
+
+:where([role="menu"], [role="dialog"], [role="listbox"]) {
+  border-radius: var(--radius-4);
+}
+
+/* ---- Tab rail header ---------------------------------------------------
+ * The chosen provider's name is the picker for the others: bare until hovered,
+ * so it reads as the title it replaces.
+ */
+.dd-btn.agent-picker {
+  gap: 7px;
+  height: 28px;
+  margin-left: calc(-1 * var(--space-1h));
+  padding: 0 var(--space-1h);
+  border-color: transparent;
+  background: transparent;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+.dd-btn.agent-picker:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--surface-hover);
+}
+
+.dd-btn.agent-picker[aria-expanded="true"] {
+  border-color: transparent;
+  background: var(--surface-chosen);
+  box-shadow: none;
+}
+
+.agent-header-name {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.agent-header-name .agent-header-label {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-header-actions {
+  gap: 2px;
+}
+
+.agent-header-action {
+  display: grid;
+  place-items: center;
+  width: var(--control-hit);
+  height: var(--control-hit);
+  color: var(--gray-700);
+  transition:
+    color var(--dur-1),
+    background var(--dur-1);
+}
+
+.agent-header-action:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.agent-header-action[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--surface-chosen);
+}
+
+.agent-header-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ---- Top bar -------------------------------------------------------------
+ * The bar wears the rails' surface and their border across the window's top.
+ */
+.top-bar {
+  border-bottom: 1px solid var(--border);
+  background: color-mix(
+    in srgb,
+    var(--surface) var(--panel-solidity),
+    transparent
+  );
+}
+
+/* ---- Surface vs gutter ---------------------------------------------------
+ * The gutter is the window; the panels sit on top of it, so the panels take
+ * the lighter tone and the shell keeps the darkest, and the panels hold more
+ * of their own colour as the window dims.
+ *
+ * This only governs the partly-translucent range. Once window opacity drops
+ * far enough that base.css adds `html.is-transparent`, that sheet clears the
+ * background on every surface — rails and panes alike — and the desktop shows
+ * straight through the whole frame. Every surface goes together, which is the
+ * point: they should never disagree.
+ */
+:root {
+  --surface-solidity: calc((0.62 + var(--window-opacity, 1) * 0.38) * 100%);
+}
+
+/*
+ * Every panel takes the same ground. They used to differ — rails on `--rail`,
+ * the pane on `--pane`, the stage on neither — which put three slightly
+ * different darks side by side and made the window look assembled rather than
+ * designed. One surface, one tone, and the border does the separating.
+ */
+/*
+ * How much of its own colour a panel keeps now that a backdrop runs under it.
+ *
+ * Not all of it. The rails and the stage cover almost the whole window, so at
+ * full solidity the backdrop only ever showed in a 12px gutter and the art was
+ * effectively off. Six points of glass is enough that the dither — and a
+ * backdrop image, when one is set — ghosts through the entire app, and little
+ * enough that a diff on top of it is still crisp.
+ *
+ * Deliberately not `backdrop-filter`. These are the largest elements on screen
+ * and every open terminal is already running a WebGL renderer; a real blur
+ * across two rails and the stage is the one effect that would show up in frame
+ * times. Blur is spent on the floating surfaces instead, where the area is
+ * small and it earns its cost.
+ */
+:root {
+  --panel-solidity: calc(var(--surface-solidity) - 6%);
+}
+
+.side-rail,
+.workspace-rail {
+  background: color-mix(
+    in srgb,
+    var(--surface) var(--panel-solidity),
+    transparent
+  );
+}
+
+/*
+ * The stage is a gutter, not a panel.
+ *
+ * The tab strip and the screen under it are two surfaces of their own, so the
+ * stage paints nothing and the shell shows between them and around their
+ * corners — the same recess that already runs between the rails and the stage.
+ * One fill per pixel: a ground here as well would sit under both of them and
+ * take the window's transparency away twice over.
+ */
+.stage {
+  background: transparent;
+}
+
+/*
+ * The panes carry the frame now, so the screen behind them carries none.
+ *
+ * It painted a ground under every pane and drew its own edge and corner round
+ * the lot, which is the outer box a split sat inside. What it keeps is the
+ * clipping, because that is what a swipe needs: a card that slides its own
+ * contents rather than sliding them behind a frame that stays put.
+ */
+.window-layer {
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+}
+
+/*
+ * Each pane is its own surface.
+ *
+ * The screen used to carry the ground for everything inside it and the panes
+ * stayed transparent, which meant a split was two regions of one card rather
+ * than two panes. Now the pane paints its own ground, its own edge and its own
+ * dither, so however the layout splits, every leaf is a surface in its own
+ * right.
+ *
+ * The texture is the same shader field the screen used to carry, mounted per
+ * pane now that a pane is a surface. Only the panes on the live screen ask for
+ * one; see the budget in `lib/shaderField.ts`.
+ */
+.pane {
+  /* The same glass the screen card used to paint, moved down a level. Only
+       one of the two paints it, so the window is no more solid than it was. */
+  --pane-ground: color-mix(
+    in srgb,
+    var(--surface) var(--panel-solidity),
+    transparent
+  );
+  /* The gutter a pane keeps inside its cell. Cells abut, so two neighbours
+       are twice this apart and every pane is this far from the screen's edge —
+       which is what makes a split read as two panes rather than one divided. */
+  inset: var(--pane-gutter);
+  /* Positioned by chrome.css as `absolute; inset: 0` — restating it here as
+       `relative` took the pane out of that fill and collapsed it to the height
+       of its own content, which left every pane empty below its header. */
+  isolation: isolate;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--pane-ground);
+  overflow: hidden;
+}
+
+/* The shell keeps the darkest tone so the gutter always reads as a recess. */
+.shell {
+  background: color-mix(
+    in srgb,
+    var(--surface-sunken) calc(var(--window-opacity, 1) * 100%),
+    transparent
+  );
+}
+
+/* ---- Rail typography -----------------------------------------------------
+ * Row names, sizes, families and the three row colours are all settled by the
+ * shared row rule near the top of this sheet. What is left here is the one
+ * thing that genuinely differs: meta text is what the machine said, so it
+ * stays monospace and a step down while the names around it do not.
+ */
+.workspace-rail .agent-title {
+  font-size: var(--text-sm);
+}
+
+.workspace-rail .agent-ago {
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+}
+
+.side-rail .proj-child-kbd,
+.side-rail .rail-group-kbd {
+  font-family: var(--kbd);
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+}

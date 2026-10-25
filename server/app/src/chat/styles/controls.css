@@ -1,0 +1,360 @@
+/*
+ * Shared form primitives — button, switch, checkbox, slider, colour well,
+ * tooltip. The inputs hide their native widget and paint the surface from
+ * :checked/:focus so the platform control never leaks into the chrome.
+ *
+ * These live here rather than in a pane's own sheet because the panes that
+ * use them are not all loaded at once. `.settings-btn` is named for where it
+ * was first written, but the AWS sign-in dialog and the editor's empty state
+ * draw it too, and they used to render it as bare text for anyone who had not
+ * opened settings yet.
+ */
+
+/* ---- Button ------------------------------------------------------------- */
+.settings-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1h);
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--s-raised);
+  color: var(--text-secondary);
+  font-family: var(--ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-1),
+    border-color var(--dur-1),
+    color var(--dur-1);
+}
+.settings-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.settings-btn:focus-visible {
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+.settings-btn:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+.settings-btn.primary {
+  border-color: transparent;
+  background: var(--acc);
+  color: var(--on-accent);
+  font-weight: var(--weight-semibold);
+}
+.settings-btn.primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--ink) 14%, var(--acc));
+  color: var(--on-accent);
+}
+.settings-btn.primary:disabled {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-disabled);
+}
+/* Unclickable because it is already working, not because it is unavailable,
+   so it keeps its fill and only steps back. */
+.settings-btn.primary:disabled[aria-busy="true"] {
+  border-color: transparent;
+  background: var(--acc);
+  color: var(--on-accent);
+  opacity: 0.68;
+  cursor: progress;
+}
+.settings-btn.danger:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--danger) 52%, transparent);
+  background: color-mix(in oklab, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+/* ---- Switch ------------------------------------------------------------- */
+.swx {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 34px;
+  height: 20px;
+}
+.swx input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.swx.disabled input {
+  cursor: not-allowed;
+}
+.swx-track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--surface-sunken) 70%, var(--border));
+  border: 1px solid var(--border);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+  pointer-events: none;
+}
+.swx-thumb {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 13px;
+  height: 13px;
+  border-radius: var(--radius-full);
+  background: var(--text-tertiary);
+  transform: translateY(-50%);
+  transition:
+    transform 160ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    background 140ms ease;
+}
+.swx.on .swx-track {
+  background: var(--acc);
+  border-color: transparent;
+}
+.swx.on .swx-thumb {
+  background: #fff;
+  transform: translate(14px, -50%);
+}
+.swx.disabled {
+  opacity: 0.45;
+}
+.swx input:focus-visible + .swx-track {
+  outline: 2px solid color-mix(in srgb, var(--acc) 72%, white 10%);
+  outline-offset: 2px;
+}
+
+/* ---- Checkbox ----------------------------------------------------------- */
+.cbx {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  font-family: var(--ui);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+.cbx.on {
+  color: var(--text-primary);
+}
+.cbx.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.cbx input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.cbx-box {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-sunken) 60%, transparent);
+  color: transparent;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.cbx.on .cbx-box {
+  background: var(--acc);
+  border-color: transparent;
+  color: #16121f;
+}
+.cbx input:focus-visible + .cbx-box {
+  outline: 2px solid color-mix(in srgb, var(--acc) 72%, white 10%);
+  outline-offset: 2px;
+}
+
+/* ---- Slider ------------------------------------------------------------- */
+.sld {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sld.disabled {
+  opacity: 0.45;
+}
+.sld input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  border-radius: var(--radius-full);
+}
+.sld input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    to right,
+    var(--acc) 0,
+    var(--acc) var(--sld-fill, 0%),
+    color-mix(in srgb, var(--surface-sunken) 60%, var(--border))
+      var(--sld-fill, 0%)
+  );
+}
+.sld input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  border-radius: var(--radius-full);
+  background: #fff;
+  border: none;
+  transition: transform 120ms ease;
+}
+.sld input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+.sld input[type="range"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--acc) 72%, white 10%);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
+.sld-value {
+  flex: none;
+  min-width: 44px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Tooltip ------------------------------------------------------------ */
+.tip {
+  position: fixed;
+  z-index: var(--layer-tooltip);
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 5px 9px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--surface-raised) 97%, white 6%);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, white 12%);
+  color: var(--text-primary);
+  font-family: var(--ui);
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: pre-line;
+  pointer-events: none;
+  animation: tipIn 110ms ease-out;
+}
+.tip-top {
+  transform: translate(-50%, -100%);
+}
+.tip-bottom {
+  transform: translate(-50%, 0);
+}
+.tip-left {
+  transform: translate(-100%, -50%);
+}
+.tip-right {
+  transform: translate(0, -50%);
+}
+.tip .kbd {
+  font-family: var(--kbd);
+  color: var(--text-secondary);
+}
+
+@keyframes tipIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tip {
+    animation: none;
+  }
+  .swx-thumb,
+  .swx-track,
+  .cbx-box {
+    transition: none;
+  }
+}
+
+/* ---- Segmented ---------------------------------------------------------- */
+.seg {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--surface-sunken) 50%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.seg.fill {
+  display: flex;
+}
+.seg-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1h);
+  height: 22px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: calc(var(--radius-2) - 2px);
+  background: none;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-1) linear,
+    color var(--dur-1) linear;
+}
+.seg.fill > .seg-item {
+  flex: 1 1 0;
+}
+.seg.small > .seg-item {
+  height: 20px;
+  padding: 0 var(--space-2);
+}
+.seg-item:hover {
+  color: var(--text-secondary);
+}
+.seg-item[aria-pressed="true"] {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+.seg-item:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+.seg-count {
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--surface-hover);
+  color: var(--text-tertiary);
+  font-size: var(--text-3xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 15px;
+}
+.seg-item[aria-pressed="true"] > .seg-count {
+  color: var(--text-secondary);
+}
