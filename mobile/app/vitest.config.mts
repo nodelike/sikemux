@@ -34,6 +34,7 @@ export default defineConfig({
     ],
     dedupe: ['react', 'react-dom', 'vitest', '@testing-library/react'],
   },
+  server: { fs: { allow: [here('../..')] } },
   test: {
     include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.{ts,tsx}', '../../shared/**/*.test.{ts,tsx}'],
     environment: 'node',
