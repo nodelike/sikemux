@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Writes what the notch helper shares with the app: its settings from
-// src/notch/settings.json, for the core's Rust and the helper's Swift,
-// its colours from src/styles/base.css, and the app's buddies from
-// src/buddies, which the helper runs to draw them. `--check` fails when one is
+// src-tauri/notch/settings.json, for the core's Rust and the helper's Swift,
+// its colours from the share page's base.css, and the app's buddies from
+// shared/buddies, which the helper runs to draw them. `--check` fails when one is
 // out of date instead of writing it.
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -10,8 +10,8 @@ import { dirname, resolve } from "node:path";
 import { build } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
-const settingsSource = resolve(root, "src/notch/settings.json");
-const cssSource = resolve(root, "src/styles/base.css");
+const settingsSource = resolve(root, "src-tauri/notch/settings.json");
+const cssSource = resolve(root, "server/app/src/chat/styles/base.css");
 const settingsRustPath = resolve(
   root,
   "src-tauri/crates/sikemux-wire/src/notch.rs",
@@ -24,7 +24,7 @@ const themeSwiftPath = resolve(
   root,
   "src-tauri/notch/Sources/NotchKit/Theme.generated.swift",
 );
-const buddiesSource = resolve(root, "src/buddies/notch.ts");
+const buddiesSource = resolve(root, "shared/buddies/notch.ts");
 const buddiesSwiftPath = resolve(
   root,
   "src-tauri/notch/Sources/NotchKit/Buddies.generated.swift",
@@ -85,7 +85,7 @@ const rustType = ([key, setting]) =>
 
 await emit(
   settingsRustPath,
-  `// ${banner("src/notch/settings.json")}
+  `// ${banner("src-tauri/notch/settings.json")}
 
 use serde::{Deserialize, Serialize};
 
@@ -132,7 +132,7 @@ const swiftValue = ([, setting]) =>
 
 await emit(
   settingsSwiftPath,
-  `// ${banner("src/notch/settings.json")}
+  `// ${banner("src-tauri/notch/settings.json")}
 
 import Foundation
 
@@ -176,7 +176,8 @@ ${helperReads
 
 const css = await readFile(cssSource, "utf8");
 const rootBlock = css.match(/^:root\s*\{([^}]*)\}/m)?.[1];
-if (!rootBlock) throw new Error("src/styles/base.css has no :root block");
+if (!rootBlock)
+  throw new Error("server/app/src/chat/styles/base.css has no :root block");
 const variables = Object.fromEntries(
   [...rootBlock.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map(
     ([, name, value]) => [name, value.trim()],
@@ -187,7 +188,9 @@ const hex = (channel) => Number(channel).toString(16).padStart(2, "0");
 function swiftColour(variable) {
   const value = variables[variable];
   if (!value)
-    throw new Error(`src/styles/base.css does not define ${variable}`);
+    throw new Error(
+      `server/app/src/chat/styles/base.css does not define ${variable}`,
+    );
   if (/^#[0-9a-f]{6}$/i.test(value))
     return `Color(hex: "${value.toLowerCase()}")`;
   const rgba = value.match(
@@ -201,7 +204,7 @@ function swiftColour(variable) {
 
 await emit(
   themeSwiftPath,
-  `// ${banner("src/styles/base.css")}
+  `// ${banner("server/app/src/chat/styles/base.css")}
 
 import SwiftUI
 
@@ -231,7 +234,7 @@ if (buddiesScript.includes('"""#'))
 
 await emit(
   buddiesSwiftPath,
-  `// ${banner("src/buddies")}
+  `// ${banner("shared/buddies")}
 
 /// Defines \`SikemuxBuddies.notchBuddy(buddies, agentId, state)\`, which returns an agent's buddy as an SVG document, or null when it shows its agent's mark.
 let buddiesScript = #"""

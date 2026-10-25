@@ -103,9 +103,11 @@ const server = await createServer({
 let roles;
 try {
   const { createCodeTheme } = await server.ssrLoadModule(
-    "/src/themes/codeTheme.ts",
+    "/server/app/src/chat/themes/codeTheme.ts",
   );
-  const { HIGHLIGHT_KEYS } = await server.ssrLoadModule("/src/themes/index.ts");
+  const { HIGHLIGHT_KEYS } = await server.ssrLoadModule(
+    "/server/app/src/chat/themes/index.ts",
+  );
   const keyed = Object.fromEntries(HIGHLIGHT_KEYS.map((key) => [key, key]));
   const theme = createCodeTheme(
     {

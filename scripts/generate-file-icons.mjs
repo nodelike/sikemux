@@ -11,7 +11,10 @@ const gpuiBundlePath = resolve(
   root,
   "src-tauri/crates/sikemux-gpui/assets/file-icons.json.gz",
 );
-const grammarsPath = resolve(root, "src/languages/generated/grammars.ts");
+const grammarsPath = resolve(
+  root,
+  "server/app/src/chat/languages/generated/grammars.ts",
+);
 const check = process.argv.includes("--check");
 
 const theme = JSON.parse(

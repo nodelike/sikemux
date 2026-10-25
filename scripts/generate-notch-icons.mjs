@@ -46,7 +46,13 @@ const BRAND_MARK = resolve(root, "brand/mark/mark-white.svg");
 /** The colour each mark takes where the app paints it with its brand colour. */
 const BRAND = Object.fromEntries(
   JSON.parse(
-    await readFile(resolve(root, "src/agents/catalog.json"), "utf8"),
+    await readFile(
+      resolve(
+        root,
+        "src-tauri/crates/sikemux-core/src/assets/agent-catalog.json",
+      ),
+      "utf8",
+    ),
   ).agents.map((agent) => [agent.type, agent.brand]),
 );
 
