@@ -138,6 +138,10 @@ class Run:
             self.drive(f"resize {width} {height}", "wait 1")
 
     def tear_down(self):
+        # The core deletes the chats' histories as it stops, and a failed check is read from them.
+        history = self.root / "data/chat-history"
+        if history.is_dir():
+            shutil.copytree(history, self.out / "chat-history", dirs_exist_ok=True)
         for process in [self.app, *self.processes]:
             if process and process.poll() is None:
                 process.terminate()
@@ -196,16 +200,16 @@ class Run:
     def log(self):
         return (self.root / "app.log").read_text(errors="replace")
 
-    def answers(self):
-        """What the fake agent said each tool answered, oldest first, by chat."""
+    def history(self):
+        """Every chat's history, one event a line, oldest first, by chat."""
         found = {}
         for path in sorted((self.root / "data/chat-history").glob("*.jsonl")):
+            lines = found.setdefault(path.name, [])
             for line in path.read_text(errors="replace").splitlines():
                 try:
-                    said = [text for text in strings(json.loads(line)) if text.startswith(("tool answered: ", "tool failed: "))]
+                    lines.append(json.loads(line))
                 except ValueError:
                     continue
-                found.setdefault(path.name, []).extend(said)
         return found
 
     def composer(self):
@@ -213,18 +217,27 @@ class Run:
         return width * 0.32, height - 120
 
     def prompt(self, text, seconds=20):
-        """Types `text` into the front chat's composer and sends it; answers the tool's reply."""
-        before = {chat: len(said) for chat, said in self.answers().items()}
+        """Types `text` into the front chat's composer and sends it; answers what the tool said to that prompt."""
+        def asked(line):
+            event = line.get("event") or {}
+            return event.get("kind") == "prompt" and (event.get("payload") or {}).get("text") == text
+
+        before = {chat: sum(map(asked, lines)) for chat, lines in self.history().items()}
         x, y = self.composer()
         self.drive(f"click {x:.0f} {y:.0f}", "wait 0.3", f"text {text}", "wait 0.2", "key enter")
 
-        def new():
-            for chat, said in self.answers().items():
-                if len(said) > before.get(chat, 0):
-                    return said[before.get(chat, 0)]
+        def reply():
+            for chat, lines in self.history().items():
+                ours = [at for at, line in enumerate(lines) if asked(line)]
+                if len(ours) <= before.get(chat, 0):
+                    continue
+                for line in lines[ours[before.get(chat, 0)] + 1:]:
+                    for said in strings(line):
+                        if said.startswith(("tool answered: ", "tool failed: ")):
+                            return said
             return None
 
-        return until(new, seconds) or ""
+        return until(reply, seconds) or ""
 
     def go(self, url):
         """Types `url` into the desk's address and presses Enter, which hands the page the keys."""

@@ -123,10 +123,11 @@ def dialog_from_tool(run):
     run.capture("L5-shown")
     said = run.prompt(desk.json_tool("browser.dialog", {"accept": True, "text": "linux"}))
     gone = desk.until(lambda: not [window for window in windows(run.app.pid) if window not in before], 10)
-    read = desk.answered(run.prompt(desk.json_tool("browser.evaluate", {"script": "window.answer"})))
+    told = run.prompt(desk.json_tool("browser.evaluate", {"script": "window.answer"}))
+    read = desk.answered(told)
     run.report("L5", bool(shown) and bool(gone) and read.get("result") == "linux",
                f"the person's dialog {shown or 'never showed'}, {'gone' if gone else 'still open'} after browser.dialog answered "
-               f"{said[:120]!r}; the page's prompt returned {read.get('result')!r}")
+               f"{said[:120]!r}; reading the page's prompt answered {told[:160]!r}")
 
 
 def recording_from_tool(run):
