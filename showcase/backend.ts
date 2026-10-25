@@ -41,8 +41,8 @@ import { AGENTS, demoSnapshot, demoWorkspace } from "./world/workspace";
 import { DEMO_BOARD, DEMO_MESSAGES } from "./world/board";
 import { DEMO_PALETTE, DEMO_THEMES, demoPalette } from "./world/theme";
 import type { Theme } from "../src/themes";
-import AGENT_CATALOG from "../src/test/agentCatalog.generated.json";
-import type { BoardCard } from "../src/agents/agentBoard";
+import AGENT_CATALOG from "@shared/agents/catalog.generated.json";
+import type { BoardCard } from "@shared/agents/agentBoard";
 
 type Args = Record<string, unknown>;
 type Handler = (args: Args) => unknown;

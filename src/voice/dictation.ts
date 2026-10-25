@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { getIpcTransport } from "../api/transport";
 import { voiceApi, type VoiceEvent, type VoiceStage } from "../api/voice";
-import type { NetworkChange } from "../api/generated/wire";
+import type { NetworkChange } from "@shared/wire.generated";
 import { NETWORK_CHANGED_EVENT } from "../shell/NetworkBridge";
 import { setVoiceDictation } from "../state/commands";
 import { useStore } from "../state/store";

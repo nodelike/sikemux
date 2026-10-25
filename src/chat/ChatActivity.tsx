@@ -3,7 +3,7 @@ import { useNow } from "../hooks/useNow";
 import { AgentMark } from "../agents/AgentMark";
 import type { Agent } from "../state/types";
 import { ChatAgentContext } from "./chatAgent";
-import { elapsedLabel } from "./durationLabel";
+import { elapsedLabel } from "@shared/chat/durationLabel";
 import { Shimmer } from "./Shimmer";
 
 /* Keeps its own clock so a ticking second redraws this row alone, not the

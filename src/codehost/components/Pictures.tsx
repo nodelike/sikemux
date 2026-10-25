@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Markdown } from "../../plugin-api/ui";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { useHost } from "../registry";
 
 type Picture = { url: string; data: string | null; failed: string | null };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { ViewerBar, ViewerMessage, type ViewProps } from "./ViewerBar";
 
 const SIZES = [12, 16, 24, 36, 56];

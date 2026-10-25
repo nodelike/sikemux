@@ -1,7 +1,7 @@
 import { fsapi } from "../api/fs";
 import { copyText } from "../lib/clipboard";
-import { basename, relativePath } from "../lib/paths";
-import { FILE_MANAGER_NAME } from "../lib/platform";
+import { basename, relativePath } from "@shared/lib/paths";
+import { FILE_MANAGER_NAME } from "@shared/lib/platform";
 import type { CtxItem } from "../rail/FileTree";
 import * as cmd from "../state/commands";
 import { promptDialog } from "../state/dialog";

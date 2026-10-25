@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { AgentShown, RemoteAgent, TeamLink } from "../api/generated/wire";
+import type { AgentShown, RemoteAgent, TeamLink } from "@shared/wire.generated";
 import type { RemoteWorker } from "./RemoteAgentRow";
 import { inCoreOrder } from "./useInbox";
 

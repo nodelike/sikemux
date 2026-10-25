@@ -1,23 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { agentLabel, isAgentType } from "../agents/catalog";
+import { agentLabel, isAgentType } from "@shared/agents/catalog";
 import { ChatAgentContext, ChatSubagentsContext, ReaderScrollContext, ToolDetailContext } from "../chat/chatAgent";
 import { warmTranscript } from "../chat/ChatMessageRow";
 import { ChatTranscript } from "../chat/ChatTranscript";
 import { EarlierTurns } from "../chat/EarlierTurns";
-import { activityText } from "../chat/chatStatus";
+import { activityText } from "@shared/chat/chatStatus";
 import { PathRootsProvider } from "../chat/FileRef";
 import LiveStack from "../chat/LiveStack";
-import { newFoldMemory } from "../chat/longText";
+import { newFoldMemory } from "@shared/chat/longText";
 import { RemoteOriginContext } from "../chat/origin";
-import { activeToolLabel } from "../chat/toolLabels";
-import { subagentCards } from "../chat/transcript";
+import { activeToolLabel } from "@shared/chat/toolLabels";
+import { subagentCards } from "@shared/chat/transcript";
 import { useMessageArrival } from "../chat/useMessageArrival";
 import { useStickToBottom } from "../chat/useStickToBottom";
 import { AgentIcon, IconArrowDown, IconEye, IconPlug } from "../ui/Icons";
-import { sharedChatTitle, type ShareSession, type ShareSnapshot } from "./session";
+import { sharedChatTitle, type ShareSession, type ShareSnapshot } from "@shared/share/session";
 import "../styles/chat.css";
 import "../styles/share.css";
-import { formatTimeLeft } from "../lib/format";
+import { formatTimeLeft } from "@shared/lib/format";
 import { useNow } from "../hooks/useNow";
 
 const PROBLEMS: Partial<Record<ShareSnapshot["status"], string>> = {

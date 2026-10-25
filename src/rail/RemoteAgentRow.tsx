@@ -1,7 +1,7 @@
 import { agentHandle } from "../agents/AgentLabel";
 import { AgentMark } from "../agents/AgentMark";
 import { AgentStateIndicator, showsAgentState } from "../agents/AgentStateIndicator";
-import { isAgentType } from "../agents/catalog";
+import { isAgentType } from "@shared/agents/catalog";
 import type { RemoteAgent } from "../api/inbox";
 import { IconAgent } from "../ui/Icons";
 import type { TeamLink, TeamMember } from "./teams";

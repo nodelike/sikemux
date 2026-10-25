@@ -11,19 +11,19 @@ import { applyHydrate, flushPersist, hydrationAllowsPersistence, resetPersistenc
 import * as cmd from "./commands";
 import { flushBrunoDrafts, setBrunoDraft, setBrunoSecret } from "../plugins/bruno/runtime";
 import { brunoSettings } from "../plugins/bruno/state";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 import { BRUNO_CLIENT } from "../plugins/bruno/kinds";
 import { getState, setState } from "./store";
 import { activeAgentId, agentIdsOf, agentWindowId } from "./selectors";
 import { collectPanes } from "./layout";
 import { deskEditorId } from "./desks";
 import { withAgents } from "../test/agents";
-import type { Workspace } from "../api/generated/wire";
+import type { Workspace } from "@shared/wire.generated";
 import { localWorkspace } from "./coreWorkspace";
 import type { Agent } from "./types";
 import { useToasts } from "./toast";
 import { testPreferences } from "../test/preferences";
-import type { Preferences } from "../api/generated/wire";
+import type { Preferences } from "@shared/wire.generated";
 
 function browserTab(id: string, url: string, title: string) {
     return { id, title, url, active: false, loading: false, canGoBack: false, canGoForward: false, favicon: null, acting: false };

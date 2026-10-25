@@ -5,7 +5,7 @@ import { setState } from "../state/store";
 import type { Agent, AgentWorktree } from "../state/types";
 import type { AcpAttachment } from "../api/acp";
 import { AgentChatPane } from "./AgentChatPane";
-import type { ChatView } from "./types";
+import type { ChatView } from "@shared/chat/types";
 import type { PreparedWorktree } from "./useChatWorktree";
 import { draftOf, typeDraft } from "../test/draft";
 import { testPreferences } from "../test/preferences";

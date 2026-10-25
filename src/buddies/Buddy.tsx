@@ -2,9 +2,9 @@ import { memo, useMemo, useState, type CSSProperties } from "react";
 import { useStore } from "../state/store";
 import { AgentIcon } from "../ui/Icons";
 import type { Agent } from "../state/types";
-import { buddyStateOfGroup, type BuddyPack, type BuddyShape, type BuddyState } from "./catalogue";
-import { drawnFace } from "./faces";
-import { bodyMotion, buddyBox, buddyMarkup } from "./render";
+import { buddyStateOfGroup, type BuddyPack, type BuddyShape, type BuddyState } from "@shared/buddies/catalogue";
+import { drawnFace } from "@shared/buddies/faces";
+import { bodyMotion, buddyBox, buddyMarkup } from "@shared/buddies/render";
 import "./buddies.css";
 
 let nextUid = 0;

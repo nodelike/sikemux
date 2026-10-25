@@ -4,8 +4,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { agentLabel } from '@mac/agents/catalog';
-import { formatAge } from '@mac/lib/format';
+import { agentLabel } from '@shared/agents/catalog';
+import { formatAge } from '@shared/lib/format';
 import type { ChatInfo, ProjectInfo, RecentInfo, SessionInfo, Snapshot } from '@/core/protocol';
 import type { AgentShown } from '@/core/wire.generated';
 import { problem as problemOf } from '@/core/problem';

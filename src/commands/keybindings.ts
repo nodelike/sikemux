@@ -1,4 +1,4 @@
-import { IS_MACOS } from "../lib/platform";
+import { IS_MACOS } from "@shared/lib/platform";
 import { enabledFrontendPlugins } from "../plugins/enabled";
 import { getState } from "../state/store";
 import { frontendPlugin, frontendPlugins, type FrontendPlugin, type PluginShortcut } from "../plugins/registry";

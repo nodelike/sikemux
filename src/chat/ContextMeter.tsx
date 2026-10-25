@@ -1,7 +1,7 @@
 import { Tooltip } from "../ui/Tooltip";
 import type { AgentType } from "../state/types";
-import { contextShare, contextTone, money, tokenCount } from "./contextUsage";
-import type { ContextUsage } from "./types";
+import { contextShare, contextTone, money, tokenCount } from "@shared/chat/contextUsage";
+import type { ContextUsage } from "@shared/chat/types";
 
 export function ContextMeter({ usage, agent }: { usage: ContextUsage | null; agent: AgentType }) {
     if (!usage) return null;

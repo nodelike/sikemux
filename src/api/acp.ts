@@ -1,9 +1,10 @@
 import { coreCall, coreRequest, onHost, type CoreRequest } from "./core";
 import { getState } from "../state/store";
-import type { ChatChange, ChatInfo, ChatPage, ChatView, ToolDetail } from "./generated/wire";
+import type { ChatChange, ChatInfo, ChatPage, ChatView, ToolDetail } from "@shared/wire.generated";
 import { invokeCommand as invoke } from "./invoke";
 import { getIpcTransport, type IpcUnsubscribe } from "./transport";
 import type { AgentPermissionMode, AgentType } from "../state/types";
+import type { PromptContext } from "@shared/chat/promptContext";
 
 /** One of the person's accounts with the chat's provider: a profile, by its directory. */
 export interface AcpAccount {
@@ -30,12 +31,6 @@ export type AcpAttachment =
     | { status: "missing" };
 
 /** Something read elsewhere and handed to the agent whole, such as an issue and its comments. */
-export interface PromptContext {
-    uri: string;
-    title: string;
-    text: string;
-}
-
 export type AcpEvent =
     /** What changed in the chat, numbered by `seq`. */
     | { agentId: string; kind: "changes"; seq: number; payload: ChatChange[] }

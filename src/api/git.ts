@@ -14,7 +14,7 @@ import type {
     GitStash,
     GitStatus,
     GitWorktree,
-} from "./generated/wire";
+} from "@shared/wire.generated";
 
 export type {
     BlameCommit,

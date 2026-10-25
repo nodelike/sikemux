@@ -1,4 +1,4 @@
-import type { PromptContext } from "../api/acp";
+import type { PromptContext } from "./promptContext";
 import { basename } from "../lib/paths";
 import type { QueuedMessage } from "./types";
 

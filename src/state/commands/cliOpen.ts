@@ -1,4 +1,4 @@
-import { isPathWithin } from "../../lib/paths";
+import { isPathWithin } from "@shared/lib/paths";
 import { getState, mutate } from "../store";
 import { collectPanes } from "../layout";
 import { projectSessionId } from "../selectors";

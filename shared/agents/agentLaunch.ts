@@ -1,5 +1,7 @@
-import type { AgentPermissionMode, AgentType } from "../state/types";
-import { canBypassPermissions, isAgentType, resumesByPath } from "./catalog";
+import { canBypassPermissions, isAgentType, resumesByPath, type AgentType } from "./catalog";
+
+/** Whether an agent asks before it acts (the provider's own approvals and sandbox) or acts without asking. */
+export type AgentPermissionMode = "workspace-write" | "bypass";
 
 export const MAX_AGENT_MODEL_LENGTH = 256;
 

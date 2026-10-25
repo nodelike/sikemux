@@ -1,6 +1,6 @@
 import { IconFile, IconIssue, IconPullRequest } from "../ui/Icons";
-import { contextChip } from "./promptContext";
-import type { SentContext } from "./types";
+import { contextChip } from "@shared/chat/promptContext";
+import type { SentContext } from "@shared/chat/types";
 
 export function ContextMark({ kind, size }: { kind: "issue" | "pull" | null; size: number }) {
     if (kind === "issue") return <IconIssue size={size} />;

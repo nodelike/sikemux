@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fsapi } from "../api/fs";
 import { previewUrl } from "../editor/viewers/fileKinds";
-import { isImagePath } from "../lib/imagePaths";
+import { isImagePath } from "@shared/lib/imagePaths";
 import { useRemoteOrigin, type RemoteOrigin } from "./origin";
 
 const MAX_CACHED = 12;

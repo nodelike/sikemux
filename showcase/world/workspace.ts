@@ -1,4 +1,4 @@
-import type { Workspace } from "../../src/api/generated/wire";
+import type { Workspace } from "@shared/wire.generated";
 import type { Agent, LayoutNode, Session, Window } from "../../src/state/types";
 import { VERSION, type PersistedSnapshot } from "../../src/state/persist";
 import {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { checkWords, modelProvidersApi, modelWords, type ModelHelper, type ModelProvider, type ModelProviderKind } from "../api/modelProviders";
-import { agentLabel, chatAgentTypes } from "../agents/catalog";
+import { agentLabel, chatAgentTypes } from "@shared/agents/catalog";
 import { reportError } from "../state/toast";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";

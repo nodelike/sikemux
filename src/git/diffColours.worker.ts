@@ -2,8 +2,8 @@ import { createHighlighterCore, type GrammarState, type HighlighterCore, type La
 import { createOnigurumaEngine } from "shiki/dist/engine-oniguruma.mjs";
 import onigWasm from "shiki/dist/onig.wasm?url";
 import { codeLines } from "../chat/codeLines";
-import type { CodeLine } from "../chat/types";
-import { errorText } from "../lib/format";
+import type { CodeLine } from "@shared/chat/types";
+import { errorText } from "@shared/lib/format";
 
 export type ColourRequest =
     | { type: "grammar"; lang: string; grammars: LanguageRegistration[] }

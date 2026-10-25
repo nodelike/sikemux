@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { browserApi, type BrowserDownload } from "../api/browser";
 import { fsapi } from "../api/fs";
-import { basename, joinPath } from "../lib/paths";
+import { basename, joinPath } from "@shared/lib/paths";
 import { notify, reportError, swallow, type ToastKind, type ToastOptions } from "./toast";
 
 function downloadToast(download: BrowserDownload): { kind: ToastKind; text: string; options?: ToastOptions } {

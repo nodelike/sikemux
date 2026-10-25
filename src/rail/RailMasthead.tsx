@@ -4,7 +4,7 @@ import { swallow } from "../state/toast";
 import { Logo } from "../ui/Icons";
 import { RailToggle } from "./RailToggle";
 import { Tooltip } from "../ui/Tooltip";
-import { splitVersion } from "../lib/format";
+import { splitVersion } from "@shared/lib/format";
 
 function useAppVersion(): string | null {
     const [version, setVersion] = useState<string | null>(null);

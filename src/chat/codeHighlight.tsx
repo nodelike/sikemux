@@ -3,8 +3,8 @@ import { currentTheme, subscribeTheme } from "../themes/bus";
 import { codeThemeName } from "../themes/codeTheme";
 import { swallow } from "../state/toast";
 import { grammarFor } from "../languages";
-import type { CodeLine, CodeToken } from "./types";
-import type { DiffLine } from "./types";
+import type { CodeLine, CodeToken } from "@shared/chat/types";
+import type { DiffLine } from "@shared/chat/types";
 
 /** The grammar a fence asks for, whether it names a language or a file. */
 export function fenceLanguage(info: string | undefined): string | null {

@@ -2,7 +2,7 @@ import { useMemo, useRef, type ReactNode } from "react";
 import { DiffEditor } from "./DiffEditor";
 import { FileReviewList } from "./FileReviewList";
 import { hasUnstaged, isStaged, type ChangeOwners, type GitFile } from "../api/git";
-import { joinPath } from "../lib/paths";
+import { joinPath } from "@shared/lib/paths";
 import { gitFileBadges, gitStatusBadge, type GitStatusBadge } from "./gitFileStatus";
 import { ownedFile, type OwnedFile } from "./changeOwners";
 

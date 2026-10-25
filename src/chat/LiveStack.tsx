@@ -1,12 +1,20 @@
 import { useContext, type ReactNode } from "react";
-import { PRIMARY_SHORTCUT } from "../lib/platform";
+import { PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import { AgentIcon, IconCheck, IconChevron, IconClock, IconClose, IconCommand, IconTimer, IconWorkflow } from "../ui/Icons";
 import { ChatAgentContext } from "./chatAgent";
-import { queuedLabel } from "./queuedMessages";
-import type { QueuedMessage } from "./types";
+import { queuedLabel } from "@shared/chat/queuedMessages";
+import type { QueuedMessage } from "@shared/chat/types";
 import { Shimmer } from "./Shimmer";
-import { groupTasks, subagentActivity, subagentCost, taskDetail, workflowAgentCost, workflowAgentCount, workflowAgentDetail } from "./transcript";
-import type { AsyncTask, SubagentCard, WorkflowAgent } from "./types";
+import {
+    groupTasks,
+    subagentActivity,
+    subagentCost,
+    taskDetail,
+    workflowAgentCost,
+    workflowAgentCount,
+    workflowAgentDetail,
+} from "@shared/chat/transcript";
+import type { AsyncTask, SubagentCard, WorkflowAgent } from "@shared/chat/types";
 
 export type GroupFolds = {
     folded: ReadonlySet<string>;

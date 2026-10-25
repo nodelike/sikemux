@@ -7,7 +7,7 @@ import {
     type BoardCard,
     type BoardColumn,
     type CardStatus,
-} from "../agents/agentBoard";
+} from "@shared/agents/agentBoard";
 import { agentBoardApi } from "../api/agentBoard";
 import * as cmd from "../state/commands";
 import { reportError } from "../state/toast";

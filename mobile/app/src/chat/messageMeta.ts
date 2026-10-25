@@ -1,5 +1,5 @@
-import { copyText } from '@mac/chat/messageMeta';
-import type { ChatMessage } from '@mac/chat/types';
+import { copyText } from '@shared/chat/messageMeta';
+import type { ChatMessage } from '@shared/chat/types';
 
 /** What a strip under a message shows: when it was sent or its turn finished, how long that took, how fast it was written, and what Copy gives. */
 export type Strip = NonNullable<ChatMessage['meta']> & { text: string };

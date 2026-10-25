@@ -3,9 +3,9 @@ import { fsapi } from "../api/fs";
 import * as cmd from "../state/commands";
 import { swallow } from "../state/toast";
 import type { Agent } from "../state/types";
-import type { ChatMessage, SubagentCard, ToolDetail } from "./types";
-import { safeWebUrl } from "../lib/urls";
-import { localPath } from "../lib/imagePaths";
+import type { ChatMessage, SubagentCard, ToolDetail } from "@shared/chat/types";
+import { safeWebUrl } from "@shared/lib/urls";
+import { localPath } from "@shared/lib/imagePaths";
 import { openUrl } from "../api/system";
 
 export const ChatAgentContext = createContext<{ id: string; type: Agent["type"] }>({ id: "", type: "claude" });

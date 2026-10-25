@@ -1,10 +1,15 @@
-import type { PromptContext } from "../api/acp";
+import type { SentContext } from "./types";
+
 /** Where an `@` mention of another agent points; the message's own text already shows the mention. */
 export const MENTION_URI = "sikemux://agent/";
 
 export const isMention = (uri: string): boolean => uri.startsWith(MENTION_URI);
 
-import type { SentContext } from "./types";
+export interface PromptContext {
+    uri: string;
+    title: string;
+    text: string;
+}
 
 export interface ContextChip {
     kind: "issue" | "pull" | null;

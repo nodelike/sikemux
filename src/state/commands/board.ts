@@ -1,4 +1,4 @@
-import type { ProjectBoard } from "../../agents/agentBoard";
+import type { ProjectBoard } from "@shared/agents/agentBoard";
 import type { Draft } from "immer";
 import { mutate, type StoreState } from "../store";
 import { ensureRoleWindow } from "./shared";

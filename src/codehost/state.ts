@@ -1,12 +1,12 @@
 import { definePaneViews } from "../plugin-api/paneViews";
 import { definePluginSettings, type PluginSettings } from "../plugin-api/settings";
 import { coreCall } from "../api/core";
-import type { CodeHostChoice } from "../api/generated/wire";
+import type { CodeHostChoice } from "@shared/wire.generated";
 import { setGitView } from "../state/commands";
 import { getState, setState } from "../state/store";
 import { swallow } from "../state/toast";
 import type { RepoRef } from "./types";
-import { isRecord } from "../lib/guards";
+import { isRecord } from "@shared/lib/guards";
 
 export const STATUS_FILTERS = ["all", "in_progress", "queued", "success", "failure", "cancelled"] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];

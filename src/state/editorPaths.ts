@@ -1,5 +1,5 @@
 import { filesOn, type FilesHost } from "../api/fs";
-import { isPathWithin, joinPath, relativePath } from "../lib/paths";
+import { isPathWithin, joinPath, relativePath } from "@shared/lib/paths";
 import { emit } from "./bus";
 import { mutate } from "./store";
 

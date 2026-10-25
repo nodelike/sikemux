@@ -1,7 +1,7 @@
 import { type ComponentType, memo, useContext, useEffect, useRef, useState } from "react";
 import { frontendPlugin } from "../plugins/registry";
 import { CopyButton } from "../ui/CopyButton";
-import { hasPrimaryModifier } from "../lib/platform";
+import { hasPrimaryModifier } from "@shared/lib/platform";
 import {
     IconActivity,
     IconAgent,
@@ -70,10 +70,10 @@ import { DiffBody } from "./DiffView";
 import { LiveSeconds } from "./LiveSeconds";
 import { Shimmer } from "./Shimmer";
 import { useCutOff } from "./useCutOff";
-import { toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from "./toolLabels";
-import { toolElapsed, toolIconName, toolRowKind, type ToolIconName } from "./toolView";
-import { attachmentName } from "./transcript";
-import type { ChatPart, ToolCall, ToolDetail, ToolOutput } from "./types";
+import { toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from "@shared/chat/toolLabels";
+import { toolElapsed, toolIconName, toolRowKind, type ToolIconName } from "@shared/chat/toolView";
+import { attachmentName } from "@shared/chat/transcript";
+import type { ChatPart, ToolCall, ToolDetail, ToolOutput } from "@shared/chat/types";
 
 const TOOL_ICONS: Record<ToolIconName, ComponentType<{ size?: number }>> = {
     activity: IconActivity,

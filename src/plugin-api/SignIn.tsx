@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { SignInCancelled, type BrowserSignIn } from "./backend";
 import { ScreenField } from "../ui/ShaderField";
 import "./signin.css";

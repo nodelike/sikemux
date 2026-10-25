@@ -124,7 +124,10 @@ function macAssets(): Plugin {
 export default defineConfig({
   plugins: [react(), macStandIns(), macAssets()],
   resolve: {
-    alias: [{ find: /^@mac\//, replacement: MAC }],
+    alias: [
+      { find: /^@mac\//, replacement: MAC },
+      { find: /^@shared\//, replacement: `${join(repo, "shared")}/` },
+    ],
     dedupe: ["react", "react-dom"],
   },
   server: { port: 5173, strictPort: true, fs: { allow: [repo] } },

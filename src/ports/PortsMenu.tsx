@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { ENTER_GLYPH } from "../commands/keybindings";
-import { hasPrimaryModifier, PRIMARY_SHORTCUT } from "../lib/platform";
+import { hasPrimaryModifier, PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import { AgentMark } from "../agents/AgentMark";
 import { useStore } from "../state/store";
 import { IconAgent, IconCopy, IconExternal, IconGlobe, IconRun, IconTerminal, IconWindow } from "../ui/Icons";

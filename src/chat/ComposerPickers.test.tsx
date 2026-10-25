@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerPickers } from "./ComposerPickers";
-import type { ConfigChoice } from "../api/generated/wire";
+import type { ConfigChoice } from "@shared/wire.generated";
 import { getState, setState } from "../state/store";
 
 const mocks = vi.hoisted(() => ({ onAgent: vi.fn() }));

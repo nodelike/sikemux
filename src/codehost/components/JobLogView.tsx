@@ -15,10 +15,10 @@ import {
 } from "../../plugin-api/ui";
 import { CARD_HEADER_HEIGHT, CardStream, type CardStreamHandle } from "../../ui/CardStream";
 import { type Job, type JobLogLine, type LogColor, type LogSpan, type RepoRef, type Step } from "../api";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { jobLogViewR } from "../lists";
 import { elapsedMs, outcomeOf } from "../runStatus";
-import { formatDuration } from "../../lib/format";
+import { formatDuration } from "@shared/lib/format";
 import { StatusMark } from "./ActionsIcon";
 import { ansiCss } from "../../lib/ansi";
 import { CodeRun, fenceLanguage, useCodeTokens } from "../../chat/codeHighlight";

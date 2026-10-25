@@ -1,5 +1,5 @@
-import type { AgentQuestion } from "../api/agentQuestions";
-import type { BoardCard, BoardColumn, BoardSettings, CardStatus, CardTicket, ProjectBoard, RunStage } from "../api/generated/wire";
+import type { AgentQuestion } from "../wire.generated";
+import type { BoardCard, BoardColumn, BoardSettings, CardStatus, CardTicket, ProjectBoard, RunStage } from "../wire.generated";
 
 export type {
     BoardCard,
@@ -11,7 +11,7 @@ export type {
     ProjectBoard,
     ReviewerChoice,
     RunStage,
-} from "../api/generated/wire";
+} from "../wire.generated";
 
 export type SettingsChanges = Partial<BoardSettings>;
 

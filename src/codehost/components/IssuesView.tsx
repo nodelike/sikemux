@@ -7,7 +7,7 @@ import { SwipePages } from "../../ui/SwipePages";
 import { SectionIcon } from "./ActionsIcon";
 import { GitColumns } from "../../git/GitColumns";
 import { hostApi, type Issue, type RepoRef } from "../api";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { issueR, timelineR } from "../resources";
 import { issueListR } from "../lists";
 import { compose, setListState, showItem, updateView } from "../state";
@@ -19,7 +19,7 @@ import { useNow } from "../../plugin-api/hooks";
 import { NewIssueForm } from "./NewIssueForm";
 import { IconAgent } from "../../ui/Icons";
 import { workOnIssue } from "../workOnIssue";
-import { formatAgo } from "../../lib/format";
+import { formatAgo } from "@shared/lib/format";
 
 const LIST_STATES = ["open", "closed", "all"];
 

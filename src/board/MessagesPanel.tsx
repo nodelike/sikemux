@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { kindLabel, outcomeLabel, rowKeys, whoLabel, type AgentMessageRows, type MessageRow } from "../agents/agentMessages";
+import { kindLabel, outcomeLabel, rowKeys, whoLabel, type AgentMessageRows, type MessageRow } from "@shared/agents/agentMessages";
 import { AgentMark } from "../agents/AgentMark";
 import { inboxApi } from "../api/inbox";
-import { formatAge } from "../lib/format";
+import { formatAge } from "@shared/lib/format";
 import { useInbox } from "../rail/useInbox";
 import { reportError } from "../state/toast";
 import { IconClose } from "../ui/Icons";

@@ -5,16 +5,14 @@ name: Mobile CI
 # else does.
 on:
   push:
-    branches: [main]
+    branches: [main, remove-tauri-ui]
     paths:
       - "mobile/**"
       - "src-tauri/crates/sikemux-mobile/**"
       - "src-tauri/crates/sikemux-core/**"
       - "src-tauri/Cargo.lock"
       - "server/protocol/**"
-      - "src/agents/**"
-      - "src/chat/**"
-      - "src/lib/**"
+      - "shared/**"
       - "src/terminal/interactions.ts"
       - "src/ui/Icons.tsx"
       - "src/assets/agent-logos/**"
@@ -28,9 +26,7 @@ on:
       - "src-tauri/crates/sikemux-core/**"
       - "src-tauri/Cargo.lock"
       - "server/protocol/**"
-      - "src/agents/**"
-      - "src/chat/**"
-      - "src/lib/**"
+      - "shared/**"
       - "src/terminal/interactions.ts"
       - "src/ui/Icons.tsx"
       - "src/assets/agent-logos/**"

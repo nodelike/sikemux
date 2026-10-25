@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AgentIcon, IconChevron, IconUser } from "../ui/Icons";
-import { agentLabel, hasAccounts, type AgentType } from "../agents/catalog";
+import { agentLabel, hasAccounts, type AgentType } from "@shared/agents/catalog";
 import { modelProvidersApi, modelWords, type ModelProvider, type ServedModels } from "../api/modelProviders";
 import { accountName, accountsOf, moveChat } from "../agents/accounts";
 import type { AgentUsage } from "../api/agents";
@@ -14,8 +14,8 @@ import { defaultProviderProfileSelection, type Agent, type ProviderProfile } fro
 import { selectedProviderProfile } from "../agents/agentProfiles";
 import * as cmd from "../state/commands";
 import PickerMenu, { type AgentChoicesProps, type Choice } from "./PickerMenu";
-import type { ConfigPicker } from "../api/generated/wire";
-import { currentLabel } from "./sessionConfig";
+import type { ConfigPicker } from "@shared/wire.generated";
+import { currentLabel } from "@shared/chat/sessionConfig";
 
 export function Picker({
     name,

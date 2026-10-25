@@ -3,7 +3,7 @@ import { AgentMark } from "../agents/AgentMark";
 import type { AgentType } from "../state/types";
 import { IconChevron } from "../ui/Icons";
 import { ChatAgentContext } from "./chatAgent";
-import { callsLabel, workedLabel } from "./toolView";
+import { callsLabel, workedLabel } from "@shared/chat/toolView";
 
 export function WorkSummary({
     agent,

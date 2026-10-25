@@ -3,7 +3,7 @@ import { languageFromPath, loadServedLanguages, lsp, onLostDocument, type LspTex
 import { documentLanguageOf } from "../languages";
 import { languageServersAllowed } from "../editor/languageServerTrust";
 import { dismissToast, notify, swallow } from "../state/toast";
-import { errorCategory, errorText } from "../lib/format";
+import { errorCategory, errorText } from "@shared/lib/format";
 import { acquireProjectProblems, noteServerStarted, type ProjectProblems } from "../editor/projectProblems";
 
 const CHANGE_DEBOUNCE_MS = 120;

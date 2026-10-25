@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import type { CliFrontendRequest, CliOpenResult } from "../state/types";
 
 async function acknowledge(result: CliOpenResult): Promise<void> {

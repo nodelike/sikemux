@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import { IconMic } from "../ui/Icons";
-import { IS_MACOS } from "../lib/platform";
+import { IS_MACOS } from "@shared/lib/platform";
 import { toggleDictation, useVoice } from "../voice/dictation";
 
 export function DictateButton({ into }: { into: RefObject<HTMLElement | null> }) {

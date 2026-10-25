@@ -1,7 +1,7 @@
 import { useResourceEnabled } from "../../plugin-api/resources";
 import { SkeletonRows, VirtualLogList } from "../../plugin-api/ui";
 import { type RepoRef } from "../api";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { workflowFileR } from "../resources";
 
 interface Props {

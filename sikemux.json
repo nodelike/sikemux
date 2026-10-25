@@ -12,7 +12,7 @@
   "generate": {
     "command": "pnpm -s wire:generate && pnpm -s ipc:generate",
     "outputs": [
-      "src/api/generated/wire.ts",
+      "shared/wire.generated.ts",
       "mobile/app/src/core/wire.generated.ts",
       "src-tauri/notch/Sources/NotchKit/Wire.generated.swift",
       "src-tauri/src/generated_command_names.rs",

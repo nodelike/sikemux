@@ -1,4 +1,4 @@
-import { joinPath, relativePath } from "../lib/paths";
+import { joinPath, relativePath } from "@shared/lib/paths";
 import type { AgentWorktree } from "../state/types";
 
 /** The checkout an agent's folder lies in, back in the main repository. */

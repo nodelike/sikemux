@@ -6,7 +6,7 @@ import { GitColumns } from "../../git/GitColumns";
 import { GitGraph } from "../../git/GitGraph";
 import { gitStatusDecoration } from "../../git/gitFileStatus";
 import { FileIcon } from "../../ui/FileIcon";
-import { basename, dirname } from "../../lib/paths";
+import { basename, dirname } from "@shared/lib/paths";
 import { notify, reportError } from "../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
 import { Checkbox, Dropdown, EmptyState, IconClose, IconGit, IconPush, PRIMARY_SHORTCUT, SkeletonRows, Tooltip } from "../../plugin-api/ui";

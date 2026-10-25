@@ -1,13 +1,13 @@
 import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
-import { fencedDiff } from '@mac/chat/diff';
-import { namesWholePath } from '@mac/chat/filePath';
-import { decodedFenceName } from '@mac/chat/transcript';
-import { safeWebUrl } from '@mac/lib/urls';
-import { tableSource } from '@mac/markdown/tableSource';
-import type { MdElement, MdNode } from '@mac/markdown/types';
-import { visibleText } from '@mac/markdown/visible';
+import { fencedDiff } from '@shared/chat/diff';
+import { namesWholePath } from '@shared/chat/filePath';
+import { decodedFenceName } from '@shared/chat/transcript';
+import { safeWebUrl } from '@shared/lib/urls';
+import { tableSource } from '@shared/markdown/tableSource';
+import type { MdElement, MdNode } from '@shared/markdown/types';
+import { visibleText } from '@shared/markdown/visible';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
 import { openLink } from '@/ui/prompt';

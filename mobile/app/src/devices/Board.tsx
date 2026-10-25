@@ -11,9 +11,9 @@ import {
   type BoardCard,
   type BoardColumn,
   type ProjectBoard,
-} from '@mac/agents/agentBoard';
-import { kindLabel, outcomeLabel, rowKeys, whoLabel, type AgentMessageRows } from '@mac/agents/agentMessages';
-import { formatAge } from '@mac/lib/format';
+} from '@shared/agents/agentBoard';
+import { kindLabel, outcomeLabel, rowKeys, whoLabel, type AgentMessageRows } from '@shared/agents/agentMessages';
+import { formatAge } from '@shared/lib/format';
 import type { AgentQuestion, ProjectInfo, Snapshot } from '@/core/protocol';
 import { useHostCall } from '@/core/hostCalls';
 import { projectAt, projectName } from '@/devices/words';

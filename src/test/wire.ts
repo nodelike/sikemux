@@ -1,4 +1,4 @@
-import type { ChatInfo, SessionInfo } from "../api/generated/wire";
+import type { ChatInfo, SessionInfo } from "@shared/wire.generated";
 
 export function sessionInfo(fields: Partial<SessionInfo> & Pick<SessionInfo, "id">): SessionInfo {
     return {

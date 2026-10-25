@@ -1,6 +1,6 @@
-import type { Theme } from "../api/generated/wire";
+import type { Theme } from "@shared/wire.generated";
 
-export type { Palette, Theme, ThemeChrome, ThemeEditor, ThemeHighlight, ThemeSummary, ThemeTerminal, UiTokens } from "../api/generated/wire";
+export type { Palette, Theme, ThemeChrome, ThemeEditor, ThemeHighlight, ThemeSummary, ThemeTerminal, UiTokens } from "@shared/wire.generated";
 
 /** The theme a person has until they pick another, as the core falls back to it. */
 export const DEFAULT_THEME_ID = "aura-noir";

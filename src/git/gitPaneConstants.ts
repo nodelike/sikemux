@@ -1,8 +1,8 @@
 import type { GitCheatsheetSection } from "../state/gitTypes";
-import { PRIMARY_SHORTCUT } from "../lib/platform";
+import { PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import type { GitPanel } from "../state/types";
 import { helpRows } from "./gitPaneLogic";
-import type { AgentType } from "../agents/catalog";
+import type { AgentType } from "@shared/agents/catalog";
 
 export const DEFAULT_AI_PROVIDER: AgentType = "hermes";
 

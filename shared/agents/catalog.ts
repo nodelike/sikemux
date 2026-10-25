@@ -1,4 +1,4 @@
-import type { CatalogAgent, ChatDriver } from "../api/generated/wire";
+import type { CatalogAgent, ChatDriver } from "../wire.generated";
 import { externalValue, useExternalValue } from "../lib/externalValue";
 
 export type { CatalogAgent };

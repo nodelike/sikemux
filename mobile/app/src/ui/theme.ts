@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { AgentType } from '@mac/agents/catalog';
+import type { AgentType } from '@shared/agents/catalog';
 import type { UiTokens } from '../core/wire.generated';
 import { Platform, type TextStyle } from 'react-native';
 

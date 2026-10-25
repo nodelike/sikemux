@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AcpAttachment, AcpEvent } from "../api/acp";
-import type { ChatChange, ChatMessage, ChatPart, ChatView } from "./types";
+import type { ChatChange, ChatMessage, ChatPart, ChatView } from "@shared/chat/types";
 import { moveChat } from "../agents/accounts";
 import { resetResourcesForTests } from "../state/resources";
 import type { Agent, ProviderProfile } from "../state/types";

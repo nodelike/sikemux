@@ -3,7 +3,7 @@ import type { Grammar, HighlighterCore } from "shiki/core";
 import { createCodeTheme } from "../themes/codeTheme";
 import type { Theme } from "../themes";
 import { codeLines } from "./codeLines";
-import type { CodeLine } from "./types";
+import type { CodeLine } from "@shared/chat/types";
 
 /* The half of the chat highlighter that carries Shiki with it. Nothing reaches
    it until a fence with a grammar we have is on screen, so a session that never

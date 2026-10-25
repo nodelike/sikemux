@@ -1,7 +1,7 @@
 import { emit } from "./bus";
 import type { GitCheatsheetSection, GitMenuItem, GitPromptSuggestion } from "./gitTypes";
 import { reportError } from "./toast";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { getState, setState } from "./store";
 
 function currentPaneId(): string | null {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
-import { errorCategory, errorText } from "../lib/format";
+import { errorCategory, errorText } from "@shared/lib/format";
 
 export interface ResourceDef<Args extends unknown[], T> {
     kind: string;

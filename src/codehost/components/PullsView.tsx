@@ -28,7 +28,7 @@ import { GitGraph } from "../../git/GitGraph";
 import { hostFileStatus } from "../../git/gitFileStatus";
 import { FileIcon } from "../../ui/FileIcon";
 import { SwipePages } from "../../ui/SwipePages";
-import { basename, dirname } from "../../lib/paths";
+import { basename, dirname } from "@shared/lib/paths";
 import { requestOpenFile } from "../../state/commands";
 import {
     hostApi,
@@ -41,7 +41,7 @@ import {
     type RepoRef,
     type ReviewVerdict,
 } from "../api";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { pullCommitsR, timelineR } from "../resources";
 import { checkoutPull, pullFilesR, pullListR, pullViewR } from "../lists";
 import { tallySummary, type Outcome } from "../runStatus";
@@ -57,7 +57,7 @@ import { useCiWatch } from "../ciWatch";
 import { NewPullForm } from "./NewPullForm";
 import { PullFiles } from "./PullFiles";
 import { PullChecks } from "./PullChecks";
-import { formatAgo } from "../../lib/format";
+import { formatAgo } from "@shared/lib/format";
 
 const LIST_STATES = ["open", "closed", "all"];
 

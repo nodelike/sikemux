@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { CoreEvent, MobileError, type ConnectionLike, type CoreListener } from '@sikemux/native';
 
 import { problem } from '@/core/problem';
-import { setAgentCatalog, type CatalogAgent } from '@mac/agents/catalog';
+import { setAgentCatalog, type CatalogAgent } from '@shared/agents/catalog';
 import { keepUnchanged, readHost, readView, type HostInfo, type Snapshot } from '@/core/protocol';
 import { goOffline, thisDevice } from '@/device/identity';
 import { onNetworkChange } from '@/network/connectivity';

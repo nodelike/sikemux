@@ -1,8 +1,8 @@
 import { invokeCommand as invoke } from "../api/invoke";
 import { openUrl } from "../api/system";
 import { copyText, readClipboardText } from "../lib/clipboard";
-import { IS_MACOS } from "../lib/platform";
-import { safeWebUrl } from "../lib/urls";
+import { IS_MACOS } from "@shared/lib/platform";
+import { safeWebUrl } from "@shared/lib/urls";
 import { performanceTelemetry } from "../lib/performance";
 import { TerminalCanvas, type Decorations, type Font, type TerminalTheme } from "./canvas";
 import {

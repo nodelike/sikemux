@@ -1,7 +1,7 @@
-import type { AgentFace } from "../api/generated/wire";
-import { packById } from "./catalogue";
-import { buddyMarkup } from "./render";
-import type { BuddyState } from "./shared";
+import type { AgentFace } from "@shared/wire.generated";
+import { packById } from "@shared/buddies/catalogue";
+import { buddyMarkup } from "@shared/buddies/render";
+import type { BuddyState } from "@shared/buddies/shared";
 
 /* Some shapes repeat an attribute on one tag. A page keeps the first; the notch's SVG reader rejects the whole drawing, so the repeats go. */
 function firstAttributes(markup: string): string {

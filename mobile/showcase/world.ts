@@ -3,7 +3,7 @@
  * terminals and chats, written to read well in a screenshot.
  */
 
-import type { ChatMessage, ChatPart, ChatView, PermissionAsk, ToolAction, ToolCall } from '../../src/chat/types';
+import type { ChatMessage, ChatPart, ChatView, PermissionAsk, ToolAction, ToolCall } from '@shared/chat/types';
 
 export const CORE = 'showcase0000000000000000000000000000000000000000000000000000core';
 export const HOST = { name: 'MacBook Pro', model: 'MacBook Pro' };

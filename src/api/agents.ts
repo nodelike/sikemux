@@ -1,7 +1,7 @@
 import { coreCall } from "./core";
 import { onCoreChanged } from "./coreChanged";
 import type { IpcUnsubscribe } from "./transport";
-import type { CatalogAgent } from "../agents/catalog";
+import type { CatalogAgent } from "@shared/agents/catalog";
 import type { AgentEffort, AgentType, ProviderProfile, ProviderProfileSelection } from "../state/types";
 
 /** Whether an agent can be used right now; `unknown` when its CLI has no way to say if it is signed in. */

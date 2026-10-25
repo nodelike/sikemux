@@ -1,14 +1,14 @@
 import { agentApi } from "../api/agents";
 import { AccountSignIn } from "../agents/AccountSignIn";
 import { signInAgent } from "../agents/AgentInstall";
-import { agentLabel, loginArgs } from "../agents/catalog";
+import { agentLabel, loginArgs } from "@shared/agents/catalog";
 import { accountsOf, moveChat } from "../agents/accounts";
 import { useResource } from "../state/resources";
 import { agentAccountR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { reportError } from "../state/toast";
 import type { Agent, ProviderProfile } from "../state/types";
-import type { ChatFailure } from "./types";
+import type { ChatFailure } from "@shared/chat/types";
 import { useState } from "react";
 
 /** A way the agent said, as it started, that it can be signed in. */

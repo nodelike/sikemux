@@ -3,7 +3,7 @@ import { notify, reportError } from "../../plugin-api/host";
 import { useResourceEnabled } from "../../plugin-api/resources";
 import { hostApi, type RepoRef } from "../api";
 import { artifactsR } from "../resources";
-import { formatBytes } from "../../lib/format";
+import { formatBytes } from "@shared/lib/format";
 
 interface Props {
     repo: RepoRef;

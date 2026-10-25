@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { toAgentBuddy } from "./agentBuddy";
 import { mutate } from "../state/store";
-import { resolveBuddy } from "./catalogue";
+import { resolveBuddy } from "@shared/buddies/catalogue";
 
 export function setAgentBuddyShape(id: string, pack: string, shape: string): void {
     mutate((d) => {

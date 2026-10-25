@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { simApi, type SimStatus } from "../api/sim";
-import { externalValue, useExternalValue } from "../lib/externalValue";
+import { externalValue, useExternalValue } from "@shared/lib/externalValue";
 import { swallow } from "../state/toast";
 
 const known = externalValue<SimStatus | null>(null);

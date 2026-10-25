@@ -1,4 +1,4 @@
-import { externalValue, useExternalValue } from "../lib/externalValue";
+import { externalValue, useExternalValue } from "@shared/lib/externalValue";
 
 /* A picture in a transcript is a thumbnail of something worth looking at
    properly. One is open at a time, and the viewer that shows it is mounted at

@@ -1,8 +1,12 @@
 import { useAuth } from "@clerk/react";
 import { lazy, Suspense, useEffect, useMemo } from "react";
-import { webCipher } from "@mac/share/cipher";
-import { appShareLink, parseShareLink, type ShareLink } from "@mac/share/link";
-import { ShareSession } from "@mac/share/session";
+import { webCipher } from "@shared/share/cipher";
+import {
+  appShareLink,
+  parseShareLink,
+  type ShareLink,
+} from "@shared/share/link";
+import { ShareSession } from "@shared/share/session";
 import { SharedChat } from "@mac/share/SharedChat";
 import { wearPicked } from "@mac/themes/bus";
 import defaultPalette from "@mac/themes/defaultPalette.json";

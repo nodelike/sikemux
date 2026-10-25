@@ -1,4 +1,5 @@
 import { GRAMMAR_ALIASES, GRAMMARS } from "./generated/grammars";
+import { extensionOf } from "@shared/lib/paths";
 
 /** Files known by their whole name rather than by an extension. */
 export const FILE_NAMES: Readonly<Record<string, string>> = {
@@ -117,12 +118,6 @@ function known(name: string): string | null {
 }
 
 /** A file's extension in lower case, without its dot. A hidden file's leading dot starts its name, not an extension. */
-export function extensionOf(path: string): string {
-    const name = path.toLowerCase().split(/[\\/]/).pop() ?? "";
-    const dot = name.lastIndexOf(".");
-    return dot > 0 ? name.slice(dot + 1) : "";
-}
-
 /** The language a name, file name or path is written in, which may end in `:line` or `:line:column`. */
 export function languageOf(nameOrPath: string): string | null {
     const name = (nameOrPath.toLowerCase().split(/[\\/]/).pop() ?? "").replace(/:\d+(?::\d+)?$/, "");

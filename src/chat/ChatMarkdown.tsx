@@ -4,21 +4,21 @@ import { linkPlugin } from "../plugins/registry";
 import { useStore } from "../state/store";
 import { CopyButton } from "../ui/CopyButton";
 import { FileIcon } from "../ui/FileIcon";
-import { hasPrimaryModifier } from "../lib/platform";
+import { hasPrimaryModifier } from "@shared/lib/platform";
 import { Markdown, MarkdownBlocks, type MarkdownComponents } from "../markdown/Markdown";
 import { warmMarkdown } from "../markdown/useMarkdownBlocks";
-import { tableSource } from "../markdown/tableSource";
-import type { MarkdownOptions, MdElement } from "../markdown/types";
-import { fencedDiff } from "./diff";
+import { tableSource } from "@shared/markdown/tableSource";
+import type { MarkdownOptions, MdElement } from "@shared/markdown/types";
+import { fencedDiff } from "@shared/chat/diff";
 import { CodeTokens, fenceLanguage, useCodeTokens, useDiffTokens } from "./codeHighlight";
-import { localImagePath } from "../lib/imagePaths";
+import { localImagePath } from "@shared/lib/imagePaths";
 import { useImagePreview } from "./imagePreview";
 import { ChatFileRef, useFileRef } from "./FileRef";
-import { cutLongBlocks, cutLongText, showRestLabel, useLongTextFold } from "./longText";
+import { cutLongBlocks, cutLongText, showRestLabel, useLongTextFold } from "@shared/chat/longText";
 import { ChatAgentContext, openLink } from "./chatAgent";
 import { ChatImage } from "./ChatImage";
 import { DiffText } from "./DiffView";
-import { decodedFenceName } from "./transcript";
+import { decodedFenceName } from "@shared/chat/transcript";
 
 /* An agent writes an attached file back as a link to it. A picture beats its
    percent-encoded name, so show the picture whenever we can read it.

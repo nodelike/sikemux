@@ -1,4 +1,4 @@
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 import { setLanguageServerTrust } from "../state/commands";
 import { confirmDialog, type ConfirmRequest } from "../state/dialog";
 import { getState } from "../state/store";

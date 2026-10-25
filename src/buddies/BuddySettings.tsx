@@ -3,7 +3,7 @@ import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { Switch } from "../ui/Controls";
 import { BuddyArt } from "./Buddy";
-import { BUDDY_PACKS, EVERY_PACK, EVERY_SHAPE, packById, type BuddyPack } from "./catalogue";
+import { BUDDY_PACKS, EVERY_PACK, EVERY_SHAPE, packById, type BuddyPack } from "@shared/buddies/catalogue";
 
 /* Three different shapes in three different colours say more about a pack than its name. */
 function PackSample({ pack }: { pack: BuddyPack }) {

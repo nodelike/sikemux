@@ -1,5 +1,5 @@
 import { useShortcutLabel } from "../commands/useShortcutLabel";
-import { basename, dirname, relativePath } from "../lib/paths";
+import { basename, dirname, relativePath } from "@shared/lib/paths";
 import * as cmd from "../state/commands";
 import { collectPanes } from "../state/layout";
 import { activeTabRef, documentsOf, terminalLabel } from "../state/selectors";

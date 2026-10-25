@@ -8,9 +8,9 @@ import {
   workflowAgentCost,
   workflowAgentCount,
   workflowAgentDetail,
-} from '@mac/chat/transcript';
-import type { WorkflowAgent } from '@mac/chat/types';
-import { queuedLabel } from '@mac/chat/queuedMessages';
+} from '@shared/chat/transcript';
+import type { WorkflowAgent } from '@shared/chat/types';
+import { queuedLabel } from '@shared/chat/queuedMessages';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { SectionLabel } from '@/ui/list';

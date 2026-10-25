@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { agentHandle } from "../agents/AgentLabel";
-import { agentLabel, isAgentType } from "../agents/catalog";
-import type { ChatInfo, SessionInfo } from "../api/generated/wire";
+import { agentLabel, isAgentType } from "@shared/agents/catalog";
+import type { ChatInfo, SessionInfo } from "@shared/wire.generated";
 import { chatsIn, hostTitle, newWorkHost, openRemoteChat, openRemoteTerminal, hostProjectOf, terminalsIn, type HostProject } from "../hosts/hosts";
 import { useStore } from "../state/store";
 import type { Session } from "../state/types";

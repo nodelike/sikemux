@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 
 const app = resolve(import.meta.dirname, '..');
 const repo = resolve(app, '../..');
-const OWN = /^(\.|\/|@\/|@mac\/|@protocol(\/|$))/;
+const OWN = /^(\.|\/|@\/|@shared\/|@protocol(\/|$))/;
 
 function files(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -33,7 +33,7 @@ export async function bundleInputs() {
     resolveExtensions: ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.json'],
     alias: {
       '@': resolve(app, 'src'),
-      '@mac': resolve(repo, 'src'),
+      '@shared': resolve(repo, 'shared'),
       '@protocol': resolve(repo, 'server/protocol/generated/types.ts'),
     },
     plugins: [

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useProjectRepo } from "../git/projectRepo";
-import { basename, prettyPath } from "../lib/paths";
+import { basename, prettyPath } from "@shared/lib/paths";
 import { ProjectPicker } from "../projects/ProjectPicker";
 import * as cmd from "../state/commands";
 import { useResource } from "../state/resources";

@@ -2,8 +2,8 @@ import "@testing-library/jest-dom/vitest";
 import { mockConvertFileSrc } from "@tauri-apps/api/mocks";
 import { afterAll, vi } from "vitest";
 import type { MarkdownRequest } from "../api/markdown";
-import { setAgentCatalog } from "../agents/catalog";
-import agentCatalog from "./agentCatalog.generated.json";
+import { setAgentCatalog } from "@shared/agents/catalog";
+import agentCatalog from "@shared/agents/catalog.generated.json";
 
 // The app reads the catalog from the core before it draws anything; tests start with the one the core sends.
 setAgentCatalog(agentCatalog as never);

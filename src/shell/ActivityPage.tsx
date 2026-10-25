@@ -9,8 +9,8 @@ import {
     type PriceOverride,
 } from "../api/activity";
 import { calendarColumns, dayDate, localDay } from "../lib/activityCalendar";
-import { basename, prettyPath } from "../lib/paths";
-import { agentLabel } from "../agents/catalog";
+import { basename, prettyPath } from "@shared/lib/paths";
+import { agentLabel } from "@shared/agents/catalog";
 import { useStore } from "../state/store";
 import { AgentIcon, IconFolder } from "../ui/Icons";
 import { SettingsPage, SettingsSection } from "../settings/SettingsLayout";

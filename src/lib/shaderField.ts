@@ -31,7 +31,7 @@ import type { Theme } from "../themes";
 import { onBatteryPower } from "../state/battery";
 import { currentTheme, subscribeTheme } from "../themes/bus";
 import { prefersReducedMotion } from "./motion";
-import { errorText } from "./format";
+import { errorText } from "@shared/lib/format";
 
 type Shaders = typeof import("@paper-design/shaders");
 

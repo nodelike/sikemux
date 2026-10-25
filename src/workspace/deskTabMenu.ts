@@ -1,6 +1,6 @@
 import { BLANK_URL } from "../api/browser";
-import { basename, relativePath } from "../lib/paths";
-import { FILE_MANAGER_NAME } from "../lib/platform";
+import { basename, relativePath } from "@shared/lib/paths";
+import { FILE_MANAGER_NAME } from "@shared/lib/platform";
 import { menuIcon, type CtxItem } from "../rail/FileTree";
 import type { DeskItem } from "../state/desks";
 import { IconClose, IconCopy, IconFolder } from "../ui/Icons";

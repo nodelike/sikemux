@@ -1,4 +1,4 @@
-import { isRecord } from "../lib/guards";
+import { isRecord } from "@shared/lib/guards";
 import { performanceTelemetry } from "../lib/performance";
 import { parsePtyShellMetadataSnapshot, type PtyShellMetadataSnapshot, type PtyShellPhase } from "../terminal/ptyController";
 import { getIpcTransport, type IpcUnsubscribe } from "./transport";

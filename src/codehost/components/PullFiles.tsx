@@ -7,7 +7,7 @@ import { getState } from "../../state/store";
 import { diffLinesDelivery, pickedRows, type PullRef } from "../diffSelection";
 import { requestOpenFile } from "../../state/commands";
 import { currentTheme, subscribeTheme } from "../../themes/bus";
-import { joinPath } from "../../lib/paths";
+import { joinPath } from "@shared/lib/paths";
 import { copyText } from "../../lib/clipboard";
 import { reportError } from "../../state/toast";
 import { useResourceEnabled } from "../../plugin-api/resources";
@@ -15,7 +15,7 @@ import { EmptyState, IconCopy, IconMessage, SkeletonRows } from "../../plugin-ap
 import { FileReviewList } from "../../git/FileReviewList";
 import { hostFileStatus } from "../../git/gitFileStatus";
 import { type RepoRef } from "../api";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { pullFilesR, type PulledFile } from "../lists";
 
 const LINE_HEIGHT = 19;

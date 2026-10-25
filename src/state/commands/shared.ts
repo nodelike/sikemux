@@ -1,7 +1,7 @@
 import { pluginDocuments } from "../../plugins/documents";
 import { forgetAgentDeliveries } from "../../agents/agentInbox";
 import { browserApi } from "../../api/browser";
-import { basename } from "../../lib/paths";
+import { basename } from "@shared/lib/paths";
 import { emit } from "../bus";
 import type { Draft } from "immer";
 import { getState, mutate, setState, type StoreState } from "../store";

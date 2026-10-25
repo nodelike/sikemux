@@ -3,8 +3,8 @@ import type {
   ChatHead,
   ChatMessage,
   ChatView,
-} from "../../src/api/generated/wire";
-import { applyChanges, emptyChat } from "../../src/chat/rows";
+} from "@shared/wire.generated";
+import { applyChanges, emptyChat } from "@shared/chat/rows";
 import type { ShowcaseBackend } from "../backend";
 import { AGENTS } from "../world/workspace";
 import {

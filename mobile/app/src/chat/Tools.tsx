@@ -1,9 +1,9 @@
 import { createContext, memo, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { durationLabel } from '@mac/chat/durationLabel';
-import { toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from '@mac/chat/toolLabels';
-import { attachmentName } from '@mac/chat/transcript';
+import { durationLabel } from '@shared/chat/durationLabel';
+import { toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from '@shared/chat/toolLabels';
+import { attachmentName } from '@shared/chat/transcript';
 import {
   callCount,
   callsLabel,
@@ -13,8 +13,8 @@ import {
   toolIconName,
   toolRowKind,
   type ToolIconName,
-} from '@mac/chat/toolView';
-import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@mac/chat/types';
+} from '@shared/chat/toolView';
+import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/chat/types';
 import { problem as problemOf } from '@/core/problem';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';

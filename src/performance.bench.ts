@@ -3,7 +3,7 @@ import type { DiffRow } from "./api/git";
 import { layoutRows } from "./git/DiffView";
 import { UiActivityTracker } from "./lib/activity";
 import { PerformanceTelemetry } from "./lib/performance";
-import { rankBy } from "./lib/fuzzy";
+import { rankBy } from "@shared/lib/fuzzy";
 import { computeLayout, splitPane } from "./state/layout";
 import { tokenizeCode } from "./chat/shikiTokens";
 import { codeThemeName } from "./themes/codeTheme";

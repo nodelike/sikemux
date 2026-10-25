@@ -5,7 +5,7 @@ import { gitCommitLinesR } from "../state/resources.defs";
 import { ownedFile } from "./changeOwners";
 import { DiffEditor } from "./DiffEditor";
 import { FileReviewList } from "./FileReviewList";
-import { joinPath } from "../lib/paths";
+import { joinPath } from "@shared/lib/paths";
 
 const COMMIT_FILE_ESTIMATE = 240;
 

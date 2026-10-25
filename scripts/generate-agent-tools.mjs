@@ -26,8 +26,8 @@ const rowsOutputPath = resolve(
   root,
   "src-tauri/crates/sikemux-fold/src/tool_rows.rs",
 );
-const rowIconsPath = resolve(root, "src/chat/toolRows.ts");
-const wireTypesPath = resolve(root, "src/api/generated/wire.ts");
+const rowIconsPath = resolve(root, "shared/chat/toolRows.ts");
+const wireTypesPath = resolve(root, "shared/wire.generated.ts");
 const coreHandlersPath = resolve(
   root,
   "src-tauri/crates/sikemux-core/src/server/harness.rs",
@@ -228,7 +228,7 @@ for (const { where, plugin, tools } of described) {
       );
     if (!icons.has(row.icon))
       fail(
-        `row icon "${row.icon}" is not one of ${[...icons].join(", ")} (src/chat/toolRows.ts)`,
+        `row icon "${row.icon}" is not one of ${[...icons].join(", ")} (shared/chat/toolRows.ts)`,
       );
     for (const key of ["target", "detail"]) {
       const templates = row[key];

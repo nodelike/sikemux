@@ -25,7 +25,7 @@ export type {
     ToolDiff,
     ToolOutput,
     WorkflowAgent,
-} from "../api/generated/wire";
+} from "../wire.generated";
 export type { ChatRows } from "./rows";
 
 /** A picture, file or resource an agent put in a message, as its protocol gives it and the core passes it on. */

@@ -3,7 +3,7 @@ import { EditorView } from "@codemirror/view";
 import { languageFromPath, lsp, uriToPath, type LspLocation, type LspLocationKind } from "../api/lsp";
 import { openLspPeek } from "./lspPeek";
 import { notify } from "../state/toast";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 
 export interface LspContext {
     project: string;

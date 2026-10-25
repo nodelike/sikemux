@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AccountInfo } from "../api/generated/wire";
+import type { AccountInfo } from "@shared/wire.generated";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
-import { initials } from "../lib/initials";
+import { initials } from "@shared/lib/initials";
 import { getState, setState } from "../state/store";
 import { useAccount } from "./account";
 import { RailAccount } from "./RailAccount";

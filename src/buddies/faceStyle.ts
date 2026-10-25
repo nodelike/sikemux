@@ -1,5 +1,5 @@
 import { coreCall } from "../api/core";
-import type { FaceStyle } from "../api/generated/wire";
+import type { FaceStyle } from "@shared/wire.generated";
 import { getIpcTransport } from "../api/transport";
 import { setState } from "../state/store";
 import { swallow } from "../state/toast";

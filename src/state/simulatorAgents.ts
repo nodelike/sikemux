@@ -1,4 +1,4 @@
-import { externalValue, useExternalValue } from "../lib/externalValue";
+import { externalValue, useExternalValue } from "@shared/lib/externalValue";
 
 /** A device an agent has attached with its simulator tools. `project` names where the agent works. */
 export interface SimulatorAttachment {

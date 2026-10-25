@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { AgentInfo, RecentChat } from "../api/agents";
-import { canDeleteChats } from "../agents/catalog";
+import { canDeleteChats } from "@shared/agents/catalog";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
 import * as cmd from "../state/commands";
 import { chatKey, projectSessionId } from "../state/selectors";
@@ -9,8 +9,8 @@ import { AgentIcon, IconMessage, IconPencil, IconPin, IconTrash } from "../ui/Ic
 import { Panel, PanelHeader } from "../ui/Panel";
 import { TreeContextMenu } from "./FileTree";
 import type { RecentChats } from "./useRecentChats";
-import { formatAge } from "../lib/format";
-import { basename } from "../lib/paths";
+import { formatAge } from "@shared/lib/format";
+import { basename } from "@shared/lib/paths";
 import { AgentRowProject } from "./AgentRowTree";
 
 /** Saved chats, each resumed in the project it ran in. */

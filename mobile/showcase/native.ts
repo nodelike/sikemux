@@ -3,8 +3,8 @@
  * showcase: one Mac is already paired and answers from the demo world instead
  * of the network.
  */
-import AGENT_CATALOG from '../../src/test/agentCatalog.generated.json';
-import type { ChatMessage } from '../../src/chat/types';
+import AGENT_CATALOG from '../../shared/agents/catalog.generated.json';
+import type { ChatMessage } from '@shared/chat/types';
 import { ChatAttachment, CoreEvent, MobileError } from '../app/test/mocks/sikemux-native';
 import {
   BOARDS,

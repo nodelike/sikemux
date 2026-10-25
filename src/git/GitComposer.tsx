@@ -1,5 +1,5 @@
 import { useLayoutEffect, type KeyboardEvent, type RefObject } from "react";
-import { PRIMARY_SHORTCUT } from "../lib/platform";
+import { PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import { setGitDraft, useGitWorkbench } from "../state/gitWorkbench";
 import { IconChevron, IconSparkle } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";

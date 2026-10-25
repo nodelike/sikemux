@@ -2,8 +2,8 @@ import { Fragment, useLayoutEffect, useMemo, type ReactNode, type RefObject } fr
 import { AgentStateIndicator } from "../agents/AgentStateIndicator";
 import { AgentFace } from "../buddies/Buddy";
 import type { TrackedItem } from "../codehost/tracked";
-import { formatAge } from "../lib/format";
-import { dirname } from "../lib/paths";
+import { formatAge } from "@shared/lib/format";
+import { dirname } from "@shared/lib/paths";
 import { useResourceEnabled } from "../state/resources";
 import { filesListR } from "../state/resources.defs";
 import { FileIcon } from "../ui/FileIcon";
@@ -18,11 +18,11 @@ import {
     type ComposerToken,
     type ComposerTrigger,
     type ProjectEntry,
-} from "./composerInput";
+} from "@shared/chat/composerInput";
 import { ContextMark } from "./ContextChip";
 import { earlierUri, useClosedNamed, useEarlierChats, type EarlierChat } from "./earlierChats";
 import type { TrackedMatches } from "./TrackedSource";
-import type { ChatCommandInfo } from "./types";
+import type { ChatCommandInfo } from "@shared/chat/types";
 
 function matchMates(mates: readonly Mate[], needle: string, limit: number): Mate[] {
     const wanted = needle.toLowerCase();

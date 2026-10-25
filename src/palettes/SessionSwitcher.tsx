@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { prettyPath } from "../lib/paths";
+import { prettyPath } from "@shared/lib/paths";
 import * as cmd from "../state/commands";
 import { getState, useStore } from "../state/store";
 import { sessionName, useRailNames } from "../terminal/railNames";

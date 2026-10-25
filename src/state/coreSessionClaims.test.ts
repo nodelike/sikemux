@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SessionInfo } from "../api/generated/wire";
+import type { SessionInfo } from "@shared/wire.generated";
 import { sessionInfo } from "../test/wire";
 import { claimedSessionIds, runningTerminalAgents, unclaimedTerminals } from "./coreSessionClaims";
 import { cloneLayout } from "./layout";

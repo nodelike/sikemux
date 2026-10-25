@@ -1,8 +1,8 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodeTokens, fenceLanguage, splitAtMark, useCodeTokens, useDiffTokens } from "./codeHighlight";
-import type { CodeLine } from "./types";
-import type { DiffLine } from "./types";
+import type { CodeLine } from "@shared/chat/types";
+import type { DiffLine } from "@shared/chat/types";
 import { wearPicked } from "../themes/bus";
 import { DEFAULT_THEME_ID } from "../themes";
 import { SIKEMUX_THEMES, testPalette, themeById } from "../test/themes";

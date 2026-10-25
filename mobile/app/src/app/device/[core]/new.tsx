@@ -5,9 +5,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { File } from 'expo-file-system';
 import type { ConnectionLike } from '@sikemux/native';
 
-import { composerPlaceholder } from '@mac/chat/chatStatus';
-import type { ChatMessage } from '@mac/chat/types';
-import { agentLabel } from '@mac/agents/catalog';
+import { composerPlaceholder } from '@shared/chat/chatStatus';
+import type { ChatMessage } from '@shared/chat/types';
+import { agentLabel } from '@shared/agents/catalog';
 import { ComposerAttachments } from '@/chat/Attachments';
 import { ChatTitle } from '@/chat/ChatTitle';
 import { Activity, Message } from '@/chat/Transcript';

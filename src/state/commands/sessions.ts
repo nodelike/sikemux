@@ -6,7 +6,7 @@ import { DEFAULT_SPACE_ICON, isProjectShown, spaceName, type SpaceIcon } from ".
 import { filesApi } from "../../api/files";
 import { lsp } from "../../api/lsp";
 import { sshApi } from "../../api/ssh";
-import { dirname } from "../../lib/paths";
+import { dirname } from "@shared/lib/paths";
 import { getState, mutate, setState } from "../store";
 import { reportError, swallow } from "../toast";
 import { agentIdsOf } from "../selectors";

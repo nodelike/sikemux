@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
-import type { ChatInfo, SessionInfo } from "../api/generated/wire";
+import type { ChatInfo, SessionInfo } from "@shared/wire.generated";
 import { sessionInfo } from "../test/wire";
 import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";

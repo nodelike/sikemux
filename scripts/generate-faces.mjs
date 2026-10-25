@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Writes the agent faces from the app's own art in src/buddies: the catalogue
+// Writes the agent faces from the app's own art in shared/buddies: the catalogue
 // the core resolves each agent's face from, and every drawing of each shape for
 // the GPUI app. `--check` fails when either is out of date instead of writing.
 // Each shape's crop is measured in Chrome, as the app measures it in its page,
@@ -46,10 +46,10 @@ const server = await createServer({
 const wanted = new Map();
 try {
   const { BUDDY_PACKS } = await server.ssrLoadModule(
-    "/src/buddies/catalogue.ts",
+    "/shared/buddies/catalogue.ts",
   );
   const { buddyMarkup, boxAround, measuredDrawing, FULL_BOX } =
-    await server.ssrLoadModule("/src/buddies/render.ts");
+    await server.ssrLoadModule("/shared/buddies/render.ts");
   const kept = JSON.parse(
     await readFile(manifestPath, "utf8").catch(() => "{}"),
   );

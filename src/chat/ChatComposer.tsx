@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { dialogsApi } from "../api/dialogs";
 import { ComposerPickers } from "./ComposerPickers";
-import type { ConfigPicker } from "../api/generated/wire";
-import { basename, joinPath } from "../lib/paths";
+import type { ConfigPicker } from "@shared/wire.generated";
+import { basename, joinPath } from "@shared/lib/paths";
 import { animate } from "../lib/motion";
-import { hasPrimaryModifier, PRIMARY_SHORTCUT } from "../lib/platform";
+import { hasPrimaryModifier, PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import { registerPathDrop } from "../state/dropRegistry";
 import { registerTextInsert } from "../state/textInsertRegistry";
 import type { Agent, ProviderProfile } from "../state/types";
@@ -21,7 +21,7 @@ import { DictateButton } from "./DictateButton";
 import { finishDictationInto, useVoice, writesInto } from "../voice/dictation";
 import { ContextMeter } from "./ContextMeter";
 import { imagesInClipboard, savePastedClipboard } from "./pasteImage";
-import { arrowsBrowse, recallPrompt, type HistoryPosition } from "./promptHistory";
+import { arrowsBrowse, recallPrompt, type HistoryPosition } from "@shared/chat/promptHistory";
 import {
     hasTag,
     imageTag,
@@ -33,20 +33,21 @@ import {
     withoutAttachment,
     type ComposerTrigger,
     type ProjectEntry,
-} from "./composerInput";
-import { isImagePath } from "../lib/imagePaths";
+} from "@shared/chat/composerInput";
+import { isImagePath } from "@shared/lib/imagePaths";
 import { showImage } from "../state/imageViewer";
-import { canSwitchMode } from "../agents/agentLaunch";
+import { canSwitchMode } from "@shared/agents/agentLaunch";
 import { AgentMark } from "../agents/AgentMark";
 import { receiveForAgent } from "../agents/agentInbox";
-import type { ChatCommandInfo, ChatRows, ContextUsage } from "./types";
-import type { OutgoingMessage } from "./queuedMessages";
+import type { ChatCommandInfo, ChatRows, ContextUsage } from "@shared/chat/types";
+import type { OutgoingMessage } from "@shared/chat/queuedMessages";
 import { registerComposer } from "./draftHandoff";
-import { acpApi, type PromptContext } from "../api/acp";
+import { acpApi } from "../api/acp";
+import type { PromptContext } from "@shared/chat/promptContext";
 import type { TrackedItem, TrackedKind } from "../codehost/tracked";
 import type { TrackedMatches } from "./TrackedSource";
 import { ContextMark } from "./ContextChip";
-import { contextChip } from "./promptContext";
+import { contextChip } from "@shared/chat/promptContext";
 import { mentionContext, useMates, type Mate } from "./agentMentions";
 import type { EarlierChat } from "./earlierChats";
 import { ComposerBuddy } from "../buddies/Buddy";

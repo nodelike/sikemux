@@ -1,7 +1,7 @@
-import { recordOf } from '@mac/lib/guards';
-import type { ChatRows } from '@mac/chat/rows';
-import { groupTasks, subagentActivity, taskDetail, workflowAgentDetail } from '@mac/chat/transcript';
-import type { AsyncTask, SubagentCard } from '@mac/chat/types';
+import { recordOf } from '@shared/lib/guards';
+import type { ChatRows } from '@shared/chat/rows';
+import { groupTasks, subagentActivity, taskDetail, workflowAgentDetail } from '@shared/chat/transcript';
+import type { AsyncTask, SubagentCard } from '@shared/chat/types';
 import { counted } from '@/devices/words';
 import type { Held } from './session';
 

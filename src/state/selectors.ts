@@ -2,7 +2,7 @@ import { pluginDocuments } from "../plugins/documents";
 import type { Agent, PaneNode, Session, TabRef, Window, WindowRole } from "./types";
 import type { StoreState } from "./store";
 import { collectPanes, openSides } from "./layout";
-import { relativePath } from "../lib/paths";
+import { relativePath } from "@shared/lib/paths";
 
 /** One saved chat in a map or set: the agent kind and its own session id. */
 export const chatKey = (agent: string, id: string): string => `${agent}\0${id}`;

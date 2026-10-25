@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { coreCall } from "../api/core";
 import { useProjectRepo } from "../git/projectRepo";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { deliverToAgent } from "../agents/agentInbox";
 import { worktreeSwitchState } from "./worktreeSwitch";
 import * as cmd from "../state/commands";
@@ -9,8 +9,8 @@ import { useResourceEnabled } from "../state/resources";
 import { gitWorktreesR } from "../state/resources.defs";
 import { usePreference } from "../state/preferences";
 import type { Agent, AgentWorktree } from "../state/types";
-import type { OutgoingMessage } from "./queuedMessages";
-import type { ChatRows } from "./types";
+import type { OutgoingMessage } from "@shared/chat/queuedMessages";
+import type { ChatRows } from "@shared/chat/types";
 
 /** The checkout the core cut for an agent and moved it into. */
 export interface PreparedWorktree {

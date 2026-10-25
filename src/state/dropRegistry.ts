@@ -1,4 +1,4 @@
-import { IS_WINDOWS } from "../lib/platform";
+import { IS_WINDOWS } from "@shared/lib/platform";
 
 export type DropPathsHandler = (paths: string[]) => void;
 export type DropFolderHandler = (paths: string[]) => void;

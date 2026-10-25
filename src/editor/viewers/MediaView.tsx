@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ViewerBar, ViewerMessage, type ViewProps } from "./ViewerBar";
-import { formatClock } from "../../lib/format";
+import { formatClock } from "@shared/lib/format";
 
 export function MediaView({ kind, visible, path, preview, url, onReload }: ViewProps & { kind: "video" | "audio"; visible: boolean }) {
     const mediaRef = useRef<HTMLVideoElement & HTMLAudioElement>(null);

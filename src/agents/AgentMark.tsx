@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { AgentBuddy } from "../buddies/Buddy";
 import { useStore } from "../state/store";
 import { AgentIcon } from "../ui/Icons";
-import { isAgentType } from "./catalog";
+import { isAgentType } from "@shared/agents/catalog";
 
 /** An agent's buddy when buddies are on and the agent is known, otherwise the mark of the CLI it runs, or nothing for one Sikemux does not know. */
 export function AgentMark({ agentId, cli, size = 14 }: { agentId?: string | null; cli: string | null | undefined; size?: number }) {

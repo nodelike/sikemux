@@ -5,7 +5,7 @@ import type { ProjectAction } from "../projects/projectConfig";
 import * as cmd from "../state/commands";
 import { agentApi } from "../api/agents";
 import { browserApi } from "../api/browser";
-import { IS_MACOS } from "../lib/platform";
+import { IS_MACOS } from "@shared/lib/platform";
 import type { Session } from "../state/types";
 import { getState, setState } from "../state/store";
 import { useKeymap } from "./keymap";

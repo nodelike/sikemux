@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarkdownRequest } from "../api/markdown";
-import type { MarkdownOptions, MdElement } from "./types";
+import type { MarkdownOptions, MdElement } from "@shared/markdown/types";
 
 const mocks = vi.hoisted(() => ({ parse: vi.fn() }));
 vi.mock("../api/markdown", () => ({ markdownApi: { parse: mocks.parse } }));

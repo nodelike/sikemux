@@ -5,7 +5,7 @@ import { useOccludeNativeViews } from "../state/nativeViews";
 import { Tooltip } from "./Tooltip";
 import "../styles/dropdown.css";
 import { alsoLeaving, leavingMenu } from "../lib/motion";
-import { rankBy } from "../lib/fuzzy";
+import { rankBy } from "@shared/lib/fuzzy";
 
 export interface DropdownOption {
     value: string;

@@ -1,4 +1,4 @@
-import { effectiveMode as permissionModeOf, isYolo } from "../agents/agentLaunch";
+import { effectiveMode as permissionModeOf, isYolo } from "@shared/agents/agentLaunch";
 import type { Agent } from "../state/types";
 import { IconShield, IconShieldBolt } from "../ui/Icons";
 import * as cmd from "../state/commands";

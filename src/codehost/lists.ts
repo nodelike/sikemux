@@ -4,7 +4,7 @@ import type { PluginFailure } from "../api/plugins";
 import { isSignedOutFailure } from "../plugin-api/backend";
 import { resourceKind } from "../plugin-api/identity";
 import { invalidate, resource } from "../state/resources";
-import type { PromptContext } from "../api/acp";
+import type { PromptContext } from "@shared/chat/promptContext";
 import type { DiffRow } from "../api/git";
 import type {
     ChangedFile,

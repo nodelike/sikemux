@@ -1,4 +1,4 @@
-import type { ChatMessage } from "./types";
+import type { ChatMessage } from "@shared/chat/types";
 import { SHIMMER_COPY } from "./Shimmer";
 
 export interface ChatFindOptions {

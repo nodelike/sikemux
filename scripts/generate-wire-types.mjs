@@ -566,7 +566,7 @@ const LIMITS = [
 ];
 
 const OUTPUTS = {
-  mac: "src/api/generated/wire.ts",
+  mac: "shared/wire.generated.ts",
   codehost: "src/codehost/types.generated.ts",
   jira: "src/plugins/jira/types.generated.ts",
   rundeck: "src/plugins/rundeck/types.generated.ts",

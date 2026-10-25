@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { AccountSignIn } from "../agents/AccountSignIn";
 import { accountName, accountsOf, openAccountDialog, signOut, switchAccount, useSignIn } from "../agents/accounts";
-import type { AgentType } from "../agents/catalog";
+import type { AgentType } from "@shared/agents/catalog";
 import { selectedProviderProfile } from "../agents/agentProfiles";
-import { accountAgentTypes, agentLabel } from "../agents/catalog";
+import { accountAgentTypes, agentLabel } from "@shared/agents/catalog";
 import * as cmd from "../state/commands";
 import { useResource } from "../state/resources";
 import { agentAccountR } from "../state/resources.defs";

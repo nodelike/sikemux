@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { INBOX_EVENT, inboxApi, type Inbox, type InboxItem } from "../api/inbox";
 import { getIpcTransport } from "../api/transport";
-import { externalValue, useExternalValue } from "../lib/externalValue";
+import { externalValue, useExternalValue } from "@shared/lib/externalValue";
 import { agentWindowId, ownerSessionId, projectSessionId } from "../state/selectors";
-import type { AgentShown } from "../api/generated/wire";
+import type { AgentShown } from "@shared/wire.generated";
 import { setAgentStatus } from "../state/commands/agents";
 import type { StoreState } from "../state/store";
 import { swallow } from "../state/toast";

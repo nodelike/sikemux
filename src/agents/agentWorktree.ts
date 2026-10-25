@@ -6,7 +6,7 @@ import { confirmDialog } from "../state/dialog";
 import { invalidate } from "../state/resources";
 import { getState } from "../state/store";
 import { notify } from "../state/toast";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import type { AgentWorktree } from "../state/types";
 import { cwdOutsideWorktree } from "./worktreePlan";
 

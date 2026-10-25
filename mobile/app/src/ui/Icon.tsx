@@ -2,7 +2,7 @@ import { parse, SvgAst, type JsxAST } from 'react-native-svg';
 
 import { DRAWN_ICONS } from './drawnIcons';
 import { ICONS, type IconName } from './icons.generated';
-import { useAgentBrand } from '@mac/agents/catalog';
+import { useAgentBrand } from '@shared/agents/catalog';
 
 import { type Provider, useColors } from './theme';
 

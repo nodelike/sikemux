@@ -1,8 +1,8 @@
 import { memo, useMemo, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { collapseDiff } from '@mac/chat/diff';
-import type { DiffLine, ToolDiff } from '@mac/chat/types';
+import { collapseDiff } from '@shared/chat/diff';
+import type { DiffLine, ToolDiff } from '@shared/chat/types';
 import { counted } from '@/devices/words';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';

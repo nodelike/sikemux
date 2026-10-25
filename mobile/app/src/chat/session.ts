@@ -2,9 +2,9 @@ import { ChatAttachment, MobileError, type ChatMark, type ConnectionLike } from 
 import { randomUUID } from 'expo-crypto';
 import { File } from 'expo-file-system';
 
-import { answerText } from '@mac/chat/answerText';
-import { applyChanges, emptyChat, fromView, withPage, type ChatRows } from '@mac/chat/rows';
-import type { ChatChange, ChatMessage, ChatPage, ChatView, PermissionAsk, QueuedMessage, ToolDetail } from '@mac/chat/types';
+import { answerText } from '@shared/chat/answerText';
+import { applyChanges, emptyChat, fromView, withPage, type ChatRows } from '@shared/chat/rows';
+import type { ChatChange, ChatMessage, ChatPage, ChatView, PermissionAsk, QueuedMessage, ToolDetail } from '@shared/chat/types';
 
 import { problem as problemOf } from '@/core/problem';
 import type { ChatInfo } from '@/core/protocol';

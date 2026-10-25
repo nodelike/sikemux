@@ -11,8 +11,8 @@ import {
     isAgentType,
     setAgentCatalog,
     type CatalogAgent,
-} from "../../agents/catalog";
-import { effectiveMode, isResumeId, MAX_AGENT_MODEL_LENGTH, normalizePermissionMode } from "../../agents/agentLaunch";
+} from "@shared/agents/catalog";
+import { effectiveMode, isResumeId, MAX_AGENT_MODEL_LENGTH, normalizePermissionMode } from "@shared/agents/agentLaunch";
 import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../../agents/agentProfiles";
 import { emit } from "../bus";
 import { confirmDialog } from "../dialog";
@@ -40,7 +40,7 @@ import { retitlePinnedChat } from "./settings";
 import { keepOpenedProjectInView, openProjectSession, withActiveSession } from "./shared";
 import { closeWindowsById } from "./tabs";
 import { bringForward, hostTitle, newWorkHost, openInstallPane, projectOnHost, startRemoteChat, type HostChoice } from "../../hosts/hosts";
-import type { Inbox } from "../../api/generated/wire";
+import type { Inbox } from "@shared/wire.generated";
 
 /** Providers list a session under at most this many characters. */
 const SESSION_TITLE_MAX = 72;

@@ -1,6 +1,6 @@
 import { MobileError } from '@sikemux/native';
 
-import { errorText } from '@mac/lib/format';
+import { errorText } from '@shared/lib/format';
 
 const UNPAIRED = 'This host no longer knows this phone. Forget it, then connect again.';
 

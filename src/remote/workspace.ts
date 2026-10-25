@@ -1,4 +1,4 @@
-import { agentLabel, chatAgentTypes } from "../agents/catalog";
+import { agentLabel, chatAgentTypes } from "@shared/agents/catalog";
 import type { AgentType, ProviderProfile } from "../state/types";
 
 /** The launcher the app offers for a provider and profile, as devices and the core name it. */

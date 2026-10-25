@@ -13,7 +13,7 @@ import { AddTaskDialog } from "./AddTaskDialog";
 import { failureFixRequest, findTasksRequest, testFixRequest } from "./agentRequests";
 import { FailureCard, TestResultsCard, type FinishedTestRun } from "./TestResultsCard";
 import { useNow } from "../hooks/useNow";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 
 function useSecondsSince(startedAt: number | null): number {
     const now = useNow(startedAt !== null);

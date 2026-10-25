@@ -2,13 +2,14 @@ name: Server
 
 on:
   push:
-    branches: [main]
+    branches: [main, remove-tauri-ui]
     paths:
       - "server/**"
       - "src-tauri/crates/sikemux-core/src/accounts/**"
       - "src-tauri/crates/sikemux-wire/src/accounts/**"
       # A shared chat's page draws with the Mac app's own chat view, styles, fonts and markdown.
       - "src/**"
+      - "shared/**"
       - "public/fonts/**"
       - "public/file-icons/**"
       - "src-tauri/crates/sikemux-markdown/**"
@@ -25,6 +26,7 @@ on:
       - "src-tauri/crates/sikemux-wire/src/accounts/**"
       # A shared chat's page draws with the Mac app's own chat view, styles, fonts and markdown.
       - "src/**"
+      - "shared/**"
       - "public/fonts/**"
       - "public/file-icons/**"
       - "src-tauri/crates/sikemux-markdown/**"

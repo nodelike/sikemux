@@ -7,7 +7,7 @@ import { projectRootsOf } from "../state/preferences";
 import { useStore } from "../state/store";
 import { Dropdown, type DropdownOption } from "../ui/Dropdown";
 import { IconFolder } from "../ui/Icons";
-import { dirname } from "../lib/paths";
+import { dirname } from "@shared/lib/paths";
 import { projectChoices, type ProjectChoice } from "./projectChoices";
 
 /** The projects open on a host, then on this host the folders found under the project roots. */

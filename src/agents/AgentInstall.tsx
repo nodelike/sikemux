@@ -9,8 +9,8 @@ import { swallow } from "../state/toast";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { selectedAgentRuntimeProfiles } from "./agentProfiles";
 import { agentStatusLabel } from "./agentStatus";
-import { agentLabel, installCommand, loginArgs, type AgentType } from "./catalog";
-import { basename, dirname, expandHome } from "../lib/paths";
+import { agentLabel, installCommand, loginArgs, type AgentType } from "@shared/agents/catalog";
+import { basename, dirname, expandHome } from "@shared/lib/paths";
 import { shellQuote } from "../lib/shell";
 
 /** A sign-in the agent offered itself, in place of the catalog's. */

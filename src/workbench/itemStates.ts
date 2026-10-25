@@ -2,7 +2,7 @@ import { isPluginKind } from "../plugins/kinds";
 import { pluginSurface } from "../plugins/registry";
 import type { PaneKind } from "../state/types/domain";
 import { CORE_PANE_KINDS, isCorePaneKind } from "../state/windowRoles";
-import { isRecord } from "../lib/guards";
+import { isRecord } from "@shared/lib/guards";
 import type { DeskBrowserTab, DeskSavedSimulator, DeskView, EditorPaneView } from "../state/types/view";
 
 /** Saved editor state is bounded, and a selection must name an open tab. */

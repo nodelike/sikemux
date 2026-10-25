@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { fsapi } from "../api/fs";
 import { lsp } from "../api/lsp";
 import { useProjectRepo } from "../git/projectRepo";
-import { basename, prettyPath } from "../lib/paths";
+import { basename, prettyPath } from "@shared/lib/paths";
 import { SpaceGlyph } from "../rail/SpaceSwitch";
 import { SettingsPage, SettingsRow, SettingsRows, SettingsSection } from "../settings/SettingsLayout";
 import * as cmd from "../state/commands";

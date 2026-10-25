@@ -1,5 +1,5 @@
 import { coreCall } from "../api/core";
-import { dirname } from "../lib/paths";
+import { dirname } from "@shared/lib/paths";
 import type { ProjectConfigLoadResult } from "./projectConfig";
 import { confirmDialog, type ConfirmRequest } from "../state/dialog";
 

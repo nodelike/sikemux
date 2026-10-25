@@ -1,5 +1,5 @@
 import { getIpcTransport } from "./transport";
-import type { CoreChangeTopic } from "./generated/wire";
+import type { CoreChangeTopic } from "@shared/wire.generated";
 
 /** What the core says changed: read `topic` again, for `project` or every project, and only `paths` inside it when given. */
 export interface CoreChange {

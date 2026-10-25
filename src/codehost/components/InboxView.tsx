@@ -3,14 +3,14 @@ import { notify, openUrl, reportError, swallow } from "../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
 import { Checkbox, EmptyState, IconCheck, SkeletonRows, StaleNotice } from "../../plugin-api/ui";
 import { type Notification, type RepoRef } from "../api";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { hostStatusR, inboxR } from "../resources";
 import { useAccount, useHost } from "../registry";
 import { useBusy } from "./hooks";
 import { useNow } from "../../plugin-api/hooks";
 import { IssueDetail } from "./IssuesView";
 import { PullRight, type PullTab } from "./PullsView";
-import { formatAgo } from "../../lib/format";
+import { formatAgo } from "@shared/lib/format";
 import "../codehost.css";
 
 const REASON: Record<string, string> = {

@@ -175,7 +175,7 @@ impl Faces {
 mod tests {
     use super::*;
 
-    /// The numbers are src/buddies/catalogue.ts's `hash` of the same ids.
+    /// The numbers are shared/buddies/catalogue.ts's `hash` of the same ids.
     #[test]
     fn hashes_agent_ids_as_the_macs_catalogue_does() {
         assert_eq!(hash(""), 1_572_119_809);

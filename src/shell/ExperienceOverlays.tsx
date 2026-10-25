@@ -11,13 +11,13 @@ import { actionForEvent, keybindingLabelForAction, type CoreKeybindingActionId, 
 import { AgentIcon, IconAgent, IconFolder, IconSearch, IconServer, Logo } from "../ui/Icons";
 import { agentStatusLabel } from "../agents/agentStatus";
 import { installAgent, signInAgent } from "../agents/AgentInstall";
-import { installCommand, loginArgs } from "../agents/catalog";
+import { installCommand, loginArgs } from "@shared/agents/catalog";
 import { Kbd } from "../ui/Kbd";
 import { ShaderField } from "../ui/ShaderField";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { copyText } from "../lib/clipboard";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { swallow } from "../state/toast";
 import { hostTools } from "../api/system";
 

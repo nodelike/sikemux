@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ChatMessage } from '@mac/chat/types';
+import type { ChatMessage } from '@shared/chat/types';
 import { stripOf, stripOwner } from './messageMeta';
 
 const message = (id: string, role: ChatMessage['role'], text: string, fields: Partial<ChatMessage> = {}): ChatMessage => ({

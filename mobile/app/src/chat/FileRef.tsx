@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { localImagePath } from '@mac/lib/imagePaths';
-import { basename } from '@mac/lib/paths';
+import { localImagePath } from '@shared/lib/imagePaths';
+import { basename } from '@shared/lib/paths';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useHostFile } from './hostFiles';

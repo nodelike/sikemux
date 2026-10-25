@@ -12,7 +12,7 @@ import {
 } from "react";
 import { DIFF_ROW, type DiffRow } from "../api/git";
 import { CodeRun } from "../chat/codeHighlight";
-import type { CodeLine } from "../chat/types";
+import type { CodeLine } from "@shared/chat/types";
 import { grammarFor } from "../languages";
 import { currentTheme, subscribeTheme } from "../themes/bus";
 import { codeThemeName } from "../themes/codeTheme";

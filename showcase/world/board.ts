@@ -1,9 +1,9 @@
-import type { MessageRow } from "../../src/agents/agentMessages";
+import type { MessageRow } from "@shared/agents/agentMessages";
 import type {
   BoardCard,
   CardRun,
   ProjectBoard,
-} from "../../src/agents/agentBoard";
+} from "@shared/agents/agentBoard";
 import { SIKEMUX } from "./projects";
 import { AGENTS } from "./workspace";
 

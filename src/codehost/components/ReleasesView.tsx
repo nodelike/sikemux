@@ -5,7 +5,7 @@ import { notify, openUrl, reportError, swallow } from "../../plugin-api/host";
 import { useResourceEnabled } from "../../plugin-api/resources";
 import { EmptyState, IconChevron, IconDownload, IconExternal, IconFile, IconRefresh, SkeletonRows, StaleNotice, Tooltip } from "../../plugin-api/ui";
 import { hostApi, type Release, type RepoRef } from "../api";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { useHost } from "../registry";
 import { releaseListR } from "../lists";
 import { SectionIcon } from "./ActionsIcon";
@@ -13,7 +13,7 @@ import { ShellAccount } from "./Bits";
 import { Face } from "./CommentThread";
 import { useNow } from "../../plugin-api/hooks";
 import { Prose } from "./Pictures";
-import { formatAgo, formatBytes } from "../../lib/format";
+import { formatAgo, formatBytes } from "@shared/lib/format";
 
 /** How many releases the backend reads, newest first. */
 const RELEASES_READ = 100;

@@ -2,9 +2,9 @@ import { createContext, memo, type ReactNode, useContext, useEffect, useMemo, us
 import { Animated, Easing } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 
-import { buddyStateOfGroup, type BuddyState } from '@mac/buddies/catalogue';
-import { drawnFace, type DrawnFace } from '@mac/buddies/faces';
-import { buddyMarkup, FULL_BOX } from '@mac/buddies/render';
+import { buddyStateOfGroup, type BuddyState } from '@shared/buddies/catalogue';
+import { drawnFace, type DrawnFace } from '@shared/buddies/faces';
+import { buddyMarkup, FULL_BOX } from '@shared/buddies/render';
 import type { AgentFace as Face, AgentGroup, FaceStyle } from '@/core/protocol';
 import { AgentIcon } from '@/ui/Icon';
 import { useAnimating } from '@/ui/motion';

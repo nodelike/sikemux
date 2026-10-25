@@ -1,4 +1,4 @@
-import type { ConfigPicker } from "../api/generated/wire";
+import type { ConfigPicker } from "../wire.generated";
 
 /** The name of the value a picker holds, or the value itself when its choices do not list it. */
 export function currentLabel(picker: ConfigPicker | null | undefined): string | undefined {

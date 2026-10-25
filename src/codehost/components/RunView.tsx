@@ -16,7 +16,7 @@ import {
     Tooltip,
 } from "../../plugin-api/ui";
 import { hostApi, type Job, type ListedJob, type OpenRun as RunRead, type RepoRef, type Run } from "../api";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { useHost } from "../registry";
 import { artifactsR } from "../resources";
 import { runViewR } from "../lists";
@@ -36,7 +36,7 @@ import { JobSummary } from "./JobSummary";
 import { RunMenu } from "./RunMenu";
 import { billedMinutes } from "./RunUsage";
 import { WorkflowFile } from "./WorkflowFile";
-import { formatAgo, formatDuration } from "../../lib/format";
+import { formatAgo, formatDuration } from "@shared/lib/format";
 
 interface OpenRun {
     read: RunRead | null;

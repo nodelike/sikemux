@@ -37,7 +37,7 @@ import { renderWorkbenchItem } from "../workbench/renderers";
 import { paneRole, windowRoleLabel } from "../state/windowRoles";
 import { FileIcon } from "../ui/FileIcon";
 import { useStageMotion } from "../state/nativeViews";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 import { useShortcutLabel } from "../commands/useShortcutLabel";
 import { PAN_MS, panTransform, useWindowPan } from "./useWindowPan";
 import { useWheelPan } from "./useWheelPan";

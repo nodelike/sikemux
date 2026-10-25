@@ -1,6 +1,6 @@
 import { coreCall } from "./core";
 import { invokeCommand as invoke } from "./invoke";
-import { joinPath } from "../lib/paths";
+import { joinPath } from "@shared/lib/paths";
 
 export interface DirEntry {
     name: string;

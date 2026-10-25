@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Alert, Linking, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { errorText } from '@mac/lib/format';
+import { errorText } from '@shared/lib/format';
 
 import { DeviceIcon, Icon, type DeviceKind } from './Icon';
 import type { IconName } from './icons.generated';

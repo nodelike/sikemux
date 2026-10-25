@@ -3,8 +3,8 @@ import { AppState, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } 
 import { useLocalSearchParams } from 'expo-router';
 import type { ConnectionLike } from '@sikemux/native';
 
-import { ACCESS_OPTIONS, platformName } from '@mac/remote/access';
-import { formatAgo } from '@mac/lib/format';
+import { ACCESS_OPTIONS, platformName } from '@shared/remote/access';
+import { formatAgo } from '@shared/lib/format';
 import { type DeviceAccess, type LinkedHost, type DeviceInfo, type RemotePairing, readPairing } from '@/core/protocol';
 import { useDeviceId } from '@/device/identity';
 import { problem as problemOf } from '@/core/problem';

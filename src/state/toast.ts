@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 
 export type ToastKind = "info" | "error" | "success";
 

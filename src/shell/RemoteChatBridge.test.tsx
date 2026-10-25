@@ -1,6 +1,6 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Workspace } from "../api/generated/wire";
+import type { Workspace } from "@shared/wire.generated";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
 import { startCoreWorkspace, WORKSPACE_CHANGED_EVENT } from "../state/coreWorkspace";
 import { getState, setState } from "../state/store";

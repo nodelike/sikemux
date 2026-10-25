@@ -3,12 +3,12 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { git } from "../api/git";
 import { coreCall } from "../api/core";
 import { onCoreChanged } from "../api/coreChanged";
-import type { Draft } from "../api/generated/wire";
+import type { Draft } from "@shared/wire.generated";
 import { swallow } from "./toast";
 import { runGitCmd } from "./git";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { DEFAULT_AI_PROVIDER } from "../git/gitPaneConstants";
-import type { AgentType } from "../agents/catalog";
+import type { AgentType } from "@shared/agents/catalog";
 
 interface Operation {
     label: string;

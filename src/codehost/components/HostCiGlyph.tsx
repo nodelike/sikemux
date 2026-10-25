@@ -10,7 +10,7 @@ import { outcomeOf, OUTCOME_LABEL } from "../runStatus";
 import { StatusMark } from "./ActionsIcon";
 import { useCiWatch } from "../ciWatch";
 import "../topbar.css";
-import { formatAgo } from "../../lib/format";
+import { formatAgo } from "@shared/lib/format";
 
 function HostCiGlyph({ hostId, projectCwd }: PluginTopBarProps & { hostId: string }) {
     const found = useHostRepo(projectCwd, !!projectCwd);

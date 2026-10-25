@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENTS } from "../api/generated/wire";
+import { MAX_ATTACHMENTS } from "../wire.generated";
 import { rankBy } from "../lib/fuzzy";
 import { basename } from "../lib/paths";
 import type { ChatCommandInfo } from "./types";

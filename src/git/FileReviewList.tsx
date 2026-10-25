@@ -3,7 +3,7 @@ import { CardStream, type CardStreamHandle } from "../ui/CardStream";
 import { FileIcon } from "../ui/FileIcon";
 import { IconCollapseAll, IconExpandAll } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
-import { basename, dirname } from "../lib/paths";
+import { basename, dirname } from "@shared/lib/paths";
 
 export interface FileReviewListProps {
     /** Repository-relative paths, in the order they are listed. */

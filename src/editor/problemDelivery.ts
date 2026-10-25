@@ -1,6 +1,6 @@
 import { codeFence } from "../agents/agentTargets";
 import type { AgentDelivery } from "../agents/agentInbox";
-import { basename, relativePath } from "../lib/paths";
+import { basename, relativePath } from "@shared/lib/paths";
 import type { DiagnosticProblem } from "./projectProblems";
 
 export function problemLocation(project: string, problem: Pick<DiagnosticProblem, "path" | "range">): string {

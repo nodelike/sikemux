@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { basename } from "../../lib/paths";
+import { basename } from "@shared/lib/paths";
 import { ViewerBar, ViewerMessage, type ViewProps } from "./ViewerBar";
 import { useImageZoom } from "./useImageZoom";
 

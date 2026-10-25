@@ -107,6 +107,7 @@ export default defineConfig({
   clearScreen: false,
   resolve: {
     alias: [
+      { find: /^@shared\//, replacement: `${resolve("shared")}/` },
       { find: /^shiki$/, replacement: resolve("src/vendor/shiki.ts") },
       {
         find: /^shiki\/(wasm|engine\/oniguruma)$/,
@@ -147,7 +148,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    exclude: [...configDefaults.exclude, "mobile/**", "server/**"],
+    exclude: [...configDefaults.exclude, "mobile/**", "server/**", "shared/**"],
     setupFiles: "./src/test/setup.ts",
     globals: false,
     coverage: {

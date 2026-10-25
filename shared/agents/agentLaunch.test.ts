@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { normalizePermissionMode } from "./agentLaunch";
+import { setAgentCatalog, type CatalogAgent } from "./catalog";
+import agentCatalog from "./catalog.generated.json";
+
+beforeAll(() => setAgentCatalog(agentCatalog as CatalogAgent[]));
 
 describe("agent launch policy", () => {
     it("presents only Normal and YOLO", () => {

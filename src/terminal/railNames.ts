@@ -1,6 +1,6 @@
 import { coreSessionsApi } from "../api/coreSessions";
 import { getIpcTransport } from "../api/transport";
-import { externalValue, useExternalValue } from "../lib/externalValue";
+import { externalValue, useExternalValue } from "@shared/lib/externalValue";
 import { collectPanes } from "../state/layout";
 import { useStore, type StoreState } from "../state/store";
 import { swallow } from "../state/toast";

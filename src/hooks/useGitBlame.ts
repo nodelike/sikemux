@@ -3,7 +3,7 @@ import type { EditorView } from "@codemirror/view";
 import { refreshBlame, setBlameContext } from "../editor/gitBlame";
 import { isPreviewPath } from "../editor/viewers/fileKinds";
 import { subscribe } from "../state/bus";
-import { relativePath } from "../lib/paths";
+import { relativePath } from "@shared/lib/paths";
 
 /**
  * Bind the editor's inline git-blame to the active file: points the blame

@@ -1,5 +1,5 @@
 import { coreCall } from "./core";
-import { isRecord } from "../lib/guards";
+import { isRecord } from "@shared/lib/guards";
 
 export interface ReleaseContributor {
     login: string;

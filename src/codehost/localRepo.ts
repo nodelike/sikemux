@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { joinPath } from "../lib/paths";
+import { joinPath } from "@shared/lib/paths";
 import { requestOpenFile } from "../state/commands";
 
 const LocalRepoContext = createContext<string | null>(null);

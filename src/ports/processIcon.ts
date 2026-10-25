@@ -1,4 +1,4 @@
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 
 const RUNTIMES: [RegExp, string][] = [
     [/^(node|next-server|nuxt|vite|npm|pnpm|yarn|bun|tsx|esbuild|webpack|astro|remix)\b/, "nodejs"],

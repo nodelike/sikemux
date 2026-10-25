@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_ATTACHMENTS } from "../api/generated/wire";
+import { MAX_ATTACHMENTS } from "../wire.generated";
 import { entryName, mergePaths, projectEntries, rankEntries, removeToken, tokenAt } from "./composerInput";
 
 describe("mergePaths", () => {

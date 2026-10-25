@@ -1,6 +1,6 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Updates from 'expo-updates';
-import type { ChatRows } from '@mac/chat/rows';
+import type { ChatRows } from '@shared/chat/rows';
 
 import { writeWhole } from '@/devices/disk';
 

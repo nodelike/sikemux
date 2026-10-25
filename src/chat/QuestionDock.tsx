@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { AgentQuestion } from "../api/agentQuestions";
-import { PRIMARY_SHORTCUT } from "../lib/platform";
+import { PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import { IconCheck, IconChevron, IconLock, IconPencil } from "../ui/Icons";
 import type { ChatQuestions } from "./useChatQuestions";
 

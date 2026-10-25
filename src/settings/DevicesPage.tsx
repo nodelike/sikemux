@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { accountApi, type AccountStatus } from "../api/account";
 import { AccountAvatar } from "../account/AccountAvatar";
 import { loadAccount, signInToAccount, signOutOfAccount, useAccount } from "../account/account";
-import { formatAgo } from "../lib/format";
+import { formatAgo } from "@shared/lib/format";
 import {
     remoteApi,
     type AccountLink,
@@ -12,7 +12,7 @@ import {
     type DeviceInfo,
     type RemoteStatus,
 } from "../api/remote";
-import { ACCESS_OPTIONS, platformName } from "../remote/access";
+import { ACCESS_OPTIONS, platformName } from "@shared/remote/access";
 import { reportError, swallow } from "../state/toast";
 import { Dropdown } from "../ui/Dropdown";
 import { Switch } from "../ui/Controls";

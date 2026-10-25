@@ -2,7 +2,7 @@ import { useMemo, type CSSProperties } from "react";
 import type { CommitOwner, GitCommit } from "../api/git";
 import { AgentLabel } from "../agents/AgentLabel";
 import { AgentMark } from "../agents/AgentMark";
-import { isAgentType } from "../agents/catalog";
+import { isAgentType } from "@shared/agents/catalog";
 import * as cmd from "../state/commands";
 import { useCachedResourceEnabled } from "../state/resources";
 import { gitCommitOwnersR } from "../state/resources.defs";

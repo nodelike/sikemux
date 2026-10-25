@@ -1,19 +1,19 @@
 /*
- * The Mac app's modules the share page draws a shared chat with, through `@mac/`. The Mac's own
- * check covers them; these say only what this page uses, so its check does not walk the Mac app.
+ * The modules the share page draws a shared chat with, through `@shared/` and `@mac/`. Their own
+ * checks cover them; these say only what this page uses, so its check does not walk them.
  */
-declare module "@mac/lib/initials" {
+declare module "@shared/lib/initials" {
   export function initials(
     name: string | null | undefined,
     email: string | null | undefined,
   ): string;
 }
 
-declare module "@mac/remote/access" {
+declare module "@shared/remote/access" {
   export function platformName(platform: string): string;
 }
 
-declare module "@mac/share/link" {
+declare module "@shared/share/link" {
   export interface ShareLink {
     readonly id: string;
     readonly key: string;
@@ -22,8 +22,8 @@ declare module "@mac/share/link" {
   export function appShareLink(link: ShareLink, scheme?: string): string;
 }
 
-declare module "@mac/share/cipher" {
-  import type { ShareLink } from "@mac/share/link";
+declare module "@shared/share/cipher" {
+  import type { ShareLink } from "@shared/share/link";
   export interface ShareCipher {
     open(sealed: string): Promise<string | null>;
     seal(text: string): Promise<string>;
@@ -32,9 +32,9 @@ declare module "@mac/share/cipher" {
   export function webCipher(link: ShareLink): ShareCipher;
 }
 
-declare module "@mac/share/session" {
-  import type { ShareCipher } from "@mac/share/cipher";
-  import type { ShareLink } from "@mac/share/link";
+declare module "@shared/share/session" {
+  import type { ShareCipher } from "@shared/share/cipher";
+  import type { ShareLink } from "@shared/share/link";
   export class ShareSession {
     constructor(options: {
       link: ShareLink;
@@ -49,7 +49,7 @@ declare module "@mac/share/session" {
 
 declare module "@mac/share/SharedChat" {
   import type { ReactNode } from "react";
-  import type { ShareSession } from "@mac/share/session";
+  import type { ShareSession } from "@shared/share/session";
   export function SharedChat(props: {
     session: ShareSession;
     visible: boolean;

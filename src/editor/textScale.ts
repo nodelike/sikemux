@@ -1,4 +1,4 @@
-import { DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE } from "../api/generated/wire";
+import { DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE } from "@shared/wire.generated";
 
 export const DEFAULT_EDITOR_TEXT_SCALE = DEFAULT_TEXT_SCALE;
 

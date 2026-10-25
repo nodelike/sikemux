@@ -1,6 +1,6 @@
-import { agentLabel, isAgentType, type AgentType } from "../../agents/catalog";
-import { isResumeId } from "../../agents/agentLaunch";
-import { appShareLink, parseShareLink, type ShareLink } from "../../share/link";
+import { agentLabel, isAgentType, type AgentType } from "@shared/agents/catalog";
+import { isResumeId } from "@shared/agents/agentLaunch";
+import { appShareLink, parseShareLink, type ShareLink } from "@shared/share/link";
 import { confirmDialog } from "../dialog";
 import { collectPanes } from "../layout";
 import { projectSessionId } from "../selectors";

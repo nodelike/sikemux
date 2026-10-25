@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { installAgent, signInAgent } from "../agents/AgentInstall";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { agentStatusLabel } from "../agents/agentStatus";
-import { agentAbout, installCommand, loginArgs } from "../agents/catalog";
+import { agentAbout, installCommand, loginArgs } from "@shared/agents/catalog";
 import type { AgentInfo } from "../api/agents";
 import { useResource } from "../state/resources";
 import { agentSetupR } from "../state/resources.defs";

@@ -23,7 +23,10 @@ vi.mock("../terminal/TerminalPane", () => ({
     ),
 }));
 
-vi.mock("../lib/platform", async () => ({ ...(await vi.importActual<typeof import("../lib/platform")>("../lib/platform")), IS_MACOS: true }));
+vi.mock("@shared/lib/platform", async () => ({
+    ...(await vi.importActual<typeof import("@shared/lib/platform")>("../lib/platform")),
+    IS_MACOS: true,
+}));
 
 vi.mock("../sim/SimulatorPane", () => ({
     SimulatorPane: ({ simulator, visible }: { simulator: { id: string }; visible: boolean }) => (

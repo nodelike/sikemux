@@ -1,4 +1,4 @@
-import type { SessionInfo } from "../api/generated/wire";
+import type { SessionInfo } from "@shared/wire.generated";
 import { collectPanes } from "./layout";
 import type { StoreState } from "./store";
 

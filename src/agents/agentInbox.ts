@@ -1,4 +1,4 @@
-import type { PromptContext } from "../api/acp";
+import type { PromptContext } from "@shared/chat/promptContext";
 
 /** Text, files and context items handed to an agent from elsewhere in the app, for the person to send. */
 export interface AgentDelivery {

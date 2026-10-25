@@ -4,9 +4,8 @@ const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
 
-// The chat transcript comes from the Mac app's own reducer (src/chat), so the
-// phone reads an agent's updates exactly as the Mac does.
-config.watchFolders = [...config.watchFolders, path.resolve(__dirname, '../../src')];
+// The chat transcript, the agent catalog and the share format come from shared/, which the share page uses too.
+config.watchFolders = [...config.watchFolders, path.resolve(__dirname, '../../shared')];
 // The accounts API's types, client and close codes come from the server's protocol (@protocol).
 config.watchFolders.push(path.resolve(__dirname, '../../server/protocol/generated'), path.resolve(__dirname, '../../server/protocol/src'));
 

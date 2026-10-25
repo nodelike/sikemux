@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { findMatches, findPattern, rangesIn, type ChatFindOptions } from "./chatSearch";
-import type { ChatMessage } from "./types";
+import type { ChatMessage } from "@shared/chat/types";
 
 const MATCHES = "chat-find";
 const CURRENT = "chat-find-current";

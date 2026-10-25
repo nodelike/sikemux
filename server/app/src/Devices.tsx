@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/react";
-import { platformName } from "@mac/remote/access";
+import { platformName } from "@shared/remote/access";
 import type { AccountEvent, Device } from "@sikemux/protocol";
 import {
   useCallback,

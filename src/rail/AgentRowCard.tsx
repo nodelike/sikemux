@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { agentHandle } from "../agents/AgentLabel";
-import { agentLabel } from "../agents/catalog";
+import { agentLabel } from "@shared/agents/catalog";
 import { AgentFace } from "../buddies/Buddy";
 import { useBranchPullList, useHostRepo } from "../codehost/project";
-import { prettyPath } from "../lib/paths";
+import { prettyPath } from "@shared/lib/paths";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import type { Agent, AgentWorktree } from "../state/types";

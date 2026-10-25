@@ -1,6 +1,6 @@
 import { aesDecryptAsync, aesEncryptAsync, AESEncryptionKey, AESSealedData, CryptoDigestAlgorithm, digest } from 'expo-crypto';
 
-import { fromBase64Url, NONCE_BYTES, shareAad, toBase64Url, viewerProofText, type ShareCipher } from '@mac/share/cipher';
+import { fromBase64Url, NONCE_BYTES, shareAad, toBase64Url, viewerProofText, type ShareCipher } from '@shared/share/cipher';
 
 const SHA256_BLOCK = 64;
 
@@ -19,7 +19,7 @@ async function hmacSha256(key: Uint8Array, message: Uint8Array): Promise<Uint8Ar
   const pad = (byte: number) => Uint8Array.from({ length: SHA256_BLOCK }, (_, index) => (key[index] ?? 0) ^ byte);
   return sha256(pad(0x5c), await sha256(pad(0x36), message));
 }
-import type { ShareLink } from '@mac/share/link';
+import type { ShareLink } from '@shared/share/link';
 
 /**
  * AES-256-GCM in the phone's native crypto, since its JavaScript has no WebCrypto. A share's

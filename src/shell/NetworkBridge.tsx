@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { NetworkChange } from "../api/generated/wire";
+import type { NetworkChange } from "@shared/wire.generated";
 import { getIpcTransport } from "../api/transport";
 import { refetchFailed } from "../state/resources";
 import { swallow } from "../state/toast";

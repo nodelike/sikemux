@@ -1,7 +1,7 @@
 import { requestOpenFile } from "../state/commands/editor";
 import { IconAgent, IconClose, IconRefresh, IconTerminal } from "../ui/Icons";
 import type { ProjectTask, TestResults } from "./coreTasks";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 
 export interface FinishedTestRun {
     /** Changes with every run, so a card dismissed for one run opens again for the next. */

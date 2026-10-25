@@ -4,7 +4,7 @@ import { useOccludeNativeViews } from "../state/nativeViews";
 import { useStore } from "../state/store";
 import type { Agent } from "../state/types";
 import { AgentBuddy, BuddyArt } from "./Buddy";
-import { BUDDY_PACKS, resolveBuddy, type BuddyShape } from "./catalogue";
+import { BUDDY_PACKS, resolveBuddy, type BuddyShape } from "@shared/buddies/catalogue";
 import { closeBuddyPicker, resetAgentBuddy, setAgentBuddyColor, setAgentBuddyShape, useBuddyPicker } from "./commands";
 
 export function BuddyPickerHost() {

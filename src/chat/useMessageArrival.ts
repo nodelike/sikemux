@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import { animate } from "../lib/motion";
-import type { ChatMessage } from "./types";
+import type { ChatMessage } from "@shared/chat/types";
 
 /* A message that has just arrived rises into place. Only new ones: a
    transcript restored or mounted all at once just shows. */

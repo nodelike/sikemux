@@ -2,9 +2,8 @@ import { chibiPack, japan } from "./packs/characters";
 import { buddies, personas } from "./packs/blobs";
 import { cyclops, glow, googly, matrix, peekers, soot } from "./packs/eyes";
 import { screens } from "./packs/screens";
-import type { BuddyPack, BuddyShape, BuddyState } from "./shared";
-import type { Agent } from "../state/types";
-import type { AgentGroup } from "../api/generated/wire";
+import type { AgentBuddy, BuddyPack, BuddyShape, BuddyState } from "./shared";
+import type { AgentGroup } from "../wire.generated";
 import { EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";
 
 export { DEFAULT_BUDDY_STYLE, EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";
@@ -34,7 +33,7 @@ function hash(text: string): number {
     return h >>> 0;
 }
 
-export function resolveBuddy(agent: Pick<Agent, "id" | "buddy">, style: BuddyStyle): ResolvedBuddy {
+export function resolveBuddy(agent: { id: string; buddy?: AgentBuddy }, style: BuddyStyle): ResolvedBuddy {
     const own = agent.buddy;
     const h = hash(agent.id);
     let pack = own?.pack ? packById(own.pack) : undefined;

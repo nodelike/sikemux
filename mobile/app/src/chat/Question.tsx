@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { SECRET_ANSWERED } from '@mac/chat/agentLetters';
+import { SECRET_ANSWERED } from '@shared/chat/agentLetters';
 import type { AgentQuestion } from '@/core/protocol';
 import { Chip, Field } from '@/ui/controls';
 import { haptics } from '@/ui/haptics';

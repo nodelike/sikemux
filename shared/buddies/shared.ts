@@ -1,3 +1,10 @@
+export interface AgentBuddy {
+    /** A slot in the pack's palette, given out so open agents rarely share one. */
+    color: number;
+    pack?: string;
+    shape?: string;
+}
+
 export type BuddyState = "idle" | "working" | "waiting" | "done" | "error";
 
 export interface BuddyShape {

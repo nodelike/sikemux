@@ -1,13 +1,13 @@
 import { useEffect, useId, useMemo, useRef, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agents/agentProfiles";
-import { agentLabel, agentSupportsChat, chatAgentTypes, featuredAgentTypes, type AgentType } from "../agents/catalog";
+import { agentLabel, agentSupportsChat, chatAgentTypes, featuredAgentTypes, type AgentType } from "@shared/agents/catalog";
 import { leavingMenu } from "../lib/motion";
 import { useResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { defaultProviderProfileSelection, type Agent, type ProviderProfile } from "../state/types";
 import { AgentIcon, IconCheck } from "../ui/Icons";
-import type { ConfigChoice } from "../api/generated/wire";
+import type { ConfigChoice } from "@shared/wire.generated";
 
 export interface Choice extends ConfigChoice {
     icon?: ReactNode;

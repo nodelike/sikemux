@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { MarkdownRequest } from "../api/markdown";
-import type { MarkdownOptions, MdElement } from "../markdown/types";
+import type { MarkdownOptions, MdElement } from "@shared/markdown/types";
 
 /* Markdown is read in Rust, which a frontend test cannot call. The Rust tests
    read every text in markdownFixtures.json and fail when the blocks stored

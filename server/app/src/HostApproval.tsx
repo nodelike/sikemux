@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/react";
-import { platformName } from "@mac/remote/access";
+import { platformName } from "@shared/remote/access";
 import type { PendingHost } from "@sikemux/protocol";
 import { errorCode, orReverify } from "@sikemux/protocol/account";
 import { useState, type SubmitEvent } from "react";

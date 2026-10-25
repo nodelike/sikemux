@@ -5,7 +5,7 @@ import { agentApi } from "../api/agents";
 import { settingsApi } from "../api/settings";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
 import { keybindingLabel, resolvedKeybinding } from "../commands/keybindings";
-import { IS_MACOS } from "../lib/platform";
+import { IS_MACOS } from "@shared/lib/platform";
 import { SETTINGS_INDEX, SETTINGS_PAGE_ORDER } from "./settingsIndex";
 import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";

@@ -1,5 +1,5 @@
 import { useUser } from "@clerk/react";
-import { initials } from "@mac/lib/initials";
+import { initials } from "@shared/lib/initials";
 import { useState } from "react";
 
 /** The account's picture, or its initials on a neutral circle when it has none. */

@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState, type ReactNode, type RefObject, type UIEv
 import type { Agent } from "../state/types";
 import { ChatActivity } from "./ChatActivity";
 import { ChatMessageRow } from "./ChatMessageRow";
-import { FoldMemoryContext, type FoldMemory } from "./longText";
-import { copyText } from "./messageMeta";
+import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
+import { copyText } from "@shared/chat/messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
-import { formatDetail, outlivesFold } from "./transcript";
-import type { PermissionAsk, ChatMessage, ChatRows } from "./types";
+import { formatDetail, outlivesFold } from "@shared/chat/transcript";
+import type { PermissionAsk, ChatMessage, ChatRows } from "@shared/chat/types";
 import { WorkSummary } from "./WorkSummary";
 
 /* A long transcript mounts its newest rows first and the older ones above

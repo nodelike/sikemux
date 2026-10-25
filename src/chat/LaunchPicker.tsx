@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { agentLabel, type AgentType } from "../agents/catalog";
+import { agentLabel, type AgentType } from "@shared/agents/catalog";
 import { coreCall } from "../api/core";
 import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
 import { AgentIcon } from "../ui/Icons";
 import { PayerChoices, Picker, servedLabel, useRoutes } from "./ComposerPickers";
 import type { Choice } from "./PickerMenu";
-import type { ConfigPicker } from "../api/generated/wire";
+import type { ConfigPicker } from "@shared/wire.generated";
 import "../styles/chat/pickers.css";
 
 /** An agent to start later: which one, which of the person's accounts, who pays, and on what model. */

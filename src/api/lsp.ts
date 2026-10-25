@@ -1,7 +1,7 @@
 import { coreCall } from "./core";
 import type { CoreChange } from "./coreChanged";
 import { swallow } from "../state/toast";
-import { fileUriToPath } from "../lib/paths";
+import { fileUriToPath } from "@shared/lib/paths";
 import { languageServerOf } from "../languages";
 import { getIpcTransport, type IpcUnsubscribe } from "./transport";
 

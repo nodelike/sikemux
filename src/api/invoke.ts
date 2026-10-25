@@ -1,7 +1,7 @@
 import type { InvokeArgs, InvokeOptions } from "@tauri-apps/api/core";
 import { uiActivity } from "../lib/activity";
 import { performanceTelemetry } from "../lib/performance";
-import { errorCategory } from "../lib/format";
+import { errorCategory } from "@shared/lib/format";
 import { getIpcTransport } from "./transport";
 import type { IpcCommand } from "./generated/ipcCommands";
 

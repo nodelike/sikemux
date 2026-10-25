@@ -2,7 +2,7 @@ import { useState } from "react";
 import { burntTokens, Calendar, dayText, tokensText, useActivitySummary } from "../shell/ActivityPage";
 import { AgentFace } from "../buddies/Buddy";
 import { projectMark } from "../hosts/placeMarks";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 import * as cmd from "../state/commands";
 import type { Agent } from "../state/types";
 import { IconChevron } from "../ui/Icons";

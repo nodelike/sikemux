@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { agentQuestionsApi, type AgentQuestion, type QuestionAnswer } from "../api/agentQuestions";
 import { useStore } from "../state/store";
 

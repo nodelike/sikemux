@@ -5,7 +5,7 @@ import { releasesApi, type ReleaseContributor, type ReleaseNotes } from "../api/
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
-import { errorText, splitVersion } from "../lib/format";
+import { errorText, splitVersion } from "@shared/lib/format";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { ExperienceBackdrop } from "./ExperienceOverlays";
 import { UpdateWaiting } from "./UpdateWaiting";

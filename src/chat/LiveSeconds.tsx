@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNow } from "../hooks/useNow";
-import { secondsSince } from "./toolView";
+import { secondsSince } from "@shared/chat/toolView";
 
 /* Counts up in whole seconds like the Thinking row does, on a clock of its own
    so the tick redraws this label and nothing around it. */

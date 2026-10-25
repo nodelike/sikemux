@@ -1,5 +1,5 @@
 import { invokeCommand as invoke } from "./invoke";
-import type { SessionInfo } from "./generated/wire";
+import type { SessionInfo } from "@shared/wire.generated";
 
 export const coreSessionsApi = {
     /** This host's sessions, or those of `host`, another the app joined. */

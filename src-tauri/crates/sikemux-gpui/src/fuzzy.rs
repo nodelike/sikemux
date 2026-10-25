@@ -1,4 +1,4 @@
-//! The app's fuzzy ranking (src/lib/fuzzy.ts): a substring beats letters in order, an
+//! The app's fuzzy ranking (shared/lib/fuzzy.ts): a substring beats letters in order, an
 //! earlier match beats a later one, and one at a word's start beats one inside a word.
 
 use std::borrow::Cow;

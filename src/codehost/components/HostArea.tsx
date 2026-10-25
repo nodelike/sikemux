@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
 import { EmptyState, SkeletonRows } from "../../plugin-api/ui";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { LocalRepoProvider } from "../localRepo";
 import { useHost } from "../registry";
 import { hostStatusR, workflowsR } from "../resources";

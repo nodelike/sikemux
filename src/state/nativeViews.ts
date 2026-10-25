@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { externalValue, useExternalValue } from "../lib/externalValue";
+import { externalValue, useExternalValue } from "@shared/lib/externalValue";
 import { mergeHoles, watchOverlays } from "./overlayHoles";
 
 /* Native child views (the browser pages) paint above every DOM element, so an

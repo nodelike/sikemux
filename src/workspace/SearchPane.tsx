@@ -11,11 +11,11 @@ import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { DEFAULT_GLOBAL_SEARCH_VIEW } from "../state/types";
 import { notify, swallow } from "../state/toast";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { FileIcon } from "../ui/FileIcon";
 import { IconSearch } from "../ui/Icons";
-import { basename, dirname, isPathWithin, joinPath, normalizePath } from "../lib/paths";
-import { PRIMARY_SHORTCUT, SHIFT_SHORTCUT } from "../lib/platform";
+import { basename, dirname, isPathWithin, joinPath, normalizePath } from "@shared/lib/paths";
+import { PRIMARY_SHORTCUT, SHIFT_SHORTCUT } from "@shared/lib/platform";
 import { ENTER_GLYPH } from "../commands/keybindings";
 
 const DEBOUNCE_MS = 250;

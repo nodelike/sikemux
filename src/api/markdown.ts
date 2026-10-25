@@ -1,4 +1,4 @@
-import type { MarkdownOptions, MdElement } from "../markdown/types";
+import type { MarkdownOptions, MdElement } from "@shared/markdown/types";
 import { invokeCommand as invoke } from "./invoke";
 
 export interface MarkdownRequest {

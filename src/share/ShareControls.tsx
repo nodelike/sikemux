@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { errorText, formatTimeLeft } from "../lib/format";
+import { errorText, formatTimeLeft } from "@shared/lib/format";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { shareApi, type ShareView } from "../api/share";
 import { copyText } from "../lib/clipboard";

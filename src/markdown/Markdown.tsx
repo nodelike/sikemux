@@ -1,7 +1,7 @@
 import { createContext, createElement, memo, useContext, type ComponentType, type ReactNode } from "react";
-import type { MarkdownOptions, MdElement, MdNode } from "./types";
+import type { MarkdownOptions, MdElement, MdNode } from "@shared/markdown/types";
 import { useMarkdownBlocks } from "./useMarkdownBlocks";
-import { visibleText } from "./visible";
+import { visibleText } from "@shared/markdown/visible";
 
 /** Where a surface draws something its own way. Anything left out is drawn as plain HTML. */
 export interface MarkdownComponents {

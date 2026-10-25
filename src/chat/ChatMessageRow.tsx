@@ -1,6 +1,6 @@
 import { memo, useContext, useMemo, useState, type ReactNode } from "react";
 import { CopyButton } from "../ui/CopyButton";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 import {
     AgentIcon,
     IconCheck,
@@ -20,14 +20,14 @@ import { AgentMark } from "../agents/AgentMark";
 import sikemuxMark from "../../brand/mark/mark-purple.svg";
 import * as cmd from "../state/commands";
 import { AnsweredQuestion } from "./AgentQuestions";
-import { rateLabel, sentLabel, sentTitle } from "./messageMeta";
-import { durationLabel } from "./durationLabel";
-import { localImagePath } from "../lib/imagePaths";
+import { rateLabel, sentLabel, sentTitle } from "@shared/chat/messageMeta";
+import { durationLabel } from "@shared/chat/durationLabel";
+import { localImagePath } from "@shared/lib/imagePaths";
 import { useImagePreview } from "./imagePreview";
 import { ChatFileRef, useFileRef } from "./FileRef";
 import { ChatAgentContext, ChatSubagentsContext } from "./chatAgent";
 import { ChatImage } from "./ChatImage";
-import { imageTag } from "./composerInput";
+import { imageTag } from "@shared/chat/composerInput";
 import { FoldedMarkdown, warmChatMarkdown } from "./ChatMarkdown";
 import { ChatPage } from "./ChatPage";
 import { ToolGroup } from "./ToolGroup";
@@ -42,10 +42,10 @@ import {
     subagentCost,
     subagentTask,
     type SubagentMark,
-} from "./transcript";
-import type { AccountMove, AgentLetter, AgentNotice, ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice } from "./types";
+} from "@shared/chat/transcript";
+import type { AccountMove, AgentLetter, AgentNotice, ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice } from "@shared/chat/types";
 import { ContextChipLabel } from "./ContextChip";
-import type { MdElement } from "../markdown/types";
+import type { MdElement } from "@shared/markdown/types";
 import { Shimmer } from "./Shimmer";
 import { MessageEditor } from "./MessageEditor";
 

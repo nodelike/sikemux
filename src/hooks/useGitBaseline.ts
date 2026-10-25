@@ -6,7 +6,7 @@ import { setGitBaseline } from "../editor/gitGutter";
 import { isPreviewPath } from "../editor/viewers/fileKinds";
 import { subscribe } from "../state/bus";
 import { swallow } from "../state/toast";
-import { relativePath } from "../lib/paths";
+import { relativePath } from "@shared/lib/paths";
 
 export function useGitBaseline(viewGetter: () => EditorView | null, cwd: string, activePath: string | null) {
     useEffect(() => {

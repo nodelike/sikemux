@@ -29,8 +29,8 @@ import { FileIcon } from "../ui/FileIcon";
 import { Tooltip } from "../ui/Tooltip";
 import { gitFileDecoration, gitFolderDecorations, type GitStatusDecoration } from "../git/gitFileStatus";
 import { openFilePalette } from "../state/commands/ui";
-import { basename, dirname, isPathWithin, joinPath, normalizePath, relativePath as pathRelative } from "../lib/paths";
-import { FILE_MANAGER_NAME } from "../lib/platform";
+import { basename, dirname, isPathWithin, joinPath, normalizePath, relativePath as pathRelative } from "@shared/lib/paths";
+import { FILE_MANAGER_NAME } from "@shared/lib/platform";
 import { leavingMenu } from "../lib/motion";
 
 interface FileTreeProps {

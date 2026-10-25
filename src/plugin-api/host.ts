@@ -10,13 +10,13 @@ import { notify, reportError } from "../state/toast";
 import type { PluginKind } from "../plugins/kinds";
 import type { GitStatus } from "../api/git";
 import type { GitArea } from "../state/types";
-import type { CardTicket, ProjectBoard } from "../agents/agentBoard";
+import type { CardTicket, ProjectBoard } from "@shared/agents/agentBoard";
 import { coreCall } from "../api/core";
 import { nearestProjectSessionId } from "../agents/agentTargets";
 
 export { fsapi as files, type DirEntry } from "../api/fs";
 export { git } from "../api/git";
-export { basename, dirname, joinPath, relativePath } from "../lib/paths";
+export { basename, dirname, joinPath, relativePath } from "@shared/lib/paths";
 export { copyText, openUrl };
 export { confirmDialog, promptDialog } from "../state/dialog";
 export { gitOverviewR } from "../state/resources.defs";

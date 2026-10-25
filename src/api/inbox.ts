@@ -1,8 +1,8 @@
-import type { AgentMessageRows } from "../agents/agentMessages";
-import type { Inbox } from "./generated/wire";
+import type { AgentMessageRows } from "@shared/agents/agentMessages";
+import type { Inbox } from "@shared/wire.generated";
 import { coreCall } from "./core";
 
-export type { Inbox, InboxItem, RemoteAgent } from "./generated/wire";
+export type { Inbox, InboxItem, RemoteAgent } from "@shared/wire.generated";
 
 /** Sent by the window whenever the core's inbox changes. */
 export const INBOX_EVENT = "inbox_changed";

@@ -22,7 +22,7 @@ import { fsapi } from "../api/fs";
 import { deskTabMenu } from "./deskTabMenu";
 import { IconChevron, IconEditor, IconGlobe, IconPhone, IconPlus, IconRefresh, IconTerminal, WindowIcon } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
-import { IS_MACOS } from "../lib/platform";
+import { IS_MACOS } from "@shared/lib/platform";
 import { FileIcon } from "../ui/FileIcon";
 import { SiteIcon } from "../ui/SiteIcon";
 import { AddressBar } from "./AddressBar";
@@ -51,7 +51,7 @@ import {
     type DeskKind,
 } from "../state/desks";
 import { TerminalPane } from "../terminal/TerminalPane";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 import * as cmd from "../state/commands";
 import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
 

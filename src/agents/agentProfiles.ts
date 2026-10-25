@@ -1,5 +1,5 @@
 import type { AgentType, ProviderProfile, ProviderProfileSelection } from "../state/types";
-import { accountAgentTypes } from "./catalog";
+import { accountAgentTypes } from "@shared/agents/catalog";
 
 export interface AgentRuntimeProfile {
     type: AgentType;

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { animate } from "../lib/motion";
-import type { AgentRollup } from "../api/generated/wire";
+import type { AgentRollup } from "@shared/wire.generated";
 import { IconAgent, IconCommand } from "../ui/Icons";
 
 const TWINKLE_CELLS = [0, 1, 2, 3, 4, 5, 6, 7, 8];

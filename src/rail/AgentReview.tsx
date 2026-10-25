@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { coreCall } from "../api/core";
 import { sendToAgent } from "../agents/sendToAgent";
-import { joinPath } from "../lib/paths";
+import { joinPath } from "@shared/lib/paths";
 import * as cmd from "../state/commands";
 import { requestOpenFile } from "../state/commands/editor";
 import { useStore } from "../state/store";

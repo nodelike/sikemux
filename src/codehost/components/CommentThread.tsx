@@ -7,7 +7,7 @@ import { useHost, usePictureOf, type ThreadOf } from "../registry";
 import { pullCommitsR, timelineR } from "../resources";
 import { SectionIcon } from "./ActionsIcon";
 import { Avatar, Initial, Prose } from "./Pictures";
-import { formatAgo } from "../../lib/format";
+import { formatAgo } from "@shared/lib/format";
 
 const REVIEW_WORD: Record<string, string> = {
     APPROVED: "approved these changes",

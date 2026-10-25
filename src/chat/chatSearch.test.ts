@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findMatches, findPattern, messageSearchText, rangesIn } from "./chatSearch";
-import type { ChatMessage } from "./types";
+import type { ChatMessage } from "@shared/chat/types";
 
 const plain = { caseSensitive: false, wholeWord: false };
 const said = (role: ChatMessage["role"], text: string): ChatMessage => ({ id: text, role, parts: [{ id: `${text}-t`, kind: "text", text }] });

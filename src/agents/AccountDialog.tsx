@@ -26,7 +26,7 @@ import {
     type AccountDialogRequest,
 } from "./accounts";
 import { selectedProviderProfile } from "./agentProfiles";
-import { agentBrand, agentLabel, type AgentType } from "./catalog";
+import { agentBrand, agentLabel, type AgentType } from "@shared/agents/catalog";
 import { openUrl } from "../api/system";
 
 export function AccountDialogHost() {

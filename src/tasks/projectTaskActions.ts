@@ -1,4 +1,4 @@
-import { externalValue, useExternalValue } from "../lib/externalValue";
+import { externalValue, useExternalValue } from "@shared/lib/externalValue";
 import { notify, reportError } from "../state/toast";
 import { isActive, tasksApi, type Check, type ProjectTask, type TaskRun } from "./coreTasks";
 import { focusWhenShown } from "./taskTerminals";

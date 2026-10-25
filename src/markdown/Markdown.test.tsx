@@ -1,7 +1,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarkdownBlocks, type MarkdownComponents } from "./Markdown";
-import type { MdElement } from "./types";
+import type { MdElement } from "@shared/markdown/types";
 
 afterEach(cleanup);
 

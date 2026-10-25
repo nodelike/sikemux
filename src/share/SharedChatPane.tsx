@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { shareApi } from "../api/share";
-import { webCipher } from "./cipher";
-import { parseShareLink } from "./link";
-import { ShareSession } from "./session";
+import { webCipher } from "@shared/share/cipher";
+import { parseShareLink } from "@shared/share/link";
+import { ShareSession } from "@shared/share/session";
 import { SharedChat } from "./SharedChat";
 
 /** A tab showing a chat someone shared, from the link the tab was opened with. */

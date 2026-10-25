@@ -1,4 +1,4 @@
-import type { CardChanges, NewCard, ProjectBoard, SettingsChanges } from "../agents/agentBoard";
+import type { CardChanges, NewCard, ProjectBoard, SettingsChanges } from "@shared/agents/agentBoard";
 import { coreCall } from "./core";
 
 const board = coreCall;

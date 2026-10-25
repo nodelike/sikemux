@@ -1,12 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { receiveForAgent } from "../agents/agentInbox";
-import { contextAsText } from "./promptContext";
+import { contextAsText } from "@shared/chat/promptContext";
 import { dispatchPaths, resolvePathDropTarget } from "../state/dropRegistry";
 import { insertText, textInsertTargetWithin } from "../state/textInsertRegistry";
 import type { Agent, ProviderProfile, Session } from "../state/types";
 import { acpApi } from "../api/acp";
-import { effectiveMode } from "../agents/agentLaunch";
-import { canBypassPermissions, agentSupportsChat } from "../agents/catalog";
+import { effectiveMode } from "@shared/agents/agentLaunch";
+import { canBypassPermissions, agentSupportsChat } from "@shared/agents/catalog";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { putDraft, takeDraft } from "./draftHandoff";
 import { ptyCall } from "../api/core";

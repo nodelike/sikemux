@@ -1,4 +1,4 @@
-import { hasUsage } from "../../agents/catalog";
+import { hasUsage } from "@shared/agents/catalog";
 import { pluginDocuments } from "../../plugins/documents";
 import { invalidate } from "../resources";
 import { getState, mutate } from "../store";

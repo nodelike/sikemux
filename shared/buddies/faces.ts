@@ -1,6 +1,6 @@
-import type { AgentFace } from "../api/generated/wire";
-import type { Agent } from "../state/types";
+import type { AgentFace } from "../wire.generated";
 import { packById, resolveBuddy, type BuddyPack, type BuddyShape, type BuddyStyle } from "./catalogue";
+import type { AgentBuddy } from "./shared";
 
 export interface DrawnFace {
     pack: BuddyPack;
@@ -14,7 +14,7 @@ export interface DrawnFace {
  * The face the core gave the agent, drawn from this art; an agent the core has not listed yet, such as one just
  * started, wears the one the style gives it until it does.
  */
-export function drawnFace(agent: Pick<Agent, "id" | "buddy">, face: AgentFace | null | undefined, style: BuddyStyle): DrawnFace {
+export function drawnFace(agent: { id: string; buddy?: AgentBuddy }, face: AgentFace | null | undefined, style: BuddyStyle): DrawnFace {
     const pack = face ? packById(face.pack) : undefined;
     const shape = face && pack?.shapes.find((candidate) => candidate.id === face.shape);
     if (face && pack && shape) return { pack, shape, color: pack.colors[face.color % pack.colors.length], box: face.box };

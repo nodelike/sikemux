@@ -9,7 +9,7 @@ import {
     type ProjectBoard,
     type RunStage,
     shortTitle,
-} from "../agents/agentBoard";
+} from "@shared/agents/agentBoard";
 import { agentBoardApi } from "../api/agentBoard";
 import { openUrl } from "../api/system";
 import * as cmd from "../state/commands";

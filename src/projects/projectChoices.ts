@@ -1,4 +1,4 @@
-import { basename, expandHome, normalizePath, prettyPath, relativePath } from "../lib/paths";
+import { basename, expandHome, normalizePath, prettyPath, relativePath } from "@shared/lib/paths";
 import type { ProjectRoot, Session } from "../state/types";
 
 export interface ProjectChoice {

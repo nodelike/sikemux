@@ -3,8 +3,8 @@ import type { GraphBox, GraphEdge, GraphJob, Job, OpenRun, Run } from "../api";
 import { elapsedMs, outcomeOf } from "../runStatus";
 import { StatusMark } from "./ActionsIcon";
 import { coarse } from "./hooks";
-import { formatDuration } from "../../lib/format";
-import { basename } from "../../lib/paths";
+import { formatDuration } from "@shared/lib/format";
+import { basename } from "@shared/lib/paths";
 
 interface Props {
     run: Run;

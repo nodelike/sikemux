@@ -15,7 +15,7 @@ import {
     Tooltip,
 } from "../../plugin-api/ui";
 import { type RepoRef, type Run, type Workflow } from "../api";
-import { errorText } from "../../lib/format";
+import { errorText } from "@shared/lib/format";
 import { useHost } from "../registry";
 import { workflowsR } from "../resources";
 import { pullListR, runListR } from "../lists";
@@ -28,8 +28,8 @@ import { ListTitle, ShellAccount } from "./Bits";
 import { coarse } from "./hooks";
 import { useNow } from "../../plugin-api/hooks";
 import { useCiWatch } from "../ciWatch";
-import { formatAgo, formatDuration } from "../../lib/format";
-import { basename } from "../../lib/paths";
+import { formatAgo, formatDuration } from "@shared/lib/format";
+import { basename } from "@shared/lib/paths";
 
 const FILTER_LABEL: Record<StatusFilter, string> = {
     all: "All",

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState, type RefObject } from "react";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { acpApi } from "../api/acp";
 import type { Agent } from "../state/types";
-import { unknownCommand } from "./composerInput";
-import type { OutgoingMessage } from "./queuedMessages";
-import type { QueuedMessage } from "./types";
-import type { ChatCommandInfo, ChatRows } from "./types";
+import { unknownCommand } from "@shared/chat/composerInput";
+import type { OutgoingMessage } from "@shared/chat/queuedMessages";
+import type { QueuedMessage } from "@shared/chat/types";
+import type { ChatCommandInfo, ChatRows } from "@shared/chat/types";
 
 /**
  * Sends what the person writes. Written mid-turn, a message waits in the core's queue, which every app shows and the

@@ -1,14 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { durationLabel } from '@mac/chat/durationLabel';
-import { recordOf } from '@mac/lib/guards';
-import { basename } from '@mac/lib/paths';
-import { rateLabel, sentLabel } from '@mac/chat/messageMeta';
-import { cutLongBlocks, showRestLabel } from '@mac/chat/longText';
-import type { MdElement } from '@mac/markdown/types';
-import { revealBlocks, visibleText } from '@mac/markdown/visible';
-import { contextChip, type ContextChip } from '@mac/chat/promptContext';
+import { durationLabel } from '@shared/chat/durationLabel';
+import { recordOf } from '@shared/lib/guards';
+import { basename } from '@shared/lib/paths';
+import { rateLabel, sentLabel } from '@shared/chat/messageMeta';
+import { cutLongBlocks, showRestLabel } from '@shared/chat/longText';
+import type { MdElement } from '@shared/markdown/types';
+import { revealBlocks, visibleText } from '@shared/markdown/visible';
+import { contextChip, type ContextChip } from '@shared/chat/promptContext';
 import {
   attachmentName,
   groupParts,
@@ -18,8 +18,8 @@ import {
   subagentCost,
   subagentTask,
   type SubagentMark,
-} from '@mac/chat/transcript';
-import { callsLabel, workedLabel } from '@mac/chat/toolView';
+} from '@shared/chat/transcript';
+import { callsLabel, workedLabel } from '@shared/chat/toolView';
 import type {
   AccountMove,
   AgentNotice,
@@ -29,7 +29,7 @@ import type {
   SentContext,
   SubagentCard,
   TaskNotice as Notice,
-} from '@mac/chat/types';
+} from '@shared/chat/types';
 import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
 import { AgentFace } from '@/ui/Buddy';

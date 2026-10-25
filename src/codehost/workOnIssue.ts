@@ -1,5 +1,5 @@
 import type { AgentInfo } from "../api/agents";
-import { agentSupportsChat } from "../agents/catalog";
+import { agentSupportsChat } from "@shared/agents/catalog";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { sendToAgent } from "../agents/sendToAgent";
 import { fetchResource, peekResource } from "../state/resources";
@@ -9,7 +9,7 @@ import { getState } from "../state/store";
 import { lastAgentType } from "../state/commands/agents";
 import { notify } from "../state/toast";
 import type { AgentType } from "../state/types";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { loadTrackedContext } from "./lists";
 
 /** The agent launched last when it can chat, or else the first installed one that can. */

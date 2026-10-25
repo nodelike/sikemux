@@ -1,10 +1,10 @@
-import type { CodeHostChoice, Preferences } from "../api/generated/wire";
+import type { CodeHostChoice, Preferences } from "@shared/wire.generated";
 import type { PluginManifest } from "../api/plugins";
 import { create } from "zustand";
 import { enableMapSet, produce, type Draft } from "immer";
 import type { SettingsPageId } from "../settings/settingsIndex";
 import { RAIL_WIDTH } from "../lib/railWidths";
-import { DEFAULT_BUDDY_STYLE } from "../buddies/style";
+import { DEFAULT_BUDDY_STYLE } from "@shared/buddies/style";
 import { defaultProviderProfiles, defaultProviderProfileSelection } from "./types";
 
 enableMapSet();
@@ -49,9 +49,9 @@ export interface DomainState {
     recent: RecentEntry[];
     /** Agents show a character in place of their harness logo. */
     /** How agents' faces look, as the core keeps it. */
-    faceStyle: import("../api/generated/wire").FaceStyle;
+    faceStyle: import("@shared/wire.generated").FaceStyle;
     /** The face each agent the core lists wears, or null while it shows its CLI's logo, by agent id. */
-    faces: Readonly<Record<string, import("../api/generated/wire").AgentFace | null>>;
+    faces: Readonly<Record<string, import("@shared/wire.generated").AgentFace | null>>;
     sideRailOpen: boolean;
     tabRailOpen: boolean;
     sideRailWidth: number;
@@ -158,15 +158,15 @@ export interface ViewState {
     globalSearchBySession: Record<string, GlobalSearchView>;
 
     /** How the core shows each open agent, by id, as its device view last said. Never persisted. */
-    agentStatus: Record<string, import("../api/generated/wire").AgentShown>;
+    agentStatus: Record<string, import("@shared/wire.generated").AgentShown>;
     /** How each project's open agents show together, by project id, as the core last said. Never persisted. */
-    projectStatus: Record<string, import("../api/generated/wire").AgentRollup>;
+    projectStatus: Record<string, import("@shared/wire.generated").AgentRollup>;
     /** Questions agents asked that wait on an answer, as the core last sent them. */
     agentQuestions: import("../api/agentQuestions").AgentQuestion[];
     /** Each project's board cards, by the project folder the core names, as the core last sent them. */
-    agentBoards: Record<string, import("../agents/agentBoard").BoardCard[]>;
+    agentBoards: Record<string, import("@shared/agents/agentBoard").BoardCard[]>;
     /** Each project's Auto settings and how many of its agents run, by the same project folder. */
-    agentBoardAuto: Record<string, import("../agents/agentBoard").BoardAuto>;
+    agentBoardAuto: Record<string, import("@shared/agents/agentBoard").BoardAuto>;
     /** The core's name for each project folder the app has opened a board for, when it differs. */
     boardProjects: Record<string, string>;
 
@@ -184,7 +184,7 @@ export interface ViewState {
     /** The SSH hosts a terminal is open to, without Sikemux on them from here, as the core lists them. */
     openSshHosts: readonly import("../hosts/hosts").HostRow[];
     /** What each of those hosts last showed this app, by its id. */
-    hostViews: Readonly<Record<string, import("../api/generated/wire").DeviceView>>;
+    hostViews: Readonly<Record<string, import("@shared/wire.generated").DeviceView>>;
     /** The SSH hosts being set up now, by alias. */
     sshWork: Readonly<Record<string, import("../hosts/hosts").SshWork>>;
     /** The host chosen under Hosts, beside the chosen project: where the tab rail looks and new work starts. */

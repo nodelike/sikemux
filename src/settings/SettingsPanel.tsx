@@ -22,14 +22,14 @@ import { settingsApi } from "../api/settings";
 import { agentNamesApi, type AgentNameTheme } from "../api/agentNames";
 import { openUrl } from "../api/system";
 import { isUpdateBusy, RELEASES_URL, updateCheckLabel, UPDATES_IN_APP } from "../api/updater";
-import { basename, prettyPath } from "../lib/paths";
+import { basename, prettyPath } from "@shared/lib/paths";
 import { previewUrl } from "../editor/viewers/fileKinds";
-import { IS_MACOS, PRIMARY_SHORTCUT } from "../lib/platform";
+import { IS_MACOS, PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import { notify, reportError, swallow } from "../state/toast";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { customCommandsOf, setPreference, updateChannelOf, usePreference, projectRootsOf, preferencesOf } from "../state/preferences";
-import type { MidTurnSend } from "../api/generated/wire";
+import type { MidTurnSend } from "@shared/wire.generated";
 import { cloneTheme, DEFAULT_THEME_ID, newCustomThemeId, NO_THEMES, THEME_GROUPS, type Theme, type ThemeGroupKey } from "../themes";
 import { themeById, useThemeSummaries } from "../themes/summaries";
 import { pixelsBase64, wallpaperPixels } from "../themes/wallpaper";
@@ -61,8 +61,8 @@ import { Tooltip } from "../ui/Tooltip";
 import { PaneField } from "../ui/ShaderField";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import type { ProjectRoot, ProviderProfile } from "../state/types";
-import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agents/agentLaunch";
-import { accountAgentTypes, agentBrand, agentLabel, hasAccounts } from "../agents/catalog";
+import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "@shared/agents/agentLaunch";
+import { accountAgentTypes, agentBrand, agentLabel, hasAccounts } from "@shared/agents/catalog";
 import {
     searchSettings,
     SETTINGS_GROUPS,

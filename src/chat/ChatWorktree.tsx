@@ -1,4 +1,4 @@
-import { prettyPath } from "../lib/paths";
+import { prettyPath } from "@shared/lib/paths";
 import type { AgentWorktree } from "../state/types";
 import { IconGit } from "../ui/Icons";
 import type { WorktreeSwitchState } from "./worktreeSwitch";

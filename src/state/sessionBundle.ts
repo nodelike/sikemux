@@ -1,8 +1,8 @@
 import type { AgentType, SessionKind, Window } from "./types";
-import { isAgentType } from "../agents/catalog";
-import { isResumeId } from "../agents/agentLaunch";
+import { isAgentType } from "@shared/agents/catalog";
+import { isResumeId } from "@shared/agents/agentLaunch";
 import { isSessionKind, validatePersistedWindow, type LayoutValidationLimits } from "./persistValidation";
-import { isRecord } from "../lib/guards";
+import { isRecord } from "@shared/lib/guards";
 import { chatKey } from "./selectors";
 
 export const SESSION_BUNDLE_LIMITS = {

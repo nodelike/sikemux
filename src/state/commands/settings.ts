@@ -1,15 +1,15 @@
 import { agentApi, type AgentAccountBook } from "../../api/agents";
 import { coreCall } from "../../api/core";
-import type { FaceStyle } from "../../api/generated/wire";
+import type { FaceStyle } from "@shared/wire.generated";
 import { checkForUpdateNow } from "../../api/updater";
 import { adoptAgentAccounts } from "../persist";
 import { reportError } from "../toast";
 import { invalidate } from "../resources";
 import { projectRootsScanR } from "../resources.defs";
 import { preferencesOf, projectRootsOf, setPreference, updateChannelOf } from "../preferences";
-import { MAX_PROJECT_DEPTH, type NotchSettings, type ProjectRoot } from "../../api/generated/wire";
+import { MAX_PROJECT_DEPTH, type NotchSettings, type ProjectRoot } from "@shared/wire.generated";
 import { getState, setState } from "../store";
-import type { AgentType } from "../../agents/catalog";
+import type { AgentType } from "@shared/agents/catalog";
 
 export const setCloudBrowser = (v: string): void => setPreference("cloudBrowser", v.trim());
 export const setCloudBrowserShortcut = (v: string): void => setPreference("cloudBrowserShortcut", v.trim());

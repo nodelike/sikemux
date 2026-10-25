@@ -1,4 +1,4 @@
-import type { CodeLine } from "../chat/types";
+import type { CodeLine } from "@shared/chat/types";
 import type { Theme } from "../themes";
 import { createCodeTheme } from "../themes/codeTheme";
 import type { ColourReply, ColourRequest } from "./diffColours.worker";

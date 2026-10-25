@@ -1,7 +1,7 @@
 import type { PtyDirectCommand } from "../state/types";
 import type { TerminalInput } from "./grid";
-import { errorCategory, errorText } from "../lib/format";
-import { isRecord } from "../lib/guards";
+import { errorCategory, errorText } from "@shared/lib/format";
+import { isRecord } from "@shared/lib/guards";
 import { swallow } from "../state/toast";
 
 export type PtyOutputChunk = readonly number[] | Uint8Array;

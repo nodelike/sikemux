@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REMOTE_STATUS_EVENT, type RemoteStatus } from "../api/remote";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
 import { useAccount } from "../account/account";
-import type { AccountInfo } from "../api/generated/wire";
+import type { AccountInfo } from "@shared/wire.generated";
 import { getState, setState } from "../state/store";
 import { DevicesPage, PHONE_URL, seenLabel } from "./DevicesPage";
 

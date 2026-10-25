@@ -2,9 +2,9 @@ import { coreCall, coreRequest, type CoreRequest } from "./core";
 import { invokeCommand as invoke } from "./invoke";
 import { getIpcTransport } from "./transport";
 
-import type { AllowedDevice, DeviceAccess, RemotePairing, RemoteStatus } from "./generated/wire";
+import type { AllowedDevice, DeviceAccess, RemotePairing, RemoteStatus } from "@shared/wire.generated";
 
-export type { AccountLink, DeviceInfo, LinkedHost, NotificationState, PendingDevice, UpdateRequired } from "./generated/wire";
+export type { AccountLink, DeviceInfo, LinkedHost, NotificationState, PendingDevice, UpdateRequired } from "@shared/wire.generated";
 export type { AllowedDevice, DeviceAccess, RemotePairing, RemoteStatus };
 
 export const REMOTE_STATUS_EVENT = "remote_status_changed";

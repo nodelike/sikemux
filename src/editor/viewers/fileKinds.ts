@@ -1,6 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { extensionOf } from "../../languages";
-import { IMAGE_EXTS } from "../../lib/imagePaths";
+import { extensionOf } from "@shared/lib/paths";
+import { IMAGE_EXTS } from "@shared/lib/imagePaths";
 
 export type ViewerKind = "image" | "video" | "audio" | "font" | "document" | "binary";
 

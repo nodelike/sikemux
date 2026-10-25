@@ -1,4 +1,4 @@
-import { formatAgo } from '@mac/lib/format';
+import { formatAgo } from '@shared/lib/format';
 import type { Snapshot } from '@/core/protocol';
 import type { Live, Outdated } from './hub';
 import { channelLabel, type PairedDevice } from './paired';

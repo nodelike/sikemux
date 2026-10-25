@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { fsapi, type FilePreview } from "../../api/fs";
 import { reportError } from "../../state/toast";
 import { FileIcon } from "../../ui/FileIcon";
-import { basename } from "../../lib/paths";
-import { formatBytes } from "../../lib/format";
+import { basename } from "@shared/lib/paths";
+import { formatBytes } from "@shared/lib/format";
 
 export function ViewerBar({
     path,

@@ -10,7 +10,7 @@ import type { PtyContext, PtyDirectCommand } from "../state/types";
 import { applyPtyShellMetadataEvent, type PtyShellMetadataEvent } from "../api/ptyShell";
 import { ptyCall } from "../api/core";
 import type { PtyShellMetadataSnapshot } from "./ptyController";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 import { SendToAgentMenu } from "../agents/SendToAgentMenu";
 import { getState } from "../state/store";
 import { terminalName, terminalSelectionDelivery } from "./selectionDelivery";

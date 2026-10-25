@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
-import type { AgentGroup, AgentShown } from "../api/generated/wire";
+import type { AgentGroup, AgentShown } from "@shared/wire.generated";
 import { getState, setState } from "../state/store";
 import { withAgents } from "../test/agents";
 import { testPreferences } from "../test/preferences";

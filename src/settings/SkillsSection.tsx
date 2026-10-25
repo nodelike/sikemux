@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { dialogsApi } from "../api/dialogs";
 import { fsapi } from "../api/fs";
 import { skillsApi, type Skill, type SkillsOverview } from "../api/skills";

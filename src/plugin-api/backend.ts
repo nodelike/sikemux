@@ -1,5 +1,5 @@
 import { pluginsApi, type PluginFailure } from "../api/plugins";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { invalidate } from "../state/resources";
 import { resourceKind } from "./identity";
 

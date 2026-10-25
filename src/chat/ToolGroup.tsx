@@ -4,9 +4,9 @@ import { IconChevron } from "../ui/Icons";
 import { LiveSeconds } from "./LiveSeconds";
 import { Shimmer } from "./Shimmer";
 import { ToolRow } from "./ToolRow";
-import { durationLabel } from "./durationLabel";
-import { callCount, callsLabel, toolGroupSummary } from "./toolView";
-import type { ChatPart } from "./types";
+import { durationLabel } from "@shared/chat/durationLabel";
+import { callCount, callsLabel, toolGroupSummary } from "@shared/chat/toolView";
+import type { ChatPart } from "@shared/chat/types";
 
 /* A run of tool calls is worth watching while the agent is still adding to it
    and worth folding away once it has moved on, so it stays open until

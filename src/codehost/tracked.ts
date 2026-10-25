@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useResourceEnabled } from "../plugin-api/resources";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 import { useHostRepo } from "./project";
 import { codeHost } from "./registry";
 import { hostStatusR } from "./resources";

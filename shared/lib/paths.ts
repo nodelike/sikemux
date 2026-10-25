@@ -65,3 +65,9 @@ export function fileUriToPath(uri: string): string | null {
     if (url.hostname && url.hostname.toLowerCase() !== "localhost") return `//${url.hostname}${pathname}`;
     return /^\/[A-Za-z]:/.test(pathname) ? pathname.slice(1) : pathname;
 }
+
+export function extensionOf(path: string): string {
+    const name = path.toLowerCase().split(/[\\/]/).pop() ?? "";
+    const dot = name.lastIndexOf(".");
+    return dot > 0 ? name.slice(dot + 1) : "";
+}

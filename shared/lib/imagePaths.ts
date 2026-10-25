@@ -1,5 +1,4 @@
-import { extensionOf } from "../languages";
-import { fileUriToPath } from "./paths";
+import { extensionOf, fileUriToPath } from "./paths";
 
 export const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif"];
 

@@ -1,4 +1,4 @@
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 import { showImage } from "../state/imageViewer";
 
 /* Every picture in a transcript is a thumbnail of itself: it opens at the size

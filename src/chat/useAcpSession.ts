@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { errorText } from "../lib/format";
-import { acpApi, type AcpEvent, type PromptContext } from "../api/acp";
+import { errorText } from "@shared/lib/format";
+import { acpApi, type AcpEvent } from "../api/acp";
+import type { PromptContext } from "@shared/chat/promptContext";
 import type { Agent, ProviderProfile } from "../state/types";
 import * as cmd from "../state/commands";
 import { noteSignedOut } from "../agents/statusRefresh";
 import { swallow } from "../state/toast";
-import { effectiveMode as permissionModeOf } from "../agents/agentLaunch";
+import { effectiveMode as permissionModeOf } from "@shared/agents/agentLaunch";
 import { workspaceSent } from "../state/workspaceSent";
-import { applyChanges, emptyChat, fromView, withPage, type ChatRows } from "./rows";
-import type { ChatChange, ChatMessage } from "./types";
+import { applyChanges, emptyChat, fromView, withPage, type ChatRows } from "@shared/chat/rows";
+import type { ChatChange, ChatMessage } from "@shared/chat/types";
 
 /** How many turns one trip back through a long chat brings from the host. */
 const PAGE_TURNS = 20;

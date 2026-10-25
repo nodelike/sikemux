@@ -1,8 +1,8 @@
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as cmd from "../state/commands";
-import { rankBy } from "../lib/fuzzy";
-import { basename, dirname, joinPath } from "../lib/paths";
+import { rankBy } from "@shared/lib/fuzzy";
+import { basename, dirname, joinPath } from "@shared/lib/paths";
 import { useResourceEnabled } from "../state/resources";
 import { filesListR } from "../state/resources.defs";
 import { useStore } from "../state/store";

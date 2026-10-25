@@ -1,5 +1,5 @@
 import { AgentFace } from "../buddies/Buddy";
-import { isAgentType } from "../agents/catalog";
+import { isAgentType } from "@shared/agents/catalog";
 import { useStore } from "../state/store";
 import type { ChangeAuthor } from "../api/git";
 import type { Agent } from "../state/types";

@@ -1,6 +1,6 @@
 import type { FinishedTestRun } from "./TestResultsCard";
 import type { ProjectTask } from "./coreTasks";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 
 function relative(project: string, path: string): string {
     return path === project ? "." : path.startsWith(`${project}/`) ? path.slice(project.length + 1) : path;

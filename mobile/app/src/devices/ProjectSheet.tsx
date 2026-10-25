@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ProjectInfo } from '@/core/protocol';
-import { agentLabel } from '@mac/agents/catalog';
+import { agentLabel } from '@shared/agents/catalog';
 import { AgentIcon, DrawnIcon, Icon } from '@/ui/Icon';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, keyboardFor, type Palette, radius, typeFor, useColors, useStyles, useType } from '@/ui/theme';

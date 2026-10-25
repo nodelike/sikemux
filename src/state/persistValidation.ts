@@ -1,6 +1,6 @@
 import { isPluginKind } from "../plugins/kinds";
 import { isValidWorkbenchItemId, isWorkbenchItemKind } from "../workbench/itemStates";
-import { isRecord } from "../lib/guards";
+import { isRecord } from "@shared/lib/guards";
 import type { LayoutNode, SessionKind, Window } from "./types";
 import { isWindowRole } from "./windowRoles";
 

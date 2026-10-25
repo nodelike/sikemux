@@ -1,14 +1,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { acpApi, type AcpAttachment, type AcpEvent } from "../api/acp";
-import type { ChatHead } from "../api/generated/wire";
-import { IS_MACOS } from "../lib/platform";
+import type { ChatHead } from "@shared/wire.generated";
+import { IS_MACOS } from "@shared/lib/platform";
 import { dispatchPathDrop } from "../state/dropRegistry";
 import type { Agent } from "../state/types";
 import { AgentChatPane } from "./AgentChatPane";
 import { shownImage } from "../state/imageViewer";
 import { forgetPathState } from "./pathExistence";
-import type { ChatChange, ChatMessage, ChatPart, ChatView, SubagentCard, ToolCall, ToolDetail } from "./types";
+import type { ChatChange, ChatMessage, ChatPart, ChatView, SubagentCard, ToolCall, ToolDetail } from "@shared/chat/types";
 import { draftOf, draftSelection, selectDraft, typeDraft } from "../test/draft";
 
 const mocks = vi.hoisted(() => ({

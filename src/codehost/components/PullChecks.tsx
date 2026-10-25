@@ -3,7 +3,7 @@ import { elapsedMs, eventLabel, outcomeOf, OUTCOME_LABEL, tallySummary } from ".
 import { StatusMark } from "./ActionsIcon";
 import { useNow } from "../../plugin-api/hooks";
 import { useCiWatch } from "../ciWatch";
-import { formatDuration } from "../../lib/format";
+import { formatDuration } from "@shared/lib/format";
 
 interface Props {
     repo: RepoRef;

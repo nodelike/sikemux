@@ -6,7 +6,7 @@ import { projectSessionId } from "../state/selectors";
 import { useStore } from "../state/store";
 import { tasksApi } from "../tasks/coreTasks";
 import { swallow } from "../state/toast";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 
 /** Answers the tool calls the core hands to the window, and stops the harness tasks of a project or agent that closes. */
 export function HarnessBridge() {

@@ -1,4 +1,4 @@
-import { IS_WINDOWS } from "./platform";
+import { IS_WINDOWS } from "@shared/lib/platform";
 
 export function posixQuote(value: string): string {
     return `'${value.replaceAll("'", `'"'"'`)}'`;

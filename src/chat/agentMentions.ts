@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import type { PromptContext } from "../api/acp";
-import { MENTION_URI } from "./promptContext";
-import type { AgentShown } from "../api/generated/wire";
+import type { PromptContext } from "@shared/chat/promptContext";
+import { MENTION_URI } from "@shared/chat/promptContext";
+import type { AgentShown } from "@shared/wire.generated";
 import { agentIdsOf, agentWindowId, ownerSessionId } from "../state/selectors";
 import { useStore } from "../state/store";
 import type { Agent, AgentType } from "../state/types";

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getState, setState, type PendingUpdate } from "../state/store";
 import { useToasts } from "../state/toast";
-import type { UpdateStatus } from "./generated/wire";
+import type { UpdateStatus } from "@shared/wire.generated";
 import { MemoryIpcTransport, installIpcTransportForTests, resetIpcTransportForTests } from "./transport";
 import { checkForUpdate, checkForUpdateNow, installPendingUpdate, updateDownloadPercent } from "./updater";
 

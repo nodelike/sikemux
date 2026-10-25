@@ -1,4 +1,4 @@
-import { formatBytes } from '@mac/lib/format';
+import { formatBytes } from '@shared/lib/format';
 
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS } from '@/core/wire.generated';
 

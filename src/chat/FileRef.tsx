@@ -4,12 +4,12 @@ import { FileIcon, FileTypeIcon } from "../ui/FileIcon";
 import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
 import { IconCopy, IconEditor, IconFile, IconFolder, IconPanelRight } from "../ui/Icons";
 import { copyText } from "../lib/clipboard";
-import { basename, dirname, relativePath } from "../lib/paths";
-import { FILE_MANAGER_NAME } from "../lib/platform";
+import { basename, dirname, relativePath } from "@shared/lib/paths";
+import { FILE_MANAGER_NAME } from "@shared/lib/platform";
 import * as cmd from "../state/commands";
 import type { FilesPlace } from "../state/commands/shared";
 import { notify, reportError } from "../state/toast";
-import { parsePathRef, type PathRef, type PathRoots } from "./filePath";
+import { parsePathRef, type PathRef, type PathRoots } from "@shared/chat/filePath";
 import { useRemoteOrigin } from "./origin";
 import { usePathState, type PathState } from "./pathExistence";
 

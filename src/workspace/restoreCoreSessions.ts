@@ -1,6 +1,6 @@
 import { acpApi } from "../api/acp";
 import { coreSessionsApi } from "../api/coreSessions";
-import type { ChatInfo, SessionInfo } from "../api/generated/wire";
+import type { ChatInfo, SessionInfo } from "@shared/wire.generated";
 import { QUIT_AND_STOP_SHORTCUT } from "../commands/keybindings";
 import * as cmd from "../state/commands";
 import { claimedSessionIds, runningTerminalAgents, unclaimedTerminals } from "../state/coreSessionClaims";

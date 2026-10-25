@@ -10,7 +10,7 @@ import type { LayoutNode } from "../state/types";
 import { paneResourceCount } from "../terminal/paneResources";
 import { uiActivity, UI_ACTIVITY_LIMITS, type UiActivityRejection } from "./activity";
 import { installInteractionTiming, startEventLoopMonitor, startNativeUiHeartbeat } from "./instrumentation";
-import { joinPath } from "./paths";
+import { joinPath } from "@shared/lib/paths";
 import { performanceTelemetry } from "./performance";
 import { shaderFieldDiagnostics } from "./shaderField";
 

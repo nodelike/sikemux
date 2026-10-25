@@ -1,4 +1,4 @@
-export { errorText, formatAge, formatAgo, formatBytes, formatDuration } from "../lib/format";
+export { errorText, formatAge, formatAgo, formatBytes, formatDuration } from "@shared/lib/format";
 
 const timeOfDay = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 const dayAndTime = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });

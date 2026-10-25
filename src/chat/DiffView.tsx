@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { FileIcon } from "../ui/FileIcon";
-import { basename } from "../lib/paths";
-import { collapseDiff } from "./diff";
-import type { DiffLine, ToolDiff } from "./types";
+import { basename } from "@shared/lib/paths";
+import { collapseDiff } from "@shared/chat/diff";
+import type { DiffLine, ToolDiff } from "@shared/chat/types";
 import { CodeRun, splitAtMark, useDiffTokens } from "./codeHighlight";
-import type { CodeLine } from "./types";
+import type { CodeLine } from "@shared/chat/types";
 
 /* The text of one diff line: its runs, with the span that changed inside the
    one mark that shows it. A line with no colours yet is its own single run, so

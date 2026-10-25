@@ -1,6 +1,6 @@
 import { coreCall } from "./core";
 import type { CoreChange } from "./coreChanged";
-import type { AccountInfo } from "./generated/wire";
+import type { AccountInfo } from "@shared/wire.generated";
 import { openUrl } from "./system";
 import { getIpcTransport } from "./transport";
 

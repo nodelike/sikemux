@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { formatAgo } from "../lib/format";
+import { formatAgo } from "@shared/lib/format";
 import type { ResourceHandle } from "../state/resources";
 import { IconSearch } from "../ui/Icons";
 import "./controls.css";

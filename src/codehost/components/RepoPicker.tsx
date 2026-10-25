@@ -6,7 +6,7 @@ import type { RepoListing, RepoRef } from "../api";
 import { myReposR } from "../resources";
 import { useAccount, useHost } from "../registry";
 import { hostSettings, refOf, slugOf, togglePinned } from "../state";
-import { formatAgo } from "../../lib/format";
+import { formatAgo } from "@shared/lib/format";
 
 interface Entry {
     slug: string;

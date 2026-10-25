@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fsapi } from "../api/fs";
-import { localImagePath, localPath } from "../lib/imagePaths";
+import { localImagePath, localPath } from "@shared/lib/imagePaths";
 import { previewCacheBytes, readImageSource, sizedSvg, useImagePreview } from "./imagePreview";
 import { act, renderHook, waitFor } from "@testing-library/react";
 

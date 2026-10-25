@@ -1,9 +1,9 @@
 import { coreCall, coreRequest } from "../api/core";
 import type { CoreChange } from "../api/coreChanged";
-import type { ChatInfo, DeviceView, ProjectInfo, SessionInfo } from "../api/generated/wire";
+import type { ChatInfo, DeviceView, ProjectInfo, SessionInfo } from "@shared/wire.generated";
 import { invokeCommand as invoke } from "../api/invoke";
 import { getIpcTransport } from "../api/transport";
-import { agentLabel, isAgentType } from "../agents/catalog";
+import { agentLabel, isAgentType } from "@shared/agents/catalog";
 import { agentWindow } from "../state/agentWindow";
 import { makeWindow } from "../state/commands/shared";
 import { createProjectSession, createSshSession } from "../state/commands/sessions";

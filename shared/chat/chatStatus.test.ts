@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { effectiveMode as permissionModeOf } from "../agents/agentLaunch";
 import { activityText, lostConnectionText } from "./chatStatus";
-import type { Agent } from "../state/types";
 import type { PermissionAsk, ChatMessage, ChatRows } from "./types";
 
-const agent = (overrides: Partial<Agent>) => ({ id: "a1", type: "claude", ...overrides }) as Agent;
+const agent = (overrides: Parameters<typeof permissionModeOf>[0]) => ({ id: "a1", type: "claude", ...overrides });
 const request: PermissionAsk = {
     requestId: "r",
     sessionId: "s",

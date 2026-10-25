@@ -10,7 +10,7 @@ import type { SessionKind } from "../state/types";
 
 export type CommandContext = SessionKind;
 
-import type { CustomCommand, CustomCommandPlacement } from "../api/generated/wire";
+import type { CustomCommand, CustomCommandPlacement } from "@shared/wire.generated";
 
 export type { CustomCommand, CustomCommandPlacement };
 

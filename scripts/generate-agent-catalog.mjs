@@ -11,7 +11,7 @@ import { format, resolveConfig } from "prettier";
 
 const root = resolve(import.meta.dirname, "..");
 const sourcePath = resolve(root, "src/agents/catalog.json");
-const fixturePath = resolve(root, "src/test/agentCatalog.generated.json");
+const fixturePath = resolve(root, "shared/agents/catalog.generated.json");
 const cssPath = resolve(root, "src/styles/generated/agent-brands.css");
 const rustPath = resolve(
   root,

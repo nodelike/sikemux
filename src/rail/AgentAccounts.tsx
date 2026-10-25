@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentUsage } from "../api/agents";
 import { accountName, accountsOf, openAccountDialog, signOut, switchAccount } from "../agents/accounts";
 import { selectedProviderProfile } from "../agents/agentProfiles";
-import { agentLabel, type AgentType } from "../agents/catalog";
+import { agentLabel, type AgentType } from "@shared/agents/catalog";
 import { fetchResource, invalidate, peekResource, type ResourceHandle, useResource } from "../state/resources";
 import { agentAccountR, agentUsageR } from "../state/resources.defs";
 import { useStore } from "../state/store";

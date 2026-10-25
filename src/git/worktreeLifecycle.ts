@@ -1,4 +1,4 @@
-import { isPathWithin } from "../lib/paths";
+import { isPathWithin } from "@shared/lib/paths";
 import type { StoreState } from "../state/store";
 
 export function worktreeHasLiveOwners(state: Pick<StoreState, "sessions" | "agents">, path: string, exceptAgentId?: string): boolean {

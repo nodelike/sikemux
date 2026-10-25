@@ -2,7 +2,7 @@ import { StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { fsapi } from "../api/fs";
 import { uriToPath } from "../api/lsp";
-import { basename } from "../lib/paths";
+import { basename } from "@shared/lib/paths";
 import { requestOpenFile } from "../state/commands";
 import { swallow } from "../state/toast";
 

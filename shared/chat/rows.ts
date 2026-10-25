@@ -1,4 +1,4 @@
-import type { ChatChange, ChatHead, ChatMessage, ChatPage, ChatPart, ChatView, PartTree } from "../api/generated/wire";
+import type { ChatChange, ChatHead, ChatMessage, ChatPage, ChatPart, ChatView, PartTree } from "../wire.generated";
 import { applyPatch } from "../markdown/patch";
 import type { MdChange, MdElement } from "../markdown/types";
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useMouseActive } from "../hooks/useMouseActive";
-import { rankBy } from "../lib/fuzzy";
+import { rankBy } from "@shared/lib/fuzzy";
 import { leavingOverlay } from "../lib/motion";
 import * as cmd from "../state/commands";
 import { DEFAULT_THEME_ID, type ThemeSummary } from "../themes";

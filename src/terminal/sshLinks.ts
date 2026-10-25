@@ -1,6 +1,6 @@
 import { coreSessionsApi } from "../api/coreSessions";
-import { externalValue, useExternalValue } from "../lib/externalValue";
-import type { SshLink } from "../api/generated/wire";
+import { externalValue, useExternalValue } from "@shared/lib/externalValue";
+import type { SshLink } from "@shared/wire.generated";
 import { getIpcTransport } from "../api/transport";
 import { collectPanes } from "../state/layout";
 import { useStore, type StoreState } from "../state/store";

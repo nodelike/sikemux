@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { BoardAuto, SettingsChanges } from "../agents/agentBoard";
+import type { BoardAuto, SettingsChanges } from "@shared/agents/agentBoard";
 import { agentBoardApi } from "../api/agentBoard";
 import { LaunchPicker, type LaunchChoice } from "../chat/LaunchPicker";
 import { launcherId } from "../remote/workspace";

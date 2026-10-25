@@ -6,12 +6,12 @@ import { getClerkInstance } from '@clerk/expo';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { agentLabel } from '@mac/agents/catalog';
-import { activityText } from '@mac/chat/chatStatus';
-import { activeToolLabel } from '@mac/chat/toolLabels';
-import type { ChatMessage } from '@mac/chat/types';
-import { parseShareLink, type ShareLink } from '@mac/share/link';
-import { sharedChatTitle, ShareSession, type ShareSnapshot } from '@mac/share/session';
+import { agentLabel } from '@shared/agents/catalog';
+import { activityText } from '@shared/chat/chatStatus';
+import { activeToolLabel } from '@shared/chat/toolLabels';
+import type { ChatMessage } from '@shared/chat/types';
+import { parseShareLink, type ShareLink } from '@shared/share/link';
+import { sharedChatTitle, ShareSession, type ShareSnapshot } from '@shared/share/session';
 import { apiUrl } from '@/account/config';
 import { Folds, FoldsContext, rowFold } from '@/chat/folds';
 import { SharedFilesContext } from '@/chat/hostFiles';

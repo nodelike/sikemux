@@ -3,8 +3,8 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import type { PendingHost } from '@protocol';
 
-import { formatAgo } from '@mac/lib/format';
-import { platformName } from '@mac/remote/access';
+import { formatAgo } from '@shared/lib/format';
+import { platformName } from '@shared/remote/access';
 import { problem as problemOf } from '@/core/problem';
 import { api } from '@/account/api';
 import { ConfirmItsYou, ReverifyCancelled, useRecentSignIn } from '@/account/ConfirmItsYou';

@@ -1,4 +1,4 @@
-import type { DeviceAccess } from "../api/remote";
+import type { DeviceAccess } from "../wire.generated";
 
 export const ACCESS_OPTIONS: readonly { value: DeviceAccess; label: string; detail: string }[] = [
     { value: "full", label: "Full control", detail: "Start chats, answer agents, type in terminals" },

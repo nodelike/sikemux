@@ -1,4 +1,6 @@
-import { accountAgentTypes, agentBrand, agentLabel, type AgentType } from "../../agents/catalog";
+import type { AgentPermissionMode } from "@shared/agents/agentLaunch";
+import { accountAgentTypes, agentBrand, agentLabel, type AgentType } from "@shared/agents/catalog";
+import type { AgentBuddy } from "@shared/buddies/shared";
 import type { PluginKind } from "../../plugins/kinds";
 import type { SpaceIcon } from "../projectSpaces";
 
@@ -61,8 +63,7 @@ export interface Window {
 
 export type { AgentType };
 
-/** Whether an agent asks before it acts (the provider's own approvals and sandbox) or acts without asking. */
-export type AgentPermissionMode = "workspace-write" | "bypass";
+export type { AgentPermissionMode };
 
 /** Provider-neutral reasoning levels; unsupported levels are normalized per CLI. */
 export const AGENT_EFFORTS = ["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
@@ -144,12 +145,7 @@ export interface Agent {
     buddy?: AgentBuddy;
 }
 
-export interface AgentBuddy {
-    /** A slot in the pack's palette, given out so open agents rarely share one. */
-    color: number;
-    pack?: string;
-    shape?: string;
-}
+export type { AgentBuddy };
 
 export interface AgentWorktree {
     /** The main checkout, which git commands about the worktree run against. */
@@ -246,7 +242,7 @@ export interface RecentEntry {
     cwd: string;
 }
 
-export type { ProjectRoot } from "../../api/generated/wire";
+export type { ProjectRoot } from "@shared/wire.generated";
 
 export interface Rect {
     x: number;

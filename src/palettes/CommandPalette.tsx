@@ -10,7 +10,7 @@ import {
     type StandaloneCommand,
 } from "../commands/registry";
 import { useMouseActive } from "../hooks/useMouseActive";
-import { rankBy } from "../lib/fuzzy";
+import { rankBy } from "@shared/lib/fuzzy";
 import type { KeybindingOverrides } from "../commands/keybindings";
 import { IconSearch } from "../ui/Icons";
 import { runMeasuredAction } from "../lib/instrumentation";

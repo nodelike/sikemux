@@ -1,12 +1,12 @@
-import { externalValue, useExternalValue } from "../lib/externalValue";
+import { externalValue, useExternalValue } from "@shared/lib/externalValue";
 import { agentApi, type AgentAccountStatus } from "../api/agents";
 import { acpApi, type AcpAccount } from "../api/acp";
 import { invalidate } from "../state/resources";
 import { reportError, swallow } from "../state/toast";
-import { hasAccounts, type AgentType } from "./catalog";
+import { hasAccounts, type AgentType } from "@shared/agents/catalog";
 import { adoptAgentAccounts } from "../state/persist";
 import { defaultProviderProfiles, type Agent, type ProviderProfile } from "../state/types";
-import { errorText } from "../lib/format";
+import { errorText } from "@shared/lib/format";
 
 /* An account is a provider profile: its directory holds one sign-in. */
 

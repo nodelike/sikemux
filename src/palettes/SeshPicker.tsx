@@ -1,8 +1,8 @@
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SessionKind } from "../state/types";
-import { fuzzyScore, isSubstringMatch } from "../lib/fuzzy";
-import { prettyPath } from "../lib/paths";
+import { fuzzyScore, isSubstringMatch } from "@shared/lib/fuzzy";
+import { prettyPath } from "@shared/lib/paths";
 import { projectChoices, projectLabel } from "../projects/projectChoices";
 import { useShortcutLabel } from "../commands/useShortcutLabel";
 import { settingsApi } from "../api/settings";

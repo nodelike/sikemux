@@ -1,7 +1,7 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 
-import { outlivesFold } from '@mac/chat/transcript';
-import type { ChatMessage } from '@mac/chat/types';
+import { outlivesFold } from '@shared/chat/transcript';
+import type { ChatMessage } from '@shared/chat/types';
 
 /**
  * Which tool groups and rows in a transcript the person opened or closed, kept outside the rows

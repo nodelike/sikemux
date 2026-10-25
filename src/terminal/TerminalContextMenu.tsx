@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { IS_MACOS } from "../lib/platform";
+import { IS_MACOS } from "@shared/lib/platform";
 import { IconCopy, IconDiscard, IconMessage, IconSearch, IconText } from "../ui/Icons";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import type { TerminalController } from "./useTerminal";

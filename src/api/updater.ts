@@ -1,10 +1,10 @@
 import { coreCall } from "./core";
 import { onCoreChanged } from "./coreChanged";
-import type { UpdateState, UpdateStatus } from "./generated/wire";
+import type { UpdateState, UpdateStatus } from "@shared/wire.generated";
 import { invokeCommand as invoke } from "./invoke";
 import { getState, setState, type PendingUpdate, type UpdateCheckOutcome, type UpdateOperationState } from "../state/store";
 import { notify, reportError, swallow } from "../state/toast";
-import { errorCategory, errorText, formatBytes } from "../lib/format";
+import { errorCategory, errorText, formatBytes } from "@shared/lib/format";
 
 export const RELEASES_URL = "https://github.com/nodelike/sikemux/releases";
 // The update feed only lists macOS builds, so Linux installs update by downloading the next release.

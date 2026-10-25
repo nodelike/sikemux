@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ConnectionLike } from '@sikemux/native';
 
-import type { QuestionAnswer } from '@mac/api/agentQuestions';
+import type { QuestionAnswer } from '@shared/agents/questions';
 import type { AgentQuestion } from '@/core/protocol';
 
 import { useHostCall } from '@/core/hostCalls';

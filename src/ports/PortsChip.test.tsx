@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { IS_MACOS } from "../lib/platform";
+import { IS_MACOS } from "@shared/lib/platform";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { coreCall } from "../api/core";
 import { getState, setState } from "../state/store";

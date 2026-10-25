@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import { ChatFindBar } from "./ChatFindBar";
 import { useChatFind } from "./useChatFind";
-import type { ChatMessage } from "./types";
+import type { ChatMessage } from "@shared/chat/types";
 import "../styles/chatFind.css";
 
 /** Find in a chat, loaded the first time it is asked for. `request` changes each time it is, and puts the caret back in the query. */

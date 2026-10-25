@@ -1,6 +1,6 @@
 import { coreCall } from "../api/core";
 import { onCoreChanged } from "../api/coreChanged";
-import { DEFAULT_PREFERENCES, type CustomCommand, type Preferences, type ProjectRoot, type UpdateChannel } from "../api/generated/wire";
+import { DEFAULT_PREFERENCES, type CustomCommand, type Preferences, type ProjectRoot, type UpdateChannel } from "@shared/wire.generated";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { swallow } from "./toast";
 
