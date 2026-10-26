@@ -27,7 +27,7 @@ use crate::protocol::ChatLaunch;
 use super::rebind::Outcome;
 use super::{Chat, ChatCommand};
 
-pub(crate) use process::{kill_group, AgentRecord, Released};
+pub(crate) use process::{kill_group, AgentRecord, Pipe, Released};
 pub(crate) use session::{Adopted, Begin, Handed, SessionState};
 
 /// Stops an agent that was let go of but that no core will take up.

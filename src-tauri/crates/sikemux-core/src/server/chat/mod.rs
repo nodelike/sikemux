@@ -1997,7 +1997,7 @@ fn carry_on(
 pub(crate) fn adopt(
     core: &Arc<Core>,
     live: LiveChat,
-    pipes: [std::os::fd::OwnedFd; 3],
+    pipes: [native::Pipe; 3],
     subscribers: &[Arc<ClientConn>],
 ) -> Result<(), String> {
     validate(&live.current).map_err(|error| error.to_string())?;

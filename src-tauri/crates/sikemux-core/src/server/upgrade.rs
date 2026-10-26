@@ -2,7 +2,6 @@
 //! with a newer binary in the same process, and stopping everything.
 
 use std::io::Read;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
@@ -20,7 +19,9 @@ use crate::protocol::encode_frozen;
 use super::access::{Peer, APP_ONLY};
 use super::chat::{self, HandOver};
 use super::connection::{blocking, FrameWriter};
-use super::{handover, session, Core};
+#[cfg(unix)]
+use super::handover;
+use super::{session, Core};
 
 /// What anything that asks the core for work hears while it hands itself over.
 pub(crate) const UPDATING: &str =
@@ -169,7 +170,7 @@ fn check_binary(binary: &Path, own: &crate::protocol::BuildIdentity) -> Result<(
     }
     let metadata = std::fs::metadata(binary)
         .map_err(|error| format!("{} cannot be read: {error}", binary.display()))?;
-    if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+    if !metadata.is_file() || !sikemux_process::os::is_executable(binary) {
         return Err(format!("{} is not an executable file", binary.display()));
     }
     let info = upgrade_info(binary)?;
@@ -260,7 +261,13 @@ async fn hand_over(core: &Arc<Core>, binary: PathBuf) -> String {
     let replaced = blocking(move || {
         let mut chats = chats;
         replacing.workspaces.flush();
+        #[cfg(unix)]
         let error = handover::replace_process(&replacing, &binary, &mut chats);
+        #[cfg(windows)]
+        let error = {
+            let _ = &binary;
+            std::io::Error::other("Windows replaces a core by stopping it and starting the new one")
+        };
         Ok((error, chats))
     })
     .await;

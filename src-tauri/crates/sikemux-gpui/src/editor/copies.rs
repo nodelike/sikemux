@@ -73,13 +73,11 @@ fn clear_abandoned() {
         let Some(pid) = name
             .to_str()
             .and_then(|name| name.strip_prefix(FOLDER))
-            .and_then(|pid| pid.parse::<libc::pid_t>().ok())
+            .and_then(|pid| pid.parse::<u32>().ok())
         else {
             continue;
         };
-        let running = unsafe { libc::kill(pid, 0) } == 0
-            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-        if !running {
+        if !sikemux_process::os::process_exists(pid) {
             let _ = fs::remove_dir_all(entry.path());
         }
     }

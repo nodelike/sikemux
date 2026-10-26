@@ -281,6 +281,17 @@ impl Tab {
         match self.0 {}
     }
 
+    pub fn run(&self, _act: impl FnOnce(&crate::unsupported::PageView) + Send + 'static) {
+        match self.0 {}
+    }
+
+    pub async fn ask<T: Send + 'static>(
+        &self,
+        _act: impl FnOnce(&crate::unsupported::PageView) -> T + Send + 'static,
+    ) -> Result<T, String> {
+        match self.0 {}
+    }
+
     pub fn show(&self) {
         match self.0 {}
     }

@@ -522,6 +522,7 @@ fn conflict(message: String) -> Error {
     format!("file-conflict: {message}").into()
 }
 
+#[cfg(unix)]
 fn stamp(meta: &fs::Metadata) -> String {
     use std::os::unix::fs::MetadataExt;
     format!(
@@ -533,6 +534,16 @@ fn stamp(meta: &fs::Metadata) -> String {
     )
 }
 
+#[cfg(windows)]
+fn stamp(meta: &fs::Metadata) -> String {
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .unwrap_or_default();
+    format!("{}-{}.{}", meta.len(), modified.as_secs(), modified.subsec_nanos())
+}
+
 fn content_version(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
@@ -540,11 +551,11 @@ fn content_version(bytes: &[u8]) -> String {
 /// Opening without blocking turns a named pipe away instead of hanging until
 /// something writes to it.
 fn open_regular(path: &Path) -> Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(path)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
+    let file = options.open(path)?;
     if !file.metadata()?.is_file() {
         return Err(format!("fs: {} is not a regular file", path.display()).into());
     }
@@ -805,7 +816,6 @@ struct RenameParams {
 
 /// Moves an entry, never over one already at `to`.
 fn rename(params: RenameParams) -> Result<()> {
-    use rustix::fs::{renameat_with, RenameFlags, CWD};
     let from = absolute(&params.from)?;
     let to = absolute(&params.to)?;
     if fs::symlink_metadata(from).is_err() {
@@ -814,8 +824,18 @@ fn rename(params: RenameParams) -> Result<()> {
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent)?;
     }
-    renameat_with(CWD, from, CWD, to, RenameFlags::NOREPLACE).map_err(|error| {
-        let error = std::io::Error::from(error);
+    #[cfg(unix)]
+    let moved = rustix::fs::renameat_with(
+        rustix::fs::CWD,
+        from,
+        rustix::fs::CWD,
+        to,
+        rustix::fs::RenameFlags::NOREPLACE,
+    )
+    .map_err(std::io::Error::from);
+    #[cfg(windows)]
+    let moved = sikemux_process::os::rename_new(from, to);
+    moved.map_err(|error| {
         match error.kind() {
             std::io::ErrorKind::AlreadyExists => {
                 Error::from(format!("fs: destination already exists: {}", to.display()))

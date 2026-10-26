@@ -68,7 +68,6 @@ fn run_inner() -> Result<i32, String> {
         }
         "tool" => return execute_tool(&args[1..]),
         "doctor" => return doctor(),
-        #[cfg(unix)]
         _ if crate::headless::COMMANDS.contains(&command) => {
             return Ok(crate::headless::run(command, &args[1..]));
         }

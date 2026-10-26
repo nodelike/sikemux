@@ -8,6 +8,7 @@
 
 use std::ffi::OsString;
 use std::io::Read;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -71,7 +72,7 @@ fn link(folder: &Path, name: &str) -> std::io::Result<()> {
     }
     let fresh = folder.join(format!("{name}.{}", std::process::id()));
     let _ = std::fs::remove_file(&fresh);
-    std::os::unix::fs::symlink(&binary, &fresh)?;
+    sikemux_process::os::symlink(&binary, &fresh)?;
     std::fs::rename(&fresh, &path)
 }
 
@@ -263,7 +264,14 @@ fn run(args: Vec<OsString>) -> i32 {
         Some("rebase") => footer::rewrite_notes(&mut command),
         _ => {}
     }
-    let error = command.args(&args).exec();
+    command.args(&args);
+    #[cfg(unix)]
+    let error = command.exec();
+    #[cfg(windows)]
+    let error = match command.status() {
+        Ok(status) => return status.code().unwrap_or(1),
+        Err(error) => error,
+    };
     eprintln!("git: {}: {error}", git.display());
     126
 }

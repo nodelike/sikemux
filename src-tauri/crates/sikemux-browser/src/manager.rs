@@ -19,6 +19,8 @@ use crate::linux_page as page;
 use crate::macos;
 #[cfg(target_os = "macos")]
 use crate::macos as page;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+use crate::unsupported as page;
 use crate::recording;
 use crate::{
     address, burst, documents, downloads, favicon, history, local_files, viewport, BrowserBounds,

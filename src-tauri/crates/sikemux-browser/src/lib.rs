@@ -32,6 +32,8 @@ mod preview;
 mod recording;
 mod tab;
 pub mod tools;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+mod unsupported;
 pub mod viewport;
 
 use std::path::{Path, PathBuf};

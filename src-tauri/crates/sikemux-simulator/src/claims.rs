@@ -155,6 +155,13 @@ fn process_name(pid: u32) -> String {
     String::new()
 }
 
+/// The iOS Simulator only runs on a Mac, so no claim on another system is held by anyone.
+#[cfg(windows)]
+fn running(_pid: u32, _process: &str) -> bool {
+    false
+}
+
+#[cfg(unix)]
 fn running(pid: u32, process: &str) -> bool {
     let Ok(pid_t) = libc::pid_t::try_from(pid) else {
         return false;

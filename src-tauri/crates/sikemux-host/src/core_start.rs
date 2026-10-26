@@ -128,10 +128,6 @@ pub async fn upgrade(
 pub fn stop(socket: &Path, pid: u32) {
     let stopped = frozen_request(socket, &FrozenRequest::StopEverything, STOP_TIMEOUT);
     if !matches!(stopped, Ok(FrozenReply::Accepted)) && pid > 1 {
-        // SAFETY: kill only takes integers; the pid is a single process above
-        // init, so this never signals a group or every process.
-        unsafe {
-            libc::kill(pid as libc::pid_t, libc::SIGTERM);
-        }
+        let _ = sikemux_process::os::terminate(pid);
     }
 }

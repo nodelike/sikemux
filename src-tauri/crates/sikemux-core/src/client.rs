@@ -3,9 +3,9 @@
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::net::UnixStream as StdUnixStream;
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 #[cfg(not(target_os = "macos"))]
@@ -13,6 +13,7 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 pub use sikemux_client::client::*;
+use sikemux_client::local::LocalStream;
 
 use crate::frozen::{FrozenReply, FrozenRequest};
 use crate::protocol::{
@@ -31,7 +32,7 @@ pub enum ProbeError {
 }
 
 pub fn probe(socket: &Path, timeout: Duration) -> Result<CoreHello, ProbeError> {
-    let mut stream = StdUnixStream::connect(socket).map_err(ProbeError::NotRunning)?;
+    let mut stream = LocalStream::connect(socket).map_err(ProbeError::NotRunning)?;
     let unanswered = |error: &dyn std::fmt::Display| ProbeError::Unanswered(error.to_string());
     stream
         .set_read_timeout(Some(timeout))
@@ -65,7 +66,7 @@ pub fn frozen_request(
     request: &FrozenRequest,
     timeout: Duration,
 ) -> Result<FrozenReply, ClientError> {
-    let mut stream = StdUnixStream::connect(socket)?;
+    let mut stream = LocalStream::connect(socket)?;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
     stream.write_all(&encode_frozen(request)?)?;
@@ -148,24 +149,47 @@ fn wait_for_new_build(
 
 /// Starts `<binary> core --socket <socket> <args>` in its own session,
 /// detached from the caller, with its output appended to `log`.
-fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -> io::Result<()> {
-    if let Some(folder) = log.parent() {
+fn start_detached(
+    socket: &Path,
+    binary: &Path,
+    log_path: &Path,
+    args: &[OsString],
+) -> io::Result<()> {
+    if let Some(folder) = log_path.parent() {
         std::fs::create_dir_all(folder)?;
     }
-    let log = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(log)?;
+    let mut log = OpenOptions::new();
+    log.create(true).append(true);
+    #[cfg(unix)]
+    log.mode(0o600);
+    let log = log.open(log_path)?;
     let mut command = sikemux_process::user_environment::command(binary);
     command.arg("core").arg("--socket").arg(socket).args(args);
     #[cfg(target_os = "macos")]
     return spawn_responsible(&command, &log);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     return spawn_double_forked(command, log);
+    #[cfg(windows)]
+    return spawn_detached_process(command, log);
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn spawn_detached_process(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
+    use std::os::windows::process::CommandExt;
+
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log)
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    command.spawn()?;
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
 fn spawn_double_forked(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
     command
         .stdin(Stdio::null())

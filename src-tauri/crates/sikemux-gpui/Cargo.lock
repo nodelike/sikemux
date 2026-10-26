@@ -8943,6 +8943,7 @@ dependencies = [
  "tokio-rustls",
  "url",
  "webpki-roots",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8998,6 +8999,7 @@ dependencies = [
  "url",
  "uuid",
  "webpki-roots",
+ "windows-sys 0.61.2",
  "workspace-hack",
  "zstd",
 ]
@@ -9064,6 +9066,7 @@ dependencies = [
  "textmate-highlight",
  "tokio",
  "url",
+ "windows-sys 0.61.2",
  "zbus",
 ]
 
@@ -9158,6 +9161,7 @@ name = "sikemux-process"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 

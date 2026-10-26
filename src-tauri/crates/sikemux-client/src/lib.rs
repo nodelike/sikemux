@@ -7,4 +7,5 @@ pub mod accounts;
 pub mod client;
 pub mod device;
 pub mod join;
+pub mod local;
 pub mod remote;

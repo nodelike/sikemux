@@ -3,7 +3,6 @@
 //! and `sikemux core` runs the background process that owns terminals. Run as
 //! `git`, it is the git agents find first on their PATH.
 
-#[cfg(unix)]
 mod core_mode;
 mod tools_mcp;
 
@@ -14,11 +13,9 @@ fn main() {
     let core = first.as_ref().is_some_and(|arg| arg == "core");
     sikemux_host::panic_reports::record_panics(if core { "core" } else { "cli" });
     sikemux_keychain::settle(core);
-    #[cfg(unix)]
     if let Some(code) = sikemux_core::git_guard::shim::run_if_git() {
         std::process::exit(code);
     }
-    #[cfg(unix)]
     if core {
         std::process::exit(core_mode::run());
     }

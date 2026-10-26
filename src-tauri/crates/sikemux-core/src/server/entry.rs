@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -6,8 +7,12 @@ use std::time::Duration;
 use crate::frozen::{UpgradeInfo, UPGRADE_INFO_ARG};
 use crate::protocol::{BuildIdentity, SessionId};
 
+#[cfg(unix)]
 use super::handover::{self, Recovery};
 use super::{ServerConfig, ServerError, DEFAULT_IDLE_EXIT, NEVER_IDLE_EXIT};
+
+#[cfg(windows)]
+type RawFd = i32;
 
 const USAGE: &str = "usage: sikemux core [--socket <path>] [--cli-endpoint <path>] [--data-dir <path>] [--idle-exit-secs N | --no-idle-exit] | --upgrade-info";
 
@@ -121,6 +126,12 @@ pub fn main(args: impl Iterator<Item = String>, build: BuildIdentity) -> i32 {
             }
         };
     }
+    #[cfg(windows)]
+    if args.resume.is_some() {
+        eprintln!("sikemux core: a core cannot be handed over to another on Windows");
+        return 2;
+    }
+    #[cfg(unix)]
     if let Some(directory) = args.resume {
         let mut recovery = Recovery {
             directory,

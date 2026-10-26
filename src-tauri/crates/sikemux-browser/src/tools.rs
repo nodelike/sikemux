@@ -1384,6 +1384,76 @@ mod native {
         }
     }
 
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    mod platform {
+        use super::Mouse;
+        use crate::Tab;
+
+        const UNAVAILABLE: &str = "browser tabs need macOS or Linux";
+
+        pub async fn mouse(
+            _view: &Tab,
+            _kind: Mouse,
+            _x: f64,
+            _y: f64,
+            _clicks: isize,
+        ) -> Result<(), String> {
+            Err(UNAVAILABLE.into())
+        }
+
+        pub async fn key(_view: &Tab, _name: &str) -> Result<(), String> {
+            Err(UNAVAILABLE.into())
+        }
+
+        pub async fn insert_text(_view: &Tab, _text: &str) -> Result<(), String> {
+            Err(UNAVAILABLE.into())
+        }
+
+        pub async fn start_recording(
+            _manager: &crate::manager::BrowserManager,
+            _agent_id: &str,
+            _path: Option<String>,
+        ) -> Result<serde_json::Value, String> {
+            Err(UNAVAILABLE.into())
+        }
+
+        pub async fn stop_recording(
+            _manager: &crate::manager::BrowserManager,
+            _agent_id: &str,
+        ) -> Result<serde_json::Value, String> {
+            Err(UNAVAILABLE.into())
+        }
+
+        pub async fn run_script(
+            _view: &Tab,
+            _body: &str,
+            _limit: std::time::Duration,
+        ) -> Result<String, String> {
+            Err(UNAVAILABLE.into())
+        }
+
+        pub async fn probe_responsiveness(_view: &Tab) -> Result<(), String> {
+            Err(UNAVAILABLE.into())
+        }
+
+        pub async fn reload_from_origin(_view: &Tab) -> Result<(), String> {
+            Err(UNAVAILABLE.into())
+        }
+
+        pub async fn run_helper(_view: &Tab, _body: &str) -> Result<String, String> {
+            Err(UNAVAILABLE.into())
+        }
+
+        pub async fn answer_dialog(
+            _view: &Tab,
+            _tab_id: &str,
+            _accept: bool,
+            _text: Option<String>,
+        ) -> Result<(), String> {
+            Err(UNAVAILABLE.into())
+        }
+    }
+
     pub async fn mouse(
         view: &Tab,
         kind: Mouse,
@@ -1454,6 +1524,8 @@ mod native {
 type PageView = objc2_web_kit::WKWebView;
 #[cfg(target_os = "linux")]
 type PageView = webkit2gtk::WebView;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+type PageView = crate::unsupported::PageView;
 
 /// Runs `act` against the tab's native view on the thread that owns it.
 async fn on_tab<T: Send + 'static>(
@@ -1697,6 +1769,8 @@ async fn screenshot(
     use crate::linux_page as page;
     #[cfg(target_os = "macos")]
     use crate::macos as page;
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    use crate::unsupported as page;
 
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let sender = std::sync::Mutex::new(Some(sender));

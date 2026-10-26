@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::Metadata;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use sikemux_process::os::{DirBuilderMode, OpenOptionsMode};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 

@@ -3,7 +3,9 @@
 //! a core that replaces this one in the same process to take up.
 
 use std::collections::VecDeque;
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(unix)]
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -13,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::unix::pipe;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
@@ -28,11 +29,31 @@ const STDERR_TAIL: usize = 16 * 1024;
 const REAP_POLL: Duration = Duration::from_secs(1);
 const READ_CHUNK: usize = 64 * 1024;
 
+/// A pipe to an agent, let go of whole when a core hands its agents to the next one. Windows
+/// has no such hand-over, so there the pipes are only ever held, never passed on.
+#[cfg(unix)]
+pub(crate) type Pipe = std::os::fd::OwnedFd;
+#[cfg(unix)]
+type RawPipe = std::os::fd::RawFd;
+#[cfg(windows)]
+pub(crate) type Pipe = std::os::windows::io::OwnedHandle;
+#[cfg(windows)]
+type RawPipe = i32;
+
+#[cfg(unix)]
+type PipeSender = tokio::net::unix::pipe::Sender;
+#[cfg(unix)]
+type PipeReceiver = tokio::net::unix::pipe::Receiver;
+#[cfg(windows)]
+type PipeSender = tokio::process::ChildStdin;
+#[cfg(windows)]
+type PipeReceiver = Box<dyn tokio::io::AsyncRead + Send + Unpin>;
+
 enum Input {
     Line(String),
     /// Stop writing once everything before this is written, and give the
     /// pipe back. None when the agent stopped reading.
-    Release(oneshot::Sender<Option<pipe::Sender>>),
+    Release(oneshot::Sender<Option<PipeSender>>),
 }
 
 /// Writes one message per line to the agent. Clones share the same pipe.
@@ -57,9 +78,9 @@ struct Reaping {
 /// with what had been read from them but not yet used.
 pub(crate) struct Released {
     pub pid: u32,
-    pub stdin: OwnedFd,
-    pub stdout: OwnedFd,
-    pub stderr: OwnedFd,
+    pub stdin: Pipe,
+    pub stdout: Pipe,
+    pub stderr: Pipe,
     pub stderr_tail: Vec<u8>,
     pub unread: Vec<u8>,
 }
@@ -70,14 +91,27 @@ pub(crate) struct Released {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AgentRecord {
     pub pid: u32,
-    pub stdin: RawFd,
-    pub stdout: RawFd,
-    pub stderr: RawFd,
+    pub stdin: RawPipe,
+    pub stdout: RawPipe,
+    pub stderr: RawPipe,
     pub stderr_tail: Vec<u8>,
     pub unread: Vec<u8>,
 }
 
 impl Released {
+    #[cfg(windows)]
+    pub fn record(&self) -> AgentRecord {
+        AgentRecord {
+            pid: self.pid,
+            stdin: -1,
+            stdout: -1,
+            stderr: -1,
+            stderr_tail: self.stderr_tail.clone(),
+            unread: self.unread.clone(),
+        }
+    }
+
+    #[cfg(unix)]
     pub fn record(&self) -> AgentRecord {
         AgentRecord {
             pid: self.pid,
@@ -89,7 +123,8 @@ impl Released {
         }
     }
 
-    pub fn fds(&self) -> [RawFd; 3] {
+    #[cfg(unix)]
+    pub fn fds(&self) -> [RawPipe; 3] {
         [
             self.stdin.as_raw_fd(),
             self.stdout.as_raw_fd(),
@@ -107,7 +142,7 @@ pub(crate) struct Process {
     reaping: Arc<Mutex<Reaping>>,
     input: mpsc::UnboundedSender<Input>,
     stop_stderr: Option<oneshot::Sender<()>>,
-    stderr_task: JoinHandle<Option<pipe::Receiver>>,
+    stderr_task: JoinHandle<Option<PipeReceiver>>,
     released: bool,
 }
 
@@ -139,36 +174,84 @@ impl Process {
             ))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .process_group(0);
-        let mut child = command.spawn().map_err(|error| {
-            format!("{} could not be started: {error}", launch.program.display())
-        })?;
-        let pid = child.id();
-        let pipes = (|| {
-            let stdin = OwnedFd::from(child.stdin.take()?);
-            let stdout = OwnedFd::from(child.stdout.take()?);
-            let stderr = OwnedFd::from(child.stderr.take()?);
-            Some((stdin, stdout, stderr))
-        })();
-        let Some((stdin, stdout, stderr)) = pipes else {
-            kill_and_reap(pid);
-            return Err("The agent has no input or output".into());
-        };
-        crate::server::callers::started(pid, &launch.agent_id);
-        Self::take_up(pid, stdin, stdout, stderr, Vec::new(), Vec::new())
-            .inspect_err(|_| kill_and_reap(pid))
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            command.process_group(0);
+            let mut child = command.spawn().map_err(|error| {
+                format!("{} could not be started: {error}", launch.program.display())
+            })?;
+            let pid = child.id();
+            let pipes = (|| {
+                let stdin = Pipe::from(child.stdin.take()?);
+                let stdout = Pipe::from(child.stdout.take()?);
+                let stderr = Pipe::from(child.stderr.take()?);
+                Some((stdin, stdout, stderr))
+            })();
+            let Some((stdin, stdout, stderr)) = pipes else {
+                kill_and_reap(pid);
+                return Err("The agent has no input or output".into());
+            };
+            crate::server::callers::started(pid, &launch.agent_id);
+            Self::take_up(pid, stdin, stdout, stderr, Vec::new(), Vec::new())
+                .inspect_err(|_| kill_and_reap(pid))
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+            let mut child = tokio::process::Command::from(command)
+                .spawn()
+                .map_err(|error| {
+                    format!("{} could not be started: {error}", launch.program.display())
+                })?;
+            let pid = child.id().unwrap_or_default();
+            let (Some(stdin), Some(stdout), Some(stderr)) =
+                (child.stdin.take(), child.stdout.take(), child.stderr.take())
+            else {
+                kill_and_reap(pid);
+                return Err("The agent has no input or output".into());
+            };
+            crate::server::callers::started(pid, &launch.agent_id);
+            let (exited, exit) = watch::channel(None);
+            tokio::spawn(wait_for_exit(child, exited));
+            Ok(Self::assemble(
+                pid,
+                stdin,
+                Box::new(stdout),
+                Box::new(stderr),
+                Vec::new(),
+                Vec::new(),
+                Arc::new(Mutex::new(Reaping { released: false })),
+                exit,
+            ))
+        }
     }
 
     /// Takes up an agent an earlier core released, reading on where it
     /// stopped. The agent is a child of this process still, so its exit is
     /// collected as one.
+    #[cfg(windows)]
+    pub fn adopt(
+        _record: &AgentRecord,
+        _agent_id: &str,
+        _stdin: Pipe,
+        _stdout: Pipe,
+        _stderr: Pipe,
+    ) -> Result<(Self, Writer, Lines), String> {
+        Err("Windows keeps an agent with the core that started it".into())
+    }
+
+    #[cfg(unix)]
     pub fn adopt(
         record: &AgentRecord,
         agent_id: &str,
-        stdin: OwnedFd,
-        stdout: OwnedFd,
-        stderr: OwnedFd,
+        stdin: Pipe,
+        stdout: Pipe,
+        stderr: Pipe,
     ) -> Result<(Self, Writer, Lines), String> {
         crate::server::callers::started(record.pid, agent_id);
         Self::take_up(
@@ -181,20 +264,46 @@ impl Process {
         )
     }
 
+    #[cfg(unix)]
     fn take_up(
         pid: u32,
-        stdin: OwnedFd,
-        stdout: OwnedFd,
-        stderr: OwnedFd,
+        stdin: Pipe,
+        stdout: Pipe,
+        stderr: Pipe,
         stderr_tail: Vec<u8>,
         unread: Vec<u8>,
     ) -> Result<(Self, Writer, Lines), String> {
         let pipe_error =
             |error: std::io::Error| format!("The agent's pipes cannot be read: {error}");
-        let stdin = pipe::Sender::from_owned_fd(stdin).map_err(pipe_error)?;
-        let stdout = pipe::Receiver::from_owned_fd(stdout).map_err(pipe_error)?;
-        let stderr = pipe::Receiver::from_owned_fd(stderr).map_err(pipe_error)?;
+        let stdin = PipeSender::from_owned_fd(stdin).map_err(pipe_error)?;
+        let stdout = PipeReceiver::from_owned_fd(stdout).map_err(pipe_error)?;
+        let stderr = PipeReceiver::from_owned_fd(stderr).map_err(pipe_error)?;
+        let reaping = Arc::new(Mutex::new(Reaping { released: false }));
+        let (exited, exit) = watch::channel(None);
+        tokio::spawn(reap(pid, reaping.clone(), exited));
+        Ok(Self::assemble(
+            pid,
+            stdin,
+            stdout,
+            stderr,
+            stderr_tail,
+            unread,
+            reaping,
+            exit,
+        ))
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    fn assemble(
+        pid: u32,
+        stdin: PipeSender,
+        stdout: PipeReceiver,
+        stderr: PipeReceiver,
+        stderr_tail: Vec<u8>,
+        unread: Vec<u8>,
+        reaping: Arc<Mutex<Reaping>>,
+        exit: watch::Receiver<Option<String>>,
+    ) -> (Self, Writer, Lines) {
         let (input, queue) = mpsc::unbounded_channel();
         tokio::spawn(write_lines(stdin, queue));
 
@@ -202,11 +311,7 @@ impl Process {
         let (stop_stderr, stopped) = oneshot::channel();
         let stderr_task = tokio::spawn(keep_tail(stderr, tail.clone(), stopped));
 
-        let reaping = Arc::new(Mutex::new(Reaping { released: false }));
-        let (exited, exit) = watch::channel(None);
-        tokio::spawn(reap(pid, reaping.clone(), exited));
-
-        Ok((
+        (
             Self {
                 pid,
                 exit,
@@ -224,7 +329,7 @@ impl Process {
                 scanned: 0,
                 closed: false,
             },
-        ))
+        )
     }
 
     pub fn pid(&self) -> u32 {
@@ -281,6 +386,12 @@ impl Process {
     /// it is written first, and from then on nothing here writes to it, reads
     /// from it or collects its exit. Fails, and leaves the agent to be killed
     /// with the process, when the agent has exited or closed a pipe.
+    #[cfg(windows)]
+    pub async fn release(self, _lines: Lines) -> Result<Released, String> {
+        Err("Windows keeps an agent with the core that started it".into())
+    }
+
+    #[cfg(unix)]
     pub async fn release(mut self, lines: Lines) -> Result<Released, String> {
         {
             let mut reaping = self.reaping.locked();
@@ -324,6 +435,7 @@ impl Process {
 
     /// A release that failed leaves the agent to be killed, and its exit
     /// collected, as if it had never been tried.
+    #[cfg(unix)]
     fn unrelease(&self) {
         self.reaping.locked().released = false;
         let (exited, exit) = watch::channel(None);
@@ -343,6 +455,7 @@ impl Drop for Process {
 
 /// Kills an agent nothing here collects the exit of any more, and collects
 /// it, so it does not linger as a zombie.
+#[cfg(unix)]
 pub(crate) fn kill_and_reap(pid: u32) {
     kill_group(pid);
     let Ok(pid) = libc::pid_t::try_from(pid) else {
@@ -358,8 +471,14 @@ pub(crate) fn kill_and_reap(pid: u32) {
     });
 }
 
+#[cfg(windows)]
+pub(crate) fn kill_and_reap(pid: u32) {
+    kill_group(pid);
+}
+
 /// The agent leads its own process group, so this reaches the tools and
 /// helpers it started as well as the agent itself.
+#[cfg(unix)]
 pub(crate) fn kill_group(pid: u32) {
     if let Ok(pid) = i32::try_from(pid) {
         // SAFETY: killpg only sends a signal; a group that is already gone
@@ -370,7 +489,14 @@ pub(crate) fn kill_group(pid: u32) {
     }
 }
 
-async fn write_lines(mut pipe: pipe::Sender, mut queue: mpsc::UnboundedReceiver<Input>) {
+#[cfg(windows)]
+pub(crate) fn kill_group(pid: u32) {
+    if pid != 0 {
+        sikemux_pty::process::terminate_process_tree(pid, true);
+    }
+}
+
+async fn write_lines(mut pipe: PipeSender, mut queue: mpsc::UnboundedReceiver<Input>) {
     let mut open = true;
     while let Some(input) = queue.recv().await {
         match input {
@@ -389,10 +515,10 @@ async fn write_lines(mut pipe: pipe::Sender, mut queue: mpsc::UnboundedReceiver<
 }
 
 async fn keep_tail(
-    mut pipe: pipe::Receiver,
+    mut pipe: PipeReceiver,
     tail: Arc<Mutex<VecDeque<u8>>>,
     mut stop: oneshot::Receiver<()>,
-) -> Option<pipe::Receiver> {
+) -> Option<PipeReceiver> {
     let mut buffer = [0u8; 4096];
     loop {
         tokio::select! {
@@ -411,8 +537,12 @@ async fn keep_tail(
     stop.await.ok().map(|()| pipe)
 }
 
+#[cfg(unix)]
 fn exit_words(raw: libc::c_int) -> String {
-    let status = std::process::ExitStatus::from_raw(raw);
+    words_for(std::process::ExitStatus::from_raw(raw))
+}
+
+fn words_for(status: std::process::ExitStatus) -> String {
     match status.code() {
         Some(0) => "The agent exited".to_owned(),
         Some(code) => format!("The agent exited with status {code}"),
@@ -420,8 +550,22 @@ fn exit_words(raw: libc::c_int) -> String {
     }
 }
 
+/// Says how the agent ended, once its exit is collected.
+#[cfg(windows)]
+async fn wait_for_exit(
+    mut child: tokio::process::Child,
+    exited: watch::Sender<Option<String>>,
+) {
+    let words = match child.wait().await {
+        Ok(status) => words_for(status),
+        Err(_) => "The agent stopped".to_owned(),
+    };
+    let _ = exited.send(Some(words));
+}
+
 /// Collects the agent's exit and says how it ended, until the agent is
 /// released to another core.
+#[cfg(unix)]
 async fn reap(pid: u32, reaping: Arc<Mutex<Reaping>>, exited: watch::Sender<Option<String>>) {
     let mut children = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child()).ok();
     loop {
@@ -460,7 +604,7 @@ async fn reap(pid: u32, reaping: Arc<Mutex<Reaping>>, exited: watch::Sender<Opti
 /// yet made a whole line is kept here, so a read given up part way loses
 /// nothing and a release hands it on.
 pub(crate) struct Lines {
-    pipe: pipe::Receiver,
+    pipe: PipeReceiver,
     buffer: Vec<u8>,
     /// How far into `buffer` holds no line break.
     scanned: usize,

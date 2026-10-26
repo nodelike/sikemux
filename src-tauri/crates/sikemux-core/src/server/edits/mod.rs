@@ -20,7 +20,7 @@ mod push;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use sikemux_process::os::OpenOptionsMode;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::Duration;

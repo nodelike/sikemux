@@ -405,8 +405,8 @@ impl WallClock {
         // SAFETY: `tm` is a live value for the length of the call.
         let at = unsafe {
             match self.zone {
-                Zone::Host => libc::mktime(&mut tm),
-                Zone::Utc => libc::timegm(&mut tm),
+                Zone::Host => mktime(&mut tm),
+                Zone::Utc => timegm(&mut tm),
             }
         };
         u64::try_from(at).ok()?.checked_mul(1000)
@@ -420,9 +420,39 @@ fn calendar(at: u64, zone: Zone) -> Option<libc::tm> {
     // SAFETY: both pointers point at live values for the length of the call.
     let filled = unsafe {
         match zone {
-            Zone::Host => libc::localtime_r(&seconds, &mut tm),
-            Zone::Utc => libc::gmtime_r(&seconds, &mut tm),
+            Zone::Host => localtime(&seconds, &mut tm),
+            Zone::Utc => gmtime(&seconds, &mut tm),
         }
     };
-    (!filled.is_null()).then_some(tm)
+    filled.then_some(tm)
+}
+
+#[cfg(unix)]
+use libc::{mktime, timegm};
+
+#[cfg(unix)]
+unsafe fn localtime(seconds: &libc::time_t, tm: &mut libc::tm) -> bool {
+    !libc::localtime_r(seconds, tm).is_null()
+}
+
+#[cfg(unix)]
+unsafe fn gmtime(seconds: &libc::time_t, tm: &mut libc::tm) -> bool {
+    !libc::gmtime_r(seconds, tm).is_null()
+}
+
+#[cfg(windows)]
+extern "C" {
+    fn mktime(tm: *mut libc::tm) -> libc::time_t;
+    #[link_name = "_mkgmtime"]
+    fn timegm(tm: *mut libc::tm) -> libc::time_t;
+}
+
+#[cfg(windows)]
+unsafe fn localtime(seconds: &libc::time_t, tm: &mut libc::tm) -> bool {
+    libc::localtime_s(tm, seconds) == 0
+}
+
+#[cfg(windows)]
+unsafe fn gmtime(seconds: &libc::time_t, tm: &mut libc::tm) -> bool {
+    libc::gmtime_s(tm, seconds) == 0
 }
