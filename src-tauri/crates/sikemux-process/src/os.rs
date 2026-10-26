@@ -7,14 +7,18 @@ use std::path::{Path, PathBuf};
 /// right to make them, so a file is then hard linked; a folder has no such fallback.
 pub fn symlink(source: &Path, destination: &Path) -> io::Result<()> {
     #[cfg(unix)]
-    return std::os::unix::fs::symlink(source, destination);
+    {
+        std::os::unix::fs::symlink(source, destination)
+    }
     #[cfg(windows)]
-    return if source.is_dir() {
-        std::os::windows::fs::symlink_dir(source, destination)
-    } else {
-        std::os::windows::fs::symlink_file(source, destination)
-            .or_else(|_| std::fs::hard_link(source, destination))
-    };
+    {
+        if source.is_dir() {
+            std::os::windows::fs::symlink_dir(source, destination)
+        } else {
+            std::os::windows::fs::symlink_file(source, destination)
+                .or_else(|_| std::fs::hard_link(source, destination))
+        }
+    }
 }
 
 /// The real path of `path`, written the way Git writes paths. Windows' own form starts with
@@ -37,43 +41,49 @@ pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
 /// Whether a program can be run from `path`. Windows tells by the name's extension.
 pub fn is_executable(path: &Path) -> bool {
     #[cfg(unix)]
-    return {
+    {
         use std::os::unix::fs::PermissionsExt;
         std::fs::metadata(path)
             .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-    };
+    }
     #[cfg(windows)]
-    return path.is_file()
-        && path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| {
-                ["exe", "cmd", "bat", "com"]
-                    .iter()
-                    .any(|known| known.eq_ignore_ascii_case(extension))
-            });
+    {
+        path.is_file()
+            && path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    ["exe", "cmd", "bat", "com"]
+                        .iter()
+                        .any(|known| known.eq_ignore_ascii_case(extension))
+                })
+    }
 }
 
 /// Lets `path` be run as a program. Windows decides by the name, so there is nothing to set.
 pub fn make_executable(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
-    return {
+    {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
-    };
+    }
     #[cfg(windows)]
-    return {
+    {
         let _ = path;
         Ok(())
-    };
+    }
 }
 
 /// The process that started this one.
 pub fn parent_id() -> u32 {
     #[cfg(unix)]
-    return std::os::unix::process::parent_id();
+    {
+        std::os::unix::process::parent_id()
+    }
     #[cfg(windows)]
-    return windows_parent_id().unwrap_or(0);
+    {
+        windows_parent_id().unwrap_or(0)
+    }
 }
 
 #[cfg(windows)]
@@ -133,15 +143,15 @@ pub fn rename_new(from: &Path, to: &Path) -> io::Result<()> {
 /// folder's access list, so there is nothing to set.
 pub fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
     #[cfg(unix)]
-    return {
+    {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-    };
+    }
     #[cfg(windows)]
-    return {
+    {
         let _ = (path, mode);
         Ok(())
-    };
+    }
 }
 
 /// `mode` for opening files on every platform. Windows has no permission bits, so there it
@@ -243,11 +253,11 @@ pub fn terminate(pid: u32) -> io::Result<()> {
         let pid = libc::pid_t::try_from(pid)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "impossible process id"))?;
         // SAFETY: kill only sends a signal; it reads and writes no memory of ours.
-        return if unsafe { libc::kill(pid, libc::SIGTERM) } == 0 {
+        if unsafe { libc::kill(pid, libc::SIGTERM) } == 0 {
             Ok(())
         } else {
             Err(io::Error::last_os_error())
-        };
+        }
     }
     #[cfg(windows)]
     {

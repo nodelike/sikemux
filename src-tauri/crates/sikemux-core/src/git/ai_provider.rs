@@ -1,5 +1,4 @@
 use std::io::{self, Read, Write};
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

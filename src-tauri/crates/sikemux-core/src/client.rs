@@ -166,11 +166,17 @@ fn start_detached(
     let mut command = sikemux_process::user_environment::command(binary);
     command.arg("core").arg("--socket").arg(socket).args(args);
     #[cfg(target_os = "macos")]
-    return spawn_responsible(&command, &log);
+    {
+        spawn_responsible(&command, &log)
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
-    return spawn_double_forked(command, log);
+    {
+        spawn_double_forked(command, log)
+    }
     #[cfg(windows)]
-    return spawn_detached_process(command, log);
+    {
+        spawn_detached_process(command, log)
+    }
 }
 
 #[cfg(windows)]

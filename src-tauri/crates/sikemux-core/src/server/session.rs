@@ -266,12 +266,16 @@ impl Session {
 
     pub(crate) fn shell_at_prompt(&self) -> bool {
         #[cfg(unix)]
-        return self.is_running()
-            && self
-                .pid
-                .is_some_and(|pid| sikemux_pty::process::shell_at_prompt(self.fd(), pid));
+        {
+            self.is_running()
+                && self
+                    .pid
+                    .is_some_and(|pid| sikemux_pty::process::shell_at_prompt(self.fd(), pid))
+        }
         #[cfg(windows)]
-        return false;
+        {
+            false
+        }
     }
 
     pub(crate) fn has_subscribers(&self) -> bool {

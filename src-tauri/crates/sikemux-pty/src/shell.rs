@@ -27,7 +27,10 @@ pub fn shell_wants_login_flag(shell: &str) -> bool {
 /// The arguments that make `shell` run `startup` and then stay open for the person.
 pub fn startup_arguments(shell: &str, startup: &str, login_shell: bool) -> Vec<String> {
     #[cfg(unix)]
-    return vec!["-c".into(), startup_bootstrap(startup, login_shell)];
+    {
+        let _ = shell;
+        vec!["-c".into(), startup_bootstrap(startup, login_shell)]
+    }
     #[cfg(windows)]
     {
         let _ = login_shell;

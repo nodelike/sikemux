@@ -30,6 +30,10 @@ mod unix {
     }
 
     impl PtyIo {
+        pub(crate) fn from_async_fd(io: AsyncFd<File>) -> Self {
+            Self(io)
+        }
+
         pub(crate) fn open(master: Box<dyn MasterPty + Send>) -> CoreResult<Self> {
             let master_fd = master
                 .as_raw_fd()
