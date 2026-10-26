@@ -55,6 +55,10 @@ sudo dnf install ./Sikemux-<version>-1.x86_64.rpm   # Fedora
 chmod +x Sikemux_<version>_amd64.AppImage           # any other distribution
 ```
 
+## Windows
+
+Releases have no Windows package yet, but the repository builds one. In Git Bash, with rustup's Rust on `PATH`, run `pnpm build:windows` to get a zip with `sikemux.exe` and `sikemux-host.exe`. It is unsigned. The core, the command line and terminals work; browser tabs and live core upgrades don't.
+
 ## Next
 
 Open Sikemux and follow [First launch](/getting-started/first-launch/).
