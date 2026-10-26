@@ -627,6 +627,7 @@ fn press(run: &mut Bench, keys: &[&str]) {
         .ok();
 }
 
+#[cfg(unix)]
 fn thread_cpu_ms() -> f64 {
     let mut time = libc::timespec {
         tv_sec: 0,
@@ -635,4 +636,12 @@ fn thread_cpu_ms() -> f64 {
     // SAFETY: clock_gettime only writes the struct it is handed.
     unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
     time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
+}
+
+/// Windows' thread clock only ticks every 15.6 ms, too coarse for a frame, and the bench draws
+/// on one thread, so the time since it started stands in for the thread's CPU.
+#[cfg(windows)]
+fn thread_cpu_ms() -> f64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1e3
 }
