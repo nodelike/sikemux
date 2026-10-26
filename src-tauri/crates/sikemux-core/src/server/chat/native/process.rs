@@ -348,8 +348,16 @@ impl Process {
 
     /// Stops the agent and waits until it has exited.
     pub async fn stop(&self) {
-        kill_group(self.pid);
+        self.kill();
         self.exited().await;
+    }
+
+    /// Windows hands an exited agent's process id to a new process, so it is killed only
+    /// while its exit has not been seen.
+    fn kill(&self) {
+        if cfg!(unix) || self.exit.borrow().is_none() {
+            kill_group(self.pid);
+        }
     }
 
     /// The last lines the agent wrote to its error stream.
@@ -448,7 +456,7 @@ impl Drop for Process {
     fn drop(&mut self) {
         self.stderr_task.abort();
         if !self.released {
-            kill_group(self.pid);
+            self.kill();
         }
     }
 }
