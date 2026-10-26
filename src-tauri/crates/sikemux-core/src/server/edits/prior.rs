@@ -4,10 +4,10 @@
 //! digest, and let go of once the file is committed or matches it again. A
 //! file never kept is as its last commit has it.
 
+use sikemux_process::os::{DirBuilderMode, OpenOptionsMode};
 use std::collections::{HashMap, HashSet};
 use std::fs::Metadata;
 use std::io::Write;
-use sikemux_process::os::{DirBuilderMode, OpenOptionsMode};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 

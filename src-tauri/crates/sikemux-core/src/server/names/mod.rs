@@ -957,7 +957,8 @@ fn valid_name(name: &str) -> Result<String, String> {
 /// holds it, else `cwd` itself. A folder in a git worktree counts as the same
 /// folder in the main checkout.
 pub(crate) fn project_of(cwd: &Path, projects: &[PathBuf]) -> String {
-    let canonical = |path: &Path| sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let canonical =
+        |path: &Path| sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let cwd = canonical(cwd);
     let path = in_main_checkout(&cwd).unwrap_or(cwd);
     projects

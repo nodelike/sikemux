@@ -20,7 +20,11 @@ use super::access::Peer;
 use super::LocalConn;
 
 /// The window's executable, beside the core's own in a build.
-const APP: &str = if cfg!(windows) { "sikemux.exe" } else { "sikemux" };
+const APP: &str = if cfg!(windows) {
+    "sikemux.exe"
+} else {
+    "sikemux"
+};
 const BUNDLED_APP: &str = "Contents/MacOS/sikemux";
 pub(super) const BUNDLED_NOTCH: &str = "Contents/Helpers/Sikemux Notch.app";
 pub(super) const NOTCH_EXECUTABLE: &str = "Contents/MacOS/sikemux-notch";
@@ -129,9 +133,7 @@ fn is_app(credentials: &platform::Credentials) -> bool {
     let core_is_root = false;
     if credentials.uid() == 0 && !core_is_root
         || pid == std::process::id()
-        || cfg!(debug_assertions)
-            && !trust.team_signed
-            && pid == sikemux_process::os::parent_id()
+        || cfg!(debug_assertions) && !trust.team_signed && pid == sikemux_process::os::parent_id()
     {
         return true;
     }

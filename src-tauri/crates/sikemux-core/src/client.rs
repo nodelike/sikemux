@@ -174,7 +174,10 @@ fn start_detached(
 }
 
 #[cfg(windows)]
-fn spawn_detached_process(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
+fn spawn_detached_process(
+    mut command: std::process::Command,
+    log: std::fs::File,
+) -> io::Result<()> {
     use std::os::windows::process::CommandExt;
 
     const DETACHED_PROCESS: u32 = 0x0000_0008;

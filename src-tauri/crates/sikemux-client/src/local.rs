@@ -70,7 +70,13 @@ mod windows {
             let mut buffer = vec![0u8; size as usize];
             // SAFETY: `buffer` has the `size` bytes the call asked for.
             let read = unsafe {
-                GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), size, &mut size)
+                GetTokenInformation(
+                    token,
+                    TokenUser,
+                    buffer.as_mut_ptr().cast(),
+                    size,
+                    &mut size,
+                )
             };
             let error = io::Error::last_os_error();
             // SAFETY: `token` was opened above and nothing else holds it.
@@ -81,7 +87,12 @@ mod windows {
             Ok(buffer)
         }
 
-        let refuse = || io::Error::new(io::ErrorKind::PermissionDenied, "another user's process serves this pipe");
+        let refuse = || {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "another user's process serves this pipe",
+            )
+        };
         let mut server_id = 0;
         // SAFETY: the handle belongs to `pipe`, open for this call, and `server_id` is a live local.
         if unsafe { GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut server_id) } == 0 {

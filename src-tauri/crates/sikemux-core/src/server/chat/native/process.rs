@@ -552,10 +552,7 @@ fn words_for(status: std::process::ExitStatus) -> String {
 
 /// Says how the agent ended, once its exit is collected.
 #[cfg(windows)]
-async fn wait_for_exit(
-    mut child: tokio::process::Child,
-    exited: watch::Sender<Option<String>>,
-) {
+async fn wait_for_exit(mut child: tokio::process::Child, exited: watch::Sender<Option<String>>) {
     let words = match child.wait().await {
         Ok(status) => words_for(status),
         Err(_) => "The agent stopped".to_owned(),

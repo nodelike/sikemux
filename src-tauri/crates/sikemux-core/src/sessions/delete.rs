@@ -58,7 +58,8 @@ pub(super) fn saved_transcript(
         .and_then(|path| sikemux_process::os::canonicalize(path).ok())
         .filter(|path| path.is_file())
         .ok_or("session not found")?;
-    let inside = sikemux_process::os::canonicalize(root.join(folder)).is_ok_and(|dir| transcript.starts_with(dir));
+    let inside = sikemux_process::os::canonicalize(root.join(folder))
+        .is_ok_and(|dir| transcript.starts_with(dir));
     if !inside {
         return Err("session not found".to_string());
     }

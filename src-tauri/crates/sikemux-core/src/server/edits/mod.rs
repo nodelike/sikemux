@@ -18,9 +18,9 @@ mod owners;
 mod prior;
 mod push;
 
+use sikemux_process::os::OpenOptionsMode;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
-use sikemux_process::os::OpenOptionsMode;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::Duration;

@@ -31,16 +31,27 @@ pub fn startup_arguments(shell: &str, startup: &str, login_shell: bool) -> Vec<S
     #[cfg(windows)]
     {
         let _ = login_shell;
-        let name = shell.rsplit(['/', '\\']).next().unwrap_or(shell).to_ascii_lowercase();
+        let name = shell
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(shell)
+            .to_ascii_lowercase();
         return match detect_shell_kind(shell) {
             Some(ShellKind::PowerShell) => {
-                vec!["-NoLogo".into(), "-NoExit".into(), "-Command".into(), startup.into()]
+                vec![
+                    "-NoLogo".into(),
+                    "-NoExit".into(),
+                    "-Command".into(),
+                    startup.into(),
+                ]
             }
             _ if name == "cmd" || name == "cmd.exe" => vec!["/K".into(), startup.into()],
             _ => vec![
                 "-c".into(),
-                format!("{startup}
-exec \"$SIKEMUX_SHELL\""),
+                format!(
+                    "{startup}
+exec \"$SIKEMUX_SHELL\""
+                ),
             ],
         };
     }

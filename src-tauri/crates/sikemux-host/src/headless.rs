@@ -42,6 +42,7 @@ pub fn run(command: &str, args: &[String]) -> i32 {
         "plugins" => plugins(args),
         #[cfg(target_os = "linux")]
         "update" if args == ["--install"] => return crate::update::root::serve(),
+        #[cfg(unix)]
         "update" => crate::update::run(args),
         _ => Err(format!("no command named {command}")),
     };

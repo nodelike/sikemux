@@ -219,9 +219,7 @@ impl CoreClient {
         sink: Arc<dyn EventSink>,
     ) -> Result<Self, ClientError> {
         #[cfg(unix)]
-        let (read_half, write_half) = tokio::net::UnixStream::connect(socket)
-            .await?
-            .into_split();
+        let (read_half, write_half) = tokio::net::UnixStream::connect(socket).await?.into_split();
         #[cfg(windows)]
         let (read_half, write_half) = tokio::io::split(crate::local::open(socket).await?);
         Self::connect_streams(read_half, write_half, sink).await

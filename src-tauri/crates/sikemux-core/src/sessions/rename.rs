@@ -109,7 +109,8 @@ fn rename_session(
 
 /// Pi and OMP name a session by its file's path, which must sit inside one of their session folders.
 fn session_file_within(session_id: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
-    let path = sikemux_process::os::canonicalize(session_id).map_err(|_| "session not found".to_string())?;
+    let path = sikemux_process::os::canonicalize(session_id)
+        .map_err(|_| "session not found".to_string())?;
     let inside = roots
         .iter()
         .filter_map(|root| sikemux_process::os::canonicalize(root).ok())

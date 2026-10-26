@@ -1097,7 +1097,8 @@ async fn owning_project(core: &Arc<Core>, path: &Path, root: &str) -> CoreResult
         .map(|project| project.path.clone())
         .collect();
     let owner = super::names::project_of(path, &paths);
-    let canonical = |path: &Path| sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let canonical =
+        |path: &Path| sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     if let Some(project) = projects
         .iter()
         .find(|project| canonical(&project.path).to_string_lossy() == owner)

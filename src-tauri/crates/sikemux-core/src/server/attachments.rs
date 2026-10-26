@@ -61,7 +61,10 @@ pub(crate) fn save(dir: &Path, name: &str, mime: &str, data: &str) -> CoreResult
 
 /// Whether `path` is in `dir`, however it is spelled or linked.
 pub(crate) fn is_kept(dir: &Path, path: &Path) -> bool {
-    match (sikemux_process::os::canonicalize(dir), sikemux_process::os::canonicalize(path)) {
+    match (
+        sikemux_process::os::canonicalize(dir),
+        sikemux_process::os::canonicalize(path),
+    ) {
         (Ok(dir), Ok(path)) => path.starts_with(dir),
         _ => false,
     }

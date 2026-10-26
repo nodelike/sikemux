@@ -39,7 +39,8 @@ pub fn is_executable(path: &Path) -> bool {
     #[cfg(unix)]
     return {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        std::fs::metadata(path)
+            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
     };
     #[cfg(windows)]
     return path.is_file()
@@ -79,7 +80,8 @@ pub fn parent_id() -> u32 {
 fn windows_parent_id() -> Option<u32> {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
     };
 
     let own = std::process::id();
@@ -112,7 +114,12 @@ pub fn rename_new(from: &Path, to: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
 
-    let wide = |path: &Path| path.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>();
+    let wide = |path: &Path| {
+        path.as_os_str()
+            .encode_wide()
+            .chain([0])
+            .collect::<Vec<u16>>()
+    };
     let (from, to) = (wide(from), wide(to));
     // SAFETY: both buffers end in a zero and outlive the call.
     if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } == 0 {
@@ -201,7 +208,10 @@ pub fn process_exists(pid: u32) -> bool {
             return false;
         };
         // SAFETY: signal 0 only checks that the process exists; it sends nothing.
-        unsafe { libc::kill(pid, 0) == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) }
+        unsafe {
+            libc::kill(pid, 0) == 0
+                || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+        }
     }
     #[cfg(windows)]
     {
@@ -242,7 +252,9 @@ pub fn terminate(pid: u32) -> io::Result<()> {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, TerminateProcess, PROCESS_TERMINATE,
+        };
 
         // SAFETY: the handle is closed before returning.
         unsafe {

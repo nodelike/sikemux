@@ -60,8 +60,12 @@ fn load_average() -> (i32, [f64; 3]) {
     use windows_sys::Win32::System::Threading::GetSystemTimes;
 
     static LAST: Mutex<Option<(u64, u64)>> = Mutex::new(None);
-    let ticks = |time: FILETIME| (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime);
-    let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+    let ticks =
+        |time: FILETIME| (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime);
+    let zero = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
     let (mut idle, mut kernel, mut user) = (zero, zero, zero);
     // SAFETY: the three out-pointers are live locals.
     if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {

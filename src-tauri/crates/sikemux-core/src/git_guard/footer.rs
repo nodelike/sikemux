@@ -130,8 +130,9 @@ fn hooks_for(folder: &Path, theirs: &Path) -> std::io::Result<PathBuf> {
         .flatten()
         .filter_map(Result::ok)
         .filter(|entry| {
-            std::fs::metadata(entry.path())
-                .is_ok_and(|meta| meta.is_file() && sikemux_process::os::is_executable(&entry.path()))
+            std::fs::metadata(entry.path()).is_ok_and(|meta| {
+                meta.is_file() && sikemux_process::os::is_executable(&entry.path())
+            })
         })
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|name| !name.contains('.'))

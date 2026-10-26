@@ -18,9 +18,9 @@ use std::time::{Duration, Instant};
 use linux as platform;
 #[cfg(target_os = "macos")]
 use macos as platform;
+use platform::{Picture, Writer};
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 use unsupported as platform;
-use platform::{Picture, Writer};
 
 use crate::manager::BrowserManager;
 use serde_json::{json, Value};

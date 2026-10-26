@@ -57,10 +57,13 @@ fn create(name: &str, first: bool) -> io::Result<NamedPipeServer> {
         bInheritHandle: 0,
     };
     let mut options = ServerOptions::new();
-    options.first_pipe_instance(first).reject_remote_clients(true);
+    options
+        .first_pipe_instance(first)
+        .reject_remote_clients(true);
     // SAFETY: `attributes` points at a valid descriptor for the length of the call.
     let pipe = unsafe {
-        options.create_with_security_attributes_raw(name, std::ptr::from_mut(&mut attributes).cast())
+        options
+            .create_with_security_attributes_raw(name, std::ptr::from_mut(&mut attributes).cast())
     };
     // SAFETY: `descriptor` came from the conversion above and is freed once.
     unsafe { LocalFree(descriptor.cast()) };

@@ -541,7 +541,12 @@ fn stamp(meta: &fs::Metadata) -> String {
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .unwrap_or_default();
-    format!("{}-{}.{}", meta.len(), modified.as_secs(), modified.subsec_nanos())
+    format!(
+        "{}-{}.{}",
+        meta.len(),
+        modified.as_secs(),
+        modified.subsec_nanos()
+    )
 }
 
 fn content_version(bytes: &[u8]) -> String {
@@ -835,13 +840,11 @@ fn rename(params: RenameParams) -> Result<()> {
     .map_err(std::io::Error::from);
     #[cfg(windows)]
     let moved = sikemux_process::os::rename_new(from, to);
-    moved.map_err(|error| {
-        match error.kind() {
-            std::io::ErrorKind::AlreadyExists => {
-                Error::from(format!("fs: destination already exists: {}", to.display()))
-            }
-            _ => error.into(),
+    moved.map_err(|error| match error.kind() {
+        std::io::ErrorKind::AlreadyExists => {
+            Error::from(format!("fs: destination already exists: {}", to.display()))
         }
+        _ => error.into(),
     })
 }
 

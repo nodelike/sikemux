@@ -483,7 +483,10 @@ async fn pasted_picture(core: &Core, path: PathBuf) -> CoreResult<String> {
         .and_then(|listening| listening.config.attachment_dir.clone())
         .ok_or("this host keeps no pasted pictures")?;
     super::connection::blocking(move || {
-        let kept = match (sikemux_process::os::canonicalize(&dir), sikemux_process::os::canonicalize(&path)) {
+        let kept = match (
+            sikemux_process::os::canonicalize(&dir),
+            sikemux_process::os::canonicalize(&path),
+        ) {
             (Ok(dir), Ok(path)) => path.starts_with(dir),
             _ => false,
         };

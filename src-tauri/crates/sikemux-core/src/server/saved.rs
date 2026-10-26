@@ -75,7 +75,9 @@ fn open_sessions(core: &Core) -> HashMap<(String, String), (String, Option<Strin
 fn scope_of(core: &Core, projects: Vec<String>) -> Scope {
     let wanted: Vec<PathBuf> = projects
         .iter()
-        .map(|project| sikemux_process::os::canonicalize(project).unwrap_or_else(|_| project.into()))
+        .map(|project| {
+            sikemux_process::os::canonicalize(project).unwrap_or_else(|_| project.into())
+        })
         .collect();
     let mut known = core.workspaces.project_paths();
     known.extend(wanted.iter().cloned());
