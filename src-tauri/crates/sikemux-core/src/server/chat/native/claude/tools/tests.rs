@@ -20,6 +20,7 @@ fn text_of(update: &Value) -> &str {
         .unwrap_or_default()
 }
 
+#[cfg(unix)]
 #[test]
 fn read_title_shows_range_and_relative_path() {
     let info = tool_info(
@@ -84,6 +85,7 @@ fn errors_are_fenced_whatever_the_tool() {
     assert_eq!(text_of(&update), "```\nExit code 1\n```");
 }
 
+#[cfg(unix)]
 #[test]
 fn edit_and_write_show_the_optimistic_diff_and_no_result_content() {
     let edit = tool_call(

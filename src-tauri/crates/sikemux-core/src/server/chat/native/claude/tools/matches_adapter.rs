@@ -25,6 +25,7 @@ fn cases<'a>(fixture: &'a Value, key: &str) -> &'a Vec<Value> {
     fixture[key].as_array().expect("case list")
 }
 
+#[cfg(unix)]
 #[test]
 fn tool_info_matches_adapter() {
     let fixture = fixture();

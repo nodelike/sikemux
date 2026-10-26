@@ -446,6 +446,7 @@ fn segments(line: &str) -> Vec<Vec<String>> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn staging_or_undoing_a_file_with_another_agents_lines_is_refused() {
         let top = tempfile::tempdir().unwrap();

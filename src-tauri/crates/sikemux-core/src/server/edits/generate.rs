@@ -156,6 +156,7 @@ mod tests {
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 
+    #[cfg(unix)]
     #[test]
     fn stale_outputs_are_committed_on_top_and_reach_the_project_checkout() {
         let root = tempfile::tempdir().unwrap();

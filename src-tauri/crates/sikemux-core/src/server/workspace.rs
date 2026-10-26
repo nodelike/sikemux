@@ -2548,6 +2548,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_device_sees_launchers_without_their_program_or_environment() {
         let workspaces = Workspaces::new(None);
@@ -2558,6 +2559,7 @@ mod tests {
         assert!(!shown.contains(".claude-work"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_device_sees_whether_each_launcher_is_signed_in() {
         let workspaces = Workspaces::new(None);
@@ -2573,6 +2575,7 @@ mod tests {
         assert!(shown["launchers"][0].get("status").is_none());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_chat_starts_in_the_project_with_the_launcher_and_its_account() {
         let workspaces = Workspaces::new(None);
@@ -2588,6 +2591,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_unknown_launcher_or_project_is_refused() {
         let workspaces = Workspaces::new(None);
@@ -2600,6 +2604,7 @@ mod tests {
         assert!(launch(&workspaces, wrong).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_device_sees_recent_chats_in_open_projects_with_the_agent_holding_each() {
         let workspaces = Workspaces::new(None);
@@ -2660,6 +2665,7 @@ mod tests {
         assert_eq!(workspaces.recent(&[live])[0].agent_id, None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_recent_chat_resumes_with_its_launcher_in_its_project() {
         let workspaces = Workspaces::new(None);
@@ -2675,6 +2681,7 @@ mod tests {
         assert_eq!(launch.permission_mode, "bypass");
     }
 
+    #[cfg(unix)]
     #[test]
     fn only_a_published_recent_chat_resumes() {
         let workspaces = Workspaces::new(None);
@@ -2704,6 +2711,7 @@ mod tests {
             .is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_first_prompt_names_an_agent_until_its_chat_titles_it_and_never_one_the_person_named() {
         let workspaces = Workspaces::new(None);
@@ -2750,6 +2758,7 @@ mod tests {
     // A person on the built-in Claude account only, on 0.5.4-nightly.1 and .2:
     // their chats ask for plain "claude", the book keeps builtin-claude as a
     // profile, so only "claude:builtin-claude" was offered and no chat started.
+    #[cfg(unix)]
     #[test]
     fn a_chat_with_no_profile_starts_on_the_account_the_person_chose() {
         let builtin = crate::agent_accounts::Profile {

@@ -252,6 +252,7 @@ fn replay_routes_subagent_records_to_child_sessions() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn a_subagents_own_transcript_replays_inside_its_child_session() {
     let dir = tempfile::tempdir().expect("dir");

@@ -919,6 +919,7 @@ impl Backend for Codex {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn prompt_parts_become_codex_input() {
         let parts = || {

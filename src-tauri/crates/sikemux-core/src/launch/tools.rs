@@ -604,6 +604,7 @@ mod tests {
         assert_eq!(value["env"][0]["value"], "agent-one");
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_acp_session_is_given_an_absolute_command_even_in_development() {
         assert_eq!(

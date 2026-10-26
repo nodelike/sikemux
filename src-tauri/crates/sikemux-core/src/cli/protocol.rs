@@ -298,6 +298,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn open_requests_must_be_absolute_and_bounded() {
         let request = CliOpenRequest {
@@ -322,6 +323,7 @@ mod tests {
         assert!(directory.validate().is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn only_declared_methods_with_object_params_are_valid() {
         assert!(validate_harness(&request("workspace.inspect")).is_ok());
