@@ -526,6 +526,30 @@ jobs:
             src-tauri/target/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/appimage/*.AppImage
 
+  # The core, the CLI and their clients build on Windows too. Browser tabs are not there yet.
+  windows:
+    name: Windows compile check
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        shell: bash
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Check the workspace compiles on Windows
+        run: cargo check --workspace --locked
+        working-directory: src-tauri
+
   simulator-helper:
     name: iOS Simulator helper
     needs: changes

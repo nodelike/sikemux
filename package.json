@@ -55,6 +55,7 @@
     "test:sim": "swift test --package-path src-tauri/sim",
     "build:mac": "./scripts/build-mac.sh",
     "build:linux": "scripts/build-linux.sh",
+    "build:windows": "scripts/build-windows.sh",
     "prepush": "./scripts/pre-push.sh"
   },
   "devDependencies": {
