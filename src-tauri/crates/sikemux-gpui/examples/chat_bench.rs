@@ -311,6 +311,7 @@ impl Folded {
     }
 }
 
+#[cfg(unix)]
 fn thread_cpu_ms() -> f64 {
     let mut time = libc::timespec {
         tv_sec: 0,
@@ -321,6 +322,15 @@ fn thread_cpu_ms() -> f64 {
     time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
 }
 
+/// Windows' thread clock only ticks every 15.6 ms, too coarse for a frame, and the bench draws
+/// on one thread, so the time since it started stands in for the thread's CPU.
+#[cfg(windows)]
+fn thread_cpu_ms() -> f64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1e3
+}
+
+#[cfg(unix)]
 fn peak_resident_mb() -> f64 {
     // SAFETY: getrusage only writes the struct it is handed.
     let usage = unsafe {
@@ -329,6 +339,23 @@ fn peak_resident_mb() -> f64 {
         usage
     };
     usage.ru_maxrss as f64 / 1024. / 1024.
+}
+
+#[cfg(windows)]
+fn peak_resident_mb() -> f64 {
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    // SAFETY: GetProcessMemoryInfo only writes the struct it is handed, whose size it is told.
+    let counters = unsafe {
+        let mut counters = std::mem::zeroed::<PROCESS_MEMORY_COUNTERS>();
+        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb);
+        counters
+    };
+    counters.PeakWorkingSetSize as f64 / 1024. / 1024.
 }
 
 #[derive(Default)]
