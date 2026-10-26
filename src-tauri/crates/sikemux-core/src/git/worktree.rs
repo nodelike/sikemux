@@ -63,7 +63,7 @@ fn resolved_path_for_containment(path: &Path) -> Result<PathBuf, String> {
             .parent()
             .ok_or_else(|| format!("cannot resolve worktree target {}", path.display()))?;
     }
-    let mut resolved = sikemux_process::os::canonicalize(&existing)
+    let mut resolved = sikemux_process::os::canonicalize(existing)
         .map_err(|error| format!("resolve worktree target {}: {error}", path.display()))?;
     for component in missing.iter().rev() {
         resolved.push(component);

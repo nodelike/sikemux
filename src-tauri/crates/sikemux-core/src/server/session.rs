@@ -365,10 +365,6 @@ impl Drop for Session {
     }
 }
 
-fn os_error() -> CoreError {
-    CoreError::from(std::io::Error::last_os_error())
-}
-
 /// A session that is listed but whose output is not read yet. Starting it
 /// after the spawn reply is queued means a client hears about the session
 /// before any of its output or its exit.
@@ -632,23 +628,17 @@ async fn pump_output(core: &Arc<Core>, session: &Session) -> PumpEnd {
             return PumpEnd::Frozen;
         }
         batch.clear();
-        let mut eof = false;
-        loop {
-            let read = tokio::select! {
-                read = session.io.read(&mut buf) => read,
-                _ = frozen.changed() => return PumpEnd::Frozen,
-            };
-            match read {
-                ReadOutcome::Bytes(n) => {
-                    batch.extend_from_slice(buf.get(..n).unwrap_or_default());
-                    break;
-                }
-                ReadOutcome::Eof => {
-                    eof = true;
-                    break;
-                }
+        let read = tokio::select! {
+            read = session.io.read(&mut buf) => read,
+            _ = frozen.changed() => return PumpEnd::Frozen,
+        };
+        let mut eof = match read {
+            ReadOutcome::Bytes(n) => {
+                batch.extend_from_slice(buf.get(..n).unwrap_or_default());
+                false
             }
-        }
+            ReadOutcome::Eof => true,
+        };
         if !eof && batch.len() < OUTPUT_BATCH_BYTES {
             let deadline = tokio::time::sleep(OUTPUT_COALESCE);
             tokio::pin!(deadline);

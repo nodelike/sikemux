@@ -39,7 +39,7 @@ pub fn startup_arguments(shell: &str, startup: &str, login_shell: bool) -> Vec<S
             .next()
             .unwrap_or(shell)
             .to_ascii_lowercase();
-        return match detect_shell_kind(shell) {
+        match detect_shell_kind(shell) {
             Some(ShellKind::PowerShell) => {
                 vec![
                     "-NoLogo".into(),
@@ -56,7 +56,7 @@ pub fn startup_arguments(shell: &str, startup: &str, login_shell: bool) -> Vec<S
 exec \"$SIKEMUX_SHELL\""
                 ),
             ],
-        };
+        }
     }
 }
 
