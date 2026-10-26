@@ -164,6 +164,13 @@ fn add_to_draw(began: Instant) {
     });
 }
 
+#[cfg(windows)]
+fn thread_cpu_ms() -> f64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1e3
+}
+
+#[cfg(unix)]
 fn thread_cpu_ms() -> f64 {
     let mut time = libc::timespec {
         tv_sec: 0,
@@ -173,7 +180,32 @@ fn thread_cpu_ms() -> f64 {
     time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
 }
 
+/// Resident memory of a process, in MB, as the task manager reads it.
+#[cfg(windows)]
+fn rss_mb(pid: u32) -> Option<f64> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    // SAFETY: the handle is closed before returning, and GetProcessMemoryInfo only writes the
+    // struct it is handed, whose size it is told.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return None;
+        }
+        let mut counters = std::mem::zeroed::<PROCESS_MEMORY_COUNTERS>();
+        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        let read = GetProcessMemoryInfo(process, &mut counters, counters.cb);
+        CloseHandle(process);
+        (read != 0).then(|| counters.WorkingSetSize as f64 / 1_048_576.)
+    }
+}
+
 /// Resident memory of a process, in MB, as `ps` reads it.
+#[cfg(unix)]
 fn rss_mb(pid: u32) -> Option<f64> {
     let out = sikemux_process::user_environment::command("/bin/ps")
         .args(["-o", "rss=", "-p", &pid.to_string()])
@@ -187,6 +219,12 @@ fn footprint_mb(pid: u32) -> Option<f64> {
     memory::footprint(pid).map(|bytes| bytes as f64 / 1_048_576.)
 }
 
+#[cfg(windows)]
+fn core_pid(_socket: &str) -> Option<u32> {
+    std::env::var("STRESS_CORE_PID").ok()?.parse().ok()
+}
+
+#[cfg(unix)]
 fn core_pid(socket: &str) -> Option<u32> {
     let out = sikemux_process::user_environment::command("/usr/bin/pgrep")
         .args(["-f", &format!("socket {socket}")])
@@ -1097,7 +1135,15 @@ fn long(run: &mut Run, driver: &Arc<Driver>) {
 fn flood(run: &mut Run, driver: &Arc<Driver>, log: &Path) {
     let chat = driver.chat();
     run.until(30, |run| run.front_chat().is_some());
-    let session = driver.terminal(&format!("while :; do cat '{}'; done", log.display()));
+    let command = if cfg!(windows) {
+        format!(
+            "while ($true) {{ Get-Content -Raw '{}' | Write-Host -NoNewline }}",
+            log.display()
+        )
+    } else {
+        format!("while :; do cat '{}'; done", log.display())
+    };
+    let session = driver.terminal(&command);
     let Some((tab, pane)) = run.pane_of(&chat) else {
         println!("flood: the chat's tab never showed");
         return;
@@ -1166,7 +1212,9 @@ fn repo(run: &mut Run, driver: &Arc<Driver>) {
 /// changed and 500 new, for the Git tab to show.
 fn make_repo(folder: &Path, files: usize) -> anyhow::Result<()> {
     anyhow::ensure!(
-        folder.starts_with("/tmp") || folder.starts_with("/private/tmp"),
+        folder.starts_with("/tmp")
+            || folder.starts_with("/private/tmp")
+            || folder.starts_with(std::env::temp_dir()),
         "the generated repository goes under /tmp"
     );
     std::fs::create_dir_all(folder)?;
