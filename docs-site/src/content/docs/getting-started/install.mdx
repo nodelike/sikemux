@@ -57,7 +57,7 @@ chmod +x Sikemux_<version>_amd64.AppImage           # any other distribution
 
 ## Windows
 
-Releases have no Windows package yet, but the repository builds one. In Git Bash, with rustup's Rust on `PATH`, run `pnpm build:windows` to get a zip with `sikemux.exe` and `sikemux-host.exe`. It is unsigned. The core, the command line and terminals work; browser tabs and live core upgrades don't.
+Releases have no Windows package yet, but the repository builds one. In Git Bash, with rustup's Rust on `PATH`, run `pnpm build:windows` to get `Sikemux_<version>_x64-setup.exe`, which installs for your account without asking for administrator rights, and a zip of the same files. Both are unsigned, so Windows SmartScreen asks you to confirm before it runs setup. Quit Sikemux and stop its core with `sikemux-host stop` before installing over a running copy. The core, the command line and terminals work; browser tabs and live core upgrades don't.
 
 ## Next
 
