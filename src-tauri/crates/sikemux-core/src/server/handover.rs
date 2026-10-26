@@ -39,6 +39,7 @@ use super::chat::{self, ChatRecord, HandOver, LiveChat};
 use super::data_format;
 use super::harness::HarnessRecord;
 use super::prepare::Owner;
+use super::pty_io::PtyIo;
 use super::session::{self, Session, SessionParts};
 use super::{
     continue_clock, lock_path, run_core, tools, uptime_ms, Core, CoreError, CoreResult,
@@ -653,7 +654,7 @@ fn adopt_chat(core: &Arc<Core>, live: Value, inherited: &mut Inherited) {
     );
 }
 
-fn terminal_io(fd: RawFd, inherited: &mut Inherited) -> Result<AsyncFd<File>, String> {
+fn terminal_io(fd: RawFd, inherited: &mut Inherited) -> Result<PtyIo, String> {
     if !inherited.claim(fd, libc::S_IFCHR) {
         return Err(format!(
             "descriptor {fd} is not a terminal that was handed over"
@@ -671,7 +672,9 @@ fn terminal_io(fd: RawFd, inherited: &mut Inherited) -> Result<AsyncFd<File>, St
     }
     // SAFETY: `file` owns the open fd and the AsyncFd owns `file`, so the fd
     // stays open and the same until the AsyncFd is dropped.
-    unsafe { AsyncFd::register(file) }.map_err(|error| error.to_string())
+    unsafe { AsyncFd::register(file) }
+        .map(PtyIo::from_async_fd)
+        .map_err(|error| error.to_string())
 }
 
 fn adopt_session(

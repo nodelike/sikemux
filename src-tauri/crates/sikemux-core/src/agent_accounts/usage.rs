@@ -719,6 +719,7 @@ mod tests {
 
     const ERROR_DETAIL_LIMIT: usize = 240;
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_lookup_drops_the_removed_environment() {
         const READ_HOME: &str = "printf '%s' \"${HOME-unset}\"";
@@ -733,6 +734,7 @@ mod tests {
         assert_eq!(dropped, "unset");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_lookup_ends_its_input_so_a_cli_reading_to_the_end_answers() {
         let started = std::time::Instant::now();
@@ -750,6 +752,7 @@ mod tests {
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_failed_lookup_says_why_in_bounded_words() {
         let long_detail = "x".repeat(ERROR_DETAIL_LIMIT + 20);

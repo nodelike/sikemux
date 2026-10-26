@@ -848,6 +848,7 @@ mod tests {
         assert_eq!(mcp_config(&[]), None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn files_go_as_links_and_handed_text_after_the_message() {
         let prompt = Prompt {

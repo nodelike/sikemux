@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 use sikemux_process::sync::{Locked, Shared};
 use sikemux_pty::validate_pty_dimensions;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, Notify};
 
 use crate::protocol::{
@@ -290,10 +289,13 @@ async fn handshake(
     }
 }
 
-pub(crate) async fn serve_local(core: Arc<Core>, stream: UnixStream) {
+pub(crate) async fn serve_local(core: Arc<Core>, stream: super::LocalConn) {
     let peer = local_peer::identify(&stream).await;
     let pid = local_peer::pid(&stream);
+    #[cfg(unix)]
     let (read_half, write_half) = stream.into_split();
+    #[cfg(windows)]
+    let (read_half, write_half) = tokio::io::split(stream);
     serve_client(core, peer, pid, Box::new(read_half), Box::new(write_half)).await;
 }
 

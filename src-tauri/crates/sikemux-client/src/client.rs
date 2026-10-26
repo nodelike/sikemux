@@ -11,7 +11,6 @@ use sikemux_wire::pty::agent_detection::{DetectionExplain, ManifestReloadReport}
 use sikemux_wire::pty::output_log::{OutputPage, OutputQuery};
 use sikemux_wire::pty::shell_protocol::ShellMetadataSnapshot;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -219,8 +218,10 @@ impl CoreClient {
         socket: &Path,
         sink: Arc<dyn EventSink>,
     ) -> Result<Self, ClientError> {
-        let stream = UnixStream::connect(socket).await?;
-        let (read_half, write_half) = stream.into_split();
+        #[cfg(unix)]
+        let (read_half, write_half) = tokio::net::UnixStream::connect(socket).await?.into_split();
+        #[cfg(windows)]
+        let (read_half, write_half) = tokio::io::split(crate::local::open(socket).await?);
         Self::connect_streams(read_half, write_half, sink).await
     }
 

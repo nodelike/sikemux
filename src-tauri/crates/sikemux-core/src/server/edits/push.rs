@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn only_the_callers_commits_are_pushed_and_the_branch_keeps_its_files() {
         let root = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root.path()).unwrap();
+        let root = sikemux_process::os::canonicalize(root.path()).unwrap();
         let remote = root.join("remote.git");
         let work = root.join("work");
         git_in(&root, &["init", "-q", "--bare", "-b", "main", "remote.git"]);

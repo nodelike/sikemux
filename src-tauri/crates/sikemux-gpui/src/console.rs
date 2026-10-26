@@ -3,7 +3,6 @@
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::os::fd::FromRawFd;
 use std::sync::Mutex;
 
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -24,10 +23,34 @@ static ENTRIES: Mutex<VecDeque<Entry>> = Mutex::new(VecDeque::new());
 
 /// Sends stderr through a pipe whose reader keeps each line and still prints it.
 pub fn install() {
+    let Some((lines, printed)) = redirect_stderr() else {
+        return;
+    };
+    let spawned = std::thread::Builder::new()
+        .name("console".into())
+        .spawn(move || {
+            let mut printed = printed;
+            for line in BufReader::new(lines).lines() {
+                let Ok(line) = line else { break };
+                if let Some(printed) = printed.as_mut() {
+                    let _ = writeln!(printed, "{line}");
+                }
+                keep(line);
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("sikemux: the app's console could not be kept: {error}");
+    }
+}
+
+#[cfg(unix)]
+fn redirect_stderr() -> Option<(File, Option<File>)> {
+    use std::os::fd::FromRawFd;
+
     let mut ends = [0; 2];
     // SAFETY: `ends` has room for the two descriptors pipe writes.
     if unsafe { libc::pipe(ends.as_mut_ptr()) } != 0 {
-        return;
+        return None;
     }
     let [read, write] = ends;
     // SAFETY: dup takes and returns plain descriptors; stderr stays open until dup2 replaces it.
@@ -39,24 +62,39 @@ pub fn install() {
             libc::close(read);
             libc::close(write);
         }
-        return;
+        return None;
     }
     // SAFETY: stderr now holds the pipe's write end, so this copy is no longer needed.
     unsafe { libc::close(write) };
     // SAFETY: each descriptor was opened above and is owned by its File from here on.
-    let (lines, mut printed) = unsafe { (File::from_raw_fd(read), File::from_raw_fd(printed)) };
-    let spawned = std::thread::Builder::new()
-        .name("console".into())
-        .spawn(move || {
-            for line in BufReader::new(lines).lines() {
-                let Ok(line) = line else { break };
-                let _ = writeln!(printed, "{line}");
-                keep(line);
-            }
-        });
-    if let Err(error) = spawned {
-        eprintln!("sikemux: the app's console could not be kept: {error}");
+    Some(unsafe { (File::from_raw_fd(read), Some(File::from_raw_fd(printed))) })
+}
+
+#[cfg(windows)]
+fn redirect_stderr() -> Option<(File, Option<File>)> {
+    use std::os::windows::io::{FromRawHandle, RawHandle};
+
+    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle, STD_ERROR_HANDLE};
+    use windows_sys::Win32::System::Pipes::CreatePipe;
+
+    let mut read: HANDLE = std::ptr::null_mut();
+    let mut write: HANDLE = std::ptr::null_mut();
+    // SAFETY: both out-pointers are live locals; null attributes make plain private handles.
+    if unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) } == 0 {
+        return None;
     }
+    // SAFETY: GetStdHandle only reads the process's standard handle.
+    let original = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
+    // SAFETY: `write` is open; stderr keeps it for the life of the process.
+    if unsafe { SetStdHandle(STD_ERROR_HANDLE, write) } == 0 {
+        return None;
+    }
+    let printed = (!original.is_null() && original != INVALID_HANDLE_VALUE)
+        // SAFETY: the original handle is no longer stderr, so this File is its only user.
+        .then(|| unsafe { File::from_raw_handle(original as RawHandle) });
+    // SAFETY: `read` was just created and nothing else holds it.
+    Some((unsafe { File::from_raw_handle(read as RawHandle) }, printed))
 }
 
 fn keep(line: String) {

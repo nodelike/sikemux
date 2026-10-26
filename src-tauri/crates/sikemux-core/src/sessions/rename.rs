@@ -1,4 +1,4 @@
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -109,10 +109,11 @@ fn rename_session(
 
 /// Pi and OMP name a session by its file's path, which must sit inside one of their session folders.
 fn session_file_within(session_id: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
-    let path = fs::canonicalize(session_id).map_err(|_| "session not found".to_string())?;
+    let path = sikemux_process::os::canonicalize(session_id)
+        .map_err(|_| "session not found".to_string())?;
     let inside = roots
         .iter()
-        .filter_map(|root| fs::canonicalize(root).ok())
+        .filter_map(|root| sikemux_process::os::canonicalize(root).ok())
         .any(|root| path.starts_with(root));
     if inside && path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
         Ok(path)

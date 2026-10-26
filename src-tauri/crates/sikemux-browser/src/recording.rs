@@ -6,6 +6,8 @@
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+mod unsupported;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,6 +19,8 @@ use linux as platform;
 #[cfg(target_os = "macos")]
 use macos as platform;
 use platform::{Picture, Writer};
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+use unsupported as platform;
 
 use crate::manager::BrowserManager;
 use serde_json::{json, Value};

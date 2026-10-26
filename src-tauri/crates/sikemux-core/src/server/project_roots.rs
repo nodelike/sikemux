@@ -88,7 +88,7 @@ fn walk(
         if remaining <= 0 {
             continue;
         }
-        let Ok(canonical) = fs::canonicalize(&dir) else {
+        let Ok(canonical) = sikemux_process::os::canonicalize(&dir) else {
             continue;
         };
         if !visited.insert(canonical) {
@@ -114,7 +114,7 @@ fn walk(
             if name.starts_with('.') {
                 continue;
             }
-            let Ok(canonical) = fs::canonicalize(&p) else {
+            let Ok(canonical) = sikemux_process::os::canonicalize(&p) else {
                 continue;
             };
             if !canonical.is_dir() {

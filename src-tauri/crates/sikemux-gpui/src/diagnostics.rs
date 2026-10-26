@@ -105,10 +105,22 @@ fn snapshot(bench: &Workbench) -> Value {
 }
 
 /// How many files this process has open, counted from `/dev/fd`.
+#[cfg(unix)]
 fn fd_count() -> Option<usize> {
     std::fs::read_dir("/dev/fd").ok().map(Iterator::count)
 }
 
+#[cfg(windows)]
+fn fd_count() -> Option<usize> {
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
+
+    let mut count = 0;
+    // SAFETY: the pseudo handle needs no closing, and `count` is a live local.
+    (unsafe { GetProcessHandleCount(GetCurrentProcess(), &mut count) } != 0)
+        .then_some(count as usize)
+}
+
+#[cfg(unix)]
 fn fd_limit() -> (Option<u64>, Option<u64>) {
     let mut limit = libc::rlimit {
         rlim_cur: 0,
@@ -119,6 +131,11 @@ fn fd_limit() -> (Option<u64>, Option<u64>) {
         return (None, None);
     }
     (Some(limit.rlim_cur), Some(limit.rlim_max))
+}
+
+#[cfg(windows)]
+fn fd_limit() -> (Option<u64>, Option<u64>) {
+    (None, None)
 }
 
 fn snapshot_text(bench: &Workbench) -> String {

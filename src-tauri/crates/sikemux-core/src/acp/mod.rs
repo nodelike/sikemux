@@ -316,6 +316,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn prompt_embeds_context_when_the_agent_takes_it() {
         let blocks = prompt_blocks(

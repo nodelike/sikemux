@@ -328,7 +328,7 @@ fn file_in(top: &Path, dir: &Path, path: &str) -> Option<String> {
     } else {
         dir.join(path)
     };
-    let full = std::fs::canonicalize(full).ok()?;
+    let full = sikemux_process::os::canonicalize(full).ok()?;
     if !full.is_file() {
         return None;
     }

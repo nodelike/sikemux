@@ -4,7 +4,6 @@
 //! are, and the shared index takes in only what was committed.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -286,7 +285,7 @@ pub(super) fn in_checkout(top: &Path, dir: &Path, path: &str) -> Result<String, 
             part => clean.push(part),
         }
     }
-    let real = std::fs::canonicalize(&clean).unwrap_or(clean);
+    let real = sikemux_process::os::canonicalize(&clean).unwrap_or(clean);
     real.strip_prefix(top)
         .map(|inside| inside.to_string_lossy().into_owned())
         .map_err(|_| format!("{path} is outside this checkout"))
@@ -514,7 +513,7 @@ impl Planner<'_> {
         let new = std::fs::read(top.join(path)).map_err(|error| format!("{path}: {error}"))?;
         let mode = match entry {
             Some((mode, _)) => mode.clone(),
-            None if meta.permissions().mode() & 0o111 != 0 => "100755".into(),
+            None if sikemux_process::os::is_executable(&top.join(path)) => "100755".into(),
             None => "100644".into(),
         };
         let hunks = match self.diff.changed.get(path) {
@@ -878,7 +877,7 @@ mod tests {
     #[test]
     fn named_paths_limit_the_commit_and_take_the_lockfile_along() {
         let top = tempfile::tempdir().unwrap();
-        let top = std::fs::canonicalize(top.path()).unwrap();
+        let top = sikemux_process::os::canonicalize(top.path()).unwrap();
         let files = ["Cargo.toml", "Cargo.lock", "a.rs", "b.rs"];
         for file in files {
             std::fs::write(top.join(file), "x\n").unwrap();
@@ -917,7 +916,7 @@ mod tests {
     #[test]
     fn lines_others_may_have_written_go_in_only_from_a_named_file() {
         let top = tempfile::tempdir().unwrap();
-        let top = std::fs::canonicalize(top.path()).unwrap();
+        let top = sikemux_process::os::canonicalize(top.path()).unwrap();
         let files = ["seen.rs", "protocol.rs"];
         for file in files {
             std::fs::write(top.join(file), "x\n").unwrap();

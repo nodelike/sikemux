@@ -32,7 +32,7 @@ pub fn gather(
             .parent()
             .ok_or("the session's folder is missing")?
             .to_path_buf(),
-        _ => fs::canonicalize(&root).map_err(|error| error.to_string())?,
+        _ => sikemux_process::os::canonicalize(&root).map_err(|error| error.to_string())?,
     };
     let mut paths = vec![transcript];
     if agent == AgentKind::Claude {

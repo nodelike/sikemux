@@ -2,13 +2,10 @@
 //! in [`protocol`], [`share`] and [`host`] are generated from `server/protocol/schema`.
 
 pub mod host;
-#[cfg(unix)]
 pub mod live;
 pub mod share;
-#[cfg(unix)]
 pub(crate) mod socket;
 
-#[cfg(unix)]
 pub use sikemux_client::accounts::{
     check_live, check_registration, check_user_id, live_message, network, registration_message,
     tls_config,

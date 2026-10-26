@@ -313,7 +313,7 @@ mod tests {
     #[test]
     fn landing_merges_into_files_others_changed_and_refuses_a_clash() {
         let root = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root.path()).unwrap();
+        let root = sikemux_process::os::canonicalize(root.path()).unwrap();
         let main = root.join("project");
         std::fs::create_dir(&main).unwrap();
         git_in(&main, &["init", "-q", "-b", "main"]);

@@ -5280,6 +5280,7 @@ dependencies = [
  "tokio-rustls",
  "url",
  "webpki-roots",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5336,6 +5337,7 @@ dependencies = [
  "uuid",
  "vt100",
  "webpki-roots",
+ "windows-sys 0.61.2",
  "workspace-hack",
  "zstd",
 ]
@@ -5693,6 +5695,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 

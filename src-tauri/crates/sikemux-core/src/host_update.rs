@@ -94,3 +94,10 @@ pub async fn ask_root(channel: UpdateChannel, mut seen: impl FnMut(&UpdateStep))
         seen(&step);
     }
 }
+
+#[cfg(not(unix))]
+pub async fn ask_root(_channel: UpdateChannel, _seen: impl FnMut(&UpdateStep)) -> UpdateStep {
+    UpdateStep::Failed {
+        message: "only a Linux host updates through a root service".into(),
+    }
+}

@@ -663,10 +663,9 @@ fn beside(file: &Path, suffix: &str) -> Result<PathBuf, String> {
 /// Puts the AppImage at `download` in place of `file`. The running app keeps
 /// the copy it mounted until it starts again from the new one.
 fn replace_appimage(file: &Path, download: &Path) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
     let cannot =
         |error: std::io::Error| format!("Sikemux cannot write to {}: {error}", file.display());
-    std::fs::set_permissions(download, std::fs::Permissions::from_mode(0o755)).map_err(cannot)?;
+    sikemux_process::os::make_executable(download).map_err(cannot)?;
     std::fs::rename(download, file).map_err(cannot)
 }
 

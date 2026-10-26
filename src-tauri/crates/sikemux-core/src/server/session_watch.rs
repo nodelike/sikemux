@@ -400,10 +400,13 @@ impl Places {
 
 /// `path` as file events name it, through any link, even before it exists.
 fn real(path: &Path) -> PathBuf {
-    if let Ok(real) = path.canonicalize() {
+    if let Ok(real) = sikemux_process::os::canonicalize(path) {
         return real;
     }
-    match (path.parent().map(Path::canonicalize), path.file_name()) {
+    match (
+        path.parent().map(sikemux_process::os::canonicalize),
+        path.file_name(),
+    ) {
         (Some(Ok(parent)), Some(name)) => parent.join(name),
         _ => path.to_path_buf(),
     }

@@ -42,6 +42,7 @@ pub fn run(command: &str, args: &[String]) -> i32 {
         "plugins" => plugins(args),
         #[cfg(target_os = "linux")]
         "update" if args == ["--install"] => return crate::update::root::serve(),
+        #[cfg(unix)]
         "update" => crate::update::run(args),
         _ => Err(format!("no command named {command}")),
     };
@@ -146,11 +147,7 @@ async fn shut_down(socket: &Path) -> Result<(), ClientError> {
 }
 
 fn terminate(pid: u32, socket: &Path) -> Result<(), String> {
-    let id = libc::pid_t::try_from(pid).map_err(|_| "the core gave an impossible process id")?;
-    // SAFETY: kill only sends a signal; it reads and writes no memory of ours.
-    if unsafe { libc::kill(id, libc::SIGTERM) } != 0 {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
+    sikemux_process::os::terminate(pid).map_err(|error| error.to_string())?;
     if !stopped(socket) {
         return Err(format!("the core, pid {pid}, is still running"));
     }

@@ -2,7 +2,7 @@
 //! starts after this one died, or after the host restarted, takes each chat
 //! up again by itself and carries on a turn that was cut short.
 
-use std::os::unix::fs::DirBuilderExt;
+use sikemux_process::os::DirBuilderMode;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};

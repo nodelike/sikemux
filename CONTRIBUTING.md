@@ -4,7 +4,7 @@ Thanks for taking the time to contribute. Sikemux is a Rust desktop app drawn wi
 
 ## Getting started
 
-**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the packages CI's Linux job installs (see `.github/workflows/ci.yml`), and `pnpm build:linux` makes a `.deb`, an `.rpm` and an AppImage. Published releases ship an Apple Silicon DMG and x86_64 Linux packages. Windows is not a target: the background core that owns terminals and agents is Unix-only.
+**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the packages CI's Linux job installs (see `.github/workflows/ci.yml`), and `pnpm build:linux` makes a `.deb`, an `.rpm` and an AppImage. Published releases ship an Apple Silicon DMG and x86_64 Linux packages. Windows builds the core, the CLI and their clients (`cargo build -p sikemux-host` in `src-tauri` needs the Visual Studio C++ build tools) but ships no packages yet: browser tabs, live core upgrades and the GPUI window are not there.
 
 ```bash
 git clone git@github.com:nodelike/sikemux.git

@@ -11,16 +11,20 @@
 //! connection. A dev build also trusts the program that started it, such as a
 //! test.
 
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use tokio::net::UnixStream;
-
 use super::access::Peer;
+use super::LocalConn;
 
 /// The window's executable, beside the core's own in a build.
-const APP: &str = "sikemux";
+const APP: &str = if cfg!(windows) {
+    "sikemux.exe"
+} else {
+    "sikemux"
+};
 const BUNDLED_APP: &str = "Contents/MacOS/sikemux";
 pub(super) const BUNDLED_NOTCH: &str = "Contents/Helpers/Sikemux Notch.app";
 pub(super) const NOTCH_EXECUTABLE: &str = "Contents/MacOS/sikemux-notch";
@@ -83,12 +87,22 @@ fn app_paths_beside(own: &Path) -> Vec<PathBuf> {
 }
 
 /// The process on the other end of a connection from this host.
-pub(crate) fn pid(stream: &UnixStream) -> Option<u32> {
-    platform::credentials(stream.as_raw_fd()).map(|credentials| credentials.pid())
+pub(crate) fn pid(stream: &LocalConn) -> Option<u32> {
+    credentials_of(stream).map(|credentials| credentials.pid())
 }
 
-pub(crate) async fn identify(stream: &UnixStream) -> Peer {
-    let Some(credentials) = platform::credentials(stream.as_raw_fd()) else {
+#[cfg(unix)]
+fn credentials_of(stream: &LocalConn) -> Option<platform::Credentials> {
+    platform::credentials(stream.as_raw_fd())
+}
+
+#[cfg(windows)]
+fn credentials_of(stream: &LocalConn) -> Option<platform::Credentials> {
+    super::listener::client_pid(stream).map(platform::Credentials)
+}
+
+pub(crate) async fn identify(stream: &LocalConn) -> Peer {
+    let Some(credentials) = credentials_of(stream) else {
         return Peer::Local;
     };
     let app = tokio::task::spawn_blocking(move || is_app(&credentials))
@@ -112,13 +126,14 @@ pub(crate) fn app_is_signed() -> bool {
 fn is_app(credentials: &platform::Credentials) -> bool {
     let pid = credentials.pid();
     let trust = trust();
+    #[cfg(unix)]
     // SAFETY: geteuid takes nothing and cannot fail.
     let core_is_root = unsafe { libc::geteuid() } == 0;
+    #[cfg(windows)]
+    let core_is_root = false;
     if credentials.uid() == 0 && !core_is_root
         || pid == std::process::id()
-        || cfg!(debug_assertions)
-            && !trust.team_signed
-            && pid == std::os::unix::process::parent_id()
+        || cfg!(debug_assertions) && !trust.team_signed && pid == sikemux_process::os::parent_id()
     {
         return true;
     }
@@ -297,7 +312,62 @@ mod platform {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(windows)]
+mod platform {
+    use std::path::PathBuf;
+
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    use super::Examined;
+
+    pub(super) struct Credentials(pub(super) u32);
+
+    impl Credentials {
+        pub(super) fn pid(&self) -> u32 {
+            self.0
+        }
+
+        pub(super) fn uid(&self) -> u32 {
+            u32::MAX
+        }
+    }
+
+    pub(super) fn own_code_signed_by_team() -> bool {
+        false
+    }
+
+    pub(super) fn examine(credentials: &Credentials) -> Examined {
+        Examined {
+            signed_app: false,
+            program: program_of(credentials.0),
+        }
+    }
+
+    fn program_of(pid: u32) -> Option<PathBuf> {
+        // SAFETY: the handle is closed before returning, and the buffer holds the
+        // `length` units the call may write.
+        unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if process.is_null() {
+                return None;
+            }
+            let mut buffer = [0u16; 1024];
+            let mut length = buffer.len() as u32;
+            let queried = QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut length);
+            CloseHandle(process);
+            if queried == 0 {
+                return None;
+            }
+            let path = String::from_utf16_lossy(buffer.get(..length as usize)?);
+            PathBuf::from(path).canonicalize().ok()
+        }
+    }
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
 mod platform {
     use std::os::fd::RawFd;
 

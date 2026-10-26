@@ -522,6 +522,7 @@ fn conflict(message: String) -> Error {
     format!("file-conflict: {message}").into()
 }
 
+#[cfg(unix)]
 fn stamp(meta: &fs::Metadata) -> String {
     use std::os::unix::fs::MetadataExt;
     format!(
@@ -533,6 +534,21 @@ fn stamp(meta: &fs::Metadata) -> String {
     )
 }
 
+#[cfg(windows)]
+fn stamp(meta: &fs::Metadata) -> String {
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .unwrap_or_default();
+    format!(
+        "{}-{}.{}",
+        meta.len(),
+        modified.as_secs(),
+        modified.subsec_nanos()
+    )
+}
+
 fn content_version(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
@@ -540,11 +556,11 @@ fn content_version(bytes: &[u8]) -> String {
 /// Opening without blocking turns a named pipe away instead of hanging until
 /// something writes to it.
 fn open_regular(path: &Path) -> Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(path)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
+    let file = options.open(path)?;
     if !file.metadata()?.is_file() {
         return Err(format!("fs: {} is not a regular file", path.display()).into());
     }
@@ -668,7 +684,7 @@ fn save(
     last: &[u8],
     params: &WriteParams,
 ) -> Result<Written> {
-    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let target = sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let parent = target
         .parent()
         .ok_or_else(|| Error::from("invalid argument: that path has no folder"))?;
@@ -709,7 +725,7 @@ fn finish(
             })?;
         return Ok(());
     }
-    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let target = sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     if let Some(expected) = expected {
         let gone = || {
             conflict(format!(
@@ -737,7 +753,7 @@ fn finish(
 /// Two saves of one file, from any clients, take turns.
 fn write_lock_for(path: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
-    let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let key = sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let mut locks = LOCKS.get_or_init(Default::default).locked();
     locks.retain(|_, lock| lock.strong_count() > 0);
     if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
@@ -805,7 +821,6 @@ struct RenameParams {
 
 /// Moves an entry, never over one already at `to`.
 fn rename(params: RenameParams) -> Result<()> {
-    use rustix::fs::{renameat_with, RenameFlags, CWD};
     let from = absolute(&params.from)?;
     let to = absolute(&params.to)?;
     if fs::symlink_metadata(from).is_err() {
@@ -814,14 +829,22 @@ fn rename(params: RenameParams) -> Result<()> {
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent)?;
     }
-    renameat_with(CWD, from, CWD, to, RenameFlags::NOREPLACE).map_err(|error| {
-        let error = std::io::Error::from(error);
-        match error.kind() {
-            std::io::ErrorKind::AlreadyExists => {
-                Error::from(format!("fs: destination already exists: {}", to.display()))
-            }
-            _ => error.into(),
+    #[cfg(unix)]
+    let moved = rustix::fs::renameat_with(
+        rustix::fs::CWD,
+        from,
+        rustix::fs::CWD,
+        to,
+        rustix::fs::RenameFlags::NOREPLACE,
+    )
+    .map_err(std::io::Error::from);
+    #[cfg(windows)]
+    let moved = sikemux_process::os::rename_new(from, to);
+    moved.map_err(|error| match error.kind() {
+        std::io::ErrorKind::AlreadyExists => {
+            Error::from(format!("fs: destination already exists: {}", to.display()))
         }
+        _ => error.into(),
     })
 }
 
@@ -843,8 +866,8 @@ fn delete(params: PathParams) -> Result<()> {
 /// `path`, taken from `project` with links followed, or `None` when that leads
 /// outside the project.
 pub fn confine_to_project(project: &str, path: &str) -> std::io::Result<Option<PathBuf>> {
-    let root = fs::canonicalize(project)?;
-    let target = fs::canonicalize(root.join(path))?;
+    let root = sikemux_process::os::canonicalize(project)?;
+    let target = sikemux_process::os::canonicalize(root.join(path))?;
     Ok(target.starts_with(&root).then_some(target))
 }
 
@@ -860,6 +883,7 @@ mod tests {
         })
     }
 
+    #[cfg(unix)]
     #[test]
     fn text_reads_refuse_pipes_devices_and_folders_without_blocking() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -983,6 +1007,7 @@ mod tests {
         assert_eq!(fs::read(&path).expect("read back"), b"after");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_save_keeps_the_file_readable_and_keeps_its_permissions() {
         use std::os::unix::fs::PermissionsExt;

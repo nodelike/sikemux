@@ -45,7 +45,7 @@ pub(crate) fn others(
         .map(|at| owners.authors[at].name.clone())
         .collect();
     if paths.is_empty() {
-        let top = std::fs::canonicalize(&diff.top).unwrap_or(diff.top);
+        let top = sikemux_process::os::canonicalize(&diff.top).unwrap_or(diff.top);
         others.extend(
             listed(core)
                 .into_iter()

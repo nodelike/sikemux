@@ -2238,6 +2238,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_devices_survive_a_write_and_read() {
         let dir = tempfile::tempdir().unwrap();

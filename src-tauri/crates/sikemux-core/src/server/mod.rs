@@ -32,6 +32,7 @@ mod faces;
 mod follow;
 mod from_app;
 mod git;
+#[cfg(unix)]
 mod handover;
 mod harness;
 mod host;
@@ -44,6 +45,8 @@ mod kept;
 mod launching;
 mod layout;
 mod lifecycle;
+#[cfg(windows)]
+mod listener;
 mod load;
 mod local_peer;
 mod lsp;
@@ -63,6 +66,7 @@ mod prepare;
 mod project_files;
 mod project_roots;
 mod prompt_draft;
+mod pty_io;
 mod questions;
 mod remote;
 mod remote_image;
@@ -98,13 +102,16 @@ pub use remote::trust_remote_file;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::{Duration, Instant};
 
+use sikemux_process::os::{DirBuilderMode, OpenOptionsMode};
 use sikemux_process::sync::{Locked, Shared};
 use sikemux_pty::agent_detection::{ManifestRegistry, ManifestReloadReport};
 
@@ -335,9 +342,28 @@ impl Drop for GaugeGuard<'_> {
 /// to its replacement.
 pub(crate) struct Listening {
     pub config: ServerConfig,
+    #[cfg(unix)]
     pub listener_fd: std::os::fd::RawFd,
+    #[cfg(unix)]
     pub lock_fd: std::os::fd::RawFd,
 }
+
+/// A client's connection to the core's local socket.
+#[cfg(unix)]
+pub(crate) type LocalConn = tokio::net::UnixStream;
+#[cfg(windows)]
+pub(crate) type LocalConn = tokio::net::windows::named_pipe::NamedPipeServer;
+
+/// The local socket a core listens on, and what keeps it the only core: a lock file on Unix.
+#[cfg(unix)]
+pub(crate) type ClaimedListener = std::os::unix::net::UnixListener;
+#[cfg(unix)]
+pub(crate) type ClaimedLock = File;
+#[cfg(windows)]
+pub(crate) type ClaimedListener = listener::PipeListener;
+#[cfg(windows)]
+pub(crate) type ClaimedLock = ();
+pub(crate) type Claimed = (ClaimedListener, ClaimedLock);
 
 pub(crate) struct Core {
     me: Weak<Core>,
@@ -1235,7 +1261,8 @@ fn lock_path(socket: &Path) -> PathBuf {
 
 /// Takes the single-instance lock and binds the socket. The lock is held for
 /// the life of the core and released by the kernel when it exits.
-fn claim_socket(socket: &Path) -> Result<(std::os::unix::net::UnixListener, File), ServerError> {
+#[cfg(unix)]
+fn claim_socket(socket: &Path) -> Result<Claimed, ServerError> {
     if let Some(parent) = socket
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -1287,6 +1314,27 @@ fn claim_socket(socket: &Path) -> Result<(std::os::unix::net::UnixListener, File
     let listener = std::os::unix::net::UnixListener::bind(socket)?;
     std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
     Ok((listener, lock))
+}
+
+/// Binds the pipe of the core at `socket`, which no second core can do.
+#[cfg(windows)]
+fn claim_socket(socket: &Path) -> Result<Claimed, ServerError> {
+    if let Some(parent) = socket
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    match listener::PipeListener::bind(socket) {
+        Ok(listener) => Ok((listener, ())),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            Err(ServerError::AlreadyRunning {
+                path: socket.to_path_buf(),
+                pid: probe(socket, PROBE_TIMEOUT).ok().map(|hello| hello.pid),
+            })
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Flushes shell metadata a quiet prompt left coalesced, and reads settled
@@ -1398,18 +1446,24 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
 /// earlier one.
 pub(crate) async fn run_core(
     core: Arc<Core>,
-    listener: std::os::unix::net::UnixListener,
-    lock: File,
+    listener: ClaimedListener,
+    lock: ClaimedLock,
     config: ServerConfig,
 ) -> Result<(), ServerError> {
     let _ = core.listening.set(Listening {
         config: config.clone(),
+        #[cfg(unix)]
         listener_fd: listener.as_raw_fd(),
+        #[cfg(unix)]
         lock_fd: lock.as_raw_fd(),
     });
     local_peer::settle();
+    #[cfg(unix)]
     listener.set_nonblocking(true)?;
+    #[cfg(unix)]
     let listener = tokio::net::UnixListener::from_std(listener)?;
+    #[cfg(windows)]
+    let mut listener = listener;
     remote::start(&core, &config).await;
     core.chats.resets.arm_saved(&core);
     git::follow_projects(&core);
@@ -1422,8 +1476,14 @@ pub(crate) async fn run_core(
         account::start(&core);
         tokio::spawn(crate::usage::serve(core.clone(), data_dir.to_owned()));
     }
+    #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    #[cfg(unix)]
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    #[cfg(windows)]
+    let mut terminate = tokio::signal::windows::ctrl_break()?;
+    #[cfg(windows)]
+    let mut interrupt = tokio::signal::windows::ctrl_c()?;
     let background = [
         tokio::spawn(poll_sessions(core.clone())),
         tokio::spawn(sweep(core.clone())),

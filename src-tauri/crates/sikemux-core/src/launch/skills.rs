@@ -266,6 +266,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn omp_gets_a_config_listing_the_library() {
         let data = std::env::temp_dir().join(format!("sikemux-omp-{}", uuid::Uuid::new_v4()));

@@ -4,6 +4,7 @@
 //! core prove it holds the same one.
 
 use std::net::{Ipv4Addr, SocketAddrV4};
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -39,6 +40,7 @@ const CUT_SHORT: &str = "Sikemux started updating its background process while a
 pub(crate) struct ToolEndpoint {
     path: PathBuf,
     token: String,
+    #[cfg(unix)]
     fd: RawFd,
     open: Arc<AtomicUsize>,
     task: JoinHandle<()>,
@@ -118,6 +120,7 @@ impl ToolEndpoint {
         port: u16,
         token: String,
     ) -> Self {
+        #[cfg(unix)]
         let fd = listener.as_raw_fd();
         let secret: Arc<str> = token.clone().into();
         let open = Arc::new(AtomicUsize::new(0));
@@ -148,6 +151,7 @@ impl ToolEndpoint {
         Self {
             path,
             token,
+            #[cfg(unix)]
             fd,
             open,
             task,
@@ -162,6 +166,7 @@ impl ToolEndpoint {
         &self.token
     }
 
+    #[cfg(unix)]
     pub(crate) fn fd(&self) -> RawFd {
         self.fd
     }

@@ -136,7 +136,7 @@ fn bring(from: &Path, to: &Path) -> std::io::Result<()> {
     {
         return Ok(());
     }
-    std::os::unix::fs::symlink(from, to)
+    sikemux_process::os::symlink(from, to)
 }
 
 #[cfg(target_os = "macos")]

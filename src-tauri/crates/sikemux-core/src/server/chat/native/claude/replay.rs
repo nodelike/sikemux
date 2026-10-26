@@ -1,6 +1,9 @@
+#[cfg(windows)]
+use sikemux_process::os::ReadExactAt;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+#[cfg(unix)]
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 

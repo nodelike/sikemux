@@ -80,7 +80,7 @@ fn global_folders() -> Vec<(&'static str, PathBuf)> {
     .collect::<Vec<_>>();
     let mut seen = Vec::new();
     folders.retain(|(_, folder)| {
-        let real = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
+        let real = sikemux_process::os::canonicalize(folder).unwrap_or_else(|_| folder.clone());
         let fresh = !seen.contains(&real);
         seen.push(real);
         fresh
@@ -259,7 +259,7 @@ fn resolved(folder: &Path) -> PathBuf {
         return folder.to_path_buf();
     };
     let rest = folder.strip_prefix(existing).unwrap_or(Path::new(""));
-    std::fs::canonicalize(existing)
+    sikemux_process::os::canonicalize(existing)
         .unwrap_or_else(|_| existing.to_path_buf())
         .join(rest)
 }
@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn a_skills_folder_not_made_yet_is_watched_from_the_folder_above() {
         let root = tempfile::tempdir().unwrap();
-        let real = std::fs::canonicalize(root.path()).unwrap();
+        let real = sikemux_process::os::canonicalize(root.path()).unwrap();
         let skills = root.path().join(".claude/skills");
         assert_eq!(resolved(&skills), real.join(".claude/skills"));
         assert_eq!(watch_target(&skills), real);

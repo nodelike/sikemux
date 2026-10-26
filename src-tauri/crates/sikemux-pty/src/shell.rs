@@ -20,9 +20,44 @@ pub fn startup_bootstrap(startup: &str, login_shell: bool) -> String {
 /// Shells launched without an injected rc file need `-l` to read their profile,
 /// the way a normal terminal emulator starts them. Shells that do get an
 /// injected rc file are already reading the user's chain through it.
-#[cfg(unix)]
 pub fn shell_wants_login_flag(shell: &str) -> bool {
-    matches!(detect_shell_kind(shell), Some(ShellKind::Zsh))
+    cfg!(unix) && matches!(detect_shell_kind(shell), Some(ShellKind::Zsh))
+}
+
+/// The arguments that make `shell` run `startup` and then stay open for the person.
+pub fn startup_arguments(shell: &str, startup: &str, login_shell: bool) -> Vec<String> {
+    #[cfg(unix)]
+    {
+        let _ = shell;
+        vec!["-c".into(), startup_bootstrap(startup, login_shell)]
+    }
+    #[cfg(windows)]
+    {
+        let _ = login_shell;
+        let name = shell
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(shell)
+            .to_ascii_lowercase();
+        match detect_shell_kind(shell) {
+            Some(ShellKind::PowerShell) => {
+                vec![
+                    "-NoLogo".into(),
+                    "-NoExit".into(),
+                    "-Command".into(),
+                    startup.into(),
+                ]
+            }
+            _ if name == "cmd" || name == "cmd.exe" => vec!["/K".into(), startup.into()],
+            _ => vec![
+                "-c".into(),
+                format!(
+                    "{startup}
+exec \"$SIKEMUX_SHELL\""
+                ),
+            ],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

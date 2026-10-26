@@ -45,7 +45,8 @@ pub(crate) struct ShowFiles {
 /// The path the disk reports for `path`: its folder with links resolved.
 fn on_disk(path: &Path) -> PathBuf {
     match (
-        path.parent().and_then(|folder| folder.canonicalize().ok()),
+        path.parent()
+            .and_then(|folder| sikemux_process::os::canonicalize(folder).ok()),
         path.file_name(),
     ) {
         (Some(folder), Some(name)) => folder.join(name),

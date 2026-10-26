@@ -81,7 +81,7 @@ fn default_root(provider: &str) -> Option<PathBuf> {
 pub fn sessions_root(provider: &str, config_path: Option<&str>) -> Option<PathBuf> {
     let folder = accounts_home(provider)?.1.sessions?;
     let path = root(provider, config_path)?.join(folder);
-    Some(std::fs::canonicalize(&path).unwrap_or(path))
+    Some(sikemux_process::os::canonicalize(&path).unwrap_or(path))
 }
 
 pub fn sessions_shared(provider: &str, one: Option<&str>, other: Option<&str>) -> bool {
@@ -120,7 +120,7 @@ fn link_into(provider: &str, account: &Path, shared: &Path) {
         if !shares(provider, name) || target.symlink_metadata().is_ok() {
             continue;
         }
-        if let Err(error) = std::os::unix::fs::symlink(entry.path(), &target) {
+        if let Err(error) = sikemux_process::os::symlink(entry.path().as_path(), &target) {
             eprintln!("Could not share {name} with the account in {account:?}: {error}");
         }
     }

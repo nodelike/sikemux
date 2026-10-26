@@ -76,11 +76,7 @@ const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_COMMAND_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
 
 fn kill_and_reap_process(child: &mut std::process::Child) {
-    // SAFETY: kill only takes integers and touches no memory. A spawned child's id is
-    // never zero, so this never becomes kill(0), which would signal our own process group.
-    unsafe {
-        libc::kill(-(child.id() as i32), libc::SIGKILL);
-    }
+    sikemux_pty::process::terminate_process_tree(child.id(), true);
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -407,6 +403,7 @@ mod tests {
             .map_err(|error| error.to_string())
     }
 
+    #[cfg(unix)]
     #[test]
     fn subprocess_drains_output_before_child_reads_stdin() {
         let input = vec![b'i'; 2 * 1024 * 1024];

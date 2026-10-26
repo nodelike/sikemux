@@ -29,9 +29,7 @@ pub(crate) async fn watch(core: Arc<Core>) {
 }
 
 pub(crate) fn now() -> HostLoad {
-    let mut averages = [0f64; 3];
-    // SAFETY: getloadavg writes at most the count it is given into the array.
-    let read = unsafe { libc::getloadavg(averages.as_mut_ptr(), 1) };
+    let (read, averages) = load_average();
     let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get()) as f64;
     let cpu = if read == 1 {
         (averages[0] / cores * 100.0).round().clamp(0.0, 100.0) as u32
@@ -42,6 +40,53 @@ pub(crate) fn now() -> HostLoad {
         cpu,
         memory_used: memory_used(),
     }
+}
+
+#[cfg(unix)]
+fn load_average() -> (i32, [f64; 3]) {
+    let mut averages = [0f64; 3];
+    // SAFETY: getloadavg writes at most the count it is given into the array.
+    let read = unsafe { libc::getloadavg(averages.as_mut_ptr(), 1) };
+    (read, averages)
+}
+
+/// Windows keeps no load average, so this reports the share of CPU time busy since the last
+/// call as that many cores' worth, which is the load average's unit.
+#[cfg(windows)]
+fn load_average() -> (i32, [f64; 3]) {
+    use std::sync::Mutex;
+
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::GetSystemTimes;
+
+    static LAST: Mutex<Option<(u64, u64)>> = Mutex::new(None);
+    let ticks =
+        |time: FILETIME| (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime);
+    let zero = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let (mut idle, mut kernel, mut user) = (zero, zero, zero);
+    // SAFETY: the three out-pointers are live locals.
+    if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {
+        return (0, [0.0; 3]);
+    }
+    // Kernel time includes idle time.
+    let (idle, total) = (ticks(idle), ticks(kernel) + ticks(user));
+    let Ok(mut last) = LAST.lock() else {
+        return (0, [0.0; 3]);
+    };
+    let previous = last.replace((idle, total));
+    let Some((last_idle, last_total)) = previous else {
+        return (0, [0.0; 3]);
+    };
+    let span = total.saturating_sub(last_total);
+    if span == 0 {
+        return (0, [0.0; 3]);
+    }
+    let busy = span.saturating_sub(idle.saturating_sub(last_idle)) as f64 / span as f64;
+    let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get()) as f64;
+    (1, [busy * cores, 0.0, 0.0])
 }
 
 #[cfg(target_os = "linux")]
@@ -55,7 +100,20 @@ fn memory_used() -> Option<u64> {
     Some(field("MemTotal:")?.saturating_sub(field("MemAvailable:")?))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn memory_used() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+
+    // SAFETY: the struct is zeroed except for its length, which the call requires, and is
+    // written only within that length.
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: `status` is a live local of the size it declares.
+    (unsafe { GlobalMemoryStatusEx(&mut status) } != 0)
+        .then(|| status.ullTotalPhys.saturating_sub(status.ullAvailPhys))
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 fn memory_used() -> Option<u64> {
     None
 }

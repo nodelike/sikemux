@@ -7,6 +7,7 @@ use super::super::replay;
 use super::super::tools::matches_adapter::without_pictures;
 use serde_json::{json, Value};
 
+#[cfg(unix)]
 #[test]
 fn replay_matches_adapter() {
     let fixture: Value =

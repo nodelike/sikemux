@@ -2333,7 +2333,6 @@ pub fn read_frame_sync<R: Read>(reader: &mut R) -> io::Result<Option<Frame>> {
     split_frame(body).map(Some)
 }
 
-#[cfg(unix)]
 pub async fn read_frame<R: tokio::io::AsyncRead + Unpin>(
     reader: &mut R,
 ) -> io::Result<Option<Frame>> {
@@ -2341,7 +2340,6 @@ pub async fn read_frame<R: tokio::io::AsyncRead + Unpin>(
 }
 
 /// Refuses a frame longer than `max_payload` before reading it.
-#[cfg(unix)]
 pub async fn read_frame_within<R: tokio::io::AsyncRead + Unpin>(
     reader: &mut R,
     max_payload: usize,

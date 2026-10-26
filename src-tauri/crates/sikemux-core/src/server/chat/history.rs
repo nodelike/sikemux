@@ -2,8 +2,11 @@
 //! keeps only the newest part of a long chat; a phone that scrolls back past
 //! it reads the rest from here, a page of whole turns at a time.
 
+#[cfg(windows)]
+use sikemux_process::os::ReadExactAt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
+#[cfg(unix)]
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};

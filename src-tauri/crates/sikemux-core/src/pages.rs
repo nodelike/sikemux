@@ -21,7 +21,7 @@ const MAX_HEIGHT: u32 = 4000;
 
 static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(["'(])\s*([^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf))\s*(["')])"#,
+        r#"(["'(])\s*((?:[A-Za-z]:)?[^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf))\s*(["')])"#,
     )
     .expect("local file pattern")
 });

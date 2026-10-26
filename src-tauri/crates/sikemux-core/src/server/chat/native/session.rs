@@ -3,7 +3,6 @@
 //! agent again under the chat.
 
 use std::collections::HashMap;
-use std::os::fd::OwnedFd;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -26,7 +25,7 @@ use super::super::rebind::{
     Rebind, Replay,
 };
 use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond};
-use super::process::{AgentRecord, Lines, Process, Released, Writer};
+use super::process::{AgentRecord, Lines, Pipe, Process, Released, Writer};
 use crate::server::agent_accounts;
 
 /// What the person sent, for the agent to read in its own form.
@@ -515,7 +514,7 @@ pub(crate) struct Adopted {
     pub session: SessionState,
     pub backend: Value,
     pub agent: AgentRecord,
-    pub pipes: [OwnedFd; 3],
+    pub pipes: [Pipe; 3],
     pub asked: Vec<Asked>,
 }
 
