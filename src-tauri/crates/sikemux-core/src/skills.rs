@@ -209,7 +209,7 @@ pub fn install_folder(data_dir: &Path, source: &Path) -> Result<Skill, String> {
 /// folder from elsewhere arrives whole. A link that is broken, or that leads
 /// back into a folder being copied, fails the copy.
 fn copy_folder(from: &Path, to: &Path, copying: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    let real = fs::canonicalize(from)?;
+    let real = sikemux_process::os::canonicalize(from)?;
     if copying.contains(&real) {
         return Err(std::io::Error::other(format!(
             "{} links back into itself",
@@ -430,6 +430,7 @@ mod tests {
         fs::remove_dir_all(data).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn install_follows_links_so_a_linked_script_or_folder_arrives_whole() {
         let data = scratch();
@@ -464,6 +465,7 @@ mod tests {
         fs::remove_dir_all(data).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_copy_that_fails_leaves_nothing_behind_and_the_name_free() {
         let data = scratch();

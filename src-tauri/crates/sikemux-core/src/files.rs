@@ -679,7 +679,7 @@ fn save(
     last: &[u8],
     params: &WriteParams,
 ) -> Result<Written> {
-    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let target = sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let parent = target
         .parent()
         .ok_or_else(|| Error::from("invalid argument: that path has no folder"))?;
@@ -720,7 +720,7 @@ fn finish(
             })?;
         return Ok(());
     }
-    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let target = sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     if let Some(expected) = expected {
         let gone = || {
             conflict(format!(
@@ -748,7 +748,7 @@ fn finish(
 /// Two saves of one file, from any clients, take turns.
 fn write_lock_for(path: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
-    let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let key = sikemux_process::os::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let mut locks = LOCKS.get_or_init(Default::default).locked();
     locks.retain(|_, lock| lock.strong_count() > 0);
     if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
@@ -863,8 +863,8 @@ fn delete(params: PathParams) -> Result<()> {
 /// `path`, taken from `project` with links followed, or `None` when that leads
 /// outside the project.
 pub fn confine_to_project(project: &str, path: &str) -> std::io::Result<Option<PathBuf>> {
-    let root = fs::canonicalize(project)?;
-    let target = fs::canonicalize(root.join(path))?;
+    let root = sikemux_process::os::canonicalize(project)?;
+    let target = sikemux_process::os::canonicalize(root.join(path))?;
     Ok(target.starts_with(&root).then_some(target))
 }
 
@@ -880,6 +880,7 @@ mod tests {
         })
     }
 
+    #[cfg(unix)]
     #[test]
     fn text_reads_refuse_pipes_devices_and_folders_without_blocking() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -1003,6 +1004,7 @@ mod tests {
         assert_eq!(fs::read(&path).expect("read back"), b"after");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_save_keeps_the_file_readable_and_keeps_its_permissions() {
         use std::os::unix::fs::PermissionsExt;

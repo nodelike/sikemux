@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn stale_outputs_are_committed_on_top_and_reach_the_project_checkout() {
         let root = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root.path()).unwrap();
+        let root = sikemux_process::os::canonicalize(root.path()).unwrap();
         let main = root.join("project");
         std::fs::create_dir(&main).unwrap();
         git_in(&main, &["init", "-q", "-b", "main"]);

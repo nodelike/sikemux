@@ -1998,7 +1998,7 @@ pub(crate) async fn add_project(
     }
     let path = params.path;
     let path = blocking(move || {
-        let path = std::fs::canonicalize(&path)
+        let path = sikemux_process::os::canonicalize(&path)
             .map_err(|error| CoreError::from(format!("{}: {error}", path.display())))?;
         if path.is_dir() {
             Ok(path)

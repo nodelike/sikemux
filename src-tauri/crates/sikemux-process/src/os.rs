@@ -1,10 +1,10 @@
 //! The file and process calls that differ between Unix and Windows.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Links `destination` to `source`. Windows may refuse a link to someone without the
-/// right to make them, so a file is hard linked and a folder copied there instead.
+/// right to make them, so a file is then hard linked; a folder has no such fallback.
 pub fn symlink(source: &Path, destination: &Path) -> io::Result<()> {
     #[cfg(unix)]
     return std::os::unix::fs::symlink(source, destination);
@@ -15,6 +15,23 @@ pub fn symlink(source: &Path, destination: &Path) -> io::Result<()> {
         std::os::windows::fs::symlink_file(source, destination)
             .or_else(|_| std::fs::hard_link(source, destination))
     };
+}
+
+/// The real path of `path`, written the way Git writes paths. Windows' own form starts with
+/// `\\?\`, which Git rejects and which never equals the path Git prints for the same folder.
+pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    let real = std::fs::canonicalize(path)?;
+    #[cfg(windows)]
+    {
+        let text = real.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return Ok(PathBuf::from(format!(r"\\{rest}")));
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return Ok(PathBuf::from(rest));
+        }
+    }
+    Ok(real)
 }
 
 /// Whether a program can be run from `path`. Windows tells by the name's extension.

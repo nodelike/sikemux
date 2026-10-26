@@ -547,7 +547,7 @@ async fn dispatch(
         return crate::cli::manifest::served();
     }
     let project = request.project.clone();
-    request.project = tokio::task::spawn_blocking(move || std::fs::canonicalize(project))
+    request.project = tokio::task::spawn_blocking(move || sikemux_process::os::canonicalize(project))
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())?

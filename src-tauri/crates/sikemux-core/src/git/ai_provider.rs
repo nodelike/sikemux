@@ -363,8 +363,7 @@ fn run_codex_app_server_candidate(
     model: &str,
     prompt: &str,
 ) -> Result<String, String> {
-    let repo = Path::new(repo)
-        .canonicalize()
+    let repo = sikemux_process::os::canonicalize(repo)
         .map_err(|error| format!("Could not resolve repository path: {error}"))?;
     let repo = repo.to_string_lossy().into_owned();
     let mut command = sikemux_process::user_environment::agent_command(bin);

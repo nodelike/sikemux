@@ -106,10 +106,10 @@ pub fn installed_java() -> Vec<JavaRuntime> {
         let Some(runtime) = runtime_at(&folder) else {
             continue;
         };
-        let canonical = std::fs::canonicalize(&runtime.home).ok();
+        let canonical = sikemux_process::os::canonicalize(&runtime.home).ok();
         let seen = runtimes
             .iter()
-            .any(|known| std::fs::canonicalize(&known.home).ok() == canonical);
+            .any(|known| sikemux_process::os::canonicalize(&known.home).ok() == canonical);
         if !seen {
             runtimes.push(runtime);
         }
@@ -130,7 +130,7 @@ pub fn default_java() -> Option<JavaRuntime> {
         return runtime_at(Path::new(String::from_utf8_lossy(&output.stdout).trim()));
     }
     let java =
-        std::fs::canonicalize(sikemux_process::user_environment::find_executable("java")?).ok()?;
+        sikemux_process::os::canonicalize(sikemux_process::user_environment::find_executable("java")?).ok()?;
     runtime_at(java.parent()?.parent()?)
 }
 

@@ -566,6 +566,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     fn fake_cli(dir: &Path, script: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         let path = dir.join("agent");
@@ -574,6 +575,7 @@ mod tests {
         path
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn pi_is_asked_with_auth_check() {
         let dir = tempfile::tempdir().unwrap();
@@ -592,6 +594,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn opencode_is_asked_for_its_credentials() {
         let dir = tempfile::tempdir().unwrap();
@@ -605,6 +608,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn claude_answers_through_its_account_check() {
         let dir = tempfile::tempdir().unwrap();

@@ -1370,6 +1370,7 @@ mod tests {
     // portable_pty's `MasterPty` dropped, the dup keeps the child's terminal
     // open. The child sleeps before printing, so a hangup on drop would end
     // the read before the marker arrives.
+    #[cfg(unix)]
     #[test]
     fn lone_master_dup_keeps_child_alive_after_masterpty_drop() {
         use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};

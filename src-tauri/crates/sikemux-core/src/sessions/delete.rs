@@ -55,10 +55,10 @@ pub(super) fn saved_transcript(
         .ok_or_else(|| format!("{} chats cannot be deleted", entry.label))?;
     let root = account_root(agent, config_path, &BTreeMap::new()).ok_or("session not found")?;
     let transcript = session_transcript_path(agent, cwd, session_id, config_path)
-        .and_then(|path| fs::canonicalize(path).ok())
+        .and_then(|path| sikemux_process::os::canonicalize(path).ok())
         .filter(|path| path.is_file())
         .ok_or("session not found")?;
-    let inside = fs::canonicalize(root.join(folder)).is_ok_and(|dir| transcript.starts_with(dir));
+    let inside = sikemux_process::os::canonicalize(root.join(folder)).is_ok_and(|dir| transcript.starts_with(dir));
     if !inside {
         return Err("session not found".to_string());
     }
@@ -161,6 +161,7 @@ mod tests {
             .exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_codex_session_is_deleted_by_codex_itself() {
         use std::os::unix::fs::PermissionsExt;

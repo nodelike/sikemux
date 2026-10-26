@@ -403,6 +403,7 @@ mod tests {
             .map_err(|error| error.to_string())
     }
 
+    #[cfg(unix)]
     #[test]
     fn subprocess_drains_output_before_child_reads_stdin() {
         let input = vec![b'i'; 2 * 1024 * 1024];
