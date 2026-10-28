@@ -30,7 +30,7 @@ use crate::chat::{Chat, Composing, Question, Sent};
 use crate::codehost::{Area, HostArea, OpenArea};
 use crate::core::{utc_offset_minutes, Ask, ChatAsk, ChatNews, Link, Target, Update, Watch};
 use crate::desk::{
-    FocusAddress, NewPage, NewSimulator, PageBack, PageForward, ReloadPage, ToggleDesk,
+    DeskAlone, FocusAddress, NewPage, NewSimulator, PageBack, PageForward, ReloadPage, ToggleDesk,
 };
 use crate::editor::OpenAt;
 use crate::files::FileTree;
@@ -5057,6 +5057,7 @@ impl Render for Workbench {
             .on_action(cx.listener(|bench, _: &NewChat, window, cx| bench.new_chat(window, cx)))
             .on_action(cx.listener(|bench, _: &FocusTerminal, _, cx| bench.focus_terminal(cx)))
             .on_action(cx.listener(|bench, _: &ToggleDesk, _, cx| bench.toggle_front_desk(cx)))
+            .on_action(cx.listener(|bench, _: &DeskAlone, _, cx| bench.toggle_desk_alone(cx)))
             .on_action(cx.listener(|bench, _: &NewPage, _, cx| bench.new_front_page(cx)))
             .on_action(cx.listener(|bench, _: &FocusAddress, _, cx| bench.focus_front_address(cx)))
             .on_action(cx.listener(|bench, _: &ReloadPage, _, _| bench.reload_front_page()))

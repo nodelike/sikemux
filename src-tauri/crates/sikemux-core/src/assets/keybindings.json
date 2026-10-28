@@ -136,6 +136,14 @@
         "other": "Ctrl+Shift+KeyJ"
     },
     {
+        "id": "desk.alone",
+        "label": "Show desk alone",
+        "detail": "Hide the agent beside its desk, or bring it back",
+        "category": "Agents",
+        "mac": "Meta+KeyK",
+        "other": "Ctrl+Shift+KeyK"
+    },
+    {
         "id": "agent.permissions",
         "label": "Toggle agent permissions",
         "detail": "Toggle skip-permissions for the active agent",

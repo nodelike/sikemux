@@ -42,6 +42,10 @@ use crate::workbench::{shows, Strip, Workbench};
 pub struct ToggleDesk;
 
 #[derive(Clone, Default, PartialEq, gpui::Action)]
+#[action(name = "desk.alone")]
+pub struct DeskAlone;
+
+#[derive(Clone, Default, PartialEq, gpui::Action)]
 #[action(name = "browser.tabNew")]
 pub struct NewPage;
 
@@ -957,6 +961,22 @@ impl Workbench {
         if let Some((tab, view, agent)) = self.nearest_agent(cx) {
             self.toggle_desk(&tab, &view, &agent, cx);
         }
+    }
+
+    /// Lets the nearest agent's desk fill its tab, opening it first when it is closed, or puts
+    /// the agent back beside it.
+    pub fn toggle_desk_alone(&mut self, cx: &mut Context<Self>) {
+        let Some((tab, view, agent)) = self.nearest_agent(cx) else {
+            return;
+        };
+        match self.desk_of(&tab, &agent) {
+            Some(desk) if self.panes.zoomed.as_deref() == Some(desk.as_str()) => {
+                self.panes.zoomed = None;
+            }
+            Some(desk) => self.panes.zoomed = Some(desk),
+            None => return self.toggle_desk(&tab, &view, &agent, cx),
+        }
+        self.parts.redraw(&self.parts.stage, cx);
     }
 
     /// The nearest agent's desk, turned to its simulator.
