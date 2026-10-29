@@ -27,6 +27,8 @@ pub(super) struct TurnState {
     pub unreported: bool,
     /// Why the turn in progress failed, said before the turn or the chat ends.
     pub failure: Option<String>,
+    /// How many times a turn was held, so a wait on one hold leaves the next alone.
+    pub holds: u64,
 }
 
 impl TurnState {
@@ -72,6 +74,7 @@ impl From<Flags> for TurnState {
             answered: flags.answered,
             unreported: turn != Turn::Idle,
             failure: None,
+            holds: 0,
         }
     }
 }

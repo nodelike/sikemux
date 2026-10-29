@@ -22,6 +22,7 @@ use sikemux_wire::chat::{
 use super::super::connection::{ClientConn, ClientId};
 use super::history::{History, HistoryState, Page, MAX_HISTORY_BYTES};
 use super::queue::{batch_len, Queued, MAX_QUEUED};
+use super::states::Subagent;
 use sikemux_fold::{ChatEventKind, Place};
 use sikemux_fold::{Fold, PageOf, PAGE_BYTES as ROW_BYTES};
 
@@ -33,6 +34,7 @@ mod work;
 use replay::{is_kept, stamp};
 pub(crate) use replay::{session_title, title, Anchor, Excerpt, Replay, Said};
 use subscribers::Subscriber;
+use work::Work;
 
 /// How long the newest event waits for more text to join it before it is
 /// written to the history, so a crash loses at most this much of the chat.
@@ -781,8 +783,17 @@ impl Feed {
     /// The agent's process went away, and every subagent and background task
     /// it had going went with it. The chat is told each one ended.
     pub(crate) fn agent_gone(&self) {
+        self.end_work(Work::endings);
+    }
+
+    /// The turn waited too long on its subagents, which the chat is told failed.
+    pub(crate) fn give_up_subagents(&self) {
+        self.end_work(|work| work.subagent_endings(Subagent::Failed).collect());
+    }
+
+    fn end_work(&self, endings: impl FnOnce(&Work) -> Vec<Value>) {
         let mut inner = self.inner.locked();
-        for mut payload in inner.replay.work.endings() {
+        for mut payload in endings(&inner.replay.work) {
             stamp(&mut payload);
             let index = inner.replay.push(ChatEventKind::SessionUpdate, &payload);
             self.fold_in(&mut inner, index, ChatEventKind::SessionUpdate, &payload);

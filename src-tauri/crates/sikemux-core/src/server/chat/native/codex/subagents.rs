@@ -107,11 +107,6 @@ impl Subagents {
         }
     }
 
-    /// Whether a subagent is still at work, or about to be.
-    pub fn outstanding(&self) -> bool {
-        !self.pending.is_empty() || self.children.values().any(|child| !child.ended)
-    }
-
     /// Routes one notification. Updates about subagents go to `out`, and
     /// notifications held for a subagent that has now appeared go to `replay`
     /// to be read again.
@@ -383,7 +378,6 @@ mod tests {
         let (route, out, _) = send(&mut subagents, "item/started", spawn("root", "kid"));
         assert_eq!(route, Route::Taken);
         assert!(out.is_empty());
-        assert!(subagents.outstanding());
 
         let early = json!({ "threadId": "kid", "itemId": "m", "delta": "hi" });
         let (held, _, _) = send(&mut subagents, "item/agentMessage/delta", early.clone());
@@ -417,7 +411,6 @@ mod tests {
             out,
             vec![("root".to_owned(), Subagent::Completed.update("kid"))]
         );
-        assert!(!subagents.outstanding());
 
         let late = json!({ "threadId": "kid", "itemId": "m", "delta": "late" });
         assert_eq!(
@@ -470,7 +463,6 @@ mod tests {
             out,
             vec![("root".to_owned(), Subagent::Cancelled.update("a"))]
         );
-        assert!(!subagents.outstanding());
     }
 
     #[test]

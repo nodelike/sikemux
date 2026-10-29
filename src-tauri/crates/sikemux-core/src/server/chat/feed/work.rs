@@ -126,10 +126,16 @@ impl Work {
         let tasks = self.tasks.iter().rev().map(|going| {
             json!({ "sessionId": going.session, "update": Task::Stopped.update(&going.id) })
         });
-        let subagents = self.subagents.iter().rev().map(|going| {
-            json!({ "sessionId": going.session, "update": Subagent::Disconnected.update(&going.id) })
-        });
-        tasks.chain(subagents).collect()
+        tasks
+            .chain(self.subagent_endings(Subagent::Disconnected))
+            .collect()
+    }
+
+    /// The updates that end every subagent still going as `state`, the newest first.
+    pub(super) fn subagent_endings(&self, state: Subagent) -> impl Iterator<Item = Value> + '_ {
+        self.subagents.iter().rev().map(
+            move |going| json!({ "sessionId": going.session, "update": state.update(&going.id) }),
+        )
     }
 }
 

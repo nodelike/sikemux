@@ -68,6 +68,8 @@ const CANCEL_GRACE: Duration = Duration::from_secs(10);
 /// How long after its last subagent ends a chat waits for the agent to take
 /// up the subagent's report before it counts as finished.
 const SUBAGENT_WAKE_GRACE: Duration = Duration::from_secs(3);
+/// How long a turn that ended waits for the subagents it started.
+const SUBAGENT_WAIT: Duration = Duration::from_secs(10 * 60);
 /// How long a chat has to let go of its agent for an update before it is
 /// stopped and started again on its session instead.
 const RELEASE_WAIT: Duration = Duration::from_secs(5);
@@ -413,30 +415,46 @@ impl Chat {
     /// Finishes a held turn once its last subagent has ended, unless the agent
     /// starts a turn of its own to answer it first.
     pub(crate) fn finish_held(&self) {
-        if self.turn.locked().turn != Turn::Held || self.feed.running_subagents() > 0 {
-            return;
+        let hold = {
+            let state = self.turn.locked();
+            if state.turn != Turn::Held {
+                return;
+            }
+            state.holds
+        };
+        if self.feed.running_subagents() == 0 {
+            self.end_held_after(SUBAGENT_WAKE_GRACE, hold, false);
         }
+    }
+
+    /// Ends held turn `hold` as finished after `wait`, should it still be held then.
+    /// It waits for its subagents unless `giving_up`, which ends them as failed.
+    fn end_held_after(&self, wait: Duration, hold: u64, giving_up: bool) {
         let core = self.core.clone();
         let agent_id = self.agent_id().to_owned();
         let generation = self.generation;
         tokio::spawn(async move {
-            tokio::time::sleep(SUBAGENT_WAKE_GRACE).await;
+            tokio::time::sleep(wait).await;
             let Some(core) = core.upgrade() else { return };
             let Some(chat) = core.chats.get(&agent_id) else {
                 return;
             };
-            if chat.generation != generation || chat.feed.running_subagents() > 0 {
+            if chat.generation != generation || !giving_up && chat.feed.running_subagents() > 0 {
                 return;
             }
             {
                 let mut state = chat.turn.locked();
-                if state.turn != Turn::Held {
+                if state.turn != Turn::Held || state.holds != hold {
                     return;
                 }
                 state.turn = Turn::Idle;
             }
+            if giving_up {
+                chat.feed.give_up_subagents();
+            }
             core.note_activity(&agent_id, Activity::Finished { cancelled: false });
             chat.report_turn(&core, Ending::Finished);
+            chat.publish_state();
             chat.send_queued_later();
         });
     }
@@ -698,11 +716,19 @@ impl Chat {
         self.turn.locked().turn != Turn::Idle
     }
 
+    /// The turn ended with subagents still at work, so it waits for them, a
+    /// while at most.
     fn hold_for_subagents(&self) {
-        let mut state = self.turn.locked();
-        if state.turn == Turn::Idle {
+        let hold = {
+            let mut state = self.turn.locked();
+            if state.turn != Turn::Idle {
+                return;
+            }
             state.turn = Turn::Held;
-        }
+            state.holds += 1;
+            state.holds
+        };
+        self.end_held_after(SUBAGENT_WAIT, hold, true);
     }
 
     /// A turn of this chat was answered, so its provider has it saved.
@@ -1575,6 +1601,10 @@ impl Chats {
             origin,
             core: Arc::downgrade(core),
         });
+        let held = chat.turn.locked().turn == Turn::Held;
+        if held {
+            chat.end_held_after(SUBAGENT_WAIT, 0, true);
+        }
         self.resting
             .locked()
             .retain(|resting| resting.agent_id != chat.agent_id());

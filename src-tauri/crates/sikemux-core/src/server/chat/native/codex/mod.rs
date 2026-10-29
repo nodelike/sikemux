@@ -14,7 +14,6 @@ mod subagents;
 use sikemux_fold::UpdateKind;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -37,9 +36,6 @@ use approvals::Question;
 use commands::Command;
 use state::{user_input_told, Effect, Reply, Session};
 
-/// How long a finished turn waits for the subagents it started.
-const SUBAGENT_WAIT: Duration = Duration::from_secs(10 * 60);
-
 /// What the reader and the chat's loop share.
 #[derive(Clone)]
 struct Driver {
@@ -58,18 +54,8 @@ impl Driver {
                 Effect::WorkStarted => {}
                 Effect::WorkEnded(stop_reason) => self.sink.work_ended(stop_reason),
                 Effect::Interrupt(turn_id) => self.interrupt(turn_id),
-                Effect::AwaitSubagents(turn) => self.await_subagents(turn),
             }
         }
-    }
-
-    fn await_subagents(&self, turn: u64) {
-        let driver = self.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(SUBAGENT_WAIT).await;
-            let effects = driver.session.locked().subagents_waited(turn);
-            driver.apply(effects);
-        });
     }
 
     /// Asks Codex to stop the turn with this id. Codex never answers an
@@ -164,7 +150,6 @@ impl Reads for Driver {
     }
 
     fn closed(&mut self) {
-        self.session.locked().gone = true;
         self.rpc.close();
     }
 }
@@ -890,15 +875,11 @@ impl Backend for Codex {
         (process, writer, lines): (Process, Writer, Lines),
     ) -> Result<Self, String> {
         let state: CodexState = serde_json::from_value(state).map_err(|error| error.to_string())?;
-        let waiting = state.session.waiting_turn();
         let driver = Driver {
             rpc: Rpc::restored(writer, state.rpc),
             sink,
             session: Arc::new(Mutex::new(state.session)),
         };
-        if let Some(turn) = waiting {
-            driver.await_subagents(turn);
-        }
         let (reading, _) = Reading::start(driver.clone(), lines);
         Ok(Self {
             process,

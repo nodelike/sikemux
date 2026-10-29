@@ -30,9 +30,6 @@ pub(super) enum Effect {
     WorkEnded(&'static str),
     /// Ask Codex to stop the turn with this id.
     Interrupt(String),
-    /// Turn `n` finished with subagents still at work; it is answered when
-    /// they end, or after a while regardless.
-    AwaitSubagents(u64),
 }
 
 /// How to answer one of Codex's requests.
@@ -64,7 +61,6 @@ pub(super) struct Session {
     pub turns: Turns,
     /// The last turn that ended outside a prompt, should a prompt be told it.
     last_ended: Option<EndedTurn>,
-    waiting: Option<(u64, Value)>,
     errors: HashMap<String, Value>,
     /// How many times Codex has retried each turn's request.
     retries: HashMap<String, u64>,
@@ -79,8 +75,6 @@ pub(super) struct Session {
     /// The chat's own tool servers that have not reported starting yet.
     pub starting_servers: HashSet<String>,
     questions: u64,
-    /// Set once Codex's output closed.
-    pub gone: bool,
 }
 
 /// What Codex's error info says a failed turn needs.
@@ -179,7 +173,6 @@ impl Session {
             thread_id,
             turns: Turns::default(),
             last_ended: None,
-            waiting: None,
             errors: HashMap::new(),
             retries: HashMap::new(),
             items: Items::default(),
@@ -189,14 +182,7 @@ impl Session {
             latest_turn: None,
             starting_servers: HashSet::new(),
             questions: 0,
-            gone: false,
         }
-    }
-
-    /// The turn that ended with subagents still at work, which is answered
-    /// once they end or a while has passed.
-    pub fn waiting_turn(&self) -> Option<u64> {
-        self.waiting.as_ref().map(|(turn, _)| *turn)
     }
 
     /// Codex answered turn `number` with its id for it.
@@ -217,12 +203,6 @@ impl Session {
     }
 
     pub fn cancel(&mut self) -> Vec<Effect> {
-        if let Some((number, mut payload)) = self.waiting.take() {
-            let mut effects = self.finish_subagents(Subagent::Cancelled);
-            payload["stopReason"] = json!("cancelled");
-            effects.push(Effect::End(number, TurnEnd::Completed(payload)));
-            return effects;
-        }
         self.turns
             .cancel()
             .map(Effect::Interrupt)
@@ -251,23 +231,6 @@ impl Session {
         }
     }
 
-    /// The wait on turn `number`'s subagents is over.
-    pub fn subagents_waited(&mut self, number: u64) -> Vec<Effect> {
-        if self.gone
-            || self
-                .waiting
-                .as_ref()
-                .is_none_or(|(waiting, _)| *waiting != number)
-        {
-            return Vec::new();
-        }
-        let mut effects = self.finish_subagents(Subagent::Failed);
-        if let Some((number, payload)) = self.waiting.take() {
-            effects.push(Effect::End(number, TurnEnd::Completed(payload)));
-        }
-        effects
-    }
-
     fn finish_subagents(&mut self, state: Subagent) -> Vec<Effect> {
         let mut out = Vec::new();
         self.subagents.finish_outstanding(state, &mut out);
@@ -293,11 +256,6 @@ impl Session {
             .into_iter()
             .collect();
         let outcome = states::outcome(&ended.status).unwrap_or(Outcome::Failed);
-        if outcome == Outcome::Completed && self.subagents.outstanding() {
-            self.waiting = Some((turn.number, self.payload("end_turn")));
-            effects.push(Effect::AwaitSubagents(turn.number));
-            return effects;
-        }
         let (subagents, end) = turns::prompted_end(outcome, self.payload("end_turn"), || {
             let error = error
                 .or_else(|| ended.error.clone().filter(|error| !error.is_null()))
@@ -376,11 +334,6 @@ impl Session {
                     }
                     None => {}
                 }
-            }
-        }
-        if self.waiting.is_some() && !self.subagents.outstanding() {
-            if let Some((number, payload)) = self.waiting.take() {
-                effects.push(Effect::End(number, TurnEnd::Completed(payload)));
             }
         }
         effects
@@ -912,7 +865,7 @@ mod tests {
     }
 
     #[test]
-    fn a_turn_ends_only_once_its_subagents_do() {
+    fn a_turn_ends_while_its_subagents_still_work() {
         let mut session = session();
         session.turns.titled = true;
         session.turns.begin(5, None, None, None);
@@ -931,7 +884,7 @@ mod tests {
             "turn/completed",
             turn("turn-e", "completed", Value::Null),
         );
-        assert!(matches!(effects.as_slice(), [Effect::AwaitSubagents(5)]));
+        assert!(matches!(ended(&effects), Some((5, TurnEnd::Completed(_)))));
         notify(
             &mut session,
             "item/started",
@@ -948,7 +901,7 @@ mod tests {
             updates(&effects)[0]["sessionUpdate"],
             "subagent_state_update"
         );
-        assert!(matches!(ended(&effects), Some((5, TurnEnd::Completed(_)))));
+        assert!(ended(&effects).is_none());
     }
 
     #[test]

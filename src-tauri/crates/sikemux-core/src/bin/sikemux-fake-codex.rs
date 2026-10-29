@@ -9,6 +9,8 @@
 //! - `ask` asks to run a command and says which answer it got;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on an
 //!   interrupt;
+//! - `subagent MS` starts a subagent and ends the turn, and the subagent
+//!   finishes after MS;
 //! - `count` says how many turns came before this one;
 //! - `limit` fails the way Codex does when the account is out of usage;
 //! - anything else is echoed back.
@@ -108,7 +110,7 @@ impl Codex {
         items.push(item);
     }
 
-    fn run(&self, thread_id: String, turn_id: String, input: Vec<Value>) {
+    fn run(self: &Arc<Self>, thread_id: String, turn_id: String, input: Vec<Value>) {
         self.interrupted.store(false, Ordering::Release);
         let text: String = input
             .iter()
@@ -205,6 +207,34 @@ impl Codex {
                 if status == "completed" {
                     self.say(&thread_id, &turn_id, &mut items, "held");
                 }
+            }
+            "subagent" => {
+                let ms: u64 = words.next().and_then(|n| n.parse().ok()).unwrap_or(1000);
+                let kid = uuid();
+                self.notify(
+                    "item/completed",
+                    json!({ "threadId": thread_id, "turnId": turn_id, "item": {
+                        "type": "collabAgentToolCall", "id": uuid(), "tool": "spawnAgent", "status": "completed",
+                        "senderThreadId": thread_id, "receiverThreadIds": [kid], "prompt": "Review the diff",
+                        "agentsStates": { kid.clone(): { "status": "pendingInit" } },
+                    } }),
+                );
+                self.notify(
+                    "item/started",
+                    json!({ "threadId": thread_id, "turnId": turn_id, "item": {
+                        "type": "subAgentActivity", "id": uuid(), "kind": "started",
+                        "agentThreadId": kid, "agentPath": "/root/code_reviewer",
+                    } }),
+                );
+                self.say(&thread_id, &turn_id, &mut items, "started a reviewer");
+                let codex = self.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(ms));
+                    codex.notify(
+                        "turn/completed",
+                        json!({ "threadId": kid, "turn": { "id": uuid(), "items": [], "status": "completed" } }),
+                    );
+                });
             }
             "count" => self.say(
                 &thread_id,
