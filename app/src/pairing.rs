@@ -15,9 +15,10 @@ use gpui_kit::{
 };
 use serde_json::json;
 use serde_json::Value;
+use sikemux_core::server::{call, NoParams};
 use sikemux_wire::protocol::{AllowedDevice, DeviceAccess, PendingDevice};
 
-use crate::core::{Ask, RemoteAsk};
+use crate::core::{Ask, RemoteAsk, Target};
 use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4, TEXT_2XS, TEXT_2XS_H,
@@ -234,14 +235,13 @@ pub fn offer_account_phones(bench: &mut Workbench, cx: &mut Context<Workbench>) 
 
 /// Hears what the core says of phones waiting, and reads again which hosts ask to link.
 pub fn remote_moved(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let asked = crate::core::request(&bench.asks, "pairing", json!({}));
+    let asked = Target::here(&bench.asks).request_typed::<call::Pairing>(NoParams {});
     cx.spawn(async move |bench, cx| {
         let Ok(pairing) = asked.await else {
             return;
         };
-        let links = serde_json::from_value(pairing["pendingLinks"].clone()).unwrap_or_default();
         let _ = bench.update(cx, |bench, cx| {
-            bench.pairing.links = links;
+            bench.pairing.links = pairing.pending_links;
             waiting_moved(bench, cx);
         });
     })

@@ -17,13 +17,13 @@ pub(crate) fn set_access(core: &Core, id: &str, access: DeviceAccess) -> CoreRes
 
 /// Who waits to join this host and who is paired, and the hosts linked with
 /// it or asking to be, for the owner's devices.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pairing {
-    pending: Vec<PendingDevice>,
-    devices: Vec<DeviceInfo>,
-    links: Vec<crate::server::hosts::LinkView>,
-    pending_links: Vec<PendingDevice>,
+    pub pending: Vec<PendingDevice>,
+    pub devices: Vec<DeviceInfo>,
+    pub links: Vec<crate::server::hosts::LinkView>,
+    pub pending_links: Vec<PendingDevice>,
 }
 
 pub(crate) fn pairing(core: &Core) -> Pairing {

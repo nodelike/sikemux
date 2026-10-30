@@ -32,7 +32,7 @@ use std::time::Duration;
 
 use iroh::endpoint::Connection;
 use iroh::{EndpointAddr, RelayUrl};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
@@ -195,17 +195,17 @@ impl Hosts {
 }
 
 /// A linked host as Settings and phones list it.
-#[derive(Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LinkView {
-    id: String,
-    name: String,
-    platform: String,
-    linked_at: u64,
-    last_seen: Option<u64>,
-    connected: bool,
+pub struct LinkView {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    pub linked_at: u64,
+    pub last_seen: Option<u64>,
+    pub connected: bool,
     /// Agents of teams this host shares with it.
-    agents: usize,
+    pub agents: usize,
 }
 
 pub(crate) fn views(core: &Core) -> Vec<LinkView> {

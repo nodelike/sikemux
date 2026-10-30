@@ -13,8 +13,8 @@ use gpui_kit::{
     ParentElement, PromptLevel, SharedString, StatefulInteractiveElement, Styled, Subscription,
     Window,
 };
-use serde_json::{json, Value};
-use sikemux_core::server::{call, ApprovalSetting, NoParams};
+use serde_json::json;
+use sikemux_core::server::{call, ApprovalSetting, HostLink, NoParams};
 use sikemux_wire::accounts::protocol::RevokeReason;
 use sikemux_wire::protocol::{
     AccountLink, AccountLinkState, DeviceAccess, DeviceInfo, NotificationState, RemoteStatus,
@@ -38,7 +38,7 @@ const DELETE_ACCOUNT_URL: &str = "https://app.sikemux.com/delete-account";
 /// The other hosts on the account as the core last listed them, and the one being renamed.
 #[derive(Default)]
 pub struct Fields {
-    links: Option<Vec<Value>>,
+    links: Option<Vec<HostLink>>,
     renaming: Option<(String, Entity<InputState>, Subscription)>,
     /// Whether each other host asks before a new device reaches it, read on that host itself;
     /// none for a host this app cannot reach now.
@@ -66,14 +66,12 @@ fn change_fields<R>(
 pub fn read_links(bench: &Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let Ok(pairing) = core::request(&asks, "pairing", json!({})).await else {
+        let asked = core::Target::here(&asks).request_typed::<call::Pairing>(NoParams {});
+        let Ok(pairing) = asked.await else {
             return;
         };
-        let links = pairing["links"].as_array().cloned().unwrap_or_default();
-        let hosts: Vec<String> = links
-            .iter()
-            .filter_map(|link| link["id"].as_str().map(str::to_owned))
-            .collect();
+        let links = pairing.links;
+        let hosts: Vec<String> = links.iter().map(|link| link.id.clone()).collect();
         let _ = bench.update(cx, |bench, cx| {
             change_fields(bench, cx, |fields, _| fields.links = Some(links));
         });
@@ -397,8 +395,8 @@ fn rename(
         };
         let unchanged = super::state(bench, cx)
             .and_then(|pages| pages.devices.as_ref()?.links.as_ref())
-            .and_then(|links| links.iter().find(|link| link["id"] == id.as_str()))
-            .is_some_and(|link| link["name"] == name.as_str());
+            .and_then(|links| links.iter().find(|link| link.id == id))
+            .is_some_and(|link| link.name == name);
         if !name.is_empty() && !unchanged {
             let asks = bench.asks.clone();
             cx.spawn(async move |bench, cx| {
@@ -470,13 +468,12 @@ fn set_host_approval(bench: &Workbench, host: String, on: bool, cx: &mut Context
     .detach();
 }
 
-fn host_row(link: &Value, fields: &Fields, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+fn host_row(link: &HostLink, fields: &Fields, this: &Entity<Workbench>, cx: &App) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let id = link["id"].as_str().unwrap_or_default().to_owned();
-    let name = link["name"].as_str().unwrap_or_default().to_owned();
-    let seen = match link["connected"].as_bool() == Some(true) {
+    let (id, name) = (link.id.clone(), link.name.clone());
+    let seen = match link.connected {
         true => "connected now".to_owned(),
-        false => seen(link["lastSeen"].as_u64()),
+        false => seen(link.last_seen),
     };
     let updates = this
         .read(cx)
@@ -486,7 +483,7 @@ fn host_row(link: &Value, fields: &Fields, this: &Entity<Workbench>, cx: &App) -
         .and_then(crate::hosts::host_updates)
         .cloned();
     let line = [
-        Some(platform_name(link["platform"].as_str().unwrap_or_default()).to_owned()),
+        Some(platform_name(&link.platform).to_owned()),
         Some(seen),
         updates.as_ref().and_then(crate::hosts::updates_label),
     ]

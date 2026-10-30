@@ -108,10 +108,10 @@ pub use chat::queue::Message as QueuedMessage;
 pub use drafts::Draft;
 pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
-pub use hosts::{HostFound, HostReach, HostRow, SetUpWork, SetupRow};
+pub use hosts::{HostFound, HostReach, HostRow, LinkView as HostLink, SetUpWork, SetupRow};
 pub use ports::{ListeningPort, PortOwner, ProjectPort};
 pub use project_roots::ProjectEntry;
-pub use remote::{trust_remote_file, ApprovalSetting};
+pub use remote::{trust_remote_file, ApprovalSetting, Pairing};
 pub use share::{ShareState, ShareView};
 pub use ssh::{Reach, SshHost};
 pub use stash::{
