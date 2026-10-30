@@ -1011,6 +1011,15 @@ impl Target {
     }
 }
 
+/// For a harness run beside a core of its own, at `SIKEMUX_CORE_SOCKET` with a HOME of its own:
+/// the core it starts looks for agent CLIs only on its PATH, never finding the person's own.
+/// Call it first in `main`, before any thread starts.
+pub fn search_path_only_for_own_core() {
+    if std::env::var_os(sikemux_core::SOCKET_ENV).is_some() {
+        std::env::set_var(sikemux_process::vars::AGENT_SEARCH, "path");
+    }
+}
+
 /// Talks to the core on a thread of its own, so the window's thread only draws.
 pub fn start(home: Home) -> Link {
     // Downloads made in this process, such as dictation's model, need TLS to have a

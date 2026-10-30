@@ -131,6 +131,7 @@ fn agent_view(pane: &Pane) -> Option<String> {
 }
 
 fn main() -> anyhow::Result<()> {
+    core::search_path_only_for_own_core();
     // The app's main thread runs at this priority; without it a busy machine can put the bench
     // on its slower cores and make every number several times larger.
     // SAFETY: it only changes the calling thread's own scheduling class.

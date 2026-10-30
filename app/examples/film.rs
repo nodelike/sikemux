@@ -252,6 +252,7 @@ impl World {
             .arg(work.join("cli.json"))
             .env("HOME", &home)
             .env("SIKEMUX_CORE_SOCKET", &socket)
+            .env(sikemux_process::vars::AGENT_SEARCH, "path")
             .env("FAKE_CLAUDE_CLOCK", clock)
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)

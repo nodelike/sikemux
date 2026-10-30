@@ -101,7 +101,7 @@ class Run:
         (home / "Downloads").mkdir()
         self.env = {key: value for key, value in os.environ.items() if key not in TOKENS}
         self.env.update(HOME=str(home), CFFIXED_USER_HOME=str(home), SIKEMUX_CONFIG_DIR=str(home / ".config/sikemux-gpui"),
-                        SIKEMUX_APP_EXECUTABLE="/usr/bin/true")
+                        SIKEMUX_APP_EXECUTABLE="/usr/bin/true", SIKEMUX_AGENT_SEARCH="path")
         # A socket's path must fit in 104 bytes, which a deep --out can pass.
         self.sockets = Path(tempfile.mkdtemp(prefix="desk-", dir="/tmp"))
         self.socket = self.sockets / "core.sock"

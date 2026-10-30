@@ -53,6 +53,7 @@ const STEP: Duration = Duration::from_millis(50);
 const FRAME: Duration = Duration::from_millis(16);
 
 fn main() -> anyhow::Result<()> {
+    core::search_path_only_for_own_core();
     let out = std::env::args().nth(1).unwrap_or_else(|| "shot.png".into());
     let wait: f64 = std::env::args()
         .nth(2)

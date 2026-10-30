@@ -83,6 +83,7 @@ impl CoreProcess {
             .arg("--idle-exit-secs")
             .arg("600")
             .env(BUILD_ID_OVERRIDE_ENV, build)
+            .env(sikemux_process::vars::AGENT_SEARCH, "path")
             .env("SHELL", "/bin/sh")
             .env("PS1", "$ ")
             .env_remove("ENV")

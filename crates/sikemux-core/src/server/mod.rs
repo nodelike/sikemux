@@ -423,6 +423,8 @@ impl Core {
         uptime_ms: u64,
         plugins: Option<plugins::Provided>,
     ) -> Result<Arc<Self>, ServerError> {
+        #[cfg(test)]
+        sikemux_process::user_environment::search_path_only_from_now();
         let started = Instant::now()
             .checked_sub(Duration::from_millis(uptime_ms))
             .unwrap_or_else(Instant::now);

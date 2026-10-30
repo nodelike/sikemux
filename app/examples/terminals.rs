@@ -401,6 +401,7 @@ fn spawn(runtime: &tokio::runtime::Runtime, client: &CoreClient, script: &str) -
 }
 
 fn main() {
+    core::search_path_only_for_own_core();
     let Ok(socket) = std::env::var(sikemux_core::SOCKET_ENV) else {
         eprintln!(
             "set SIKEMUX_CORE_SOCKET and a HOME of its own, so the core it starts is not yours"

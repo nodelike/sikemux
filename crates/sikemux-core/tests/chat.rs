@@ -35,6 +35,7 @@ struct TestCore {
 
 impl TestCore {
     fn start() -> Self {
+        sikemux_process::user_environment::search_path_only_from_now();
         let dir = tempfile::tempdir().expect("temp dir");
         let socket = dir.path().join("core.sock");
         let config = ServerConfig {

@@ -81,6 +81,7 @@ async fn a_phone_reaches_a_core_through_the_relay_alone() {
         eprintln!("SIKEMUX_IROH_RELAY is not set; skipping the relay test");
         return;
     };
+    sikemux_process::user_environment::search_path_only_from_now();
     std::env::set_var("SHELL", "/bin/sh");
     let dir = tempfile::tempdir().expect("temp dir");
     let (_relay, url) = start_relay(Path::new(&binary), dir.path());

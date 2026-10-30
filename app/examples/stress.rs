@@ -1237,6 +1237,7 @@ fn make_repo(folder: &Path, files: usize) -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
+    core::search_path_only_for_own_core();
     let mut args = std::env::args().skip(1);
     let scenario = args.next().unwrap_or_else(|| "agents".into());
     if scenario == "make-repo" {

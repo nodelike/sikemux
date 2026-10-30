@@ -28,6 +28,7 @@ const WAIT: Duration = Duration::from_secs(30);
 fn init_env() {
     static ENV: Once = Once::new();
     ENV.call_once(|| {
+        sikemux_process::user_environment::search_path_only_from_now();
         stand_in_ssh();
         std::env::set_var("SHELL", "/bin/sh");
         std::env::set_var("PS1", "$ ");
