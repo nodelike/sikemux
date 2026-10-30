@@ -3,7 +3,11 @@
 //! borrow from the notification, which streamed text arrives in many times a
 //! second.
 
-use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::marker::PhantomData;
+
+use serde::de::{MapAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 pub(super) enum Notification<'a> {
@@ -86,6 +90,19 @@ pub(super) struct TurnCompleted<'a> {
     pub turn: EndedTurn,
 }
 
+/// How a turn ended, all a subagent's ending is read for.
+#[derive(Deserialize)]
+pub(super) struct TurnEnded<'a> {
+    #[serde(borrow)]
+    pub turn: TurnStatus<'a>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct TurnStatus<'a> {
+    /// `completed`, `interrupted` or `failed`.
+    pub status: &'a str,
+}
+
 /// A turn Codex says ended, and how.
 #[derive(Clone, Deserialize, Serialize)]
 pub(super) struct EndedTurn {
@@ -154,6 +171,75 @@ pub(super) struct ConfigWarning<'a> {
     pub details: Option<&'a str>,
 }
 
+/// The thread a notification is about, when it names one.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OfThread<'a> {
+    thread_id: Option<&'a str>,
+}
+
+/// An item about Codex's subagents, which the chat routes to their own sessions.
+pub(super) enum SubagentItem<'a> {
+    Activity(SubagentActivity<'a>),
+    Collaboration(Collaboration<'a>),
+}
+
+/// A subagent starting or stopping, said in the thread of the agent that runs it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SubagentActivity<'a> {
+    pub kind: &'a str,
+    pub agent_thread_id: &'a str,
+    /// Where it sits under the agent that started it, such as `/root/code_reviewer`.
+    pub agent_path: &'a str,
+}
+
+/// A call one of Codex's agents made to start, message or wait on others.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Collaboration<'a> {
+    pub tool: &'a str,
+    pub status: &'a str,
+    pub sender_thread_id: &'a str,
+    pub receiver_thread_ids: Vec<&'a str>,
+    pub prompt: Option<&'a str>,
+    /// Each agent the call is about, by its thread, in the order Codex sent them.
+    #[serde(deserialize_with = "in_order")]
+    pub agents_states: Vec<(&'a str, AgentState<'a>)>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct AgentState<'a> {
+    pub status: &'a str,
+}
+
+fn in_order<'de, D, K, V>(deserializer: D) -> Result<Vec<(K, V)>, D::Error>
+where
+    D: Deserializer<'de>,
+    K: Deserialize<'de>,
+    V: Deserialize<'de>,
+{
+    struct Entries<K, V>(PhantomData<(K, V)>);
+
+    impl<'de, K: Deserialize<'de>, V: Deserialize<'de>> Visitor<'de> for Entries<K, V> {
+        type Value = Vec<(K, V)>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an object")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut entries = Vec::new();
+            while let Some(entry) = map.next_entry()? {
+                entries.push(entry);
+            }
+            Ok(entries)
+        }
+    }
+
+    deserializer.deserialize_map(Entries(PhantomData))
+}
+
 impl<'a> ItemFields<'a> {
     fn with(self, params: &'a Value) -> ItemEvent<'a> {
         ItemEvent {
@@ -164,6 +250,36 @@ impl<'a> ItemFields<'a> {
     }
 }
 
+/// `params` of `method` read as `T`, said in the core's log when Codex sent a shape Sikemux
+/// cannot read.
+pub(super) fn readable<'a, T: Deserialize<'a>>(
+    method: &str,
+    params: &'a Value,
+) -> Result<T, String> {
+    T::deserialize(params).map_err(|error| {
+        eprintln!("sikemux core: Codex sent a {method} Sikemux cannot read: {error}");
+        error.to_string()
+    })
+}
+
+/// The thread `method`'s notification is about, when it names one.
+pub(super) fn thread_of<'a>(method: &str, params: &'a Value) -> Option<&'a str> {
+    readable::<OfThread>(method, params)
+        .ok()
+        .and_then(|of| of.thread_id)
+}
+
+/// The subagent item an item notification carries, or None for any other item.
+pub(super) fn subagent_item<'a>(method: &str, params: &'a Value) -> Option<SubagentItem<'a>> {
+    let fields = ItemFields::deserialize(params).ok()?;
+    let item = &params["item"];
+    match fields.item.kind {
+        "subAgentActivity" => readable(method, item).ok().map(SubagentItem::Activity),
+        "collabAgentToolCall" => readable(method, item).ok().map(SubagentItem::Collaboration),
+        _ => None,
+    }
+}
+
 /// `method`'s notification, or None for one the chat does not act on.
 pub(super) fn read<'a>(method: &'a str, params: &'a Value) -> Option<Notification<'a>> {
     fn parsed<'a, T: Deserialize<'a>>(
@@ -171,15 +287,9 @@ pub(super) fn read<'a>(method: &'a str, params: &'a Value) -> Option<Notificatio
         params: &'a Value,
         into: impl FnOnce(T) -> Notification<'a>,
     ) -> Notification<'a> {
-        match T::deserialize(params) {
+        match readable(method, params) {
             Ok(read) => into(read),
-            Err(error) => {
-                eprintln!("sikemux core: Codex sent a {method} Sikemux cannot read: {error}");
-                Notification::Unreadable {
-                    method,
-                    error: error.to_string(),
-                }
-            }
+            Err(error) => Notification::Unreadable { method, error },
         }
     }
     Some(match method {

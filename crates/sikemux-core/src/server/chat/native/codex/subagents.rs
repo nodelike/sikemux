@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::super::super::states::{self, Held, Subagent};
+use super::notifications::{self, Collaboration, SubagentItem, TurnEnded};
 
 fn normalized(path: &str) -> &str {
     let path = path.trim().trim_end_matches('/');
@@ -117,11 +118,16 @@ impl Subagents {
         out: &mut Vec<Addressed>,
         replay: &mut Vec<(String, Value)>,
     ) -> Route {
-        let thread = params["threadId"].as_str().unwrap_or(&self.root).to_owned();
+        let thread = notifications::thread_of(method, params)
+            .unwrap_or(&self.root)
+            .to_owned();
         match method {
             "turn/started" if self.known(&thread) => return Route::Taken,
             "turn/completed" if self.known(&thread) => {
-                if let Some(state) = params["turn"]["status"].as_str().and_then(ended_state) {
+                let ended = notifications::readable::<TurnEnded>(method, params)
+                    .ok()
+                    .and_then(|ended| ended_state(ended.turn.status));
+                if let Some(state) = ended {
                     if self.pending.contains_key(&thread) {
                         self.end_pending(&thread);
                     } else {
@@ -137,7 +143,8 @@ impl Subagents {
             return Route::Taken;
         }
         if matches!(method, "item/started" | "item/completed")
-            && self.claims(&params["item"], out, replay)
+            && notifications::subagent_item(method, params)
+                .is_some_and(|item| self.claims(item, out, replay))
         {
             return Route::Taken;
         }
@@ -152,64 +159,47 @@ impl Subagents {
     /// Whether an item was about subagents and is said by them alone.
     fn claims(
         &mut self,
-        item: &Value,
+        item: SubagentItem,
         out: &mut Vec<Addressed>,
         replay: &mut Vec<(String, Value)>,
     ) -> bool {
-        match item["type"].as_str() {
-            Some("subAgentActivity") => {
-                let path = item["agentPath"].as_str().unwrap_or_default();
-                let Some(child) = item["agentThreadId"].as_str() else {
-                    return true;
-                };
-                if is_root_path(path) || self.ended_pending.contains_key(child) {
+        match item {
+            SubagentItem::Activity(activity) => {
+                let child = activity.agent_thread_id;
+                if is_root_path(activity.agent_path) || self.ended_pending.contains_key(child) {
                     return true;
                 }
                 if !self.children.contains_key(child) {
-                    self.materialize(child, path, out, replay);
+                    self.materialize(child, activity.agent_path, out, replay);
                 }
-                if item["kind"] == "interrupted" {
+                if activity.kind == "interrupted" {
                     self.finish(child, Subagent::Cancelled, out);
                 }
                 true
             }
-            Some("collabAgentToolCall") => self.collaboration(item, out),
-            _ => false,
+            SubagentItem::Collaboration(call) => self.collaboration(&call, out),
         }
     }
 
-    fn collaboration(&mut self, item: &Value, out: &mut Vec<Addressed>) -> bool {
-        let tool = item["tool"].as_str().unwrap_or_default();
-        let states = item["agentsStates"]
-            .as_object()
-            .cloned()
-            .unwrap_or_default();
-        if matches!(tool, "resumeAgent" | "sendInput") {
-            for (child, state) in &states {
-                if matches!(state["status"].as_str(), Some("running" | "pendingInit")) {
+    fn collaboration(&mut self, call: &Collaboration, out: &mut Vec<Addressed>) -> bool {
+        if matches!(call.tool, "resumeAgent" | "sendInput") {
+            for (child, state) in &call.agents_states {
+                if matches!(state.status, "running" | "pendingInit") {
                     self.reopen(child, out);
                 }
             }
         }
-        let receivers: Vec<String> = item["receiverThreadIds"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect();
         let mut represented = false;
-        if tool == "spawnAgent" {
-            let sender = item["senderThreadId"].as_str().unwrap_or_default();
-            let parent_session = self.session_of(sender);
-            let task = item["prompt"]
-                .as_str()
+        if call.tool == "spawnAgent" {
+            let parent_session = self.session_of(call.sender_thread_id);
+            let task = call
+                .prompt
                 .map(str::trim)
                 .filter(|prompt| !prompt.is_empty())
                 .unwrap_or(states::UNNAMED_TASK)
                 .to_owned();
-            for child in &receivers {
-                if child.trim().is_empty() || *child == parent_session || *child == self.root {
+            for &child in &call.receiver_thread_ids {
+                if child.trim().is_empty() || child == parent_session || child == self.root {
                     continue;
                 }
                 represented = true;
@@ -217,7 +207,7 @@ impl Subagents {
                     continue;
                 }
                 self.pending.insert(
-                    child.clone(),
+                    child.to_owned(),
                     Pending {
                         parent_session: parent_session.clone(),
                         task: task.clone(),
@@ -226,22 +216,22 @@ impl Subagents {
                 );
             }
         }
-        for (child, state) in &states {
-            let Some(state) = state["status"].as_str().and_then(ended_state) else {
+        for (child, state) in &call.agents_states {
+            let Some(state) = ended_state(state.status) else {
                 continue;
             };
-            if self.children.contains_key(child) {
+            if self.children.contains_key(*child) {
                 self.finish(child, state, out);
             } else {
                 self.end_pending(child);
             }
         }
-        if tool == "spawnAgent" && item["status"] == "failed" {
-            for child in &receivers {
+        if call.tool == "spawnAgent" && call.status == "failed" {
+            for child in &call.receiver_thread_ids {
                 self.end_pending(child);
             }
         }
-        tool == "spawnAgent" && represented
+        call.tool == "spawnAgent" && represented
     }
 
     fn parent_for_path(&self, path: &str) -> String {
