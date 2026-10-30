@@ -3,7 +3,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use serde_json::Value;
 
 use super::roots::account_root;
 use super::transcript;
@@ -28,14 +27,10 @@ pub fn read_session_context(
     config_path: Option<&str>,
 ) -> Option<SessionContext> {
     let path = session_transcript_path(agent, cwd, session_id, config_path)?;
-    match agent {
-        AgentKind::Claude => last_line_matching(&path, claude_context_line),
-        AgentKind::Codex => last_line_matching(&path, codex_context_line),
-        _ => None,
-    }
+    agent.ops().context(&path)
 }
 
-/// Where Claude or Codex writes a session's transcript.
+/// Where `agent` writes a session's transcript, for agents whose transcripts Sikemux reads.
 pub fn session_transcript_path(
     agent: AgentKind,
     cwd: &str,
@@ -48,7 +43,7 @@ pub fn session_transcript_path(
 
 /// The last line of a transcript that `parse` accepts, read from the end so a
 /// long session costs its tail rather than its whole history.
-fn last_line_matching<T>(path: &Path, parse: impl Fn(&str) -> Option<T>) -> Option<T> {
+pub(super) fn last_line_matching<T>(path: &Path, parse: impl Fn(&str) -> Option<T>) -> Option<T> {
     const FIRST_WINDOW: u64 = 256 * 1024;
     const LAST_WINDOW: u64 = 32 * 1024 * 1024;
     if is_compressed(path) {
@@ -81,60 +76,6 @@ fn last_line_matching<T>(path: &Path, parse: impl Fn(&str) -> Option<T>) -> Opti
         }
         window = (window * 4).min(LAST_WINDOW);
     }
-}
-
-/// Mirrors the Claude ACP adapter: a main-thread assistant message fills the
-/// window with everything it read and wrote.
-fn claude_context_line(line: &str) -> Option<SessionContext> {
-    if !line.contains("\"type\":\"assistant\"") {
-        return None;
-    }
-    let value = serde_json::from_str::<Value>(line).ok()?;
-    if value.get("type").and_then(Value::as_str) != Some("assistant")
-        || value.get("isSidechain").and_then(Value::as_bool) == Some(true)
-    {
-        return None;
-    }
-    let message = value.get("message")?;
-    if message.get("model").and_then(Value::as_str) == Some("<synthetic>") {
-        return None;
-    }
-    let usage = message.get("usage")?;
-    let used = [
-        "input_tokens",
-        "cache_creation_input_tokens",
-        "cache_read_input_tokens",
-        "output_tokens",
-    ]
-    .iter()
-    .map(|key| usage.get(key).and_then(Value::as_u64).unwrap_or(0))
-    .sum();
-    Some(SessionContext { used, size: None })
-}
-
-/// Mirrors the Codex ACP adapter: the last turn's total against the model's window.
-fn codex_context_line(line: &str) -> Option<SessionContext> {
-    if !line.contains("\"token_count\"") {
-        return None;
-    }
-    let value = serde_json::from_str::<Value>(line).ok()?;
-    let payload = value.get("payload")?;
-    if payload.get("type").and_then(Value::as_str) != Some("token_count") {
-        return None;
-    }
-    let info = payload.get("info")?;
-    let used = info
-        .get("last_token_usage")?
-        .get("total_tokens")?
-        .as_u64()?;
-    let size = info
-        .get("model_context_window")?
-        .as_u64()
-        .filter(|size| *size > 0)?;
-    Some(SessionContext {
-        used,
-        size: Some(size),
-    })
 }
 
 #[cfg(test)]

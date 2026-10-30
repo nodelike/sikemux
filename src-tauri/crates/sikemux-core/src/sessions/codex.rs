@@ -11,6 +11,7 @@ use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 use tokio::process::{ChildStdin, Command};
 
+use super::context::{last_line_matching, SessionContext};
 use super::index::{indexed, Indexed};
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::agent_config_root;
@@ -351,6 +352,62 @@ pub(super) fn codex_prose(line: &str, prose: &mut Prose) {
     }
 }
 
+fn newest_first(dir: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    found.sort_unstable_by(|a, b| b.cmp(a));
+    found
+}
+
+/// Codex keeps each session in `YYYY/MM/DD/rollout-<time>-<session>.jsonl`, compressed to
+/// `.jsonl.zst` once the session closes.
+fn codex_transcript(sessions: &Path, id: &str) -> Option<PathBuf> {
+    let plain = format!("-{id}.jsonl");
+    let compressed = format!("{plain}.zst");
+    newest_first(sessions)
+        .iter()
+        .flat_map(|year| newest_first(year))
+        .flat_map(|month| newest_first(&month))
+        .flat_map(|day| newest_first(&day))
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.starts_with("rollout-")
+                        && (name.ends_with(&plain) || name.ends_with(&compressed))
+                })
+        })
+}
+
+/// Mirrors the Codex ACP adapter: the last turn's total against the model's window.
+fn codex_context_line(line: &str) -> Option<SessionContext> {
+    if !line.contains("\"token_count\"") {
+        return None;
+    }
+    let value = serde_json::from_str::<Value>(line).ok()?;
+    let payload = value.get("payload")?;
+    if payload.get("type").and_then(Value::as_str) != Some("token_count") {
+        return None;
+    }
+    let info = payload.get("info")?;
+    let used = info
+        .get("last_token_usage")?
+        .get("total_tokens")?
+        .as_u64()?;
+    let size = info
+        .get("model_context_window")?
+        .as_u64()
+        .filter(|size| *size > 0)?;
+    Some(SessionContext {
+        used,
+        size: Some(size),
+    })
+}
+
 pub(crate) struct Codex;
 
 impl AgentOps for Codex {
@@ -389,6 +446,14 @@ impl AgentOps for Codex {
     fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
         each_line(found.place.as_deref()?, |line| codex_prose(line, prose));
         Some(())
+    }
+
+    fn transcript(&self, root: &Path, _cwd: Option<&str>, id: &str) -> Option<PathBuf> {
+        codex_transcript(&root.join("sessions"), id)
+    }
+
+    fn context(&self, transcript: &Path) -> Option<SessionContext> {
+        last_line_matching(transcript, codex_context_line)
     }
 
     fn rename_command(&self) -> Option<RenameCommand> {

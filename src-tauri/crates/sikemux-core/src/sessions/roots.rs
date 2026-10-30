@@ -32,10 +32,9 @@ pub fn account_root(
     if let Some(path) = config_path.map(str::trim).filter(|path| !path.is_empty()) {
         return Some(account_dir(path));
     }
-    if kind == AgentKind::Omp {
-        return omp_agent_root();
-    }
-    let folder = kind.entry().home.as_ref()?;
+    let Some(folder) = kind.entry().home.as_ref() else {
+        return kind.ops().home();
+    };
     let root = env
         .get(folder.variable)
         .filter(|value| !value.trim().is_empty())

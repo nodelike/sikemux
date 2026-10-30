@@ -3,7 +3,6 @@ use std::path::Path;
 
 use tokio::task::spawn_blocking;
 
-use super::claude::claude_project_dir;
 use super::delete::saved_transcript;
 use crate::agent_catalog::AgentKind;
 
@@ -41,10 +40,9 @@ fn relocate_files(
         return Ok(());
     }
     let (root, transcript) = saved_transcript(agent, from_cwd, session_id, config_path)?;
-    if !matches!(agent, AgentKind::Claude) {
+    let Some(project) = agent.ops().project_folder(&root, to_cwd) else {
         return rewrite(&transcript, &transcript, from_cwd, to_cwd);
-    }
-    let project = claude_project_dir(&root, to_cwd);
+    };
     fs::create_dir_all(&project).map_err(|error| error.to_string())?;
     let target = project.join(format!("{session_id}.jsonl"));
     rewrite(&transcript, &target, from_cwd, to_cwd)?;

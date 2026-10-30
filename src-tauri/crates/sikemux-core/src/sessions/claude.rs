@@ -5,7 +5,7 @@ use std::sync::Arc;
 use rayon::prelude::*;
 use serde_json::Value;
 
-use super::context::session_transcript_path;
+use super::context::{last_line_matching, session_transcript_path, SessionContext};
 use super::index::{indexed, Indexed};
 use super::is_jsonl;
 use super::recent::{Found, Hit, Listed, PageScan};
@@ -13,6 +13,7 @@ use super::rename::append_line;
 use super::roots::agent_config_root;
 use super::search::each_line;
 use super::search::Prose;
+use super::transcript::written;
 use super::AgentSession;
 use super::{
     condense, file_stamp, push_texts, read_prefix, read_suffix, stamped_transcripts,
@@ -331,6 +332,53 @@ pub(super) fn claude_prose(line: &str, prose: &mut Prose) {
     push_texts(content, prose);
 }
 
+/// Claude keeps each session in `projects/<project>/<session>.jsonl`.
+fn claude_transcript(root: &Path, cwd: Option<&str>, id: &str) -> Option<PathBuf> {
+    let file_name = format!("{id}.jsonl");
+    if let Some(path) = cwd.and_then(|cwd| written(claude_project_dir(root, cwd).join(&file_name)))
+    {
+        return Some(path);
+    }
+    let mut projects: Vec<PathBuf> = fs::read_dir(root.join("projects"))
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    projects.sort();
+    projects
+        .into_iter()
+        .find_map(|project| written(project.join(&file_name)))
+}
+
+/// Mirrors the Claude ACP adapter: a main-thread assistant message fills the
+/// window with everything it read and wrote.
+fn claude_context_line(line: &str) -> Option<SessionContext> {
+    if !line.contains("\"type\":\"assistant\"") {
+        return None;
+    }
+    let value = serde_json::from_str::<Value>(line).ok()?;
+    if value.get("type").and_then(Value::as_str) != Some("assistant")
+        || value.get("isSidechain").and_then(Value::as_bool) == Some(true)
+    {
+        return None;
+    }
+    let message = value.get("message")?;
+    if message.get("model").and_then(Value::as_str) == Some("<synthetic>") {
+        return None;
+    }
+    let usage = message.get("usage")?;
+    let used = [
+        "input_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "output_tokens",
+    ]
+    .iter()
+    .map(|key| usage.get(key).and_then(Value::as_u64).unwrap_or(0))
+    .sum();
+    Some(SessionContext { used, size: None })
+}
+
 pub(crate) struct Claude;
 
 impl AgentOps for Claude {
@@ -380,6 +428,18 @@ impl AgentOps for Claude {
         config_path: Option<&str>,
     ) -> Option<Result<(), String>> {
         Some(rename_claude_session(cwd, session_id, name, config_path))
+    }
+
+    fn transcript(&self, root: &Path, cwd: Option<&str>, id: &str) -> Option<PathBuf> {
+        claude_transcript(root, cwd, id)
+    }
+
+    fn context(&self, transcript: &Path) -> Option<SessionContext> {
+        last_line_matching(transcript, claude_context_line)
+    }
+
+    fn project_folder(&self, root: &Path, cwd: &str) -> Option<PathBuf> {
+        Some(claude_project_dir(root, cwd))
     }
 
     fn delete_leftovers(&self, root: &Path, transcript: &Path, session_id: &str) {

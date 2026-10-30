@@ -294,6 +294,10 @@ fn record_omp_title(db: &Path, session_id: &str, title: &str) {
 pub(crate) struct Omp;
 
 impl AgentOps for Omp {
+    fn home(&self) -> Option<PathBuf> {
+        omp_agent_root()
+    }
+
     fn sessions(&self, cwd: &str, _config_path: Option<&str>) -> Vec<AgentSession> {
         omp_sessions(cwd)
     }

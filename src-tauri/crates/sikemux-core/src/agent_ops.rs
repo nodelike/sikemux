@@ -10,6 +10,7 @@ use notify::RecursiveMode;
 use serde_json::Value;
 
 use crate::agent_catalog::AgentKind;
+use crate::sessions::context::SessionContext;
 use crate::sessions::recent::{Found, Hit, PageScan};
 use crate::sessions::search::Prose;
 use crate::sessions::{self, AgentSession, FileStamp};
@@ -43,6 +44,12 @@ pub(crate) struct SessionPlaces {
 }
 
 pub(crate) trait AgentOps: Sync {
+    /// The folder it keeps its settings and sessions in, for an agent whose catalog
+    /// entry names no home.
+    fn home(&self) -> Option<PathBuf> {
+        None
+    }
+
     /// Its saved sessions that ran in `cwd`, newest first.
     fn sessions(&self, cwd: &str, config_path: Option<&str>) -> Vec<AgentSession>;
 
@@ -107,6 +114,24 @@ pub(crate) trait AgentOps: Sync {
 
     /// How its CLI deletes a session, when it can.
     fn delete_command(&self) -> Option<DeleteCommand> {
+        None
+    }
+
+    /// The transcript of session `id` under the account folder `root`, looked for in
+    /// `cwd`'s project first, for agents whose transcripts Sikemux reads line by line.
+    fn transcript(&self, _root: &Path, _cwd: Option<&str>, _id: &str) -> Option<PathBuf> {
+        None
+    }
+
+    /// How full the context window of the session in `transcript` was when it was last written.
+    fn context(&self, _transcript: &Path) -> Option<SessionContext> {
+        None
+    }
+
+    /// The folder under `root` it files the sessions of `cwd` in, for an agent that files
+    /// each project's sessions apart and keeps a folder named by the session, for its
+    /// subagents, beside the transcript.
+    fn project_folder(&self, _root: &Path, _cwd: &str) -> Option<PathBuf> {
         None
     }
 

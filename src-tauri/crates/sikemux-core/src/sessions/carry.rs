@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use super::claude::claude_project_dir;
 use super::delete::saved_transcript;
 use super::relocate::moved_cwds;
 use super::roots::account_root;
@@ -17,9 +16,9 @@ pub struct Gathered {
     pub path: PathBuf,
 }
 
-/// The files of the saved session `session_id` of `agent`, started in `cwd`: Claude's
-/// transcript with the subagents' folder beside it, named from the project's folder, or
-/// Codex's transcript, named from the account's folder.
+/// The files of the saved session `session_id` of `agent`, started in `cwd`: for an agent
+/// that files sessions by project, the transcript with the subagents' folder beside it,
+/// named from the project's folder; else the transcript, named from the account's folder.
 pub fn gather(
     agent: AgentKind,
     cwd: &str,
@@ -27,15 +26,17 @@ pub fn gather(
     config_path: Option<&str>,
 ) -> Result<Vec<Gathered>, String> {
     let (root, transcript) = saved_transcript(agent, cwd, session_id, config_path)?;
-    let base = match agent {
-        AgentKind::Claude => transcript
+    let by_project = agent.ops().project_folder(&root, cwd).is_some();
+    let base = if by_project {
+        transcript
             .parent()
             .ok_or("the session's folder is missing")?
-            .to_path_buf(),
-        _ => fs::canonicalize(&root).map_err(|error| error.to_string())?,
+            .to_path_buf()
+    } else {
+        fs::canonicalize(&root).map_err(|error| error.to_string())?
     };
     let mut paths = vec![transcript];
-    if agent == AgentKind::Claude {
+    if by_project {
         walk(&base.join(session_id), &mut paths);
     }
     paths
@@ -73,10 +74,7 @@ pub fn file(
 ) -> Result<(), String> {
     let root = account_root(agent, None, &BTreeMap::new())
         .ok_or("this host has no folder for that agent's sessions")?;
-    let base = match agent {
-        AgentKind::Claude => claude_project_dir(&root, to_cwd),
-        _ => root,
-    };
+    let base = agent.ops().project_folder(&root, to_cwd).unwrap_or(root);
     for (name, bytes) in files {
         let name = PathBuf::from(name);
         if !name
