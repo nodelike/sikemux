@@ -12,10 +12,12 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window,
 };
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::json;
+use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::{
-    call, AgentMessagesParams, BoardParams, BoardView, CardStatus, CardView, Column, MessageRow,
-    Stage,
+    AgentMessagesParams, BoardAddParams, BoardParams, BoardSettingsParams, BoardUpdateParams,
+    BoardView, CardStatus, CardView, Column, MessageRow, Stage,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -206,15 +208,15 @@ impl BoardPane {
     }
 
     /// Asks the core to change the board, then shows the board it answers.
-    pub(crate) fn ask(
+    pub(crate) fn ask<C: Call<Answer = BoardView> + 'static>(
         &mut self,
-        method: &'static str,
-        mut params: Value,
+        params: C::Params,
         then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
-    ) {
-        params["project"] = json!(self.folder);
-        let asked = core::request(&self.asks, method, params);
+    ) where
+        C::Params: Serialize,
+    {
+        let asked = core::Target::here(&self.asks).request_typed::<C>(params);
         self.busy = true;
         cx.notify();
         cx.spawn(async move |pane, cx| {
@@ -223,12 +225,7 @@ impl BoardPane {
                 pane.busy = false;
                 match answer {
                     Ok(board) => {
-                        match serde_json::from_value::<BoardView>(board) {
-                            Ok(board) => pane.take(board),
-                            Err(error) => {
-                                pane.said(&format!("Couldn't read the board: {error}"), cx)
-                            }
-                        }
+                        pane.take(board);
                         then(pane, cx);
                     }
                     Err(error) => pane.said(&error, cx),
@@ -247,9 +244,11 @@ impl BoardPane {
             return;
         }
         self.moving.insert(id, to);
-        self.ask(
-            "boardUpdate",
-            json!({ "id": id, "status": to }),
+        self.ask::<call::BoardUpdate>(
+            BoardUpdateParams {
+                status: Some(to),
+                ..self.card_change(id)
+            },
             move |pane, _| {
                 pane.moving.remove(&id);
             },
@@ -444,9 +443,43 @@ impl BoardPane {
         if *now == typed || (key == "title" && typed.is_empty()) {
             return;
         }
-        let mut params = json!({ "id": id });
-        params[key] = json!(typed);
-        self.ask("boardUpdate", params, |_, _| {}, cx);
+        let mut params = self.card_change(id);
+        match key {
+            "title" => params.title = Some(typed),
+            "details" => params.details = Some(typed),
+            _ => params.acceptance = Some(typed),
+        }
+        self.ask::<call::BoardUpdate>(params, |_, _| {}, cx);
+    }
+
+    /// Changes how the project's board runs on its own: what `change` sets, the rest as it
+    /// is.
+    pub(crate) fn change_settings(
+        &mut self,
+        change: impl FnOnce(&mut BoardSettingsParams),
+        cx: &mut Context<Self>,
+    ) {
+        let mut params = BoardSettingsParams {
+            project: self.folder.clone(),
+            ..BoardSettingsParams::default()
+        };
+        change(&mut params);
+        self.ask::<call::BoardSettings>(params, |_, _| {}, cx);
+    }
+
+    /// A change to card `id` that changes nothing yet.
+    pub(crate) fn card_change(&self, id: u64) -> BoardUpdateParams {
+        BoardUpdateParams {
+            project: self.folder.clone(),
+            id,
+            title: None,
+            details: None,
+            acceptance: None,
+            status: None,
+            result: None,
+            depends_on: None,
+            parent: None,
+        }
     }
 
     /// Adds the new card, then opens it.
@@ -462,21 +495,16 @@ impl BoardPane {
             let typed = field.read(cx).value().trim().to_owned();
             (!typed.is_empty()).then_some(typed)
         };
-        let mut params = json!({ "title": title });
-        if let Some(details) = text(&fields.details) {
-            params["details"] = json!(details);
-        }
-        if let Some(acceptance) = text(&fields.acceptance) {
-            params["acceptance"] = json!(acceptance);
-        }
-        if fields.parent != 0 {
-            params["parent"] = json!(fields.parent);
-        }
-        if !fields.depends_on.is_empty() {
-            params["dependsOn"] = json!(fields.depends_on);
-        }
-        self.ask(
-            "boardAdd",
+        let params = BoardAddParams {
+            project: self.folder.clone(),
+            title,
+            details: text(&fields.details),
+            acceptance: text(&fields.acceptance),
+            parent: (fields.parent != 0).then_some(fields.parent),
+            depends_on: fields.depends_on.clone(),
+            ticket: None,
+        };
+        self.ask::<call::BoardAdd>(
             params,
             |pane, cx| {
                 let newest = pane.cards().iter().map(|card| card.id).max();

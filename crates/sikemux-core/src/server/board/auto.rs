@@ -7,13 +7,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::review::Review;
 use super::{blind, finish, Board, Card, Owner, Status, Team};
 use crate::protocol::Event;
+use crate::server::calls::given;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
 use crate::server::spawn::Ending;
@@ -88,33 +88,73 @@ fn known_provider(
     }
 }
 
-fn reviewer_choice(
-    value: &Value,
-    knows: &impl Fn(&str) -> bool,
-) -> Result<Option<ReviewerChoice>, String> {
-    if value.is_null() {
-        return Ok(None);
-    }
-    let launcher = optional(value, "launcher", MAX_LAUNCHER_CHARS)?
-        .flatten()
-        .ok_or("reviewer.launcher must name the agent that reviews")?;
-    Ok(Some(ReviewerChoice {
-        launcher,
-        provider: known_provider(
-            optional(value, "provider", MAX_LAUNCHER_CHARS)?.flatten(),
-            knows,
-        )?,
-        model: optional(value, "model", MAX_MODEL_CHARS)?.flatten(),
-    }))
+/// What the person changes of how a project's board runs on its own; what it leaves out
+/// stays as it is, and a null clears it.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsParams {
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slots: Option<u32>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub launcher: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reviewer: Option<Option<ReviewerParams>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish: Option<Finish>,
 }
 
-fn optional(value: &Value, key: &str, max: usize) -> Result<Option<Option<String>>, String> {
-    match value.get(key) {
-        None => Ok(None),
-        Some(Value::Null) => Ok(Some(None)),
-        Some(Value::String(text)) if text.trim().is_empty() => Ok(Some(None)),
-        Some(Value::String(text)) if text.len() <= max => Ok(Some(Some(text.trim().to_owned()))),
-        Some(_) => Err(format!("{key} must be text of at most {max} bytes")),
+/// The agent the person picks to review each change.
+#[derive(Serialize, Deserialize)]
+pub struct ReviewerParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launcher: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl ReviewerParams {
+    fn choice(self, knows: &impl Fn(&str) -> bool) -> Result<ReviewerChoice, String> {
+        let launcher = text("launcher", self.launcher, MAX_LAUNCHER_CHARS)?
+            .ok_or("reviewer.launcher must name the agent that reviews")?;
+        Ok(ReviewerChoice {
+            launcher,
+            provider: known_provider(text("provider", self.provider, MAX_LAUNCHER_CHARS)?, knows)?,
+            model: text("model", self.model, MAX_MODEL_CHARS)?,
+        })
+    }
+}
+
+/// The person's `text` for `key`, none when blank.
+fn text(key: &str, text: Option<String>, max: usize) -> Result<Option<String>, String> {
+    match text {
+        Some(text) if text.trim().is_empty() => Ok(None),
+        Some(text) if text.len() > max => Err(format!("{key} must be text of at most {max} bytes")),
+        text => Ok(text.map(|text| text.trim().to_owned())),
     }
 }
 
@@ -122,37 +162,36 @@ impl Settings {
     /// These settings with what `params` changes, naming only providers Sikemux `knows`.
     pub(super) fn changed(
         &self,
-        params: &Value,
+        params: SettingsParams,
         knows: impl Fn(&str) -> bool,
     ) -> Result<Self, String> {
         let mut settings = self.clone();
-        if let Some(auto) = params.get("auto") {
-            settings.auto = auto.as_bool().ok_or("auto must be true or false")?;
+        if let Some(auto) = params.auto {
+            settings.auto = auto;
         }
-        if let Some(slots) = params.get("slots") {
-            settings.slots = slots
-                .as_u64()
-                .filter(|slots| (1..=u64::from(MAX_SLOTS)).contains(slots))
-                .ok_or(format!("slots must be from 1 to {MAX_SLOTS}"))?
-                as u32;
+        if let Some(slots) = params.slots {
+            if !(1..=MAX_SLOTS).contains(&slots) {
+                return Err(format!("slots must be from 1 to {MAX_SLOTS}"));
+            }
+            settings.slots = slots;
         }
-        if let Some(launcher) = optional(params, "launcher", MAX_LAUNCHER_CHARS)? {
-            settings.launcher = launcher;
+        if let Some(launcher) = params.launcher {
+            settings.launcher = text("launcher", launcher, MAX_LAUNCHER_CHARS)?;
         }
-        if let Some(provider) = optional(params, "provider", MAX_LAUNCHER_CHARS)? {
-            settings.provider = known_provider(provider, &knows)?;
+        if let Some(provider) = params.provider {
+            settings.provider =
+                known_provider(text("provider", provider, MAX_LAUNCHER_CHARS)?, &knows)?;
         }
-        if let Some(model) = optional(params, "model", MAX_MODEL_CHARS)? {
-            settings.model = model;
+        if let Some(model) = params.model {
+            settings.model = text("model", model, MAX_MODEL_CHARS)?;
         }
-        if let Some(reviewer) = params.get("reviewer") {
-            settings.reviewer = reviewer_choice(reviewer, &knows)?;
+        if let Some(reviewer) = params.reviewer {
+            settings.reviewer = reviewer
+                .map(|reviewer| reviewer.choice(&knows))
+                .transpose()?;
         }
-        match params.get("finish").and_then(Value::as_str) {
-            None => {}
-            Some("merge") => settings.finish = Finish::Merge,
-            Some("pr") => settings.finish = Finish::Pr,
-            Some(_) => return Err("finish must be merge or pr".into()),
+        if let Some(finish) = params.finish {
+            settings.finish = finish;
         }
         Ok(settings)
     }

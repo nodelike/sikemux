@@ -3085,6 +3085,93 @@ export interface BoardParams {
     project: string;
 }
 
+/** A card the person adds to a project's board. */
+export interface BoardAddParams {
+    project: string;
+    title: string;
+    details?: string;
+    acceptance?: string;
+    /** The card it goes under. */
+    parent?: number;
+    /** The cards it waits on. */
+    dependsOn?: number[];
+    ticket?: BoardTicketParams;
+}
+
+/** The Jira or Linear ticket a card is put on the board for. */
+export interface BoardTicketParams {
+    key: string;
+    url?: string;
+    /** What the ticket is in its tracker, such as Epic, Story or Bug. */
+    source?: string;
+    /** Jira when left out. */
+    provider?: Tracker;
+}
+
+/**
+ * A ticket the person puts on a project's board, with the tickets under it and the keys
+ * of the tickets it waits on and holds up.
+ */
+export interface BoardAddTicketParams {
+    project: string;
+    title: string;
+    details?: string;
+    ticket: BoardTicketParams;
+    subtasks?: BoardTicketCard[];
+    blockedBy?: string[];
+    blocks?: string[];
+}
+
+/** A ticket under the one put on the board, made a card under its card. */
+export interface BoardTicketCard {
+    title: string;
+    details?: string;
+    ticket?: BoardTicketParams;
+}
+
+/** What the person changes of a card; what it leaves out stays as it is. */
+export interface BoardUpdateParams {
+    project: string;
+    id: number;
+    title?: string;
+    details?: string;
+    acceptance?: string;
+    status?: CardStatus;
+    result?: string;
+    /** The cards it waits on, none to wait on nothing. */
+    dependsOn?: number[];
+    /** The card it goes under, 0 for none. */
+    parent?: number;
+}
+
+/** One card on a project's board. */
+export interface BoardCardParams {
+    project: string;
+    id: number;
+}
+
+/**
+ * What the person changes of how a project's board runs on its own; what it leaves out
+ * stays as it is, and a null clears it.
+ */
+export interface BoardSettingsParams {
+    project: string;
+    auto?: boolean;
+    slots?: number;
+    launcher?: string | null;
+    provider?: string | null;
+    model?: string | null;
+    reviewer?: BoardReviewerParams | null;
+    finish?: Finish;
+}
+
+/** The agent the person picks to review each change. */
+export interface BoardReviewerParams {
+    launcher?: string;
+    provider?: string;
+    model?: string;
+}
+
 /** The core's calls that name what they take and answer, by method. */
 export interface CoreCalls {
     promptChat: { params: PromptChatParams; answer: null };
@@ -3123,6 +3210,12 @@ export interface CoreCalls {
     agentMessageRows: { params: AgentMessagesParams; answer: AgentMessageRows };
     boards: { params: NoParams; answer: ProjectBoard[] };
     board: { params: BoardParams; answer: ProjectBoard };
+    boardAdd: { params: BoardAddParams; answer: ProjectBoard };
+    boardAddTicket: { params: BoardAddTicketParams; answer: ProjectBoard };
+    boardUpdate: { params: BoardUpdateParams; answer: ProjectBoard };
+    boardRemove: { params: BoardCardParams; answer: ProjectBoard };
+    boardSettings: { params: BoardSettingsParams; answer: ProjectBoard };
+    boardRetry: { params: BoardCardParams; answer: ProjectBoard };
 }
 
 /** What the core's `Preferences::default()` serializes to. */

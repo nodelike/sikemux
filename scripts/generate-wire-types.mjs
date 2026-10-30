@@ -136,10 +136,18 @@ const RENAMES = {
     CardView: "BoardCard",
     Column: "BoardColumn",
     BoardView: "ProjectBoard",
+    AddParams: "BoardAddParams",
+    AddTicketParams: "BoardAddTicketParams",
+    TicketParams: "BoardTicketParams",
+    TicketCard: "BoardTicketCard",
+    UpdateParams: "BoardUpdateParams",
+    CardParams: "BoardCardParams",
   },
   [`${CORE}/server/board/auto.rs`]: {
     Stage: "RunStage",
     Settings: "BoardSettings",
+    SettingsParams: "BoardSettingsParams",
+    ReviewerParams: "BoardReviewerParams",
     RunView: "CardRun",
     PullView: "CardPull",
     Run: "AutoRun",
@@ -361,7 +369,14 @@ function serde(attrs, where) {
 
 const KNOWN = {
   container: ["rename_all", "default", "tag", "rename_all_fields"],
-  field: ["rename", "default", "skip_serializing_if", "skip", "alias"],
+  field: [
+    "rename",
+    "default",
+    "skip_serializing_if",
+    "skip",
+    "alias",
+    "deserialize_with",
+  ],
   variant: ["rename", "other", "alias", "untagged"],
 };
 

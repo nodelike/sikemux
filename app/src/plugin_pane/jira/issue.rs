@@ -1,6 +1,7 @@
 //! The issue opened beside the list: its fields, actions, activity and comments.
 
 use super::*;
+use sikemux_core::server::{BoardAddTicketParams, BoardTicketParams, TicketCard, Tracker};
 
 use crate::theme::{SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_XS, TEXT_XS_H};
 
@@ -799,26 +800,35 @@ fn at_site(key: &str, site: &str) -> (String, String) {
 /// Puts the issue on the front project's board as a card for agents, its open subtasks
 /// under it.
 fn send_to_board(host: &Host, view: &IssueView, cx: &mut App) {
-    let ticket = |issue: &IssueSummary| json!({ "key": issue.key, "url": issue.url, "source": issue.issue_type, "provider": "jira" });
+    let ticket = |issue: &IssueSummary| BoardTicketParams {
+        key: issue.key.clone(),
+        url: Some(issue.url.clone()),
+        source: issue.issue_type.clone(),
+        provider: Some(Tracker::Jira),
+    };
     let Some((folder, name)) = host.front_project(cx) else {
         host.notify(toast::error("Open a project to put this on its board"), cx);
         return;
     };
-    let subtasks: Vec<Value> = view
+    let subtasks = view
         .subtasks
         .iter()
         .filter(|sub| sub.status_category != "done")
-        .map(|sub| json!({ "title": sub.summary, "details": "", "ticket": ticket(sub) }))
+        .map(|sub| TicketCard {
+            title: sub.summary.clone(),
+            details: String::new(),
+            ticket: Some(ticket(sub)),
+        })
         .collect();
-    let params = json!({
-        "project": folder,
-        "title": view.issue.summary,
-        "details": view.description,
-        "ticket": ticket(&view.issue),
-        "subtasks": subtasks,
-        "blockedBy": view.blocked_by,
-        "blocks": view.blocks,
-    });
+    let params = BoardAddTicketParams {
+        project: folder,
+        title: view.issue.summary.clone(),
+        details: view.description.clone(),
+        ticket: ticket(&view.issue),
+        subtasks,
+        blocked_by: view.blocked_by.clone(),
+        blocks: view.blocks.clone(),
+    };
     let put = format!("Put {} on {name}'s board", view.issue.key);
     host.add_board_ticket(params, put, cx);
 }

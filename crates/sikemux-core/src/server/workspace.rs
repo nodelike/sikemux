@@ -30,6 +30,7 @@ use crate::protocol::{
 };
 use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRequest};
 
+use super::calls::given;
 use super::changed::Topic;
 use super::chat;
 use super::connection::blocking;
@@ -1288,13 +1289,6 @@ pub(crate) struct AgentPatch {
     effort: Option<Option<String>>,
     #[serde(default, deserialize_with = "given")]
     buddy: Option<Option<AgentBuddy>>,
-}
-
-/// A field the patch names, null or not, as against one it leaves out.
-fn given<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
-    field: D,
-) -> Result<Option<Option<T>>, D::Error> {
-    Option::deserialize(field).map(Some)
 }
 
 impl AgentPatch {

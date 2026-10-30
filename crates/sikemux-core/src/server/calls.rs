@@ -589,12 +589,16 @@ calls! { core, client, params;
     },
     "boards" Boards (NoParams) -> Vec<board::BoardView>: Watch, any_program => board::boards(&core),
     "board" Board (board::BoardParams) -> board::BoardView: Watch, any_program => board::board(&core, params).await?,
-    "boardAdd": Full => answer(board::person_add(&core, params).await?),
-    "boardAddTicket": Full => answer(board::person_add_ticket(&core, params).await?),
-    "boardUpdate": Full => answer(board::person_update(&core, params).await?),
-    "boardRemove": Full => answer(board::person_remove(&core, params).await?),
-    "boardSettings": Full => answer(board::person_settings(&core, params).await?),
-    "boardRetry": Full => answer(board::person_retry(&core, params).await?),
+    "boardAdd" BoardAdd (board::AddParams) -> board::BoardView: Full => board::person_add(&core, params).await?,
+    "boardAddTicket" BoardAddTicket (board::AddTicketParams) -> board::BoardView: Full => {
+        board::person_add_ticket(&core, params).await?
+    },
+    "boardUpdate" BoardUpdate (board::UpdateParams) -> board::BoardView: Full => board::person_update(&core, params).await?,
+    "boardRemove" BoardRemove (board::CardParams) -> board::BoardView: Full => board::person_remove(&core, params).await?,
+    "boardSettings" BoardSettings (board::SettingsParams) -> board::BoardView: Full => {
+        board::person_settings(&core, params).await?
+    },
+    "boardRetry" BoardRetry (board::CardParams) -> board::BoardView: Full => board::person_retry(&core, params).await?,
     "edits": Watch, any_program => answer(edits(&core, parse(params)?).await?),
     "changeOwners": Watch, any_program => answer(change_owners(&core, parse(params)?).await?),
     "commitStaged": Person => answer(commit_staged(&core, parse(params)?).await?),
@@ -768,6 +772,13 @@ fn search_stream(
 pub(super) fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
     serde_json::from_value(params)
         .map_err(|error| CoreError::from(format!("the call's params do not fit: {error}")))
+}
+
+/// A field the params name, null or not, as against one they leave out.
+pub(super) fn given<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    field: D,
+) -> Result<Option<Option<T>>, D::Error> {
+    Option::deserialize(field).map(Some)
 }
 
 #[derive(Deserialize)]

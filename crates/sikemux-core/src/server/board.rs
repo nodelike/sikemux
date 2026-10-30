@@ -34,7 +34,9 @@ mod tickets;
 
 pub(crate) use auto::Pull;
 use auto::Run;
-pub use auto::{Finish, PullView, ReviewerChoice, RunView, Settings, Stage};
+pub use auto::{
+    Finish, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams, Stage,
+};
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 
 const FOLDER: &str = "boards";
@@ -441,28 +443,48 @@ fn long_text(key: &str, value: &str) -> Result<String, String> {
     Ok(value.trim().to_owned())
 }
 
+fn card_number(id: Option<u64>, key: &str) -> Result<u64, String> {
+    id.filter(|id| *id > 0)
+        .ok_or_else(|| format!("{key} must be a card number, such as 3"))
+}
+
 fn card_id(value: &Value, key: &str) -> Result<u64, String> {
-    match value {
-        Value::Number(number) => number.as_u64(),
-        Value::String(text) => text.trim().trim_start_matches('#').parse().ok(),
-        _ => None,
-    }
-    .filter(|id| *id > 0)
-    .ok_or_else(|| format!("{key} must be a card number, such as 3"))
+    card_number(
+        match value {
+            Value::Number(number) => number.as_u64(),
+            Value::String(text) => text.trim().trim_start_matches('#').parse().ok(),
+            _ => None,
+        },
+        key,
+    )
 }
 
 fn card_ids(value: &Value, key: &str) -> Result<Vec<u64>, String> {
     let Value::Array(list) = value else {
         return Err(format!("{key} must be a list of card numbers"));
     };
-    let mut ids = Vec::new();
-    for item in list {
-        let id = card_id(item, key)?;
-        if !ids.contains(&id) {
-            ids.push(id);
+    let ids = list
+        .iter()
+        .map(|item| card_id(item, key))
+        .collect::<Result<_, _>>()?;
+    distinct_cards(ids, key)
+}
+
+/// Each of `ids` once, in their order, every one a card number.
+fn distinct_cards(ids: Vec<u64>, key: &str) -> Result<Vec<u64>, String> {
+    let mut kept = Vec::new();
+    for id in ids {
+        let id = card_number(Some(id), key)?;
+        if !kept.contains(&id) {
+            kept.push(id);
         }
     }
-    Ok(ids)
+    Ok(kept)
+}
+
+/// Text the person gave for a card's `key`, checked as a card holds it.
+fn given_text(key: &str, text: Option<String>) -> Result<Option<String>, String> {
+    text.map(|text| long_text(key, &text)).transpose()
 }
 
 fn optional_id(value: Option<&Value>, key: &str) -> Result<Option<Option<u64>>, String> {
@@ -559,45 +581,43 @@ impl Changes {
     }
 }
 
-fn ticket_of(value: &Value) -> Result<Option<Ticket>, String> {
-    if value.is_null() {
-        return Ok(None);
-    }
-    let field = |key: &str, max: usize| -> Result<Option<String>, String> {
-        match value.get(key) {
-            None | Some(Value::Null) => Ok(None),
-            Some(Value::String(text)) if !text.trim().is_empty() && chars(text) <= max => {
-                Ok(Some(text.trim().to_owned()))
+impl TicketParams {
+    fn ticket(self) -> Result<Ticket, String> {
+        let field = |name: &str, text: String, max: usize| -> Result<String, String> {
+            let trimmed = text.trim();
+            if trimmed.is_empty() || chars(&text) > max {
+                return Err(format!(
+                    "the ticket's {name} must be text of at most {max} characters"
+                ));
             }
-            Some(_) => Err(format!(
-                "the ticket's {key} must be text of at most {max} characters"
-            )),
+            Ok(trimmed.to_owned())
+        };
+        let key = field("key", self.key, MAX_KEY_CHARS)?;
+        if key.contains(char::is_whitespace) {
+            return Err("a ticket's key is one word, such as PROJ-12".into());
         }
-    };
-    let key = field("key", MAX_KEY_CHARS)?.ok_or("a ticket needs its key, such as PROJ-12")?;
-    if key.contains(char::is_whitespace) {
-        return Err("a ticket's key is one word, such as PROJ-12".into());
+        let url = self
+            .url
+            .map(|url| field("url", url, MAX_URL_CHARS))
+            .transpose()?;
+        if url
+            .as_deref()
+            .is_some_and(|url| !url.starts_with("https://") && !url.starts_with("http://"))
+        {
+            return Err("a ticket's url must be a web address".into());
+        }
+        Ok(Ticket {
+            key,
+            url,
+            source: self
+                .source
+                .map(|source| field("source", source, 40))
+                .transpose()?,
+            provider: self.provider.unwrap_or(Tracker::Jira),
+            synced: None,
+            sync_note: None,
+        })
     }
-    let url = field("url", MAX_URL_CHARS)?;
-    if url
-        .as_deref()
-        .is_some_and(|url| !url.starts_with("https://") && !url.starts_with("http://"))
-    {
-        return Err("a ticket's url must be a web address".into());
-    }
-    let provider = match value.get("provider") {
-        None | Some(Value::Null) => Tracker::Jira,
-        Some(provider) => Tracker::deserialize(provider)
-            .map_err(|_| "a ticket comes from jira or linear".to_owned())?,
-    };
-    Ok(Some(Ticket {
-        key,
-        url,
-        source: field("source", 40)?,
-        provider,
-        synced: None,
-        sync_note: None,
-    }))
 }
 
 /// The project a board call names, as agents' names place it.
@@ -1696,13 +1716,6 @@ fn project_view(core: &Core, project: &str) -> BoardView {
     }
 }
 
-fn project_param(core: &Core, params: &Value) -> Result<String, String> {
-    match params.get("project") {
-        Some(Value::String(path)) => project_at(core, path),
-        _ => Err("project must be the project's absolute path".into()),
-    }
-}
-
 fn project_at(core: &Core, path: &str) -> Result<String, String> {
     if Path::new(path).is_absolute() && path.len() <= 4096 {
         Ok(board_project(core, path))
@@ -1717,6 +1730,129 @@ pub struct BoardParams {
     pub project: String,
 }
 
+/// A card the person adds to a project's board.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddParams {
+    pub project: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance: Option<String>,
+    /// The card it goes under.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<u64>,
+    /// The cards it waits on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ticket: Option<TicketParams>,
+}
+
+impl AddParams {
+    fn adding(self) -> Result<Adding, String> {
+        Ok(Adding {
+            title: title_of(&self.title)?,
+            details: given_text("details", self.details)?.unwrap_or_default(),
+            acceptance: given_text("acceptance", self.acceptance)?.unwrap_or_default(),
+            parent: self.parent.filter(|id| *id > 0),
+            depends_on: distinct_cards(self.depends_on, "dependsOn")?,
+            ticket: self.ticket.map(TicketParams::ticket).transpose()?,
+        })
+    }
+}
+
+/// The Jira or Linear ticket a card is put on the board for.
+#[derive(Serialize, Deserialize)]
+pub struct TicketParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// What the ticket is in its tracker, such as Epic, Story or Bug.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Jira when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<Tracker>,
+}
+
+/// A ticket the person puts on a project's board, with the tickets under it and the keys
+/// of the tickets it waits on and holds up.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddTicketParams {
+    pub project: String,
+    pub title: String,
+    #[serde(default)]
+    pub details: String,
+    pub ticket: TicketParams,
+    #[serde(default)]
+    pub subtasks: Vec<TicketCard>,
+    #[serde(default)]
+    pub blocked_by: Vec<String>,
+    #[serde(default)]
+    pub blocks: Vec<String>,
+}
+
+/// A ticket under the one put on the board, made a card under its card.
+#[derive(Serialize, Deserialize)]
+pub struct TicketCard {
+    pub title: String,
+    #[serde(default)]
+    pub details: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ticket: Option<TicketParams>,
+}
+
+/// What the person changes of a card; what it leaves out stays as it is.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateParams {
+    pub project: String,
+    pub id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<Status>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    /// The cards it waits on, none to wait on nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depends_on: Option<Vec<u64>>,
+    /// The card it goes under, 0 for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<u64>,
+}
+
+impl UpdateParams {
+    fn changes(self) -> Result<Changes, String> {
+        Ok(Changes {
+            title: self.title.as_deref().map(title_of).transpose()?,
+            details: given_text("details", self.details)?,
+            acceptance: given_text("acceptance", self.acceptance)?,
+            status: self.status,
+            result: given_text("result", self.result)?,
+            depends_on: self
+                .depends_on
+                .map(|ids| distinct_cards(ids, "dependsOn"))
+                .transpose()?,
+            parent: self.parent.map(|id| (id > 0).then_some(id)),
+        })
+    }
+}
+
+/// One card on a project's board.
+#[derive(Serialize, Deserialize)]
+pub struct CardParams {
+    pub project: String,
+    pub id: u64,
+}
+
 /// One project's board, empty when it has no cards yet.
 pub(crate) async fn board(core: &Arc<Core>, params: BoardParams) -> Result<BoardView, String> {
     let core = core.clone();
@@ -1729,12 +1865,11 @@ pub(crate) async fn board(core: &Arc<Core>, params: BoardParams) -> Result<Board
 }
 
 /// The person adds a card, which may carry a ticket. Answers with the board.
-pub(crate) async fn person_add(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
+pub(crate) async fn person_add(core: &Arc<Core>, params: AddParams) -> Result<BoardView, String> {
     let core = core.clone();
     blocking(move || {
-        let project = project_param(&core, &params)?;
-        let mut adding = Adding::from_params(&params)?;
-        adding.ticket = ticket_of(params.get("ticket").unwrap_or(&Value::Null))?;
+        let project = project_at(&core, &params.project)?;
+        let adding = params.adding()?;
         add_card(&core, &project, &By::Person, adding, false)?;
         Ok(project_view(&core, &project))
     })
@@ -1746,24 +1881,22 @@ const MAX_TICKET_DETAILS_CHARS: usize = 4000;
 
 /// A ticket made a card: its title on one line and its description cut to
 /// what a card holds.
-fn ticket_card(value: &Value) -> Result<Adding, String> {
-    let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or_default();
-    let title = text("title")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let details = text("details");
+fn ticket_card(title: &str, details: &str, ticket: Option<TicketParams>) -> Result<Adding, String> {
+    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
     let details = if chars(details) <= MAX_TICKET_DETAILS_CHARS {
         details.to_owned()
     } else {
         let kept: String = details.chars().take(MAX_TICKET_DETAILS_CHARS).collect();
         format!("{kept}\n\n[Cut short; the ticket has the rest.]")
     };
-    let mut adding = Adding::from_params(
-        &serde_json::json!({ "title": clipped(&title, MAX_TITLE_CHARS), "details": details }),
-    )?;
-    adding.ticket = ticket_of(value.get("ticket").unwrap_or(&Value::Null))?;
-    Ok(adding)
+    Ok(Adding {
+        title: title_of(&clipped(&title, MAX_TITLE_CHARS))?,
+        details: long_text("details", &details)?,
+        acceptance: String::new(),
+        parent: None,
+        depends_on: Vec::new(),
+        ticket: ticket.map(TicketParams::ticket).transpose()?,
+    })
 }
 
 /// The card on `project`'s board for ticket `key`: its id, parent and what
@@ -1784,53 +1917,38 @@ fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<(u64, Option<
 /// besides adding the ticket.
 pub(crate) async fn person_add_ticket(
     core: &Arc<Core>,
-    params: Value,
+    params: AddTicketParams,
 ) -> Result<BoardView, String> {
     let (view, notices) = {
         let core = core.clone();
         blocking(move || {
-            let project = project_param(&core, &params)?;
-            add_card(&core, &project, &By::Person, ticket_card(&params)?, false)?;
-            let key_of = |value: &Value| {
-                value
-                    .get("ticket")
-                    .and_then(|ticket| ticket.get("key"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            };
-            let keys = |field: &str| -> Vec<String> {
-                params
-                    .get(field)
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|key| key.as_str().map(str::to_owned))
-                    .collect()
-            };
-            let key = key_of(&params).ok_or("a ticket needs its key, such as PROJ-12")?;
+            let project = project_at(&core, &params.project)?;
+            let key = params.ticket.key.clone();
+            add_card(
+                &core,
+                &project,
+                &By::Person,
+                ticket_card(&params.title, &params.details, Some(params.ticket))?,
+                false,
+            )?;
             let (made, _, _) =
                 card_of_ticket(&core, &project, &key).ok_or("The ticket's card is gone")?;
             let mut notices = Vec::new();
             let mut problems = Vec::new();
-            let change = |id: u64, changes: Value| {
-                Changes::from_params(&changes)
-                    .and_then(|changes| change_card(&core, &project, &By::Person, id, changes))
-                    .map(|(_, sent)| sent)
+            let change = |id: u64, changes: Changes| {
+                change_card(&core, &project, &By::Person, id, changes).map(|(_, sent)| sent)
             };
             let mut note = |done: Result<Vec<Notice>, String>, what: String| match done {
                 Ok(sent) => notices.extend(sent),
                 Err(error) => problems.push(format!("Could not {what}: {error}")),
             };
-            let subtasks = params
-                .get("subtasks")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            for sub in &subtasks {
-                let Some(sub_key) = key_of(sub) else { continue };
+            for sub in params.subtasks {
+                let Some(sub_key) = sub.ticket.as_ref().map(|ticket| ticket.key.clone()) else {
+                    continue;
+                };
                 match card_of_ticket(&core, &project, &sub_key) {
                     None => note(
-                        ticket_card(sub).and_then(|mut adding| {
+                        ticket_card(&sub.title, &sub.details, sub.ticket).and_then(|mut adding| {
                             adding.parent = Some(made);
                             add_card(&core, &project, &By::Person, adding, false)
                                 .map(|_| Vec::new())
@@ -1838,28 +1956,49 @@ pub(crate) async fn person_add_ticket(
                         format!("put {sub_key} under it"),
                     ),
                     Some((id, None, _)) => note(
-                        change(id, serde_json::json!({ "parent": made })),
+                        change(
+                            id,
+                            Changes {
+                                parent: Some(Some(made)),
+                                ..Changes::default()
+                            },
+                        ),
                         format!("put {sub_key} under it"),
                     ),
                     Some(_) => {}
                 }
             }
-            let waits: Vec<u64> = keys("blockedBy")
+            let waits: Vec<u64> = params
+                .blocked_by
                 .iter()
                 .filter_map(|blocker| card_of_ticket(&core, &project, blocker).map(|(id, _, _)| id))
                 .collect();
             if !waits.is_empty() {
                 note(
-                    change(made, serde_json::json!({ "dependsOn": waits })),
+                    distinct_cards(waits, "dependsOn").and_then(|waits| {
+                        change(
+                            made,
+                            Changes {
+                                depends_on: Some(waits),
+                                ..Changes::default()
+                            },
+                        )
+                    }),
                     "make it wait on its blockers".into(),
                 );
             }
-            for blocked in keys("blocks") {
+            for blocked in params.blocks {
                 if let Some((id, _, mut depends)) = card_of_ticket(&core, &project, &blocked) {
                     if !depends.contains(&made) {
                         depends.push(made);
                         note(
-                            change(id, serde_json::json!({ "dependsOn": depends })),
+                            change(
+                                id,
+                                Changes {
+                                    depends_on: Some(depends),
+                                    ..Changes::default()
+                                },
+                            ),
                             format!("make {blocked} wait on it"),
                         );
                     }
@@ -1877,13 +2016,16 @@ pub(crate) async fn person_add_ticket(
 }
 
 /// The person changes or moves a card. Answers with the board.
-pub(crate) async fn person_update(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
+pub(crate) async fn person_update(
+    core: &Arc<Core>,
+    params: UpdateParams,
+) -> Result<BoardView, String> {
     let (view, notices) = {
         let core = core.clone();
         blocking(move || {
-            let project = project_param(&core, &params)?;
-            let id = card_id(params.get("id").unwrap_or(&Value::Null), "id")?;
-            let changes = Changes::from_params(&params)?;
+            let project = project_at(&core, &params.project)?;
+            let id = card_number(Some(params.id), "id")?;
+            let changes = params.changes()?;
             let (_, notices) = change_card(&core, &project, &By::Person, id, changes)?;
             Ok((project_view(&core, &project), notices))
         })
@@ -1896,10 +2038,13 @@ pub(crate) async fn person_update(core: &Arc<Core>, params: Value) -> Result<Boa
 
 /// The person changes how the project's board runs on its own. Answers
 /// with the board.
-pub(crate) async fn person_settings(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
+pub(crate) async fn person_settings(
+    core: &Arc<Core>,
+    params: SettingsParams,
+) -> Result<BoardView, String> {
     let core = core.clone();
     blocking(move || {
-        let project = project_param(&core, &params)?;
+        let project = project_at(&core, &params.project)?;
         let current = {
             let state = core.boards.state.locked();
             state
@@ -1908,7 +2053,7 @@ pub(crate) async fn person_settings(core: &Arc<Core>, params: Value) -> Result<B
                 .map(|board| board.settings.clone())
                 .unwrap_or_default()
         };
-        let settings = current.changed(&params, |id| {
+        let settings = current.changed(params, |id| {
             core.workspaces
                 .providers()
                 .is_some_and(|providers| providers.find(id).is_some())
@@ -1951,12 +2096,15 @@ pub(crate) fn check_command(core: &Core, project: &str) -> Option<String> {
 /// of what it wrote.
 /// The person has Auto try a card it gave back to them again. Answers with
 /// the board.
-pub(crate) async fn person_retry(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
+pub(crate) async fn person_retry(
+    core: &Arc<Core>,
+    params: CardParams,
+) -> Result<BoardView, String> {
     let (project, id) = {
         let core = core.clone();
         blocking(move || {
-            let project = project_param(&core, &params)?;
-            let id = card_id(params.get("id").unwrap_or(&Value::Null), "id")?;
+            let project = project_at(&core, &params.project)?;
+            let id = card_number(Some(params.id), "id")?;
             Ok((project, id))
         })
         .await
@@ -1967,12 +2115,15 @@ pub(crate) async fn person_retry(core: &Arc<Core>, params: Value) -> Result<Boar
 }
 
 /// The person takes a card off the board. Answers with the board.
-pub(crate) async fn person_remove(core: &Arc<Core>, params: Value) -> Result<BoardView, String> {
+pub(crate) async fn person_remove(
+    core: &Arc<Core>,
+    params: CardParams,
+) -> Result<BoardView, String> {
     let (view, notices) = {
         let core = core.clone();
         blocking(move || {
-            let project = project_param(&core, &params)?;
-            let id = card_id(params.get("id").unwrap_or(&Value::Null), "id")?;
+            let project = project_at(&core, &params.project)?;
+            let id = card_number(Some(params.id), "id")?;
             let notices = remove_card(&core, &project, id)?;
             Ok((project_view(&core, &project), notices))
         })

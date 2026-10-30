@@ -20,6 +20,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use sikemux_core::git::log::GitCommit;
+use sikemux_core::server::{call, BoardAddTicketParams};
 
 use crate::core::Target;
 use crate::icons::Icon;
@@ -687,20 +688,21 @@ impl Host {
 
     /// Puts a ticket on the board of the project in front, as the core's `boardAddTicket` takes
     /// it, and says over the window what came of it, `put` once it is on.
-    pub fn add_board_ticket(&self, params: Value, put: String, cx: &mut App) {
+    pub fn add_board_ticket(&self, params: BoardAddTicketParams, put: String, cx: &mut App) {
         let Some(bench) = self.bench.upgrade() else {
             return;
         };
-        let asked = bench.read(cx).target().request("boardAddTicket", params);
+        let asked = bench
+            .read(cx)
+            .target()
+            .request_typed::<call::BoardAddTicket>(params);
         let weak = bench.downgrade();
         cx.spawn(async move |cx| {
             let answer = asked.await;
             let _ = weak.update(cx, |bench, cx| match answer {
                 Ok(board) => {
-                    for problem in board["problems"].as_array().into_iter().flatten() {
-                        if let Some(problem) = problem.as_str() {
-                            bench.notify(toast::error(problem.to_owned()), cx);
-                        }
+                    for problem in board.problems {
+                        bench.notify(toast::error(problem), cx);
                     }
                     bench.notify(toast::success(put), cx);
                 }

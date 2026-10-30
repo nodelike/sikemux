@@ -9,9 +9,10 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use serde_json::{json, Value};
+use sikemux_core::server::call;
 use sikemux_core::server::{
-    CardStatus, CardView, Finish, MessageKind, MessageOutcome, MessageRow, MessageTone, Stage,
+    BoardCardParams, BoardReviewerParams, BoardUpdateParams, CardStatus, CardView, Finish,
+    MessageKind, MessageOutcome, MessageRow, MessageTone, Stage,
 };
 
 use crate::board::{owner, short_title, waits_on_person, BoardPane, Open};
@@ -24,7 +25,7 @@ use crate::theme::{
 use crate::ui::{self, select, Button, IconButton, Pick, Toggle, Variant};
 
 /// Keeps a choice made in a picker as the board's settings.
-type Save = Rc<dyn Fn(Value, &mut gpui_kit::App)>;
+type Save = Rc<dyn Fn(BoardReviewerParams, &mut gpui_kit::App)>;
 
 const MAX_SLOTS: u32 = 8;
 const NO_CARD: &str = "0";
@@ -180,9 +181,11 @@ fn placing(
         move |key, _, cx| {
             let parent: u64 = key.parse().unwrap_or(0);
             pane_entity.update(cx, |pane, cx| match card_id {
-                Some(id) => pane.ask(
-                    "boardUpdate",
-                    json!({ "id": id, "parent": parent }),
+                Some(id) => pane.ask::<call::BoardUpdate>(
+                    BoardUpdateParams {
+                        parent: Some(parent),
+                        ..pane.card_change(id)
+                    },
                     |_, _| {},
                     cx,
                 ),
@@ -200,9 +203,11 @@ fn placing(
         let pane_entity = cx.entity();
         move |next: Vec<u64>, cx: &mut gpui_kit::App| {
             pane_entity.update(cx, |pane, cx| match card_id {
-                Some(id) => pane.ask(
-                    "boardUpdate",
-                    json!({ "id": id, "dependsOn": next }),
+                Some(id) => pane.ask::<call::BoardUpdate>(
+                    BoardUpdateParams {
+                        depends_on: Some(next),
+                        ..pane.card_change(id)
+                    },
                     |_, _| {},
                     cx,
                 ),
@@ -386,11 +391,17 @@ fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> 
         Some(status_key.into()),
         pane.busy,
         move |status, _, cx| {
-            let status = status.to_string();
+            let status = match status.as_ref() {
+                "open" => CardStatus::Open,
+                "progress" => CardStatus::Progress,
+                _ => CardStatus::Done,
+            };
             pane_entity.update(cx, |pane, cx| {
-                pane.ask(
-                    "boardUpdate",
-                    json!({ "id": id, "status": status }),
+                pane.ask::<call::BoardUpdate>(
+                    BoardUpdateParams {
+                        status: Some(status),
+                        ..pane.card_change(id)
+                    },
                     |_, _| {},
                     cx,
                 )
@@ -473,7 +484,11 @@ fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> 
             auto = auto.child(
                 Button::new("board-retry", again, Variant::Outline).on_click(cx.listener(
                     move |pane, _, _, cx| {
-                        pane.ask("boardRetry", json!({ "id": id }), |_, _| {}, cx)
+                        let card = BoardCardParams {
+                            project: pane.folder.clone(),
+                            id,
+                        };
+                        pane.ask::<call::BoardRetry>(card, |_, _| {}, cx)
                     },
                 )),
             );
@@ -541,9 +556,11 @@ fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> 
                         move |_, yes, _, cx| {
                             if yes {
                                 pane_entity.update(cx, |pane, cx| {
-                                    pane.ask(
-                                        "boardRemove",
-                                        json!({ "id": id }),
+                                    pane.ask::<call::BoardRemove>(
+                                        BoardCardParams {
+                                            project: pane.folder.clone(),
+                                            id,
+                                        },
                                         |pane, cx| {
                                             pane.open = None;
                                             pane.fields = None;
@@ -625,22 +642,30 @@ fn auto_picker(
     }
     let pane_entity = cx.entity();
     let save: Save = Rc::new(move |chosen, cx| {
-        let changes = match role {
-            Role::Agent => chosen,
-            Role::Reviewer => json!({ "reviewer": chosen }),
-        };
         pane_entity.update(cx, |pane, cx| {
-            pane.ask("boardSettings", changes, |_, _| {}, cx)
+            pane.change_settings(
+                |params| match role {
+                    Role::Agent => {
+                        params.launcher = Some(chosen.launcher);
+                        params.provider = Some(chosen.provider);
+                        params.model = Some(chosen.model);
+                    }
+                    Role::Reviewer => params.reviewer = Some(Some(chosen)),
+                },
+                cx,
+            )
         });
     });
     let set: model_picker::Set = {
         let (save, launcher, payer) = (save.clone(), shown.id.clone(), payer.map(str::to_owned));
         Rc::new(move |id, value, _, cx| {
             if id == "model" {
-                save(
-                    json!({ "launcher": launcher, "provider": payer, "model": value }),
-                    cx,
-                );
+                let chosen = BoardReviewerParams {
+                    launcher: Some(launcher.clone()),
+                    provider: payer.clone(),
+                    model: Some(value.to_owned()),
+                };
+                save(chosen, cx);
             }
         })
     };
@@ -657,10 +682,12 @@ fn auto_picker(
                             .is_none_or(|profile| profile_of(&known.id).as_deref() == Some(profile))
                 })
                 .map(|known| known.id.clone());
-            save(
-                json!({ "launcher": launcher, "provider": to.model_provider, "model": to.model }),
-                cx,
-            );
+            let chosen = BoardReviewerParams {
+                launcher,
+                provider: to.model_provider,
+                model: to.model,
+            };
+            save(chosen, cx);
         })
     };
     let model_label = models.as_ref().and_then(|models| {
@@ -700,12 +727,6 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
         return div().into_any_element();
     };
     let settings = board.settings.clone();
-    let save =
-        |changes: Value, cx: &mut gpui_kit::App, pane_entity: &gpui_kit::Entity<BoardPane>| {
-            pane_entity.update(cx, |pane, cx| {
-                pane.ask("boardSettings", changes, |_, _| {}, cx)
-            });
-        };
     let slots = (1..=MAX_SLOTS)
         .map(|slots| {
             Pick::new(
@@ -744,7 +765,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                 .child(
                     Toggle::new("board-auto-on", "Start agents on cards by itself", auto_on).on_click(
                         cx.listener(move |pane, _, _, cx| {
-                            pane.ask("boardSettings", json!({ "auto": !auto_on }), |_, _| {}, cx)
+                            pane.change_settings(|params| params.auto = Some(!auto_on), cx)
                         }),
                     ),
                 )
@@ -780,7 +801,9 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                     busy,
                     move |slots, _, cx| {
                         let slots: u32 = slots.parse().unwrap_or(2);
-                        save(json!({ "slots": slots }), cx, &on_slots)
+                        on_slots.update(cx, |pane, cx| {
+                            pane.change_settings(|params| params.slots = Some(slots), cx)
+                        })
                     },
                     cx,
                 ),
@@ -794,7 +817,15 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                     finishes,
                     Some(finish_key.into()),
                     busy,
-                    move |finish, _, cx| save(json!({ "finish": finish.as_ref() }), cx, &on_finish),
+                    move |finish, _, cx| {
+                        let finish = match finish.as_ref() {
+                            "pr" => Finish::Pr,
+                            _ => Finish::Merge,
+                        };
+                        on_finish.update(cx, |pane, cx| {
+                            pane.change_settings(|params| params.finish = Some(finish), cx)
+                        })
+                    },
                     cx,
                 ),
                 cx,
