@@ -100,6 +100,7 @@ mod worktree;
 
 pub use agent_accounts::AccountUsage;
 pub use calls::{call, NoParams};
+pub use drafts::Draft;
 pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
 pub use hosts::{HostFound, HostReach, HostRow, SetUpWork, SetupRow};

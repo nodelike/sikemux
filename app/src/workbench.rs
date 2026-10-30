@@ -995,8 +995,12 @@ impl Workbench {
                 crate::notifications::kept_running(self, cx);
             }
             Update::Read("git-draft", value) => {
-                self.git.drafts(&value, cx);
-                self.keep_read("git-draft", value);
+                if !self.reads.keep_drafts("git-draft", value) {
+                    return;
+                }
+                if let Some(drafts) = &self.reads.git_draft {
+                    self.git.drafts(drafts, cx);
+                }
             }
             Update::Read("stash", value) => {
                 if !self.reads.keep_stash(value) {
@@ -1008,8 +1012,17 @@ impl Workbench {
                 }
             }
             Update::Read(key @ ("drafts" | "host-drafts"), value) => {
-                self.drafts(&value, key == "host-drafts", cx);
-                self.keep_read(key, value);
+                let elsewhere = key == "host-drafts";
+                if !self.reads.keep_drafts(key, value) && !elsewhere {
+                    return;
+                }
+                let drafts = match elsewhere {
+                    true => &self.reads.host_drafts,
+                    false => &self.reads.drafts,
+                };
+                if let Some(drafts) = drafts {
+                    crate::chat::draft::take(&mut self.chats.open, drafts, elsewhere, cx);
+                }
             }
             Update::Read("usage", value) => {
                 if !self.reads.keep_usage(value) {
@@ -2159,9 +2172,7 @@ impl Workbench {
     /// waits for it.
     fn holds(&self, update: &Update) -> bool {
         match update {
-            Update::Read(key @ ("usage" | "shares" | "stash" | "ports" | "drafts"), value) => {
-                self.reads.holds(key, value)
-            }
+            Update::Read(key @ "ports", value) => self.reads.holds(key, value),
             Update::HostView(host, view) => self.hosts.views.get(host) == Some(&**view),
             _ => false,
         }

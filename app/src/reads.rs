@@ -1,10 +1,12 @@
 //! What the core's watches last answered, each under a field of its own and decoded once
 //! where it arrives, so a screen reads a field rather than looking an answer up by its key.
 
+use std::collections::BTreeMap;
+
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sikemux_core::server::{
-    AccountUsage, HostRow, ProjectEntry, RunView, ShareView, ShownStash, SshHost, TaskList,
+    AccountUsage, Draft, HostRow, ProjectEntry, RunView, ShareView, ShownStash, SshHost, TaskList,
     TrustQuestion, UpdateStatus,
 };
 use sikemux_plugin_api::{Listed, TokenForm};
@@ -68,6 +70,9 @@ impl Plugins {
     }
 }
 
+/// Drafts the core keeps, by the key each is kept under.
+pub type Drafts = BTreeMap<String, Draft>;
+
 #[derive(Default)]
 pub struct Reads {
     pub catalog: Catalog,
@@ -87,8 +92,8 @@ pub struct Reads {
     pub trust: Vec<TrustQuestion>,
     pub host_trust: Vec<TrustQuestion>,
     /// The composer drafts kept on this host, and on the account host in front.
-    pub drafts: Option<Value>,
-    pub host_drafts: Option<Value>,
+    pub drafts: Option<Drafts>,
+    pub host_drafts: Option<Drafts>,
     /// What the project in front holds: its tasks, their runs, what listens on its ports,
     /// its activity, and the repository its git pane shows.
     pub tasks: Option<TaskList>,
@@ -97,7 +102,7 @@ pub struct Reads {
     pub activity: Option<Value>,
     pub git_project_repo: Option<Value>,
     pub git_overview: Option<Value>,
-    pub git_draft: Option<Value>,
+    pub git_draft: Option<Drafts>,
     /// Activity across every project, for Settings; null when the core refused it.
     pub activity_everywhere: Option<Value>,
     /// The worktree in front's pull requests, and whether its branch is merged.
@@ -130,13 +135,10 @@ macro_rules! slots {
 }
 
 slots! {
-    "drafts" => drafts,
-    "host-drafts" => host_drafts,
     "ports" => ports,
     "activity" => activity,
     "git-project-repo" => git_project_repo,
     "git-overview" => git_overview,
-    "git-draft" => git_draft,
     crate::settings::ACTIVITY => activity_everywhere,
     crate::worktree_head::PULLS => worktree_pulls,
     crate::worktree_head::MERGED => worktree_merged,
@@ -195,6 +197,16 @@ impl Reads {
         true
     }
 
+    /// Keeps the drafts `key`'s watch answered, and says whether they differ from those kept.
+    pub fn keep_drafts(&mut self, key: &str, value: Value) -> bool {
+        let slot = match key {
+            "drafts" => &mut self.drafts,
+            "host-drafts" => &mut self.host_drafts,
+            _ => &mut self.git_draft,
+        };
+        keep_decoded(slot, value, "drafts")
+    }
+
     /// Keeps the chats this host shares, and says whether they differ from those kept.
     pub fn keep_shares(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.shares, value, "shares")
@@ -241,6 +253,7 @@ impl Reads {
     pub fn forget(&mut self, key: &str) {
         match key {
             "tasks" => self.tasks = None,
+            "git-draft" => self.git_draft = None,
             "runs" => self.runs.clear(),
             "trust" => self.trust.clear(),
             "host-trust" => self.host_trust.clear(),

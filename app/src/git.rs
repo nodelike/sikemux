@@ -55,7 +55,7 @@ impl GitTab {
         }
     }
 
-    pub fn drafts(&self, drafts: &Value, cx: &mut App) {
+    pub fn drafts(&self, drafts: &crate::reads::Drafts, cx: &mut App) {
         if let Some(pane) = &self.pane {
             pane.update(cx, |pane, cx| pane.drafts(drafts, cx));
         }

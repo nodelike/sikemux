@@ -2042,11 +2042,10 @@ impl GitPane {
     /// Takes the drafts the core keeps. The commit message follows the core's only while
     /// the person has typed nothing since they last agreed, so their own words are never
     /// overwritten and their cursor never jumps.
-    pub fn drafts(&mut self, value: &Value, cx: &mut Context<Self>) {
-        let kept = value[self.draft_key().as_str()]["text"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
+    pub fn drafts(&mut self, drafts: &crate::reads::Drafts, cx: &mut Context<Self>) {
+        let kept = (drafts.get(&self.draft_key()))
+            .map(|draft| draft.text.clone())
+            .unwrap_or_default();
         if kept == self.synced {
             return;
         }

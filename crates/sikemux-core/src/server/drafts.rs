@@ -37,14 +37,15 @@ struct Stored {
 }
 
 /// A draft as the apps read it.
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Draft {
-    text: String,
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct Draft {
+    pub text: String,
+    /// What the app keeps beside the text, such as its chips and files, as the app shaped it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    extra: Option<Value>,
+    pub extra: Option<Value>,
     /// Moves on with every change, so an app saving the draft says which one it last read.
     #[serde(default)]
-    rev: u64,
+    pub rev: u64,
 }
 
 /// What the core itself put in a draft, such as an item shared to the chat: a file and words

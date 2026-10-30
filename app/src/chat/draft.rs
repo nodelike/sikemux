@@ -3,6 +3,7 @@
 //! A draft from elsewhere replaces this one only while nothing was typed here since the two
 //! last agreed, so the person's own words are never overwritten.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -11,6 +12,7 @@ use gpui_kit::{App, Context, Window};
 use serde_json::{json, Value};
 
 use super::{Composing, Sent};
+use crate::reads::Drafts;
 use crate::workbench::Workbench;
 
 /// How long typing rests before the draft is kept.
@@ -111,23 +113,50 @@ fn restored(draft: &Value) -> Sent {
 }
 
 /// What `drafts` holds for `agent`, shaped as `kept` shapes it.
-fn held(drafts: &Value, agent: &str) -> Value {
-    let draft = &drafts[key(agent).as_str()];
-    let mut held = json!({ "text": draft["text"].as_str().unwrap_or_default() });
-    if draft["extra"]
-        .as_object()
-        .is_some_and(|extra| !extra.is_empty())
+fn held(drafts: &Drafts, agent: &str) -> Value {
+    let draft = drafts.get(&key(agent));
+    let mut held = json!({ "text": draft.map_or("", |draft| draft.text.as_str()) });
+    if let Some(extra) = draft
+        .and_then(|draft| draft.extra.as_ref())
+        .filter(|extra| extra.as_object().is_some_and(|extra| !extra.is_empty()))
     {
-        held["extra"] = draft["extra"].clone();
+        held["extra"] = extra.clone();
     }
     held
 }
 
 /// The core's revision of `agent`'s draft in `drafts`.
-fn rev(drafts: &Value, agent: &str) -> u64 {
-    drafts[key(agent).as_str()]["rev"]
-        .as_u64()
-        .unwrap_or_default()
+fn rev(drafts: &Drafts, agent: &str) -> u64 {
+    drafts.get(&key(agent)).map_or(0, |draft| draft.rev)
+}
+
+/// Takes the drafts the core keeps into every open composer, of chats on this host or
+/// `elsewhere`, that has not moved on.
+pub fn take(
+    open: &mut HashMap<String, super::Chat>,
+    drafts: &Drafts,
+    elsewhere: bool,
+    cx: &mut Context<Workbench>,
+) {
+    for (agent, chat) in open {
+        if is_elsewhere(chat) != elsewhere {
+            continue;
+        }
+        let Some(composing) = chat.composer.as_mut() else {
+            continue;
+        };
+        let draft = held(drafts, agent);
+        if draft == composing.synced {
+            composing.read_rev = rev(drafts, agent);
+            continue;
+        }
+        let shown = kept(composing, cx);
+        if shown == composing.synced {
+            composing.arrived = Some((restored(&draft), shown, rev(drafts, agent)));
+            cx.notify();
+        }
+        composing.synced = draft;
+    }
 }
 
 /// Whether the chat runs on another host, whose core keeps its draft.
@@ -186,29 +215,6 @@ impl Workbench {
         }
         self.chat_target(agent).call("setDraft", params);
     }
-
-    /// Takes the drafts the core keeps into every open composer that has not moved on.
-    pub fn drafts(&mut self, drafts: &Value, elsewhere: bool, cx: &mut Context<Self>) {
-        for (agent, chat) in &mut self.chats.open {
-            if is_elsewhere(chat) != elsewhere {
-                continue;
-            }
-            let Some(composing) = chat.composer.as_mut() else {
-                continue;
-            };
-            let draft = held(drafts, agent);
-            if draft == composing.synced {
-                composing.read_rev = rev(drafts, agent);
-                continue;
-            }
-            let shown = kept(composing, cx);
-            if shown == composing.synced {
-                composing.arrived = Some((restored(&draft), shown, rev(drafts, agent)));
-                cx.notify();
-            }
-            composing.synced = draft;
-        }
-    }
 }
 
 impl Composing {
@@ -224,7 +230,7 @@ impl Composing {
     }
 
     /// Starts from the draft the core keeps for `agent`, when the composer is made.
-    pub fn start_from(&mut self, drafts: &Value, agent: &str, window: &mut Window, cx: &mut App) {
+    pub fn start_from(&mut self, drafts: &Drafts, agent: &str, window: &mut Window, cx: &mut App) {
         let draft = held(drafts, agent);
         self.put(restored(&draft), window, cx);
         self.synced = draft;
