@@ -9,6 +9,7 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled,
 };
 use serde_json::json;
+use sikemux_core::server::{call, QueuedParams};
 use sikemux_wire::chat::{
     AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, TaskState, TriggerWhen, WorkflowAgent,
     WorkflowAgentState,
@@ -592,10 +593,13 @@ pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<A
             .text_size(crate::theme::ui_text(TEXT_3XS_H))
             .text_color(t.text_primary)
             .on_click(cx.listener(move |bench, _, _, _| {
-                bench.chat_target(&agent).call(
-                    "steerQueued",
-                    json!({ "agentId": agent, "ids": ids, "message": null }),
-                );
+                bench
+                    .chat_target(&agent)
+                    .call_typed::<call::SteerQueued>(QueuedParams {
+                        agent_id: agent.clone(),
+                        ids: ids.clone(),
+                        message: None,
+                    });
             }))
             .child(label.to_owned())
             .when(keys, |button| {
@@ -644,7 +648,11 @@ pub fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<A
                 .on_click(cx.listener(move |bench, _, _, _| {
                     bench
                         .chat_target(&agent)
-                        .call("dropQueued", json!({ "agentId": agent, "ids": [id] }));
+                        .call_typed::<call::DropQueued>(QueuedParams {
+                            agent_id: agent.clone(),
+                            ids: vec![id.clone()],
+                            message: None,
+                        });
                 }))
                 .child(ui::icon(Icon::Close, 10.).text_color(t.text_disabled));
             div()

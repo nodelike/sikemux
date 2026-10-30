@@ -2,6 +2,7 @@
 //! and the prompts and steering it sends.
 
 use super::*;
+use sikemux_core::server::{call, QueuedMessage, QueuedParams};
 
 /// A card over the composer the agent waits on the person for.
 #[derive(Clone)]
@@ -721,7 +722,11 @@ impl Chat {
             );
         }
         if self.steers() && !queue {
-            let message = json!({ "text": text, "paths": paths, "context": context });
+            let message = QueuedMessage {
+                text,
+                paths,
+                context,
+            };
             return Some(self.steer_queued(agent, Some(message)));
         }
         self.awaits_agent = !self.ready();
@@ -751,16 +756,14 @@ impl Chat {
     }
 
     /// Puts the messages waiting behind the running turn into it, and `message` after them.
-    pub(super) fn steer_queued(&self, agent: &str, message: Option<Value>) -> Ask {
-        let ids: Vec<&str> = self.state.as_ref().map_or(Vec::new(), |head| {
-            head.queued
-                .iter()
-                .map(|queued| queued.id.as_str())
-                .collect()
+    pub(super) fn steer_queued(&self, agent: &str, message: Option<QueuedMessage>) -> Ask {
+        let ids = self.state.as_ref().map_or(Vec::new(), |head| {
+            head.queued.iter().map(|queued| queued.id.clone()).collect()
         });
-        Ask::Call {
-            method: "steerQueued",
-            params: json!({ "agentId": agent, "ids": ids, "message": message }),
-        }
+        crate::core::typed_call::<call::SteerQueued>(QueuedParams {
+            agent_id: agent.to_owned(),
+            ids,
+            message,
+        })
     }
 }

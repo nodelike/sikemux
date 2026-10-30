@@ -1165,14 +1165,14 @@ async fn edit_message(core: &Arc<Core>, params: EditParams) -> CoreResult<()> {
 }
 
 /// Messages waiting behind an agent's turn, by id.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueuedParams {
-    agent_id: String,
-    ids: Vec<String>,
+    pub agent_id: String,
+    pub ids: Vec<String>,
     /// A message sent with them, after them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    message: Option<super::chat::queue::Message>,
+    pub message: Option<super::chat::queue::Message>,
 }
 
 /// What a call that takes nothing is sent; whatever a client sends reads as nothing.

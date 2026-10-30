@@ -102,8 +102,9 @@ pub use activity_log::{
     ActivityDay, ActivityLevels, ActivityModel, ActivityShare, ActivityStreaks, ActivitySummary,
     ActivityTotals, PriceOverride, PricingInfo,
 };
-pub use agent_accounts::AccountUsage;
-pub use calls::{call, NoParams};
+pub use agent_accounts::{AccountUsage, Resuming};
+pub use calls::{call, NoParams, QueuedParams};
+pub use chat::queue::Message as QueuedMessage;
 pub use drafts::Draft;
 pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};

@@ -31,13 +31,13 @@ pub(crate) struct Queued {
 }
 
 /// A message as the person wrote it.
-#[derive(Deserialize)]
-pub(crate) struct Message {
-    text: String,
+#[derive(Serialize, Deserialize)]
+pub struct Message {
+    pub text: String,
     #[serde(default)]
-    paths: Vec<String>,
+    pub paths: Vec<String>,
     #[serde(default)]
-    context: Vec<ChatContext>,
+    pub context: Vec<ChatContext>,
 }
 
 impl Queued {

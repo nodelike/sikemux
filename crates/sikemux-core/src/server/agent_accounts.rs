@@ -30,10 +30,10 @@ pub(super) struct Forget {
     config_path: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Resuming {
-    agent_id: String,
+    pub agent_id: String,
 }
 
 #[derive(Deserialize)]

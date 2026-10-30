@@ -11,6 +11,8 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use serde_json::json;
+use sikemux_core::server::call::{self, Call};
+use sikemux_core::server::Resuming;
 use sikemux_wire::chat::{ChatConnection, ChatPart, FailureKind, ToolAction};
 
 use super::Chat;
@@ -250,7 +252,7 @@ impl Workbench {
         let agent = agent.to_owned();
         crate::desk::spawn(async move {
             match signed.await {
-                Ok(_) => target.call("retryFailed", json!({ "agentId": agent })),
+                Ok(_) => target.call_typed::<call::RetryFailed>(Resuming { agent_id: agent }),
                 Err(error) => eprintln!("sikemux: the agent did not sign in: {error}"),
             }
         });
@@ -272,9 +274,10 @@ impl Workbench {
         }
     }
 
-    fn account_call(&self, method: &'static str, agent: &str) {
-        self.chat_target(agent)
-            .call(method, json!({ "agentId": agent }));
+    fn account_call<C: Call<Params = Resuming>>(&self, agent: &str) {
+        self.chat_target(agent).call_typed::<C>(Resuming {
+            agent_id: agent.to_owned(),
+        });
     }
 }
 
@@ -346,10 +349,10 @@ pub(super) fn trouble(
     if network {
         row = row
             .child(act("Retry now", "chat-retry", |bench, agent| {
-                bench.account_call("retryFailed", agent)
+                bench.account_call::<call::RetryFailed>(agent)
             }))
             .child(act("Discard", "chat-discard", |bench, agent| {
-                bench.account_call("discardFailed", agent)
+                bench.account_call::<call::DiscardFailed>(agent)
             }));
     }
     let resumes = failure.and_then(|failure| {
@@ -359,7 +362,7 @@ pub(super) fn trouble(
     });
     if resumes.is_some_and(|at| at > now_ms()) {
         row = row.child(act("Don't resume", "chat-cancel-resume", |bench, agent| {
-            bench.account_call("cancelResume", agent)
+            bench.account_call::<call::CancelResume>(agent)
         }));
     }
     let kind = failure.map(|failure| failure.kind);
@@ -545,7 +548,7 @@ fn account_ways(
         &agent.id,
         "Retry",
         "chat-retry-signed-in",
-        |bench, agent| bench.account_call("retryFailed", agent),
+        |bench, agent| bench.account_call::<call::RetryFailed>(agent),
     );
     if on.is_none() {
         let methods: Vec<Button> = (capabilities.sign_in_methods.iter())

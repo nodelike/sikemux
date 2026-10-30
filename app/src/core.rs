@@ -804,6 +804,24 @@ async fn heard_from(heard: &mut Option<mpsc::UnboundedReceiver<Happened>>) -> Op
 }
 
 /// Asks the core one of its methods and waits for the answer.
+/// The call `C`, which nothing waits on the answer of.
+pub fn typed_call<C: Call>(params: C::Params) -> Ask
+where
+    C::Params: Serialize,
+{
+    let params = serde_json::to_value(params).unwrap_or_else(|error| {
+        eprintln!(
+            "sikemux: the params of {} did not write: {error}",
+            C::METHOD
+        );
+        Value::Null
+    });
+    Ask::Call {
+        method: C::METHOD,
+        params,
+    }
+}
+
 pub fn request(
     asks: &mpsc::UnboundedSender<Ask>,
     method: &'static str,
@@ -933,6 +951,14 @@ impl Target {
     /// Tells the core something, with no answer waited for.
     pub fn call(&self, method: &'static str, params: Value) {
         self.ask(Ask::Call { method, params });
+    }
+
+    /// Sends the call `C` without waiting for its answer.
+    pub fn call_typed<C: Call>(&self, params: C::Params)
+    where
+        C::Params: Serialize,
+    {
+        self.ask(typed_call::<C>(params));
     }
 
     /// Starts a chat with `launcher`'s agent in `project` there, in `mode` for this launch or
