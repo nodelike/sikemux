@@ -103,8 +103,13 @@ pub use activity_log::{
     ActivityTotals, PriceOverride, PricingInfo,
 };
 pub use agent_accounts::{AccountUsage, Resuming};
+pub use board::{
+    BoardParams, BoardView, CardView, Column, Finish, PullView, ReviewerChoice, RunView as CardRun,
+    Settings as BoardSettings, Stage, Status as CardStatus, Ticket, Tracker,
+};
 pub use calls::{
-    call, ClosedAgentsParams, NoParams, QueuedParams, SetDraftParams, WorktreeDefaultParams,
+    call, AgentMessageRows, AgentMessagesParams, ClosedAgentsParams, NoParams, QueuedParams,
+    SetDraftParams, WorktreeDefaultParams,
 };
 pub use chat::queue::Message as QueuedMessage;
 pub use codehost::{ReleasesParams, TrackedParams};
@@ -112,6 +117,8 @@ pub use drafts::Draft;
 pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
 pub use hosts::{HostFound, HostReach, HostRow, LinkView as HostLink, SetUpWork, SetupRow};
+pub use messages::log::{Outcome as MessageOutcome, Row as MessageRow, Tone as MessageTone};
+pub use messages::Kind as MessageKind;
 pub use names::ClosedAgent;
 pub use ports::{ListeningPort, PortOwner, ProjectPort};
 pub use project_roots::ProjectEntry;

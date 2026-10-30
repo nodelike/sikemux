@@ -19,9 +19,9 @@ const MAX_FILE_BYTES: u64 = 256 * 1024;
 pub(crate) const MAX_READ: usize = 500;
 
 /// What became of a message.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Outcome {
+pub enum Outcome {
     /// Taken into the turn the agent was working on.
     Steered,
     /// Started a turn of the agent's.
@@ -149,17 +149,17 @@ impl MessageLog {
 }
 
 /// Whether a message still waits for its agent, or never reached it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Tone {
+pub enum Tone {
     Held,
     Failed,
 }
 
 /// One message between agents, from being sent to what last became of it.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Row {
+pub struct Row {
     pub sent_at: u64,
     pub at: u64,
     /// The sending agent's id, or `person`, `board`, `auto` or `sikemux`.

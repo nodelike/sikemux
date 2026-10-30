@@ -28,7 +28,7 @@ const MAX_MODEL_CHARS: usize = 200;
 /// Where a card's run ends when its checks pass.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum Finish {
+pub enum Finish {
     #[default]
     Merge,
     /// At an open pull request, for the person to merge.
@@ -38,7 +38,7 @@ pub(crate) enum Finish {
 /// The agent that reviews a card's change before Auto merges it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ReviewerChoice {
+pub struct ReviewerChoice {
     /// The app's launcher it starts with, which must run another CLI than
     /// the card's builder.
     pub launcher: String,
@@ -49,7 +49,7 @@ pub(crate) struct ReviewerChoice {
 /// How a project's board runs on its own.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub(crate) struct Settings {
+pub struct Settings {
     pub auto: bool,
     /// How many of Auto's agents work at once.
     pub slots: u32,
@@ -161,7 +161,7 @@ impl Settings {
 /// Where a card's run is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Stage {
+pub enum Stage {
     /// Its worktree and agent are being made.
     Starting,
     Working,
@@ -299,26 +299,26 @@ impl Run {
 }
 
 /// A card's run as the app and devices read it.
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RunView {
-    agent: String,
-    repo: String,
-    worktree: String,
-    branch: String,
-    base: String,
-    start_sha: String,
-    stage: Stage,
-    note: Option<String>,
-    pull: Option<PullView>,
+pub struct RunView {
+    pub agent: String,
+    pub repo: String,
+    pub worktree: String,
+    pub branch: String,
+    pub base: String,
+    pub start_sha: String,
+    pub stage: Stage,
+    pub note: Option<String>,
+    pub pull: Option<PullView>,
 }
 
 /// A run's pull request as the app and devices read it.
-#[derive(Serialize)]
-pub(crate) struct PullView {
-    number: u64,
-    url: String,
-    host: String,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PullView {
+    pub number: u64,
+    pub url: String,
+    pub host: String,
 }
 
 /// How many of the board's cards have an agent of Auto's at work that is

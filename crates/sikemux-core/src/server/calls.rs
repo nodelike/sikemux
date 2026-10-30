@@ -889,21 +889,21 @@ struct TrustAnswerParams {
     trust: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMessagesParams {
-    project: String,
+    pub project: String,
     #[serde(default)]
-    limit: Option<usize>,
+    pub limit: Option<usize>,
 }
 
 /// A project's messages between agents, one row each, newest first, under the
 /// project's own path.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMessageRows {
-    project: String,
-    rows: Vec<messages::log::Row>,
+    pub project: String,
+    pub rows: Vec<messages::log::Row>,
 }
 
 /// The project's log of messages between agents, newest first, under the

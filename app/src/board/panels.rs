@@ -10,8 +10,11 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled,
 };
 use serde_json::{json, Value};
+use sikemux_core::server::{
+    CardStatus, CardView, Finish, MessageKind, MessageOutcome, MessageRow, MessageTone, Stage,
+};
 
-use crate::board::{owner, short_title, waits_on_person, BoardPane, Card, MessageRow, Open};
+use crate::board::{owner, short_title, waits_on_person, BoardPane, Open};
 use crate::chat::model_picker;
 use crate::icons::Icon;
 use crate::theme::{
@@ -26,27 +29,34 @@ type Save = Rc<dyn Fn(Value, &mut gpui_kit::App)>;
 const MAX_SLOTS: u32 = 8;
 const NO_CARD: &str = "0";
 
-fn status_label(status: &str) -> &'static str {
+const STATUSES: [CardStatus; 3] = [CardStatus::Open, CardStatus::Progress, CardStatus::Done];
+
+/// A status by the name the core takes it by, and its label.
+fn status_named(status: CardStatus) -> (&'static str, &'static str) {
     match status {
-        "progress" => "In progress",
-        "done" => "Done",
-        _ => "Open",
+        CardStatus::Open => ("open", "Open"),
+        CardStatus::Progress => ("progress", "In progress"),
+        CardStatus::Done => ("done", "Done"),
     }
 }
 
-fn stage_label(stage: &str) -> &'static str {
+fn status_label(status: CardStatus) -> &'static str {
+    status_named(status).1
+}
+
+fn stage_label(stage: Stage) -> &'static str {
     match stage {
-        "starting" => "Starting",
-        "working" => "Working",
-        "shipping" => "Shipping",
-        "checking" => "Checks running",
-        "reviewing" => "Under review",
-        "fixing" => "Fixing",
-        "merging" => "Merging",
-        "review" => "Waits for you",
-        "held" => "Back with you",
-        "merged" => "Merged",
-        _ => "Closed",
+        Stage::Starting => "Starting",
+        Stage::Working => "Working",
+        Stage::Shipping => "Shipping",
+        Stage::Checking => "Checks running",
+        Stage::Reviewing => "Under review",
+        Stage::Fixing => "Fixing",
+        Stage::Merging => "Merging",
+        Stage::Review => "Waits for you",
+        Stage::Held => "Back with you",
+        Stage::Merged => "Merged",
+        Stage::Closed => "Closed",
     }
 }
 
@@ -118,7 +128,7 @@ fn settings_group(name: &'static str, cx: &mut Context<BoardPane>) -> gpui_kit::
 }
 
 /// The cards under `id`, and theirs, which it cannot be put under.
-fn below(cards: &[Card], id: u64) -> Vec<u64> {
+fn below(cards: &[CardView], id: u64) -> Vec<u64> {
     let mut found = vec![id];
     let mut grew = true;
     while grew {
@@ -136,7 +146,11 @@ fn below(cards: &[Card], id: u64) -> Vec<u64> {
 }
 
 /// The card it goes under, and the cards it waits on, for a card or a new one.
-fn placing(pane: &BoardPane, card: Option<&Card>, cx: &mut Context<BoardPane>) -> Vec<AnyElement> {
+fn placing(
+    pane: &BoardPane,
+    card: Option<&CardView>,
+    cx: &mut Context<BoardPane>,
+) -> Vec<AnyElement> {
     let cards = pane.cards();
     let (parent, depends_on) = match (card, &pane.fields) {
         (Some(card), _) => (card.parent.unwrap_or(0), card.depends_on.clone()),
@@ -316,7 +330,7 @@ fn text_fields(pane: &BoardPane, cx: &mut Context<BoardPane>) -> Vec<AnyElement>
     ]
 }
 
-fn card_panel(pane: &BoardPane, card: Card, cx: &mut Context<BoardPane>) -> AnyElement {
+fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = card.id;
     let title = match &card.ticket {
@@ -356,16 +370,20 @@ fn card_panel(pane: &BoardPane, card: Card, cx: &mut Context<BoardPane>) -> AnyE
         )
         .into_any_element(),
     };
-    let statuses = ["open", "progress", "done"]
+    let statuses = STATUSES
         .into_iter()
-        .map(|status| Pick::new(status, status_label(status)))
+        .map(|status| {
+            let (key, label) = status_named(status);
+            Pick::new(key, label)
+        })
         .collect();
     let pane_entity = cx.entity();
+    let (status_key, status_shown) = status_named(card.status);
     let status = select(
         "board-status",
-        status_label(&card.status),
+        status_shown,
         statuses,
-        Some(card.status.clone().into()),
+        Some(status_key.into()),
         pane.busy,
         move |status, _, cx| {
             let status = status.to_string();
@@ -385,7 +403,7 @@ fn card_panel(pane: &BoardPane, card: Card, cx: &mut Context<BoardPane>) -> AnyE
     } else {
         ui::meta("Nobody yet", cx).into_any_element()
     };
-    let under: Vec<Card> = pane
+    let under: Vec<CardView> = pane
         .cards()
         .iter()
         .filter(|other| other.parent == Some(id))
@@ -418,7 +436,7 @@ fn card_panel(pane: &BoardPane, card: Card, cx: &mut Context<BoardPane>) -> AnyE
     }
     if let Some(run) = card.auto.clone() {
         let mut auto = section("Auto", cx).child(
-            ui::text(stage_label(&run.stage), TEXT_XS_H, FontWeight::MEDIUM)
+            ui::text(stage_label(run.stage), TEXT_XS_H, FontWeight::MEDIUM)
                 .text_color(t.text_primary),
         );
         if let Some(note) = run.note.clone() {
@@ -446,7 +464,7 @@ fn card_panel(pane: &BoardPane, card: Card, cx: &mut Context<BoardPane>) -> AnyE
                     ),
             );
         }
-        if waits_on_person(&run.stage) {
+        if waits_on_person(run.stage) {
             let again = if run.worktree.is_empty() {
                 "Start it again"
             } else {
@@ -493,12 +511,12 @@ fn card_panel(pane: &BoardPane, card: Card, cx: &mut Context<BoardPane>) -> AnyE
                             .text_size(crate::theme::ui_text(TEXT_XS_H))
                             .child(each.title.clone()),
                     )
-                    .child(ui::meta(status_label(&each.status), cx))
+                    .child(ui::meta(status_label(each.status), cx))
             })),
         );
     }
     let leaving = card.title.clone();
-    let stopping = (card.owner.is_some() && card.status == "progress").then(|| {
+    let stopping = (card.owner.is_some() && card.status == CardStatus::Progress).then(|| {
         format!(
             "{} is told to stop working on it.",
             card.owner_name
@@ -704,10 +722,9 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
         Pick::new("merge", "Merge it").hint("Once CI, or the check command, passes"),
         Pick::new("pr", "Stop at the pull request").hint("You review and merge it"),
     ];
-    let finish_shown = if settings.finish == "pr" {
-        "Stop at the pull request"
-    } else {
-        "Merge it"
+    let (finish_key, finish_shown) = match settings.finish {
+        Finish::Pr => ("pr", "Stop at the pull request"),
+        Finish::Merge => ("merge", "Merge it"),
     };
     let entity = || cx.entity();
     let (on_slots, on_finish) = (entity(), entity());
@@ -775,7 +792,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                     "board-finish",
                     finish_shown,
                     finishes,
-                    Some(settings.finish.clone().into()),
+                    Some(finish_key.into()),
                     busy,
                     move |finish, _, cx| save(json!({ "finish": finish.as_ref() }), cx, &on_finish),
                     cx,
@@ -800,9 +817,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                 let picker = auto_picker(
                     pane,
                     Role::Reviewer,
-                    reviewer
-                        .as_ref()
-                        .and_then(|reviewer| reviewer.launcher.as_deref()),
+                    reviewer.as_ref().map(|reviewer| reviewer.launcher.as_str()),
                     reviewer
                         .as_ref()
                         .and_then(|reviewer| reviewer.provider.as_deref()),
@@ -835,42 +850,40 @@ fn sender(id: Option<&str>, name: Option<&String>) -> String {
     }
 }
 
-fn kind_label(kind: Option<&str>) -> &'static str {
+fn kind_label(kind: Option<MessageKind>) -> &'static str {
     match kind {
-        Some("report") => "Report",
-        Some("question") => "Question",
-        Some("answer") => "Answer",
-        Some("notice") => "Note",
-        _ => "Message",
+        Some(MessageKind::Report) => "Report",
+        Some(MessageKind::Question) => "Question",
+        Some(MessageKind::Answer) => "Answer",
+        Some(MessageKind::Notice) => "Note",
+        Some(MessageKind::Message) | None => "Message",
     }
 }
 
 fn outcome_label(row: &MessageRow) -> &'static str {
-    match row.outcome.as_str() {
-        "delivered" if row.waited => "Delivered after waiting",
-        "steered" => "Read mid-turn",
-        "newTurn" => "Started a turn",
-        "typed" => "Typed in",
-        "waiting" => "Waiting",
-        "delivered" => "Delivered",
-        "returned" => "Not taken, waiting",
-        "repeat" => "Repeat, not sent",
-        "refused" => "Refused",
-        _ => "Dropped unread",
+    match row.outcome {
+        MessageOutcome::Delivered if row.waited => "Delivered after waiting",
+        MessageOutcome::Steered => "Read mid-turn",
+        MessageOutcome::NewTurn => "Started a turn",
+        MessageOutcome::Typed => "Typed in",
+        MessageOutcome::Waiting => "Waiting",
+        MessageOutcome::Delivered => "Delivered",
+        MessageOutcome::Returned => "Not taken, waiting",
+        MessageOutcome::Repeat => "Repeat, not sent",
+        MessageOutcome::Refused => "Refused",
+        MessageOutcome::Dropped => "Dropped unread",
     }
 }
 
 fn messages_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let rows = pane.messages.clone();
-    let count = |tone: &str| {
+    let count = |tone: MessageTone| {
         rows.as_ref().map_or(0, |rows| {
-            rows.iter()
-                .filter(|row| row.tone.as_deref() == Some(tone))
-                .count()
+            rows.iter().filter(|row| row.tone == Some(tone)).count()
         })
     };
-    let (held, failed) = (count("held"), count("failed"));
+    let (held, failed) = (count(MessageTone::Held), count(MessageTone::Failed));
     let summary = [
         (held > 0).then(|| format!("{held} waiting")),
         (failed > 0).then(|| format!("{failed} not delivered")),
@@ -906,10 +919,10 @@ fn messages_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
         }
         Some(rows) => {
             view = view.children(rows.into_iter().map(|row| {
-                let tint = match row.tone.as_deref() {
-                    Some("held") => t.warn,
-                    Some("failed") => t.danger,
-                    _ => t.text_tertiary,
+                let tint = match row.tone {
+                    Some(MessageTone::Held) => t.warn,
+                    Some(MessageTone::Failed) => t.danger,
+                    None => t.text_tertiary,
                 };
                 div()
                     .flex()
@@ -943,10 +956,7 @@ fn messages_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                         div()
                             .flex()
                             .gap(SPACE_1)
-                            .child(ui::meta(
-                                format!("{} ·", kind_label(row.kind.as_deref())),
-                                cx,
-                            ))
+                            .child(ui::meta(format!("{} ·", kind_label(row.kind)), cx))
                             .child(ui::meta(outcome_label(&row), cx).text_color(tint)),
                     )
             }));

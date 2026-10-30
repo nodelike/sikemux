@@ -71,7 +71,7 @@ const MAX_MISSED_PASTES: u8 = 3;
 /// What a message between agents is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Kind {
+pub enum Kind {
     Message,
     /// How a worker's turn ended, sent to its lead.
     Report,

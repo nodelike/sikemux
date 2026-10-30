@@ -12,8 +12,11 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window,
 };
-use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_core::server::{
+    call, AgentMessagesParams, BoardParams, BoardView, CardStatus, CardView, Column, MessageRow,
+    Stage,
+};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::core::{self, Ask};
@@ -29,123 +32,35 @@ use crate::workbench::Workbench;
 
 pub mod panels;
 
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Card {
-    pub id: u64,
-    pub title: String,
-    #[serde(default)]
-    pub details: String,
-    #[serde(default)]
-    pub acceptance: String,
-    pub status: String,
-    pub owner: Option<String>,
-    pub owner_name: Option<String>,
-    pub owner_cli: Option<String>,
-    pub paid_by: Option<String>,
-    pub parent: Option<u64>,
-    #[serde(default)]
-    pub depends_on: Vec<u64>,
-    #[serde(default)]
-    pub waits_on: Vec<u64>,
-    pub created_by: Option<String>,
-    #[serde(default)]
-    pub created_by_name: String,
-    pub result: Option<String>,
-    pub ticket: Option<Ticket>,
-    pub column: String,
-    pub auto: Option<Run>,
-    #[serde(default)]
-    pub updated_at: u64,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Ticket {
-    pub key: String,
-    pub url: Option<String>,
-    pub source: Option<String>,
-    pub sync_note: Option<String>,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Run {
-    pub stage: String,
-    pub note: Option<String>,
-    #[serde(default)]
-    pub branch: String,
-    #[serde(default)]
-    pub worktree: String,
-    pub pull: Option<Pull>,
-}
-
-#[derive(Clone, Deserialize)]
-pub(crate) struct Pull {
-    pub number: u64,
-    pub url: String,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Settings {
-    pub auto: bool,
-    pub slots: u32,
-    pub launcher: Option<String>,
-    /// The connected provider Auto's agents run on in place of their own accounts.
-    #[serde(default)]
-    pub provider: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    pub finish: String,
-    pub reviewer: Option<Reviewer>,
-}
-
-#[derive(Clone, Deserialize)]
-pub(crate) struct Reviewer {
-    pub launcher: Option<String>,
-    #[serde(default)]
-    pub provider: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Board {
-    pub cards: Vec<Card>,
-    pub settings: Settings,
-    pub running: usize,
-    pub auto_note: Option<String>,
-    #[serde(default)]
-    pub triggers: Vec<sikemux_wire::chat::ChatTrigger>,
-}
-
-/// One message between the project's agents, as the core folds its log.
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct MessageRow {
-    pub sent_at: u64,
-    pub from: Option<String>,
-    pub from_name: Option<String>,
-    pub to: String,
-    pub to_name: Option<String>,
-    pub kind: Option<String>,
-    pub outcome: String,
-    pub waited: bool,
-    pub tone: Option<String>,
-}
-
-const COLUMNS: [(&str, &str); 4] = [
-    ("open", "Open"),
-    ("progress", "In progress"),
-    ("needs", "Needs you"),
-    ("done", "Done"),
+const COLUMNS: [(Column, &str); 4] = [
+    (Column::Open, "Open"),
+    (Column::Progress, "In progress"),
+    (Column::Needs, "Needs you"),
+    (Column::Done, "Done"),
 ];
 
 /// A run stage that waits for the person.
-pub(crate) fn waits_on_person(stage: &str) -> bool {
-    matches!(stage, "review" | "held")
+pub(crate) fn waits_on_person(stage: Stage) -> bool {
+    matches!(stage, Stage::Review | Stage::Held)
+}
+
+/// The column a card moving to `status` shows in until the core answers.
+fn column_moving_to(status: CardStatus) -> Column {
+    match status {
+        CardStatus::Open => Column::Open,
+        CardStatus::Progress => Column::Progress,
+        CardStatus::Done => Column::Done,
+    }
+}
+
+/// What a card dropped in `column` is moved to; none for the column the core alone fills.
+fn status_dropped_in(column: Column) -> Option<CardStatus> {
+    match column {
+        Column::Open => Some(CardStatus::Open),
+        Column::Progress => Some(CardStatus::Progress),
+        Column::Needs => None,
+        Column::Done => Some(CardStatus::Done),
+    }
 }
 
 /// The first words of a title, for a chip that points at the card.
@@ -197,14 +112,14 @@ pub struct BoardPane {
     /// The project's folder, which the core's board calls take.
     pub folder: String,
     pub(crate) bench: WeakEntity<Workbench>,
-    pub(crate) board: Option<Board>,
+    pub(crate) board: Option<BoardView>,
     find: Option<Entity<InputState>>,
     words: String,
     show: Show,
     pub(crate) open: Option<Open>,
     pub(crate) fields: Option<Fields>,
     /// Cards on their way to another status, shown there until the core answers.
-    moving: HashMap<u64, &'static str>,
+    moving: HashMap<u64, CardStatus>,
     folded: HashSet<String>,
     pub(crate) messages: Option<Vec<MessageRow>>,
     pub(crate) busy: bool,
@@ -245,13 +160,16 @@ impl BoardPane {
     /// Reads the board again, and the messages while they are open, as after the core
     /// says the board changed.
     pub fn changed(&mut self, cx: &mut Context<Self>) {
-        let read = core::request(&self.asks, "board", json!({ "project": self.folder }));
+        let here = core::Target::here(&self.asks);
+        let project = self.folder.clone();
+        let read = here.request_typed::<call::Board>(BoardParams {
+            project: project.clone(),
+        });
         let messages = (self.open == Some(Open::Messages)).then(|| {
-            core::request(
-                &self.asks,
-                "agentMessageRows",
-                json!({ "project": self.folder }),
-            )
+            here.request_typed::<call::AgentMessageRows>(AgentMessagesParams {
+                project,
+                limit: None,
+            })
         });
         self._reading = cx.spawn(async move |pane, cx| {
             let board = read.await;
@@ -261,30 +179,25 @@ impl BoardPane {
             };
             let _ = pane.update(cx, |pane, cx| {
                 match board {
-                    Ok(board) => pane.take(board, cx),
+                    Ok(board) => pane.take(board),
                     Err(error) => pane.said(&format!("Couldn't read the board: {error}"), cx),
                 }
                 if let Some(Ok(rows)) = rows {
-                    pane.messages = serde_json::from_value(rows["rows"].clone()).ok();
+                    pane.messages = Some(rows.rows);
                 }
                 cx.notify();
             });
         });
     }
 
-    fn take(&mut self, board: Value, cx: &mut Context<Self>) {
-        match serde_json::from_value::<Board>(board) {
-            Ok(board) => {
-                if let Some(Open::Card(id)) = self.open {
-                    if !board.cards.iter().any(|card| card.id == id) {
-                        self.open = None;
-                        self.fields = None;
-                    }
-                }
-                self.board = Some(board);
+    fn take(&mut self, board: BoardView) {
+        if let Some(Open::Card(id)) = self.open {
+            if !board.cards.iter().any(|card| card.id == id) {
+                self.open = None;
+                self.fields = None;
             }
-            Err(error) => self.said(&format!("Couldn't read the board: {error}"), cx),
         }
+        self.board = Some(board);
     }
 
     pub(crate) fn said(&self, error: &str, cx: &mut Context<Self>) {
@@ -310,7 +223,12 @@ impl BoardPane {
                 pane.busy = false;
                 match answer {
                     Ok(board) => {
-                        pane.take(board, cx);
+                        match serde_json::from_value::<BoardView>(board) {
+                            Ok(board) => pane.take(board),
+                            Err(error) => {
+                                pane.said(&format!("Couldn't read the board: {error}"), cx)
+                            }
+                        }
                         then(pane, cx);
                     }
                     Err(error) => pane.said(&error, cx),
@@ -321,7 +239,7 @@ impl BoardPane {
         .detach();
     }
 
-    fn move_card(&mut self, id: u64, to: &'static str, cx: &mut Context<Self>) {
+    fn move_card(&mut self, id: u64, to: CardStatus, cx: &mut Context<Self>) {
         let Some(card) = self.card(id) else {
             return;
         };
@@ -339,25 +257,27 @@ impl BoardPane {
         );
     }
 
-    pub(crate) fn card(&self, id: u64) -> Option<&Card> {
+    pub(crate) fn card(&self, id: u64) -> Option<&CardView> {
         self.board.as_ref()?.cards.iter().find(|card| card.id == id)
     }
 
-    pub(crate) fn cards(&self) -> &[Card] {
+    pub(crate) fn cards(&self) -> &[CardView] {
         self.board
             .as_ref()
             .map_or(&[], |board| board.cards.as_slice())
     }
 
-    fn column_of<'a>(&'a self, card: &'a Card) -> &'a str {
-        self.moving.get(&card.id).copied().unwrap_or(&card.column)
+    fn column_of(&self, card: &CardView) -> Column {
+        self.moving
+            .get(&card.id)
+            .map_or(card.column, |status| column_moving_to(*status))
     }
 
-    fn shown(&self, card: &Card) -> bool {
+    fn shown(&self, card: &CardView) -> bool {
         let wanted = self.words.trim().to_lowercase();
         let matches = |text: &str| text.to_lowercase().contains(&wanted);
         (self.show != Show::Tickets || card.ticket.is_some())
-            && (self.show != Show::Needs || self.column_of(card) == "needs")
+            && (self.show != Show::Needs || self.column_of(card) == Column::Needs)
             && (wanted.is_empty()
                 || matches(&card.title)
                 || matches(&card.details)
@@ -373,7 +293,7 @@ impl BoardPane {
     fn lanes(&self) -> Vec<Lane> {
         let cards = self.cards();
         let parents: HashSet<u64> = cards.iter().filter_map(|card| card.parent).collect();
-        let mut shown: Vec<&Card> = cards.iter().filter(|card| self.shown(card)).collect();
+        let mut shown: Vec<&CardView> = cards.iter().filter(|card| self.shown(card)).collect();
         shown.sort_by_key(|card| std::cmp::Reverse(card.updated_at));
         let mut lanes: Vec<Lane> = Vec::new();
         let mut alone = Lane {
@@ -435,7 +355,7 @@ impl BoardPane {
 
     fn fields_for(
         &self,
-        card: Option<&Card>,
+        card: Option<&CardView>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Fields {
@@ -632,7 +552,7 @@ fn head(pane: &BoardPane, cx: &mut Context<BoardPane>) -> impl IntoElement {
     let from_tickets = cards.iter().filter(|card| card.ticket.is_some()).count();
     let needing = cards
         .iter()
-        .filter(|card| pane.column_of(card) == "needs")
+        .filter(|card| pane.column_of(card) == Column::Needs)
         .count();
     let mut shows = vec![(Show::All, "All", cards.len())];
     if from_tickets > 0 {
@@ -857,12 +777,15 @@ fn lane_view(pane: &BoardPane, lane: Lane, cx: &mut Context<BoardPane>) -> AnyEl
         .map(|parent| owner(parent, cx));
     let (title, meta, select): (String, String, Option<u64>) = match lead {
         Some(parent) => {
-            let under: Vec<&Card> = pane
+            let under: Vec<&CardView> = pane
                 .cards()
                 .iter()
                 .filter(|other| other.parent == Some(parent.id))
                 .collect();
-            let done = under.iter().filter(|other| other.status == "done").count();
+            let done = under
+                .iter()
+                .filter(|other| other.status == CardStatus::Done)
+                .count();
             let above = parent
                 .parent
                 .and_then(|above| pane.card(above))
@@ -952,15 +875,15 @@ fn columns(pane: &BoardPane, ids: &[u64], cx: &mut Context<BoardPane>) -> impl I
     div()
         .flex()
         .gap(SPACE_2H)
-        .children(COLUMNS.iter().map(|&(key, name)| {
-            let cards: Vec<&Card> = ids
+        .children(COLUMNS.iter().map(|&(column, name)| {
+            let cards: Vec<&CardView> = ids
                 .iter()
                 .filter_map(|id| pane.card(*id))
-                .filter(|card| pane.column_of(card) == key)
+                .filter(|card| pane.column_of(card) == column)
                 .collect();
             div()
                 .id(SharedString::from(format!(
-                    "column-{key}-{}",
+                    "column-{column:?}-{}",
                     ids.first().copied().unwrap_or(0)
                 )))
                 .flex_1()
@@ -972,11 +895,11 @@ fn columns(pane: &BoardPane, ids: &[u64], cx: &mut Context<BoardPane>) -> impl I
                 .when(!cards.is_empty(), |column| column.pb(SPACE_1H))
                 .rounded(theme::RADIUS_3)
                 .bg(t.surface_sunken)
-                .when(key != "needs", |column| {
+                .when_some(status_dropped_in(column), |column, status| {
                     column
                         .drag_over::<DraggedCard>(move |style, _, _, _| style.bg(t.surface_hover))
                         .on_drop(cx.listener(move |pane, dragged: &DraggedCard, _, cx| {
-                            pane.move_card(dragged.id, key, cx)
+                            pane.move_card(dragged.id, status, cx)
                         }))
                 })
                 .child(
@@ -994,11 +917,11 @@ fn columns(pane: &BoardPane, ids: &[u64], cx: &mut Context<BoardPane>) -> impl I
         }))
 }
 
-fn card_view(pane: &BoardPane, card: &Card, cx: &mut Context<BoardPane>) -> AnyElement {
+fn card_view(pane: &BoardPane, card: &CardView, cx: &mut Context<BoardPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = card.id;
     let cards = pane.cards();
-    let question = (pane.column_of(card) == "needs")
+    let question = (pane.column_of(card) == Column::Needs)
         .then(|| {
             let owner = card.owner.as_deref()?;
             let bench = pane.bench.upgrade()?;
@@ -1014,15 +937,18 @@ fn card_view(pane: &BoardPane, card: &Card, cx: &mut Context<BoardPane>) -> AnyE
     let line = question.or_else(|| {
         card.auto
             .as_ref()
-            .filter(|_| card.status != "done")
+            .filter(|_| card.status != CardStatus::Done)
             .and_then(|run| run.note.clone())
     });
-    let under: Vec<&Card> = cards
+    let under: Vec<&CardView> = cards
         .iter()
         .filter(|other| other.parent == Some(id))
         .collect();
-    let done = under.iter().filter(|other| other.status == "done").count();
-    let waits: Vec<&Card> = card
+    let done = under
+        .iter()
+        .filter(|other| other.status == CardStatus::Done)
+        .count();
+    let waits: Vec<&CardView> = card
         .waits_on
         .iter()
         .filter_map(|id| pane.card(*id))
@@ -1044,7 +970,9 @@ fn card_view(pane: &BoardPane, card: &Card, cx: &mut Context<BoardPane>) -> AnyE
         .border_1()
         .border_color(if chosen { t.border_strong } else { t.border })
         .bg(if chosen { t.surface_chosen } else { t.surface })
-        .when(moving || card.status == "done", |card| card.opacity(0.6))
+        .when(moving || card.status == CardStatus::Done, |card| {
+            card.opacity(0.6)
+        })
         .cursor_pointer()
         .hover(move |style| style.border_color(t.border_strong))
         .on_drag(
@@ -1108,7 +1036,7 @@ fn card_view(pane: &BoardPane, card: &Card, cx: &mut Context<BoardPane>) -> AnyE
 }
 
 /// The agent a card names, by its mark and name.
-pub(crate) fn owner(card: &Card, cx: &gpui_kit::App) -> AnyElement {
+pub(crate) fn owner(card: &CardView, cx: &gpui_kit::App) -> AnyElement {
     let t = Tokens::get(cx).clone();
     div()
         .flex()

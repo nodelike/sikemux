@@ -33,9 +33,8 @@ mod review;
 mod tickets;
 
 pub(crate) use auto::Pull;
-use auto::RunView;
-pub(crate) use auto::Settings;
-use auto::{Run, Stage};
+use auto::Run;
+pub use auto::{Finish, PullView, ReviewerChoice, RunView, Settings, Stage};
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 
 const FOLDER: &str = "boards";
@@ -58,7 +57,7 @@ const ONLY_PERSON_ACCEPTS: &str =
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum Status {
+pub enum Status {
     Open,
     Progress,
     Done,
@@ -86,7 +85,7 @@ impl Status {
 /// Where a card's ticket lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum Tracker {
+pub enum Tracker {
     Jira,
     Linear,
 }
@@ -94,7 +93,7 @@ pub(crate) enum Tracker {
 /// The Jira or Linear ticket the person put a card on the board for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Ticket {
+pub struct Ticket {
     pub key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -772,41 +771,41 @@ fn remember_team(core: &Core, board: &mut Board, id: u64) {
 }
 
 /// A card as the app and devices read it.
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CardView {
-    id: u64,
-    title: String,
-    details: String,
-    acceptance: String,
-    status: Status,
-    owner: Option<String>,
-    owner_name: Option<String>,
-    owner_cli: Option<String>,
+pub struct CardView {
+    pub id: u64,
+    pub title: String,
+    pub details: String,
+    pub acceptance: String,
+    pub status: Status,
+    pub owner: Option<String>,
+    pub owner_name: Option<String>,
+    pub owner_cli: Option<String>,
     /// The model provider paying for the owner's turns, when not its own account.
-    paid_by: Option<String>,
-    team: Option<String>,
-    team_name: Option<String>,
-    parent: Option<u64>,
-    depends_on: Vec<u64>,
-    waits_on: Vec<u64>,
-    created_by: Option<String>,
-    created_by_name: String,
-    result: Option<String>,
-    ticket: Option<Ticket>,
+    pub paid_by: Option<String>,
+    pub team: Option<String>,
+    pub team_name: Option<String>,
+    pub parent: Option<u64>,
+    pub depends_on: Vec<u64>,
+    pub waits_on: Vec<u64>,
+    pub created_by: Option<String>,
+    pub created_by_name: String,
+    pub result: Option<String>,
+    pub ticket: Option<Ticket>,
     /// The ticket of the nearest card above it that has one, which it is filed under.
-    ticket_above: Option<String>,
-    column: Column,
-    auto: Option<RunView>,
-    recordings: Vec<InboxRecording>,
-    at: u64,
-    updated_at: u64,
+    pub ticket_above: Option<String>,
+    pub column: Column,
+    pub auto: Option<RunView>,
+    pub recordings: Vec<InboxRecording>,
+    pub at: u64,
+    pub updated_at: u64,
 }
 
 /// Where a board shows a card: `needs` holds the cards waiting on the person.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Column {
+pub enum Column {
     Open,
     Progress,
     Needs,
@@ -846,20 +845,20 @@ fn ticket_above(board: &Board, card: &Card) -> Option<String> {
 }
 
 /// A board as the app and devices read it.
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BoardView {
-    project: String,
-    cards: Vec<CardView>,
-    settings: Settings,
+    pub project: String,
+    pub cards: Vec<CardView>,
+    pub settings: Settings,
     /// How many of its cards have an agent of Auto's at work.
-    running: usize,
-    auto_note: Option<String>,
+    pub running: usize,
+    pub auto_note: Option<String>,
     /// What could not be done of what the person asked, a line each.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    problems: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub problems: Vec<String>,
     /// The triggers that add cards to it when their time comes, soonest first.
-    triggers: Vec<sikemux_wire::chat::ChatTrigger>,
+    pub triggers: Vec<sikemux_wire::chat::ChatTrigger>,
 }
 
 fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
@@ -1713,9 +1712,9 @@ fn project_at(core: &Core, path: &str) -> Result<String, String> {
 }
 
 /// The project a board call is about, by its absolute path.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct BoardParams {
-    project: String,
+    pub project: String,
 }
 
 /// One project's board, empty when it has no cards yet.
