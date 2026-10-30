@@ -14,8 +14,10 @@ use super::FileStamp;
 use crate::agent_accounts::defaults::{
     clean_effort, clean_model, qualify_model, yaml_agent_reasoning_effort, yaml_model_section,
 };
+use crate::agent_ops::CommitWriter;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
+use crate::git::ai_provider;
 use crate::git_guard::homes::{self, GitHook};
 use crate::launch::tools::TerminalSetup;
 use crate::launch::tools::Tools;
@@ -251,6 +253,10 @@ impl AgentOps for Hermes {
 
     fn skills_folder(&self) -> Option<PathBuf> {
         Some(AgentKind::Hermes.home_root()?.join("skills"))
+    }
+
+    fn commit_writer(&self) -> Option<CommitWriter> {
+        Some(ai_provider::hermes_commit_message)
     }
 }
 

@@ -32,10 +32,6 @@ impl GitAiProvider {
             .ok_or_else(|| format!("unknown local AI provider: {name}"))
     }
 
-    fn bin(self) -> &'static str {
-        self.kind.entry().command
-    }
-
     pub(super) fn default_model(self) -> &'static str {
         self.default_model
     }
@@ -528,7 +524,11 @@ fn run_codex_app_server_candidate(
     })
 }
 
-fn run_codex_app_server(repo: &str, model: &str, prompt: &str) -> Result<String, String> {
+pub(crate) fn run_codex_app_server(
+    repo: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<String, String> {
     for bin in command_candidates("codex") {
         match run_codex_app_server_candidate(&bin, repo, model, prompt) {
             Err(error) if error.starts_with("codex failed to start: No such file") => continue,
@@ -568,11 +568,11 @@ fn read_ai_pipe(
     }
 }
 
-fn run_ai_candidate<F>(provider: GitAiProvider, mut build: F) -> Result<String, String>
+fn run_ai_candidate<F>(program: &str, mut build: F) -> Result<String, String>
 where
     F: FnMut(&str) -> (Command, Option<Vec<u8>>, AiOutputFormat),
 {
-    for bin in command_candidates(provider.bin()) {
+    for bin in command_candidates(program) {
         let (mut command, input, format) = build(&bin);
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         if input.is_some() {
@@ -586,20 +586,20 @@ where
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("{} failed to start: {error}", provider.bin())),
+            Err(error) => return Err(format!("{} failed to start: {error}", program)),
         };
         let stdout = match child.stdout.take() {
             Some(stdout) => stdout,
             None => {
                 kill_and_reap(&mut child);
-                return Err(format!("{} stdout unavailable", provider.bin()));
+                return Err(format!("{} stdout unavailable", program));
             }
         };
         let stderr = match child.stderr.take() {
             Some(stderr) => stderr,
             None => {
                 kill_and_reap(&mut child);
-                return Err(format!("{} stderr unavailable", provider.bin()));
+                return Err(format!("{} stderr unavailable", program));
             }
         };
 
@@ -643,13 +643,13 @@ where
                     let _ = stderr_reader.join();
                     return Err(format!(
                         "{} timed out after {}s",
-                        provider.bin(),
+                        program,
                         AI_COMMAND_TIMEOUT.as_secs()
                     ));
                 }
                 Err(error) => {
                     kill_and_reap(&mut child);
-                    return Err(format!("{} failed: {error}", provider.bin()));
+                    return Err(format!("{} failed: {error}", program));
                 }
             }
         };
@@ -668,20 +668,20 @@ where
         if !status.success() {
             let detail = String::from_utf8_lossy(&stderr).trim().to_string();
             return Err(if detail.is_empty() {
-                format!("{} exited with {status}", provider.bin())
+                format!("{} exited with {status}", program)
             } else {
-                format!("{} failed: {detail}", provider.bin())
+                format!("{} failed: {detail}", program)
             });
         }
         let message = message?;
         if message.trim().is_empty() {
-            return Err(format!("{} returned no commit message", provider.bin()));
+            return Err(format!("{} returned no commit message", program));
         }
         return Ok(message);
     }
     Err(format!(
         "{} is not installed or could not be found on PATH",
-        provider.bin()
+        program
     ))
 }
 
@@ -696,44 +696,60 @@ pub(super) fn run_ai_commit_model(
     } else {
         model.trim()
     };
-    match provider.kind {
-        AgentKind::Hermes => run_ai_candidate(provider, |bin| {
-            let mut command = sikemux_process::user_environment::agent_command(bin);
-            command
-                .current_dir(repo)
-                .args(["chat", "-Q", "-m", model, "-t", "safe", "-q", prompt]);
-            (command, None, AiOutputFormat::Text)
-        }),
-        AgentKind::Codex => run_codex_app_server(repo, model, prompt),
-        AgentKind::Claude => run_ai_candidate(provider, |bin| {
-            let mut command = sikemux_process::user_environment::agent_command(bin);
-            let (entrypoint, caller) = sikemux_process::vars::CLAUDE_ENTRYPOINT;
-            command.current_dir(repo).env(entrypoint, caller).args([
-                "--print",
-                "--model",
-                model,
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--include-partial-messages",
-                "--no-session-persistence",
-                "--tools",
-                "",
-                "--setting-sources",
-                "user",
-                "--strict-mcp-config",
-            ]);
-            (
-                command,
-                Some(prompt.as_bytes().to_vec()),
-                AiOutputFormat::ClaudeJson,
-            )
-        }),
-        kind => Err(format!(
+    match provider.kind.ops().commit_writer() {
+        Some(write) => write(repo, model, prompt),
+        None => Err(format!(
             "{} cannot write commit messages",
-            kind.entry().label
+            provider.kind.entry().label
         )),
     }
+}
+
+/// A commit message from Hermes, asked once without a session.
+pub(crate) fn hermes_commit_message(
+    repo: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    run_ai_candidate(AgentKind::Hermes.entry().command, |bin| {
+        let mut command = sikemux_process::user_environment::agent_command(bin);
+        command
+            .current_dir(repo)
+            .args(["chat", "-Q", "-m", model, "-t", "safe", "-q", prompt]);
+        (command, None, AiOutputFormat::Text)
+    })
+}
+
+/// A commit message from Claude Code, printed once without tools or a saved session.
+pub(crate) fn claude_commit_message(
+    repo: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    run_ai_candidate(AgentKind::Claude.entry().command, |bin| {
+        let mut command = sikemux_process::user_environment::agent_command(bin);
+        let (entrypoint, caller) = sikemux_process::vars::CLAUDE_ENTRYPOINT;
+        command.current_dir(repo).env(entrypoint, caller).args([
+            "--print",
+            "--model",
+            model,
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
+            "--no-session-persistence",
+            "--tools",
+            "",
+            "--setting-sources",
+            "user",
+            "--strict-mcp-config",
+        ]);
+        (
+            command,
+            Some(prompt.as_bytes().to_vec()),
+            AiOutputFormat::ClaudeJson,
+        )
+    })
 }
 
 #[cfg(test)]

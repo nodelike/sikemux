@@ -29,9 +29,11 @@ use crate::agent_accounts::sign_in::{self, SignIn};
 use crate::agent_accounts::status::{self, AccountStatus, AgentStatus};
 use crate::agent_accounts::usage::{self, Usage};
 use crate::agent_catalog::AgentKind;
+use crate::agent_ops::CommitWriter;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, DeleteCommand, RenameCommand, SessionPlaces};
 use crate::agent_ops::{SaidReader, TokenCounter};
+use crate::git::ai_provider;
 use crate::launch::tools::TerminalSetup;
 use crate::server::{activity_log, transcript};
 use notify::RecursiveMode;
@@ -556,6 +558,10 @@ impl AgentOps for Codex {
 
     fn skills_folder(&self) -> Option<PathBuf> {
         Some(AgentKind::Codex.home_root()?.join("skills"))
+    }
+
+    fn commit_writer(&self) -> Option<CommitWriter> {
+        Some(ai_provider::run_codex_app_server)
     }
 }
 

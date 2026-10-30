@@ -47,6 +47,9 @@ pub(crate) type TokenCounter = fn(text: &str, state: ReadState) -> (ModelTally, 
 /// What one record of the transcript its CLI writes says, each with whether a turn starts there.
 pub(crate) type SaidReader = fn(record: &Value, items: &mut Vec<(bool, Said)>);
 
+/// Writes a commit message in the repository at `repo` with `model`, as `prompt` asks.
+pub(crate) type CommitWriter = fn(repo: &str, model: &str, prompt: &str) -> Result<String, String>;
+
 /// Where an agent writes the sessions of one folder and account.
 #[derive(Default)]
 pub(crate) struct SessionPlaces {
@@ -296,6 +299,11 @@ pub(crate) trait AgentOps: Sync {
 
     /// Its own global skills folder, whether or not it exists yet.
     fn skills_folder(&self) -> Option<PathBuf> {
+        None
+    }
+
+    /// How it writes a commit message, for agents whose catalog entry names commit models.
+    fn commit_writer(&self) -> Option<CommitWriter> {
         None
     }
 

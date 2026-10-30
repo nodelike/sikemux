@@ -1,5 +1,5 @@
 pub mod ai;
-mod ai_provider;
+pub(crate) mod ai_provider;
 pub mod blame;
 pub mod branches;
 pub mod changes;
