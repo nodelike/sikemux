@@ -24,7 +24,6 @@ use super::{
     transcript_lines, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_accounts::defaults::{toml_effort, toml_model};
-use crate::agent_accounts::folders;
 use crate::agent_accounts::sign_in::{self, SignIn};
 use crate::agent_accounts::status::{self, AccountStatus, AgentStatus};
 use crate::agent_accounts::usage::{self, Usage};
@@ -505,10 +504,6 @@ impl AgentOps for Codex {
         fs::read_to_string(root.join("config.toml"))
             .ok()
             .and_then(|text| toml_effort(&text))
-    }
-
-    fn shared_by_accounts(&self, name: &str) -> bool {
-        !folders::CODEX_OWN.contains(&name)
     }
 
     fn account<'a>(

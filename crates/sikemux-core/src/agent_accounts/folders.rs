@@ -9,50 +9,26 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
-use crate::agent_catalog::{AgentKind, Home};
+use crate::agent_catalog::{AccountLinks, AgentKind, Home};
 use crate::launch::{account_variable, named_account};
 use crate::sessions::roots::{account_root, environment_path};
 
 /// Marks a folder as one Sikemux made, whose shared entries it may link.
 const MARKER: &str = ".sikemux-account";
 
-/// What a Claude account shares with the default one. Anything else, such as
-/// the sign-in and the CLI's own caches, stays with the account.
-pub(crate) const CLAUDE_SHARED: &[&str] = &[
-    "projects",
-    "settings.json",
-    "CLAUDE.md",
-    "agents",
-    "commands",
-    "skills",
-    "plugins",
-    "hooks",
-    "output-styles",
-    "todos",
-    "plans",
-    "file-history",
-    "history.jsonl",
-    "keybindings.json",
-    "session-env",
-    "shell-snapshots",
-];
-
-/// What a Codex account keeps to itself. Everything else is shared.
-pub(crate) const CODEX_OWN: &[&str] = &[
-    "auth.json",
-    "models_cache.json",
-    "log",
-    "memories",
-    "tmp",
-    MARKER,
-];
-
 fn home() -> PathBuf {
     sikemux_process::paths::home().unwrap_or_default()
 }
 
 fn shares(provider: &str, name: &str) -> bool {
-    AgentKind::from_name(provider).is_some_and(|kind| kind.ops().shared_by_accounts(name))
+    let links = AgentKind::from_name(provider)
+        .and_then(|kind| kind.entry().home.as_ref())
+        .and_then(|home| home.account_links.as_ref());
+    match links {
+        Some(AccountLinks::Only(names)) => names.contains(&name),
+        Some(AccountLinks::AllBut(names)) => name != MARKER && !names.contains(&name),
+        None => false,
+    }
 }
 
 /// `provider` and its home, when it keeps one account per folder.
@@ -65,8 +41,8 @@ fn accounts_home(provider: &str) -> Option<(AgentKind, &'static Home)> {
 /// The folder an account of `provider` keeps its sign-in in: the one
 /// `config_path` names, else the one the person's shell names, else the default.
 pub fn root(provider: &str, config_path: Option<&str>) -> Option<PathBuf> {
-    let (kind, _) = accounts_home(provider)?;
-    account_root(kind, config_path, &BTreeMap::new())
+    let (_, home) = accounts_home(provider)?;
+    home.account_root(config_path, &BTreeMap::new())
 }
 
 /// The `.claude.json` a Claude account keeps its sign-in and name in: inside the folder

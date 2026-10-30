@@ -194,11 +194,6 @@ pub(crate) trait AgentOps: Sync {
         None
     }
 
-    /// Whether an account folder Sikemux makes links `name` to the default account's.
-    fn shared_by_accounts(&self, _name: &str) -> bool {
-        false
-    }
-
     /// Writes what a new account folder at `directory` starts with, taken from the default
     /// account's under `home`.
     fn seed_account(&self, _home: &Path, _directory: &Path) -> Result<(), String> {

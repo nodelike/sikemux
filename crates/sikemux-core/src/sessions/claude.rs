@@ -513,10 +513,6 @@ impl AgentOps for Claude {
         })
     }
 
-    fn shared_by_accounts(&self, name: &str) -> bool {
-        folders::CLAUDE_SHARED.contains(&name)
-    }
-
     fn seed_account(&self, home: &Path, directory: &Path) -> Result<(), String> {
         folders::seed_claude_account(home, directory)
     }

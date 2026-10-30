@@ -20,7 +20,27 @@
             "home": {
                 "variable": "CLAUDE_CONFIG_DIR",
                 "dir": ".claude",
-                "sessions": "projects"
+                "sessions": "projects",
+                "accountLinks": {
+                    "only": [
+                        "projects",
+                        "settings.json",
+                        "CLAUDE.md",
+                        "agents",
+                        "commands",
+                        "skills",
+                        "plugins",
+                        "hooks",
+                        "output-styles",
+                        "todos",
+                        "plans",
+                        "file-history",
+                        "history.jsonl",
+                        "keybindings.json",
+                        "session-env",
+                        "shell-snapshots"
+                    ]
+                }
             },
             "terminal": {
                 "normal": ["--permission-mode", "acceptEdits"],
@@ -63,7 +83,10 @@
             "home": {
                 "variable": "CODEX_HOME",
                 "dir": ".codex",
-                "sessions": "sessions"
+                "sessions": "sessions",
+                "accountLinks": {
+                    "allBut": ["auth.json", "models_cache.json", "log", "memories", "tmp"]
+                }
             },
             "terminal": {
                 "normal": ["--sandbox", "workspace-write"],

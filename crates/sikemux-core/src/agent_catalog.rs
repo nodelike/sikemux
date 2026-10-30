@@ -62,8 +62,17 @@ pub struct Home {
     pub within: Option<&'static str>,
     /// The folder its saved sessions sit in.
     pub sessions: Option<&'static str>,
+    /// What an account's folder Sikemux makes links to the default account's.
+    pub account_links: Option<AccountLinks>,
     /// A private copy Sikemux gives each of the agent's launches.
     pub private: Option<PrivateHome>,
+}
+
+/// Which entries of the default account's folder another account's folder links to.
+pub enum AccountLinks {
+    Only(&'static [&'static str]),
+    /// All but these, which each account keeps to itself.
+    AllBut(&'static [&'static str]),
 }
 
 /// A private copy of the agent's home Sikemux can change without touching the person's.
@@ -173,6 +182,11 @@ pub const AGENTS: &[AgentEntry] = &[
             dir: ".claude",
             within: None,
             sessions: Some("projects"),
+            account_links: Some(AccountLinks::Only(&[
+                "projects", "settings.json", "CLAUDE.md", "agents", "commands", "skills", "plugins",
+                "hooks", "output-styles", "todos", "plans", "file-history", "history.jsonl",
+                "keybindings.json", "session-env", "shell-snapshots",
+            ])),
             private: None,
         }),
         terminal: Terminal {
@@ -219,6 +233,9 @@ pub const AGENTS: &[AgentEntry] = &[
             dir: ".codex",
             within: None,
             sessions: Some("sessions"),
+            account_links: Some(AccountLinks::AllBut(&[
+                "auth.json", "models_cache.json", "log", "memories", "tmp",
+            ])),
             private: None,
         }),
         terminal: Terminal {
@@ -267,6 +284,7 @@ pub const AGENTS: &[AgentEntry] = &[
             dir: ".hermes",
             within: None,
             sessions: None,
+            account_links: None,
             private: Some(PrivateHome {
                 config: "config.yaml",
                 empty_config: "{}\n",
@@ -318,6 +336,7 @@ pub const AGENTS: &[AgentEntry] = &[
             dir: ".pi/agent",
             within: None,
             sessions: None,
+            account_links: None,
             private: None,
         }),
         terminal: Terminal {
@@ -438,6 +457,7 @@ pub const AGENTS: &[AgentEntry] = &[
             dir: ".grok",
             within: None,
             sessions: None,
+            account_links: None,
             private: Some(PrivateHome {
                 config: "config.toml",
                 empty_config: "",
@@ -486,6 +506,7 @@ pub const AGENTS: &[AgentEntry] = &[
             dir: ".config",
             within: Some("muse"),
             sessions: None,
+            account_links: None,
             private: None,
         }),
         terminal: Terminal {

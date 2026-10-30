@@ -122,11 +122,14 @@ for (const agent of agents) {
       isName(home?.variable) &&
       isName(home?.dir) &&
       (home.within === undefined || isName(home.within)) &&
-      (home.sessions === undefined || isName(home.sessions))
+      (home.sessions === undefined || isName(home.sessions)) &&
+      (home.accountLinks === undefined ||
+        (isArgs(home.accountLinks.only) !== isArgs(home.accountLinks.allBut) &&
+          Object.keys(home.accountLinks).length === 1))
     )
   )
     fail(
-      "home must be null or { variable, dir, within?, sessions?, private? }",
+      "home must be null or { variable, dir, within?, sessions?, accountLinks?: { only } | { allBut }, private? }",
     );
   if (agent.accounts && !home?.sessions)
     fail("keeps accounts, so its home must name its sessions folder");
@@ -272,10 +275,10 @@ const rustOption = (value, write) =>
   value === null || value === undefined ? "None" : `Some(${write(value)})`;
 
 /** `name: &[…],` at `indent` spaces, wrapped the way rustfmt wraps a list of short strings. */
-function rustList(indent, name, items) {
+function rustList(indent, name, items, open = "&[", close = "]") {
   const pad = " ".repeat(indent);
   const quoted = items.map(rustString);
-  const line = `${pad}${name}: &[${quoted.join(", ")}],`;
+  const line = `${pad}${name}: ${open}${quoted.join(", ")}${close},`;
   if (line.length <= RUST_WIDTH && quoted.join(", ").length <= RUST_ARRAY_WIDTH)
     return line;
   const inner = " ".repeat(indent + 4);
@@ -286,7 +289,7 @@ function rustList(indent, name, items) {
       rows[rows.length - 1] = `${last} ${item},`;
     else rows.push(`${inner}${item},`);
   }
-  return `${pad}${name}: &[\n${rows.join("\n")}\n${pad}],`;
+  return `${pad}${name}: ${open}\n${rows.join("\n")}\n${pad}${close},`;
 }
 
 function rustEntry(agent) {
@@ -317,12 +320,23 @@ ${modes}
                 session_store_is_folder: ${privateHome.sessionStoreIsFolder},
             }),`
     : "            private: None,";
+  const links = home?.accountLinks;
+  const linksField = links
+    ? rustList(
+        12,
+        "account_links",
+        links.only ?? links.allBut,
+        `Some(AccountLinks::${links.only ? "Only" : "AllBut"}(&[`,
+        "]))",
+      )
+    : "            account_links: None,";
   const homeField = home
     ? `        home: Some(Home {
             variable: ${rustString(home.variable)},
             dir: ${rustString(home.dir)},
             within: ${rustOption(home.within, rustString)},
             sessions: ${rustOption(home.sessions, rustString)},
+${linksField}
 ${privateField}
         }),`
     : "        home: None,";
@@ -421,8 +435,17 @@ pub struct Home {
     pub within: Option<&'static str>,
     /// The folder its saved sessions sit in.
     pub sessions: Option<&'static str>,
+    /// What an account's folder Sikemux makes links to the default account's.
+    pub account_links: Option<AccountLinks>,
     /// A private copy Sikemux gives each of the agent's launches.
     pub private: Option<PrivateHome>,
+}
+
+/// Which entries of the default account's folder another account's folder links to.
+pub enum AccountLinks {
+    Only(&'static [&'static str]),
+    /// All but these, which each account keeps to itself.
+    AllBut(&'static [&'static str]),
 }
 
 /// A private copy of the agent's home Sikemux can change without touching the person's.

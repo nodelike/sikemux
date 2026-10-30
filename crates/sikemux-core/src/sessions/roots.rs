@@ -7,7 +7,7 @@ use sikemux_process::paths::home;
 use sikemux_process::user_environment::shell_var;
 use sikemux_pty::launch::account_dir;
 
-use crate::agent_catalog::AgentKind;
+use crate::agent_catalog::{AgentKind, Home};
 
 pub fn environment_path(key: &str) -> Option<PathBuf> {
     shell_var(key).map(PathBuf::from)
@@ -29,22 +29,41 @@ pub fn account_root(
     config_path: Option<&str>,
     env: &BTreeMap<String, String>,
 ) -> Option<PathBuf> {
-    if let Some(path) = config_path.map(str::trim).filter(|path| !path.is_empty()) {
-        return Some(account_dir(path));
+    match kind.entry().home.as_ref() {
+        Some(folder) => folder.account_root(config_path, env),
+        None => named_folder(config_path).or_else(|| kind.ops().home()),
     }
-    let Some(folder) = kind.entry().home.as_ref() else {
-        return kind.ops().home();
-    };
-    let root = env
-        .get(folder.variable)
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| environment_path(folder.variable))
-        .or_else(|| Some(home()?.join(folder.dir)))?;
-    Some(match folder.within {
-        Some(within) => root.join(within),
-        None => root,
-    })
+}
+
+impl Home {
+    /// The account folder `config_path` names, else the one `env` or the
+    /// person's shell names, else the default.
+    pub fn account_root(
+        &self,
+        config_path: Option<&str>,
+        env: &BTreeMap<String, String>,
+    ) -> Option<PathBuf> {
+        if let Some(folder) = named_folder(config_path) {
+            return Some(folder);
+        }
+        let root = env
+            .get(self.variable)
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .or_else(|| environment_path(self.variable))
+            .or_else(|| Some(home()?.join(self.dir)))?;
+        Some(match self.within {
+            Some(within) => root.join(within),
+            None => root,
+        })
+    }
+}
+
+fn named_folder(config_path: Option<&str>) -> Option<PathBuf> {
+    config_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(account_dir)
 }
 
 fn omp_profile_name() -> Option<String> {
