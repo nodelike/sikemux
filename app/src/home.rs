@@ -30,9 +30,18 @@ use crate::{chat, terminal};
 const WEEKS: i64 = 53;
 const CELL_GAP: f32 = 3.;
 
+/// What the activity calendar shows: the measure picked above it, and the day under the pointer,
+/// counted from the Unix epoch.
+#[derive(Default)]
+pub struct Calendar {
+    pub metric: Metric,
+    pub day: Option<i64>,
+}
+
 /// What the calendar can measure the days by.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Default)]
 pub enum Metric {
+    #[default]
     Tokens,
     Cost,
     Commits,
@@ -616,19 +625,15 @@ pub(crate) fn calendar(
     cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let metric = bench.metric;
+    let metric = bench.calendar.metric;
     let welcome = footer.is_some();
-    let measure = if welcome {
-        Metric::Tokens
-    } else {
-        METRICS[metric].0
-    };
+    let measure = if welcome { Metric::Tokens } else { metric };
     let today = (chrono::Local::now().date_naive() - epoch()).num_days();
     let start = today - (today + 3).rem_euclid(7) - (WEEKS - 1) * 7;
     let days: HashMap<i64, &ActivityDay> =
         (summary.days.iter()).map(|day| (day.day, day)).collect();
     let level = |day: i64| days.get(&day).map_or(0, |day| measure.level(&day.levels));
-    let hovered = bench.metric_day.filter(|day| *day <= today);
+    let hovered = bench.calendar.day.filter(|day| *day <= today);
     let colour = |level: u8| match level {
         0 => Hsla {
             a: 0.07,
@@ -689,8 +694,8 @@ pub(crate) fn calendar(
                     .map(|at| start + at)
                     .filter(|day| *day <= today);
                 this.update(cx, |bench, cx| {
-                    if bench.metric_day != day {
-                        bench.metric_day = day;
+                    if bench.calendar.day != day {
+                        bench.calendar.day = day;
                         bench.parts.redraw_activity(cx);
                     }
                 })
@@ -700,7 +705,7 @@ pub(crate) fn calendar(
             let this = this.clone();
             move |over: &bool, _, cx| {
                 this.update(cx, |bench, cx| {
-                    if !*over && bench.metric_day.take().is_some() {
+                    if !*over && bench.calendar.day.take().is_some() {
                         bench.parts.redraw_activity(cx);
                     }
                 })
@@ -732,11 +737,11 @@ pub(crate) fn calendar(
     let toggles: Vec<_> = METRICS
         .iter()
         .enumerate()
-        .map(|(index, (_, label))| {
-            let this = this.clone();
-            Toggle::new(("metric", index), *label, index == metric).on_click(move |_, _, cx| {
+        .map(|(index, (shown, label))| {
+            let (this, shown) = (this.clone(), *shown);
+            Toggle::new(("metric", index), *label, shown == metric).on_click(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
-                    bench.metric = index;
+                    bench.calendar.metric = shown;
                     bench.parts.redraw_activity(cx);
                 })
             })

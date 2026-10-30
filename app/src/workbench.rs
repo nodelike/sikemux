@@ -166,10 +166,7 @@ pub struct Workbench {
     /// The plan limits are to be read once the core lists its agents, as the app starts.
     usage_wanted: bool,
     pub pinch: Option<crate::pinch::Pinch>,
-    /// Which of the calendar's metrics it shows, an index into `home::METRICS`.
-    pub metric: usize,
-    /// The calendar day the pointer is over, counted from the Unix epoch.
-    pub metric_day: Option<i64>,
+    pub calendar: crate::home::Calendar,
     pub filter: Option<Entity<InputState>>,
     pub filter_text: String,
     /// The front project's saved chats paged or searched to beyond the recent ones.
@@ -654,8 +651,7 @@ impl Workbench {
             launcher_choice: None,
             usage_wanted: false,
             pinch: None,
-            metric: 0,
-            metric_day: None,
+            calendar: crate::home::Calendar::default(),
             filter: None,
             filter_text: String::new(),
             older: None,

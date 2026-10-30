@@ -534,7 +534,7 @@ pub fn render(
     let read = bench.reads.activity_everywhere.as_ref();
     let failed = read.is_some_and(Option::is_none);
     let summary = read.and_then(Option::as_ref);
-    let measure = home::METRICS[bench.metric].0;
+    let measure = bench.calendar.metric;
     let totals = summary.map(|summary| &summary.totals);
     let since = totals
         .and_then(|totals| totals.first_at_ms)
