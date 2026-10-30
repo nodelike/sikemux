@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
@@ -45,13 +45,13 @@ pub(crate) struct Listener {
     pub address: IpAddr,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-pub(crate) enum PortOwner {
+pub enum PortOwner {
     /// A terminal, in the app's pane `pane_id` when it has one.
     Terminal {
         session_id: SessionId,
@@ -76,23 +76,23 @@ pub(crate) enum PortOwner {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ListeningPort {
+pub struct ListeningPort {
     pub port: u16,
     pub address: String,
     pub pid: u32,
     pub process: String,
     /// The project whose terminal, task or agent listens.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     pub owner: PortOwner,
 }
 
 /// A port as a project shows it, with its preview first.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProjectPort {
+pub struct ProjectPort {
     #[serde(flatten)]
     pub listening: ListeningPort,
     pub url: String,

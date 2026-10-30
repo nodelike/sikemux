@@ -48,7 +48,8 @@ use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
 use sikemux_core::server::{
-    AccountUsage, RunView, TaskView, TrustQuestion, UpdateState, UpdateStatus,
+    AccountUsage, PortOwner, ProjectPort, RunView, TaskView, TrustQuestion, UpdateState,
+    UpdateStatus,
 };
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
@@ -1068,7 +1069,9 @@ impl Workbench {
                 self.time_run(cx);
             }
             Update::Read("ports", value) => {
-                self.keep_read("ports", value);
+                if !self.reads.keep_ports(value) {
+                    return;
+                }
                 self.time_run(cx);
             }
             Update::Read("ci-shown", _) => return,
@@ -2172,7 +2175,6 @@ impl Workbench {
     /// waits for it.
     fn holds(&self, update: &Update) -> bool {
         match update {
-            Update::Read(key @ "ports", value) => self.reads.holds(key, value),
             Update::HostView(host, view) => self.hosts.views.get(host) == Some(&**view),
             _ => false,
         }
@@ -2203,21 +2205,17 @@ impl Workbench {
         )
     }
 
+    /// The port the task run `execution` listens on, when it listens on one.
+    pub fn port_of_run(&self, execution: &str) -> Option<&ProjectPort> {
+        self.reads.ports.iter().find(|port| {
+            matches!(&port.listening.owner, PortOwner::Task { execution_id, .. } if execution_id == execution)
+        })
+    }
+
     /// Counts the seconds on the Run chip while the person's task runs with no port to show.
     fn time_run(&mut self, cx: &mut Context<Self>) {
-        let listening = |run: &RunView| {
-            self.reads
-                .ports
-                .as_ref()
-                .and_then(Value::as_array)
-                .is_some_and(|ports| {
-                    ports
-                        .iter()
-                        .any(|port| port["owner"]["executionId"] == run.run.execution_id.as_str())
-                })
-        };
         let run = self.person_runs().0;
-        let counting = run.is_some_and(|run| !listening(run));
+        let counting = run.is_some_and(|run| self.port_of_run(&run.run.execution_id).is_none());
         let started_at = run.and_then(|run| run.run.started_at).map(|at| at as i64);
         self.run_clock
             .update(cx, |clock, cx| clock.set(counting, started_at, cx));

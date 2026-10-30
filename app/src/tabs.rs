@@ -14,8 +14,7 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Transformation, WeakEntity, Window, WindowControlArea,
 };
-use serde_json::Value;
-use sikemux_core::server::{RunView, Source, TaskView};
+use sikemux_core::server::{PortOwner, RunView, Source, TaskView};
 use sikemux_wire::protocol::{Pane, PaneKind, Tab as LayoutTab};
 use sikemux_wire::pty::shell_protocol::SshLink;
 
@@ -383,12 +382,6 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let t = Tokens::get(cx).clone();
     let tasks = &bench.reads.tasks.as_ref()?.tasks;
     let project = bench.watched_project.as_deref()?;
-    let ports = bench
-        .reads
-        .ports
-        .as_ref()
-        .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice);
     let (running, last) = bench.person_runs();
     let task_of = |run: &RunView| tasks.iter().find(|task| task.id == run.run.task_id);
     let picked = bench
@@ -411,12 +404,8 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         .as_ref()
         .filter(|(_, wrong)| !*wrong)
         .map(|(text, _)| text.clone());
-    let port = running.and_then(|run| {
-        ports
-            .iter()
-            .find(|port| port["owner"]["executionId"] == run.run.execution_id.as_str())
-    });
-    let port_number = port.and_then(|port| port["port"].as_u64());
+    let port = running.and_then(|run| bench.port_of_run(&run.run.execution_id));
+    let port_number = port.map(|port| port.listening.port);
     let needs_java = (selected.java.as_ref())
         .filter(|java| java.runs_on.is_none())
         .map(|java| format!("needs Java {}", java.required));
@@ -484,10 +473,11 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         output: output.clone(),
         groups: task_groups(tasks, project),
         selected: id.clone(),
-        others: ports
-            .iter()
-            .filter(|other| other["owner"]["kind"] != "terminal" && Some(*other) != port)
-            .filter_map(|other| PortRow::new(other, bench))
+        others: (bench.reads.ports.iter())
+            .filter(|other| {
+                !matches!(other.listening.owner, PortOwner::Terminal { .. }) && Some(*other) != port
+            })
+            .map(|other| PortRow::new(other, bench))
             .collect(),
         finders: crate::send_to::choices(bench),
         project_name: bench
@@ -608,7 +598,7 @@ struct RunningTask {
     execution: String,
     label: String,
     started_at: Option<i64>,
-    port: Option<u64>,
+    port: Option<u16>,
 }
 
 struct TaskGroup {

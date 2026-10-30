@@ -104,6 +104,7 @@ pub use drafts::Draft;
 pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
 pub use hosts::{HostFound, HostReach, HostRow, SetUpWork, SetupRow};
+pub use ports::{ListeningPort, PortOwner, ProjectPort};
 pub use project_roots::ProjectEntry;
 pub use remote::{trust_remote_file, ApprovalSetting};
 pub use share::{ShareState, ShareView};

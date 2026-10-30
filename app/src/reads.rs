@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sikemux_core::server::{
-    AccountUsage, Draft, HostRow, ProjectEntry, RunView, ShareView, ShownStash, SshHost, TaskList,
-    TrustQuestion, UpdateStatus,
+    AccountUsage, Draft, HostRow, ProjectEntry, ProjectPort, RunView, ShareView, ShownStash,
+    SshHost, TaskList, TrustQuestion, UpdateStatus,
 };
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_wire::catalog::CatalogAgent;
@@ -98,7 +98,7 @@ pub struct Reads {
     /// its activity, and the repository its git pane shows.
     pub tasks: Option<TaskList>,
     pub runs: Vec<RunView>,
-    pub ports: Option<Value>,
+    pub ports: Vec<ProjectPort>,
     pub activity: Option<Value>,
     pub git_project_repo: Option<Value>,
     pub git_overview: Option<Value>,
@@ -117,13 +117,6 @@ pub struct Reads {
 macro_rules! slots {
     ($($key:pat => $field:ident),* $(,)?) => {
         impl Reads {
-            fn slot(&self, key: &str) -> Option<&Option<Value>> {
-                Some(match key {
-                    $($key => &self.$field,)*
-                    _ => return None,
-                })
-            }
-
             fn slot_mut(&mut self, key: &str) -> Option<&mut Option<Value>> {
                 Some(match key {
                     $($key => &mut self.$field,)*
@@ -135,7 +128,6 @@ macro_rules! slots {
 }
 
 slots! {
-    "ports" => ports,
     "activity" => activity,
     "git-project-repo" => git_project_repo,
     "git-overview" => git_overview,
@@ -207,6 +199,11 @@ impl Reads {
         keep_decoded(slot, value, "drafts")
     }
 
+    /// Keeps what listens on the project's ports, and says whether it differs from what was kept.
+    pub fn keep_ports(&mut self, value: Value) -> bool {
+        keep_decoded(&mut self.ports, value, "ports")
+    }
+
     /// Keeps the chats this host shares, and says whether they differ from those kept.
     pub fn keep_shares(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.shares, value, "shares")
@@ -243,18 +240,13 @@ impl Reads {
         }
     }
 
-    /// Whether `key` already holds `value`, so a push carrying it changes nothing.
-    pub fn holds(&self, key: &str, value: &Value) -> bool {
-        self.slot(key)
-            .is_some_and(|slot| slot.as_ref() == Some(value))
-    }
-
     /// Forgets what `key` answered, so nothing shows the answer of what it watched before.
     pub fn forget(&mut self, key: &str) {
         match key {
             "tasks" => self.tasks = None,
             "git-draft" => self.git_draft = None,
             "runs" => self.runs.clear(),
+            "ports" => self.ports.clear(),
             "trust" => self.trust.clear(),
             "host-trust" => self.host_trust.clear(),
             _ => {

@@ -4,7 +4,7 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::{
     div, px, App, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, WeakEntity,
 };
-use serde_json::Value;
+use sikemux_core::server::{PortOwner, ProjectPort};
 use sikemux_wire::protocol::PaneKind;
 
 use crate::icons::Icon;
@@ -14,7 +14,7 @@ use crate::workbench::Workbench;
 
 /// One listening port, with who listens on it as the person reads it.
 pub struct PortRow {
-    pub port: u64,
+    pub port: u16,
     process: String,
     owner: Owner,
     /// A task's, agent's or terminal's name.
@@ -33,40 +33,39 @@ enum Owner {
 }
 
 impl PortRow {
-    pub fn new(port: &Value, bench: &Workbench) -> Option<Self> {
-        let owner = &port["owner"];
-        let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
-        let session = owner["sessionId"].as_u64().map(|id| id.to_string());
-        let agent = owner["agentId"].as_str().and_then(|id| {
-            bench
-                .view
-                .as_ref()?
-                .workspace
-                .agents
-                .iter()
-                .find(|agent| agent.id == id)
-        });
-        let (kind, label, reveal) = match (owner["kind"].as_str()?, agent) {
-            ("agent", agent) => (
+    pub fn new(port: &ProjectPort, bench: &Workbench) -> Self {
+        let agent_named =
+            |id: &str| (bench.view.as_ref()?.workspace.agents.iter()).find(|agent| agent.id == id);
+        let (kind, label, reveal) = match &port.listening.owner {
+            PortOwner::Agent {
+                agent_id, label, ..
+            } => (
                 Owner::Agent,
-                text(&owner["label"]),
-                agent.map(|agent| ("agent", agent.id.clone())),
+                label.clone(),
+                agent_named(agent_id).map(|agent| ("agent", agent.id.clone())),
             ),
-            ("task", Some(agent)) => (
-                Owner::Agent,
-                agent.title.clone(),
-                Some(("agent", agent.id.clone())),
-            ),
-            ("task", None) => (
-                Owner::Task,
-                text(&owner["label"]),
-                session.map(|session| ("terminal", session)),
-            ),
-            _ => {
-                let tab = session.as_ref().and_then(|session| {
-                    let strip = bench.strip()?;
+            PortOwner::Task {
+                agent_id,
+                label,
+                session_id,
+                ..
+            } => match agent_id.as_deref().and_then(agent_named) {
+                Some(agent) => (
+                    Owner::Agent,
+                    agent.title.clone(),
+                    Some(("agent", agent.id.clone())),
+                ),
+                None => (
+                    Owner::Task,
+                    label.clone(),
+                    Some(("terminal", session_id.to_string())),
+                ),
+            },
+            PortOwner::Terminal { session_id, .. } => {
+                let session = session_id.to_string();
+                let tab = bench.strip().and_then(|strip| {
                     bench.tabs(&strip).iter().find(|tab| {
-                        crate::tabs::first_view(&tab.pane) == Some((PaneKind::Terminal, session))
+                        crate::tabs::first_view(&tab.pane) == Some((PaneKind::Terminal, &session))
                     })
                 });
                 (
@@ -75,18 +74,22 @@ impl PortRow {
                         || "terminal".to_owned(),
                         |tab| crate::tabs::label(bench, tab).to_string(),
                     ),
-                    tab.and(session).map(|session| ("terminal", session)),
+                    tab.map(|_| ("terminal", session.clone())),
                 )
             }
         };
-        Some(Self {
-            port: port["port"].as_u64()?,
-            process: text(&port["process"]),
+        let execution = match &port.listening.owner {
+            PortOwner::Task { execution_id, .. } => Some(execution_id.clone()),
+            _ => None,
+        };
+        Self {
+            port: port.listening.port,
+            process: port.listening.process.clone(),
             owner: kind,
             label,
             reveal,
-            execution: owner["executionId"].as_str().map(str::to_owned),
-        })
+            execution,
+        }
     }
 
     /// The row the Run menu's "Running now" shows: it reveals who listens, and stops a task.
