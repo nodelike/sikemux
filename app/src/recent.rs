@@ -3,11 +3,19 @@
 
 use std::time::Duration;
 
-use gpui_kit::Context;
+use gpui_kit::component::input::InputState;
+use gpui_kit::{Context, Entity, Subscription};
 use serde_json::{json, Value};
 use sikemux_wire::protocol::RecentInfo;
 
 use crate::workbench::Workbench;
+
+/// The rail's filter of recent chats: its field, and what is typed there in lower case.
+pub struct Filter {
+    pub input: Entity<InputState>,
+    pub text: String,
+    pub _changes: Subscription,
+}
 
 /// How many chats one page brings.
 pub const PAGE: usize = 12;
@@ -34,7 +42,7 @@ impl Workbench {
             self.older = None;
             return;
         };
-        let query = self.filter_text.clone();
+        let query = self.filter_text().to_owned();
         let same = self
             .older
             .as_ref()

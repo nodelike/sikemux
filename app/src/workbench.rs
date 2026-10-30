@@ -165,8 +165,8 @@ pub struct Workbench {
     usage_wanted: bool,
     pub pinch: Option<crate::pinch::Pinch>,
     pub calendar: crate::home::Calendar,
-    pub filter: Option<Entity<InputState>>,
-    pub filter_text: String,
+    /// The rail's filter of recent chats, while it shows.
+    pub filter: Option<crate::recent::Filter>,
     /// The front project's saved chats paged or searched to beyond the recent ones.
     pub older: Option<crate::recent::OlderChats>,
     pub asks: mpsc::UnboundedSender<Ask>,
@@ -202,7 +202,6 @@ pub struct Workbench {
     _desk_ears: crate::desk::DeskEars,
     pub sims: Entity<crate::sim::pane::Simulators>,
     _sim_news: Subscription,
-    _filtering: Option<Subscription>,
     pub(crate) _older: Option<Task<()>>,
 }
 
@@ -646,7 +645,6 @@ impl Workbench {
             pinch: None,
             calendar: crate::home::Calendar::default(),
             filter: None,
-            filter_text: String::new(),
             older: None,
             asks,
             terminals: terminal::Terminals::default(),
@@ -665,7 +663,6 @@ impl Workbench {
             desks,
             _sim_news: cx.subscribe(&sims, Self::hear_sims),
             sims,
-            _filtering: None,
             _older: None,
         };
         bench.parts.stage_follows(&bench.sims, cx);
@@ -4301,7 +4298,8 @@ impl Workbench {
                 .map(|project| self.agents_of(&project.id))
                 .unwrap_or_default()
         };
-        rows.retain(|row| row.title.to_lowercase().contains(&self.filter_text));
+        let filter = self.filter_text();
+        rows.retain(|row| row.title.to_lowercase().contains(filter));
         rows
     }
 
@@ -4352,7 +4350,7 @@ impl Workbench {
         self.saved_chats(project)
             .into_iter()
             .filter(|recent| self.rails.all_harnesses || provider == Some(recent.provider.as_str()))
-            .filter(|recent| recent.title.to_lowercase().contains(&self.filter_text))
+            .filter(|recent| recent.title.to_lowercase().contains(self.filter_text()))
             .collect()
     }
 
@@ -4376,23 +4374,32 @@ impl Workbench {
 
     pub fn toggle_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.filter.take().is_some() {
-            self._filtering = None;
-            self.filter_text.clear();
             self.look_for_older(false, crate::recent::PAGE, cx);
             return;
         }
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("filter recent chats…"));
-        self._filtering = Some(
-            cx.subscribe(&filter, |bench, filter, event: &InputEvent, cx| {
-                if let InputEvent::Change = event {
-                    bench.filter_text = filter.read(cx).value().to_lowercase();
-                    bench.look_for_older(false, crate::recent::PAGE, cx);
-                    cx.notify();
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("filter recent chats…"));
+        let changes = cx.subscribe(&input, |bench, input, event: &InputEvent, cx| {
+            if let InputEvent::Change = event {
+                if let Some(filter) = bench.filter.as_mut() {
+                    filter.text = input.read(cx).value().to_lowercase();
                 }
-            }),
-        );
-        filter.update(cx, |state, cx| state.focus(window, cx));
-        self.filter = Some(filter);
+                bench.look_for_older(false, crate::recent::PAGE, cx);
+                cx.notify();
+            }
+        });
+        input.update(cx, |state, cx| state.focus(window, cx));
+        self.filter = Some(crate::recent::Filter {
+            input,
+            text: String::new(),
+            _changes: changes,
+        });
+    }
+
+    /// What the rail's filter holds, in lower case; empty while it does not show.
+    pub fn filter_text(&self) -> &str {
+        self.filter
+            .as_ref()
+            .map_or("", |filter| filter.text.as_str())
     }
 }
 

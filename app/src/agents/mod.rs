@@ -125,7 +125,7 @@ fn page_panel(bench: &Workbench, page: RailPage, cx: &mut Context<Workbench>) ->
     }
     let empty = (rows.is_empty() && pinned.is_empty() && recent.is_empty()).then(|| {
         let shown = (project.zip(other_host(bench)))
-            .filter(|_| bench.filter_text.is_empty())
+            .filter(|_| bench.filter_text().is_empty())
             .map(|(project, host)| match bench.rails.all_projects {
                 true => format!("No chats on {host}"),
                 false => format!("No chats in {} on {host}", project.name),
@@ -153,7 +153,7 @@ fn page_panel(bench: &Workbench, page: RailPage, cx: &mut Context<Workbench>) ->
                     ),
                 )
                 .into_any_element()
-        } else if !bench.filter_text.is_empty() {
+        } else if !bench.filter_text().is_empty() {
             rail_empty(Icon::Search, "No chats match", None, cx)
         } else {
             rail_empty(
@@ -172,7 +172,7 @@ fn page_panel(bench: &Workbench, page: RailPage, cx: &mut Context<Workbench>) ->
                 .mt(SPACE_2H)
                 .mx(SPACE_3)
                 .mb(SPACE_0)
-                .child(Field::new(filter).icon(Icon::Search))
+                .child(Field::new(&filter.input).icon(Icon::Search))
         }))
         .child(
             div()
@@ -621,7 +621,7 @@ fn team_rows(
         .glide
         .borrow_mut()
         .choose(chosen, cx.reduce_motion());
-    let teams = bench.filter_text.is_empty();
+    let teams = bench.filter_text().is_empty();
     let remote = if teams {
         remote_workers(bench)
     } else {
@@ -684,7 +684,7 @@ fn team_rows(
         "{}:{}:{}",
         bench.rails.all_projects,
         bench.project().map_or("", |project| project.id.as_str()),
-        bench.filter_text
+        bench.filter_text()
     );
     let lasting = crate::motion::ROW_DEPARTURE
         .close
