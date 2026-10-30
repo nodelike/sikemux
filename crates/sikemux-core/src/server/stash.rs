@@ -273,9 +273,9 @@ async fn take(core: &Core, id: &str) -> CoreResult<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ItemParams {
-    id: String,
+    pub id: String,
 }
 
 /// Takes an item out of the account's stash for good, on every device.
@@ -331,27 +331,27 @@ pub(crate) async fn picture(core: &Core, params: ItemParams) -> CoreResult<Value
     Ok(json!({ "mime": mime, "data": STANDARD.encode(bytes) }))
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachParams {
-    id: String,
-    agent_id: String,
+    pub id: String,
+    pub agent_id: String,
     /// False when the app keeps its own draft: the item's file is only kept here, and the app
     /// adds it to its message and marks the item used once it is sent.
-    #[serde(default)]
-    draft: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<bool>,
 }
 
 /// What attaching an item put in the chat's draft.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Attached {
-    agent_id: String,
+    pub agent_id: String,
     /// Where the item's file was kept on this host, when it has one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
     /// Where each of the item's files was kept: its own, or a prompt's.
-    paths: Vec<PathBuf>,
+    pub paths: Vec<PathBuf>,
 }
 
 impl Attached {
@@ -427,15 +427,15 @@ async fn files(core: &Core, item: &StashItem) -> CoreResult<Vec<PathBuf>> {
     Ok(paths)
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptParams {
-    agent_id: String,
+    pub agent_id: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Stashed {
-    id: String,
+    pub id: String,
 }
 
 /// The most a prompt's text can be, as the accounts server takes it.
