@@ -21,39 +21,33 @@ function run(command, args) {
   return result;
 }
 
-// The core's workspace, and the GPUI app's, which has a lockfile of its own.
-const lockfiles = [
-  "src-tauri/Cargo.lock",
-  "src-tauri/crates/sikemux-gpui/Cargo.lock",
-];
+const lockfile = "src-tauri/Cargo.lock";
 const observedWarnings = new Set();
-for (const lockfile of lockfiles) {
-  const rust = run("cargo", ["audit", "--file", lockfile, "--json"]);
-  let rustReport;
-  try {
-    rustReport = JSON.parse(rust.stdout);
-  } catch {
-    process.stderr.write(rust.stderr);
-    throw new Error(`cargo audit did not return a JSON report for ${lockfile}`);
-  }
-  if (rustReport.vulnerabilities?.found) {
-    throw new Error(
-      `cargo audit found ${rustReport.vulnerabilities.count} vulnerable package(s) in ${lockfile}`,
-    );
-  }
-  for (const [kind, entries] of Object.entries(rustReport.warnings ?? {})) {
-    for (const entry of entries) {
-      const id = entry.advisory?.id;
-      const packageName = entry.package?.name;
-      const packageVersion = entry.package?.version;
-      if (id) observedWarnings.add(id);
-      else if (packageName && packageVersion)
-        observedWarnings.add(`cargo:${kind}:${packageName}@${packageVersion}`);
-      else
-        throw new Error(
-          `cargo audit returned an unidentifiable ${kind} warning for ${lockfile}`,
-        );
-    }
+const rust = run("cargo", ["audit", "--file", lockfile, "--json"]);
+let rustReport;
+try {
+  rustReport = JSON.parse(rust.stdout);
+} catch {
+  process.stderr.write(rust.stderr);
+  throw new Error(`cargo audit did not return a JSON report for ${lockfile}`);
+}
+if (rustReport.vulnerabilities?.found) {
+  throw new Error(
+    `cargo audit found ${rustReport.vulnerabilities.count} vulnerable package(s) in ${lockfile}`,
+  );
+}
+for (const [kind, entries] of Object.entries(rustReport.warnings ?? {})) {
+  for (const entry of entries) {
+    const id = entry.advisory?.id;
+    const packageName = entry.package?.name;
+    const packageVersion = entry.package?.version;
+    if (id) observedWarnings.add(id);
+    else if (packageName && packageVersion)
+      observedWarnings.add(`cargo:${kind}:${packageName}@${packageVersion}`);
+    else
+      throw new Error(
+        `cargo audit returned an unidentifiable ${kind} warning for ${lockfile}`,
+      );
   }
 }
 const allowedWarnings = new Set(Object.keys(policy.allowedRustWarnings ?? {}));

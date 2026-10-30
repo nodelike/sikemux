@@ -13,9 +13,21 @@ unify-target-host = "none"
 
 # The phone library builds only for phone targets, in its own target folders,
 # and what it links stays out of workspace-hack so desktop dependencies never
-# change the phone's native code.
+# change the phone's native code. The GPUI app and its crates stay out too, so
+# GPUI's dependencies never reach the core's builds.
 [traversal-excludes]
-workspace-members = ["sikemux-client", "sikemux-linked", "sikemux-mobile", "sikemux-wire"]
+workspace-members = [
+    "film-frame",
+    "gpui-native-view",
+    "gpui-terminal-grid",
+    "gpui-transcript",
+    "sikemux-client",
+    "sikemux-gpui",
+    "sikemux-linked",
+    "sikemux-mobile",
+    "sikemux-wire",
+    "textmate-highlight",
+]
 
 # Tests turn on test-only features of these; unifying them would ship those
 # features in the app.

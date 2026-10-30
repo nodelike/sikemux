@@ -46,6 +46,8 @@ env:
   DEPS_OPT_LEVEL: 1
   # Tests and checks never read debug info, and leaving it out makes compiling and linking much faster.
   CARGO_PROFILE_DEV_DEBUG: 0
+  # The GPUI app and its crates, which a bare cargo run in src-tauri leaves out.
+  GPUI_PACKAGES: -p sikemux-gpui -p film-frame -p gpui-native-view -p gpui-terminal-grid -p gpui-transcript -p textmate-highlight
 
 jobs:
   # Compares against main's last green run rather than the previous push, so a job that
@@ -224,7 +226,7 @@ jobs:
         working-directory: src-tauri
 
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
         working-directory: src-tauri
 
       # nextest runs every test binary at once; cargo test runs them one after another.
@@ -238,14 +240,14 @@ jobs:
           echo "$bin" >>"$GITHUB_PATH"
 
       - name: Run Rust tests
-        run: cargo nextest run --workspace --all-targets --all-features
+        run: cargo nextest run --all-targets --all-features
         working-directory: src-tauri
 
       - name: Build without any plugins
         run: cargo clippy -p sikemux-host --no-default-features --all-targets -- -D warnings
         working-directory: src-tauri
 
-  # The GPUI app is its own workspace, so the job above never builds it.
+  # The job above leaves out the GPUI app, which this one builds alongside it.
   gpui:
     name: GPUI app formatting, lint, and tests
     needs: changes
@@ -266,22 +268,18 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: src-tauri/crates/sikemux-gpui
+          workspaces: src-tauri
           key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Check Rust formatting
-        run: cargo fmt --all -- --check
-        working-directory: src-tauri/crates/sikemux-gpui
-
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-        working-directory: src-tauri/crates/sikemux-gpui
+        run: cargo clippy $GPUI_PACKAGES --all-targets -- -D warnings
+        working-directory: src-tauri
 
       - name: Run Rust tests
-        run: cargo test --workspace --all-targets
-        working-directory: src-tauri/crates/sikemux-gpui
+        run: cargo test $GPUI_PACKAGES --all-targets
+        working-directory: src-tauri
 
   # Whether GPUI's Metal renderer draws on a runner: a window is opened in the runner's own
   # session and captured. It takes up to two hours, so it runs daily and by hand with
@@ -304,9 +302,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: |
-            src-tauri/crates/sikemux-gpui
-            src-tauri
+          workspaces: src-tauri
           key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
           save-if: ${{ github.event_name == 'workflow_dispatch' }}
 
@@ -319,7 +315,7 @@ jobs:
         run: |
           mkdir -p window-run
           system_profiler SPDisplaysDataType > window-run/displays.txt
-          ./target/debug/examples/window_probe 30 > window-run/probe.log 2>&1 &
+          ../../target/debug/examples/window_probe 30 > window-run/probe.log 2>&1 &
           probe=$!
           for _ in $(seq 1 40); do
             number=$(swift ci/window-number.swift "$probe" 2>/dev/null) && break
@@ -345,33 +341,33 @@ jobs:
       - name: Drive the desk checks
         working-directory: src-tauri/crates/sikemux-gpui
         run: >-
-          python3 -I ci/desk-checks.py --app target/debug/sikemux
+          python3 -I ci/desk-checks.py --app ../../target/debug/sikemux
           --core ../../target/debug/sikemux-core --agent ../../target/debug/sikemux-fake-acp-agent
-          --seed target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/desk"
+          --seed ../../target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/desk"
 
       - name: Check the ground's grain, picture and see-through
         if: ${{ !cancelled() }}
         working-directory: src-tauri/crates/sikemux-gpui
         run: >-
-          python3 -I ci/ground-check.py --app target/debug/sikemux
+          python3 -I ci/ground-check.py --app ../../target/debug/sikemux
           --core ../../target/debug/sikemux-core --agent ../../target/debug/sikemux-fake-acp-agent
-          --seed target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/ground"
+          --seed ../../target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/ground"
 
       - name: Check What's New's sky moves when it opens as the app starts
         if: ${{ !cancelled() }}
         working-directory: src-tauri/crates/sikemux-gpui
         run: >-
-          python3 -I ci/sky-check.py --app target/debug/sikemux
+          python3 -I ci/sky-check.py --app ../../target/debug/sikemux
           --core ../../target/debug/sikemux-core --agent ../../target/debug/sikemux-fake-acp-agent
-          --seed target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/sky"
+          --seed ../../target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/sky"
 
       - name: Check the core knows its window, and only it, after the window opens again
         if: ${{ !cancelled() }}
         working-directory: src-tauri/crates/sikemux-gpui
         run: >-
-          python3 -I ci/trust-check.py --app target/debug/sikemux
+          python3 -I ci/trust-check.py --app ../../target/debug/sikemux
           --core ../../target/debug/sikemux-core --agent ../../target/debug/sikemux-fake-acp-agent
-          --seed target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/trust"
+          --seed ../../target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/trust"
 
       - name: Upload the capture
         if: always()
@@ -419,9 +415,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: |
-            src-tauri/crates/sikemux-gpui
-            src-tauri
+          workspaces: src-tauri
           key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -447,9 +441,9 @@ jobs:
           mkdir -p ~/.config/xdg-desktop-portal
           printf '[preferred]\ndefault=gtk\n' > ~/.config/xdg-desktop-portal/portals.conf
           bus=(); command -v dbus-run-session >/dev/null && bus=(dbus-run-session --)
-          "${bus[@]}" python3 -I ci/linux-window.py --app target/debug/sikemux \
+          "${bus[@]}" python3 -I ci/linux-window.py --app ../../target/debug/sikemux \
             --core ../../target/debug/sikemux-core --agent ../../target/debug/sikemux-fake-acp-agent \
-            --seed target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/linux" --browser --input
+            --seed ../../target/debug/examples/fake_chat --out "$RUNNER_TEMP/w/linux" --browser --input
 
       - name: Upload the captures
         if: always()
@@ -489,19 +483,17 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: |
-            src-tauri
-            src-tauri/crates/sikemux-gpui
+          workspaces: src-tauri
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check the app compiles on Linux
-        run: cargo check --workspace --all-targets --locked
+        run: cargo check --all-targets --locked
         working-directory: src-tauri
 
       - name: Check the GPUI app on Linux
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-        working-directory: src-tauri/crates/sikemux-gpui
+        run: cargo clippy $GPUI_PACKAGES --all-targets --locked -- -D warnings
+        working-directory: src-tauri
 
       - name: Run the core's tests on Linux
         run: cargo test --locked -p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-client -p sikemux-keychain -p sikemux-host

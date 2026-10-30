@@ -63,7 +63,7 @@ args=(
 [[ $grid == 1 ]] && args+=(--grid)
 
 if [[ -n "$stills" ]]; then
-  "$GPUI/target/debug/examples/film" "${args[@]}" --stills "$stills" --out "$folder"
+  "$bin/examples/film" "${args[@]}" --stills "$stills" --out "$folder"
   exit
 fi
 
@@ -77,7 +77,7 @@ fi
 mkdir -p "$(dirname "$out")"
 silent="$folder/silent.mp4"
 events="$folder/events.json"
-"$GPUI/target/debug/examples/film" "${args[@]}" --out "$silent" --events "$events"
+"$bin/examples/film" "${args[@]}" --out "$silent" --events "$events"
 
 if [[ -d "$ROOT/marketing/x/sfx" ]]; then
   say "laying the sound under it"

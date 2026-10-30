@@ -52,13 +52,29 @@ function linkedPackages(packages, root, devOf = () => new Set()) {
   return [...seen];
 }
 
-/** The workspace's own settings that shape every build: [workspace…] and [profile…], not the desktop app's package. */
-function workspaceSettings(manifest) {
+/**
+ * The workspace's own settings that shape every build: [workspace…], [profile…], [patch…] and [replace…], not
+ * the desktop app's package. Settings for one crate, a profile override or a patch, are kept only when `links`
+ * names it, so a setting for a crate the phone never builds does not change its runtime.
+ */
+function workspaceSettings(manifest, links = () => true) {
+  const forCrate = (header) => /^\[profile\.[^.\]]+\.package\.(?:"([^"]+)"|([^\]]+))\]$/.exec(header);
+  const entryName = (line) => /^"?([A-Za-z0-9_-]+)/.exec(line)?.[1];
   return manifest
     .split(/\n(?=\[)/)
-    .filter((section) => /^\[(workspace|profile|patch|replace)\b/.test(section))
-    .map((section) => (section.startsWith('[workspace.package]') ? section.replace(/^version = .*\n?/m, '') : section))
-    .filter((section) => section.split('\n').some((line, index) => index > 0 && line.trim() !== '' && !line.trim().startsWith('#')))
+    .map((section) => section.split('\n').filter((line) => line.trim() !== '' && !line.trim().startsWith('#')))
+    .filter(([header]) => /^\[(workspace|profile|patch|replace)\b/.test(header))
+    .filter(([header]) => {
+      const crate = forCrate(header);
+      return !crate || crate[1] === '*' || links(crate[1] ?? crate[2]);
+    })
+    .map(([header, ...lines]) => {
+      if (header === '[workspace.package]') return [header, ...lines.filter((line) => !line.startsWith('version ='))];
+      if (/^\[(patch|replace)\b/.test(header)) return [header, ...lines.filter((line) => links(entryName(line)))];
+      return [header, ...lines];
+    })
+    .filter((lines) => lines.length > 1)
+    .map((lines) => `${lines.join('\n')}\n`)
     .join('\n');
 }
 
@@ -91,6 +107,7 @@ function rustClientSources(workspace, root = 'sikemux-mobile') {
       if (!crate) throw new Error(`${pkg.name} is in the workspace but not under ${join(workspace, 'crates')}`);
       return crate.dir;
     });
+  const names = new Set(linked.map((pkg) => pkg.name));
   const locked = linked
     .filter((pkg) => pkg.source)
     .map((pkg) => `${pkg.name} ${pkg.version} ${pkg.source} ${pkg.checksum ?? ''}`)
@@ -98,7 +115,7 @@ function rustClientSources(workspace, root = 'sikemux-mobile') {
   return {
     crates: local.sort(),
     locked: locked.join('\n'),
-    settings: workspaceSettings(readFileSync(join(workspace, 'Cargo.toml'), 'utf8')),
+    settings: workspaceSettings(readFileSync(join(workspace, 'Cargo.toml'), 'utf8'), (name) => names.has(name)),
   };
 }
 

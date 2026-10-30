@@ -60,7 +60,7 @@ A nightly is a prerelease of the next stable release. After a stable `0.x.y`, `m
 A nightly that has been in use becomes stable without anything newer from `main`. On `release/<major.minor>`:
 
 1. A merge commit whose content is exactly that nightly's tagged commit.
-2. A commit that sets the stable version in `package.json`, `src-tauri/tauri.conf.json`, `[workspace.package]` in `src-tauri/Cargo.toml` and the `sikemux` and `sikemux-host` entries in `src-tauri/Cargo.lock`, and writes `RELEASE_NOTES.md` for everything since the last stable release.
+2. A commit that sets the stable version in `package.json`, `[workspace.package]` in `src-tauri/Cargo.toml`, the GPUI app's `src-tauri/crates/sikemux-gpui/Cargo.toml` and the workspace's own crates in `src-tauri/Cargo.lock`, and writes `RELEASE_NOTES.md` for everything since the last stable release.
 3. The `v<version>` tag on that commit.
 
 None of this lands on `main`. Commits made to `main` meanwhile stay out of the release.
@@ -86,13 +86,13 @@ export GIT_INDEX_FILE=$(mktemp -u); git read-tree "${merge}"
 from=$(git show "${merge}:package.json" | sed -n 's/.*"version": "\(.*\)".*/\1/p')
 put() { git update-index --cacheinfo "100644,$(git hash-object -w --stdin),$1"; }
 git show "${merge}:package.json" | sed "s/\"version\": \"${from}\"/\"version\": \"${version}\"/" | put package.json
-git show "${merge}:src-tauri/tauri.conf.json" | sed "s/\"version\": \"${from}\"/\"version\": \"${version}\"/" | put src-tauri/tauri.conf.json
-git show "${merge}:src-tauri/Cargo.toml" | sed "s/^version = \"${from}\"$/version = \"${version}\"/" | put src-tauri/Cargo.toml
-git show "${merge}:src-tauri/Cargo.lock" | awk -v from="${from}" -v to="${version}" '(prev=="name = \"sikemux\"" || prev=="name = \"sikemux-host\"") && $0=="version = \""from"\"" {print "version = \""to"\""; prev=$0; next} {print; prev=$0}' | put src-tauri/Cargo.lock
+for file in src-tauri/Cargo.toml src-tauri/crates/sikemux-gpui/Cargo.toml src-tauri/Cargo.lock; do
+  git show "${merge}:${file}" | sed "s/^version = \"${from}\"$/version = \"${version}\"/" | put "${file}"
+done
 put RELEASE_NOTES.md < /path/to/notes.md
 bump=$(git commit-tree "$(git write-tree)" -p "${merge}" -m "chore(release): prepare v${version}")
 rm -f "${GIT_INDEX_FILE}"; unset GIT_INDEX_FILE
-git diff --stat "${merge}" "${bump}"   # only the four version fields and the notes
+git diff --stat "${merge}" "${bump}"   # only the version fields and the notes
 git push origin "${bump}:refs/heads/${release}"
 git tag "v${version}" "${bump}" && git push origin "v${version}"
 ```

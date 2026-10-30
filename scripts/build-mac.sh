@@ -50,8 +50,8 @@ if [[ "${PREBUILT_HELPERS:-0}" != "1" && "$STEP" != "package" ]]; then
   node "$ROOT/scripts/build-sim-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 fi
 GPUI="$ROOT/src-tauri/crates/sikemux-gpui"
-GPUI_TARGET_ROOT="$GPUI/target"
-[[ -n "$TARGET" ]] && GPUI_TARGET_ROOT="$GPUI_TARGET_ROOT/$TARGET"
+TARGET_ROOT="$ROOT/src-tauri/target"
+[[ -n "$TARGET" ]] && TARGET_ROOT="$TARGET_ROOT/$TARGET"
 if [[ "$STEP" != "package" ]]; then
   echo "→ cargo build --release --locked --bin sikemux ${TARGET_ARGS[*]-}"
   (cd "$GPUI" && cargo build --release --locked --bin sikemux ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"})
@@ -60,8 +60,6 @@ fi
 node "$ROOT/scripts/build-notch-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 node "$ROOT/scripts/build-cli-sidecar.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 
-TARGET_ROOT="$ROOT/src-tauri/target"
-[[ -n "$TARGET" ]] && TARGET_ROOT="$TARGET_ROOT/$TARGET"
 BUNDLE="$TARGET_ROOT/release/bundle"
 APP_PATH="$BUNDLE/macos/${APP_NAME}.app"
 PLIST="$APP_PATH/Contents/Info.plist"
@@ -74,7 +72,7 @@ fail() {
 echo "→ Assembling $APP_NAME.app"
 rm -rf "$APP_PATH" "$BUNDLE/dmg"
 mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$APP_PATH/Contents/Helpers" "$BUNDLE/dmg"
-/usr/bin/ditto "$GPUI_TARGET_ROOT/release/sikemux" "$APP_PATH/Contents/MacOS/sikemux"
+/usr/bin/ditto "$TARGET_ROOT/release/sikemux" "$APP_PATH/Contents/MacOS/sikemux"
 /usr/bin/ditto "$ROOT/src-tauri/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"
 /usr/bin/ditto "$ROOT/src-tauri/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"
 ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Contents/MacOS/sikemux-host"

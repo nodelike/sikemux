@@ -70,7 +70,7 @@ node scripts/build-cli-sidecar.mjs
 CORE="$ROOT/src-tauri/binaries/sikemux-host-$TRIPLE"
 echo "→ Building the app"
 (cd src-tauri/crates/sikemux-gpui && cargo build --release --locked --bin sikemux)
-APP="$ROOT/src-tauri/crates/sikemux-gpui/target/release/sikemux"
+APP="$ROOT/src-tauri/target/release/sikemux"
 PI_TOOLS="$ROOT/src-tauri/resources/sikemux_pi_tools.ts"
 POSTINST="$ROOT/src-tauri/linux/postinst.sh"
 

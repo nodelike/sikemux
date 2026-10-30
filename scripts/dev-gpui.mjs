@@ -24,15 +24,7 @@ import {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const debug = join(root, "src-tauri", "target", "debug");
-const appBinary = join(
-  root,
-  "src-tauri",
-  "crates",
-  "sikemux-gpui",
-  "target",
-  "debug",
-  "sikemux",
-);
+const appBinary = join(debug, "sikemux");
 const bundle = join(debug, "Sikemux Dev.app");
 const contents = join(bundle, "Contents");
 const macos = join(contents, "MacOS");

@@ -142,10 +142,7 @@ package_version() {
   '
 }
 CARGO_VER="$(package_version sikemux-host <<<"$CARGO_METADATA")" || fail "could not read the core's version"
-if ! GPUI_METADATA="$(cargo metadata --manifest-path src-tauri/crates/sikemux-gpui/Cargo.toml --locked --no-deps --format-version 1)"; then
-  fail "the GPUI app's Cargo.lock is missing or out of date"
-fi
-GPUI_VER="$(package_version sikemux-gpui <<<"$GPUI_METADATA")" || fail "could not read the GPUI app's version"
+GPUI_VER="$(package_version sikemux-gpui <<<"$CARGO_METADATA")" || fail "could not read the GPUI app's version"
 [[ "$PKG_VER" == "$CARGO_VER" && "$PKG_VER" == "$GPUI_VER" ]] || \
   fail "current versions disagree (package=$PKG_VER cargo=$CARGO_VER gpui=$GPUI_VER)"
 CURRENT_VERSION="$PKG_VER" NEXT_VERSION="$VERSION" node - <<'NODE' || fail "version must not be less than $PKG_VER"
@@ -212,8 +209,7 @@ else
   echo "✓ Preflight passed; bumping version to $VERSION"
 fi
 BACKUP="$(mktemp -d)"
-FILES=(package.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-  src-tauri/crates/sikemux-gpui/Cargo.toml src-tauri/crates/sikemux-gpui/Cargo.lock latest.json)
+FILES=(package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/crates/sikemux-gpui/Cargo.toml latest.json)
 for file in "${FILES[@]}"; do
   if [[ -e "$file" ]]; then mkdir -p "$BACKUP/$(dirname "$file")"; cp "$file" "$BACKUP/$file"; fi
 done
@@ -267,8 +263,6 @@ PY
 if [[ "$VERSION" != "$PKG_VER" ]]; then
   cargo metadata --manifest-path src-tauri/Cargo.toml --offline --format-version 1 >/dev/null \
     || fail "could not refresh Cargo.lock for $VERSION"
-  cargo metadata --manifest-path src-tauri/crates/sikemux-gpui/Cargo.toml --offline --format-version 1 >/dev/null \
-    || fail "could not refresh the GPUI app's Cargo.lock for $VERSION"
 fi
 snapshot_expected
 

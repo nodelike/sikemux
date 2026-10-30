@@ -110,7 +110,8 @@ such as a file open or an agent's browser, go to the one that registered last.
 
 ## The desktop app
 
-`sikemux-gpui` is its own Cargo workspace, beside the one in `src-tauri`. `src/main.rs` opens
+`sikemux-gpui` shares the one Cargo workspace and lockfile in `src-tauri`, which builds it only
+when asked with `-p`. `src/main.rs` opens
 one window; in a Wayland session it takes XWayland's display, since browser pages are X11
 windows inside it.
 
@@ -149,7 +150,7 @@ Its own crates are in `sikemux-gpui/crates/`:
 ### GPUI, Kit and themes
 
 GPUI is our fork, `sikemux/gpui` (its `sikemux` branch), patched in under the `gpui-pre` names
-[GPUI Kit](https://crates.io/crates/gpui-kit) pins; the rev is in `sikemux-gpui/Cargo.toml`'s
+[GPUI Kit](https://crates.io/crates/gpui-kit) pins; the rev is in the workspace's
 `[patch.crates-io]` and its lockfile. Screens are built from `ui/`, which wraps Kit's
 components; a screen that needs something new adds it to `ui/`. The core resolves the person's
 theme into one set of tokens, and `theme.rs` turns them into GPUI colours and Kit's theme.

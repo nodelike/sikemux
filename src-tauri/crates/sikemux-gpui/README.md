@@ -8,13 +8,13 @@ the core sends.
 ```sh
 node icons.mjs     # after an icon in shared/ui/Icons.tsx changes
 python3 fonts.py   # after the mono font in public/fonts changes (needs fontTools, brotli)
-cargo build --manifest-path ../../Cargo.toml -p sikemux-host --target-dir target
-cargo run
+cargo build -p sikemux-host
+cargo run -p sikemux-gpui
 ```
 
 The app starts its core, or moves the one running onto its own build, as the
 Tauri app does. A dev core takes requests only from the program named
-`sikemux` beside it, so the core is built into this crate's target folder.
+`sikemux` beside it, and both build into the workspace's one target folder.
 
 GPUI comes from the `sikemux` branch of sikemux/gpui, our fork of sonorahq/gpui,
 pinned by commit in `[patch.crates-io]`. That branch is upstream plus our
@@ -25,8 +25,6 @@ run `node tooling/gpui-pre-names.mjs <version>` again.
 
 It talks to the core at `SIKEMUX_CORE_SOCKET`, else `~/.config/sikemux/core.dev.sock`
 in a dev build and `core.sock` in a release one.
-It is a workspace of its own, so GPUI stays out of the app's lockfile and
-workspace-hack.
 
 ## Rules
 
