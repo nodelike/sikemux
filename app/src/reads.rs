@@ -3,7 +3,7 @@
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sikemux_core::server::{ProjectEntry, RunView, SshHost, TaskList, TrustQuestion};
+use sikemux_core::server::{HostRow, ProjectEntry, RunView, SshHost, TaskList, TrustQuestion};
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_wire::catalog::CatalogAgent;
 use sikemux_wire::theme::ThemeSummary;
@@ -69,7 +69,8 @@ impl Plugins {
 pub struct Reads {
     pub catalog: Catalog,
     pub plugins: Plugins,
-    pub hosts: Option<Value>,
+    /// The account's other hosts, then the SSH hosts a terminal is open to.
+    pub hosts: Vec<HostRow>,
     pub update: Option<Value>,
     pub usage: Option<Value>,
     pub shares: Option<Value>,
@@ -122,7 +123,6 @@ macro_rules! slots {
 }
 
 slots! {
-    "hosts" => hosts,
     "update" => update,
     "usage" => usage,
     "shares" => shares,
@@ -153,6 +153,11 @@ impl Reads {
     /// Keeps the themes the core listed, and says whether they differ from those kept.
     pub fn keep_themes(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.themes, value, "themes")
+    }
+
+    /// Keeps the hosts the core listed, and says whether they differ from those kept.
+    pub fn keep_hosts(&mut self, value: Value) -> bool {
+        keep_decoded(&mut self.hosts, value, "hosts")
     }
 
     /// Keeps what the pickers were answered: the folders under the project roots, or this

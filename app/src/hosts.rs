@@ -7,10 +7,11 @@ use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::{App, Context, SharedString};
 use serde_json::{json, Value};
-use sikemux_core::server::{call, ApprovalSetting, NoParams};
+use sikemux_core::server::{call, ApprovalSetting, HostRow, NoParams};
 
 use crate::core;
 use crate::icons::Icon;
+use crate::install_pane::Words;
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
 
@@ -61,14 +62,8 @@ pub struct Hosts {
 
 impl Hosts {
     /// Forgets what it knew of the hosts no longer linked to the account, as `listed` says.
-    pub fn keep_linked(&mut self, listed: &Value) {
-        let linked = |id: &String| {
-            listed
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|host| host["id"] == id.as_str())
-        };
+    pub fn keep_linked(&mut self, listed: &[HostRow]) {
+        let linked = |id: &String| listed.iter().any(|host| host.id.as_ref() == Some(id));
         self.views.retain(|id, _| linked(id));
         self.reached.retain(linked);
         self.homes.retain(|id, _| linked(id));
@@ -86,25 +81,17 @@ impl Workbench {
     /// This host, then the account's hosts in the order they were linked, then the SSH hosts
     /// no account host was installed on, as the core lists them.
     pub fn host_choices(&self) -> Vec<HostOption> {
-        let listed = self
-            .reads
-            .hosts
-            .as_ref()
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|host| {
-                let choice = match (host["id"].as_str(), host["ssh"].as_str()) {
-                    (Some(key), _) => HostChoice::Account(key.to_owned()),
-                    (None, Some(alias)) => HostChoice::Ssh(alias.to_owned()),
-                    (None, None) => return None,
-                };
-                let label = host["name"].as_str().unwrap_or_default().to_owned();
-                Some(HostOption {
-                    choice,
-                    label: label.into(),
-                })
-            });
+        let listed = self.reads.hosts.iter().filter_map(|host| {
+            let choice = match (&host.id, &host.ssh) {
+                (Some(key), _) => HostChoice::Account(key.clone()),
+                (None, Some(alias)) => HostChoice::Ssh(alias.clone()),
+                (None, None) => return None,
+            };
+            Some(HostOption {
+                choice,
+                label: host.name.clone().into(),
+            })
+        });
         std::iter::once(HostOption {
             choice: HostChoice::This,
             label: "This host".into(),
@@ -275,7 +262,7 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         let (asks, alias) = (self.asks.clone(), alias.to_owned());
-        let params = json!({ "alias": alias, "work": set_up.work() });
+        let params = json!({ "alias": alias, "work": set_up });
         cx.spawn(async move |bench, cx| {
             if let Err(error) = core::request(&asks, "installHost", params).await {
                 let _ = bench.update(cx, |bench, cx| {

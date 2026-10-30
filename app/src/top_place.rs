@@ -12,6 +12,7 @@ use gpui_kit::{
 
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
+use crate::install_pane::Words;
 use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, TEXT_XS};
 use crate::ui;
 use crate::workbench::{Strip, Workbench};
@@ -95,12 +96,10 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         HostChoice::Account(key) => bench
             .reads
             .hosts
-            .as_ref()
-            .and_then(|hosts| hosts.as_array())
-            .and_then(|hosts| hosts.iter().find(|host| host["id"] == key.as_str()))
-            .and_then(|host| host["ssh"].as_str())
-            .filter(|alias| bench.set_up_of(alias).is_some())
-            .map(str::to_owned),
+            .iter()
+            .find(|host| host.id.as_ref() == Some(key))
+            .and_then(|host| host.ssh.clone())
+            .filter(|alias| bench.set_up_of(alias).is_some()),
         HostChoice::This => None,
     };
     let project = set_up_alias.and_then(|alias| set_up_offer(bench, &alias, cx));

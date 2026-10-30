@@ -31,9 +31,9 @@ struct Status {
 }
 
 /// What the SSH host's Sikemux is, beside this host's account.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Found {
+pub enum Found {
     /// No Sikemux there, or none that answers.
     Nothing,
     Same,

@@ -762,11 +762,14 @@ impl Workbench {
                 self.hosts.homes.insert(host, home);
             }
             Update::Read("hosts", value) => {
-                self.hosts.keep_linked(&value);
+                let changed = self.reads.keep_hosts(value);
                 if !self.hosts.approvals.contains_key(&None) {
                     self.read_approval(None, cx);
                 }
-                self.keep_read("hosts", value);
+                if !changed {
+                    return;
+                }
+                self.hosts.keep_linked(&self.reads.hosts);
             }
             Update::View(view) => {
                 crate::ui::moving_face::set_on(view.face_style.motion, cx);
@@ -2149,7 +2152,7 @@ impl Workbench {
     fn holds(&self, update: &Update) -> bool {
         match update {
             Update::Read(
-                key @ ("hosts" | "usage" | "shares" | "stash" | "update" | "ports" | "drafts"),
+                key @ ("usage" | "shares" | "stash" | "update" | "ports" | "drafts"),
                 value,
             ) => self.reads.holds(key, value),
             Update::HostView(host, view) => self.hosts.views.get(host) == Some(&**view),

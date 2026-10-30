@@ -4,42 +4,26 @@
 use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, IntoElement, ParentElement, SharedString, Styled,
 };
+use sikemux_core::server::HostRow;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_2H, TEXT_MD, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
-/// What setting an SSH host up takes, as the core's host row names it.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum SetUp {
-    Install,
-    SignIn,
-    Start,
-    Update,
+pub use sikemux_core::server::SetUpWork as SetUp;
+
+/// What the window says of setting an SSH host up.
+pub trait Words {
+    fn icon(self) -> Icon;
+    fn offer(self, alias: &str) -> String;
+    fn menu_label(self) -> &'static str;
+    fn running(self, alias: &str) -> String;
+    fn says(self, alias: &str) -> String;
 }
 
-impl SetUp {
-    pub fn from_work(work: &str) -> Option<Self> {
-        match work {
-            "install" => Some(Self::Install),
-            "signIn" => Some(Self::SignIn),
-            "start" => Some(Self::Start),
-            "update" => Some(Self::Update),
-            _ => None,
-        }
-    }
-
-    pub fn work(self) -> &'static str {
-        match self {
-            Self::Install => "install",
-            Self::SignIn => "signIn",
-            Self::Start => "start",
-            Self::Update => "update",
-        }
-    }
-
-    pub fn icon(self) -> Icon {
+impl Words for SetUp {
+    fn icon(self) -> Icon {
         match self {
             Self::SignIn => Icon::LogIn,
             Self::Start => Icon::Power,
@@ -48,7 +32,7 @@ impl SetUp {
     }
 
     /// What the button that does it says.
-    pub fn offer(self, alias: &str) -> String {
+    fn offer(self, alias: &str) -> String {
         match self {
             Self::Install => format!("Install Sikemux on {alias}"),
             Self::SignIn => format!("Sign in {alias}"),
@@ -58,7 +42,7 @@ impl SetUp {
     }
 
     /// What a host's menu calls it.
-    pub fn menu_label(self) -> &'static str {
+    fn menu_label(self) -> &'static str {
         match self {
             Self::Install => "Install Sikemux",
             Self::SignIn => "Sign in",
@@ -68,7 +52,7 @@ impl SetUp {
     }
 
     /// What it says while it runs.
-    pub fn running(self, alias: &str) -> String {
+    fn running(self, alias: &str) -> String {
         match self {
             Self::Install => format!("Installing {alias}…"),
             Self::SignIn => format!("Signing in {alias}…"),
@@ -97,27 +81,22 @@ impl SetUp {
 
 impl Workbench {
     /// The SSH host `alias`'s row, as the core lists it.
-    fn ssh_row(&self, alias: &str) -> Option<&serde_json::Value> {
+    fn ssh_row(&self, alias: &str) -> Option<&HostRow> {
         self.reads
             .hosts
-            .as_ref()?
-            .as_array()?
             .iter()
-            .find(|host| host["ssh"] == alias)
+            .find(|host| host.ssh.as_deref() == Some(alias))
     }
 
     /// What setting `alias` up takes, if anything does.
     pub fn set_up_of(&self, alias: &str) -> Option<SetUp> {
-        SetUp::from_work(self.ssh_row(alias)?["setUp"].as_str()?)
+        self.ssh_row(alias)?.set_up
     }
 
     /// The set-up running on `alias` now, if one is.
     pub fn setting_up(&self, alias: &str) -> Option<SetUp> {
-        let setup = &self.ssh_row(alias)?["setup"];
-        setup["problem"]
-            .is_null()
-            .then(|| SetUp::from_work(setup["work"].as_str()?))
-            .flatten()
+        let setup = self.ssh_row(alias)?.setup.as_ref()?;
+        setup.problem.is_none().then_some(setup.work)
     }
 
     /// Opens the Install Sikemux pane in the SSH host's strip, or brings it forward.

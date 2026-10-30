@@ -45,10 +45,13 @@ use super::wake::{sooner, Wake};
 use super::{Core, CoreError, CoreResult};
 use crate::backoff::Backoff;
 
+pub use install::{SetupRow, Work as SetUpWork};
 pub(crate) use join::link_host;
 pub(crate) use link::{Failed, LINK_ALPN};
 pub(crate) use listed::{installed_from, rows};
+pub use listed::{HostRow, Reach as HostReach};
 pub(crate) use outbox::Sending;
+pub use probe::Found as HostFound;
 
 const DIAL_WAIT: Duration = Duration::from_secs(15);
 const ASK_WAIT: Duration = Duration::from_secs(30);

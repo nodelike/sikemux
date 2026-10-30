@@ -11,9 +11,9 @@ use sikemux_pty::shell_protocol::SshLink;
 use super::super::changed::Topic;
 use super::super::{Core, CoreResult};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Reach {
+pub enum Reach {
     Connected,
     Connecting,
     /// A linked host this one has not reached, which it keeps trying, or an
@@ -23,25 +23,25 @@ pub(crate) enum Reach {
     Failed,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct HostRow {
+pub struct HostRow {
     /// The host's core key; none for an SSH host without Sikemux.
-    id: Option<String>,
-    name: String,
-    platform: Option<String>,
-    reach: Reach,
+    pub id: Option<String>,
+    pub name: String,
+    pub platform: Option<String>,
+    pub reach: Reach,
     /// The SSH host it was installed on from here, or the row's own alias.
-    ssh: Option<String>,
+    pub ssh: Option<String>,
     /// What is being done to an SSH host from here: installing, updating or signing in.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    setup: Option<super::install::SetupRow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<super::install::SetupRow>,
     /// What its SSH host was found to run when last asked.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    found: Option<super::probe::Found>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub found: Option<super::probe::Found>,
     /// What setting its SSH host up takes: installing where nothing has said Sikemux is there.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    set_up: Option<super::install::Work>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_up: Option<super::install::Work>,
 }
 
 /// Linked hosts in the order they were linked, then the SSH hosts a terminal

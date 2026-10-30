@@ -8,7 +8,8 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, WeakEntity, Window,
 };
-use serde_json::{json, Value};
+use serde_json::json;
+use sikemux_core::server::{HostFound, HostReach};
 use sikemux_wire::protocol::{
     AccountInfo, AgentGroup, AgentStatus, PaneKind, Preferences, ProjectInfo, TabRailPage,
     TabRailScope,
@@ -17,6 +18,7 @@ use sikemux_wire::protocol::{
 use crate::codehost::{Area, OpenArea};
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
+use crate::install_pane::{SetUp, Words};
 use crate::keymap;
 use crate::tabs;
 use crate::theme::{
@@ -272,36 +274,31 @@ fn approval_item(
 /// The account's other hosts, then the SSH hosts a terminal is open to.
 fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
     let t = Tokens::get(cx).clone();
-    rows(bench.reads.hosts.as_ref())
+    (bench.reads.hosts.iter())
         .map(|host| {
-            let name = host["name"].as_str().unwrap_or_default().to_owned();
-            let linked = !host["id"].is_null();
-            let reach = host["reach"].as_str().unwrap_or_default();
+            let name = host.name.clone();
+            let linked = host.id.is_some();
+            let reach = host.reach;
             let tone = match reach {
-                "connected" => Tone::Ok,
-                "connecting" => Tone::Pending,
-                "failed" => Tone::Failed,
-                _ => Tone::Idle,
+                HostReach::Connected => Tone::Ok,
+                HostReach::Connecting => Tone::Pending,
+                HostReach::Failed => Tone::Failed,
+                HostReach::Away => Tone::Idle,
             };
-            let agents = host["id"]
-                .as_str()
-                .and_then(|id| bench.hosts.views.get(id))
-                .map_or(0, |view| view.workspace.agents.len());
-            let load = host["id"]
-                .as_str()
-                .and_then(|id| bench.hosts.views.get(id))
+            let view = host.id.as_ref().and_then(|id| bench.hosts.views.get(id));
+            let agents = view.map_or(0, |view| view.workspace.agents.len());
+            let connected = reach == HostReach::Connected;
+            let load = view
                 .and_then(|view| view.load.as_ref())
-                .filter(|_| reach == "connected")
+                .filter(|_| connected)
                 .map(crate::hosts::load_label);
-            let updates = host["id"]
-                .as_str()
-                .and_then(|id| bench.hosts.views.get(id))
+            let updates = view
                 .and_then(crate::hosts::host_updates)
-                .filter(|_| reach == "connected")
+                .filter(|_| connected)
                 .cloned();
             let detail = match reach {
-                "away" if linked => Some("out of reach".to_owned()),
-                "connecting" if linked => Some("connecting".to_owned()),
+                HostReach::Away if linked => Some("out of reach".to_owned()),
+                HostReach::Connecting if linked => Some("connecting".to_owned()),
                 _ if linked && bench.hosts.unavailable.is_some() => {
                     Some("needs the signed app".to_owned())
                 }
@@ -311,26 +308,26 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 }),
                 _ => None,
             };
-            let setup = &host["setup"];
-            let found = match host["found"].as_str() {
-                Some("signedOut") => Some("not signed in".to_owned()),
-                Some("other") => Some("on another account".to_owned()),
-                Some("stopped") => Some("stopped".to_owned()),
-                Some("outdated") => Some("older release".to_owned()),
+            let found = match host.found {
+                Some(HostFound::SignedOut) => Some("not signed in".to_owned()),
+                Some(HostFound::Other) => Some("on another account".to_owned()),
+                Some(HostFound::Stopped) => Some("stopped".to_owned()),
+                Some(HostFound::Outdated) => Some("older release".to_owned()),
                 _ => None,
             };
-            let detail = match (setup["work"].as_str(), setup["problem"].as_str()) {
-                (_, Some(problem)) => Some(format!("not set up: {problem}")),
-                (Some("install"), None) => Some("installing".to_owned()),
-                (Some("update"), None) => Some("updating".to_owned()),
-                (Some("start"), None) => Some("starting".to_owned()),
-                (Some(_), None) => Some("signing in".to_owned()),
-                (None, _) => found.or(detail),
+            let setup = host.setup.as_ref();
+            let detail = match setup.map(|setup| (setup.work, setup.problem.as_deref())) {
+                Some((_, Some(problem))) => Some(format!("not set up: {problem}")),
+                Some((SetUp::Install, None)) => Some("installing".to_owned()),
+                Some((SetUp::Update, None)) => Some("updating".to_owned()),
+                Some((SetUp::Start, None)) => Some("starting".to_owned()),
+                Some((SetUp::SignIn, None)) => Some("signing in".to_owned()),
+                None => found.or(detail),
             };
-            let setting_up = setup.is_object() && setup["problem"].is_null();
-            let alias = host["ssh"].as_str().filter(|_| !linked).map(str::to_owned);
+            let setting_up = setup.is_some_and(|setup| setup.problem.is_none());
+            let alias = host.ssh.clone().filter(|_| !linked);
             let front = alias.is_some() && bench.strip() == alias.clone().map(Strip::Host);
-            let key = host["id"].as_str().map(str::to_owned);
+            let key = host.id.clone();
             let chosen = !bench.settings.read(cx).is_open()
                 && (front
                     || key.as_ref().is_some_and(|key| {
@@ -369,7 +366,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 )
                 .status(Some(ui::dot(tone, cx)));
             let bench_entity = cx.weak_entity();
-            let set_up_alias = host["ssh"].as_str().map(str::to_owned);
+            let set_up_alias = host.ssh.clone();
             let set_up = set_up_alias
                 .as_deref()
                 .and_then(|alias| bench.set_up_of(alias))
@@ -377,7 +374,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
             let set_up_item = move |bench: WeakEntity<Workbench>, here: bool| {
                 set_up.clone().map(|(set_up, alias)| {
                     let label = match set_up {
-                        crate::install_pane::SetUp::Install if here => "Install Sikemux here",
+                        SetUp::Install if here => "Install Sikemux here",
                         _ => set_up.menu_label(),
                     };
                     PopupMenuItem::new(label)
@@ -390,7 +387,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 })
             };
             let menu_id = SharedString::from(format!("host-menu-{name}"));
-            let Some(key) = host["id"].as_str().map(str::to_owned) else {
+            let Some(key) = host.id.clone() else {
                 let Some(alias) = alias else {
                     return row.into_any_element();
                 };
@@ -595,10 +592,6 @@ fn terminals(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> 
             .into_any_element()
         })
         .collect()
-}
-
-fn rows(read: Option<&Value>) -> impl Iterator<Item = &Value> {
-    read.and_then(Value::as_array).into_iter().flatten()
 }
 
 fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {

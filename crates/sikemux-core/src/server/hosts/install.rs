@@ -27,9 +27,9 @@ const CODE_LINE: &str = "enter the code";
 const CODE_SETTLE: Duration = Duration::from_millis(200);
 const CODE_SETTLE_TRIES: usize = 10;
 
-#[derive(Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Work {
+pub enum Work {
     Install,
     /// Updates a host that runs an older release, then restarts its core; a host signed out
     /// signs in on the way.
@@ -49,11 +49,11 @@ pub(crate) struct Setup {
 }
 
 /// A set-up as the host's row shows it: running, or why it stopped.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SetupRow {
-    work: Work,
-    problem: Option<String>,
+pub struct SetupRow {
+    pub work: Work,
+    pub problem: Option<String>,
 }
 
 impl SetupRow {
