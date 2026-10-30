@@ -16,6 +16,7 @@ use gpui_kit::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_core::agent_accounts::{Book, Profile};
+use sikemux_core::server::AccountUsage;
 
 use crate::core;
 use crate::theme;
@@ -329,7 +330,7 @@ fn launcher_of(bench: &Workbench, profile: &Profile) -> String {
 }
 
 /// The account's plan usage as the core last read it, or why it has none.
-pub fn usage<'a>(bench: &'a Workbench, profile: &Profile) -> Option<&'a Value> {
+pub fn usage<'a>(bench: &'a Workbench, profile: &Profile) -> Option<&'a AccountUsage> {
     bench.usage_of(&launcher_of(bench, profile))
 }
 

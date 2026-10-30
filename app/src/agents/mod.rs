@@ -9,8 +9,9 @@ use gpui_kit::{
     ClickEvent, Context, Entity, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
 };
-use serde_json::Value;
+use sikemux_core::agent_accounts::usage::{Usage, UsageWindow};
 use sikemux_core::agent_accounts::Profile;
+use sikemux_core::server::AccountUsage;
 use sikemux_wire::protocol::{LauncherInfo, PaneKind, RecentInfo};
 
 use crate::agents::menu::AgentMenu;
@@ -1121,9 +1122,7 @@ fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<impl IntoEle
             id: Some(profile.id.clone()),
             profile: Some(profile.clone()),
             name: crate::accounts::name(bench, profile, status),
-            usage: crate::accounts::usage(bench, profile)
-                .cloned()
-                .unwrap_or_default(),
+            usage: crate::accounts::usage(bench, profile).cloned(),
             signed_out: status.is_some_and(|status| !status.signed_in),
         }
     };
@@ -1133,7 +1132,7 @@ fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<impl IntoEle
             id: None,
             profile: None,
             name: agent.clone(),
-            usage: bench.usage_of(&launcher.id).cloned().unwrap_or_default(),
+            usage: bench.usage_of(&launcher.id).cloned(),
             signed_out: launcher.status.as_deref() == Some("signedOut"),
         },
     };
@@ -1300,15 +1299,18 @@ struct Shown {
     id: Option<String>,
     profile: Option<Profile>,
     name: String,
-    usage: Value,
+    usage: Option<AccountUsage>,
     signed_out: bool,
 }
 
 impl Shown {
-    fn windows(&self) -> &[Value] {
-        self.usage["usage"]["windows"]
-            .as_array()
-            .map_or(&[][..], Vec::as_slice)
+    fn reading(&self) -> Option<&Usage> {
+        self.usage.as_ref()?.usage.as_ref()
+    }
+
+    fn windows(&self) -> &[UsageWindow] {
+        self.reading()
+            .map_or(&[][..], |usage| usage.windows.as_slice())
     }
 
     /// How tall its block draws, so the panel can open onto every account at its full height.
@@ -1330,9 +1332,9 @@ impl Shown {
         let full = self
             .windows()
             .iter()
-            .find(|window| window["usedPercent"].as_f64().unwrap_or(0.) >= 100.)?;
-        let label = full["label"].as_str().unwrap_or_default();
-        let back = reset_at(&full["resetsAt"]).map(day_and_time)?;
+            .find(|window| window.used_percent >= 100.)?;
+        let label = &full.label;
+        let back = reset_at(full).map(day_and_time)?;
         Some(format!("{label} full · back {back}"))
     }
 }
@@ -1340,7 +1342,10 @@ impl Shown {
 /// What an account's plan reports: a row for each window, or why there are none.
 fn limit_rows(shown: &Shown, compact: bool, cx: &App) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let usage = &shown.usage;
+    let problem = shown
+        .usage
+        .as_ref()
+        .and_then(|usage| usage.problem.as_ref());
     let windows = shown.windows();
     let quiet = |text: String| {
         ui::text(text, TEXT_3XS_H, FontWeight::NORMAL)
@@ -1350,13 +1355,13 @@ fn limit_rows(shown: &Shown, compact: bool, cx: &App) -> AnyElement {
             .italic()
             .text_color(t.text_tertiary)
     };
-    if usage["usage"].is_null() && usage["problem"].is_null() {
+    if shown.reading().is_none() && problem.is_none() {
         quiet("Refresh to read plan limits.".into()).into_any_element()
-    } else if !usage["problem"].is_null() {
+    } else if problem.is_some() {
         quiet("Could not read plan limits. Refresh to try again.".into()).into_any_element()
     } else if windows.is_empty() {
-        let reason = usage["usage"]["unavailableReason"]
-            .as_str()
+        let reason = (shown.reading())
+            .and_then(|usage| usage.unavailable_reason.as_deref())
             .unwrap_or("This account did not report plan limits.");
         quiet(reason.to_owned()).into_any_element()
     } else {
@@ -1471,12 +1476,12 @@ fn account_block(
 }
 
 /// One of a plan's rolling windows: how much of it is used, and when it starts again.
-fn limit_row(window: &Value, key: &str, cx: &App) -> impl IntoElement {
+fn limit_row(window: &UsageWindow, key: &str, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let label = window["label"].as_str().unwrap_or_default().to_owned();
-    let percent = window["usedPercent"].as_f64().unwrap_or(0.).clamp(0., 100.);
+    let label = window.label.clone();
+    let percent = window.used_percent.clamp(0., 100.);
     let signal = signal(percent, &t);
-    let reset = reset_at(&window["resetsAt"]);
+    let reset = reset_at(window);
     let note = match reset {
         Some(at) => format!(
             "Resets {}",
@@ -1661,19 +1666,9 @@ fn signal(percent: f64, t: &Tokens) -> Hsla {
 }
 
 /// When a window starts again: Unix seconds, as a number or digits, or an ISO time.
-fn reset_at(value: &Value) -> Option<chrono::DateTime<chrono::Utc>> {
-    let seconds = value.as_i64().or_else(|| {
-        value
-            .as_str()
-            .filter(|text| text.bytes().all(|byte| byte.is_ascii_digit()))
-            .and_then(|text| text.parse().ok())
-    });
-    match seconds {
-        Some(seconds) => chrono::DateTime::from_timestamp(seconds, 0),
-        None => chrono::DateTime::parse_from_rfc3339(value.as_str()?)
-            .ok()
-            .map(|at| at.to_utc()),
-    }
+fn reset_at(window: &UsageWindow) -> Option<chrono::DateTime<chrono::Utc>> {
+    let at = window.resets_at.as_ref()?.unix_ms()?;
+    chrono::DateTime::from_timestamp_millis(i64::try_from(at).ok()?)
 }
 
 fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {

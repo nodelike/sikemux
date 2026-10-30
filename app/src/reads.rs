@@ -4,7 +4,8 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sikemux_core::server::{
-    HostRow, ProjectEntry, RunView, ShareView, SshHost, TaskList, TrustQuestion, UpdateStatus,
+    AccountUsage, HostRow, ProjectEntry, RunView, ShareView, SshHost, TaskList, TrustQuestion,
+    UpdateStatus,
 };
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_wire::catalog::CatalogAgent;
@@ -75,7 +76,8 @@ pub struct Reads {
     pub hosts: Vec<HostRow>,
     /// How updating this app stands, once the core has said.
     pub update: Option<UpdateStatus>,
-    pub usage: Option<Value>,
+    /// How much of its plan each account has used, as the core last read it.
+    pub usage: Vec<AccountUsage>,
     /// The chats this host shares read-only.
     pub shares: Vec<ShareView>,
     pub stash: Option<Value>,
@@ -127,7 +129,6 @@ macro_rules! slots {
 }
 
 slots! {
-    "usage" => usage,
     "stash" => stash,
     "drafts" => drafts,
     "host-drafts" => host_drafts,
@@ -165,6 +166,11 @@ impl Reads {
     /// Keeps how updating stands, and says whether it differs from what was kept.
     pub fn keep_update(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.update, value, "update status")
+    }
+
+    /// Keeps the accounts' plan usage, and says whether it differs from what was kept.
+    pub fn keep_usage(&mut self, value: Value) -> bool {
+        keep_decoded(&mut self.usage, value, "plan usage")
     }
 
     /// Keeps the chats this host shares, and says whether they differ from those kept.

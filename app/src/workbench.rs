@@ -47,7 +47,9 @@ use crate::terminal::NewTerminal;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
-use sikemux_core::server::{RunView, TaskView, TrustQuestion, UpdateState, UpdateStatus};
+use sikemux_core::server::{
+    AccountUsage, RunView, TaskView, TrustQuestion, UpdateState, UpdateStatus,
+};
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
 /// Linux a page is a window of another connection, which X would otherwise leave it with.
@@ -1018,6 +1020,11 @@ impl Workbench {
             Update::Read(key @ ("drafts" | "host-drafts"), value) => {
                 self.drafts(&value, key == "host-drafts", cx);
                 self.keep_read(key, value);
+            }
+            Update::Read("usage", value) => {
+                if !self.reads.keep_usage(value) {
+                    return;
+                }
             }
             Update::Read("shares", value) => {
                 if !self.reads.keep_shares(value) {
@@ -2432,22 +2439,15 @@ impl Workbench {
     }
 
     /// The launcher's account's plan usage as the core last read it, or why it has none.
-    pub fn usage_of(&self, launcher: &str) -> Option<&Value> {
-        self.reads
-            .usage
-            .as_ref()?
-            .as_array()?
-            .iter()
-            .find(|account| account["launcher"] == launcher)
+    pub fn usage_of(&self, launcher: &str) -> Option<&AccountUsage> {
+        (self.reads.usage.iter()).find(|account| account.launcher == launcher)
     }
 
     /// The most of any window of its plan the launcher's account has used.
     pub fn usage_peak(&self, launcher: &str) -> Option<f64> {
-        let windows = self.usage_of(launcher)?["usage"]["windows"].as_array()?;
-        windows
-            .iter()
-            .filter_map(|window| window["usedPercent"].as_f64())
-            .map(|used| used.clamp(0., 100.))
+        let usage = self.usage_of(launcher)?.usage.as_ref()?;
+        (usage.windows.iter())
+            .map(|window| window.used_percent.clamp(0., 100.))
             .reduce(f64::max)
     }
 

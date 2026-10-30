@@ -18,35 +18,40 @@ use super::{cli, key};
 use crate::agent_catalog::AgentKind;
 use crate::launch::discovery::error_detail;
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum UsageResetAt {
     Unix(u64),
     Iso(String),
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageWindow {
-    label: String,
-    used_percent: f64,
-    resets_at: Option<UsageResetAt>,
-    window_minutes: Option<u64>,
+    pub label: String,
+    pub used_percent: f64,
+    pub resets_at: Option<UsageResetAt>,
+    pub window_minutes: Option<u64>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
-    provider: &'static str,
-    plan: Option<String>,
-    windows: Vec<UsageWindow>,
-    unavailable_reason: Option<String>,
+    pub provider: String,
+    pub plan: Option<String>,
+    pub windows: Vec<UsageWindow>,
+    pub unavailable_reason: Option<String>,
 }
 
 impl UsageResetAt {
-    fn unix_ms(&self) -> Option<u64> {
+    /// When the window starts again, in Unix milliseconds. A CLI may give the seconds as
+    /// digits in a string.
+    pub fn unix_ms(&self) -> Option<u64> {
         match self {
             Self::Unix(seconds) => seconds.checked_mul(1000),
+            Self::Iso(text) if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) => {
+                text.parse::<u64>().ok()?.checked_mul(1000)
+            }
             Self::Iso(text) => crate::accounts::live::parse_rfc3339(text),
         }
     }
@@ -142,7 +147,7 @@ pub async fn usage(
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Reading {
     pub read_at: u64,
-    pub usage: Value,
+    pub usage: Usage,
 }
 
 /// Each account's last good reading, kept in a file across restarts once the core names one,
@@ -171,9 +176,7 @@ pub(crate) fn keep_readings_in(file: PathBuf) {
 }
 
 fn note_reading(key: &str, usage: &Usage) {
-    let Ok(usage) = serde_json::to_value(usage) else {
-        return;
-    };
+    let usage = usage.clone();
     let read_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_millis() as u64);
@@ -611,7 +614,7 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
     }
 
     Some(Usage {
-        provider: "claude",
+        provider: "claude".to_owned(),
         plan,
         windows,
         unavailable_reason,
@@ -712,7 +715,7 @@ fn parse_codex_usage_result(result: &Value) -> Usage {
     }
 
     Usage {
-        provider: "codex",
+        provider: "codex".to_owned(),
         plan,
         unavailable_reason: windows.is_empty().then(|| "This account did not report subscription limits. API-key accounts do not provide plan usage.".to_string()),
         windows,

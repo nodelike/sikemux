@@ -98,6 +98,7 @@ mod window;
 mod workspace;
 mod worktree;
 
+pub use agent_accounts::AccountUsage;
 pub use calls::{call, NoParams};
 pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};

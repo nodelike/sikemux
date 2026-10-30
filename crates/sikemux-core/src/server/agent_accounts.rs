@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Once};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::changed::Topic;
 use super::connection::blocking;
@@ -397,21 +396,21 @@ pub(super) async fn authenticate(core: &Arc<Core>, params: Authenticate) -> Core
 }
 
 /// How much of its plan an account has used, as the core last read it.
-#[derive(Serialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AccountUsage {
+pub struct AccountUsage {
     /// The launcher that starts agents on the account.
-    launcher: String,
-    provider: String,
+    pub launcher: String,
+    pub provider: String,
     /// The account as the agent picker names it.
-    label: String,
-    signed_in: bool,
+    pub label: String,
+    pub signed_in: bool,
     /// Its plan and rolling windows as its CLI last reported them, however long ago.
-    usage: Option<Value>,
+    pub usage: Option<usage::Usage>,
     /// When that reading was taken, in Unix milliseconds.
-    read_at: Option<u64>,
+    pub read_at: Option<u64>,
     /// Why the latest lookup found no reading.
-    problem: Option<String>,
+    pub problem: Option<String>,
 }
 
 /// Every offered account's usage as last read, starting no agent's CLI.
