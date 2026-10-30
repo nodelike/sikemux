@@ -1,6 +1,7 @@
 //! Finding a saved session from a vague memory of it: by its title and by what
 //! the person and the agent wrote in it, best matches first.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -10,7 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
@@ -62,10 +63,10 @@ pub struct SearchRequest {
     pub budget: Duration,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMatch {
-    pub cli: &'static str,
+    pub cli: Cow<'static, str>,
     pub session_id: String,
     pub title: String,
     pub project: String,
@@ -192,7 +193,7 @@ pub fn locate(providers: &[RecentProvider], session_id: &str) -> Option<SessionM
             .into_iter()
             .find(|hit| hit.found.session.id == session_id)
             .map(|hit| SessionMatch {
-                cli: hit.agent,
+                cli: Cow::Borrowed(hit.agent),
                 session_id: hit.found.session.id,
                 title: hit.found.session.title,
                 project: hit.found.project,
@@ -316,7 +317,7 @@ impl Terms {
             + 3.0 / (1.0 + age_days / 14.0);
         Some((
             SessionMatch {
-                cli: hit.agent,
+                cli: Cow::Borrowed(hit.agent),
                 session_id: hit.found.session.id.clone(),
                 title: hit.found.session.title.clone(),
                 project: hit.found.project.clone(),

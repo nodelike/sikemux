@@ -1245,10 +1245,10 @@ async fn name_agent(core: &Arc<Core>, params: NameAgentParams) -> CoreResult<Nam
     .await
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClosedAgentsParams {
-    cwd: PathBuf,
+    pub cwd: PathBuf,
 }
 
 /// The closed agents of the project at `cwd` that keep the names the person

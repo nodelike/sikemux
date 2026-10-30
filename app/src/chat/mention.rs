@@ -4,7 +4,7 @@
 //! is what the message sends: the agent or chat for the core to describe (an earlier
 //! chat the core opens again first), the file as a path.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,9 +15,11 @@ use gpui_kit::{
     px, App, AppContext, Context, Focusable, IntoElement, ScrollHandle, SharedString, Styled, Task,
     Window,
 };
-use serde::Deserialize;
-use serde_json::json;
-use sikemux_core::server::ShownStashItem;
+use sikemux_core::server::plugins::{Category, Outcome};
+use sikemux_core::server::{
+    call, ClosedAgentsParams, ReleasesParams, SearchParams, ShownStashItem, TrackedParams,
+};
+use sikemux_plugin_api::codehost::{TrackedItem, TrackedKind};
 use sikemux_wire::protocol::{ChatContext, ProjectInfo};
 
 use super::Composing;
@@ -92,7 +94,7 @@ enum Choice {
         /// When the chat last moved on, in Unix milliseconds, for one found by search.
         active_at: Option<u64>,
     },
-    Tracked(Item),
+    Tracked(TrackedItem),
     /// An item of the Stash, as the core lists it.
     Stashed(Box<ShownStashItem>),
 }
@@ -101,16 +103,7 @@ enum Choice {
 pub enum Tracked {
     Reading,
     Failed(SharedString),
-    Listed(Rc<[Item]>),
-}
-
-/// An open issue or pull request.
-#[derive(Clone, Deserialize)]
-pub struct Item {
-    kind: String,
-    number: u64,
-    title: String,
-    url: String,
+    Listed(Rc<[TrackedItem]>),
 }
 
 /// What `#` lists issues and `!` pull requests by: the start of the number when the
@@ -119,7 +112,11 @@ fn tracked_choices(tracked: Option<&Tracked>, trigger: char, needle: &str) -> Ve
     let Some(Tracked::Listed(items)) = tracked else {
         return Vec::new();
     };
-    let kind = if trigger == '!' { "pull" } else { "issue" };
+    let kind = if trigger == '!' {
+        TrackedKind::Pull
+    } else {
+        TrackedKind::Issue
+    };
     let query = needle.trim().to_lowercase();
     let digits = !query.is_empty() && query.bytes().all(|byte| byte.is_ascii_digit());
     let words: Vec<&str> = query.split_whitespace().collect();
@@ -163,26 +160,6 @@ fn tracked_empty(
 }
 
 /// A closed agent the person named, as the core's `closedAgents` lists it.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Closed {
-    name: String,
-    provider: String,
-    session_id: String,
-    title: Option<String>,
-}
-
-/// A saved chat the core's `agentSessions` search found.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Found {
-    cli: String,
-    session_id: String,
-    title: String,
-    /// When the chat last moved on, in Unix milliseconds.
-    active_at: Option<u64>,
-}
-
 /// The menu on show: the word it answers, what it offers for it, and the one picked.
 pub struct Menu {
     typed: Typed,
@@ -453,32 +430,24 @@ impl Workbench {
         let project = self.project()?;
         let host = project.code_host.as_ref()?.label.clone();
         let path = project.path.to_string_lossy().into_owned();
-        let answer = self
-            .chat_target(agent)
-            .request("codeHostTracked", json!({ "project": path }));
+        let answer = (self.chat_target(agent))
+            .request_typed::<call::CodeHostTracked>(ReleasesParams { project: path });
         let composing = self.chats.open.get_mut(agent)?.composer.as_mut()?;
         composing.tracked = Some(Tracked::Reading);
         let agent = agent.to_owned();
         Some(cx.spawn(async move |this, cx| {
             let tracked = match answer.await {
-                Ok(answer) if answer["failed"]["category"] == "auth" => Tracked::Failed(
-                    format!("Sign in to {host} in the Git pane to pick from its issues").into(),
-                ),
-                Ok(answer) if answer.get("failed").is_some() => Tracked::Failed(
-                    answer["failed"]["message"]
-                        .as_str()
-                        .unwrap_or("The code host did not answer")
-                        .to_owned()
-                        .into(),
-                ),
-                Ok(answer) => {
-                    let items = answer.get("value").cloned().unwrap_or(answer);
-                    Tracked::Listed(
-                        serde_json::from_value::<Vec<Item>>(items)
-                            .unwrap_or_default()
-                            .into(),
+                Ok(Outcome::Failed(failed)) if failed.category == Category::Auth => {
+                    Tracked::Failed(
+                        format!("Sign in to {host} in the Git pane to pick from its issues").into(),
                     )
                 }
+                Ok(Outcome::Failed(failed)) => Tracked::Failed(failed.message.into()),
+                Ok(Outcome::Value(items)) => Tracked::Listed(
+                    serde_json::from_value::<Vec<TrackedItem>>(items)
+                        .unwrap_or_default()
+                        .into(),
+                ),
                 Err(error) => Tracked::Failed(error.into()),
             };
             this.update(cx, |bench, cx| {
@@ -580,15 +549,18 @@ impl Workbench {
             .map(|kind| kind.kind.clone())
             .collect();
         let target = self.chat_target(agent);
-        let ask = move |method, params| {
-            let answer = target.request(method, params);
-            async move { answer.await.unwrap_or_default() }
-        };
-        let closed = ask("closedAgents", json!({ "cwd": cwd }));
+        let closed = target.request_typed::<call::ClosedAgents>(ClosedAgentsParams {
+            cwd: PathBuf::from(&cwd),
+        });
         let wanted = needle.trim().to_lowercase();
         let search = (!wanted.is_empty()).then(|| {
-            let params = json!({ "query": wanted, "projects": [cwd], "limit": EARLIER_SHOWN, "budgetMs": EARLIER_BUDGET_MS });
-            (ask.clone(), params)
+            let params = SearchParams {
+                query: wanted.clone(),
+                projects: Some(vec![PathBuf::from(&cwd)]),
+                limit: Some(EARLIER_SHOWN),
+                budget_ms: Some(EARLIER_BUDGET_MS),
+            };
+            (target, params)
         });
         let agent = agent.to_owned();
         Some(cx.spawn(async move |this, cx| {
@@ -607,7 +579,7 @@ impl Workbench {
                 })
                 .ok();
             };
-            let closed: Vec<Closed> = serde_json::from_value(closed.await).unwrap_or_default();
+            let closed = closed.await.unwrap_or_default();
             let named: Vec<Choice> = closed
                 .into_iter()
                 .filter(|closed| closed.name.to_lowercase().starts_with(&wanted))
@@ -628,23 +600,23 @@ impl Workbench {
                 })
                 .collect();
             offer(named, cx);
-            let Some((ask, params)) = search else {
+            let Some((target, params)) = search else {
                 return;
             };
             cx.background_executor().timer(SETTLE).await;
-            let found: Vec<Found> =
-                serde_json::from_value(ask("agentSessions", params).await).unwrap_or_default();
+            let found =
+                (target.request_typed::<call::AgentSessions>(params).await).unwrap_or_default();
             let found = found
                 .into_iter()
-                .filter(|found| offered.contains(&found.cli))
-                .filter(|found| !open.contains(&(found.cli.clone(), found.session_id.clone())))
+                .filter(|found| offered.iter().any(|kind| *kind == found.cli))
+                .filter(|found| !open.contains(&(found.cli.to_string(), found.session_id.clone())))
                 .filter(|found| !sessions.contains(&found.session_id))
                 .map(|found| Choice::Earlier {
-                    cli: found.cli,
+                    cli: found.cli.into_owned(),
                     session: found.session_id,
                     name: None,
                     title: found.title,
-                    active_at: found.active_at,
+                    active_at: Some(found.active_at),
                 })
                 .collect();
             offer(found, cx);
@@ -804,16 +776,19 @@ impl Workbench {
         }
         if let (Choice::Tracked(item), Some(project)) = (&choice, &project) {
             let id = tracked_id(item);
-            let answer = target.request(
-                "codeHostTrackedContext",
-                json!({ "project": project, "kind": item.kind, "number": item.number }),
-            );
+            let answer = target.request_typed::<call::CodeHostTrackedContext>(TrackedParams {
+                project: project.to_string_lossy().into_owned(),
+                kind: item.kind,
+                number: item.number,
+            });
             let agent = agent.to_owned();
             cx.spawn(async move |this, cx| {
-                let context = answer.await.ok().and_then(|answer| {
-                    let context = answer.get("value").cloned().unwrap_or(answer);
-                    serde_json::from_value::<ChatContext>(context).ok()
-                });
+                let context = match answer.await {
+                    Ok(Outcome::Value(context)) => {
+                        serde_json::from_value::<ChatContext>(context).ok()
+                    }
+                    _ => None,
+                };
                 let Some(context) = context else {
                     return;
                 };
@@ -894,7 +869,11 @@ impl Workbench {
                     None
                 }
                 Choice::Tracked(item) => {
-                    let sign = if item.kind == "pull" { '!' } else { '#' };
+                    let sign = if item.kind == TrackedKind::Pull {
+                        '!'
+                    } else {
+                        '#'
+                    };
                     Some(
                         InlineToken::new(tracked_id(item), format!("{sign}{}", item.number))
                             .with_label(format!("#{} {}", item.number, item.title)),
@@ -918,8 +897,12 @@ impl Workbench {
 }
 
 /// The draft's token for an issue or pull request, by which its context goes with the message.
-fn tracked_id(item: &Item) -> String {
-    format!("{TRACKED}{}:{}:{}", item.kind, item.number, item.url)
+fn tracked_id(item: &TrackedItem) -> String {
+    let kind = match item.kind {
+        TrackedKind::Issue => "issue",
+        TrackedKind::Pull => "pull",
+    };
+    format!("{TRACKED}{kind}:{}:{}", item.number, item.url)
 }
 
 /// `title` cut to what a menu row has room for.
@@ -1098,9 +1081,9 @@ pub fn dock(
                 row.mark(ui::mark(cli, 13.)).group(group)
             }
             Choice::Tracked(item) => {
-                let (sign, icon) = match item.kind.as_str() {
-                    "pull" => ('!', Icon::PullRequest),
-                    _ => ('#', Icon::Issue),
+                let (sign, icon) = match item.kind {
+                    TrackedKind::Pull => ('!', Icon::PullRequest),
+                    TrackedKind::Issue => ('#', Icon::Issue),
                 };
                 DockRow::new(format!("{sign}{}", item.number), choose)
                     .mark(ui::icon(icon, 13.).text_color(tint).into_any_element())

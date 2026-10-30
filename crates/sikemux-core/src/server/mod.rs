@@ -103,15 +103,20 @@ pub use activity_log::{
     ActivityTotals, PriceOverride, PricingInfo,
 };
 pub use agent_accounts::{AccountUsage, Resuming};
-pub use calls::{call, NoParams, QueuedParams, SetDraftParams, WorktreeDefaultParams};
+pub use calls::{
+    call, ClosedAgentsParams, NoParams, QueuedParams, SetDraftParams, WorktreeDefaultParams,
+};
 pub use chat::queue::Message as QueuedMessage;
+pub use codehost::{ReleasesParams, TrackedParams};
 pub use drafts::Draft;
 pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
 pub use hosts::{HostFound, HostReach, HostRow, LinkView as HostLink, SetUpWork, SetupRow};
+pub use names::ClosedAgent;
 pub use ports::{ListeningPort, PortOwner, ProjectPort};
 pub use project_roots::ProjectEntry;
 pub use remote::{trust_remote_file, ApprovalSetting, Pairing};
+pub use saved::SearchParams;
 pub use share::{ShareState, ShareView};
 pub use ssh::{Reach, SshHost};
 pub use stash::{

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::agent_accounts::folders::{sessions_root, sessions_shared};
@@ -176,7 +176,7 @@ pub(crate) async fn find(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             .matches
             .iter()
             .map(|found| {
-                let running = open.get(&(found.cli.to_owned(), found.session_id.clone()));
+                let running = open.get(&(found.cli.to_string(), found.session_id.clone()));
                 json!({
                     "title": found.title,
                     "cli": found.cli,
@@ -207,16 +207,16 @@ pub(crate) async fn find(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     .map_err(|error| error.to_string())
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchParams {
-    query: String,
+    pub query: String,
     #[serde(default)]
-    projects: Option<Vec<PathBuf>>,
+    pub projects: Option<Vec<PathBuf>>,
     #[serde(default)]
-    limit: Option<usize>,
+    pub limit: Option<usize>,
     #[serde(default)]
-    budget_ms: Option<u64>,
+    pub budget_ms: Option<u64>,
 }
 
 /// The `agentSessions` call: the same search for the person's composer, which
@@ -241,7 +241,7 @@ pub(crate) async fn call(core: &Arc<Core>, params: SearchParams) -> CoreResult<V
         Ok(result
             .matches
             .into_iter()
-            .filter(|found| !open.contains_key(&(found.cli.to_owned(), found.session_id.clone())))
+            .filter(|found| !open.contains_key(&(found.cli.to_string(), found.session_id.clone())))
             .collect())
     })
     .await
@@ -304,10 +304,10 @@ pub(crate) fn locate(core: &Core, session_id: &str, cli: Option<&str>) -> Result
     let found = search::locate(&providers, session_id).ok_or_else(|| {
         format!("no saved session has the id {session_id}; find it with agent_sessions first")
     })?;
-    let open = open_now(core, found.cli, &found.session_id);
+    let open = open_now(core, &found.cli, &found.session_id);
     Ok(Saved {
         session_id: found.session_id,
-        cli: found.cli.to_owned(),
+        cli: found.cli.to_string(),
         project: PathBuf::from(found.project),
         title: found.title,
         config_path: found.config_path,

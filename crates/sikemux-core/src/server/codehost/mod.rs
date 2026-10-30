@@ -297,9 +297,9 @@ pub(crate) struct IssuesParams {
     page: Option<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ReleasesParams {
-    project: String,
+    pub project: String,
 }
 
 pub(crate) async fn pulls(core: &Arc<Core>, client: ClientId, params: PullsParams) -> Answer {
@@ -971,11 +971,11 @@ const CONTEXT_COMMENT: usize = 2_000;
 /// The latest comments an agent's context keeps.
 const CONTEXT_COMMENTS: usize = 5;
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct TrackedParams {
-    project: String,
-    kind: TrackedKind,
-    number: u64,
+    pub project: String,
+    pub kind: TrackedKind,
+    pub number: u64,
 }
 
 /// The `codeHostTrackedContext` call: an issue or pull request as context an
