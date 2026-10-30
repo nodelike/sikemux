@@ -19,6 +19,8 @@ pub struct PageView(Arc<Held>, Option<String>);
 
 /// What the page's script reports, heard on the GTK thread.
 type Events = Arc<dyn Fn(PageEvent) + Send + Sync>;
+/// A box in the window: x, y, width and height, top-down.
+type Rect = (f64, f64, f64, f64);
 
 impl PageView {
     /// Shows `html` in `room` in the app's window `parent`, out of sight until placed and on
@@ -63,7 +65,7 @@ impl PageView {
 
     /// Shows the page at `bounds`, cut to the part in `visible`, both (x, y, width, height)
     /// top-down in the window, or puts it out of sight on `None`.
-    pub fn place(&self, frame: Option<((f64, f64, f64, f64), (f64, f64, f64, f64))>) {
+    pub fn place(&self, frame: Option<(Rect, Rect)>) {
         self.0.with(move |page| match frame {
             Some((bounds, visible)) => {
                 page.place(visible, bounds);
@@ -126,7 +128,7 @@ fn open(
     let heard = events.clone();
     scripts.connect_script_message_received(Some("sikemux"), move |_, result| {
         let text = result.js_value().map(|value| value.to_str());
-        if let Some(event) = text.as_deref().and_then(|text| PageEvent::read(text)) {
+        if let Some(event) = text.as_deref().and_then(PageEvent::read) {
             heard(event);
         }
     });
