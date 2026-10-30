@@ -5,6 +5,7 @@ use gpui_kit::{
     div, px, AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
 use serde_json::json;
+use sikemux_core::server::UpdateState;
 use sikemux_wire::protocol::UpdateChannel;
 
 use crate::icons::Icon;
@@ -44,25 +45,23 @@ pub fn render(
         })
     };
     let status = bench.reads.update.as_ref();
-    let checks = status
-        .is_some_and(|status| status["updates"] == true || status["installCommand"].is_string());
-    let updates: AnyElement = match checks {
-        true => {
-            let status = status.cloned().unwrap_or_default();
+    let updates: AnyElement = match status
+        .filter(|status| status.updates || status.install_command.is_some())
+    {
+        Some(status) => {
             let busy = matches!(
-                status["state"].as_str(),
-                Some("downloading" | "installing" | "ready")
+                status.state,
+                UpdateState::Downloading | UpdateState::Installing | UpdateState::Ready
             );
-            let checked = &status["checked"];
-            let last: SharedString = match checked["at"]
-                .as_i64()
-                .and_then(chrono::DateTime::from_timestamp_millis)
-            {
+            let last: SharedString = match status.checked.as_ref().and_then(|checked| {
+                let at = chrono::DateTime::from_timestamp_millis(checked.at as i64)?;
+                Some((checked, at))
+            }) {
                 None => "Not checked yet this session.".into(),
-                Some(at) => {
+                Some((checked, at)) => {
                     let when = at.with_timezone(&chrono::Local).format("%-I:%M:%S %p");
-                    let channel = checked["channel"].as_str().unwrap_or("stable");
-                    match checked["error"].as_str() {
+                    let channel = crate::whats_new::channel_name(checked.channel);
+                    match &checked.error {
                         Some(error) => {
                             format!("Last {channel} check failed at {when} — {error}").into()
                         }
@@ -76,7 +75,7 @@ pub fn render(
                     .disabled(busy)
                     .on_click(move |_, _, cx| this.update(cx, check_now))
             };
-            let by_hand = crate::whats_new::by_installer(&status).map(|(version, command)| {
+            let by_hand = crate::whats_new::by_installer(status).map(|(version, command)| {
                 let this = this.clone();
                 let about = format!("Run this in a terminal to install it: {command}");
                 let copy =
@@ -105,7 +104,7 @@ pub fn render(
                 .children(by_hand)
                 .into_any_element()
         }
-        false => {
+        None => {
             let this = this.clone();
             rows::row(
                 "New versions",

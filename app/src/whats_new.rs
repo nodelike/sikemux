@@ -13,7 +13,9 @@ use gpui_kit::{
 };
 use gpui_transcript::{Markdown, Pen, Style};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
+use sikemux_core::server::{UpdateState, UpdateStatus};
+use sikemux_wire::protocol::UpdateChannel;
 
 use crate::core::{self, Ask};
 use crate::experience::{self, Experience};
@@ -99,8 +101,8 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         };
         let Ok(version) = bench.update(cx, |bench, cx| {
             let shown = pending(bench)
-                .and_then(|update| update["available"]["version"].as_str())
-                .map_or_else(|| version.clone(), str::to_owned);
+                .and_then(|update| update.available.as_ref())
+                .map_or_else(|| version.clone(), |release| release.version.clone());
             if let Some(news) = news_of(bench) {
                 news.running = Some(version);
                 news.version = Some(shown.clone());
@@ -156,18 +158,17 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 }
 
 /// The update the core found for this app, while one is there to install.
-fn pending(bench: &Workbench) -> Option<&Value> {
+fn pending(bench: &Workbench) -> Option<&UpdateStatus> {
     bench.reads.update.as_ref().filter(|update| {
-        (update["updates"] == true || update["installCommand"].is_string())
-            && !update["available"].is_null()
+        (update.updates || update.install_command.is_some()) && update.available.is_some()
     })
 }
 
 /// The update's version and the command that installs it, for an app its installer updates.
-pub fn by_installer(update: &Value) -> Option<(String, String)> {
-    let version = update["available"]["version"].as_str()?;
-    let command = update["installCommand"].as_str()?;
-    Some((version.to_owned(), command.to_owned()))
+pub fn by_installer(update: &UpdateStatus) -> Option<(String, String)> {
+    let version = &update.available.as_ref()?.version;
+    let command = update.install_command.as_ref()?;
+    Some((version.clone(), command.clone()))
 }
 
 pub fn copy_install_command(bench: &mut Workbench, command: &str, cx: &mut Context<Workbench>) {
@@ -201,51 +202,66 @@ fn bytes(count: u64) -> String {
 }
 
 /// What the install button says for where the update stands, and whether it can be pressed.
-fn install_button(update: &Value) -> (String, bool) {
-    let version = update["available"]["version"].as_str().unwrap_or_default();
-    let blockers = update["blockers"].as_array().map_or(0, Vec::len);
-    match update["state"].as_str().unwrap_or_default() {
-        "downloading" => {
-            let done = update["downloadedBytes"].as_u64().unwrap_or(0);
-            let label = match update["totalBytes"].as_u64().filter(|total| *total > 0) {
+fn install_button(update: &UpdateStatus) -> (String, bool) {
+    let version = available_version(update);
+    match update.state {
+        UpdateState::Downloading => {
+            let done = update.downloaded_bytes;
+            let label = match update.total_bytes.filter(|total| *total > 0) {
                 Some(total) => format!("Downloading · {}%", (done * 100 / total).min(100)),
                 None if done > 0 => format!("Downloading · {}", bytes(done)),
                 None => "Downloading…".to_owned(),
             };
             (label, false)
         }
-        "installing" => ("Verifying & installing…".to_owned(), false),
-        "ready" => ("Restarting…".to_owned(), false),
-        "waiting" => (waiting_label(blockers), false),
-        "failed" => (format!("Retry v{version}"), true),
-        _ => (format!("Install v{version}"), true),
+        UpdateState::Installing => ("Verifying & installing…".to_owned(), false),
+        UpdateState::Ready => ("Restarting…".to_owned(), false),
+        UpdateState::Waiting => (waiting_label(update.blockers.len()), false),
+        UpdateState::Failed => (format!("Retry v{version}"), true),
+        UpdateState::Idle => (format!("Install v{version}"), true),
     }
+}
+
+/// The channel's name as the person reads it in a sentence.
+pub fn channel_name(channel: UpdateChannel) -> &'static str {
+    match channel {
+        UpdateChannel::Stable => "stable",
+        UpdateChannel::Nightly => "nightly",
+    }
+}
+
+/// The version of the update found, or nothing until one is.
+fn available_version(update: &UpdateStatus) -> &str {
+    update
+        .available
+        .as_ref()
+        .map_or("", |release| release.version.as_str())
 }
 
 /// The rail's note that an update is out, or how its install is going, which opens this
 /// screen; none while there is no update.
 pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     let update = pending(bench)?;
-    let version = update["available"]["version"].as_str().unwrap_or_default();
-    let (label, icon, variant, tip) = match update["state"].as_str().unwrap_or_default() {
-        "failed" => (
+    let version = available_version(update);
+    let (label, icon, variant, tip) = match update.state {
+        UpdateState::Failed => (
             "Update failed — retry".to_owned(),
             Icon::Warning,
             ui::Variant::Outline,
             Some(format!(
                 "v{version} did not install: {}",
-                update["error"].as_str().unwrap_or("unknown error")
+                update.error.as_deref().unwrap_or("unknown error")
             )),
         ),
-        "waiting" => (
+        UpdateState::Waiting => (
             install_button(update).0,
             Icon::Download,
             ui::Variant::Outline,
             Some("Some agents can't be carried over yet. Open to see them or update now.".into()),
         ),
-        state @ ("downloading" | "installing" | "ready") => (
+        state @ (UpdateState::Downloading | UpdateState::Installing | UpdateState::Ready) => (
             install_button(update).0,
-            if state == "downloading" {
+            if state == UpdateState::Downloading {
                 Icon::Download
             } else {
                 Icon::Refresh
@@ -253,14 +269,11 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
             ui::Variant::Outline,
             None,
         ),
-        _ => (
+        UpdateState::Idle => (
             format!("Update · v{version}"),
             Icon::Download,
             ui::Variant::Primary,
-            Some(format!(
-                "v{version} is out; you have v{}.",
-                update["current"].as_str().unwrap_or_default()
-            )),
+            Some(format!("v{version} is out; you have v{}.", update.current)),
         ),
     };
     let chip = ui::Button::new("rail-update", label, variant)
@@ -288,19 +301,15 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
     let t = Tokens::get(cx).clone();
     let update = bench.reads.update.as_ref();
     let found = pending(bench);
-    let in_app = update.is_some_and(|update| update["updates"] == true);
+    let in_app = update.is_some_and(|update| update.updates);
+    let checked = update.and_then(|update| update.checked.as_ref());
     let problem = match found {
-        Some(found) if found["state"] == "failed" => found["error"].as_str(),
+        Some(found) if found.state == UpdateState::Failed => found.error.as_deref(),
         Some(_) => None,
-        None => update.and_then(|update| update["checked"]["error"].as_str()),
+        None => checked.and_then(|checked| checked.error.as_deref()),
     };
-    let nothing_newer = found.is_none()
-        && update.is_some_and(|update| {
-            update["checked"].is_object() && update["checked"]["error"].is_null()
-        });
-    let channel = update
-        .and_then(|update| update["checked"]["channel"].as_str())
-        .unwrap_or("stable");
+    let nothing_newer = found.is_none() && checked.is_some_and(|checked| checked.error.is_none());
+    let channel = checked.map_or("stable", |checked| channel_name(checked.channel));
     let note = |text: String| {
         div()
             .text_size(theme::ui_text(TEXT_SM))
@@ -319,11 +328,8 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
         ),
         Some(found) => {
             let (label, pressable) = install_button(found);
-            let label = match found["state"].as_str() {
-                Some("idle") => format!(
-                    "Update to v{}",
-                    found["available"]["version"].as_str().unwrap_or_default()
-                ),
+            let label = match found.state {
+                UpdateState::Idle => format!("Update to v{}", available_version(found)),
                 _ => label,
             };
             ui::Button::new("required-update", label, ui::Variant::Primary)
@@ -517,7 +523,7 @@ pub fn render(
 
 fn side(
     news: &WhatsNew,
-    update: Option<&Value>,
+    update: Option<&UpdateStatus>,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> impl IntoElement {
@@ -808,7 +814,7 @@ fn contributors(
 
 fn main(
     news: &WhatsNew,
-    update: Option<&Value>,
+    update: Option<&UpdateStatus>,
     this: &Entity<Workbench>,
     window: &mut Window,
     cx: &mut App,
@@ -887,7 +893,7 @@ fn main(
         )
         .children(
             update
-                .filter(|update| update["state"] == "waiting")
+                .filter(|update| update.state == UpdateState::Waiting)
                 .map(|update| waiting(news, update, this, cx)),
         )
         .child(
@@ -947,12 +953,12 @@ fn main(
 /// install now that names the agents it would stop.
 fn waiting(
     news: &WhatsNew,
-    update: &Value,
+    update: &UpdateStatus,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let blockers = update["blockers"].as_array().map_or(&[][..], Vec::as_slice);
+    let blockers = update.blockers.as_slice();
     let count = blockers.len();
     let one = count == 1;
     let them = if one { "it" } else { "them" };
@@ -1056,13 +1062,9 @@ fn waiting(
         .when(news.confirming, |section| {
             section
                 .child(div().flex().flex_col().gap(SPACE_1H).children(blockers.iter().map(|blocker| {
-                    let title = blocker["title"]
-                        .as_str()
-                        .or(blocker["agentId"].as_str())
-                        .unwrap_or_default()
-                        .to_owned();
-                    let state = match blocker["reason"].as_str() {
-                        Some("starting") => "starting",
+                    let title = blocker.title.clone().unwrap_or_else(|| blocker.agent_id.clone());
+                    let state = match blocker.reason.as_str() {
+                        "starting" => "starting",
                         _ => "busy",
                     };
                     div()
@@ -1082,7 +1084,7 @@ fn waiting(
                             div()
                                 .flex_none()
                                 .text_color(t.text_tertiary)
-                                .child(format!("{} · {state}", blocker["provider"].as_str().unwrap_or_default())),
+                                .child(format!("{} · {state}", blocker.provider)),
                         )
                 })))
                 .child(paragraph(format!(

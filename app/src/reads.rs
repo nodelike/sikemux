@@ -3,7 +3,9 @@
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sikemux_core::server::{HostRow, ProjectEntry, RunView, SshHost, TaskList, TrustQuestion};
+use sikemux_core::server::{
+    HostRow, ProjectEntry, RunView, SshHost, TaskList, TrustQuestion, UpdateStatus,
+};
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_wire::catalog::CatalogAgent;
 use sikemux_wire::theme::ThemeSummary;
@@ -71,7 +73,8 @@ pub struct Reads {
     pub plugins: Plugins,
     /// The account's other hosts, then the SSH hosts a terminal is open to.
     pub hosts: Vec<HostRow>,
-    pub update: Option<Value>,
+    /// How updating this app stands, once the core has said.
+    pub update: Option<UpdateStatus>,
     pub usage: Option<Value>,
     pub shares: Option<Value>,
     pub stash: Option<Value>,
@@ -123,7 +126,6 @@ macro_rules! slots {
 }
 
 slots! {
-    "update" => update,
     "usage" => usage,
     "shares" => shares,
     "stash" => stash,
@@ -158,6 +160,11 @@ impl Reads {
     /// Keeps the hosts the core listed, and says whether they differ from those kept.
     pub fn keep_hosts(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.hosts, value, "hosts")
+    }
+
+    /// Keeps how updating stands, and says whether it differs from what was kept.
+    pub fn keep_update(&mut self, value: Value) -> bool {
+        keep_decoded(&mut self.update, value, "update status")
     }
 
     /// Keeps what the pickers were answered: the folders under the project roots, or this

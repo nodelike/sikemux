@@ -47,7 +47,7 @@ use crate::terminal::NewTerminal;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
-use sikemux_core::server::{RunView, TaskView, TrustQuestion};
+use sikemux_core::server::{RunView, TaskView, TrustQuestion, UpdateState, UpdateStatus};
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
 /// Linux a page is a window of another connection, which X would otherwise leave it with.
@@ -851,13 +851,19 @@ impl Workbench {
                 }
             }
             Update::Read("update", value) => {
-                let ready = |value: &Value| {
-                    value["state"] == "ready"
-                        && value["available"]["version"] != env!("CARGO_PKG_VERSION")
+                let ready = |status: &UpdateStatus| {
+                    status.state == UpdateState::Ready
+                        && status
+                            .available
+                            .as_ref()
+                            .map(|release| release.version.as_str())
+                            != Some(env!("CARGO_PKG_VERSION"))
                 };
                 let already = self.reads.update.as_ref().is_some_and(ready);
-                let now = ready(&value);
-                self.keep_read("update", value);
+                if !self.reads.keep_update(value) {
+                    return;
+                }
+                let now = self.reads.update.as_ref().is_some_and(ready);
                 if self.over_shown() {
                     self.parts.redraw(&self.parts.over, cx);
                 }
@@ -872,7 +878,7 @@ impl Workbench {
                         .reads
                         .update
                         .as_ref()
-                        .is_some_and(|update| update["forced"] == true)
+                        .is_some_and(|update| update.forced)
                     {
                         crate::core::force_next_core_update();
                     }
@@ -2151,10 +2157,9 @@ impl Workbench {
     /// waits for it.
     fn holds(&self, update: &Update) -> bool {
         match update {
-            Update::Read(
-                key @ ("usage" | "shares" | "stash" | "update" | "ports" | "drafts"),
-                value,
-            ) => self.reads.holds(key, value),
+            Update::Read(key @ ("usage" | "shares" | "stash" | "ports" | "drafts"), value) => {
+                self.reads.holds(key, value)
+            }
             Update::HostView(host, view) => self.hosts.views.get(host) == Some(&**view),
             _ => false,
         }

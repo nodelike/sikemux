@@ -36,7 +36,7 @@ const UPDATES_OFF: &str =
     "updates are off for this host; turn them on in Sikemux, or with `sudo sikemux update --on`";
 
 /// Where an update stands, as every client shows it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum UpdateState {
     #[default]
@@ -52,7 +52,7 @@ pub enum UpdateState {
 }
 
 /// The newest release on the person's channel.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRelease {
     pub version: String,
@@ -62,7 +62,7 @@ pub struct UpdateRelease {
 }
 
 /// The last check, kept because a failed one has nowhere else to show.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCheck {
     /// Unix milliseconds.
@@ -71,7 +71,7 @@ pub struct UpdateCheck {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateStatus {
     /// This build updates itself: a release running inside its app.
