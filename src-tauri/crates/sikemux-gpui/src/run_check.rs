@@ -8,6 +8,7 @@ use gpui_kit::{
     Window,
 };
 use serde_json::{json, Value};
+use sikemux_core::harness::runs::RunStatus;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, TEXT_2XS_H, TEXT_XS};
@@ -120,22 +121,17 @@ impl Workbench {
         if self.runs_to_show.is_empty() {
             return;
         }
-        let runs: Vec<(String, Option<u64>, bool, String, String)> = (self.reads.runs.as_ref())
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|run| {
-                let execution = run["executionId"].as_str()?;
-                self.runs_to_show.contains(execution).then(|| {
-                    let label = run["label"].as_str().or(run["taskId"].as_str());
-                    (
-                        execution.to_owned(),
-                        run["ptyId"].as_u64(),
-                        matches!(run["status"].as_str(), Some("awaiting-trust" | "starting")),
-                        label.unwrap_or("Task").to_owned(),
-                        run["project"].as_str().unwrap_or_default().to_owned(),
-                    )
-                })
+        let runs: Vec<(String, Option<u64>, bool, String, String)> = (self.reads.runs.iter())
+            .map(|listed| &listed.run)
+            .filter(|run| self.runs_to_show.contains(&run.execution_id))
+            .map(|run| {
+                (
+                    run.execution_id.clone(),
+                    run.pty_id,
+                    matches!(run.status, RunStatus::AwaitingTrust | RunStatus::Starting),
+                    run.label.clone().unwrap_or_else(|| run.task_id.clone()),
+                    run.project.clone(),
+                )
             })
             .collect();
         for (execution, session, waiting, label, project) in runs {
@@ -170,13 +166,9 @@ impl Workbench {
     }
 
     fn task_label(&self, task: &str) -> String {
-        self.reads
-            .tasks
-            .as_ref()
-            .and_then(|read| read["tasks"].as_array())
-            .and_then(|tasks| tasks.iter().find(|listed| listed["id"] == task))
-            .and_then(|listed| listed["label"].as_str())
-            .unwrap_or(task)
+        (self.reads.tasks.as_ref())
+            .and_then(|read| read.tasks.iter().find(|listed| listed.id == task))
+            .map_or(task, |listed| listed.label.as_str())
             .to_owned()
     }
 

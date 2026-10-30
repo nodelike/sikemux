@@ -3,7 +3,7 @@
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sikemux_core::server::{ProjectEntry, SshHost};
+use sikemux_core::server::{ProjectEntry, RunView, SshHost, TaskList, TrustQuestion};
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_wire::catalog::CatalogAgent;
 use sikemux_wire::theme::ThemeSummary;
@@ -76,15 +76,15 @@ pub struct Reads {
     pub stash: Option<Value>,
     pub themes: Vec<ThemeSummary>,
     /// This host's trust questions, and those of the account host in front.
-    pub trust: Option<Value>,
-    pub host_trust: Option<Value>,
+    pub trust: Vec<TrustQuestion>,
+    pub host_trust: Vec<TrustQuestion>,
     /// The composer drafts kept on this host, and on the account host in front.
     pub drafts: Option<Value>,
     pub host_drafts: Option<Value>,
     /// What the project in front holds: its tasks, their runs, what listens on its ports,
     /// its activity, and the repository its git pane shows.
-    pub tasks: Option<Value>,
-    pub runs: Option<Value>,
+    pub tasks: Option<TaskList>,
+    pub runs: Vec<RunView>,
     pub ports: Option<Value>,
     pub activity: Option<Value>,
     pub git_project_repo: Option<Value>,
@@ -127,12 +127,8 @@ slots! {
     "usage" => usage,
     "shares" => shares,
     "stash" => stash,
-    "trust" => trust,
-    "host-trust" => host_trust,
     "drafts" => drafts,
     "host-drafts" => host_drafts,
-    "tasks" => tasks,
-    "runs" => runs,
     "ports" => ports,
     "activity" => activity,
     "git-project-repo" => git_project_repo,
@@ -168,6 +164,17 @@ impl Reads {
         };
     }
 
+    /// Keeps what the project's tasks, the runs or a host's trust questions were answered, and
+    /// says whether it differs from what was kept.
+    pub fn keep_tasks(&mut self, key: &str, value: Value) -> bool {
+        match key {
+            "tasks" => keep_decoded(&mut self.tasks, value, "tasks"),
+            "runs" => keep_decoded(&mut self.runs, value, "task runs"),
+            "trust" => keep_decoded(&mut self.trust, value, "trust questions"),
+            _ => keep_decoded(&mut self.host_trust, value, "trust questions"),
+        }
+    }
+
     /// Keeps what `key`'s watch answered. Gives the answer back when no field holds `key`.
     pub fn keep(&mut self, key: &str, value: Value) -> Result<(), Value> {
         match self.slot_mut(key) {
@@ -187,8 +194,16 @@ impl Reads {
 
     /// Forgets what `key` answered, so nothing shows the answer of what it watched before.
     pub fn forget(&mut self, key: &str) {
-        if let Some(slot) = self.slot_mut(key) {
-            *slot = None;
+        match key {
+            "tasks" => self.tasks = None,
+            "runs" => self.runs.clear(),
+            "trust" => self.trust.clear(),
+            "host-trust" => self.host_trust.clear(),
+            _ => {
+                if let Some(slot) = self.slot_mut(key) {
+                    *slot = None;
+                }
+            }
         }
     }
 }

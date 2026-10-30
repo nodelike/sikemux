@@ -25,6 +25,7 @@ use sikemux_browser::{
     DownloadState, Host, ParentView,
 };
 use sikemux_core::cli::protocol::{is_browser_method, is_sim_method, HarnessRequest};
+use sikemux_core::harness::runs::RunStatus;
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::{CallId, Pane, PaneKind, WindowAnswer, WindowCall};
 use tokio::sync::mpsc;
@@ -871,25 +872,16 @@ impl Workbench {
             title: String,
             stopped: bool,
         }
-        let runs: Vec<AgentRun> = self
-            .reads
-            .runs
-            .as_ref()
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|run| {
+        let runs: Vec<AgentRun> = (self.reads.runs.iter())
+            .filter_map(|listed| {
+                let run = &listed.run;
                 Some(AgentRun {
-                    execution: run["executionId"].as_str()?.to_owned(),
-                    agent: run["agentId"].as_str()?.to_owned(),
-                    session: run["ptyId"].as_u64()?,
-                    task: run["terminalKey"].as_str().unwrap_or_default().to_owned(),
-                    title: run["label"]
-                        .as_str()
-                        .or(run["taskId"].as_str())
-                        .unwrap_or("Task")
-                        .to_owned(),
-                    stopped: matches!(run["status"].as_str(), Some("stopping" | "stopped")),
+                    execution: run.execution_id.clone(),
+                    agent: listed.agent_id.clone()?,
+                    session: run.pty_id?,
+                    task: listed.terminal_key.clone(),
+                    title: run.label.clone().unwrap_or_else(|| run.task_id.clone()),
+                    stopped: matches!(run.status, RunStatus::Stopping | RunStatus::Stopped),
                 })
             })
             .collect();

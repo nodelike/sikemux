@@ -9,7 +9,8 @@ use gpui_kit::{
     div, AnyElement, AppContext, Context, Entity, FontWeight, IntoElement, ParentElement,
     SharedString, Styled, Window,
 };
-use serde_json::{json, Value};
+use serde_json::json;
+use sikemux_core::server::{Source, TaskView};
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1H, SPACE_3, TEXT_2XS, TEXT_XS};
@@ -35,7 +36,7 @@ impl AddTask {
     /// The dialog holding the person's own `task`, to change it.
     pub fn edit(
         project: String,
-        task: &Value,
+        task: &TaskView,
         window: &mut Window,
         cx: &mut Context<Workbench>,
     ) -> Self {
@@ -44,25 +45,25 @@ impl AddTask {
 
     fn filled(
         project: String,
-        task: Option<&Value>,
+        task: Option<&TaskView>,
         window: &mut Window,
         cx: &mut Context<Workbench>,
     ) -> Self {
-        let text = |key: &str| {
-            task.and_then(|task| task[key].as_str())
+        let text = |value: fn(&TaskView) -> &str| {
+            task.map(value)
                 .filter(|value| *value != ".")
                 .unwrap_or_default()
                 .to_owned()
         };
-        let label = field("Backend", text("label"), window, cx);
+        let label = field("Backend", text(|task| &task.label), window, cx);
         label.update(cx, |state, cx| state.focus(window, cx));
         Self {
             project,
             label,
-            command: field("bash tool/run.sh", text("command"), window, cx),
-            folder: field("The project root", text("cwd"), window, cx),
-            team: task.is_none_or(|task| task["foundIn"].is_null()),
-            replaces: task.and_then(|task| task["id"].as_str()).map(str::to_owned),
+            command: field("bash tool/run.sh", text(|task| &task.command), window, cx),
+            folder: field("The project root", text(|task| &task.cwd), window, cx),
+            team: task.is_none_or(|task| task.source != Source::Personal),
+            replaces: task.map(|task| task.id.clone()),
         }
     }
 }

@@ -6,12 +6,12 @@ use quick_xml::escape::resolve_predefined_entity;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::detect::{CARGO_TEST_LOG, GO_TEST_LOG, JEST_REPORT, PYTEST_REPORT, VITEST_REPORT};
 use super::read_text;
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TestFailure {
     pub class_name: String,
@@ -23,7 +23,7 @@ pub struct TestFailure {
     pub line: Option<u32>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TestResults {
     pub passed: u32,

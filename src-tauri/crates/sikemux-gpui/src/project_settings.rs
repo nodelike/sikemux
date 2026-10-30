@@ -12,6 +12,7 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
 use serde_json::{json, Value};
+use sikemux_core::server::{Source, TaskView};
 use sikemux_wire::protocol::{PaneKind, ProjectInfo};
 
 use crate::icons::Icon;
@@ -24,9 +25,6 @@ use crate::theme::{
 use crate::toast;
 use crate::ui::{self, Button, Field, IconButton, Variant};
 use crate::workbench::Workbench;
-
-/// Where tasks only the person sees are kept, as the core names them.
-const PERSONAL: &str = ".sikemux/tasks.json";
 
 #[derive(Clone, Copy, Default, PartialEq)]
 enum Page {
@@ -159,13 +157,11 @@ impl Workbench {
         .detach();
     }
 
-    fn remove_task(&mut self, folder: &str, task: &Value, cx: &mut Context<Self>) {
-        let (Some(id), Some(label)) = (task["id"].as_str(), task["label"].as_str()) else {
-            return;
-        };
-        let body = match task["foundIn"].as_str() {
-            Some(_) => "It comes out of .sikemux/tasks.json.",
-            None => "It comes out of sikemux.json; commit that to remove it for the team.",
+    fn remove_task(&mut self, folder: &str, task: &TaskView, cx: &mut Context<Self>) {
+        let (id, label) = (&task.id, &task.label);
+        let body = match task.source {
+            Source::Personal => "It comes out of .sikemux/tasks.json.",
+            _ => "It comes out of sikemux.json; commit that to remove it for the team.",
         };
         let (folder, id) = (folder.to_owned(), id.to_owned());
         self.confirm(
@@ -527,22 +523,19 @@ fn general(
 
 /// Whether the person made the task, for the team or for themselves, rather than the build
 /// files it was found in.
-fn own(task: &Value) -> bool {
-    match task["foundIn"].as_str() {
-        None => true,
-        Some(found) => found == PERSONAL,
-    }
+fn own(task: &TaskView) -> bool {
+    !matches!(task.source, Source::Detected | Source::Rerun)
 }
 
 fn run_button(
     id: SharedString,
-    task: &Value,
+    task: &TaskView,
     folder: &str,
     this: &Entity<Workbench>,
 ) -> IconButton {
-    let label = task["label"].as_str().unwrap_or_default();
+    let label = &task.label;
     let (this, folder) = (this.clone(), folder.to_owned());
-    let task_id = task["id"].as_str().unwrap_or_default().to_owned();
+    let task_id = task.id.clone();
     IconButton::new(id, Icon::Run, format!("Run {label}"))
         .small()
         .on_click(move |_, _, cx| {
@@ -564,14 +557,13 @@ fn tasks(
         .reads
         .tasks
         .as_ref()
-        .filter(|read| read["project"].as_str() == Some(folder))
-        .and_then(|read| read["tasks"].as_array().cloned());
+        .filter(|read| read.project.as_os_str() == folder)
+        .map(|read| read.tasks.clone());
     let all = listed.clone().unwrap_or_default();
-    let mine: Vec<&Value> = all.iter().filter(|task| own(task)).collect();
-    let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
+    let mine: Vec<&TaskView> = all.iter().filter(|task| own(task)).collect();
     let mine_rows = mine.iter().enumerate().map(|(at, task)| {
         let (remove, folder_owned, task_owned) = (this.clone(), folder.to_owned(), (*task).clone());
-        let cwd = text(&task["cwd"]);
+        let cwd = task.cwd.clone();
         div()
             .flex()
             .items_center()
@@ -591,7 +583,7 @@ fn tasks(
                         div()
                             .text_size(crate::theme::ui_text(TEXT_SM))
                             .text_color(t.text_primary)
-                            .child(text(&task["label"])),
+                            .child(task.label.clone()),
                     )
                     .child(
                         div()
@@ -599,15 +591,15 @@ fn tasks(
                             .font_family(theme::MONO)
                             .text_size(crate::theme::ui_text(TEXT_2XS_H))
                             .text_color(t.text_tertiary)
-                            .child(text(&task["command"])),
+                            .child(task.command.clone()),
                     ),
             )
             .when(cwd != ".", |row| row.child(ui::meta(cwd, cx)))
             .child(ui::meta(
-                if task["foundIn"].is_null() {
-                    "Team"
-                } else {
+                if task.source == Source::Personal {
                     "Only me"
+                } else {
+                    "Team"
                 },
                 cx,
             ))
@@ -662,27 +654,22 @@ fn tasks(
         mine_body,
         cx,
     )];
-    let found: Vec<&Value> = all.iter().filter(|task| !own(task)).collect();
+    let found: Vec<&TaskView> = all.iter().filter(|task| !own(task)).collect();
     if !found.is_empty() {
         let words = settings.filter.read(cx).value().trim().to_lowercase();
-        let shown: Vec<&Value> = found
+        let shown: Vec<&TaskView> = found
             .iter()
             .copied()
             .filter(|task| {
                 words.is_empty()
-                    || format!(
-                        "{} {} {}",
-                        text(&task["label"]),
-                        text(&task["command"]),
-                        text(&task["cwd"])
-                    )
-                    .to_lowercase()
-                    .contains(&words)
+                    || format!("{} {} {}", task.label, task.command, task.cwd)
+                        .to_lowercase()
+                        .contains(&words)
             })
             .collect();
-        let mut folders: Vec<(String, Vec<&Value>)> = Vec::new();
+        let mut folders: Vec<(String, Vec<&TaskView>)> = Vec::new();
         for task in &shown {
-            let cwd = text(&task["cwd"]);
+            let cwd = task.cwd.clone();
             match folders.iter_mut().find(|(each, _)| *each == cwd) {
                 Some((_, group)) => group.push(task),
                 None => folders.push((cwd, vec![task])),
@@ -731,7 +718,7 @@ fn tasks(
                 .enumerate()
                 .filter(|_| open)
                 .map(|(at, task)| {
-                    let label = text(&task["label"]);
+                    let label = task.label.clone();
                     let label = label
                         .strip_suffix(&suffix)
                         .map_or(label.clone(), str::to_owned);
@@ -759,7 +746,7 @@ fn tasks(
                                 .font_family(theme::MONO)
                                 .text_size(crate::theme::ui_text(TEXT_2XS_H))
                                 .text_color(t.text_tertiary)
-                                .child(text(&task["command"])),
+                                .child(task.command.clone()),
                         )
                         .child(run_button(
                             SharedString::from(format!("found-run-{cwd}-{at}")),

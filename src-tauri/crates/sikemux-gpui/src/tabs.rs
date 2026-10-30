@@ -15,6 +15,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Transformation, WeakEntity, Window, WindowControlArea,
 };
 use serde_json::Value;
+use sikemux_core::server::{RunView, Source, TaskView};
 use sikemux_wire::protocol::{Pane, PaneKind, Tab as LayoutTab};
 use sikemux_wire::pty::shell_protocol::SshLink;
 
@@ -380,7 +381,7 @@ fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
 /// Runs the project's task, or stops the run going, and says how the last one went.
 fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
-    let tasks = bench.reads.tasks.as_ref()?["tasks"].as_array()?;
+    let tasks = &bench.reads.tasks.as_ref()?.tasks;
     let project = bench.watched_project.as_deref()?;
     let ports = bench
         .reads
@@ -389,15 +390,14 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         .and_then(Value::as_array)
         .map_or(&[][..], Vec::as_slice);
     let (running, last) = bench.person_runs();
-    let task_of = |run: &Value| tasks.iter().find(|task| task["id"] == run["taskId"]);
+    let task_of = |run: &RunView| tasks.iter().find(|task| task.id == run.run.task_id);
     let picked = bench
         .picked_tasks
         .get(project)
-        .and_then(|id| tasks.iter().find(|task| task["id"] == id.as_str()));
+        .and_then(|id| tasks.iter().find(|task| task.id == *id));
     let selected = running.and_then(task_of).or(picked).or(tasks.first())?;
-    let id = selected["id"].as_str()?.to_owned();
-    let label = selected["label"].as_str()?.to_owned();
-    let last = last.filter(|run| running.is_none() && run["taskId"] == id.as_str());
+    let (id, label) = (selected.id.clone(), selected.label.clone());
+    let last = last.filter(|run| running.is_none() && run.run.task_id == id);
     let finished = last.map(|run| crate::test_card::Finished {
         run,
         task: selected,
@@ -414,14 +414,12 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let port = running.and_then(|run| {
         ports
             .iter()
-            .find(|port| port["owner"]["executionId"] == run["executionId"])
+            .find(|port| port["owner"]["executionId"] == run.run.execution_id.as_str())
     });
     let port_number = port.and_then(|port| port["port"].as_u64());
-    let needs_java = selected["java"]["runsOn"]
-        .is_null()
-        .then(|| &selected["java"]["required"])
-        .filter(|required| !required.is_null())
-        .map(|required| format!("needs Java {}", plain(required)));
+    let needs_java = (selected.java.as_ref())
+        .filter(|java| java.runs_on.is_none())
+        .map(|java| format!("needs Java {}", java.required));
     let said = |text: String, color: Hsla| {
         div()
             .text_color(color)
@@ -444,7 +442,7 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     };
     let output = running
         .or(last.filter(|_| failed.is_some()))
-        .and_then(|run| run["ptyId"].as_u64())
+        .and_then(|run| run.run.pty_id)
         .map(|session| (session, label.clone()));
     let card = crate::run_check::card(bench, project, cx).or_else(|| {
         finished
@@ -455,7 +453,7 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         .as_ref()
         .filter(|finished| crate::test_card::offers_why(bench, finished))
         .map(|_| {
-            let tip = if passed.is_none() && last.is_some_and(|run| run["tests"].is_object()) {
+            let tip = if passed.is_none() && last.is_some_and(|run| run.tests.is_some()) {
                 "Show the failed tests"
             } else {
                 "Show why it stopped"
@@ -478,9 +476,9 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         bench: cx.entity().downgrade(),
         running: running.map(|run| RunningTask {
             id: id.clone(),
-            execution: run["executionId"].as_str().unwrap_or_default().to_owned(),
+            execution: run.run.execution_id.clone(),
             label: label.clone(),
-            started_at: running.and_then(|run| run["startedAt"].as_i64()),
+            started_at: run.run.started_at.map(|at| at as i64),
             port: port_number,
         }),
         output: output.clone(),
@@ -737,13 +735,11 @@ impl RunMenu {
 }
 
 /// sikemux.json's tasks, then one group for each folder the build files' tasks came from.
-fn task_groups(tasks: &[Value], project: &str) -> Vec<TaskGroup> {
-    let text = |task: &Value, key: &str| task[key].as_str().unwrap_or_default().to_owned();
+fn task_groups(tasks: &[TaskView], project: &str) -> Vec<TaskGroup> {
     let mut groups = Vec::new();
-    let configured: Vec<_> = tasks
-        .iter()
-        .filter(|task| matches!(task["source"].as_str(), Some("project" | "personal")))
-        .map(|task| (text(task, "id"), text(task, "label")))
+    let configured: Vec<_> = (tasks.iter())
+        .filter(|task| matches!(task.source, Source::Project | Source::Personal))
+        .map(|task| (task.id.clone(), task.label.clone()))
         .collect();
     if !configured.is_empty() {
         groups.push(TaskGroup {
@@ -752,12 +748,11 @@ fn task_groups(tasks: &[Value], project: &str) -> Vec<TaskGroup> {
             tasks: configured,
         });
     }
-    let mut folders: Vec<(&str, Vec<&Value>)> = Vec::new();
-    for task in tasks
-        .iter()
-        .filter(|task| matches!(task["source"].as_str(), Some("detected" | "rerun")))
+    let mut folders: Vec<(&str, Vec<&TaskView>)> = Vec::new();
+    for task in
+        (tasks.iter()).filter(|task| matches!(task.source, Source::Detected | Source::Rerun))
     {
-        let cwd = task["cwd"].as_str().unwrap_or(".");
+        let cwd = task.cwd.as_str();
         match folders.iter_mut().find(|(folder, _)| *folder == cwd) {
             Some((_, folder)) => folder.push(task),
             None => folders.push((cwd, vec![task])),
@@ -773,9 +768,7 @@ fn task_groups(tasks: &[Value], project: &str) -> Vec<TaskGroup> {
             cwd.to_owned()
         };
         let first = folder_tasks[0];
-        let tool = first["command"]
-            .as_str()
-            .and_then(|command| command.split(' ').next())
+        let tool = (first.command.split(' ').next())
             .and_then(|program| match program {
                 "./mvnw" => Some("Maven wrapper"),
                 "mvn" => Some("Maven"),
@@ -785,10 +778,9 @@ fn task_groups(tasks: &[Value], project: &str) -> Vec<TaskGroup> {
                 _ => None,
             })
             .map(str::to_owned);
-        let java = &first["java"];
-        let java = java.is_object().then(|| match &java["runsOn"] {
-            Value::Null => format!("needs Java {}", plain(&java["required"])),
-            runs_on => format!("Java {}", plain(runs_on)),
+        let java = first.java.as_ref().map(|java| match java.runs_on {
+            None => format!("needs Java {}", java.required),
+            Some(runs_on) => format!("Java {runs_on}"),
         });
         let meta: Vec<String> = tool.into_iter().chain(java).collect();
         let suffix = format!(" ({folder})");
@@ -796,12 +788,11 @@ fn task_groups(tasks: &[Value], project: &str) -> Vec<TaskGroup> {
             tasks: folder_tasks
                 .iter()
                 .map(|task| {
-                    let label = text(task, "label");
                     let short = match cwd {
-                        "." => label.as_str(),
-                        _ => label.strip_suffix(&suffix).unwrap_or(&label),
+                        "." => task.label.as_str(),
+                        _ => task.label.strip_suffix(&suffix).unwrap_or(&task.label),
                     };
-                    (text(task, "id"), short.to_owned())
+                    (task.id.clone(), short.to_owned())
                 })
                 .collect(),
             title: folder,
@@ -809,13 +800,6 @@ fn task_groups(tasks: &[Value], project: &str) -> Vec<TaskGroup> {
         });
     }
     groups
-}
-
-/// A number or a string as plain text.
-fn plain(value: &Value) -> String {
-    value
-        .as_str()
-        .map_or_else(|| value.to_string(), str::to_owned)
 }
 
 /// The strip's tabs: one just opened widens into its place, and one just closed narrows away,

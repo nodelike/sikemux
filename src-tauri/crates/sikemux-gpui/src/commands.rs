@@ -3,6 +3,7 @@
 
 use gpui_kit::{App, Context, SharedString, Window};
 use serde_json::{json, Value};
+use sikemux_core::server::ConfigStatus;
 use sikemux_wire::protocol::{PaneKind, SessionId};
 use tokio::sync::oneshot;
 
@@ -157,20 +158,12 @@ fn worktree_rows(worktrees: &Value) -> Vec<Row> {
 impl Workbench {
     /// What is wrong with the project's `sikemux.json`, each as where in the file and why.
     fn config_errors(&self) -> Vec<String> {
-        self.reads
-            .tasks
-            .as_ref()
-            .filter(|read| read["configStatus"] == "invalid")
-            .and_then(|read| read["configErrors"].as_array())
+        (self.reads.tasks.as_ref())
+            .filter(|read| read.config_status == ConfigStatus::Invalid)
+            .and_then(|read| read.config_errors.as_ref())
             .into_iter()
             .flatten()
-            .map(|error| {
-                format!(
-                    "{} {}",
-                    error["path"].as_str().unwrap_or_default(),
-                    error["message"].as_str().unwrap_or_default()
-                )
-            })
+            .map(|error| format!("{} {}", error.path, error.message))
             .collect()
     }
 
@@ -180,10 +173,10 @@ impl Workbench {
             return Vec::new();
         };
         let mut rows = Vec::new();
-        if read["configStatus"] == "invalid" {
-            let first = read["configErrors"][0]["message"]
-                .as_str()
-                .unwrap_or("sikemux.json is invalid");
+        if read.config_status == ConfigStatus::Invalid {
+            let first = (read.config_errors.as_ref())
+                .and_then(|errors| errors.first())
+                .map_or("sikemux.json is invalid", |error| error.message.as_str());
             rows.push(
                 Row::new(CONFIG_INVALID, "Project config needs attention")
                     .meta("Project · sikemux.json")
@@ -191,39 +184,32 @@ impl Workbench {
                     .also("Project · sikemux.json"),
             );
         }
-        let Some(tasks) = read["tasks"].as_array() else {
-            return rows;
-        };
-        rows.extend(tasks.iter().filter_map(|task| {
-            let (id, label) = (task["id"].as_str()?, task["label"].as_str()?);
-            let cwd = task["cwd"].as_str().unwrap_or_default();
-            Some(
-                Row::new(format!("{RUN_TASK}{id}"), label.to_owned())
-                    .meta("Tasks")
-                    .also(&format!("Run task from {cwd}"))
-                    .also("Tasks"),
-            )
+        let tasks = &read.tasks;
+        rows.extend(tasks.iter().map(|task| {
+            Row::new(format!("{RUN_TASK}{}", task.id), task.label.clone())
+                .meta("Tasks")
+                .also(&format!("Run task from {}", task.cwd))
+                .also("Tasks")
         }));
         let Some(running) = self.person_runs().0 else {
             return rows;
         };
-        if let Some(task) = running["taskId"]
-            .as_str()
-            .filter(|id| tasks.iter().any(|task| task["id"] == *id))
-        {
+        let task = &running.run.task_id;
+        if tasks.iter().any(|listed| listed.id == *task) {
             rows.push(
                 Row::new(format!("{RESTART_TASK}{task}"), "Restart active task")
                     .meta("Tasks")
                     .also("Stop the current project task and start its current trusted definition"),
             );
         }
-        if let Some(execution) = running["executionId"].as_str() {
-            rows.push(
-                Row::new(format!("{STOP_TASK}{execution}"), "Stop active task")
-                    .meta("Tasks")
-                    .also("Stop only the exact terminal owned by the current project task"),
-            );
-        }
+        rows.push(
+            Row::new(
+                format!("{STOP_TASK}{}", running.run.execution_id),
+                "Stop active task",
+            )
+            .meta("Tasks")
+            .also("Stop only the exact terminal owned by the current project task"),
+        );
         rows
     }
 

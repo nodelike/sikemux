@@ -21,6 +21,7 @@ use gpui::{
     point, px, size, AnyWindowHandle, AppContext, Entity, Focusable, HeadlessAppContext, Keystroke,
 };
 use serde_json::json;
+use sikemux_core::harness::runs::RunStatus;
 use sikemux_gpui::hosts::Place;
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{core, icons, terminal, theme, WINDOW_SIZE};
@@ -360,8 +361,7 @@ fn main() -> anyhow::Result<()> {
         let task = run
             .bench
             .read_with(&run.cx, |bench, _| {
-                let tasks = bench.reads.tasks.as_ref()?["tasks"].as_array()?;
-                tasks.first()?["id"].as_str().map(str::to_owned)
+                Some(bench.reads.tasks.as_ref()?.tasks.first()?.id.clone())
             })
             .ok_or_else(|| anyhow::anyhow!("the project lists no task"))?;
         run.bench
@@ -370,7 +370,7 @@ fn main() -> anyhow::Result<()> {
             bench
                 .person_runs()
                 .0
-                .is_some_and(|run| run["status"] == "running")
+                .is_some_and(|run| run.run.status == RunStatus::Running)
         };
         for _ in 0..600 {
             let waiting = runtime

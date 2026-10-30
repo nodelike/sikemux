@@ -8,7 +8,10 @@ use gpui_kit::{
     anchored, deferred, div, px, Anchor, AnyElement, Context, FontWeight, InteractiveElement,
     IntoElement, ParentElement, StatefulInteractiveElement, Styled,
 };
-use serde_json::{json, Value};
+use serde_json::json;
+use sikemux_core::harness::runs::RunStatus;
+use sikemux_core::server::{RunView, TaskView};
+use sikemux_core::tasks::results::{TestFailure, TestResults};
 
 use crate::editor::OpenAt;
 use crate::icons::Icon;
@@ -21,30 +24,26 @@ use crate::workbench::Workbench;
 
 /// A finished run of the task the chip shows, with the task it ran.
 pub struct Finished<'a> {
-    pub run: &'a Value,
-    pub task: &'a Value,
+    pub run: &'a RunView,
+    pub task: &'a TaskView,
 }
 
 impl Finished<'_> {
     fn execution(&self) -> String {
-        self.run["executionId"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned()
+        self.run.run.execution_id.clone()
     }
 
-    fn tests(&self) -> Option<&Value> {
-        Some(&self.run["tests"]).filter(|tests| tests.is_object())
+    fn tests(&self) -> Option<&TestResults> {
+        self.run.tests.as_ref()
     }
 
-    fn failed(&self) -> u64 {
-        self.tests()
-            .map_or(0, |tests| tests["failed"].as_u64().unwrap_or(0))
+    fn failed(&self) -> u32 {
+        self.tests().map_or(0, |tests| tests.failed)
     }
 
     /// How the run ended in a word, when it failed.
     fn stopped(&self) -> Option<String> {
-        (self.run["status"] == "failed").then(|| match self.run["exitCode"].as_i64() {
+        (self.run.run.status == RunStatus::Failed).then(|| match self.run.run.exit_code {
             Some(code) => format!("exited {code}"),
             None => "failed".into(),
         })
@@ -56,10 +55,7 @@ impl Finished<'_> {
 pub fn status(finished: &Finished) -> Option<(String, bool)> {
     match finished.tests() {
         Some(_) if finished.failed() > 0 => Some((format!("{} failed", finished.failed()), true)),
-        Some(tests) => Some((
-            format!("{} passed", tests["passed"].as_u64().unwrap_or(0)),
-            false,
-        )),
+        Some(tests) => Some((format!("{} passed", tests.passed), false)),
         None => finished.stopped().map(|stopped| (stopped, true)),
     }
 }
@@ -98,9 +94,9 @@ pub fn why(bench: &mut Workbench) {
     let Some(run) = last else {
         return;
     };
-    match run["tests"].is_object() {
+    match run.tests.is_some() {
         true => bench.run_cards.tests_closed = None,
-        false => bench.run_cards.why_open = run["executionId"].as_str().map(str::to_owned),
+        false => bench.run_cards.why_open = Some(run.run.execution_id.clone()),
     }
 }
 
@@ -188,15 +184,14 @@ pub(crate) fn head_closing(
 fn tests_card(
     bench: &Workbench,
     finished: &Finished,
-    tests: &Value,
+    tests: &TestResults,
     output: Option<(u64, String)>,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let count = |key: &str| tests[key].as_u64().unwrap_or(0);
-    let mut rest = format!(" · {} passed", count("passed"));
-    if count("skipped") > 0 {
-        rest.push_str(&format!(" · {} skipped", count("skipped")));
+    let mut rest = format!(" · {} passed", tests.passed);
+    if tests.skipped > 0 {
+        rest.push_str(&format!(" · {} skipped", tests.skipped));
     }
     let title = div()
         .flex()
@@ -205,11 +200,11 @@ fn tests_card(
             div()
                 .text_color(t.danger)
                 .font_weight(FontWeight::MEDIUM)
-                .child(format!("{} failed", count("failed"))),
+                .child(format!("{} failed", tests.failed)),
         )
         .child(div().text_color(t.text_tertiary).child(rest))
         .into_any_element();
-    let failures = tests["failures"].as_array().map_or(&[][..], Vec::as_slice);
+    let failures = tests.failures.as_slice();
     let list = div()
         .id("run-card-failures")
         .max_h(px(280.))
@@ -218,11 +213,10 @@ fn tests_card(
         .flex_col()
         .gap(SPACE_2)
         .children(failures.iter().enumerate().map(|(ix, failure)| {
-            let class = failure["className"].as_str().unwrap_or_default();
-            let name = failure["name"].as_str().unwrap_or_default();
-            let message = failure["message"].as_str().unwrap_or_default().to_owned();
-            let file = failure["file"].as_str().map(PathBuf::from);
-            let line = failure["line"].as_u64().map(|line| line as u32);
+            let (class, name) = (failure.class_name.as_str(), failure.name.as_str());
+            let message = failure.message.clone();
+            let file = failure.file.as_deref().map(PathBuf::from);
+            let line = failure.line;
             div()
                 .flex()
                 .gap(SPACE_2)
@@ -300,14 +294,8 @@ fn failure_card(
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let label = finished.task["label"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    let command = finished.task["command"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    let label = finished.task.label.clone();
+    let command = finished.task.command.clone();
     let stopped = finished.stopped().unwrap_or_default();
     let title = div()
         .flex()
@@ -455,32 +443,32 @@ fn relative(project: &str, path: &str) -> String {
 
 /// What an agent is asked when the person hands it failing tests: only the failures, and how
 /// to check the fix.
-fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[Value]) -> String {
+fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[TestFailure]) -> String {
     let project = project_path(bench);
     let mut lines = vec![format!(
         "These tests fail in {} ({}):",
         file_name(Path::new(&project)),
-        finished.task["label"].as_str().unwrap_or_default()
+        finished.task.label
     )];
     lines.extend(failures.iter().map(|failure| {
-        let place = failure["file"].as_str().map(|file| {
+        let place = failure.file.as_deref().map(|file| {
             let file = relative(&project, file);
-            match failure["line"].as_u64() {
+            match failure.line {
                 Some(line) => format!(" ({file}:{line})"),
                 None => format!(" ({file})"),
             }
         });
         format!(
             "- {} › {}: {}{}",
-            failure["className"].as_str().unwrap_or_default(),
-            failure["name"].as_str().unwrap_or_default(),
-            failure["message"].as_str().unwrap_or_default(),
+            failure.class_name,
+            failure.name,
+            failure.message,
             place.unwrap_or_default()
         )
     }));
     lines.push(format!(
         "Find the cause and fix it. Then run the task {} with task_start and check testResults in workspace_inspect.",
-        finished.task["id"].as_str().unwrap_or_default()
+        finished.task.id
     ));
     lines.join("\n")
 }
@@ -488,18 +476,17 @@ fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[Value]) 
 /// What an agent is asked when a task stopped with an error: it starts the task itself to read why.
 fn failure_fix_request(bench: &Workbench, finished: &Finished) -> String {
     let task = finished.task;
-    let field = |key: &str| task[key].as_str().unwrap_or_default().to_owned();
     [
         format!(
             "The task \"{}\" in {} stopped: {}.",
-            field("label"),
+            task.label,
             file_name(Path::new(&project_path(bench))),
             finished.stopped().unwrap_or_default()
         ),
-        format!("It runs `{}` in {}.", field("command"), field("cwd")),
+        format!("It runs `{}` in {}.", task.command, task.cwd),
         format!(
             "Start it with task_start (taskId {}) and read its output with task_read to see the error, then find the cause and fix it.",
-            field("id")
+            task.id
         ),
         "Start it again afterwards and check that it keeps running.".to_owned(),
     ]
@@ -511,8 +498,8 @@ impl Workbench {
     pub fn close_run_card(&mut self) {
         let (running, last) = self.person_runs();
         if running.is_none() {
-            if let Some(execution) = last.and_then(|run| run["executionId"].as_str()) {
-                self.run_cards.tests_closed = Some(execution.to_owned());
+            if let Some(run) = last {
+                self.run_cards.tests_closed = Some(run.run.execution_id.clone());
             }
         }
         self.run_cards.why_open = None;

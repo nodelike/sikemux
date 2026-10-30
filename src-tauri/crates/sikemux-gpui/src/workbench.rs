@@ -47,6 +47,7 @@ use crate::terminal::NewTerminal;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
+use sikemux_core::server::{RunView, TaskView, TrustQuestion};
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
 /// Linux a page is a window of another connection, which X would otherwise leave it with.
@@ -1021,18 +1022,29 @@ impl Workbench {
                 self.git.catalog(&self.reads.catalog, cx);
             }
             Update::Read(key @ ("trust" | "host-trust"), value) => {
-                self.keep_read(key, value);
+                if !self.reads.keep_tasks(key, value) && key == "trust" {
+                    return;
+                }
                 self.ask_trust(cx);
+            }
+            Update::Read("tasks", value) => {
+                if !self.reads.keep_tasks("tasks", value) {
+                    return;
+                }
             }
             Update::Read("project-config", value) => {
                 crate::keymap::bind_project_actions(&crate::commands::action_keys(&value), cx);
             }
-            Update::Read(key @ ("runs" | "ports"), value) => {
-                self.keep_read(key, value);
-                if key == "runs" {
-                    self.place_agent_runs(cx);
-                    self.show_started_runs();
+            Update::Read("runs", value) => {
+                if !self.reads.keep_tasks("runs", value) {
+                    return;
                 }
+                self.place_agent_runs(cx);
+                self.show_started_runs();
+                self.time_run(cx);
+            }
+            Update::Read("ports", value) => {
+                self.keep_read("ports", value);
                 self.time_run(cx);
             }
             Update::Read("ci-shown", _) => return,
@@ -2137,8 +2149,7 @@ impl Workbench {
     fn holds(&self, update: &Update) -> bool {
         match update {
             Update::Read(
-                key @ ("hosts" | "tasks" | "usage" | "shares" | "stash" | "update" | "runs"
-                | "ports" | "trust" | "drafts"),
+                key @ ("hosts" | "usage" | "shares" | "stash" | "update" | "ports" | "drafts"),
                 value,
             ) => self.reads.holds(key, value),
             Update::HostView(host, view) => self.hosts.views.get(host) == Some(&**view),
@@ -2155,34 +2166,25 @@ impl Workbench {
     }
 
     /// The run of the project in front's tasks the person started that is going, and the last.
-    pub fn person_runs(&self) -> (Option<&Value>, Option<&Value>) {
+    pub fn person_runs(&self) -> (Option<&RunView>, Option<&RunView>) {
         let Some(path) = self.watched_project.as_deref() else {
             return (None, None);
         };
-        let mine: Vec<&Value> = self
-            .reads
-            .runs
-            .as_ref()
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|run| run["project"] == path && run["agentId"].is_null())
+        let mine: Vec<&RunView> = (self.reads.runs.iter())
+            .filter(|run| run.run.project == path && run.agent_id.is_none())
             .collect();
-        let active = |run: &Value| {
-            matches!(
-                run["status"].as_str(),
-                Some("awaiting-trust" | "starting" | "running" | "stopping")
-            )
-        };
         (
-            mine.iter().rev().find(|run| active(run)).copied(),
+            mine.iter()
+                .rev()
+                .find(|run| run.run.status.is_active())
+                .copied(),
             mine.last().copied(),
         )
     }
 
     /// Counts the seconds on the Run chip while the person's task runs with no port to show.
     fn time_run(&mut self, cx: &mut Context<Self>) {
-        let listening = |run: &Value| {
+        let listening = |run: &RunView| {
             self.reads
                 .ports
                 .as_ref()
@@ -2190,12 +2192,12 @@ impl Workbench {
                 .is_some_and(|ports| {
                     ports
                         .iter()
-                        .any(|port| port["owner"]["executionId"] == run["executionId"])
+                        .any(|port| port["owner"]["executionId"] == run.run.execution_id.as_str())
                 })
         };
         let run = self.person_runs().0;
         let counting = run.is_some_and(|run| !listening(run));
-        let started_at = run.and_then(|run| run["startedAt"].as_i64());
+        let started_at = run.and_then(|run| run.run.started_at).map(|at| at as i64);
         self.run_clock
             .update(cx, |clock, cx| clock.set(counting, started_at, cx));
     }
@@ -2220,7 +2222,7 @@ impl Workbench {
     pub fn edit_task(
         &mut self,
         project: &str,
-        task: &Value,
+        task: &TaskView,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -2762,41 +2764,26 @@ impl Workbench {
 
     /// Puts the core's next trust question to the person, each once, while nothing else is asked.
     fn ask_trust(&mut self, cx: &mut Context<Self>) {
-        let listed = |read: &Option<Value>| {
-            read.as_ref()
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-        };
         // This host's questions, then the chosen account host's, each under the host that asks.
-        let asks: Vec<(Option<String>, Value)> = listed(&self.reads.trust)
-            .into_iter()
-            .map(|ask| (None, ask))
-            .chain(
-                listed(&self.reads.host_trust)
-                    .into_iter()
-                    .map(|ask| (self.trust_host.clone(), ask)),
-            )
+        let asks: Vec<(Option<String>, TrustQuestion)> = (self.reads.trust.iter())
+            .map(|ask| (None, ask.clone()))
+            .chain((self.reads.host_trust.iter()).map(|ask| (self.trust_host.clone(), ask.clone())))
             .collect();
-        let asked_as = |host: &Option<String>, ask: &Value| {
-            format!(
-                "{}:{}",
-                host.as_deref().unwrap_or_default(),
-                ask["id"].as_str().unwrap_or_default()
-            )
+        let asked_as = |host: &Option<String>, ask: &TrustQuestion| {
+            format!("{}:{}", host.as_deref().unwrap_or_default(), ask.id)
         };
         self.trust_asked
             .retain(|asked| asks.iter().any(|(host, ask)| &asked_as(host, ask) == asked));
         if self.overlays.asking.is_some() {
             return;
         }
-        let Some((host, ask)) = asks.into_iter().find(|(host, ask)| {
-            ask["id"].is_string() && !self.trust_asked.contains(&asked_as(host, ask))
-        }) else {
+        let Some((host, ask)) = asks
+            .into_iter()
+            .find(|(host, ask)| !self.trust_asked.contains(&asked_as(host, ask)))
+        else {
             return;
         };
-        let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
-        let id = text(&ask["id"]);
+        let id = ask.id.clone();
         self.trust_asked.insert(asked_as(&host, &ask));
         let on = host.as_ref().and_then(|host| {
             self.host_choices()
@@ -2804,26 +2791,23 @@ impl Workbench {
                 .find(|option| option.choice == crate::hosts::HostChoice::Account(host.clone()))
                 .map(|option| option.label)
         });
-        let commands: Vec<String> = ask["commands"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|command| format!("{}: {}", text(&command["label"]), text(&command["command"])))
+        let commands: Vec<String> = (ask.commands.iter())
+            .map(|command| format!("{}: {}", command.label, command.command))
             .collect();
-        let body: Vec<String> = [text(&ask["body"]), commands.join("\n")]
+        let body: Vec<String> = [ask.body.clone(), commands.join("\n")]
             .into_iter()
             .filter(|part| !part.is_empty())
             .collect();
         #[cfg(feature = "drive")]
         crate::drive::trace(format_args!("trust question set"));
         let title = match on {
-            Some(name) => format!("{} on {name}", text(&ask["title"])),
-            None => text(&ask["title"]),
+            Some(name) => format!("{} on {name}", ask.title),
+            None => ask.title.clone(),
         };
         self.confirm(
             title,
             body.join("\n\n"),
-            text(&ask["confirmLabel"]),
+            ask.confirm_label,
             false,
             move |bench, trust, _, _| {
                 let answer = Ask::Call {

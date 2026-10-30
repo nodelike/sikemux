@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
@@ -197,7 +197,7 @@ pub struct ProjectConfig {
     pub check: Option<String>,
 }
 
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConfigErrorCode {
     InvalidJson,
@@ -211,7 +211,7 @@ pub enum ConfigErrorCode {
     ReadFailed,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigError {
     /// Where in the file, as `$.tasks[0].cwd`.
@@ -253,7 +253,7 @@ pub enum ConfigLoad {
     },
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TrustCommand {
     pub label: String,

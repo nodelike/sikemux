@@ -57,7 +57,7 @@ pub enum Launch {
     Failed(String),
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Run {
     pub execution_id: String,

@@ -201,9 +201,9 @@ impl Tasks {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Source {
+pub enum Source {
     /// From `sikemux.json`.
     Project,
     /// From the person's `.sikemux/tasks.json`.
@@ -334,30 +334,81 @@ fn relative(project: &Path, path: &Path) -> String {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct JavaView {
-    required: u32,
-    runs_on: Option<u32>,
-    current: Option<u32>,
+pub struct JavaView {
+    pub required: u32,
+    pub runs_on: Option<u32>,
+    pub current: Option<u32>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TaskView {
-    id: String,
-    label: String,
-    command: String,
+pub struct TaskView {
+    pub id: String,
+    pub label: String,
+    pub command: String,
     /// Relative to the project, `.` for its root.
-    cwd: String,
-    source: Source,
+    pub cwd: String,
+    pub source: Source,
     #[serde(skip_serializing_if = "Option::is_none")]
-    java: Option<JavaView>,
+    pub java: Option<JavaView>,
     /// A run of it the person started is going.
-    running: bool,
+    pub running: bool,
     /// The terminal that run shows in.
     #[serde(skip_serializing_if = "Option::is_none")]
-    session_id: Option<u64>,
+    pub session_id: Option<u64>,
+}
+
+/// Whether the project's `sikemux.json` is there, and whether it reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConfigStatus {
+    Absent,
+    Invalid,
+    Valid,
+}
+
+/// Everything a project can run, as the `tasks` call answers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskList {
+    pub project: PathBuf,
+    pub config_status: ConfigStatus,
+    /// What is wrong with an invalid `sikemux.json`.
+    pub config_errors: Option<Vec<config::ConfigError>>,
+    pub trusted: bool,
+    pub tasks: Vec<TaskView>,
+    /// The task to offer first: the one the person has running, else the first.
+    pub default: Option<String>,
+}
+
+/// A trust question waiting on the person, as the `trustAsks` call answers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustQuestion {
+    pub id: String,
+    pub project: String,
+    /// The run that waits on the answer, when one does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<String>,
+    pub title: String,
+    pub body: String,
+    pub commands: Vec<TrustCommand>,
+    pub confirm_label: String,
+}
+
+/// A run as clients show it, with the agent that started it and the test results it left,
+/// as the `taskRuns` call answers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunView {
+    #[serde(flatten)]
+    pub run: Run,
+    pub agent_id: Option<String>,
+    pub terminal_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestResults>,
 }
 
 fn view(project: &Path, task: &Definition, run: Option<&Run>) -> TaskView {
@@ -504,7 +555,7 @@ pub(crate) async fn trust_project(
 }
 
 /// Everything the project can run, in the order the person picks from.
-pub(crate) async fn list(core: &Arc<Core>, project: String) -> CoreResult<Value> {
+pub(crate) async fn list(core: &Arc<Core>, project: String) -> CoreResult<TaskList> {
     let core = core.clone();
     blocking(move || {
         let project = PathBuf::from(project);
@@ -524,24 +575,23 @@ pub(crate) async fn list(core: &Arc<Core>, project: String) -> CoreResult<Value>
             .find(|task| person_run(task).is_some())
             .or(tasks.first())
             .map(|task| task.id.clone());
-        Ok(json!({
-            "project": project,
-            "configStatus": match &config {
-                ConfigLoad::Absent { .. } => "absent",
-                ConfigLoad::Invalid { .. } => "invalid",
-                ConfigLoad::Valid { .. } => "valid",
+        Ok(TaskList {
+            config_status: match &config {
+                ConfigLoad::Absent { .. } => ConfigStatus::Absent,
+                ConfigLoad::Invalid { .. } => ConfigStatus::Invalid,
+                ConfigLoad::Valid { .. } => ConfigStatus::Valid,
             },
-            "configErrors": match &config {
-                ConfigLoad::Invalid { errors, .. } => serde_json::to_value(errors)?,
-                _ => Value::Null,
+            config_errors: match &config {
+                ConfigLoad::Invalid { errors, .. } => Some(errors.clone()),
+                _ => None,
             },
-            "trusted": trusted,
-            "tasks": tasks
-                .iter()
+            trusted,
+            tasks: (tasks.iter())
                 .map(|task| view(&project, task, person_run(task)))
-                .collect::<Vec<_>>(),
-            "default": shown,
-        }))
+                .collect(),
+            default: shown,
+            project,
+        })
     })
     .await
 }
@@ -857,13 +907,17 @@ pub(crate) async fn config_trusted(
 }
 
 /// The trust questions waiting on the person.
-pub(crate) fn asks(core: &Core) -> Vec<Value> {
-    core.tasks
-        .state
-        .locked()
-        .asking
-        .values()
-        .map(|asked| serde_json::to_value(asked).unwrap_or_default())
+pub(crate) fn asks(core: &Core) -> Vec<TrustQuestion> {
+    (core.tasks.state.locked().asking.values())
+        .map(|asked| TrustQuestion {
+            id: asked.id.clone(),
+            project: asked.project.clone(),
+            execution_id: asked.execution_id.clone(),
+            title: asked.ask.title.clone(),
+            body: asked.ask.body.clone(),
+            commands: asked.ask.commands.clone(),
+            confirm_label: asked.ask.confirm_label.clone(),
+        })
         .collect()
 }
 
@@ -1310,28 +1364,17 @@ pub(crate) async fn rerun_failed(core: &Arc<Core>, params: RerunParams) -> CoreR
 
 /// Every run as clients show it, with what it waits on the person for and
 /// the test results it left.
-pub(crate) fn runs(core: &Core) -> Vec<Value> {
+pub(crate) fn runs(core: &Core) -> Vec<RunView> {
     let runs = core.harness.all_runs();
     core.tasks
         .retain(|id| runs.iter().any(|run| run.execution_id == id));
     let state = core.tasks.state.locked();
     runs.into_iter()
-        .map(|run| {
-            let mut value = serde_json::to_value(&run).unwrap_or_default();
-            if let Some(object) = value.as_object_mut() {
-                object.insert("agentId".into(), run.agent_id.clone().into());
-                object.insert(
-                    "terminalKey".into(),
-                    terminal_key(&run.project, &run.task_id).into(),
-                );
-                if let Some(tests) = state.tests.get(&run.execution_id) {
-                    object.insert(
-                        "tests".into(),
-                        serde_json::to_value(tests).unwrap_or_default(),
-                    );
-                }
-            }
-            value
+        .map(|run| RunView {
+            agent_id: run.agent_id.clone(),
+            terminal_key: terminal_key(&run.project, &run.task_id),
+            tests: state.tests.get(&run.execution_id).cloned(),
+            run,
         })
         .collect()
 }
@@ -1362,9 +1405,9 @@ pub(crate) fn ended(core: &Core, pty_id: SessionId) {
 /// Tells clients when a run changes, which they read again with `taskRuns`.
 pub(crate) async fn publish_runs(core: Arc<Core>) {
     let mut changes = core.harness.subscribe();
-    let mut last = Vec::new();
+    let mut last = Value::Array(Vec::new());
     while changes.changed().await.is_ok() {
-        let now = runs(&core);
+        let now = serde_json::to_value(runs(&core)).unwrap_or_default();
         if now != last {
             last = now;
             core.changes.changed(Topic::Runs, None, None);
