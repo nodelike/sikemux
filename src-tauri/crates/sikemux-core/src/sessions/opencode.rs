@@ -371,6 +371,15 @@ impl AgentOps for Opencode {
         config["model"] = route.agent_model.clone().into();
         env.insert("OPENCODE_CONFIG_CONTENT".into(), config.to_string());
     }
+
+    fn skills_folder(&self) -> Option<PathBuf> {
+        let config_home = environment_path("XDG_CONFIG_HOME").unwrap_or_else(|| {
+            sikemux_process::paths::home()
+                .unwrap_or_default()
+                .join(".config")
+        });
+        Some(config_home.join("opencode/skills"))
+    }
 }
 
 #[cfg(test)]

@@ -14,7 +14,6 @@ use sikemux_process::sync::Locked;
 
 use super::changed::Topic;
 use crate::agent_catalog::AgentKind;
-use crate::sessions::roots::{agent_config_root, environment_path};
 use crate::skills::{self, Skill};
 
 use super::connection::blocking;
@@ -63,21 +62,11 @@ fn global_folders() -> Vec<(&'static str, PathBuf)> {
     let Some(home) = sikemux_process::paths::home() else {
         return Vec::new();
     };
-    let config_home = environment_path("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
-    let skills = |root: Option<PathBuf>| root.map(|root| root.join("skills"));
-    let mut folders = vec![
-        ("Claude", skills(agent_config_root("claude", None))),
-        ("Codex", skills(agent_config_root("codex", None))),
-        ("Codex and other agents", Some(home.join(".agents/skills"))),
-        ("OpenCode", Some(config_home.join("opencode/skills"))),
-        ("OMP", skills(agent_config_root("omp", None))),
-        ("Grok", skills(AgentKind::Grok.home_root())),
-        ("Hermes", skills(AgentKind::Hermes.home_root())),
-        ("Pi", skills(AgentKind::Pi.home_root())),
-    ]
-    .into_iter()
-    .filter_map(|(label, folder)| Some((label, folder?)))
-    .collect::<Vec<_>>();
+    let mut folders: Vec<(&'static str, PathBuf)> = AgentKind::ALL
+        .into_iter()
+        .filter_map(|kind| Some((kind.entry().label, kind.ops().skills_folder()?)))
+        .collect();
+    folders.push(("Codex and other agents", home.join(".agents/skills")));
     let mut seen = Vec::new();
     folders.retain(|(_, folder)| {
         let real = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());

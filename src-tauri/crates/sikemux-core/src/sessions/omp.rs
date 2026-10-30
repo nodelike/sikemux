@@ -427,6 +427,10 @@ impl AgentOps for Omp {
     fn prepare_route(&self, omp_extension: &Path) -> std::io::Result<()> {
         sikemux_process::files::write_atomic(omp_extension, OMP_EXTENSION.as_bytes(), false)
     }
+
+    fn skills_folder(&self) -> Option<PathBuf> {
+        Some(AgentKind::Omp.home_root()?.join("skills"))
+    }
 }
 
 #[cfg(test)]

@@ -14,8 +14,11 @@ use crate::agent_accounts::sign_in::SignIn;
 use crate::agent_accounts::status::{AccountStatus, AgentStatus};
 use crate::agent_accounts::usage::Usage;
 use crate::agent_catalog::AgentKind;
+use crate::git_guard::homes::GitHook;
 use crate::launch::providers::ChatRoute;
 use crate::launch::tools::{TerminalSetup, Tools};
+use crate::server::activity_log::{ModelTally, ReadState};
+use crate::server::chat::feed::Said;
 use crate::sessions::context::SessionContext;
 use crate::sessions::recent::{Found, Hit, PageScan};
 use crate::sessions::search::Prose;
@@ -37,6 +40,12 @@ pub(crate) type DeleteCommand = for<'a> fn(
     config_path: Option<&'a str>,
     session_id: &'a str,
 ) -> Pending<'a, Result<(), String>>;
+
+/// Counts the tokens in transcript text its CLI wrote, read on from `state`.
+pub(crate) type TokenCounter = fn(text: &str, state: ReadState) -> (ModelTally, ReadState);
+
+/// What one record of the transcript its CLI writes says, each with whether a turn starts there.
+pub(crate) type SaidReader = fn(record: &Value, items: &mut Vec<(bool, Said)>);
 
 /// Where an agent writes the sessions of one folder and account.
 #[derive(Default)]
@@ -249,6 +258,44 @@ pub(crate) trait AgentOps: Sync {
 
     /// The plugin its ACP sessions load, beside their folder and tools.
     fn acp_plugin(&self) -> Option<&'static Path> {
+        None
+    }
+
+    /// How it counts a turn's tokens from its transcript, for agents that report them
+    /// only there.
+    fn transcript_tokens(&self) -> Option<TokenCounter> {
+        None
+    }
+
+    /// How what an agent in a terminal said is read from its transcript.
+    fn transcript_said(&self) -> Option<SaidReader> {
+        None
+    }
+
+    /// Whether its transcript marks where a turn ends. When it does not, its next
+    /// prompt ends the turn before.
+    fn transcript_ends_turns(&self) -> bool {
+        true
+    }
+
+    /// The arguments its CLI signs an account in with, for agents that keep separate accounts.
+    fn account_sign_in(&self) -> Option<&'static [&'static str]> {
+        None
+    }
+
+    /// The arguments its CLI signs an account out with.
+    fn account_sign_out(&self) -> Option<&'static [&'static str]> {
+        None
+    }
+
+    /// How it is given the git hook, for an agent that takes hooks only from its
+    /// home's config; `terminal` when it runs in a terminal rather than a chat.
+    fn git_hook(&self, _terminal: bool) -> Option<GitHook> {
+        None
+    }
+
+    /// Its own global skills folder, whether or not it exists yet.
+    fn skills_folder(&self) -> Option<PathBuf> {
         None
     }
 

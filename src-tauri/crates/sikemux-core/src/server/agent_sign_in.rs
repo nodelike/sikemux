@@ -139,12 +139,13 @@ pub(super) async fn sign_in_launcher(core: &Arc<Core>, params: LauncherParams) -
 pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()> {
     account.check()?;
     link_shared(account.agent.as_str(), account.config_path.as_deref());
+    let args = account
+        .agent
+        .ops()
+        .account_sign_in()
+        .ok_or("Only Claude and Codex keep separate accounts")?;
     let mut command = account.command().await?;
-    match account.agent {
-        AgentKind::Claude => command.args(["auth", "login", "--claudeai"]),
-        AgentKind::Codex => command.arg("login"),
-        _ => return Err("Only Claude and Codex keep separate accounts".into()),
-    };
+    command.args(args);
     command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -280,12 +281,13 @@ pub(super) fn cancel(account: Account) {
 
 pub(super) async fn sign_out(account: Account) -> CoreResult<()> {
     account.check()?;
+    let args = account
+        .agent
+        .ops()
+        .account_sign_out()
+        .ok_or("Only Claude and Codex keep separate accounts")?;
     let mut command = account.command().await?;
-    match account.agent {
-        AgentKind::Claude => command.args(["auth", "logout"]),
-        AgentKind::Codex => command.arg("logout"),
-        _ => return Err("Only Claude and Codex keep separate accounts".into()),
-    };
+    command.args(args);
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

@@ -16,10 +16,12 @@ use crate::agent_accounts::defaults::{
 };
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
+use crate::git_guard::homes::{self, GitHook};
 use crate::launch::tools::TerminalSetup;
 use crate::launch::tools::Tools;
 use sikemux_process::user_environment::shell_var;
 use std::fs;
+use std::path::PathBuf;
 
 // ---- hermes — `sessions` table in ~/.hermes/state.db (SQLite) -----------
 fn hermes_db() -> Option<Connection> {
@@ -237,6 +239,18 @@ impl AgentOps for Hermes {
             .ok()
             .and_then(|text| yaml_agent_reasoning_effort(&text))
             .and_then(|value| clean_effort("hermes", &value))
+    }
+
+    fn git_hook(&self, _terminal: bool) -> Option<GitHook> {
+        Some(GitHook {
+            config: homes::hermes_config,
+            // Hermes skips a hook in its config until someone approves it at a terminal.
+            environment: &[("HERMES_ACCEPT_HOOKS", "1")],
+        })
+    }
+
+    fn skills_folder(&self) -> Option<PathBuf> {
+        Some(AgentKind::Hermes.home_root()?.join("skills"))
     }
 }
 

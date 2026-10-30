@@ -31,7 +31,9 @@ use crate::agent_accounts::usage::{self, Usage};
 use crate::agent_catalog::AgentKind;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, DeleteCommand, RenameCommand, SessionPlaces};
+use crate::agent_ops::{SaidReader, TokenCounter};
 use crate::launch::tools::TerminalSetup;
+use crate::server::{activity_log, transcript};
 use notify::RecursiveMode;
 use std::collections::BTreeMap;
 use std::future::ready;
@@ -534,6 +536,26 @@ impl AgentOps for Codex {
 
     fn signed_in(&self, env: &BTreeMap<String, String>) -> Option<SignIn> {
         sign_in::codex_signed_in(env)
+    }
+
+    fn transcript_tokens(&self) -> Option<TokenCounter> {
+        Some(activity_log::count_codex_tokens)
+    }
+
+    fn transcript_said(&self) -> Option<SaidReader> {
+        Some(transcript::codex)
+    }
+
+    fn account_sign_in(&self) -> Option<&'static [&'static str]> {
+        Some(&["login"])
+    }
+
+    fn account_sign_out(&self) -> Option<&'static [&'static str]> {
+        Some(&["logout"])
+    }
+
+    fn skills_folder(&self) -> Option<PathBuf> {
+        Some(AgentKind::Codex.home_root()?.join("skills"))
     }
 }
 

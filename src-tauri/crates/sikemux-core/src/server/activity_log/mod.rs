@@ -491,7 +491,7 @@ struct ModelTokens {
 }
 
 #[derive(Default)]
-struct ModelTally(Vec<ModelTokens>);
+pub(crate) struct ModelTally(Vec<ModelTokens>);
 
 impl ModelTally {
     fn add(&mut self, model: &str, speed: &str, count: TokenCount) {
@@ -513,7 +513,7 @@ impl ModelTally {
 /// Where reading a transcript stopped. Codex names its model and speed once per
 /// turn, ahead of the token reports, so both carry over to the next read.
 #[derive(Default, Debug, PartialEq, Clone)]
-struct ReadState {
+pub(crate) struct ReadState {
     mark: String,
     model: String,
     speed: String,
@@ -556,11 +556,10 @@ impl ActivityLog {
         let Some((text, next_offset)) = read_complete_lines(&path, offset) else {
             return;
         };
-        let (tally, next) = match transcript.kind {
-            AgentKind::Claude => count_claude_tokens(&text, state),
-            AgentKind::Codex => count_codex_tokens(&text, state),
-            _ => return,
+        let Some(count) = transcript.kind.ops().transcript_tokens() else {
+            return;
         };
+        let (tally, next) = count(&text, state);
         self.with_database(|db| {
             db.execute(
                 "INSERT INTO transcripts (session, path, offset, mark, model, speed) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -597,10 +596,10 @@ impl ActivityLog {
     }
 }
 
-/// Claude and Codex report a turn's tokens only in the transcript their CLI
-/// writes. Every other chat agent says them in its answer to the prompt.
+/// Some agents report a turn's tokens only in the transcript their CLI writes.
+/// Every other chat agent says them in its answer to the prompt.
 fn counts_from_transcript(kind: AgentKind) -> bool {
-    matches!(kind, AgentKind::Claude | AgentKind::Codex)
+    kind.ops().transcript_tokens().is_some()
 }
 
 impl ActivityLog {
@@ -677,7 +676,7 @@ fn read_complete_lines(path: &Path, offset: u64) -> Option<(String, u64)> {
 
 /// Claude writes one line per content block, each repeating its message's
 /// usage, so a message counts once. `mark` is the last message counted.
-fn count_claude_tokens(text: &str, state: ReadState) -> (ModelTally, ReadState) {
+pub(crate) fn count_claude_tokens(text: &str, state: ReadState) -> (ModelTally, ReadState) {
     let mut tally = ModelTally::default();
     let mut seen: HashSet<String> = HashSet::new();
     let mut last = state.mark;
@@ -750,7 +749,7 @@ fn codex_speed(tier: &str) -> &'static str {
 
 /// Codex reports each turn's usage beside a running total, and sometimes
 /// repeats a report. The mark is the running total last counted.
-fn count_codex_tokens(text: &str, state: ReadState) -> (ModelTally, ReadState) {
+pub(crate) fn count_codex_tokens(text: &str, state: ReadState) -> (ModelTally, ReadState) {
     let mut tally = ModelTally::default();
     let mut state = state;
     for line in text.lines() {

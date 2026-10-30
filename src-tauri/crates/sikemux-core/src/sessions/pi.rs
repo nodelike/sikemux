@@ -312,6 +312,10 @@ impl AgentOps for Pi {
     ) -> Pending<'a, AgentStatus> {
         Box::pin(status::pi_sign_in(program, config_path))
     }
+
+    fn skills_folder(&self) -> Option<PathBuf> {
+        Some(AgentKind::Pi.home_root()?.join("skills"))
+    }
 }
 
 #[cfg(test)]

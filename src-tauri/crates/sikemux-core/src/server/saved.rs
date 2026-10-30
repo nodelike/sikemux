@@ -51,7 +51,7 @@ fn providers(core: &Core) -> Vec<RecentProvider> {
         let Some(agent) = AgentKind::from_name(&profile.provider) else {
             continue;
         };
-        if matches!(agent, AgentKind::Claude | AgentKind::Codex) && profile.config_path.is_some() {
+        if agent.entry().accounts && profile.config_path.is_some() {
             providers.extend(kept(agent, profile.config_path));
         }
     }

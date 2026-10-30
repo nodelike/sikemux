@@ -17,6 +17,7 @@ use super::{file_stamp, FileStamp};
 use crate::agent_accounts::defaults::{clean_effort, clean_model, toml_section_string};
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::git_guard::homes::{self, GitHook};
 use crate::git_guard::shim;
 use crate::launch::tools::TerminalSetup;
 use crate::launch::tools::Tools;
@@ -459,6 +460,18 @@ impl AgentOps for Grok {
             .ok()
             .and_then(|text| toml_section_string(&text, "models", "default_reasoning_effort"))
             .and_then(|value| clean_effort("grok", &value))
+    }
+
+    /// A Grok chat loads the hook as a plugin instead.
+    fn git_hook(&self, terminal: bool) -> Option<GitHook> {
+        terminal.then_some(GitHook {
+            config: homes::grok_config,
+            environment: &[],
+        })
+    }
+
+    fn skills_folder(&self) -> Option<PathBuf> {
+        Some(AgentKind::Grok.home_root()?.join("skills"))
     }
 }
 

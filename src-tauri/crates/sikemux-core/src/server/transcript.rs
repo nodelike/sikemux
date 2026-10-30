@@ -92,10 +92,8 @@ pub(crate) fn read(
         let line = &rest[..at];
         if let Ok(value) = serde_json::from_slice::<Value>(line) {
             let mut items = Vec::new();
-            match cli {
-                AgentKind::Claude => claude(&value, &mut items),
-                AgentKind::Codex => codex(&value, &mut items),
-                _ => {}
+            if let Some(said) = cli.ops().transcript_said() {
+                said(&value, &mut items);
             }
             for (starts, item) in items {
                 push(&mut said, cli, offset, starts, item);
@@ -128,8 +126,8 @@ pub(crate) fn read(
 }
 
 /// Adds `item`, unless it repeats the one before it: a Codex rollout can
-/// carry the same message both as an event and as a finished item. Claude
-/// writes nothing where a turn ends, so its next prompt ends the one before.
+/// carry the same message both as an event and as a finished item. In a
+/// transcript that marks no turn's end, the next prompt ends the one before.
 fn push(
     said: &mut Vec<(u64, bool, Said)>,
     cli: AgentKind,
@@ -151,7 +149,7 @@ fn push(
             starts = false;
         }
         let open = !matches!(last, Said::TurnEnded { .. } | Said::Failed(_));
-        if cli == AgentKind::Claude && starts && open {
+        if !cli.ops().transcript_ends_turns() && starts && open {
             said.push((offset, false, Said::TurnEnded { cancelled: false }));
         }
     }
@@ -205,7 +203,7 @@ fn prompt(text: String, items: &mut Vec<(bool, Said)>) {
     }
 }
 
-fn claude(record: &Value, items: &mut Vec<(bool, Said)>) {
+pub(crate) fn claude(record: &Value, items: &mut Vec<(bool, Said)>) {
     let flag = |key: &str| record.get(key).and_then(Value::as_bool) == Some(true);
     if flag("isSidechain") || flag("isMeta") {
         return;
@@ -284,7 +282,7 @@ fn claude_title(name: &str, input: &Value) -> String {
     }
 }
 
-fn codex(record: &Value, items: &mut Vec<(bool, Said)>) {
+pub(crate) fn codex(record: &Value, items: &mut Vec<(bool, Said)>) {
     let payload = &record["payload"];
     let kind = payload.get("type").and_then(Value::as_str);
     match record.get("type").and_then(Value::as_str) {

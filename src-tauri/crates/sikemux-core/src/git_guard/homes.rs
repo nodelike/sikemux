@@ -10,6 +10,14 @@ use crate::launch::homes;
 
 use super::shim;
 
+/// How an agent that takes hooks only from its home's config is given the git hook.
+pub(crate) struct GitHook {
+    /// Its config, as text, with the hook running `command` added.
+    pub(crate) config: fn(config: &str, command: &str) -> Result<String, String>,
+    /// What else its process needs for the hook to run.
+    pub(crate) environment: &'static [(&'static str, &'static str)],
+}
+
 /// The variables that start `provider` in a private home running the git
 /// hook, where `given` reads the variables its launch already has. A Grok chat
 /// loads the hook as a plugin instead, so only Grok in a terminal needs one.
@@ -22,25 +30,24 @@ pub(crate) fn environment<'a>(
     let Some(kind) = AgentKind::from_name(provider) else {
         return Vec::new();
     };
-    let with_hook: fn(&str, &str) -> Result<String, String> = match kind {
-        AgentKind::Hermes => hermes_config,
-        AgentKind::Grok if terminal => grok_config,
-        _ => return Vec::new(),
+    let Some(hook) = kind.ops().git_hook(terminal) else {
+        return Vec::new();
     };
     let (Some((data_dir, command)), Some((home, _))) = (shim::hook(), homes::private(kind)) else {
         return Vec::new();
     };
     let given = given(home.variable).map(PathBuf::from);
-    match guarded_home(kind, data_dir, &command, with_hook, agent_id, given) {
+    match guarded_home(kind, data_dir, &command, hook.config, agent_id, given) {
         Ok(path) => {
             let mut env = vec![(
                 home.variable.to_owned(),
                 path.to_string_lossy().into_owned(),
             )];
-            if kind == AgentKind::Hermes {
-                // Hermes skips a hook in its config until someone approves it at a terminal.
-                env.push(("HERMES_ACCEPT_HOOKS".into(), "1".into()));
-            }
+            env.extend(
+                hook.environment
+                    .iter()
+                    .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+            );
             env
         }
         Err(error) => {
@@ -84,7 +91,7 @@ fn guarded_home(
 
 /// `config_yaml` with the hook added to the person's own `pre_tool_call`
 /// hooks, edited as text so the rest of the file stays as Hermes wrote it.
-fn hermes_config(config_yaml: &str, command: &str) -> Result<String, String> {
+pub(crate) fn hermes_config(config_yaml: &str, command: &str) -> Result<String, String> {
     let quoted = serde_json::to_string(command).map_err(|error| error.to_string())?;
     let entry = format!("{{matcher: terminal, command: {quoted}}}");
     if config_yaml.contains(&entry) {
@@ -145,7 +152,7 @@ fn hermes_config(config_yaml: &str, command: &str) -> Result<String, String> {
 }
 
 /// `config_toml` with the hook added beside the person's own hooks.
-fn grok_config(config_toml: &str, command: &str) -> Result<String, String> {
+pub(crate) fn grok_config(config_toml: &str, command: &str) -> Result<String, String> {
     let mut config: toml::Table = config_toml.parse().map_err(|error| format!("{error}"))?;
     let hooks = config
         .entry("hooks")

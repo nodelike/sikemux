@@ -27,8 +27,10 @@ use crate::agent_accounts::usage::{self, Usage};
 use crate::agent_catalog::AgentKind;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::agent_ops::{SaidReader, TokenCounter};
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
+use crate::server::{activity_log, transcript};
 use notify::RecursiveMode;
 use sikemux_process::user_environment::shell_var;
 use std::collections::BTreeMap;
@@ -544,6 +546,31 @@ impl AgentOps for Claude {
 
     fn signed_in(&self, env: &BTreeMap<String, String>) -> Option<SignIn> {
         sign_in::claude_signed_in(env)
+    }
+
+    fn transcript_tokens(&self) -> Option<TokenCounter> {
+        Some(activity_log::count_claude_tokens)
+    }
+
+    fn transcript_said(&self) -> Option<SaidReader> {
+        Some(transcript::claude)
+    }
+
+    /// Claude writes nothing where a turn ends.
+    fn transcript_ends_turns(&self) -> bool {
+        false
+    }
+
+    fn account_sign_in(&self) -> Option<&'static [&'static str]> {
+        Some(&["auth", "login", "--claudeai"])
+    }
+
+    fn account_sign_out(&self) -> Option<&'static [&'static str]> {
+        Some(&["auth", "logout"])
+    }
+
+    fn skills_folder(&self) -> Option<PathBuf> {
+        Some(AgentKind::Claude.home_root()?.join("skills"))
     }
 }
 
