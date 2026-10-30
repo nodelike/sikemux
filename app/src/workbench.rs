@@ -191,12 +191,9 @@ pub struct Workbench {
     pub runs_to_show: HashSet<String>,
     /// The agent in front whose worktree its header reads, by id and folder, and where it is.
     pub watched_worktree: Option<(String, String, crate::hosts::Place)>,
-    /// The core's trust questions already put to the person, by id.
-    trust_asked: HashSet<String>,
+    trust: Trust,
     /// The skills agents saved in their own folders that the person was told of, by path.
     pub(crate) skills_offered: HashSet<String>,
-    /// The account host whose trust questions `host-trust` holds, asked beside this host's.
-    trust_host: Option<String>,
     /// The window the store draws, for what is said in it from outside a draw.
     pub(crate) window: AnyWindowHandle,
     pub parts: Parts,
@@ -625,9 +622,8 @@ impl Workbench {
             track: crate::track::Slide::default(),
             runs_to_show: HashSet::new(),
             watched_worktree: None,
-            trust_asked: HashSet::new(),
+            trust: Trust::default(),
             skills_offered: HashSet::new(),
-            trust_host: None,
             chats: crate::chat::Chats::default(),
             git: crate::git::GitTab {
                 pane: None,
@@ -885,7 +881,7 @@ impl Workbench {
             }
             Update::Read(key @ ("questions" | "host-questions"), value) => {
                 let host_read = key == "host-questions";
-                let host = host_read.then(|| self.trust_host.clone()).flatten();
+                let host = host_read.then(|| self.trust.host.clone()).flatten();
                 self.chats.questions_read(value, host_read, host);
             }
             Update::Read("theme", value) => {
@@ -2007,9 +2003,9 @@ impl Workbench {
             Watch::new("activitySummary", activity, &[Topic::Activity]),
         );
         match &place {
-            crate::hosts::Place::Account(host) if self.trust_host.as_ref() != Some(host) => {
+            crate::hosts::Place::Account(host) if self.trust.host.as_ref() != Some(host) => {
                 self.reads.forget("host-trust");
-                self.trust_host = Some(host.clone());
+                self.trust.host = Some(host.clone());
                 target.watch(
                     "host-trust",
                     Watch::new("trustAsks", json!({}), &[Topic::Trust]),
@@ -2020,12 +2016,12 @@ impl Workbench {
                     Watch::new("questions", json!({}), &[Topic::Questions]),
                 );
             }
-            crate::hosts::Place::This if self.trust_host.is_some() => {
+            crate::hosts::Place::This if self.trust.host.is_some() => {
                 for key in ["host-trust", "host-questions"] {
                     target.unwatch(key);
                     self.reads.forget(key);
                 }
-                self.trust_host = None;
+                self.trust.host = None;
                 self.chats.host_questions.clear();
                 self.chats
                     .questions
@@ -2767,27 +2763,14 @@ impl Workbench {
 
     /// Puts the core's next trust question to the person, each once, while nothing else is asked.
     fn ask_trust(&mut self, cx: &mut Context<Self>) {
-        // This host's questions, then the chosen account host's, each under the host that asks.
-        let asks: Vec<(Option<String>, TrustQuestion)> = (self.reads.trust.iter())
-            .map(|ask| (None, ask.clone()))
-            .chain((self.reads.host_trust.iter()).map(|ask| (self.trust_host.clone(), ask.clone())))
-            .collect();
-        let asked_as = |host: &Option<String>, ask: &TrustQuestion| {
-            format!("{}:{}", host.as_deref().unwrap_or_default(), ask.id)
-        };
-        self.trust_asked
-            .retain(|asked| asks.iter().any(|(host, ask)| &asked_as(host, ask) == asked));
-        if self.overlays.asking.is_some() {
-            return;
-        }
-        let Some((host, ask)) = asks
-            .into_iter()
-            .find(|(host, ask)| !self.trust_asked.contains(&asked_as(host, ask)))
+        let free = self.overlays.asking.is_none();
+        let Some((host, ask)) = self
+            .trust
+            .next(&self.reads.trust, &self.reads.host_trust, free)
         else {
             return;
         };
         let id = ask.id.clone();
-        self.trust_asked.insert(asked_as(&host, &ask));
         let on = host.as_ref().and_then(|host| {
             self.host_choices()
                 .into_iter()
@@ -4410,6 +4393,44 @@ impl Workbench {
         );
         filter.update(cx, |state, cx| state.focus(window, cx));
         self.filter = Some(filter);
+    }
+}
+
+/// The trust questions already put to the person, and the account host in front whose trust
+/// and agents' questions are read beside this host's.
+#[derive(Default)]
+struct Trust {
+    /// By the host that asks and the question's id.
+    asked: HashSet<String>,
+    host: Option<String>,
+}
+
+impl Trust {
+    /// This host's questions, then the account host's, each under the host that asks: the first
+    /// not put to the person yet, now marked as put, while `free`. Forgets those no longer asked.
+    fn next(
+        &mut self,
+        here: &[TrustQuestion],
+        there: &[TrustQuestion],
+        free: bool,
+    ) -> Option<(Option<String>, TrustQuestion)> {
+        let asks: Vec<(Option<String>, &TrustQuestion)> = (here.iter())
+            .map(|ask| (None, ask))
+            .chain(there.iter().map(|ask| (self.host.clone(), ask)))
+            .collect();
+        let asked_as = |host: &Option<String>, ask: &TrustQuestion| {
+            format!("{}:{}", host.as_deref().unwrap_or_default(), ask.id)
+        };
+        self.asked
+            .retain(|asked| asks.iter().any(|(host, ask)| &asked_as(host, ask) == asked));
+        if !free {
+            return None;
+        }
+        let (host, ask) = asks
+            .into_iter()
+            .find(|(host, ask)| !self.asked.contains(&asked_as(host, ask)))?;
+        self.asked.insert(asked_as(&host, ask));
+        Some((host, ask.clone()))
     }
 }
 
