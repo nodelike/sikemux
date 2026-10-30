@@ -3,13 +3,16 @@
 //! that picks an implementation; what is only yes or no sits on its catalog entry.
 
 use std::collections::BTreeMap;
-use std::future::Future;
+use std::future::{ready, Future};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 use notify::RecursiveMode;
 use serde_json::Value;
 
+use crate::agent_accounts::sign_in::SignIn;
+use crate::agent_accounts::status::{AccountStatus, AgentStatus};
+use crate::agent_accounts::usage::Usage;
 use crate::agent_catalog::AgentKind;
 use crate::launch::tools::{TerminalSetup, Tools};
 use crate::sessions::context::SessionContext;
@@ -165,6 +168,66 @@ pub(crate) trait AgentOps: Sync {
         _args: &mut Vec<String>,
         _env: &mut BTreeMap<String, String>,
     ) {
+    }
+
+    /// The model it starts with when Sikemux names none, read from its own configuration.
+    fn default_model(&self, _config_path: Option<&str>) -> Option<String> {
+        None
+    }
+
+    /// The reasoning effort it starts with when Sikemux names none, read from its own
+    /// configuration.
+    fn default_effort(&self, _config_path: Option<&str>) -> Option<String> {
+        None
+    }
+
+    /// Whether an account folder Sikemux makes links `name` to the default account's.
+    fn shared_by_accounts(&self, _name: &str) -> bool {
+        false
+    }
+
+    /// Writes what a new account folder at `directory` starts with, taken from the default
+    /// account's under `home`.
+    fn seed_account(&self, _home: &Path, _directory: &Path) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Who an account is signed in as, asked of its CLI at `program`, for agents that
+    /// keep separate accounts.
+    fn account<'a>(
+        &self,
+        _program: &'a Path,
+        _config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<AccountStatus, String>>> {
+        None
+    }
+
+    /// Whether it is signed in, asked of its CLI at `program` with the connected model
+    /// `providers`' keys. Unknown for agents that cannot say: Hermes answers in free text
+    /// that changes with the provider, and others have no check, so a chat refused for
+    /// sign-in marks them signed out instead.
+    fn sign_in_status<'a>(
+        &self,
+        _program: &'a Path,
+        _config_path: Option<&'a str>,
+        _providers: BTreeMap<String, String>,
+    ) -> Pending<'a, AgentStatus> {
+        Box::pin(ready(AgentStatus::Unknown))
+    }
+
+    /// The plan usage of an account, as its CLI at `program` reports it.
+    fn usage<'a>(
+        &self,
+        _program: &'a Path,
+        _config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<Usage, String>>> {
+        None
+    }
+
+    /// Who it is signed in as, read from the files its CLI writes, with `env` naming the
+    /// account's folder.
+    fn signed_in(&self, _env: &BTreeMap<String, String>) -> Option<SignIn> {
+        None
     }
 
     /// Removes what it keeps of a deleted session beside the transcript, under `root`.

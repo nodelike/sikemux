@@ -117,10 +117,11 @@ pub async fn usage(
     if let Some(lookup) = remembered(&key) {
         return lookup;
     }
-    let lookup = match AgentKind::from_name(provider) {
-        Some(AgentKind::Claude) => claude_usage(program, config_path).await,
-        Some(AgentKind::Codex) => codex_usage(program, config_path).await,
-        _ => Err(format!("{provider} does not expose structured plan usage")),
+    let read =
+        AgentKind::from_name(provider).and_then(|kind| kind.ops().usage(program, config_path));
+    let lookup = match read {
+        Some(read) => read.await,
+        None => Err(format!("{provider} does not expose structured plan usage")),
     };
     let ttl = match &lookup {
         Ok(_) => USAGE_TTL,
@@ -358,7 +359,10 @@ pub(crate) async fn ask(
         .map_err(|_| format!("The {provider} usage lookup was not valid UTF-8"))
 }
 
-async fn claude_usage(executable: &Path, config_path: Option<&str>) -> Result<Usage, String> {
+pub(crate) async fn claude_usage(
+    executable: &Path,
+    config_path: Option<&str>,
+) -> Result<Usage, String> {
     let usage = read_claude_usage(executable, config_path, &[]).await?;
     // An API key inherited from whichever shell launched Sikemux outranks the
     // claude.ai login, so a subscriber sees no limits purely because of how the
@@ -375,7 +379,10 @@ async fn claude_usage(executable: &Path, config_path: Option<&str>) -> Result<Us
     )
 }
 
-async fn codex_usage(executable: &Path, config_path: Option<&str>) -> Result<Usage, String> {
+pub(crate) async fn codex_usage(
+    executable: &Path,
+    config_path: Option<&str>,
+) -> Result<Usage, String> {
     codex_app_server(executable, config_path, "account/rateLimits/read", "usage")
         .await
         .map(|result| parse_codex_usage_result(&result))

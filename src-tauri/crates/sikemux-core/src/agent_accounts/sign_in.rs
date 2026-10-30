@@ -21,14 +21,16 @@ pub enum SignIn {
 }
 
 pub fn signed_in(provider: &str, env: &BTreeMap<String, String>) -> Option<SignIn> {
-    match AgentKind::from_name(provider)? {
-        AgentKind::Claude => claude_sign_in(&read_json(&claude_config_file(None, env))?),
-        AgentKind::Codex => {
-            let directory = account_root(AgentKind::Codex, None, env)?;
-            codex_sign_in(&read_json(&directory.join("auth.json"))?)
-        }
-        _ => None,
-    }
+    AgentKind::from_name(provider)?.ops().signed_in(env)
+}
+
+pub(crate) fn claude_signed_in(env: &BTreeMap<String, String>) -> Option<SignIn> {
+    claude_sign_in(&read_json(&claude_config_file(None, env))?)
+}
+
+pub(crate) fn codex_signed_in(env: &BTreeMap<String, String>) -> Option<SignIn> {
+    let directory = account_root(AgentKind::Codex, None, env)?;
+    codex_sign_in(&read_json(&directory.join("auth.json"))?)
 }
 
 /// A missing file is a known answer, signed out. An unreadable one is not.

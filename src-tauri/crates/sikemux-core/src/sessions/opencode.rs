@@ -11,11 +11,14 @@ use super::roots::environment_path;
 use super::search::Prose;
 use super::AgentSession;
 use super::FileStamp;
+use crate::agent_accounts::defaults::json_model;
+use crate::agent_accounts::status::{self, AgentStatus};
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
 use serde_json::Value;
+use sikemux_process::paths::home;
 use std::collections::BTreeMap;
 use std::future::ready;
 
@@ -317,6 +320,25 @@ impl AgentOps for Opencode {
         env: &mut BTreeMap<String, String>,
     ) {
         skills::add_to_opencode_chat(library, env);
+    }
+
+    fn default_model(&self, _config_path: Option<&str>) -> Option<String> {
+        let home = home()?;
+        let path = environment_path("OPENCODE_CONFIG").unwrap_or_else(|| {
+            environment_path("XDG_CONFIG_HOME")
+                .unwrap_or_else(|| home.join(".config"))
+                .join("opencode/opencode.json")
+        });
+        json_model(&path, "model")
+    }
+
+    fn sign_in_status<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+        providers: BTreeMap<String, String>,
+    ) -> Pending<'a, AgentStatus> {
+        Box::pin(status::opencode_sign_in(program, config_path, providers))
     }
 }
 

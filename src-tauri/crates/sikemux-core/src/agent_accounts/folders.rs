@@ -18,7 +18,7 @@ const MARKER: &str = ".sikemux-account";
 
 /// What a Claude account shares with the default one. Anything else, such as
 /// the sign-in and the CLI's own caches, stays with the account.
-const CLAUDE_SHARED: &[&str] = &[
+pub(crate) const CLAUDE_SHARED: &[&str] = &[
     "projects",
     "settings.json",
     "CLAUDE.md",
@@ -38,7 +38,7 @@ const CLAUDE_SHARED: &[&str] = &[
 ];
 
 /// What a Codex account keeps to itself. Everything else is shared.
-const CODEX_OWN: &[&str] = &[
+pub(crate) const CODEX_OWN: &[&str] = &[
     "auth.json",
     "models_cache.json",
     "log",
@@ -52,11 +52,7 @@ fn home() -> PathBuf {
 }
 
 fn shares(provider: &str, name: &str) -> bool {
-    match provider {
-        "claude" => CLAUDE_SHARED.contains(&name),
-        "codex" => !CODEX_OWN.contains(&name),
-        _ => false,
-    }
+    AgentKind::from_name(provider).is_some_and(|kind| kind.ops().shared_by_accounts(name))
 }
 
 /// `provider` and its home, when it keeps one account per folder.
@@ -195,10 +191,9 @@ fn claude_seed(default: &Value) -> Value {
 }
 
 fn make_account(provider: &str, name: &str, home: &Path) -> Result<String, String> {
-    let prefix = accounts_home(provider)
-        .ok_or("Only Claude and Codex keep separate accounts")?
-        .1
-        .dir;
+    let (kind, home_folder) =
+        accounts_home(provider).ok_or("Only Claude and Codex keep separate accounts")?;
+    let prefix = home_folder.dir;
     let base = format!("{prefix}-{}", slug(name));
     let mut folder = base.clone();
     let mut counter = 2;
@@ -211,15 +206,18 @@ fn make_account(provider: &str, name: &str, home: &Path) -> Result<String, Strin
         &directory.join(MARKER),
         b"Made by Sikemux for one account. Links here point at the default account's shared files.\n",
     )?;
-    if provider == "claude" {
-        let default = std::fs::read(home.join(".claude.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .unwrap_or(Value::Null);
-        let seed = serde_json::to_vec_pretty(&claude_seed(&default)).map_err(|e| e.to_string())?;
-        write_private(&directory.join(".claude.json"), &seed)?;
-    }
+    kind.ops().seed_account(home, &directory)?;
     Ok(format!("~/{folder}"))
+}
+
+/// A new Claude account's `.claude.json`, seeded from the default one under `home`.
+pub(crate) fn seed_claude_account(home: &Path, directory: &Path) -> Result<(), String> {
+    let default = std::fs::read(home.join(".claude.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .unwrap_or(Value::Null);
+    let seed = serde_json::to_vec_pretty(&claude_seed(&default)).map_err(|e| e.to_string())?;
+    write_private(&directory.join(".claude.json"), &seed)
 }
 
 /// The seed copies MCP servers whose environment may hold tokens, so the

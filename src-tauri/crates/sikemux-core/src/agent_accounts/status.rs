@@ -17,7 +17,7 @@ use sikemux_process::sync::Locked;
 use super::folders::{claude_config_file, link_shared, sessions_root};
 use super::usage::codex_app_server;
 use super::{cli, key};
-use crate::agent_catalog::{AgentKind, AGENTS};
+use crate::agent_catalog::{self, AgentKind, AGENTS};
 use crate::launch::{discovery, AgentSpec};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -182,7 +182,7 @@ pub async fn ask(
     providers: BTreeMap<String, String>,
 ) -> Checked {
     let _turn = discovery::probe_turn().await;
-    if matches!(provider, "claude" | "codex") {
+    if agent_catalog::agent(provider).is_some_and(|agent| agent.accounts) {
         let account = account(provider, program, config_path).await;
         return Checked {
             status: sign_in_of(&account),
@@ -340,40 +340,48 @@ async fn check_sign_in(
     config_path: Option<&str>,
     providers: BTreeMap<String, String>,
 ) -> AgentStatus {
-    let Some(kind) = AgentKind::from_name(provider) else {
+    match AgentKind::from_name(provider) {
+        Some(kind) => {
+            kind.ops()
+                .sign_in_status(program, config_path, providers)
+                .await
+        }
+        None => AgentStatus::Unknown,
+    }
+}
+
+/// Whether an account of an agent that keeps separate ones is signed in.
+pub(crate) async fn account_sign_in(
+    provider: &str,
+    program: &Path,
+    config_path: Option<&str>,
+) -> AgentStatus {
+    sign_in_of(&account(provider, program, config_path).await)
+}
+
+pub(crate) async fn pi_sign_in(program: &Path, config_path: Option<&str>) -> AgentStatus {
+    match exit_code_and_output("pi", program, config_path, &["auth", "check", "--json"]).await {
+        Some((code, _)) => pi_status(code),
+        None => AgentStatus::Unknown,
+    }
+}
+
+pub(crate) async fn opencode_sign_in(
+    program: &Path,
+    config_path: Option<&str>,
+    providers: BTreeMap<String, String>,
+) -> AgentStatus {
+    let Some((_, listing)) =
+        exit_code_and_output("opencode", program, config_path, &["auth", "list"]).await
+    else {
         return AgentStatus::Unknown;
     };
-    match kind {
-        AgentKind::Claude | AgentKind::Codex => {
-            sign_in_of(&account(provider, program, config_path).await)
-        }
-        AgentKind::Pi => {
-            match exit_code_and_output(provider, program, config_path, &["auth", "check", "--json"])
-                .await
-            {
-                Some((code, _)) => pi_status(code),
-                None => AgentStatus::Unknown,
-            }
-        }
-        AgentKind::Opencode => {
-            let Some((_, listing)) =
-                exit_code_and_output(provider, program, config_path, &["auth", "list"]).await
-            else {
-                return AgentStatus::Unknown;
-            };
-            let shell = sikemux_pty::user_shell::login_shell_environment();
-            let environment = shell
-                .iter()
-                .chain(providers.iter())
-                .map(|(name, value)| (name.as_str(), value.as_str()));
-            opencode_status(&listing, environment)
-        }
-        // Hermes answers in free text that changes with the provider, and Grok, OMP and Muse
-        // have no check; a chat that is refused for sign-in marks them signed out instead.
-        AgentKind::Hermes | AgentKind::Grok | AgentKind::Omp | AgentKind::Muse => {
-            AgentStatus::Unknown
-        }
-    }
+    let shell = sikemux_pty::user_shell::login_shell_environment();
+    let environment = shell
+        .iter()
+        .chain(providers.iter())
+        .map(|(name, value)| (name.as_str(), value.as_str()));
+    opencode_status(&listing, environment)
 }
 
 fn parse_claude_status(text: &str) -> Option<AccountStatus> {
@@ -442,6 +450,43 @@ fn parse_codex_status(result: &Value) -> AccountStatus {
     }
 }
 
+/// Who a Claude account is signed in as, asked of Claude's own CLI.
+pub(crate) async fn claude_account(
+    program: &Path,
+    config_path: Option<&str>,
+) -> Result<AccountStatus, String> {
+    let mut command = cli("claude", program, config_path, BTreeMap::new());
+    command
+        .args(["auth", "status", "--json"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let output = tokio::time::timeout(CHECK_TIMEOUT, command.output())
+        .await
+        .map_err(|_| "Claude took too long to say who is signed in".to_string())?
+        .map_err(|_| "Could not ask Claude who is signed in".to_string())?;
+    // A signed-out account still answers, with a failing exit code.
+    let mut status = parse_claude_status(&String::from_utf8_lossy(&output.stdout))
+        .ok_or_else(|| "Claude did not say who is signed in".to_string())?;
+    if status.signed_in {
+        status.name = std::fs::read(claude_config_file(config_path, &BTreeMap::new()))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|config| claude_account_name(&config));
+    }
+    Ok(status)
+}
+
+/// Who a Codex account is signed in as, asked of Codex's own app server.
+pub(crate) async fn codex_account(
+    program: &Path,
+    config_path: Option<&str>,
+) -> Result<AccountStatus, String> {
+    Ok(parse_codex_status(
+        &codex_app_server(program, config_path, "account/read", "account").await?,
+    ))
+}
+
 /// Who an account is signed in as, asked of the agent's own CLI.
 async fn account(
     provider: &str,
@@ -449,33 +494,12 @@ async fn account(
     config_path: Option<&str>,
 ) -> Result<AccountStatus, String> {
     link_shared(provider, config_path);
-    let mut status = match provider {
-        "claude" => {
-            let mut command = cli(provider, program, config_path, BTreeMap::new());
-            command
-                .args(["auth", "status", "--json"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null());
-            let output = tokio::time::timeout(CHECK_TIMEOUT, command.output())
-                .await
-                .map_err(|_| "Claude took too long to say who is signed in".to_string())?
-                .map_err(|_| "Could not ask Claude who is signed in".to_string())?;
-            // A signed-out account still answers, with a failing exit code.
-            parse_claude_status(&String::from_utf8_lossy(&output.stdout))
-                .ok_or_else(|| "Claude did not say who is signed in".to_string())?
-        }
-        "codex" => parse_codex_status(
-            &codex_app_server(program, config_path, "account/read", "account").await?,
-        ),
-        _ => return Err("Only Claude and Codex keep separate accounts".into()),
+    let Some(read) =
+        AgentKind::from_name(provider).and_then(|kind| kind.ops().account(program, config_path))
+    else {
+        return Err("Only Claude and Codex keep separate accounts".into());
     };
-    if provider == "claude" && status.signed_in {
-        status.name = std::fs::read(claude_config_file(config_path, &BTreeMap::new()))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .and_then(|config| claude_account_name(&config));
-    }
+    let mut status = read.await?;
     status.sessions =
         sessions_root(provider, config_path).map(|path| path.to_string_lossy().into_owned());
     Ok(status)

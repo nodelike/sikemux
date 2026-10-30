@@ -23,11 +23,17 @@ use super::{
     collect_transcripts, condense, file_stamp, is_compressed, is_jsonl, stamped_transcripts,
     transcript_lines, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
+use crate::agent_accounts::defaults::{toml_effort, toml_model};
+use crate::agent_accounts::folders;
+use crate::agent_accounts::sign_in::{self, SignIn};
+use crate::agent_accounts::status::{self, AccountStatus, AgentStatus};
+use crate::agent_accounts::usage::{self, Usage};
 use crate::agent_catalog::AgentKind;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, DeleteCommand, RenameCommand, SessionPlaces};
 use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
+use std::collections::BTreeMap;
 use std::future::ready;
 
 // ---- codex — ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl[.zst] ----------
@@ -481,6 +487,53 @@ impl AgentOps for Codex {
         setup: &'a mut TerminalSetup<'_>,
     ) -> Pending<'a, Result<Vec<String>, String>> {
         Box::pin(ready(setup.codex_args()))
+    }
+
+    fn default_model(&self, config_path: Option<&str>) -> Option<String> {
+        let root = agent_config_root("codex", config_path)?;
+        fs::read_to_string(root.join("config.toml"))
+            .ok()
+            .and_then(|text| toml_model(&text))
+    }
+
+    fn default_effort(&self, config_path: Option<&str>) -> Option<String> {
+        let root = agent_config_root("codex", config_path)?;
+        fs::read_to_string(root.join("config.toml"))
+            .ok()
+            .and_then(|text| toml_effort(&text))
+    }
+
+    fn shared_by_accounts(&self, name: &str) -> bool {
+        !folders::CODEX_OWN.contains(&name)
+    }
+
+    fn account<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<AccountStatus, String>>> {
+        Some(Box::pin(status::codex_account(program, config_path)))
+    }
+
+    fn sign_in_status<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+        _providers: BTreeMap<String, String>,
+    ) -> Pending<'a, AgentStatus> {
+        Box::pin(status::account_sign_in("codex", program, config_path))
+    }
+
+    fn usage<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<Usage, String>>> {
+        Some(Box::pin(usage::codex_usage(program, config_path)))
+    }
+
+    fn signed_in(&self, env: &BTreeMap<String, String>) -> Option<SignIn> {
+        sign_in::codex_signed_in(env)
     }
 }
 

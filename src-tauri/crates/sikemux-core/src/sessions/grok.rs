@@ -14,6 +14,7 @@ use super::search::{each_line, Prose};
 use super::AgentSession;
 use super::{condense, mtime_of, MAX_AGENT_TRANSCRIPTS_INSPECTED, MAX_AGENT_TRANSCRIPT_PATHS};
 use super::{file_stamp, FileStamp};
+use crate::agent_accounts::defaults::{clean_effort, clean_model, toml_section_string};
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
 use crate::launch::tools::TerminalSetup;
@@ -436,6 +437,21 @@ impl AgentOps for Grok {
             None,
             Some(library),
         )))
+    }
+
+    fn default_model(&self, _config_path: Option<&str>) -> Option<String> {
+        fs::read_to_string(AgentKind::Grok.home_root()?.join("config.toml"))
+            .ok()
+            .and_then(|text| toml_section_string(&text, "models", "default"))
+            .and_then(|value| clean_model(&value))
+            .or_else(|| Some("grok-build".to_string()))
+    }
+
+    fn default_effort(&self, _config_path: Option<&str>) -> Option<String> {
+        fs::read_to_string(AgentKind::Grok.home_root()?.join("config.toml"))
+            .ok()
+            .and_then(|text| toml_section_string(&text, "models", "default_reasoning_effort"))
+            .and_then(|value| clean_effort("grok", &value))
     }
 }
 

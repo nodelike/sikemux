@@ -19,12 +19,18 @@ use super::{
     condense, file_stamp, push_texts, read_prefix, read_suffix, stamped_transcripts,
     text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
+use crate::agent_accounts::defaults::{clean_model, json_effort, json_model};
+use crate::agent_accounts::folders;
+use crate::agent_accounts::sign_in::{self, SignIn};
+use crate::agent_accounts::status::{self, AccountStatus, AgentStatus};
+use crate::agent_accounts::usage::{self, Usage};
 use crate::agent_catalog::AgentKind;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
+use sikemux_process::user_environment::shell_var;
 use std::collections::BTreeMap;
 use std::future::ready;
 
@@ -469,6 +475,75 @@ impl AgentOps for Claude {
             0..0,
             skills::skill_args(Some(data_dir), skills::claude_args),
         );
+    }
+
+    fn default_model(&self, config_path: Option<&str>) -> Option<String> {
+        shell_var("ANTHROPIC_MODEL")
+            .and_then(|value| clean_model(&value))
+            .or_else(|| {
+                json_model(
+                    &agent_config_root("claude", config_path)?.join("settings.local.json"),
+                    "model",
+                )
+            })
+            .or_else(|| {
+                json_model(
+                    &agent_config_root("claude", config_path)?.join("settings.json"),
+                    "model",
+                )
+            })
+    }
+
+    fn default_effort(&self, config_path: Option<&str>) -> Option<String> {
+        json_effort(
+            &agent_config_root("claude", config_path)?.join("settings.local.json"),
+            "effortLevel",
+            "claude",
+        )
+        .or_else(|| {
+            json_effort(
+                &agent_config_root("claude", config_path)?.join("settings.json"),
+                "effortLevel",
+                "claude",
+            )
+        })
+    }
+
+    fn shared_by_accounts(&self, name: &str) -> bool {
+        folders::CLAUDE_SHARED.contains(&name)
+    }
+
+    fn seed_account(&self, home: &Path, directory: &Path) -> Result<(), String> {
+        folders::seed_claude_account(home, directory)
+    }
+
+    fn account<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<AccountStatus, String>>> {
+        Some(Box::pin(status::claude_account(program, config_path)))
+    }
+
+    fn sign_in_status<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+        _providers: BTreeMap<String, String>,
+    ) -> Pending<'a, AgentStatus> {
+        Box::pin(status::account_sign_in("claude", program, config_path))
+    }
+
+    fn usage<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<Usage, String>>> {
+        Some(Box::pin(usage::claude_usage(program, config_path)))
+    }
+
+    fn signed_in(&self, env: &BTreeMap<String, String>) -> Option<SignIn> {
+        sign_in::claude_signed_in(env)
     }
 }
 

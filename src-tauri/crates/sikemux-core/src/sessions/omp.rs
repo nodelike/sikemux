@@ -22,6 +22,7 @@ use super::{
     collect_transcripts, condense, file_stamp, is_jsonl, read_prefix, read_suffix,
     stamped_transcripts, text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
+use crate::agent_accounts::defaults::{clean_effort, clean_model, yaml_top_level_scalar};
 use crate::agent_catalog::AgentKind;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
@@ -377,6 +378,20 @@ impl AgentOps for Omp {
         _env: &mut BTreeMap<String, String>,
     ) {
         args.extend(skills::skill_args(Some(data_dir), skills::omp_args));
+    }
+
+    fn default_model(&self, _config_path: Option<&str>) -> Option<String> {
+        fs::read_to_string(omp_agent_root()?.join("config.yml"))
+            .ok()
+            .and_then(|text| yaml_top_level_scalar(&text, "defaultModel"))
+            .and_then(|value| clean_model(&value))
+    }
+
+    fn default_effort(&self, _config_path: Option<&str>) -> Option<String> {
+        fs::read_to_string(omp_agent_root()?.join("config.yml"))
+            .ok()
+            .and_then(|text| yaml_top_level_scalar(&text, "defaultThinkingLevel"))
+            .and_then(|value| clean_effort("omp", &value))
     }
 }
 

@@ -6,141 +6,40 @@ use std::path::Path;
 
 use serde_json::Value;
 use sikemux_process::paths::home;
-use sikemux_process::user_environment::shell_var;
 
 use crate::agent_catalog::AgentKind;
-use crate::sessions::roots::{agent_config_root, environment_path, omp_agent_root};
 
 const MAX_MODEL_LENGTH: usize = 256;
 
 pub fn configured_default_model(kind: &str, config_path: Option<&str>) -> Option<String> {
-    let home = home()?;
-    match kind {
-        "claude" => shell_var("ANTHROPIC_MODEL")
-            .and_then(|value| clean_model(&value))
-            .or_else(|| {
-                json_model(
-                    &agent_config_root(kind, config_path)?.join("settings.local.json"),
-                    "model",
-                )
-            })
-            .or_else(|| {
-                json_model(
-                    &agent_config_root(kind, config_path)?.join("settings.json"),
-                    "model",
-                )
-            }),
-        "codex" => {
-            let root = agent_config_root(kind, config_path)?;
-            fs::read_to_string(root.join("config.toml"))
-                .ok()
-                .and_then(|text| toml_model(&text))
-        }
-        "hermes" => shell_var("HERMES_INFERENCE_MODEL")
-            .and_then(|value| clean_model(&value))
-            .or_else(|| {
-                let text =
-                    fs::read_to_string(AgentKind::Hermes.home_root()?.join("config.yaml")).ok()?;
-                let (provider, model) = yaml_model_section(&text);
-                qualify_model(provider.as_deref(), model.as_deref())
-            }),
-        "pi" => {
-            let settings =
-                fs::read_to_string(AgentKind::Pi.home_root()?.join("settings.json")).ok()?;
-            let value: Value = serde_json::from_str(&settings).ok()?;
-            qualify_model(
-                value.get("defaultProvider").and_then(Value::as_str),
-                value.get("defaultModel").and_then(Value::as_str),
-            )
-        }
-        "opencode" => {
-            let path = environment_path("OPENCODE_CONFIG").unwrap_or_else(|| {
-                environment_path("XDG_CONFIG_HOME")
-                    .unwrap_or_else(|| home.join(".config"))
-                    .join("opencode/opencode.json")
-            });
-            json_model(&path, "model")
-        }
-        "omp" => fs::read_to_string(omp_agent_root()?.join("config.yml"))
-            .ok()
-            .and_then(|text| yaml_top_level_scalar(&text, "defaultModel"))
-            .and_then(|value| clean_model(&value)),
-        "grok" => fs::read_to_string(AgentKind::Grok.home_root()?.join("config.toml"))
-            .ok()
-            .and_then(|text| toml_section_string(&text, "models", "default"))
-            .and_then(|value| clean_model(&value))
-            .or_else(|| Some("grok-build".to_string())),
-        "muse" => shell_var("MUSE_MODEL")
-            .and_then(|value| clean_model(&value))
-            .or_else(|| json_model(&AgentKind::Muse.home_root()?.join("settings.json"), "model")),
-        _ => None,
-    }
+    home()?;
+    AgentKind::from_name(kind)?.ops().default_model(config_path)
 }
 
 pub fn configured_default_effort(kind: &str, config_path: Option<&str>) -> Option<String> {
-    match kind {
-        "claude" => json_effort(
-            &agent_config_root(kind, config_path)?.join("settings.local.json"),
-            "effortLevel",
-            kind,
-        )
-        .or_else(|| {
-            json_effort(
-                &agent_config_root(kind, config_path)?.join("settings.json"),
-                "effortLevel",
-                kind,
-            )
-        }),
-        "codex" => {
-            let root = agent_config_root(kind, config_path)?;
-            fs::read_to_string(root.join("config.toml"))
-                .ok()
-                .and_then(|text| toml_effort(&text))
-        }
-        "hermes" => fs::read_to_string(AgentKind::Hermes.home_root()?.join("config.yaml"))
-            .ok()
-            .and_then(|text| yaml_agent_reasoning_effort(&text))
-            .and_then(|value| clean_effort(kind, &value)),
-        "pi" => json_effort(
-            &AgentKind::Pi.home_root()?.join("settings.json"),
-            "defaultThinkingLevel",
-            kind,
-        ),
-        "omp" => fs::read_to_string(omp_agent_root()?.join("config.yml"))
-            .ok()
-            .and_then(|text| yaml_top_level_scalar(&text, "defaultThinkingLevel"))
-            .and_then(|value| clean_effort(kind, &value)),
-        "grok" => fs::read_to_string(AgentKind::Grok.home_root()?.join("config.toml"))
-            .ok()
-            .and_then(|text| toml_section_string(&text, "models", "default_reasoning_effort"))
-            .and_then(|value| clean_effort(kind, &value)),
-        "muse" => json_effort(
-            &AgentKind::Muse.home_root()?.join("settings.json"),
-            "reasoning_effort",
-            kind,
-        ),
-        _ => None,
-    }
+    AgentKind::from_name(kind)?
+        .ops()
+        .default_effort(config_path)
 }
 
-fn clean_model(value: &str) -> Option<String> {
+pub(crate) fn clean_model(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty() && value.chars().count() <= MAX_MODEL_LENGTH).then(|| value.to_string())
 }
 
-fn clean_effort(kind: &str, value: &str) -> Option<String> {
+pub(crate) fn clean_effort(kind: &str, value: &str) -> Option<String> {
     let value = value.trim().to_ascii_lowercase();
     crate::agent_catalog::agent(kind)
         .is_some_and(|agent| agent.efforts.contains(&value.as_str()))
         .then_some(value)
 }
 
-fn json_model(path: &Path, key: &str) -> Option<String> {
+pub(crate) fn json_model(path: &Path, key: &str) -> Option<String> {
     let value: Value = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
     value.get(key).and_then(Value::as_str).and_then(clean_model)
 }
 
-fn json_effort(path: &Path, key: &str, kind: &str) -> Option<String> {
+pub(crate) fn json_effort(path: &Path, key: &str, kind: &str) -> Option<String> {
     let value: Value = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
     value
         .get(key)
@@ -148,7 +47,7 @@ fn json_effort(path: &Path, key: &str, kind: &str) -> Option<String> {
         .and_then(|value| clean_effort(kind, value))
 }
 
-fn qualify_model(provider: Option<&str>, model: Option<&str>) -> Option<String> {
+pub(crate) fn qualify_model(provider: Option<&str>, model: Option<&str>) -> Option<String> {
     let model = clean_model(model?)?;
     if model.contains('/') {
         return Some(model);
@@ -159,7 +58,7 @@ fn qualify_model(provider: Option<&str>, model: Option<&str>) -> Option<String> 
         .or(Some(model))
 }
 
-fn toml_model(text: &str) -> Option<String> {
+pub(crate) fn toml_model(text: &str) -> Option<String> {
     let value: toml::Value = toml::from_str(text).ok()?;
     value
         .get("model")
@@ -167,7 +66,7 @@ fn toml_model(text: &str) -> Option<String> {
         .and_then(clean_model)
 }
 
-fn toml_effort(text: &str) -> Option<String> {
+pub(crate) fn toml_effort(text: &str) -> Option<String> {
     let value: toml::Value = toml::from_str(text).ok()?;
     value
         .get("model_reasoning_effort")
@@ -175,7 +74,7 @@ fn toml_effort(text: &str) -> Option<String> {
         .and_then(|value| clean_effort("codex", value))
 }
 
-fn toml_section_string(text: &str, section: &str, key: &str) -> Option<String> {
+pub(crate) fn toml_section_string(text: &str, section: &str, key: &str) -> Option<String> {
     toml::from_str::<toml::Value>(text)
         .ok()?
         .get(section)?
@@ -184,7 +83,7 @@ fn toml_section_string(text: &str, section: &str, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn yaml_top_level_scalar(text: &str, key: &str) -> Option<String> {
+pub(crate) fn yaml_top_level_scalar(text: &str, key: &str) -> Option<String> {
     text.lines().find_map(|line| {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') || line.len() != line.trim_start().len() {
@@ -199,7 +98,7 @@ fn yaml_top_level_scalar(text: &str, key: &str) -> Option<String> {
 
 /// Extract only `provider` and `default` from Hermes' top-level `model` map.
 /// This deliberately avoids deserializing or exposing the rest of config.yaml.
-fn yaml_model_section(text: &str) -> (Option<String>, Option<String>) {
+pub(crate) fn yaml_model_section(text: &str) -> (Option<String>, Option<String>) {
     let mut model_indent = None;
     let mut provider = None;
     let mut model = None;
@@ -234,7 +133,7 @@ fn yaml_model_section(text: &str) -> (Option<String>, Option<String>) {
     (provider, model)
 }
 
-fn yaml_agent_reasoning_effort(text: &str) -> Option<String> {
+pub(crate) fn yaml_agent_reasoning_effort(text: &str) -> Option<String> {
     let mut agent_indent = None;
     for line in text.lines() {
         let trimmed = line.trim();
@@ -277,10 +176,10 @@ fn yaml_scalar(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        agent_config_root, json_effort, qualify_model, toml_effort, toml_model,
-        toml_section_string, yaml_agent_reasoning_effort, yaml_model_section,
-        yaml_top_level_scalar,
+        json_effort, qualify_model, toml_effort, toml_model, toml_section_string,
+        yaml_agent_reasoning_effort, yaml_model_section, yaml_top_level_scalar,
     };
+    use crate::sessions::roots::agent_config_root;
     use std::io::Write;
     use std::path::Path;
 

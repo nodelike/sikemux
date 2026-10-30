@@ -22,11 +22,14 @@ use super::rename::session_file_within;
 use super::roots::environment_path;
 use super::search::each_line;
 use super::AgentSession;
+use crate::agent_accounts::defaults::{json_effort, qualify_model};
+use crate::agent_accounts::status::{self, AgentStatus};
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
+use std::collections::BTreeMap;
 use std::future::ready;
 
 // ---- pi — ~/.pi/agent/sessions/**/<session>.jsonl ----------------------
@@ -282,6 +285,32 @@ impl AgentOps for Pi {
         Box::pin(ready(setup.extension_args(|data_dir| {
             skills::skill_args(data_dir, |dir| Ok(skills::pi_args(dir)))
         })))
+    }
+
+    fn default_model(&self, _config_path: Option<&str>) -> Option<String> {
+        let settings = fs::read_to_string(AgentKind::Pi.home_root()?.join("settings.json")).ok()?;
+        let value: Value = serde_json::from_str(&settings).ok()?;
+        qualify_model(
+            value.get("defaultProvider").and_then(Value::as_str),
+            value.get("defaultModel").and_then(Value::as_str),
+        )
+    }
+
+    fn default_effort(&self, _config_path: Option<&str>) -> Option<String> {
+        json_effort(
+            &AgentKind::Pi.home_root()?.join("settings.json"),
+            "defaultThinkingLevel",
+            "pi",
+        )
+    }
+
+    fn sign_in_status<'a>(
+        &self,
+        program: &'a Path,
+        config_path: Option<&'a str>,
+        _providers: BTreeMap<String, String>,
+    ) -> Pending<'a, AgentStatus> {
+        Box::pin(status::pi_sign_in(program, config_path))
     }
 }
 

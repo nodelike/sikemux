@@ -13,9 +13,12 @@ use super::roots::muse_data_root;
 use super::search::Prose;
 use super::AgentSession;
 use super::FileStamp;
+use crate::agent_accounts::defaults::{clean_model, json_effort, json_model};
+use crate::agent_catalog::AgentKind;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
 use crate::launch::tools::TerminalSetup;
+use sikemux_process::user_environment::shell_var;
 use std::future::ready;
 
 // ---- muse — `sessions` table in ~/.local/share/muse/session-index.db -----
@@ -260,5 +263,19 @@ impl AgentOps for Muse {
         setup: &'a mut TerminalSetup<'_>,
     ) -> Pending<'a, Result<Vec<String>, String>> {
         Box::pin(ready(setup.muse_args()))
+    }
+
+    fn default_model(&self, _config_path: Option<&str>) -> Option<String> {
+        shell_var("MUSE_MODEL")
+            .and_then(|value| clean_model(&value))
+            .or_else(|| json_model(&AgentKind::Muse.home_root()?.join("settings.json"), "model"))
+    }
+
+    fn default_effort(&self, _config_path: Option<&str>) -> Option<String> {
+        json_effort(
+            &AgentKind::Muse.home_root()?.join("settings.json"),
+            "reasoning_effort",
+            "muse",
+        )
     }
 }

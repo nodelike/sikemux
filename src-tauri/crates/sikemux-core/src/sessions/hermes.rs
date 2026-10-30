@@ -11,10 +11,15 @@ use super::recent::{Found, Hit, Listed, PageScan};
 use super::search::Prose;
 use super::AgentSession;
 use super::FileStamp;
+use crate::agent_accounts::defaults::{
+    clean_effort, clean_model, qualify_model, yaml_agent_reasoning_effort, yaml_model_section,
+};
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
 use crate::launch::tools::TerminalSetup;
 use crate::launch::tools::Tools;
+use sikemux_process::user_environment::shell_var;
+use std::fs;
 
 // ---- hermes — `sessions` table in ~/.hermes/state.db (SQLite) -----------
 fn hermes_db() -> Option<Connection> {
@@ -214,6 +219,24 @@ impl AgentOps for Hermes {
             None,
             Some(library),
         )))
+    }
+
+    fn default_model(&self, _config_path: Option<&str>) -> Option<String> {
+        shell_var("HERMES_INFERENCE_MODEL")
+            .and_then(|value| clean_model(&value))
+            .or_else(|| {
+                let text =
+                    fs::read_to_string(AgentKind::Hermes.home_root()?.join("config.yaml")).ok()?;
+                let (provider, model) = yaml_model_section(&text);
+                qualify_model(provider.as_deref(), model.as_deref())
+            })
+    }
+
+    fn default_effort(&self, _config_path: Option<&str>) -> Option<String> {
+        fs::read_to_string(AgentKind::Hermes.home_root()?.join("config.yaml"))
+            .ok()
+            .and_then(|text| yaml_agent_reasoning_effort(&text))
+            .and_then(|value| clean_effort("hermes", &value))
     }
 }
 
