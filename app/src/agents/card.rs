@@ -10,6 +10,7 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled, Task,
 };
 use serde_json::json;
+use sikemux_plugin_api::codehost::PullList;
 use sikemux_wire::protocol::WorkspaceAgent;
 
 use crate::icons::Icon;
@@ -123,22 +124,19 @@ impl Workbench {
             json!({ "project": folder, "state": "all" }),
         );
         cx.spawn(async move |bench, cx| {
-            let Ok(list) = asked.await else {
+            let Some(list) = asked
+                .await
+                .ok()
+                .and_then(|answer| crate::codehost::answer::<PullList>(&answer).ok())
+            else {
                 return;
             };
-            let pulls = list["pulls"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|listed| listed["ownBranch"] == true)
-                .map(|listed| &listed["pull"])
-                .filter(|pull| pull["head"] == branch.as_str())
-                .filter_map(|pull| {
-                    Some(CardPull {
-                        number: pull["number"].as_u64()?,
-                        title: pull["title"].as_str()?.to_owned().into(),
-                        url: pull["url"].as_str()?.to_owned(),
-                    })
+            let pulls = (list.pulls.into_iter())
+                .filter(|listed| listed.own_branch && listed.pull.head.as_ref() == Some(&branch))
+                .map(|listed| CardPull {
+                    number: listed.pull.number,
+                    title: listed.pull.title.into(),
+                    url: listed.pull.url,
                 })
                 .collect();
             bench

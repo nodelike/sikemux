@@ -1097,7 +1097,11 @@ impl Workbench {
                 self.reads.keep_picked(key, value);
                 self.picker_answered(cx);
             }
-            Update::Read(key, value) => self.keep_read(key, value),
+            Update::Read(
+                key @ (crate::worktree_head::PULLS | crate::worktree_head::MERGED),
+                value,
+            ) => self.reads.keep_worktree(key, value),
+            Update::Read(key, _) => eprintln!("sikemux: nothing keeps the core's answer to {key}"),
             Update::Terminal(session, screenful) => {
                 let key = self.terminals.key(&Place::This, session);
                 self.terminals.apply(key, screenful, cx);
@@ -2301,13 +2305,6 @@ impl Workbench {
         static UNREAD: std::sync::LazyLock<Preferences> =
             std::sync::LazyLock::new(Preferences::default);
         self.preferences.as_ref().unwrap_or(&UNREAD)
-    }
-
-    /// Keeps what `key`'s watch answered.
-    fn keep_read(&mut self, key: &str, value: Value) {
-        if self.reads.keep(key, value).is_err() {
-            eprintln!("sikemux: nothing keeps the core's answer to {key}");
-        }
     }
 
     /// Gives the workbench the keyboard if `held`, which is going away, has it.

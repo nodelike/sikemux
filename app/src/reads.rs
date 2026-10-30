@@ -11,6 +11,7 @@ use sikemux_core::server::{
     AccountUsage, ActivitySummary, Draft, HostRow, ProjectEntry, ProjectPort, RunView, ShareView,
     ShownStash, SshHost, TaskList, TrustQuestion, UpdateStatus,
 };
+use sikemux_plugin_api::codehost::PullList;
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_wire::catalog::CatalogAgent;
 use sikemux_wire::theme::ThemeSummary;
@@ -109,30 +110,11 @@ pub struct Reads {
     /// Activity across every project, for Settings; `Some(None)` when the core refused it.
     pub activity_everywhere: Option<Option<ActivitySummary>>,
     /// The worktree in front's pull requests, and whether its branch is merged.
-    pub worktree_pulls: Option<Value>,
-    pub worktree_merged: Option<Value>,
+    pub worktree_pulls: Option<PullList>,
+    pub worktree_merged: Option<bool>,
     /// What the project and host pickers offer: folders under the project roots, and SSH hosts.
     pub picker_folders: Vec<ProjectEntry>,
     pub ssh_hosts: Vec<SshHost>,
-}
-
-/// Which field keeps the answer to each watch, by the watch's key.
-macro_rules! slots {
-    ($($key:pat => $field:ident),* $(,)?) => {
-        impl Reads {
-            fn slot_mut(&mut self, key: &str) -> Option<&mut Option<Value>> {
-                Some(match key {
-                    $($key => &mut self.$field,)*
-                    _ => return None,
-                })
-            }
-        }
-    };
-}
-
-slots! {
-    crate::worktree_head::PULLS => worktree_pulls,
-    crate::worktree_head::MERGED => worktree_merged,
 }
 
 impl Reads {
@@ -252,14 +234,15 @@ impl Reads {
         }
     }
 
-    /// Keeps what `key`'s watch answered. Gives the answer back when no field holds `key`.
-    pub fn keep(&mut self, key: &str, value: Value) -> Result<(), Value> {
-        match self.slot_mut(key) {
-            Some(slot) => {
-                *slot = Some(value);
-                Ok(())
+    /// Keeps what the worktree in front's pull requests or merged check answered.
+    pub fn keep_worktree(&mut self, key: &str, value: Value) {
+        match key {
+            crate::worktree_head::PULLS => {
+                self.worktree_pulls = crate::codehost::answer(&value)
+                    .inspect_err(|error| eprintln!("sikemux: the worktree's pulls: {error}"))
+                    .ok();
             }
-            None => Err(value),
+            _ => self.worktree_merged = decoded(value, "worktree merged"),
         }
     }
 
@@ -274,11 +257,9 @@ impl Reads {
             "git-project-repo" => self.git_project_repo = None,
             "trust" => self.trust.clear(),
             "host-trust" => self.host_trust.clear(),
-            _ => {
-                if let Some(slot) = self.slot_mut(key) {
-                    *slot = None;
-                }
-            }
+            crate::worktree_head::PULLS => self.worktree_pulls = None,
+            crate::worktree_head::MERGED => self.worktree_merged = None,
+            _ => {}
         }
     }
 }

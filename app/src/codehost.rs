@@ -893,7 +893,7 @@ pub fn away_note(host: &str, cx: &App) -> Div {
 }
 
 /// The value inside a code-host answer, or what its failure said.
-fn answer<T: DeserializeOwned>(value: &Value) -> Result<T, SharedString> {
+pub fn answer<T: DeserializeOwned>(value: &Value) -> Result<T, SharedString> {
     if let Some(failed) = value.get("failed") {
         return Err(failed["message"]
             .as_str()

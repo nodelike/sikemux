@@ -6,7 +6,8 @@ use gpui_kit::{
     div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use serde_json::{json, Value};
+use serde_json::json;
+use sikemux_plugin_api::codehost::Pull;
 use sikemux_wire::changed::Topic;
 
 use crate::core::Watch;
@@ -72,31 +73,29 @@ impl Workbench {
 }
 
 /// The branch's pull request: the open one when there is one, else the newest it had.
-fn pull<'a>(bench: &'a Workbench, branch: &str) -> Option<&'a Value> {
-    let own: Vec<&Value> = bench.reads.worktree_pulls.as_ref()?["pulls"]
-        .as_array()?
-        .iter()
-        .filter(|listed| listed["ownBranch"] == true && listed["pull"]["head"] == branch)
-        .map(|listed| &listed["pull"])
+fn pull<'a>(bench: &'a Workbench, branch: &str) -> Option<&'a Pull> {
+    let own: Vec<&Pull> = (bench.reads.worktree_pulls.as_ref()?.pulls.iter())
+        .filter(|listed| listed.own_branch && listed.pull.head.as_deref() == Some(branch))
+        .map(|listed| &listed.pull)
         .collect();
     own.iter()
-        .find(|pull| pull["state"] == "open")
+        .find(|pull| pull.state == "open")
         .or(own.first())
         .copied()
 }
 
-fn merged(pull: &Value) -> bool {
-    pull["state"] == "merged" || !pull["mergedAt"].is_null()
+fn merged(pull: &Pull) -> bool {
+    pull.state == "merged" || pull.merged_at.is_some()
 }
 
 /// How a pull request reads: a draft still open reads as a draft, as GitHub shows it.
-fn state(pull: &Value) -> &'static str {
+fn state(pull: &Pull) -> &'static str {
     if merged(pull) {
         return "Merged";
     }
-    match (pull["state"].as_str(), pull["draft"] == true) {
-        (Some("open"), true) => "Draft",
-        (Some("open"), false) => "Open",
+    match (pull.state.as_str(), pull.draft) {
+        ("open", true) => "Draft",
+        ("open", false) => "Open",
         _ => "Closed",
     }
 }
@@ -124,14 +123,7 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
     let at_rest = bench
         .agent_by_id(agent)
         .is_none_or(|row| !row.busy && !row.background);
-    let can_remove = at_rest
-        && (pull_merged
-            || bench
-                .reads
-                .worktree_merged
-                .as_ref()
-                .and_then(Value::as_bool)
-                == Some(true));
+    let can_remove = at_rest && (pull_merged || bench.reads.worktree_merged == Some(true));
     let chip = |id: &'static str| {
         div()
             .id(id)
@@ -147,10 +139,8 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             .text_size(crate::theme::ui_text(TEXT_XS))
             .hover(|style| style.bg(t.surface_hover).border_color(t.border_strong))
     };
-    let badge = pull.and_then(|pull| {
-        let number = pull["number"].as_u64()?;
-        let title = pull["title"].as_str().unwrap_or_default();
-        let url = pull["url"].as_str()?.to_owned();
+    let badge = pull.map(|pull| {
+        let (number, title, url) = (pull.number, &pull.title, pull.url.clone());
         let state = state(pull);
         let (color, edge) = match state {
             "Open" => (t.live, t.live.opacity(0.34)),
@@ -159,18 +149,16 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             _ => (t.text_tertiary, t.border),
         };
         let opened = agent.to_owned();
-        Some(
-            chip("agent-pull-badge")
-                .border_color(edge)
-                .text_color(color)
-                .tooltip(ui::tooltip(format!("#{number} {title}")))
-                .child(ui::icon(Icon::PullRequest, 12.).text_color(color))
-                .child(ui::mono(format!("#{number}"), TEXT_XS, cx))
-                .child(state)
-                .on_click(cx.listener(move |bench, _, _, cx| {
-                    bench.open_on_desk(&opened, &url, cx);
-                })),
-        )
+        chip("agent-pull-badge")
+            .border_color(edge)
+            .text_color(color)
+            .tooltip(ui::tooltip(format!("#{number} {title}")))
+            .child(ui::icon(Icon::PullRequest, 12.).text_color(color))
+            .child(ui::mono(format!("#{number}"), TEXT_XS, cx))
+            .child(state)
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                bench.open_on_desk(&opened, &url, cx);
+            }))
     });
     let removed = agent.to_owned();
     let remove = can_remove.then(|| {

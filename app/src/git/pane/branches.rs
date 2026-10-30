@@ -183,7 +183,7 @@ impl GitPane {
             let list: Option<PullList> = answer
                 .await
                 .ok()
-                .and_then(|answer| serde_json::from_value(answer.get("value")?.clone()).ok());
+                .and_then(|answer| crate::codehost::answer(&answer).ok());
             let pulls = list
                 .into_iter()
                 .flat_map(|list| list.pulls)
