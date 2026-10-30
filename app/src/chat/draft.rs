@@ -10,6 +10,7 @@ use std::time::Duration;
 use gpui_kit::base::input::{InlineToken, InputContent};
 use gpui_kit::{App, Context, Window};
 use serde_json::{json, Value};
+use sikemux_core::server::{call, SetDraftParams};
 
 use super::{Composing, Sent};
 use crate::reads::Drafts;
@@ -166,7 +167,6 @@ pub fn is_elsewhere(chat: &super::Chat) -> bool {
 
 /// The read the drafts of chats here, or of chats on the host in front, arrive under.
 impl Workbench {
-    /// Keeps `agent`'s draft once the person pauses.
     /// The person began writing, so a new chat's agent starts while they write. A host whose
     /// core predates this answers that it does not know the method, which nobody needs to hear.
     pub fn began_writing(&self, agent: &str) {
@@ -176,6 +176,7 @@ impl Workbench {
         );
     }
 
+    /// Keeps `agent`'s draft once the person pauses.
     pub fn typed_draft(&mut self, agent: &str, cx: &mut Context<Self>) {
         let Some(composing) = self
             .chats
@@ -208,12 +209,13 @@ impl Workbench {
             return;
         }
         composing.synced = draft.clone();
-        let mut params =
-            json!({ "key": key(agent), "text": draft["text"], "rev": composing.read_rev });
-        if let Some(extra) = draft.get("extra") {
-            params["extra"] = extra.clone();
-        }
-        self.chat_target(agent).call("setDraft", params);
+        let params = SetDraftParams {
+            key: key(agent),
+            text: draft["text"].as_str().unwrap_or_default().to_owned(),
+            extra: draft.get("extra").cloned(),
+            rev: Some(composing.read_rev),
+        };
+        self.chat_target(agent).call_typed::<call::SetDraft>(params);
     }
 }
 

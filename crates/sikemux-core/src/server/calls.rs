@@ -861,15 +861,15 @@ struct DiagramParams {
     layout: Option<Value>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct SetDraftParams {
-    key: String,
-    text: String,
-    #[serde(default)]
-    extra: Option<Value>,
+    pub key: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<Value>,
     /// The draft's revision the app last read.
-    #[serde(default)]
-    rev: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -1266,10 +1266,10 @@ async fn closed_agents(
 }
 
 /// Whether a new chat in the project at the folder `project` starts in a worktree of its own.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct WorktreeDefaultParams {
-    project: String,
-    on: bool,
+    pub project: String,
+    pub on: bool,
 }
 
 #[derive(Deserialize)]

@@ -103,7 +103,7 @@ pub use activity_log::{
     ActivityTotals, PriceOverride, PricingInfo,
 };
 pub use agent_accounts::{AccountUsage, Resuming};
-pub use calls::{call, NoParams, QueuedParams};
+pub use calls::{call, NoParams, QueuedParams, SetDraftParams, WorktreeDefaultParams};
 pub use chat::queue::Message as QueuedMessage;
 pub use drafts::Draft;
 pub use entry::main;
@@ -120,6 +120,7 @@ pub use stash::{
 };
 pub use tasks::{ConfigStatus, JavaView, RunView, Source, TaskList, TaskView, TrustQuestion};
 pub use updates::{UpdateCheck, UpdateRelease, UpdateState, UpdateStatus};
+pub use worktree::agent::{ForAgent, ForAgentParams};
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};

@@ -23,6 +23,7 @@ use serde_json::{json, Value};
 use sikemux_core::git::log::{GitCommit, GitOverview};
 use sikemux_core::git::stash::GitStash;
 use sikemux_core::git::status::GitFile;
+use sikemux_core::server::{call, SetDraftParams};
 use sikemux_wire::protocol::ProjectCodeHost;
 
 use branches::{branch_card, branches_page, Branches};
@@ -2080,8 +2081,12 @@ impl GitPane {
             return;
         }
         self.synced = text.clone();
-        self.core
-            .call("setDraft", json!({ "key": self.draft_key(), "text": text }));
+        self.core.call_typed::<call::SetDraft>(SetDraftParams {
+            key: self.draft_key(),
+            text,
+            extra: None,
+            rev: None,
+        });
     }
 
     fn generate(&mut self, cx: &mut Context<Self>) {

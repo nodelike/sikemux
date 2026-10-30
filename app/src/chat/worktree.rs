@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use gpui_kit::{Context, Window};
-use serde_json::{json, Value};
+use sikemux_core::server::{call, ForAgent, ForAgentParams, WorktreeDefaultParams};
 
 use super::{Chat, ComposeStage};
 use crate::core::ChatAsk;
@@ -42,10 +42,12 @@ impl Workbench {
         let folder = project.path.to_string_lossy().into_owned();
         let asks = self.asks.clone();
         let flip: Flip = Rc::new(move |_, _| {
-            let _ = asks.send(crate::core::Ask::Call {
-                method: "setWorktreeDefault",
-                params: json!({ "project": folder, "on": !on }),
-            });
+            let _ = asks.send(crate::core::typed_call::<call::SetWorktreeDefault>(
+                WorktreeDefaultParams {
+                    project: folder.clone(),
+                    on: !on,
+                },
+            ));
         });
         Some((switch, flip))
     }
@@ -72,10 +74,12 @@ impl Workbench {
             sends: false,
         };
         composing.refusal = None;
-        let made = self.chat_target(agent).request(
-            "createAgentWorktree",
-            json!({ "agentId": agent, "message": message }),
-        );
+        let made =
+            (self.chat_target(agent)).request_typed::<call::CreateAgentWorktree>(ForAgentParams {
+                agent_id: agent.to_owned(),
+                message,
+                repo: None,
+            });
         let agent = agent.to_owned();
         cx.spawn(async move |bench, cx| {
             let made = made.await;
@@ -87,7 +91,12 @@ impl Workbench {
         cx.notify();
     }
 
-    fn worktree_made(&mut self, agent: &str, made: Result<Value, String>, cx: &mut Context<Self>) {
+    fn worktree_made(
+        &mut self,
+        agent: &str,
+        made: Result<ForAgent, String>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(composing) = self
             .chats
             .open
@@ -98,8 +107,8 @@ impl Workbench {
         };
         let refused = match &made {
             Err(error) => Some(format!("Could not create a worktree: {error}")),
-            Ok(made) => made["setupError"].as_str().map(|error| {
-                let path = made["worktree"]["path"].as_str().unwrap_or_default();
+            Ok(made) => made.setup_error.as_ref().map(|error| {
+                let path = made.worktree.path.display();
                 format!("{error}. The worktree is kept at {path}; send again to start there.")
             }),
         };

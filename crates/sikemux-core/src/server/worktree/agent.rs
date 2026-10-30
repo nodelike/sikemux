@@ -15,24 +15,24 @@ use crate::server::custom_command::{self, CommandParams};
 use crate::server::{launching, tasks, Core, CoreResult};
 use crate::tasks::config::{self, ConfigLoad};
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForAgentParams {
-    agent_id: String,
+    pub agent_id: String,
     /// What the agent was asked first, which names the branch.
-    message: String,
+    pub message: String,
     /// The repository to use when the agent's folder holds several.
-    #[serde(default)]
-    repo: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<PathBuf>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForAgent {
-    worktree: AgentWorktree,
-    cwd: PathBuf,
+    pub worktree: AgentWorktree,
+    pub cwd: PathBuf,
     /// Why the project's worktree setup did not all finish, when it did not.
-    setup_error: Option<String>,
+    pub setup_error: Option<String>,
 }
 
 /// A worktree of the repository `checkout` is in, cut from where it is now on
