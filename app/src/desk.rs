@@ -1467,17 +1467,20 @@ impl Workbench {
         });
     }
 
+    /// The page in front on the agent's desk.
+    fn front_page<'a>(&self, agent: &str, cx: &'a App) -> Option<&'a sikemux_browser::BrowserTab> {
+        let strip = self.desks.read(cx).strips.get(agent)?;
+        (strip.tabs.iter()).find(|tab| Some(&tab.id) == strip.active_tab_id.as_ref())
+    }
+
     /// The address of the page in front on the agent's desk.
     fn front_url<'a>(&self, agent: &str, cx: &'a App) -> Option<&'a str> {
-        let strip = self.desks.read(cx).strips.get(agent)?;
-        (strip.tabs.iter())
-            .find(|tab| Some(&tab.id) == strip.active_tab_id.as_ref())
-            .map(|tab| tab.url.as_str())
+        self.front_page(agent, cx).map(|tab| tab.url.as_str())
     }
 
     /// Opens what was typed in the agent's address, or reloads the page when it is unchanged.
     fn go_typed(&self, agent: &str, input: &str, cx: &App) {
-        let Some(front) = self.front_url(agent, cx) else {
+        let Some(front) = self.front_page(agent, cx) else {
             return self.open_typed(agent, input, cx);
         };
         match input.is_empty() || shown_address(front) == input {
@@ -1601,7 +1604,7 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
                     .tabs
                     .iter()
                     .find(|tab| Some(&tab.id) == strip.active_tab_id.as_ref())
-                    .map(|tab| shown_address(&tab.url))
+                    .map(shown_address)
             })?;
             let typing = page.address.read(cx).focus_handle(cx).is_focused(window);
             (!typing && page.address.read(cx).value() != url.as_str())
@@ -1760,11 +1763,17 @@ fn keep_download(held: &Path) -> Result<PathBuf, String> {
     Err(format!("Downloads already has 100 files named like {name}"))
 }
 
-fn shown_address(url: &str) -> String {
-    if url == sikemux_browser::BLANK_URL {
+/// What the address bar shows for a page: a local file as its path, a blank page as nothing.
+fn shown_address(tab: &sikemux_browser::BrowserTab) -> String {
+    if let Some(path) = &tab.local_file {
+        crate::ui::path::tilde(
+            &path.to_string_lossy(),
+            crate::ui::path::this_home().as_deref(),
+        )
+    } else if tab.url == sikemux_browser::BLANK_URL {
         String::new()
     } else {
-        url.to_owned()
+        tab.url.clone()
     }
 }
 

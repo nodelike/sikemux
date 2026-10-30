@@ -172,7 +172,9 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let shown = super::shown_address(self.front_url(&agent, cx).unwrap_or_default());
+        let shown = (self.front_page(&agent, cx))
+            .map(super::shown_address)
+            .unwrap_or_default();
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("Search or enter address")

@@ -14,7 +14,8 @@ use url::Url;
 
 use sikemux_base::http::{content_type, parse_range, percent_decode};
 
-const MAX_SHARES: usize = 16;
+/// How many files and folders may be shown at once. Shares no tab shows are let go first.
+const MAX_SHARES: usize = 64;
 const MAX_REQUEST_HEAD: usize = 16 * 1024;
 
 #[derive(Default)]
@@ -22,11 +23,12 @@ pub struct LocalFiles {
     shares: Mutex<HashMap<PathBuf, Share>>,
 }
 
-#[derive(Clone)]
 struct Share {
     root: PathBuf,
     port: u16,
     token: String,
+    /// Dropping it stops the share's server.
+    _stop: tokio::sync::oneshot::Sender<()>,
 }
 
 impl LocalFiles {
@@ -56,42 +58,51 @@ impl LocalFiles {
             return Err("hidden files are not shown in a tab".into());
         }
         let only = (!serves_its_folder(&root)).then(|| path.clone());
-        let share = self.share(&root, only)?;
-        let mut url =
-            Url::parse(&format!("http://127.0.0.1:{}/", share.port)).expect("loopback url");
+        let (port, token) = self.share(&root, only)?;
+        let mut url = Url::parse(&format!("http://127.0.0.1:{port}/")).expect("loopback url");
         url.path_segments_mut()
             .expect("http url has a path")
             .pop_if_empty()
-            .push(&share.token)
+            .push(&token)
             .push(&name);
         Ok(url.into())
     }
 
     /// The file a loopback address from [`Self::url_for`] shows.
     pub fn path_of(&self, url: &str) -> Option<PathBuf> {
-        let url = Url::parse(url).ok()?;
-        if url.scheme() != "http" || url.host_str() != Some("127.0.0.1") {
-            return None;
-        }
-        let port = url.port()?;
-        let path = url.path().strip_prefix('/')?;
-        let (token, rest) = path.split_once('/').unwrap_or((path, ""));
+        let (port, token, rest) = share_address(url)?;
         let shares = self.shares.locked();
         let share = shares
             .values()
             .find(|share| share.port == port && share.token == token)?;
-        Some(share.root.join(safe_relative(rest)?))
+        Some(share.root.join(safe_relative(&rest)?))
     }
 
-    fn share(&self, root: &Path, only: Option<PathBuf>) -> Result<Share, String> {
+    pub fn full(&self) -> bool {
+        self.shares.locked().len() >= MAX_SHARES
+    }
+
+    /// Stops showing every file and folder that none of `urls` points into.
+    pub fn keep_only(&self, urls: &[String]) {
+        let used: Vec<(u16, String)> = urls
+            .iter()
+            .filter_map(|url| share_address(url).map(|(port, token, _)| (port, token)))
+            .collect();
+        self.shares.locked().retain(|_, share| {
+            used.iter()
+                .any(|(port, token)| share.port == *port && share.token == *token)
+        });
+    }
+
+    fn share(&self, root: &Path, only: Option<PathBuf>) -> Result<(u16, String), String> {
         let key = only.clone().unwrap_or_else(|| root.to_path_buf());
         let mut shares = self.shares.locked();
         if let Some(share) = shares.get(&key) {
-            return Ok(share.clone());
+            return Ok((share.port, share.token.clone()));
         }
         if shares.len() >= MAX_SHARES {
             return Err(format!(
-                "already showing {MAX_SHARES} local files; restart Sikemux to show another"
+                "already showing {MAX_SHARES} local files; close some of their tabs to show another"
             ));
         }
         let listener =
@@ -99,29 +110,47 @@ impl LocalFiles {
         listener
             .set_nonblocking(true)
             .map_err(|error| error.to_string())?;
-        let share = Share {
-            root: root.to_path_buf(),
-            port: listener
-                .local_addr()
-                .map_err(|error| error.to_string())?
-                .port(),
-            token: uuid::Uuid::new_v4().simple().to_string(),
-        };
+        let port = listener
+            .local_addr()
+            .map_err(|error| error.to_string())?
+            .port();
+        let token = uuid::Uuid::new_v4().simple().to_string();
         let folder = Folder {
             root: root.to_path_buf(),
             only,
-            token: share.token.clone(),
-            port: share.port,
+            token: token.clone(),
+            port,
         };
+        let (stop, stopped) = tokio::sync::oneshot::channel();
         crate::spawn(async move {
             let Ok(listener) = TcpListener::from_std(listener) else {
                 return;
             };
-            folder.serve(listener).await;
+            let serving = tokio::spawn(folder.serve(listener));
+            let _ = stopped.await;
+            serving.abort();
         });
-        shares.insert(key, share.clone());
-        Ok(share)
+        let share = Share {
+            root: root.to_path_buf(),
+            port,
+            token: token.clone(),
+            _stop: stop,
+        };
+        shares.insert(key, share);
+        Ok((port, token))
     }
+}
+
+/// The port, token and path under it of a loopback address a share could answer.
+fn share_address(url: &str) -> Option<(u16, String, String)> {
+    let url = Url::parse(url).ok()?;
+    if url.scheme() != "http" || url.host_str() != Some("127.0.0.1") {
+        return None;
+    }
+    let port = url.port()?;
+    let path = url.path().strip_prefix('/')?;
+    let (token, rest) = path.split_once('/').unwrap_or((path, ""));
+    Some((port, token.to_owned(), rest.to_owned()))
 }
 
 /// A page can read every file under the folder it came from, so only a git project shares its

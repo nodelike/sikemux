@@ -176,6 +176,7 @@ impl TabStrip {
                         can_go_forward: page.can_go_forward,
                         favicon: page.favicon.clone(),
                         acting: self.acting.contains_key(id),
+                        local_file: None,
                     })
                 })
                 .collect(),
@@ -275,20 +276,34 @@ impl BrowserManager {
 
     /// A loopback address a tab can load `path` from.
     pub fn local_file_url(&self, path: &Path) -> Result<String, String> {
+        if self.local_files.full() {
+            self.release_unused_files();
+        }
         self.local_files.url_for(path)
+    }
+
+    /// Stops showing local files no open tab is on.
+    fn release_unused_files(&self) {
+        let urls: Vec<String> = self
+            .agents
+            .locked()
+            .values()
+            .flat_map(|agent| agent.strip.pages.values().map(|page| page.url.clone()))
+            .collect();
+        self.local_files.keep_only(&urls);
     }
 
     /// The page `input` opens: a web address, a search, or a local file served to the tab.
     pub(crate) fn page_url(&self, input: &str) -> BrowserResult<String> {
         match address::resolve(input) {
-            address::Address::Local(path) => self.local_files.url_for(&path).map_err(Error::Other),
+            address::Address::Local(path) => self.local_file_url(&path).map_err(Error::Other),
             address::Address::Url(url) | address::Address::Search(url) => Ok(url),
         }
     }
 
     pub fn snapshot(&self, agent_id: &str) -> BrowserResult<BrowserSnapshot> {
         validate_agent_id(agent_id)?;
-        Ok(self
+        let mut snapshot = self
             .agents
             .locked()
             .get(agent_id)
@@ -296,7 +311,11 @@ impl BrowserManager {
             .unwrap_or(BrowserSnapshot {
                 tabs: Vec::new(),
                 active_tab_id: None,
-            }))
+            });
+        for tab in &mut snapshot.tabs {
+            tab.local_file = self.local_files.path_of(&tab.url);
+        }
+        Ok(snapshot)
     }
 
     pub async fn open_tab(&self, agent_id: &str, url: Option<&str>) -> BrowserResult<String> {
@@ -744,6 +763,7 @@ impl BrowserManager {
         if let Some(view) = view {
             view.close();
         }
+        self.release_unused_files();
         self.relayout(agent_id);
         self.announce();
         Ok(())
@@ -778,6 +798,7 @@ impl BrowserManager {
         for view in views {
             view.close();
         }
+        self.release_unused_files();
         self.announce();
         Ok(())
     }

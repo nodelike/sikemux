@@ -80,6 +80,8 @@ pub struct BrowserTab {
     pub favicon: Option<String>,
     /// The agent's browser tools are working in this tab right now.
     pub acting: bool,
+    /// The file on this computer the page shows, when it is one.
+    pub local_file: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
