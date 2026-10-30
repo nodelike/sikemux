@@ -1138,7 +1138,7 @@ impl Workbench {
     /// The view of a split `tab` its menu can move out into a tab of its own, as the Mac's
     /// does: the view in focus, else the first, when it is a terminal, Git, a search or a
     /// saved file.
-    pub(crate) fn separable(&self, tab: &Tab) -> Option<(String, PaneKind)> {
+    pub(crate) fn separable(&self, tab: &Tab, cx: &App) -> Option<(String, PaneKind)> {
         if matches!(tab.pane, Pane::View { .. }) {
             return None;
         }
@@ -1154,6 +1154,7 @@ impl Workbench {
         let saved = || {
             !self
                 .editors
+                .read(cx)
                 .is_dirty(&crate::editor::FileKey::new(self.place(), target))
         };
         match crate::pane_kind::of(*kind).separable {

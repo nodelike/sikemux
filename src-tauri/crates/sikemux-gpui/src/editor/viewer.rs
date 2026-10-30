@@ -19,7 +19,7 @@ use gpui_kit::{
 };
 use serde_json::json;
 
-use super::{copies, FileKey};
+use super::{copies, Editors, FileKey};
 use crate::core::Target;
 use crate::hosts::Place as Host;
 use crate::icons::Icon;
@@ -163,12 +163,17 @@ fn kind_of(mime: &str) -> Kind {
 
 /// Asks the core what the file is, and reads the bytes a byte view shows.
 pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workbench>) {
-    if !bench.editors.viewers.contains_key(&key) {
-        bench.editors.viewers.insert(key.clone(), Viewer::default());
-        super::show_files(bench, &key.place);
+    let added = bench.editors.update(cx, |editors, _| {
+        let added = !editors.viewers.contains_key(&key);
+        editors.viewers.entry(key.clone()).or_default();
+        added
+    });
+    if added {
+        super::show_files(bench, &key.place, cx);
     }
     let target = Target::new(&bench.asks, key.place.clone());
-    cx.spawn(async move |bench, cx| {
+    let editors = bench.editors.downgrade();
+    cx.spawn(async move |_, cx| {
         let name = key.path.to_string_lossy().into_owned();
         let about = target
             .request("files.preview", json!({ "path": name }))
@@ -183,11 +188,11 @@ pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workben
                 size: about["size"].as_u64().unwrap_or(0),
             },
             Err(error) => {
-                let _ = bench.update(cx, |bench, cx| {
-                    if let Some(viewer) = bench.editors.viewers.get_mut(&key) {
+                let _ = editors.update(cx, |editors, cx| {
+                    if let Some(viewer) = editors.viewers.get_mut(&key) {
                         viewer.failed = Some(error.into());
                     }
-                    bench.parts.redraw_stage(cx);
+                    cx.notify();
                 });
                 return;
             }
@@ -198,16 +203,16 @@ pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workben
             _ if !shown_here => None,
             Host::This => Some(key.path.clone()),
             Host::Account(_) => {
-                match copies::bring(bench.clone(), target.clone(), key.clone(), about.size, cx)
+                match copies::bring(editors.clone(), target.clone(), key.clone(), about.size, cx)
                     .await
                 {
                     Ok(copy) => Some(copy),
                     Err(error) => {
-                        let _ = bench.update(cx, |bench, cx| {
-                            if let Some(viewer) = bench.editors.viewers.get_mut(&key) {
+                        let _ = editors.update(cx, |editors, cx| {
+                            if let Some(viewer) = editors.viewers.get_mut(&key) {
                                 viewer.failed = Some(error.into());
                             }
-                            bench.parts.redraw_stage(cx);
+                            cx.notify();
                         });
                         return;
                     }
@@ -230,33 +235,33 @@ pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workben
             _ => None,
         };
         let document = kind == Kind::Document;
-        let _ = bench.update(cx, |bench, cx| {
-            if let Some(viewer) = bench.editors.viewers.get_mut(&key) {
+        let _ = editors.update(cx, |editors, cx| {
+            if let Some(viewer) = editors.viewers.get_mut(&key) {
                 viewer.about = Some(about);
                 viewer.bytes = bytes;
                 viewer.local = local;
                 viewer.failed = None;
             }
             if document {
-                show_document(bench, key.clone(), cx);
+                show_document(editors, key.clone(), cx);
             }
-            bench.parts.redraw_stage(cx);
+            cx.notify();
         });
     })
     .detach();
 }
 
 /// Opens the document in macOS's own viewer, which needs the window to live in.
-fn show_document(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workbench>) {
+fn show_document(editors: &mut Editors, key: FileKey, cx: &mut Context<Editors>) {
     #[cfg(target_os = "macos")]
     {
-        let Some(handle) = bench.editors.window else {
+        let Some(handle) = editors.window else {
             return;
         };
         cx.spawn(async move |this, cx| {
             let _ = handle.update(cx, |_, window, cx| {
-                let _ = this.update(cx, |bench, cx| {
-                    let Some(viewer) = bench.editors.viewers.get_mut(&key) else {
+                let _ = this.update(cx, |editors, cx| {
+                    let Some(viewer) = editors.viewers.get_mut(&key) else {
                         return;
                     };
                     let Some(local) = viewer.local.as_deref() else {
@@ -269,33 +274,31 @@ fn show_document(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workbench
                         let surface = gpui_native_view::NativeSurface::new(Shown(document.clone()));
                         (document, surface, focus)
                     }));
-                    bench.parts.redraw_stage(cx);
+                    cx.notify();
                 });
             });
         })
         .detach();
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (bench, key, cx);
+    let _ = (editors, key, cx);
 }
 
 /// Shows a picture or document again after its file changed on its host's disk,
 /// bringing another host's over again.
 pub(super) fn reopen(bench: &mut Workbench, keys: &[FileKey], cx: &mut Context<Workbench>) {
     for key in keys {
-        let shown_here = bench
-            .editors
-            .viewers
-            .get(key)
-            .is_some_and(|viewer| viewer.local.is_some());
+        let shown_here =
+            (bench.editors.read(cx).viewers.get(key)).is_some_and(|viewer| viewer.local.is_some());
         if shown_here && key.place != Host::This {
             load(bench, key.clone(), cx);
         }
     }
+    let viewers = &bench.editors.read(cx).viewers;
     let pictures: Vec<&FileKey> = (keys.iter())
         .filter(|key| key.place == Host::This)
         .filter(|key| {
-            (bench.editors.viewers.get(*key))
+            (viewers.get(*key))
                 .and_then(|viewer| viewer.about.as_ref())
                 .is_some_and(|about| kind_of(&about.mime) == Kind::Image)
         })
@@ -304,14 +307,11 @@ pub(super) fn reopen(bench: &mut Workbench, keys: &[FileKey], cx: &mut Context<W
         forget_picture(&key.path, cx);
     }
     if !pictures.is_empty() {
-        bench.parts.redraw_stage(cx);
+        bench.editors.update(cx, |_, cx| cx.notify());
     }
     #[cfg(target_os = "macos")]
     for key in keys.iter().filter(|key| key.place == Host::This) {
-        if let Some((document, _, _)) = bench
-            .editors
-            .viewers
-            .get(key)
+        if let Some((document, _, _)) = (bench.editors.read(cx).viewers.get(key))
             .and_then(|viewer| viewer.document.as_ref()?.as_ref())
         {
             document.open(&key.path);
@@ -356,11 +356,11 @@ pub(super) fn pane(
     bench: &Workbench,
     this: &Entity<Workbench>,
     key: &FileKey,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let path = key.path.as_path();
-    let Some(viewer) = bench.editors.viewers.get(key) else {
+    let Some(viewer) = bench.editors.read(cx).viewers.get(key) else {
         return div().size_full().into_any_element();
     };
     let kind = viewer.about.as_ref().map(|about| kind_of(&about.mime));
@@ -372,7 +372,7 @@ pub(super) fn pane(
                 path: viewer.local.clone().unwrap_or_else(|| path.to_owned()),
                 zoom: viewer.zoom,
             };
-            let (room, pinched) = (viewer.room.clone(), key.clone());
+            let (room, pinched, this) = (viewer.room.clone(), key.clone(), this.clone());
             div()
                 .size_full()
                 .relative()
@@ -387,9 +387,11 @@ pub(super) fn pane(
                         .size_full()
                         .flex()
                         .overflow_scroll()
-                        .on_pinch(cx.listener(move |bench, event: &PinchEvent, _, cx| {
-                            pinch(bench, &pinched, 1. + event.delta, cx)
-                        }))
+                        .on_pinch(move |event: &PinchEvent, _, cx| {
+                            this.update(cx, |bench, cx| {
+                                pinch(bench, &pinched, 1. + event.delta, cx)
+                            })
+                        })
                         .child(picture),
                 )
                 .into_any_element()
@@ -409,14 +411,15 @@ pub(super) fn pane(
 
 /// Scales the picture by `factor`, starting from the size it is fitted to while it is fitted.
 fn pinch(bench: &mut Workbench, key: &FileKey, factor: f32, cx: &mut Context<Workbench>) {
-    let Some(viewer) = bench.editors.viewers.get(key) else {
+    let Some(viewer) = bench.editors.read(cx).viewers.get(key) else {
         return;
     };
-    let scale = match viewer.zoom {
+    let (zoom, room) = (viewer.zoom, viewer.room.get());
+    let path = viewer.local.clone().unwrap_or_else(|| key.path.clone());
+    let scale = match zoom {
         Zoom::Scale(scale) => scale,
         Zoom::Fit => {
-            let path = viewer.local.as_deref().unwrap_or(&key.path);
-            let resource = Resource::Path(Arc::from(path));
+            let resource = Resource::Path(Arc::from(path.as_path()));
             let Some(natural) = cx
                 .fetch_asset::<ImgResourceLoader>(&resource)
                 .and_then(Result::ok)
@@ -424,17 +427,18 @@ fn pinch(bench: &mut Workbench, key: &FileKey, factor: f32, cx: &mut Context<Wor
             else {
                 return;
             };
-            let room = viewer.room.get();
             let wide = f32::from(room.width) / natural.width.0 as f32;
             let tall = f32::from(room.height) / natural.height.0 as f32;
             wide.min(tall)
         }
     };
     let (least, most) = ZOOM_RANGE;
-    if let Some(viewer) = bench.editors.viewers.get_mut(key) {
-        viewer.zoom = Zoom::Scale((scale * factor).clamp(least, most));
-    }
-    bench.parts.redraw_stage(cx);
+    bench.editors.update(cx, |editors, cx| {
+        if let Some(viewer) = editors.viewers.get_mut(key) {
+            viewer.zoom = Zoom::Scale((scale * factor).clamp(least, most));
+        }
+        cx.notify();
+    });
 }
 
 /// A document in macOS's own viewer, once it is open.
@@ -570,12 +574,7 @@ fn bytes(bytes: Vec<u8>, t: &Tokens) -> AnyElement {
 /// The bar over a viewer: the file's name, size and type, the picture's
 /// zoom, and buttons that read it again, open it in its own app, or show it
 /// in Finder.
-fn bar(
-    this: &Entity<Workbench>,
-    key: &FileKey,
-    viewer: &Viewer,
-    cx: &mut Context<Workbench>,
-) -> impl IntoElement {
+fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let path = key.path.as_path();
     let name = name_of(path);
@@ -590,10 +589,12 @@ fn bar(
             .hover(move |style| style.text_color(t.text_primary))
             .on_click(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
-                    if let Some(viewer) = bench.editors.viewers.get_mut(&key) {
-                        viewer.zoom = to(viewer.zoom);
-                    }
-                    bench.parts.redraw_stage(cx);
+                    bench.editors.update(cx, |editors, cx| {
+                        if let Some(viewer) = editors.viewers.get_mut(&key) {
+                            viewer.zoom = to(viewer.zoom);
+                        }
+                        cx.notify();
+                    })
                 })
             })
             .child(label)

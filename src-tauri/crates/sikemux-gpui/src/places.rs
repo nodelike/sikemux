@@ -101,6 +101,7 @@ impl Workbench {
             .count();
         let unsaved = self
             .editors
+            .read(cx)
             .unsaved_under(&self.place(), &project.path)
             .count();
         let path = project.path.to_string_lossy().into_owned();

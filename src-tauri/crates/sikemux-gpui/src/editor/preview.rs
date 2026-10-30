@@ -106,7 +106,7 @@ pub(super) fn toolbar(
     key: &super::FileKey,
     look: Look,
     mode: Mode,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let choice = |id: &'static str, label: &'static str, shows: Mode| {
@@ -246,10 +246,15 @@ pub(super) fn open_find(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(document) = bench.editors.open.get_mut(key) else {
+    let Some(finding) = (bench.editors.read(cx).open.get(key)).map(|document| {
+        document
+            .finding
+            .as_ref()
+            .map(|finding| finding.input.clone())
+    }) else {
         return;
     };
-    if document.finding.is_none() {
+    let input = finding.unwrap_or_else(|| {
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Find in file"));
         let typed = {
             let key = key.clone();
@@ -259,30 +264,26 @@ pub(super) fn open_find(
                 }
             })
         };
-        document.finding = Some(Finding {
-            input,
+        let finding = Finding {
+            input: input.clone(),
             match_case: false,
             whole_word: false,
             found: None,
             reveal: 0,
             _typed: typed,
+        };
+        super::change(&bench.editors, key, cx, |document, _| {
+            document.finding = Some(finding)
         });
-    }
-    if let Some(finding) = &document.finding {
-        finding
-            .input
-            .update(cx, |input, cx| input.select_all(window, cx));
-        finding.input.read(cx).focus_handle(cx).focus(window, cx);
-    }
-    bench.parts.redraw_stage(cx);
+        input
+    });
+    input.update(cx, |input, cx| input.select_all(window, cx));
+    input.read(cx).focus_handle(cx).focus(window, cx);
 }
 
 /// Looks for what the bar holds, as its options say, in the preview as it reads now.
 fn search(bench: &mut Workbench, key: &FileKey, cx: &mut Context<Workbench>) {
-    if let Some(document) = bench.editors.open.get_mut(key) {
-        refind(document, cx);
-    }
-    bench.parts.redraw_stage(cx);
+    super::change(&bench.editors, key, cx, |document, cx| refind(document, cx));
 }
 
 /// Finds again what the bar holds, as the preview's text changed or the bar did.
@@ -304,18 +305,15 @@ pub(super) fn refind(document: &mut Document, cx: &App) {
 }
 
 fn step_find(bench: &mut Workbench, key: &FileKey, forward: bool, cx: &mut Context<Workbench>) {
-    let finding = bench
-        .editors
-        .open
-        .get_mut(key)
-        .and_then(|document| document.finding.as_mut());
-    if let Some(finding) = finding {
+    super::change(&bench.editors, key, cx, |document, _| {
+        let Some(finding) = document.finding.as_mut() else {
+            return;
+        };
         if let Some(found) = finding.found.as_mut() {
             Rc::make_mut(found).step(forward);
             finding.reveal = REVEAL_FRAMES;
         }
-    }
-    bench.parts.redraw_stage(cx);
+    });
 }
 
 fn flip_find(
@@ -324,13 +322,11 @@ fn flip_find(
     flip: fn(&mut Finding),
     cx: &mut Context<Workbench>,
 ) {
-    let finding = bench
-        .editors
-        .open
-        .get_mut(key)
-        .and_then(|document| document.finding.as_mut());
-    if let Some(finding) = finding {
-        flip(finding);
+    let flipped = bench.editors.update(cx, |editors, _| {
+        let finding = (editors.open.get_mut(key)).and_then(|document| document.finding.as_mut());
+        finding.map(flip).is_some()
+    });
+    if flipped {
         search(bench, key, cx);
     }
 }
@@ -342,19 +338,23 @@ fn close_find(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    if let Some(document) = bench.editors.open.get_mut(key) {
+    super::change(&bench.editors, key, cx, |document, cx| {
         document.finding = None;
         document.preview_focus.focus(window, cx);
-    }
-    bench.parts.redraw_stage(cx);
+    });
 }
 
 /// Scrolls the preview so the place the reader is on sits in view, aimed from where the last
 /// frame drew it.
 pub(super) fn reveal(bench: &mut Workbench, key: &FileKey, cx: &mut Context<Workbench>) {
-    let Some(document) = bench.editors.open.get_mut(key) else {
-        return;
-    };
+    bench.editors.update(cx, |editors, cx| {
+        if let Some(document) = editors.open.get_mut(key) {
+            reveal_in(document, cx);
+        }
+    });
+}
+
+fn reveal_in(document: &mut Document, cx: &mut Context<super::Editors>) {
     let (Some(markdown), Some(finding)) = (document.markdown(), document.finding.as_mut()) else {
         return;
     };
@@ -371,7 +371,7 @@ pub(super) fn reveal(bench: &mut Workbench, key: &FileKey, cx: &mut Context<Work
         }
     }
     if finding.reveal > 0 {
-        bench.parts.redraw_stage(cx);
+        cx.notify();
     }
 }
 

@@ -127,14 +127,10 @@ fn attach_trusted(
             Some(false) => return,
             None => {
                 let _ = bench.update(cx, |bench, cx| {
-                    if let Some(document) = bench
-                        .editors
-                        .open
-                        .get_mut(&FileKey::new(Host::This, path.clone()))
-                    {
-                        document.notice = Some(Notice::Trust(project));
-                        bench.parts.redraw_stage(cx);
-                    }
+                    let key = FileKey::new(Host::This, path.clone());
+                    super::change(&bench.editors, &key, cx, |document, _| {
+                        document.notice = Some(Notice::Trust(project))
+                    });
                 });
                 return;
             }
@@ -146,9 +142,7 @@ fn attach_trusted(
             return;
         }
         let Ok(Some(content)) = bench.update(cx, |bench, cx| {
-            bench
-                .editors
-                .open
+            (bench.editors.read(cx).open)
                 .get(&FileKey::new(Host::This, path.clone()))
                 .map(|document| document.state.read(cx).value().to_string())
         }) else {
@@ -170,54 +164,52 @@ fn attach_trusted(
             }
         };
         let _ = bench.update(cx, |bench, cx| {
-            let Some(document) = bench
-                .editors
-                .open
-                .get_mut(&FileKey::new(Host::This, path.clone()))
-            else {
-                return;
-            };
-            let served = Served {
-                project,
-                language,
-                path: name,
-                handle,
-                version: 1,
-                sync: Task::ready(()),
-                hovered: Rc::new(Cell::new(None)),
-            };
-            let found = Rc::new(RefCell::new(Vec::new()));
-            let definitions = Rc::new(Definitions {
-                asks: bench.asks.clone(),
-                document: served.document(),
-                found: found.clone(),
-                hovered: served.hovered.clone(),
+            let (asks, this, current) = (bench.asks.clone(), cx.weak_entity(), path.clone());
+            bench.editors.update(cx, |editors, cx| {
+                let Some(document) = editors.open.get_mut(&FileKey::new(Host::This, path)) else {
+                    return;
+                };
+                let served = Served {
+                    project,
+                    language,
+                    path: name,
+                    handle,
+                    version: 1,
+                    sync: Task::ready(()),
+                    hovered: Rc::new(Cell::new(None)),
+                };
+                let found = Rc::new(RefCell::new(Vec::new()));
+                let definitions = Rc::new(Definitions {
+                    asks,
+                    document: served.document(),
+                    found: found.clone(),
+                    hovered: served.hovered.clone(),
+                });
+                document.state.update(cx, |state, _| {
+                    let lsp = state.lsp_mut();
+                    lsp.definition_provider = Some(definitions);
+                    lsp.show_document = Some(Rc::new(
+                        move |params: &ShowDocumentParams, window: &mut Window, cx: &mut App| {
+                            let found = found.borrow().clone();
+                            if found.len() > 1 {
+                                let places = found.iter().filter_map(place).collect();
+                                let _ = this.update(cx, |bench, cx| {
+                                    super::peek(
+                                        bench,
+                                        &FileKey::new(Host::This, current.clone()),
+                                        "Definitions",
+                                        places,
+                                        cx,
+                                    )
+                                });
+                                return true;
+                            }
+                            show_document(params, window, cx)
+                        },
+                    ));
+                });
+                document.served = Some(served);
             });
-            let (this, current) = (cx.weak_entity(), path.clone());
-            document.state.update(cx, |state, _| {
-                let lsp = state.lsp_mut();
-                lsp.definition_provider = Some(definitions);
-                lsp.show_document = Some(Rc::new(
-                    move |params: &ShowDocumentParams, window: &mut Window, cx: &mut App| {
-                        let found = found.borrow().clone();
-                        if found.len() > 1 {
-                            let places = found.iter().filter_map(place).collect();
-                            let _ = this.update(cx, |bench, cx| {
-                                super::peek(
-                                    bench,
-                                    &FileKey::new(Host::This, current.clone()),
-                                    "Definitions",
-                                    places,
-                                    cx,
-                                )
-                            });
-                            return true;
-                        }
-                        show_document(params, window, cx)
-                    },
-                ));
-            });
-            document.served = Some(served);
         });
     })
     .detach();
@@ -232,7 +224,11 @@ fn report(
     path: PathBuf,
     cx: &mut Context<Workbench>,
 ) {
-    if !bench.editors.lsp_said.insert(format!("{language}:{error}")) {
+    let said = format!("{language}:{error}");
+    if !bench
+        .editors
+        .update(cx, |editors, _| editors.lsp_said.insert(said))
+    {
         return;
     }
     let missing = INSTALLABLE.into_iter().find(|(name, bin, _, _)| {
@@ -301,7 +297,11 @@ fn install(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    if !bench.editors.lsp_installing.insert(language.clone()) {
+    let installing = language.clone();
+    if !bench
+        .editors
+        .update(cx, |editors, _| editors.lsp_installing.insert(installing))
+    {
         bench.notify(toast::info(format!("{bin} install already running")), cx);
         return;
     }
@@ -310,10 +310,15 @@ fn install(
     cx.spawn_in(window, async move |bench, cx| {
         let installed = asked.await;
         let _ = bench.update_in(cx, |bench, window, cx| {
-            bench.editors.lsp_installing.remove(&language);
+            let landed = installed.is_ok();
+            bench.editors.update(cx, |editors, _| {
+                editors.lsp_installing.remove(&language);
+                if landed {
+                    editors.lsp_said.clear();
+                }
+            });
             match installed {
                 Ok(at) => {
-                    bench.editors.lsp_said.clear();
                     let at = at
                         .as_str()
                         .map(|at| format!(" at {at}"))
@@ -333,7 +338,7 @@ fn install(
 /// Claims back the files this window had open with language servers, as the core lets go
 /// of those not claimed soon after a connection drops, and opens again any it no longer has.
 pub(super) fn claim(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let handles: Vec<String> = (bench.editors.open.values())
+    let handles: Vec<String> = (bench.editors.read(cx).open.values())
         .filter_map(|document| Some(document.served.as_ref()?.handle.clone()))
         .collect();
     if handles.is_empty() {
@@ -347,16 +352,19 @@ pub(super) fn claim(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             .and_then(|claimed| serde_json::from_value(claimed).ok())
             .unwrap_or_default();
         let _ = bench.update(cx, |bench, cx| {
-            let mut lost = Vec::new();
-            for (key, document) in &mut bench.editors.open {
-                if (document.served.as_ref())
-                    .is_some_and(|served| !claimed.contains(&served.handle))
-                {
-                    document.served = None;
-                    lost.push(key.path.clone());
+            let (lost, window) = bench.editors.update(cx, |editors, _| {
+                let mut lost = Vec::new();
+                for (key, document) in &mut editors.open {
+                    if (document.served.as_ref())
+                        .is_some_and(|served| !claimed.contains(&served.handle))
+                    {
+                        document.served = None;
+                        lost.push(key.path.clone());
+                    }
                 }
-            }
-            let Some(window) = bench.editors.window else {
+                (lost, editors.window)
+            });
+            let Some(window) = window else {
                 return;
             };
             cx.spawn(async move |this, cx| {
@@ -375,11 +383,7 @@ pub(super) fn claim(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 }
 
 /// Sends the server the file's text once typing pauses.
-pub(super) fn changed(
-    document: &mut Document,
-    asks: &UnboundedSender<Ask>,
-    cx: &mut Context<Workbench>,
-) {
+pub(super) fn changed(document: &mut Document, asks: &UnboundedSender<Ask>, cx: &mut App) {
     let Some(served) = document.served.as_mut() else {
         return;
     };
@@ -387,7 +391,7 @@ pub(super) fn changed(
     let mut params = served.document();
     params["version"] = served.version.into();
     let (asks, state) = (asks.clone(), document.state.clone());
-    served.sync = cx.spawn(async move |_, cx| {
+    served.sync = cx.spawn(async move |cx| {
         cx.background_executor().timer(CHANGE_DEBOUNCE).await;
         let content = state.read_with(cx, |state, _| state.value().to_string());
         params["content"] = content.into();
@@ -428,13 +432,12 @@ pub(super) fn trust(
     cx: &mut Context<Workbench>,
 ) {
     remember_trust(bench, project, allowed);
-    if let Some(document) = bench
-        .editors
-        .open
-        .get_mut(&FileKey::new(Host::This, path.clone()))
-    {
-        document.notice = None;
-    }
+    let key = FileKey::new(Host::This, path.clone());
+    bench.editors.update(cx, |editors, _| {
+        if let Some(document) = editors.open.get_mut(&key) {
+            document.notice = None;
+        }
+    });
     if allowed {
         attach_trusted(bench, path, Some(true), window, cx);
     }
@@ -582,11 +585,8 @@ pub(super) fn navigate(
     references: bool,
     cx: &mut Context<Workbench>,
 ) -> bool {
-    let Some(served) = bench
-        .editors
-        .open
-        .get(key)
-        .and_then(|document| document.served.as_ref())
+    let Some(served) =
+        (bench.editors.read(cx).open.get(key)).and_then(|document| document.served.as_ref())
     else {
         return false;
     };

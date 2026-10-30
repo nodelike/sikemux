@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use gpui_kit::component::input::{EditorState, Position, RopeExt};
 use gpui_kit::{
-    canvas, div, fill, point, px, relative, Bounds, Context, Entity, Hsla, InteractiveElement,
+    canvas, div, fill, point, px, relative, App, Bounds, Context, Entity, Hsla, InteractiveElement,
     IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled, Task,
 };
 
-use super::{lsp, place_cursor, FileKey, OpenAt};
+use super::{lsp, place_cursor, Document, Editors, FileKey, OpenAt};
 use crate::git::{self, DiffKind, Hunk};
 use crate::theme::Tokens;
 use crate::workbench::Workbench;
@@ -41,11 +41,8 @@ pub(super) fn read_base(bench: &mut Workbench, key: &FileKey, cx: &mut Context<W
     let Some(project) = lsp::project_of(bench, &key.path) else {
         return;
     };
-    let Some(target) = bench
-        .editors
-        .open
-        .get(key)
-        .map(|document| document.target.clone())
+    let Some(target) =
+        (bench.editors.read(cx).open.get(key)).map(|document| document.target.clone())
     else {
         return;
     };
@@ -57,15 +54,15 @@ pub(super) fn read_base(bench: &mut Workbench, key: &FileKey, cx: &mut Context<W
     else {
         return;
     };
-    let key = key.clone();
-    cx.spawn(async move |bench, cx| {
+    let (editors, key) = (bench.editors.downgrade(), key.clone());
+    cx.spawn(async move |_, cx| {
         let base = git::file_at(&target, &project, "HEAD", &relative)
             .await
             .ok();
-        let _ = bench.update(cx, |bench, cx| {
-            if let Some(document) = bench.editors.open.get_mut(&key) {
+        let _ = editors.update(cx, |editors, cx| {
+            if let Some(document) = editors.open.get_mut(&key) {
                 document.gutter.base = base.map(SharedString::from);
-                changed(&key, bench, cx);
+                mark(document, &key, cx);
             }
         });
     })
@@ -73,28 +70,33 @@ pub(super) fn read_base(bench: &mut Workbench, key: &FileKey, cx: &mut Context<W
 }
 
 /// Marks again what differs from the last commit, once typing pauses.
-pub(super) fn changed(key: &FileKey, bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let Some(document) = bench.editors.open.get_mut(key) else {
-        return;
-    };
+pub(super) fn changed(editors: &Entity<Editors>, key: &FileKey, cx: &mut App) {
+    editors.update(cx, |editors, cx| {
+        if let Some(document) = editors.open.get_mut(key) {
+            mark(document, key, cx);
+        }
+    });
+}
+
+fn mark(document: &mut Document, key: &FileKey, cx: &mut Context<Editors>) {
     let Some(base) = document.gutter.base.clone() else {
         document.gutter.hunks = Rc::default();
-        return bench.parts.redraw_stage(cx);
+        return cx.notify();
     };
     let (state, key) = (document.state.clone(), key.clone());
-    document.gutter.refresh = Some(cx.spawn(async move |bench, cx| {
+    document.gutter.refresh = Some(cx.spawn(async move |editors, cx| {
         cx.background_executor().timer(DEBOUNCE).await;
-        let Ok(Some(task)) = bench.update(cx, |_, cx| {
+        let Ok(Some(task)) = editors.update(cx, |_, cx| {
             let live = state.read(cx).value();
             (live.len() <= MAX_CHARACTERS).then(|| git::hunks(base, live.to_string(), cx))
         }) else {
             return;
         };
         let hunks = task.await;
-        let _ = bench.update(cx, |bench, cx| {
-            if let Some(document) = bench.editors.open.get_mut(&key) {
+        let _ = editors.update(cx, |editors, cx| {
+            if let Some(document) = editors.open.get_mut(&key) {
                 document.gutter.hunks = Rc::new(hunks);
-                bench.parts.redraw_stage(cx);
+                cx.notify();
             }
         });
     }));

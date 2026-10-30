@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
-use gpui_kit::{AppContext, Context};
+use gpui_kit::{App, AppContext, Context};
 use serde_json::{json, Value};
 use sikemux_core::cli::protocol::{
     CliOpenFailure, CliOpenOutcome, CliOpenRequest, CliOpenTarget, CliTargetKind, HarnessRequest,
@@ -40,7 +40,7 @@ impl Workbench {
         };
         self.bring_window_forward(cx);
         let wait = request.wait;
-        let opening = self.open_targets(request.targets, false);
+        let opening = self.open_targets(request.targets, false, cx);
         cx.spawn(async move |bench, cx| {
             let (outcome, tabs) = opening.await;
             answer(serde_json::to_value(outcome).map_err(|error| error.to_string()));
@@ -84,7 +84,7 @@ impl Workbench {
             return;
         }
         self.bring_window_forward(cx);
-        let opening = self.open_targets(targets, false);
+        let opening = self.open_targets(targets, false, cx);
         cx.spawn(async move |bench, cx| {
             let (outcome, _) = opening.await;
             let _ = bench.update(cx, |bench, cx| {
@@ -163,7 +163,7 @@ impl Workbench {
                     line: params["line"].as_u64().map(|line| line as u32),
                     column: None,
                 };
-                let opening = self.open_targets(vec![target], !focus);
+                let opening = self.open_targets(vec![target], !focus, cx);
                 cx.background_spawn(async move {
                     let (outcome, tabs) = opening.await;
                     answer(match outcome.failed.into_iter().next() {
@@ -232,9 +232,10 @@ impl Workbench {
         &mut self,
         targets: Vec<CliOpenTarget>,
         behind: bool,
+        cx: &mut App,
     ) -> impl Future<Output = (CliOpenOutcome, HashSet<String>)> + Send + 'static {
         let here = crate::core::Target::new(&self.asks, crate::hosts::Place::This);
-        self.open_targets_on(&here, targets, behind)
+        self.open_targets_on(&here, targets, behind, cx)
     }
 
     /// Has the core `target` reaches open each target, as `open_targets` does on this host's.
@@ -243,14 +244,16 @@ impl Workbench {
         target: &crate::core::Target,
         targets: Vec<CliOpenTarget>,
         behind: bool,
+        cx: &mut App,
     ) -> impl Future<Output = (CliOpenOutcome, HashSet<String>)> + Send + 'static {
         for target in &targets {
             if let (CliTargetKind::File, Some(line)) = (target.kind, target.line) {
-                self.editors.reveal(OpenAt {
+                let at = OpenAt {
                     path: PathBuf::from(&target.path),
                     line: line.saturating_sub(1),
                     column: target.column.map(|column| column.saturating_sub(1)),
-                });
+                };
+                self.editors.update(cx, |editors, _| editors.reveal(at));
             }
         }
         let ids: Vec<String> = targets.iter().map(|target| target.id.clone()).collect();

@@ -171,7 +171,7 @@ pub struct Workbench {
     pub older: Option<crate::recent::OlderChats>,
     pub asks: mpsc::UnboundedSender<Ask>,
     pub terminals: terminal::Terminals,
-    pub editors: crate::editor::Editors,
+    pub editors: Entity<crate::editor::Editors>,
     /// The Search pane of the project whose Search tab was last in front.
     pub search: Option<Entity<SearchPane>>,
     pub board: Option<Entity<crate::board::BoardPane>>,
@@ -656,7 +656,7 @@ impl Workbench {
             older: None,
             asks,
             terminals: terminal::Terminals::default(),
-            editors: crate::editor::Editors::default(),
+            editors: cx.new(|_| crate::editor::Editors::default()),
             search: None,
             board: None,
             plugin_panes: HashMap::new(),
@@ -676,6 +676,7 @@ impl Workbench {
         };
         bench.parts.stage_follows(&bench.sims, cx);
         bench.parts.stage_follows(&bench.desks, cx);
+        bench.parts.stage_follows(&bench.editors, cx);
         bench.keys.focus.focus(window, cx);
         bench.wait_patiently(cx);
         crate::handover::follow(&mut bench, cx);
@@ -747,7 +748,7 @@ impl Workbench {
             Update::HostReach(host, reached) => {
                 if reached {
                     self.hosts.reached.insert(host.clone());
-                    crate::editor::host_reached(self, &Place::Account(host.clone()));
+                    crate::editor::host_reached(self, &Place::Account(host.clone()), cx);
                     self.read_approval(Some(host.clone()), cx);
                 } else {
                     self.hosts.reached.remove(&host);

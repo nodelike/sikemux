@@ -64,9 +64,11 @@ pub(super) fn read(bench: &mut Workbench, key: &FileKey, cx: &mut Context<Workbe
 
 /// Hides the note while typing and blames again once it pauses.
 pub(super) fn typed(bench: &mut Workbench, key: &FileKey, cx: &mut Context<Workbench>) {
-    if let Some(document) = bench.editors.open.get_mut(key) {
-        document.blame.typing = true;
-    }
+    bench.editors.update(cx, |editors, _| {
+        if let Some(document) = editors.open.get_mut(key) {
+            document.blame.typing = true;
+        }
+    });
     blame(bench, key, Some(DEBOUNCE), cx);
 }
 
@@ -87,40 +89,42 @@ fn blame(
     else {
         return;
     };
-    let Some(document) = bench.editors.open.get_mut(key) else {
-        return;
-    };
-    let (state, target, key) = (document.state.clone(), document.target.clone(), key.clone());
-    document.blame.reading = Some(cx.spawn(async move |bench, cx| {
-        if let Some(wait) = wait {
-            cx.background_executor().timer(wait).await;
-        }
-        let contents = state.read_with(cx, |state, _| state.value().to_string());
-        let asked = json!({ "repo": project, "path": relative, "contents": contents });
-        let Ok(blamed) = target.request("git.blame", asked).await else {
+    bench.editors.update(cx, |editors, cx| {
+        let Some(document) = editors.open.get_mut(key) else {
             return;
         };
-        let notes: Vec<Note> = blamed["commits"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(note)
-            .collect();
-        let lines: Vec<u32> = blamed["lines"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|index| index.as_u64().unwrap_or(0) as u32)
-            .collect();
-        let _ = bench.update(cx, |bench, cx| {
-            if let Some(document) = bench.editors.open.get_mut(&key) {
-                document.blame.notes = Rc::new(notes);
-                document.blame.lines = Rc::new(lines);
-                document.blame.typing = false;
-                bench.parts.redraw_stage(cx);
+        let (state, target, key) = (document.state.clone(), document.target.clone(), key.clone());
+        document.blame.reading = Some(cx.spawn(async move |editors, cx| {
+            if let Some(wait) = wait {
+                cx.background_executor().timer(wait).await;
             }
-        });
-    }));
+            let contents = state.read_with(cx, |state, _| state.value().to_string());
+            let asked = json!({ "repo": project, "path": relative, "contents": contents });
+            let Ok(blamed) = target.request("git.blame", asked).await else {
+                return;
+            };
+            let notes: Vec<Note> = blamed["commits"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(note)
+                .collect();
+            let lines: Vec<u32> = blamed["lines"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|index| index.as_u64().unwrap_or(0) as u32)
+                .collect();
+            let _ = editors.update(cx, |editors, cx| {
+                if let Some(document) = editors.open.get_mut(&key) {
+                    document.blame.notes = Rc::new(notes);
+                    document.blame.lines = Rc::new(lines);
+                    document.blame.typing = false;
+                    cx.notify();
+                }
+            });
+        }));
+    });
 }
 
 /// The note at the end of the cursor's line, while nothing is selected and

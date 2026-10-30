@@ -395,8 +395,8 @@ fn open(found: &PathRef, kind: FileKind, on: &On, bench: &WeakEntity<Workbench>,
                 line: found.line,
                 column: found.column,
             };
-            let opened = bench.update(cx, |bench, _| {
-                bench.open_targets_on(&target, vec![asked], false)
+            let opened = bench.update(cx, |bench, cx| {
+                bench.open_targets_on(&target, vec![asked], false, cx)
             });
             if let Ok(opened) = opened {
                 crate::desk::spawn(async move {

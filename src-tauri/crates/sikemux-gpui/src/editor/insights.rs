@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, ClipboardItem, Context, Entity, Hsla, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled,
+    div, px, AnyElement, App, ClipboardItem, Context, Entity, Hsla, InteractiveElement,
+    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
 use serde_json::{json, Value};
 
@@ -78,8 +78,8 @@ pub(super) fn diagnostics_changed(
     cx: &mut Context<Workbench>,
 ) {
     for path in paths {
-        let (asks, path) = (bench.asks.clone(), path.clone());
-        cx.spawn(async move |bench, cx| {
+        let (asks, path, editors) = (bench.asks.clone(), path.clone(), bench.editors.downgrade());
+        cx.spawn(async move |_, cx| {
             let Ok(read) = core::request(&asks, "lsp.diagnostics", json!({ "path": path })).await
             else {
                 return;
@@ -96,13 +96,13 @@ pub(super) fn diagnostics_changed(
                 })
                 .map(|diagnostic| problem(&diagnostic))
                 .collect();
-            let _ = bench.update(cx, |bench, cx| {
-                let insights = &mut bench.editors.insights;
+            let _ = editors.update(cx, |editors, cx| {
+                let insights = &mut editors.insights;
                 match problems.is_empty() {
                     true => insights.problems.remove(&path),
                     false => insights.problems.insert(path, problems),
                 };
-                bench.parts.redraw_stage(cx);
+                cx.notify();
             });
         })
         .detach();
@@ -139,23 +139,33 @@ fn problem(diagnostic: &Value) -> Problem {
 }
 
 /// Asks the language server of the editor of `path` for its outline.
-fn read_outline(bench: &mut Workbench, path: &Path, cx: &mut Context<Workbench>) {
-    let Some(params) = bench
+fn read_outline(bench: &mut Workbench, path: &Path, cx: &mut App) {
+    let params = (bench
         .editors
+        .read(cx)
         .open
-        .get(&super::FileKey::new(Host::This, path))
-        .and_then(|document| Some(document.served.as_ref()?.document()))
-    else {
-        bench.editors.insights.outline = Outline::Unavailable;
-        return bench.parts.redraw_stage(cx);
+        .get(&super::FileKey::new(Host::This, path)))
+    .and_then(|document| Some(document.served.as_ref()?.document()));
+    let outline = match params {
+        Some(_) => Outline::Loading(path.to_owned()),
+        None => Outline::Unavailable,
     };
-    bench.editors.insights.outline = Outline::Loading(path.to_owned());
-    bench.parts.redraw_stage(cx);
-    let (asks, path) = (bench.asks.clone(), path.to_owned());
-    cx.spawn(async move |bench, cx| {
+    bench.editors.update(cx, |editors, cx| {
+        editors.insights.outline = outline;
+        cx.notify();
+    });
+    let Some(params) = params else {
+        return;
+    };
+    let (asks, path, editors) = (
+        bench.asks.clone(),
+        path.to_owned(),
+        bench.editors.downgrade(),
+    );
+    cx.spawn(async move |cx| {
         let read = core::request(&asks, "lsp.symbols", params).await;
-        let _ = bench.update(cx, |bench, cx| {
-            let outline = &mut bench.editors.insights.outline;
+        let _ = editors.update(cx, |editors, cx| {
+            let outline = &mut editors.insights.outline;
             if !matches!(outline, Outline::Loading(asked) if *asked == path) {
                 return;
             }
@@ -167,7 +177,7 @@ fn read_outline(bench: &mut Workbench, path: &Path, cx: &mut Context<Workbench>)
                 }
                 Err(_) => Outline::Failed,
             };
-            bench.parts.redraw_stage(cx);
+            cx.notify();
         });
     })
     .detach();
@@ -243,10 +253,10 @@ pub(super) fn bar(
     this: &Entity<Workbench>,
     path: &Path,
     project: Option<&Path>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let insights = &bench.editors.insights;
+    let insights = &bench.editors.read(cx).insights;
     let in_project =
         |file: &str| project.is_none_or(|project| Path::new(file).starts_with(project));
     let mut problems: Vec<(&str, &Problem)> = insights
@@ -276,13 +286,16 @@ pub(super) fn bar(
             .when(chosen, |tab| tab.bg(t.surface_chosen))
             .on_click(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
-                    let insights = &mut bench.editors.insights;
-                    insights.open = !(insights.open && insights.tab == shown);
-                    insights.tab = shown;
-                    if insights.open && shown == Tab::Outline {
+                    let outline = bench.editors.update(cx, |editors, cx| {
+                        let insights = &mut editors.insights;
+                        insights.open = !(insights.open && insights.tab == shown);
+                        insights.tab = shown;
+                        cx.notify();
+                        insights.open && shown == Tab::Outline
+                    });
+                    if outline {
                         read_outline(bench, &path, cx);
                     }
-                    bench.parts.redraw_stage(cx);
                 })
             })
             .child(label)
@@ -326,8 +339,10 @@ pub(super) fn bar(
             .small()
             .on_click(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
-                    bench.editors.insights.open ^= true;
-                    bench.parts.redraw_stage(cx);
+                    bench.editors.update(cx, |editors, cx| {
+                        editors.insights.open ^= true;
+                        cx.notify();
+                    })
                 })
             })
         });

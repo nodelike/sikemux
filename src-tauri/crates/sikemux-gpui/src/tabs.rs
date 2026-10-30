@@ -937,6 +937,7 @@ fn strip_tab(
             let unsaved = kind == PaneKind::Files
                 && bench
                     .editors
+                    .read(cx)
                     .is_dirty(&crate::editor::FileKey::new(bench.place(), target));
             let file_icon = (kind == PaneKind::Files)
                 .then(|| Path::new(target).file_name())
@@ -1028,7 +1029,7 @@ pub fn tab_menu(
         Some((PaneKind::Agent, agent)) => AgentMenu::new(bench, agent, cx),
         _ => None,
     };
-    let separable = bench.separable(tab);
+    let separable = bench.separable(tab, cx);
     let (bench, strip, tab) = (cx.entity().downgrade(), strip.clone(), tab.id.clone());
     move |popup, _, _| {
         let popup = match &agent_menu {
@@ -1114,6 +1115,7 @@ impl TabMenu {
                         other.id.clone(),
                         !bench
                             .editors
+                            .read(cx)
                             .is_dirty(&crate::editor::FileKey::new(bench.place(), path)),
                     )),
                     _ => None,

@@ -507,7 +507,7 @@ impl SearchPane {
         let previewed = self.previewed.as_ref()?;
         let bench = self.bench.upgrade()?;
         let root = Path::new(&self.project);
-        let unsaved: Vec<String> = (bench.read(cx).editors)
+        let unsaved: Vec<String> = (bench.read(cx).editors.read(cx))
             .unsaved_under(self.place(), root)
             .filter(|path| (previewed.files.iter()).any(|file| root.join(&file.path) == *path))
             .map(|path| {

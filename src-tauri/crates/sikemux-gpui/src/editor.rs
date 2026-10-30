@@ -12,7 +12,8 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     actions, div, px, AnyElement, AnyWindowHandle, App, AppContext, Context, Entity, FocusHandle,
     Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
+    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity,
+    Window,
 };
 use serde_json::{json, Value};
 use sikemux_wire::protocol::{Pane, PaneKind, DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
@@ -123,6 +124,21 @@ impl Editors {
     pub fn reveal(&mut self, at: OpenAt) {
         self.reveal = Some(at);
     }
+}
+
+/// Changes the open file `key`, when it is open, and draws the editors again.
+fn change<R>(
+    editors: &Entity<Editors>,
+    key: &FileKey,
+    cx: &mut App,
+    change: impl FnOnce(&mut Document, &mut Context<Editors>) -> R,
+) -> Option<R> {
+    editors.update(cx, |editors, cx| {
+        let document = editors.open.get_mut(key)?;
+        let changed = change(document, cx);
+        cx.notify();
+        Some(changed)
+    })
 }
 
 /// Every file open in an editor, by its host and path.
@@ -266,18 +282,22 @@ pub fn pane(
     let key = FileKey::new(bench.place(), path);
     let path = key.path.clone();
     let t = Tokens::get(cx).clone();
-    if bench.editors.viewers.contains_key(&key) {
+    if bench.editors.read(cx).viewers.contains_key(&key) {
         return viewer::pane(bench, this, &key, cx);
     }
     if viewer::not_text(&path) {
         let opening = key.clone();
         cx.defer_in(window, move |bench, window, cx| {
-            bench.editors.window = Some(window.window_handle());
+            let handle = window.window_handle();
+            bench
+                .editors
+                .update(cx, |editors, _| editors.window = Some(handle));
             viewer::load(bench, opening, cx)
         });
         return div().size_full().into_any_element();
     }
-    let Some(document) = bench.editors.open.get(&key) else {
+    let Some(loaded) = (bench.editors.read(cx).open.get(&key)).map(|document| document.loaded)
+    else {
         let opening = key.clone();
         cx.defer_in(window, move |bench, window, cx| {
             open(bench, opening, window, cx)
@@ -287,26 +307,26 @@ pub fn pane(
     if bench.claims_keys(TakesKeys::File(path.clone())) {
         let focused = key.clone();
         cx.defer_in(window, move |bench, window, cx| {
-            if let Some(document) = bench.editors.open.get(&focused) {
-                let look = preview::look(&focused.path);
-                match document.mode {
-                    preview::Mode::Preview
-                        if matches!(look, Some(preview::Look::Markdown | preview::Look::Page)) =>
-                    {
-                        document.preview_focus.focus(window, cx)
-                    }
-                    _ => document
-                        .state
-                        .update(cx, |state, cx| state.focus(window, cx)),
+            let Some(document) = bench.editors.read(cx).open.get(&focused) else {
+                return;
+            };
+            let look = preview::look(&focused.path);
+            match document.mode {
+                preview::Mode::Preview
+                    if matches!(look, Some(preview::Look::Markdown | preview::Look::Page)) =>
+                {
+                    document.preview_focus.clone().focus(window, cx)
                 }
+                _ => (document.state.clone()).update(cx, |state, cx| state.focus(window, cx)),
             }
         });
     }
-    if document.loaded {
-        if let Some(at) = bench.editors.reveal.clone().filter(|at| at.path == path) {
+    if loaded {
+        let reveal = bench.editors.read(cx).reveal.clone();
+        if let Some(at) = reveal.filter(|at| at.path == path) {
             let revealed = key.clone();
             cx.defer_in(window, move |bench, window, cx| {
-                bench.editors.reveal = None;
+                bench.editors.update(cx, |editors, _| editors.reveal = None);
                 place_cursor(bench, &revealed, &at, window, cx);
             });
         }
@@ -315,6 +335,9 @@ pub fn pane(
     let project = lsp::project_of(bench, &path);
     let this = this.clone();
     let saving = key.clone();
+    let Some(document) = bench.editors.read(cx).open.get(&key) else {
+        return div().size_full().into_any_element();
+    };
     div()
         .size_full()
         .flex()
@@ -475,12 +498,12 @@ pub fn pane(
                     .relative()
                     .flex_1()
                     .min_h_0()
-                    .capture_action(
-                        cx.listener(|bench, _: &Search, _, cx| bench.parts.redraw_stage(cx)),
-                    )
-                    .capture_action(
-                        cx.listener(|bench, _: &Replace, _, cx| bench.parts.redraw_stage(cx)),
-                    )
+                    .capture_action(window.listener_for(&this, |bench, _: &Search, _, cx| {
+                        bench.parts.redraw_stage(cx)
+                    }))
+                    .capture_action(window.listener_for(&this, |bench, _: &Replace, _, cx| {
+                        bench.parts.redraw_stage(cx)
+                    }))
                     .font_family(theme::MONO)
                     .text_size(size)
                     .text_color(t.text_primary)
@@ -548,27 +571,33 @@ pub fn go_in(
 ) {
     remember_here(bench, cx);
     let target = to.path.to_string_lossy().into_owned();
-    bench.editors.reveal = Some(to);
     bench.call(
         "openTab",
         strip.with(json!({ "kind": "files", "target": target, "title": title })),
     );
-    bench.parts.redraw_stage(cx);
+    bench.editors.update(cx, |editors, cx| {
+        editors.reveal = Some(to);
+        cx.notify();
+    });
 }
 
-fn remember_here(bench: &mut Workbench, cx: &App) {
+fn remember_here(bench: &mut Workbench, cx: &mut App) {
     if let Some(here) = here(bench, cx) {
-        bench.editors.back.push(here);
-        if bench.editors.back.len() > MAX_HISTORY {
-            bench.editors.back.remove(0);
-        }
-        bench.editors.forward.clear();
+        bench.editors.update(cx, |editors, _| {
+            editors.back.push(here);
+            if editors.back.len() > MAX_HISTORY {
+                editors.back.remove(0);
+            }
+            editors.forward.clear();
+        });
     }
 }
 
 fn show(bench: &mut Workbench, at: OpenAt, cx: &mut Context<Workbench>) {
     let path = at.path.clone();
-    bench.editors.reveal = Some(at);
+    bench
+        .editors
+        .update(cx, |editors, _| editors.reveal = Some(at));
     bench.open_file(&path, cx);
 }
 
@@ -577,6 +606,7 @@ fn here(bench: &Workbench, cx: &App) -> Option<OpenAt> {
     let path = bench.front_file()?;
     let position = bench
         .editors
+        .read(cx)
         .open
         .get(&FileKey::new(bench.place(), path.clone()))?
         .state
@@ -591,29 +621,33 @@ fn here(bench: &Workbench, cx: &App) -> Option<OpenAt> {
 
 /// Goes back to where the editor was before its last jump, or forward again.
 fn step(bench: &mut Workbench, back: bool, cx: &mut Context<Workbench>) {
-    let taken = match back {
-        true => bench.editors.back.pop(),
-        false => bench.editors.forward.pop(),
-    };
-    let Some(to) = taken else {
-        return;
-    };
-    if let Some(here) = here(bench, cx) {
-        match back {
-            true => bench.editors.forward.push(here),
-            false => bench.editors.back.push(here),
-        }
+    let here = here(bench, cx);
+    let taken = bench.editors.update(cx, |editors, _| {
+        let (from, to) = match back {
+            true => (&mut editors.back, &mut editors.forward),
+            false => (&mut editors.forward, &mut editors.back),
+        };
+        let taken = from.pop()?;
+        to.extend(here);
+        Some(taken)
+    });
+    if let Some(to) = taken {
+        show(bench, to, cx);
     }
-    show(bench, to, cx);
 }
 
 /// ⌘D, as on the Mac: with nothing selected it selects the word at the cursor, and with text
 /// selected it adds the next place that text appears, coming round from the top, until every
 /// place is selected.
 fn add_next_match(bench: &mut Workbench, key: &FileKey, cx: &mut Context<Workbench>) {
-    let Some(document) = bench.editors.open.get_mut(key) else {
-        return;
-    };
+    bench.editors.update(cx, |editors, cx| {
+        if let Some(document) = editors.open.get_mut(key) {
+            add_next_match_in(document, cx);
+        }
+    });
+}
+
+fn add_next_match_in(document: &mut Document, cx: &mut App) {
     let state = document.state.clone();
     let text = state.read(cx).value().to_string();
     let selected = state.read(cx).selected_range();
@@ -662,9 +696,6 @@ fn peek(
     places: Vec<OpenAt>,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(document) = bench.editors.open.get_mut(key) else {
-        return;
-    };
     let places: Vec<Spot> = places
         .into_iter()
         .take(MAX_PEEKED)
@@ -672,26 +703,27 @@ fn peek(
         .collect();
     let mut files: Vec<PathBuf> = places.iter().map(|place| place.at.path.clone()).collect();
     files.dedup();
-    document.peek = Some(Peek {
+    let peek = Peek {
         title: title.to_owned().into(),
         places,
-    });
-    let target = document.target.clone();
-    bench.parts.redraw_stage(cx);
-    let peeked = key.clone();
-    cx.spawn(async move |bench, cx| {
+    };
+    let Some(target) = change(&bench.editors, key, cx, |document, _| {
+        document.peek = Some(peek);
+        document.target.clone()
+    }) else {
+        return;
+    };
+    let (editors, peeked) = (bench.editors.downgrade(), key.clone());
+    cx.spawn(async move |_, cx| {
         for file in files {
             let Ok((text, _)) = read_file(&target, file.to_string_lossy().into_owned()).await
             else {
                 continue;
             };
             let lines: Vec<&str> = text.lines().collect();
-            let _ = bench.update(cx, |bench, cx| {
-                let Some(peek) = bench
-                    .editors
-                    .open
-                    .get_mut(&peeked)
-                    .and_then(|document| document.peek.as_mut())
+            let _ = editors.update(cx, |editors, cx| {
+                let Some(peek) =
+                    (editors.open.get_mut(&peeked)).and_then(|document| document.peek.as_mut())
                 else {
                     return;
                 };
@@ -702,7 +734,7 @@ fn peek(
                         .unwrap_or_default();
                     place.text = Some(line.trim().to_owned().into());
                 }
-                bench.parts.redraw_stage(cx);
+                cx.notify();
             });
         }
     })
@@ -710,18 +742,16 @@ fn peek(
 }
 
 fn close_peeks(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    for document in bench.editors.open.values_mut() {
-        document.peek = None;
-    }
-    bench.parts.redraw_stage(cx);
+    bench.editors.update(cx, |editors, cx| {
+        for document in editors.open.values_mut() {
+            document.peek = None;
+        }
+        cx.notify();
+    });
 }
 
 /// The panel under an editor listing the places a symbol leads to, by file.
-fn peek_panel(
-    this: &Entity<Workbench>,
-    peek: &Peek,
-    cx: &mut Context<Workbench>,
-) -> impl IntoElement {
+fn peek_panel(this: &Entity<Workbench>, peek: &Peek, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let mut rows: Vec<AnyElement> = Vec::new();
     let mut file: Option<&Path> = None;
@@ -842,7 +872,7 @@ fn open_goto(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    if !bench.editors.open.contains_key(key) {
+    if !bench.editors.read(cx).open.contains_key(key) {
         return;
     }
     let input = cx.new(|cx| InputState::new(window, cx).placeholder("line[:column]"));
@@ -873,10 +903,9 @@ fn open_goto(
         },
     );
     input.update(cx, |input, cx| input.focus(window, cx));
-    if let Some(document) = bench.editors.open.get_mut(key) {
-        document.goto = Some((input, entered));
-    }
-    bench.parts.redraw_stage(cx);
+    change(&bench.editors, key, cx, |document, _| {
+        document.goto = Some((input, entered))
+    });
 }
 
 /// Closes the go-to-line field and gives the editor back the keyboard.
@@ -886,15 +915,17 @@ fn close_goto(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(document) = bench.editors.open.get_mut(key) else {
-        return;
-    };
-    if document.goto.take().is_some() {
-        document
-            .state
-            .update(cx, |state, cx| state.focus(window, cx));
-        bench.parts.redraw_stage(cx);
-    }
+    bench.editors.update(cx, |editors, cx| {
+        let Some(document) = editors.open.get_mut(key) else {
+            return;
+        };
+        if document.goto.take().is_some() {
+            document
+                .state
+                .update(cx, |state, cx| state.focus(window, cx));
+            cx.notify();
+        }
+    });
 }
 
 /// The bar over an editor saying it could not read or save its file, or
@@ -906,7 +937,7 @@ fn notice_bar(
     this: &Entity<Workbench>,
     key: &FileKey,
     notice: Notice,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let path = key.path.as_path();
@@ -945,11 +976,13 @@ fn notice_bar(
             "Reload disk",
             ui::Variant::Outline,
             Rc::new(move |bench, window, cx| {
-                if let Some(document) = bench.editors.open.get_mut(&key) {
-                    document.notice = None;
-                    document.dirty = false;
-                    document.version = None;
-                }
+                bench.editors.update(cx, |editors, _| {
+                    if let Some(document) = editors.open.get_mut(&key) {
+                        document.notice = None;
+                        document.dirty = false;
+                        document.version = None;
+                    }
+                });
                 read(bench, key.clone(), window, cx);
             }),
         )
@@ -1014,10 +1047,9 @@ fn notice_bar(
 
 /// Makes the editor for the file `key` and reads the file into it.
 fn open(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Context<Workbench>) {
-    if bench.editors.open.contains_key(&key) {
+    if bench.editors.read(cx).open.contains_key(&key) {
         return;
     }
-    bench.editors.window = Some(window.window_handle());
     let name = key
         .path
         .file_name()
@@ -1035,31 +1067,33 @@ fn open(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
     });
     let changes = follow_edits(&state, key.clone(), cx);
     let target = Target::new(&bench.asks, key.place.clone());
-    bench.editors.open.insert(
-        key.clone(),
-        Document {
-            state,
-            target,
-            saved: String::new(),
-            version: None,
-            loaded: false,
-            dirty: false,
-            notice: None,
-            goto: None,
-            served: None,
-            peek: None,
-            next_match: None,
-            mode: preview::first_mode(&key.path),
-            rendered: None,
-            finding: None,
-            preview_focus: cx.focus_handle(),
-            preview_scroll: ScrollHandle::new(),
-            gutter: gutter::Gutter::default(),
-            blame: blame::Blame::default(),
-            _changes: changes,
-        },
-    );
-    show_files(bench, &key.place);
+    let document = Document {
+        state,
+        target,
+        saved: String::new(),
+        version: None,
+        loaded: false,
+        dirty: false,
+        notice: None,
+        goto: None,
+        served: None,
+        peek: None,
+        next_match: None,
+        mode: preview::first_mode(&key.path),
+        rendered: None,
+        finding: None,
+        preview_focus: cx.focus_handle(),
+        preview_scroll: ScrollHandle::new(),
+        gutter: gutter::Gutter::default(),
+        blame: blame::Blame::default(),
+        _changes: changes,
+    };
+    let handle = window.window_handle();
+    bench.editors.update(cx, |editors, _| {
+        editors.window = Some(handle);
+        editors.open.insert(key.clone(), document);
+    });
+    show_files(bench, &key.place, cx);
     read(bench, key, window, cx);
 }
 
@@ -1075,20 +1109,24 @@ fn follow_edits(
             return;
         }
         let asks = bench.asks.clone();
-        let Some(document) = bench.editors.open.get_mut(&watched) else {
+        let text = state.read(cx).value();
+        let Some((dirty, flipped)) = bench.editors.update(cx, |editors, cx| {
+            let document = editors.open.get_mut(&watched)?;
+            let dirty = text.len() != document.saved.len() || text.as_ref() != document.saved;
+            lsp::changed(document, &asks, cx);
+            let flipped = dirty != document.dirty;
+            document.dirty = dirty;
+            Some((dirty, flipped))
+        }) else {
             return;
         };
-        let text = state.read(cx).value();
-        let dirty = text.len() != document.saved.len() || text.as_ref() != document.saved;
-        lsp::changed(document, &asks, cx);
-        if dirty != document.dirty {
-            document.dirty = dirty;
+        if flipped {
             cx.notify();
         }
         if dirty {
             keep_preview(bench, &watched.path);
         }
-        gutter::changed(&watched, bench, cx);
+        gutter::changed(&bench.editors, &watched, cx);
         blame::typed(bench, &watched, cx);
     })
 }
@@ -1102,7 +1140,7 @@ pub fn renamed(
     to: &Path,
     cx: &mut Context<Workbench>,
 ) {
-    let moved: Vec<(FileKey, FileKey)> = (bench.editors.open.keys())
+    let moved: Vec<(FileKey, FileKey)> = (bench.editors.read(cx).open.keys())
         .filter(|key| key.place == *place)
         .filter_map(|key| {
             let rest = key.path.strip_prefix(from).ok()?;
@@ -1112,17 +1150,23 @@ pub fn renamed(
     if moved.is_empty() {
         return;
     }
-    for (old, new) in &moved {
-        let Some(mut document) = bench.editors.open.remove(old) else {
-            continue;
-        };
+    let taken: Vec<(FileKey, Document)> = bench.editors.update(cx, |editors, _| {
+        (moved.iter())
+            .filter_map(|(old, new)| Some((new.clone(), editors.open.remove(old)?)))
+            .collect()
+    });
+    let mut kept = Vec::with_capacity(taken.len());
+    for (new, mut document) in taken {
         lsp::closed(&document, &bench.asks);
         document.served = None;
         document._changes = follow_edits(&document.state, new.clone(), cx);
-        bench.editors.open.insert(new.clone(), document);
+        kept.push((new, document));
     }
-    show_files(bench, place);
-    let Some(window) = bench.editors.window else {
+    bench
+        .editors
+        .update(cx, |editors, _| editors.open.extend(kept));
+    show_files(bench, place, cx);
+    let Some(window) = bench.editors.read(cx).window else {
         return;
     };
     cx.spawn(async move |this, cx| {
@@ -1142,10 +1186,10 @@ pub fn renamed(
 }
 
 /// Tells the core of `place` which files to watch: every one of its files open in an editor.
-fn show_files(bench: &Workbench, place: &Host) {
+fn show_files(bench: &Workbench, place: &Host, cx: &App) {
     Target::new(&bench.asks, place.clone()).call(
         "showFiles",
-        json!({ "paths": bench.editors.watched(place) }),
+        json!({ "paths": bench.editors.read(cx).watched(place) }),
     );
 }
 
@@ -1153,21 +1197,22 @@ fn show_files(bench: &Workbench, place: &Host) {
 /// servers, as a core forgets both for a connection that drops.
 pub fn reconnected(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let mut places: Vec<Host> = Vec::new();
-    for key in (bench.editors.open.keys()).chain(bench.editors.viewers.keys()) {
+    let editors = bench.editors.read(cx);
+    for key in (editors.open.keys()).chain(editors.viewers.keys()) {
         if !places.contains(&key.place) {
             places.push(key.place.clone());
         }
     }
     for place in places {
-        show_files(bench, &place);
+        show_files(bench, &place, cx);
     }
     lsp::claim(bench, cx);
 }
 
 /// Tells an account host again which of its files to watch, once it is back in reach.
-pub fn host_reached(bench: &Workbench, place: &Host) {
-    if !bench.editors.watched(place).is_empty() {
-        show_files(bench, place);
+pub fn host_reached(bench: &Workbench, place: &Host, cx: &App) {
+    if !bench.editors.read(cx).watched(place).is_empty() {
+        show_files(bench, place, cx);
     }
 }
 
@@ -1205,11 +1250,8 @@ async fn read_file(target: &Target, path: String) -> Result<(String, String), St
 
 /// Reads the file into its editor, replacing what it shows.
 fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(target) = bench
-        .editors
-        .open
-        .get(&key)
-        .map(|document| document.target.clone())
+    let Some(target) =
+        (bench.editors.read(cx).open.get(&key)).map(|document| document.target.clone())
     else {
         return;
     };
@@ -1217,56 +1259,60 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
     cx.spawn_in(window, async move |bench, cx| {
         let read = read_file(&target, name).await;
         let _ = bench.update_in(cx, |bench, window, cx| {
-            let asks = bench.asks.clone();
-            let Some(document) = bench.editors.open.get_mut(&key) else {
-                return;
-            };
-            let first = !document.loaded;
-            let was_dirty = document.dirty;
-            match read {
-                Ok((_, version)) if document.version.as_ref() == Some(&version) => {}
-                Ok(_) if document.dirty => {
-                    document.notice = Some(Notice::Conflict(
-                        "The disk version changed while this editor had unsaved work.".into(),
-                    ));
-                }
-                Ok((text, version)) => {
-                    document
-                        .state
-                        .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
-                    document.saved = text;
-                    document.version = Some(version);
-                    document.loaded = true;
-                    document.dirty = false;
-                    document.notice = None;
-                    if document.mode == preview::Mode::Preview {
-                        let text = document.saved.clone();
-                        show_rendered(document, &key, &text, &asks, window, cx);
-                        preview::refind(document, cx);
+            let (asks, this) = (bench.asks.clone(), cx.weak_entity());
+            let read = bench.editors.update(cx, |editors, cx| {
+                let document = editors.open.get_mut(&key)?;
+                let first = !document.loaded;
+                let was_dirty = document.dirty;
+                match read {
+                    Ok((_, version)) if document.version.as_ref() == Some(&version) => {}
+                    Ok(_) if document.dirty => {
+                        document.notice = Some(Notice::Conflict(
+                            "The disk version changed while this editor had unsaved work.".into(),
+                        ));
                     }
-                    lsp::changed(document, &asks, cx);
+                    Ok((text, version)) => {
+                        document
+                            .state
+                            .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
+                        document.saved = text;
+                        document.version = Some(version);
+                        document.loaded = true;
+                        document.dirty = false;
+                        document.notice = None;
+                        if document.mode == preview::Mode::Preview {
+                            let text = document.saved.clone();
+                            show_rendered(document, &key, &text, &asks, this, window, cx);
+                            preview::refind(document, cx);
+                        }
+                        lsp::changed(document, &asks, cx);
+                    }
+                    Err(error) if error.starts_with("not-text:") => {
+                        editors.open.remove(&key);
+                        return Some(None);
+                    }
+                    Err(error) => document.notice = Some(Notice::Failed(error)),
                 }
-                Err(error) if error.starts_with("not-text:") => {
-                    bench.editors.open.remove(&key);
-                    viewer::load(bench, key, cx);
-                    return;
-                }
-                Err(error) => document.notice = Some(Notice::Failed(error)),
-            }
-            let flipped = document.dirty != was_dirty;
-            if first && document.loaded {
+                cx.notify();
+                Some(Some((first, document.loaded, document.dirty != was_dirty)))
+            });
+            let (first, loaded, flipped) = match read {
+                Some(Some(read)) => read,
+                Some(None) => return viewer::load(bench, key, cx),
+                None => return,
+            };
+            if first && loaded {
                 if key.place == Host::This {
                     lsp::attach(bench, key.path.clone(), window, cx);
                 }
                 gutter::read_base(bench, &key, cx);
                 blame::read(bench, &key, cx);
             } else {
-                gutter::changed(&key, bench, cx);
+                gutter::changed(&bench.editors, &key, cx);
             }
             if flipped {
                 bench.parts.redraw(&bench.parts.top, cx);
             }
-            bench.parts.redraw_stage(cx);
         });
     })
     .detach();
@@ -1275,13 +1321,15 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
 /// Saves the editor's text over the file, refused by the core when the file
 /// moved on since it was read. A save of an unchanged file reads it again.
 fn save(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(document) = bench.editors.open.get(key) else {
+    let Some(document) = bench.editors.read(cx).open.get(key) else {
         return;
     };
     if !document.dirty {
-        if let Some(document) = bench.editors.open.get_mut(key) {
-            document.version = None;
-        }
+        bench.editors.update(cx, |editors, _| {
+            if let Some(document) = editors.open.get_mut(key) {
+                document.version = None;
+            }
+        });
         return read(bench, key.clone(), window, cx);
     }
     let text = document.state.read(cx).value().to_string();
@@ -1291,33 +1339,34 @@ fn save(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Cont
     cx.spawn_in(window, async move |bench, cx| {
         let saved = write_file(&target, &key.path.to_string_lossy(), &text, version).await;
         let _ = bench.update_in(cx, |bench, _, cx| {
-            let Some(document) = bench.editors.open.get_mut(&key) else {
+            let landed = saved.is_ok();
+            let asks = bench.asks.clone();
+            let Some(flipped) = change(&bench.editors, &key, cx, |document, cx| {
+                let was_dirty = document.dirty;
+                match saved {
+                    Ok(version) => {
+                        lsp::saved(document, &text, &asks);
+                        document.dirty = document.state.read(cx).value().as_ref() != text;
+                        document.saved = text;
+                        document.version = Some(version);
+                        document.notice = None;
+                    }
+                    Err(error) if error.starts_with("file-conflict:") => {
+                        let error = error.trim_start_matches("file-conflict:").trim().to_owned();
+                        document.notice = Some(Notice::Conflict(error));
+                    }
+                    Err(error) => document.notice = Some(Notice::Failed(error)),
+                }
+                document.dirty != was_dirty
+            }) else {
                 return;
             };
-            let landed = saved.is_ok();
-            let was_dirty = document.dirty;
-            match saved {
-                Ok(version) => {
-                    lsp::saved(document, &text, &bench.asks);
-                    document.dirty = document.state.read(cx).value().as_ref() != text;
-                    document.saved = text;
-                    document.version = Some(version);
-                    document.notice = None;
-                }
-                Err(error) if error.starts_with("file-conflict:") => {
-                    let error = error.trim_start_matches("file-conflict:").trim().to_owned();
-                    document.notice = Some(Notice::Conflict(error));
-                }
-                Err(error) => document.notice = Some(Notice::Failed(error)),
-            }
-            let flipped = document.dirty != was_dirty;
             if landed {
                 blame::read(bench, &key, cx);
             }
             if flipped {
                 bench.parts.redraw(&bench.parts.top, cx);
             }
-            bench.parts.redraw_stage(cx);
         });
     })
     .detach();
@@ -1421,7 +1470,7 @@ pub fn close_unsaved(
     }
     let mut lost: Vec<FileKey> = Vec::new();
     for key in closing {
-        if bench.editors.is_dirty(&key) && !left.contains(&key) && !lost.contains(&key) {
+        if bench.editors.read(cx).is_dirty(&key) && !left.contains(&key) && !lost.contains(&key) {
             lost.push(key);
         }
     }
@@ -1445,11 +1494,13 @@ pub fn close_unsaved(
             if !yes {
                 return;
             }
-            for key in &lost {
-                if let Some(document) = bench.editors.open.get_mut(key) {
-                    document.dirty = false;
+            bench.editors.update(cx, |editors, _| {
+                for key in &lost {
+                    if let Some(document) = editors.open.get_mut(key) {
+                        document.dirty = false;
+                    }
                 }
-            }
+            });
             close(bench, cx);
             keep(bench, cx);
         },
@@ -1471,40 +1522,42 @@ fn name_of(path: &Path) -> String {
 }
 
 /// Lets go of every file with no unsaved edits that no tab shows any more.
-pub fn keep(bench: &mut Workbench, cx: &App) {
+pub fn keep(bench: &mut Workbench, cx: &mut App) {
+    let editors = bench.editors.read(cx);
+    if editors.open.is_empty() && editors.viewers.is_empty() {
+        return;
+    }
     let shown = shown(bench, cx);
-    let closed: Vec<FileKey> = bench
-        .editors
-        .viewers
-        .keys()
-        .filter(|key| !shown.contains(*key))
-        .cloned()
-        .collect();
-    let mut places: Vec<Host> = Vec::new();
-    for key in closed {
-        bench.editors.viewers.remove(&key);
-        bench.editors.copies.forget(&key);
-        if !places.contains(&key.place) {
-            places.push(key.place);
+    let asks = bench.asks.clone();
+    let places = bench.editors.update(cx, |editors, _| {
+        let closed: Vec<FileKey> = (editors.viewers.keys())
+            .filter(|key| !shown.contains(*key))
+            .cloned()
+            .collect();
+        let mut places: Vec<Host> = Vec::new();
+        for key in closed {
+            editors.viewers.remove(&key);
+            editors.copies.forget(&key);
+            if !places.contains(&key.place) {
+                places.push(key.place);
+            }
         }
-    }
-    let gone: Vec<FileKey> = bench
-        .editors
-        .open
-        .iter()
-        .filter(|(key, document)| !document.dirty && !shown.contains(*key))
-        .map(|(key, _)| key.clone())
-        .collect();
-    for key in gone {
-        if let Some(document) = bench.editors.open.remove(&key) {
-            lsp::closed(&document, &bench.asks);
+        let gone: Vec<FileKey> = (editors.open.iter())
+            .filter(|(key, document)| !document.dirty && !shown.contains(*key))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in gone {
+            if let Some(document) = editors.open.remove(&key) {
+                lsp::closed(&document, &asks);
+            }
+            if !places.contains(&key.place) {
+                places.push(key.place);
+            }
         }
-        if !places.contains(&key.place) {
-            places.push(key.place);
-        }
-    }
+        places
+    });
     for place in places {
-        show_files(bench, &place);
+        show_files(bench, &place, cx);
     }
 }
 
@@ -1525,10 +1578,7 @@ pub fn git_changed(
     paths: Option<&[String]>,
     cx: &mut Context<Workbench>,
 ) {
-    let open: Vec<FileKey> = bench
-        .editors
-        .open
-        .keys()
+    let open: Vec<FileKey> = (bench.editors.read(cx).open.keys())
         .filter(|key| key.place == Host::This)
         .filter(|key| project.is_none_or(|project| key.path.starts_with(project)))
         .filter(|key| {
@@ -1559,12 +1609,13 @@ pub fn changed(bench: &mut Workbench, place: &Host, paths: &[String], cx: &mut C
         .map(|path| FileKey::new(place.clone(), path))
         .collect();
     viewer::reopen(bench, &shown, cx);
-    let Some(window) = bench.editors.window else {
+    let editors = bench.editors.read(cx);
+    let Some(window) = editors.window else {
         return;
     };
     let changed: Vec<FileKey> = shown
         .into_iter()
-        .filter(|key| bench.editors.open.contains_key(key))
+        .filter(|key| editors.open.contains_key(key))
         .collect();
     if changed.is_empty() {
         return;
@@ -1589,21 +1640,19 @@ fn place_cursor(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(document) = bench.editors.open.get_mut(key) else {
-        return;
-    };
-    if at.line > 0 || at.column.is_some() {
-        document.mode = preview::Mode::Source;
-    }
-    document.state.update(cx, |state, cx| {
-        let column = at.column.unwrap_or_else(|| {
-            let text = state.value();
-            let line = text.lines().nth(at.line as usize).unwrap_or_default();
-            (line.len() - line.trim_start().len()) as u32
+    change(&bench.editors, key, cx, |document, cx| {
+        if at.line > 0 || at.column.is_some() {
+            document.mode = preview::Mode::Source;
+        }
+        document.state.update(cx, |state, cx| {
+            let column = at.column.unwrap_or_else(|| {
+                let text = state.value();
+                let line = text.lines().nth(at.line as usize).unwrap_or_default();
+                (line.len() - line.trim_start().len()) as u32
+            });
+            state.set_cursor_position(Position::new(at.line, column), window, cx);
         });
-        state.set_cursor_position(Position::new(at.line, column), window, cx);
     });
-    bench.parts.redraw_stage(cx);
 }
 
 /// Shows the file's text, or how its markdown reads, rendered from what the
@@ -1615,28 +1664,27 @@ fn show_mode(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(document) = bench.editors.open.get_mut(key) else {
-        return;
-    };
-    document.mode = mode;
-    match mode {
-        preview::Mode::Preview => {
-            let text = document.state.read(cx).value();
-            show_rendered(document, key, &text, &bench.asks, window, cx);
-            document.goto = None;
-            preview::refind(document, cx);
-            if matches!(
-                document.rendered,
-                Some(Rendered::Markdown(_) | Rendered::Page(Some(_)))
-            ) {
-                document.preview_focus.focus(window, cx);
+    let (asks, this) = (bench.asks.clone(), cx.weak_entity());
+    change(&bench.editors, key, cx, |document, cx| {
+        document.mode = mode;
+        match mode {
+            preview::Mode::Preview => {
+                let text = document.state.read(cx).value();
+                show_rendered(document, key, &text, &asks, this, window, cx);
+                document.goto = None;
+                preview::refind(document, cx);
+                if matches!(
+                    document.rendered,
+                    Some(Rendered::Markdown(_) | Rendered::Page(Some(_)))
+                ) {
+                    document.preview_focus.focus(window, cx);
+                }
             }
+            preview::Mode::Source => document
+                .state
+                .update(cx, |state, cx| state.focus(window, cx)),
         }
-        preview::Mode::Source => document
-            .state
-            .update(cx, |state, cx| state.focus(window, cx)),
-    }
-    bench.parts.redraw_stage(cx);
+    });
 }
 
 /// Renders `text` as the file reads: markdown as a page, DBML as a diagram that keeps
@@ -1646,8 +1694,9 @@ fn show_rendered(
     key: &FileKey,
     text: &str,
     asks: &tokio::sync::mpsc::UnboundedSender<Ask>,
+    bench: WeakEntity<Workbench>,
     window: &mut Window,
-    cx: &mut Context<Workbench>,
+    cx: &mut App,
 ) {
     match preview::look(&key.path) {
         Some(preview::Look::Page) => {
@@ -1664,7 +1713,7 @@ fn show_rendered(
                 window,
                 cx,
             );
-            cx.spawn(async move |_, cx| {
+            cx.spawn(async move |cx| {
                 while let Some(event) = heard.recv().await {
                     if let crate::page_view::PageEvent::Link(url) = event {
                         cx.update(|cx| cx.open_url(&url));
@@ -1687,7 +1736,7 @@ fn show_rendered(
                 asks: asks.clone(),
                 key: diagram::KeptKey::Fixed(format!("file:{host}:{}", key.path.display())),
             };
-            let (bench, key) = (cx.entity().downgrade(), key.clone());
+            let key = key.clone();
             let open: diagram::OpenLine = Rc::new(move |line, window, cx| {
                 let at = OpenAt {
                     path: key.path.clone(),
@@ -1695,9 +1744,11 @@ fn show_rendered(
                     column: None,
                 };
                 let _ = bench.update(cx, |bench, cx| {
-                    if let Some(document) = bench.editors.open.get_mut(&key) {
-                        document.mode = preview::Mode::Source;
-                    }
+                    bench.editors.update(cx, |editors, _| {
+                        if let Some(document) = editors.open.get_mut(&key) {
+                            document.mode = preview::Mode::Source;
+                        }
+                    });
                     place_cursor(bench, &key, &at, window, cx)
                 });
             });

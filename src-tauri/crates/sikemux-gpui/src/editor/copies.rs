@@ -10,9 +10,8 @@ use base64::Engine;
 use gpui_kit::AppContext;
 use serde_json::json;
 
-use super::FileKey;
+use super::{Editors, FileKey};
 use crate::core::Target;
-use crate::workbench::Workbench;
 
 /// The most the copies take together; the oldest go first to make room.
 const CAP: u64 = 512 * 1024 * 1024;
@@ -88,7 +87,7 @@ fn clear_abandoned() {
 /// Brings the file of `key`, `size` bytes long, over from its host into a fresh copy,
 /// and answers where the copy is once it is kept.
 pub(super) async fn bring(
-    bench: gpui_kit::WeakEntity<Workbench>,
+    editors: gpui_kit::WeakEntity<Editors>,
     target: Target,
     key: FileKey,
     size: u64,
@@ -97,9 +96,9 @@ pub(super) async fn bring(
     if size > CAP {
         return Err("This file is too large to bring over from its host.".into());
     }
-    let made = bench
-        .update(cx, |bench, cx| {
-            let copies = &mut bench.editors.copies;
+    let made = editors
+        .update(cx, |editors, cx| {
+            let copies = &mut editors.copies;
             if !copies.cleared_on_quit {
                 copies.cleared_on_quit = true;
                 cx.background_spawn(async { clear_abandoned() }).detach();
@@ -124,8 +123,8 @@ pub(super) async fn bring(
         return Err(error);
     }
     let kept = path.clone();
-    bench
-        .update(cx, |bench, _| bench.editors.copies.keep(key, kept, size))
+    editors
+        .update(cx, |editors, _| editors.copies.keep(key, kept, size))
         .map_err(|_| "The window closed.".to_owned())?;
     Ok(path)
 }

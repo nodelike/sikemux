@@ -802,11 +802,12 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         if let Some(line) = line {
-            self.editors.reveal(crate::editor::OpenAt {
+            let at = crate::editor::OpenAt {
                 path: path.clone(),
                 line: line.saturating_sub(1),
                 column: column.map(|column| column.saturating_sub(1)),
-            });
+            };
+            self.editors.update(cx, |editors, _| editors.reveal(at));
         }
         self.put_on_desk(agent, DeskItem::File(path), true, cx);
     }
@@ -1118,7 +1119,7 @@ impl Workbench {
         let file_desk = self.front_agent().and_then(|(tab, _, agent)| {
             let desk = self.desk_of(&tab, &agent)?;
             let keys_in_file = matches!(self.desks.read(cx).front.get(&agent),
-                Some(DeskItem::File(path)) if self.editors.has_keys(path, window, cx));
+                Some(DeskItem::File(path)) if self.editors.read(cx).has_keys(path, window, cx));
             (keys_in_file || self.panes.focused.as_deref() == Some(desk.as_str())).then_some(agent)
         });
         if let Some(agent) = file_desk {
@@ -1681,7 +1682,7 @@ impl Workbench {
                 "address": address.map(|address| address.value().to_string()),
             })
         };
-        let files = (self.editors.open_files(cx).into_iter())
+        let files = (self.editors.read(cx).open_files(cx).into_iter())
             .map(|(path, line, dirty)| json!({ "path": path, "line": line, "dirty": dirty }))
             .collect::<Vec<_>>();
         let size = window.viewport_size();
