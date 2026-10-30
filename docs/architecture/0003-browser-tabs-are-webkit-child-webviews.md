@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Decision date: 2026-09-17
+- Amended: 2026-10-16, by [ADR 0015](./0015-one-browser-per-account-seen-from-every-device.md): the
+  browser belongs to the account and runs on one host; the desktop app there keeps drawing its
+  tabs as WebKit views
 
 ## Context
 

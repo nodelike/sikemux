@@ -41,15 +41,15 @@ The desktop app is a Rust program drawn with [GPUI](https://www.gpui.rs). It is 
 the core, a long-lived process that owns every shell, agent and project, and that phones and
 other hosts reach too.
 
-| Process           | Where it lives                          | What it does                                                                                                                                                                                                                                                                           |
-| ----------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Desktop app       | `app` (`sikemux`)                       | One window that draws the core's views, the browser tabs on its desks and the native views it places in its layout. See [The desktop app](#the-desktop-app).                                                                                                                           |
-| Core              | `sikemux core` → `crates/sikemux-core`  | Owns terminals, tasks, chat agents, Git, search, language servers, the harness and the agents' tool endpoint. It outlives the window; see [The core](#the-core).                                                                                                                       |
-| `sikemux-host`    | `crates/sikemux-host` → `cli_client.rs` | The `sikemux` launcher, which asks the running app to open files and projects. With `--tools-mcp` it is the MCP server agents launch over stdio; with `core` it is the core, with the built-in plugins. It never links the window's code, so a host with no screen installs only this. |
-| Notch             | `helpers/notch` (Swift package)         | The island over a MacBook's notch, a client of the core that reads the view phones get. The app starts it; it keeps running after the app quits.                                                                                                                                       |
-| `sikemux-voice`   | `helpers/voice` (Swift package)         | Speech to text, downloaded with the speech model. The `sikemux-voice` crate starts it and puts what it hears on a channel.                                                                                                                                                             |
-| Simulator helper  | `helpers/sim` (Swift package)           | Streams an iOS Simulator's screen and takes its input, for the desk and the agents' simulator tools (`crates/sikemux-simulator`). Mac only.                                                                                                                                            |
-| Shells and agents | spawned by the core                     | Children of the core, not of the app, so closing or quitting the app leaves them running.                                                                                                                                                                                              |
+| Process           | Where it lives                         | What it does                                                                                                                                                                                                                                                                           |
+| ----------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Desktop app       | `app` (`sikemux`)                      | One window that draws the core's views, the browser tabs on its desks and the native views it places in its layout. See [The desktop app](#the-desktop-app).                                                                                                                           |
+| Core              | `sikemux core` → `crates/sikemux-core` | Owns terminals, tasks, chat agents, Git, search, language servers, the harness and the agents' tool endpoint. It outlives the window; see [The core](#the-core).                                                                                                                       |
+| `sikemux-host`    | `crates/sikemux-host` → `cli_client/`  | The `sikemux` launcher, which asks the running app to open files and projects. With `--tools-mcp` it is the MCP server agents launch over stdio; with `core` it is the core, with the built-in plugins. It never links the window's code, so a host with no screen installs only this. |
+| Notch             | `helpers/notch` (Swift package)        | The island over a MacBook's notch, a client of the core that reads the view phones get. The app starts it; it keeps running after the app quits.                                                                                                                                       |
+| `sikemux-voice`   | `helpers/voice` (Swift package)        | Speech to text, downloaded with the speech model. The `sikemux-voice` crate starts it and puts what it hears on a channel.                                                                                                                                                             |
+| Simulator helper  | `helpers/sim` (Swift package)          | Streams an iOS Simulator's screen and takes its input, for the desk and the agents' simulator tools (`crates/sikemux-simulator`). Mac only.                                                                                                                                            |
+| Shells and agents | spawned by the core                    | Children of the core, not of the app, so closing or quitting the app leaves them running.                                                                                                                                                                                              |
 
 On macOS, `scripts/build-mac.sh` lays out the bundle: the GPUI app, the core as an app of its
 own in `Contents/Helpers/Sikemux Core.app` (only an app can carry the provisioning profile that
@@ -89,7 +89,7 @@ The app is a client of the core. [ADR 0006](./0006-background-core.md) records w
   descriptors open across `exec`, and becomes the new binary in the same process, so every
   shell stays its child.
 - **Paired devices.** With remote access on, the core also listens on an iroh endpoint, and
-  phones signed in to the same account join it from anywhere (`server/remote.rs`,
+  phones signed in to the same account join it from anywhere (`server/remote/`,
   `server/join.rs`). Each request is checked against what the device may do
   (`server/access.rs`). [ADR 0007](./0007-remote-access-over-iroh.md) records the design.
 - **Linked hosts.** Hosts on one account link with each other and ask each other things over
@@ -127,8 +127,8 @@ goes out as `Call`s. No view keeps a copy of the core's data.
 | `terminal.rs`                                                      | A terminal pane: the screen the core sends, drawn by `gpui-terminal-grid`                  |
 | `editor/`, `syntax.rs`                                             | The editor tab on Kit's editor, highlighted by `textmate-highlight`                        |
 | `git/`, `codehost/`, `search.rs`                                   | The Git tab, the project's code host in its place, and the Search pane                     |
-| `desk.rs`, `sim_pane.rs`                                           | An agent's desk: its browser tabs, files, terminals and iOS Simulator                      |
-| `board.rs`, `board_panels.rs`                                      | The agent board and its card panels                                                        |
+| `desk.rs`, `sim/`                                                  | An agent's desk: its browser tabs, files, terminals and iOS Simulator                      |
+| `board/`                                                           | The agent board and its card panels                                                        |
 | `plugin_pane/`                                                     | Each plugin's pane (see [Plugins](#plugins))                                               |
 | `settings/`, `experience.rs`, `welcome.rs`, `whats_new.rs`         | Settings, and the screens over the whole window                                            |
 | `palette.rs`, `commands.rs`, `finder.rs`, `picker.rs`, `keymap.rs` | The pickers over the stage and the shortcuts                                               |
@@ -138,12 +138,13 @@ goes out as `Call`s. No view keeps a copy of the core's data.
 
 Its own crates are in `app/crates/`:
 
-| Crate                | Purpose                                                                                                           |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `gpui-transcript`    | A streaming chat view: rows by stable id, markdown patched block by block, a windowed list anchored to the bottom |
-| `gpui-terminal-grid` | Draws a terminal's grid of cells from cells emulated anywhere                                                     |
-| `gpui-native-view`   | Shows a native view in an element's place, under the window's overlays                                            |
-| `textmate-highlight` | Shiki's TextMate grammars, loaded lazily from one compressed bundle                                               |
+| Crate                | Purpose                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `gpui-transcript`    | A streaming chat view: rows by stable id, markdown patched block by block, a windowed list anchored to the bottom   |
+| `gpui-terminal-grid` | Draws a terminal's grid of cells from cells emulated anywhere                                                       |
+| `gpui-native-view`   | Shows a native view in an element's place, under the window's overlays                                              |
+| `textmate-highlight` | Shiki's TextMate grammars, loaded lazily from one compressed bundle                                                 |
+| `film-frame`         | Frames a filmed window for posts: the wallpaper, the window's shadow, a camera, a drawn cursor and the closing card |
 
 ### GPUI, Kit and themes
 
@@ -161,9 +162,9 @@ downloads and the agents' browser tools (`tools.rs`, declared in `browser/tools.
 desk holds a `BrowserManager` and hands it the window to put pages in; the app answers the
 core's browser calls by running them on it.
 
-- **macOS** (`macos.rs`): each tab is a WKWebView added to the window's view, under the
+- **macOS** (`macos/`): each tab is a WKWebView added to the window's view, under the
   overlay plane GPUI draws menus on.
-- **Linux** (`linux.rs`, `linux_page.rs`, `linux_input.rs`): each tab is WebKitGTK through
+- **Linux** (`linux/`): each tab is WebKitGTK through
   wry, in an X11 window of its own inside the app's, sitting in a clip window that cuts it
   where the stage ends. GTK runs on a thread of its own. Our GPUI's X11 window cuts native
   child windows where its menus draw, and lets the pointer through where they take it. Before
@@ -187,6 +188,7 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `sikemux-core`       | The core: its socket server, terminals, tasks, chat agents, the harness and tool endpoint, updating in place                                                                               |
 | `sikemux-host`       | The `sikemux` executable: the launcher, the tools MCP server and the core with the built-in plugins                                                                                        |
+| `sikemux-base`       | What the core shares with the browser, simulator and voice crates: HTTP clients, pinned downloads, the async runtime, page building and the CLI endpoint's protocol                        |
 | `sikemux-wire`       | What the core and its clients send each other. The phone links it, so it holds data and nothing that acts on it                                                                            |
 | `sikemux-client`     | Talking to a core: on this host, from a paired device, and joining a host. The phone links it                                                                                              |
 | `sikemux-fold`       | A chat folded from what its agent says into the rows clients draw                                                                                                                          |
@@ -257,12 +259,13 @@ agent → sikemux-host --tools-mcp → the core's tool endpoint → server/harne
 
 The core keeps runs, idempotency keys and an event journal per project, so task tools work with
 no window open and event cursors survive restarts. `pnpm agent-tools:generate` writes
-`crates/sikemux-core/src/cli/methods.rs` and checks that every declared method has a handler.
+`crates/sikemux-base/src/cli/methods.rs` and checks that every declared method has a handler.
 
 ## Tests
 
-- **Rust tests** run with `cargo test` in each workspace. CI runs both workspaces' on macOS and
-  the core's crates' on Linux.
+- **Rust tests** run with `cargo test` in the one workspace, whose default members are the core's
+  crates and the plugins; the GPUI app and its crates are named with `-p`. CI runs both on macOS
+  and the core's crates' on Linux.
 - **Headless shots.** `sikemux-gpui`'s `shot` example draws the window offscreen into a PNG,
   optionally after a list of steps (clicks, keys, waits), to check a screen without a person at
   it. `fake_chat` seeds a throwaway core with chats from the fake agents in
@@ -294,7 +297,7 @@ matching `:generate` script and commit what it writes:
 | Check                            | What it compares                                                                                                                        |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `wire:check`                     | The types clients read the core's JSON with (TypeScript for the phone and web app, Swift for the notch) against the Rust that writes it |
-| `agent-tools:check`              | `crates/sikemux-core/src/cli/methods.rs` against `browser/tools.json`                                                                   |
+| `agent-tools:check`              | `crates/sikemux-base/src/cli/methods.rs` against `browser/tools.json`                                                                   |
 | `agent-catalog:check`            | The core's Rust copy of the agents' catalog against `sikemux-core/src/assets/agent-catalog.json`                                        |
 | `docs:reference:check`           | The docs site's reference pages against the shortcuts, CLI help and tools                                                               |
 | `grammars:check`, `syntax:check` | The grammar list and the GPUI app's highlighting bundle                                                                                 |
