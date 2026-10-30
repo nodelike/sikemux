@@ -69,6 +69,9 @@ pub fn install(cx: &mut App) {
         KeyBinding::new(keys("cmd-f", "ctrl-f"), OpenFind, context),
         KeyBinding::new("shift-pageup", PageUp, context),
         KeyBinding::new("shift-pagedown", PageDown, context),
+        // Kit's root binds Tab to moving focus, which would otherwise win over the key handler.
+        KeyBinding::new("tab", gpui::NoAction, context),
+        KeyBinding::new("shift-tab", gpui::NoAction, context),
     ]);
     if mac {
         cx.bind_keys([KeyBinding::new("cmd-alt-r", ResetModes, context)]);
