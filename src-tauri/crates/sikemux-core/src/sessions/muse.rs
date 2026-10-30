@@ -12,6 +12,8 @@ use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::muse_data_root;
 use super::search::Prose;
 use super::AgentSession;
+use super::FileStamp;
+use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
 
 // ---- muse — `sessions` table in ~/.local/share/muse/session-index.db -----
 fn muse_db() -> Option<Connection> {
@@ -214,5 +216,39 @@ pub(super) fn muse_prose(session_id: &str, prose: &mut Prose) {
         for field in text.split('\u{1f}') {
             prose.push(field);
         }
+    }
+}
+
+pub(crate) struct Muse;
+
+impl AgentOps for Muse {
+    fn sessions(&self, cwd: &str, _config_path: Option<&str>) -> Vec<AgentSession> {
+        muse_sessions(cwd)
+    }
+
+    fn recent(&self, scan: &PageScan<'_>, _config_path: Option<&str>) -> Vec<Hit> {
+        muse_recent(scan)
+    }
+
+    fn session_places(&self, _cwd: &str, _config_path: Option<&str>) -> SessionPlaces {
+        SessionPlaces {
+            sessions: Vec::new(),
+            listings: muse_data_root().into_iter().collect(),
+        }
+    }
+
+    fn prose_stamp(&self, found: &Found) -> Option<FileStamp> {
+        Some(FileStamp::at_secs(found.session.mtime))
+    }
+
+    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+        muse_prose(&found.session.id, prose);
+        Some(())
+    }
+
+    fn rename_command(&self) -> Option<RenameCommand> {
+        Some(|executable, _config_path, session_id, name| {
+            Box::pin(rename_muse_session(executable, session_id, name))
+        })
     }
 }

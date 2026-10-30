@@ -16,8 +16,7 @@ use tokio::time::Instant;
 use crate::agent_accounts::Book;
 use crate::agent_catalog::AgentKind;
 use crate::protocol::WorkspaceAgent;
-use crate::sessions::roots::{agent_config_root, muse_data_root, omp_session_dirs};
-use crate::sessions::{self, claude_project_dir, opencode_data_dirs, pi_session_dir, AgentSession};
+use crate::sessions::{self, AgentSession};
 
 use super::connection::blocking;
 use super::Core;
@@ -41,11 +40,7 @@ struct Group {
 /// Where one group's sessions are written, as file events name them.
 struct Places {
     group: Group,
-    /// Folders whose files each hold one session. Without its subfolders, only
-    /// the files right in it count: Claude keeps a session's subagents beside it.
     sessions: Vec<(PathBuf, RecursiveMode)>,
-    /// Files, or folders of files, that list the group's sessions together,
-    /// so a change in one means listing them all again.
     listings: Vec<PathBuf>,
 }
 
@@ -316,44 +311,18 @@ fn streamed(place: &Path, sessions: &[String]) -> bool {
 
 impl Places {
     fn of(group: Group) -> Self {
-        let config_path = group.config_path.as_deref();
-        let mut sessions = Vec::new();
-        let mut listings = Vec::new();
-        match group.kind {
-            AgentKind::Claude => {
-                if let Some(root) = agent_config_root("claude", config_path) {
-                    let project = claude_project_dir(&root, &group.cwd);
-                    sessions.push((project, RecursiveMode::NonRecursive));
-                }
-            }
-            AgentKind::Codex => {
-                if let Some(root) = agent_config_root("codex", config_path) {
-                    sessions.push((root.join("sessions"), RecursiveMode::Recursive));
-                    listings.push(root.join("session_index.jsonl"));
-                }
-            }
-            AgentKind::Pi => {
-                sessions.extend(pi_session_dir().map(|dir| (dir, RecursiveMode::Recursive)));
-            }
-            AgentKind::Omp => {
-                let dirs = omp_session_dirs().into_iter();
-                sessions.extend(dirs.map(|dir| (dir, RecursiveMode::Recursive)));
-            }
-            AgentKind::Grok => {
-                let root = AgentKind::Grok.home_root();
-                sessions.extend(root.map(|root| (root.join("sessions"), RecursiveMode::Recursive)));
-            }
-            AgentKind::Hermes => listings.extend(AgentKind::Hermes.home_root()),
-            AgentKind::Opencode => listings.extend(opencode_data_dirs()),
-            AgentKind::Muse => listings.extend(muse_data_root()),
-        }
+        let places = group
+            .kind
+            .ops()
+            .session_places(&group.cwd, group.config_path.as_deref());
         Places {
             group,
-            sessions: sessions
+            sessions: places
+                .sessions
                 .into_iter()
                 .map(|(dir, mode)| (real(&dir), mode))
                 .collect(),
-            listings: listings.iter().map(|place| real(place)).collect(),
+            listings: places.listings.iter().map(|place| real(place)).collect(),
         }
     }
 

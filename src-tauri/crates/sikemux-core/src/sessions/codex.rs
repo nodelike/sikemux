@@ -14,6 +14,7 @@ use tokio::process::{ChildStdin, Command};
 use super::index::{indexed, Indexed};
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::agent_config_root;
+use super::search::each_line;
 use super::search::Prose;
 use super::AgentSession;
 use super::{apply_login_environment, apply_process_config};
@@ -22,6 +23,8 @@ use super::{
     transcript_lines, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_catalog::AgentKind;
+use crate::agent_ops::{AgentOps, DeleteCommand, RenameCommand, SessionPlaces};
+use notify::RecursiveMode;
 
 // ---- codex — ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl[.zst] ----------
 
@@ -345,6 +348,64 @@ pub(super) fn codex_prose(line: &str, prose: &mut Prose) {
         if let Some(text) = payload.get("message").and_then(Value::as_str) {
             prose.push(text);
         }
+    }
+}
+
+pub(crate) struct Codex;
+
+impl AgentOps for Codex {
+    fn sessions(&self, cwd: &str, config_path: Option<&str>) -> Vec<AgentSession> {
+        codex_sessions(cwd, config_path)
+    }
+
+    fn recent(&self, scan: &PageScan<'_>, config_path: Option<&str>) -> Vec<Hit> {
+        codex_recent(scan, config_path)
+    }
+
+    fn session_place(&self, path: &Path) -> Option<PathBuf> {
+        is_rollout(path).then(|| path.to_path_buf())
+    }
+
+    fn session_at(
+        &self,
+        place: &Path,
+        cwd: &str,
+        config_path: Option<&str>,
+    ) -> Option<AgentSession> {
+        codex_session_at(place, cwd, config_path)
+    }
+
+    fn session_places(&self, _cwd: &str, config_path: Option<&str>) -> SessionPlaces {
+        let mut places = SessionPlaces::default();
+        if let Some(root) = agent_config_root("codex", config_path) {
+            places
+                .sessions
+                .push((root.join("sessions"), RecursiveMode::Recursive));
+            places.listings.push(root.join("session_index.jsonl"));
+        }
+        places
+    }
+
+    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+        each_line(found.place.as_deref()?, |line| codex_prose(line, prose));
+        Some(())
+    }
+
+    fn rename_command(&self) -> Option<RenameCommand> {
+        Some(|executable, config_path, session_id, name| {
+            Box::pin(rename_codex_session(
+                executable,
+                config_path,
+                session_id,
+                name,
+            ))
+        })
+    }
+
+    fn delete_command(&self) -> Option<DeleteCommand> {
+        Some(|executable, config_path, session_id| {
+            Box::pin(delete_codex_session(executable, config_path, session_id))
+        })
     }
 }
 

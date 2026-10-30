@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 
 use tokio::task::spawn_blocking;
 
-use super::context::session_transcript_path;
-use super::roots::omp_session_dirs;
 use super::{condense, MAX_TITLE_CHARS};
 use crate::agent_catalog::AgentKind;
 use sikemux_process::paths::expand_home;
@@ -22,31 +20,13 @@ pub async fn rename(
     config_path: Option<String>,
 ) -> Result<(), String> {
     let name = session_name(&title)?;
-    match agent {
-        AgentKind::Codex => {
-            let executable = agent_executable(agent, executable_path.as_deref())?;
-            super::codex::rename_codex_session(
-                &executable,
-                config_path.as_deref(),
-                &session_id,
-                &name,
-            )
-            .await
-        }
-        AgentKind::Hermes => {
-            let executable = agent_executable(agent, executable_path.as_deref())?;
-            super::hermes::rename_hermes_session(&executable, &session_id, &name).await
-        }
-        AgentKind::Muse => {
-            let executable = agent_executable(agent, executable_path.as_deref())?;
-            super::muse::rename_muse_session(&executable, &session_id, &name).await
-        }
-        _ => spawn_blocking(move || {
-            rename_session(agent, &cwd, &session_id, &name, config_path.as_deref())
-        })
-        .await
-        .map_err(|error| error.to_string())?,
+    if let Some(command) = agent.ops().rename_command() {
+        let executable = agent_executable(agent, executable_path.as_deref())?;
+        return command(&executable, config_path.as_deref(), &session_id, &name).await;
     }
+    spawn_blocking(move || rename_session(agent, &cwd, &session_id, &name, config_path.as_deref()))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 pub(super) fn agent_executable(
@@ -78,37 +58,19 @@ fn rename_session(
     config_path: Option<&str>,
 ) -> Result<(), String> {
     let name = session_name(title)?;
-    match agent {
-        AgentKind::Claude => {
-            let path = session_transcript_path(agent, cwd, session_id, config_path)
-                .filter(|path| path.is_file())
-                .ok_or("session not found")?;
-            super::claude::rename_claude_session(&path, session_id, &name)
-        }
-        AgentKind::Pi => {
-            let root = super::pi::pi_session_dir().ok_or("session not found")?;
-            super::pi::rename_pi_session(&session_file_within(session_id, &[root])?, &name)
-        }
-        AgentKind::Omp => {
-            let path = session_file_within(session_id, &omp_session_dirs())?;
-            super::omp::rename_omp_session(&path, &name, super::omp::omp_title_index().as_deref())
-        }
-        AgentKind::Grok => super::grok::rename_grok_session(
-            &AgentKind::Grok.home_root().ok_or("session not found")?,
-            cwd,
-            session_id,
-            &name,
-        ),
-        AgentKind::Opencode => super::opencode::rename_opencode_session(session_id, &name),
-        AgentKind::Codex | AgentKind::Hermes | AgentKind::Muse => Err(format!(
-            "{} renames through its own command",
-            agent.as_str()
-        )),
-    }
+    agent
+        .ops()
+        .rename_saved(cwd, session_id, &name, config_path)
+        .unwrap_or_else(|| {
+            Err(format!(
+                "{} renames through its own command",
+                agent.as_str()
+            ))
+        })
 }
 
 /// Pi and OMP name a session by its file's path, which must sit inside one of their session folders.
-fn session_file_within(session_id: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
+pub(super) fn session_file_within(session_id: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
     let path = fs::canonicalize(session_id).map_err(|_| "session not found".to_string())?;
     let inside = roots
         .iter()

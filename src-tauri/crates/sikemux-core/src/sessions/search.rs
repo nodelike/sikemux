@@ -15,10 +15,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::recent::{provider_hits, Hit, PageScan, RecentProvider};
-use super::{
-    claude, codex, file_stamp, grok, hermes, is_compressed, muse, opencode, pi, transcript_lines,
-    FileStamp,
-};
+use super::{is_compressed, transcript_lines, FileStamp};
 use crate::agent_catalog::AgentKind;
 
 /// The most sessions of one CLI a search weighs.
@@ -428,14 +425,14 @@ fn starts_word(text: &str, at: usize) -> bool {
 /// What the person and the agent wrote, one message a line: the first
 /// messages up to [`PROSE_HEAD`], then the last up to [`PROSE_TAIL`].
 #[derive(Default)]
-pub(super) struct Prose {
+pub(crate) struct Prose {
     head: String,
     tail: VecDeque<String>,
     tail_bytes: usize,
 }
 
 impl Prose {
-    pub(super) fn push(&mut self, text: &str) {
+    pub(crate) fn push(&mut self, text: &str) {
         let mut line = String::new();
         for word in text.split_whitespace() {
             if line.len() + word.len() >= MAX_MESSAGE {
@@ -555,30 +552,15 @@ fn read_lines(file: &mut File, start: u64, end: u64, visit: &mut dyn FnMut(&str)
 fn prose_of(hit: &Hit) -> Option<Arc<str>> {
     let agent = AgentKind::from_name(hit.agent)?;
     let found = &hit.found;
-    let place = found.place.as_deref();
     let id = found.session.id.as_str();
-    let stamp = match agent {
-        AgentKind::Grok => grok::grok_transcript(place?).map(|path| file_stamp(&path))?,
-        AgentKind::Hermes => hermes::hermes_stamp(id)?,
-        AgentKind::Opencode | AgentKind::Muse => FileStamp::at_secs(found.session.mtime),
-        _ => file_stamp(place?),
-    };
+    let ops = agent.ops();
+    let stamp = ops.prose_stamp(found)?;
     let key = format!("{}\u{0}{id}", hit.agent);
     if let Some(prose) = cache().get(&key, stamp) {
         return Some(prose);
     }
     let mut prose = Prose::default();
-    match agent {
-        AgentKind::Claude => each_line(place?, |line| claude::claude_prose(line, &mut prose)),
-        AgentKind::Codex => each_line(place?, |line| codex::codex_prose(line, &mut prose)),
-        AgentKind::Pi | AgentKind::Omp => {
-            each_line(place?, |line| pi::message_prose(line, &mut prose))
-        }
-        AgentKind::Grok => grok::grok_prose(place?, &mut prose),
-        AgentKind::Hermes => hermes::hermes_prose(id, &mut prose),
-        AgentKind::Opencode => opencode::opencode_prose(place?, id, &mut prose),
-        AgentKind::Muse => muse::muse_prose(id, &mut prose),
-    }
+    ops.prose(found, &mut prose)?;
     let prose: Arc<str> = prose.finish().into();
     cache().put(key, stamp, prose.clone());
     Some(prose)

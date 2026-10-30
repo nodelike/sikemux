@@ -1,17 +1,16 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use tokio::task::spawn_blocking;
 
-use super::codex::delete_codex_session;
 use super::context::session_transcript_path;
 use super::rename::agent_executable;
 use super::roots::account_root;
 use crate::agent_catalog::AgentKind;
 
 // ---- delete a saved session ----------------------------------------------
-/// Removes a Claude or Codex session from the provider's own storage for good,
+/// Removes a session from the provider's own storage for good,
 /// so it no longer lists anywhere and can no longer be resumed.
 pub async fn delete(
     agent: AgentKind,
@@ -20,11 +19,11 @@ pub async fn delete(
     executable_path: Option<String>,
     config_path: Option<String>,
 ) -> Result<(), String> {
-    let codex = match agent {
-        AgentKind::Codex => agent_executable(agent, executable_path.as_deref()).ok(),
-        _ => None,
-    };
-    let Some(codex) = codex else {
+    let command = agent.ops().delete_command().and_then(|command| {
+        let executable = agent_executable(agent, executable_path.as_deref()).ok()?;
+        Some((command, executable))
+    });
+    let Some((command, executable)) = command else {
         return spawn_blocking(move || {
             delete_session_files(agent, &cwd, &session_id, config_path.as_deref())
         })
@@ -35,7 +34,7 @@ pub async fn delete(
     spawn_blocking(move || saved_transcript(agent, &cwd, &id, config.as_deref()))
         .await
         .map_err(|error| error.to_string())??;
-    delete_codex_session(&codex, config_path.as_deref(), &session_id).await
+    command(&executable, config_path.as_deref(), &session_id).await
 }
 
 /// The session's transcript and the provider's folder it sits in, refusing any
@@ -73,32 +72,8 @@ fn delete_session_files(
 ) -> Result<(), String> {
     let (root, transcript) = saved_transcript(agent, cwd, session_id, config_path)?;
     fs::remove_file(&transcript).map_err(|error| error.to_string())?;
-    if matches!(agent, AgentKind::Claude) {
-        remove_claude_leftovers(&root, &transcript, session_id);
-    }
+    agent.ops().delete_leftovers(&root, &transcript, session_id);
     Ok(())
-}
-
-/// Claude keeps a session's subagent transcripts, file snapshots and todo lists
-/// beside the transcript, each named by the session id.
-fn remove_claude_leftovers(root: &Path, transcript: &Path, session_id: &str) {
-    if let Some(project) = transcript.parent() {
-        let _ = fs::remove_dir_all(project.join(session_id));
-    }
-    let _ = fs::remove_dir_all(root.join("file-history").join(session_id));
-    let Ok(todos) = fs::read_dir(root.join("todos")) else {
-        return;
-    };
-    let prefix = format!("{session_id}-");
-    for entry in todos.flatten() {
-        let name = entry.file_name();
-        let ours = name
-            .to_str()
-            .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".json"));
-        if ours {
-            let _ = fs::remove_file(entry.path());
-        }
-    }
 }
 
 #[cfg(test)]

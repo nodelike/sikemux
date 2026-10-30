@@ -5,10 +5,14 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 
+use super::history;
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::environment_path;
 use super::search::Prose;
 use super::AgentSession;
+use super::FileStamp;
+use crate::agent_ops::{AgentOps, SessionPlaces};
+use serde_json::Value;
 
 // ---- opencode — SQLite in the user's opencode data dir ------------------
 pub fn opencode_data_dirs() -> Vec<PathBuf> {
@@ -245,6 +249,52 @@ pub(super) fn opencode_prose(db: &Path, session_id: &str, prose: &mut Prose) {
     };
     for text in rows.map_while(Result::ok).flatten() {
         prose.push(&text);
+    }
+}
+
+pub(crate) struct Opencode;
+
+impl AgentOps for Opencode {
+    fn sessions(&self, cwd: &str, _config_path: Option<&str>) -> Vec<AgentSession> {
+        opencode_sessions(cwd)
+    }
+
+    fn recent(&self, scan: &PageScan<'_>, _config_path: Option<&str>) -> Vec<Hit> {
+        opencode_recent(scan)
+    }
+
+    fn session_places(&self, _cwd: &str, _config_path: Option<&str>) -> SessionPlaces {
+        SessionPlaces {
+            sessions: Vec::new(),
+            listings: opencode_data_dirs(),
+        }
+    }
+
+    fn history(&self, session_id: &str, _cwd: &Path) -> Result<Vec<Value>, String> {
+        history::opencode(&opencode_db_paths(), session_id)
+    }
+
+    fn last_model(&self, session_id: &str) -> Option<(String, String)> {
+        opencode_last_model(session_id)
+    }
+
+    fn prose_stamp(&self, found: &Found) -> Option<FileStamp> {
+        Some(FileStamp::at_secs(found.session.mtime))
+    }
+
+    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+        opencode_prose(found.place.as_deref()?, &found.session.id, prose);
+        Some(())
+    }
+
+    fn rename_saved(
+        &self,
+        _cwd: &str,
+        session_id: &str,
+        name: &str,
+        _config_path: Option<&str>,
+    ) -> Option<Result<(), String>> {
+        Some(rename_opencode_session(session_id, name))
     }
 }
 

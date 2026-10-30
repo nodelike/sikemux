@@ -17,8 +17,13 @@ use super::{
 };
 
 const PI_TAIL_BYTES: u64 = 128 * 1024;
+use super::in_project;
+use super::rename::session_file_within;
 use super::roots::environment_path;
+use super::search::each_line;
 use super::AgentSession;
+use crate::agent_ops::{AgentOps, SessionPlaces};
+use notify::RecursiveMode;
 
 // ---- pi — ~/.pi/agent/sessions/**/<session>.jsonl ----------------------
 pub fn pi_session_dir() -> Option<PathBuf> {
@@ -208,6 +213,62 @@ pub(super) fn message_prose(line: &str, prose: &mut Prose) {
         if let Some(content) = message.get("content") {
             push_texts(content, prose);
         }
+    }
+}
+
+pub(crate) struct Pi;
+
+impl AgentOps for Pi {
+    fn sessions(&self, cwd: &str, _config_path: Option<&str>) -> Vec<AgentSession> {
+        pi_sessions(cwd)
+    }
+
+    fn recent(&self, scan: &PageScan<'_>, _config_path: Option<&str>) -> Vec<Hit> {
+        pi_recent(scan)
+    }
+
+    fn session_place(&self, path: &Path) -> Option<PathBuf> {
+        is_jsonl(path).then(|| path.to_path_buf())
+    }
+
+    fn session_at(
+        &self,
+        place: &Path,
+        cwd: &str,
+        _config_path: Option<&str>,
+    ) -> Option<AgentSession> {
+        in_project(pi_session(place, file_stamp(place)), cwd)
+    }
+
+    fn session_places(&self, _cwd: &str, _config_path: Option<&str>) -> SessionPlaces {
+        SessionPlaces {
+            sessions: pi_session_dir()
+                .map(|dir| (dir, RecursiveMode::Recursive))
+                .into_iter()
+                .collect(),
+            listings: Vec::new(),
+        }
+    }
+
+    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+        each_line(found.place.as_deref()?, |line| message_prose(line, prose));
+        Some(())
+    }
+
+    fn rename_saved(
+        &self,
+        _cwd: &str,
+        session_id: &str,
+        name: &str,
+        _config_path: Option<&str>,
+    ) -> Option<Result<(), String>> {
+        let Some(root) = pi_session_dir() else {
+            return Some(Err("session not found".to_string()));
+        };
+        Some(
+            session_file_within(session_id, &[root])
+                .and_then(|path| rename_pi_session(&path, name)),
+        )
     }
 }
 

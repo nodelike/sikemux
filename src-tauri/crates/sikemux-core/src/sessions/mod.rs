@@ -2,18 +2,18 @@
 //! paging them for the Recent list, searching them, renaming, moving and deleting them.
 
 pub mod carry;
-mod claude;
-mod codex;
+pub(crate) mod claude;
+pub(crate) mod codex;
 pub mod context;
 pub mod delete;
-mod grok;
-mod hermes;
+pub(crate) mod grok;
+pub(crate) mod hermes;
 mod history;
 pub mod index;
-mod muse;
-mod omp;
-mod opencode;
-mod pi;
+pub(crate) mod muse;
+pub(crate) mod omp;
+pub(crate) mod opencode;
+pub(crate) mod pi;
 pub mod recent;
 pub mod relocate;
 pub mod rename;
@@ -32,14 +32,6 @@ use sikemux_process::clock::epoch_ms_of;
 use tokio::process::Command;
 
 use crate::agent_catalog::AgentKind;
-use claude::claude_sessions;
-use codex::codex_sessions;
-use grok::grok_sessions;
-use hermes::hermes_sessions;
-use muse::muse_sessions;
-use omp::omp_sessions;
-use opencode::opencode_sessions;
-use pi::pi_sessions;
 use sikemux_pty::user_shell::login_shell_environment;
 
 pub use claude::claude_project_dir;
@@ -54,7 +46,7 @@ pub struct AgentSession {
 }
 
 /// Whether `id` has the shape `agent`'s own sessions take, so it can never pass for a flag.
-/// Pi and OMP also name a session by its transcript's path.
+/// Agents that resume by path also name a session by its transcript's path.
 pub fn is_session_id(agent: Option<AgentKind>, id: &str) -> bool {
     let mut chars = id.chars();
     let token = id.len() <= 200
@@ -62,7 +54,7 @@ pub fn is_session_id(agent: Option<AgentKind>, id: &str) -> bool {
             .next()
             .is_some_and(|first| first.is_ascii_alphanumeric())
         && chars.all(|char| char.is_ascii_alphanumeric() || matches!(char, '.' | '_' | ':' | '-'));
-    let transcript = matches!(agent, Some(AgentKind::Pi | AgentKind::Omp))
+    let transcript = agent.is_some_and(|agent| agent.entry().resumes_by_path)
         && id.starts_with('/')
         && id.ends_with(".jsonl")
         && id.len() <= 4_096
@@ -72,72 +64,40 @@ pub fn is_session_id(agent: Option<AgentKind>, id: &str) -> bool {
 
 /// One agent's saved sessions that ran in `cwd`, newest first.
 pub fn agent_sessions(agent: AgentKind, cwd: &str, config_path: Option<&str>) -> Vec<AgentSession> {
-    match agent {
-        AgentKind::Claude => claude_sessions(cwd, config_path),
-        AgentKind::Codex => codex_sessions(cwd, config_path),
-        AgentKind::Hermes => hermes_sessions(cwd),
-        AgentKind::Pi => pi_sessions(cwd),
-        AgentKind::Opencode => opencode_sessions(cwd),
-        AgentKind::Omp => omp_sessions(cwd),
-        AgentKind::Grok => grok_sessions(cwd),
-        AgentKind::Muse => muse_sessions(cwd),
-    }
+    agent.ops().sessions(cwd, config_path)
 }
 
-/// A saved session as the updates its agent sends when it loads it, for OMP and OpenCode,
-/// whose chats show it before the agent starts.
+/// A saved session as the updates its agent sends when it loads it, for agents whose
+/// chats show it before the agent starts.
 pub fn history(agent: AgentKind, session_id: &str, cwd: &Path) -> Result<Vec<Value>, String> {
-    match agent {
-        AgentKind::Omp => history::omp(Path::new(session_id), cwd),
-        AgentKind::Opencode => history::opencode(&opencode::opencode_db_paths(), session_id),
-        _ => Ok(Vec::new()),
-    }
+    agent.ops().history(session_id, cwd)
 }
 
-/// The provider and model a saved session last ran on, as its agent names them: only OMP
-/// and OpenCode keep a provider beside each reply.
+/// The provider and model a saved session last ran on, as its agent names them, for
+/// agents that keep a provider beside each reply.
 pub fn last_model(agent: AgentKind, session_id: &str) -> Option<(String, String)> {
-    match agent {
-        AgentKind::Omp => omp::omp_last_model(Path::new(session_id)),
-        AgentKind::Opencode => opencode::opencode_last_model(session_id),
-        _ => None,
-    }
+    agent.ops().last_model(session_id)
 }
 
 /// What holds the session a file written under `agent`'s session folders belongs
-/// to: Grok's folder for each session, else the transcript itself. None for agents
-/// that keep their sessions in a database.
+/// to. None for agents that keep their sessions in a database.
 pub fn session_place(agent: AgentKind, path: &Path) -> Option<PathBuf> {
-    let name = path.file_name()?.to_str()?;
-    match agent {
-        AgentKind::Claude | AgentKind::Pi | AgentKind::Omp => {
-            is_jsonl(path).then(|| path.to_path_buf())
-        }
-        AgentKind::Codex => codex::is_rollout(path).then(|| path.to_path_buf()),
-        AgentKind::Grok => path
-            .parent()
-            .filter(|_| grok::GROK_SESSION_FILES.contains(&name))
-            .map(Path::to_path_buf),
-        AgentKind::Hermes | AgentKind::Opencode | AgentKind::Muse => None,
-    }
+    path.file_name()?.to_str()?;
+    agent.ops().session_place(path)
 }
 
-/// The session `place` holds, when it ran in `cwd`. Claude files each project's
-/// transcripts in a folder of their own, so it trusts the caller on the folder.
+/// The session `place` holds, when it ran in `cwd`.
 pub fn session_at(
     agent: AgentKind,
     place: &Path,
     cwd: &str,
     config_path: Option<&str>,
 ) -> Option<AgentSession> {
-    let found = match agent {
-        AgentKind::Claude => return claude::claude_session(place, file_stamp(place)),
-        AgentKind::Codex => return codex::codex_session_at(place, cwd, config_path),
-        AgentKind::Grok => return grok::grok_session(place, cwd),
-        AgentKind::Pi => pi::pi_session(place, file_stamp(place)),
-        AgentKind::Omp => omp::omp_session(place, file_stamp(place)),
-        AgentKind::Hermes | AgentKind::Opencode | AgentKind::Muse => None,
-    };
+    agent.ops().session_at(place, cwd, config_path)
+}
+
+/// The session `found` holds, when it ran in `cwd`.
+fn in_project(found: Option<recent::Found>, cwd: &str) -> Option<AgentSession> {
     found
         .filter(|found| found.project == cwd)
         .map(|found| found.session)
@@ -165,7 +125,7 @@ fn mtime_of(path: &Path) -> u64 {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct FileStamp {
+pub(crate) struct FileStamp {
     modified_ns: u128,
     len: u64,
 }
@@ -201,7 +161,7 @@ fn stamped_transcripts(paths: impl Iterator<Item = PathBuf>) -> Vec<(PathBuf, Fi
     stamped
 }
 
-fn file_stamp(path: &Path) -> FileStamp {
+pub(crate) fn file_stamp(path: &Path) -> FileStamp {
     let metadata = fs::metadata(path).ok();
     FileStamp {
         modified_ns: metadata

@@ -5,14 +5,6 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::claude::claude_recent;
-use super::codex::codex_recent;
-use super::grok::grok_recent;
-use super::hermes::hermes_recent;
-use super::muse::muse_recent;
-use super::omp::omp_recent;
-use super::opencode::opencode_recent;
-use super::pi::pi_recent;
 use super::AgentSession;
 use crate::agent_catalog::AgentKind;
 
@@ -86,14 +78,14 @@ pub(super) struct Listed<T> {
 
 /// A listed entry once opened: the project it belongs to and what the rail shows.
 #[derive(Clone)]
-pub(super) struct Found {
-    pub(super) project: String,
-    pub(super) session: AgentSession,
+pub(crate) struct Found {
+    pub(crate) project: String,
+    pub(crate) session: AgentSession,
     /// The file, folder or database its conversation is read from, when it is not found by id.
-    pub(super) place: Option<PathBuf>,
+    pub(crate) place: Option<PathBuf>,
 }
 
-pub(super) struct Hit {
+pub(crate) struct Hit {
     pub(super) at_ms: u64,
     pub(super) agent: &'static str,
     key: String,
@@ -101,7 +93,7 @@ pub(super) struct Hit {
 }
 
 /// What one request asks every provider for.
-pub(super) struct PageScan<'a> {
+pub(crate) struct PageScan<'a> {
     agent: &'static str,
     /// Every project when absent.
     projects: Option<&'a HashSet<String>>,
@@ -215,17 +207,10 @@ fn compare(
 }
 
 pub(super) fn provider_hits(provider: &RecentProvider, scan: &PageScan<'_>) -> Vec<Hit> {
-    let config_path = provider.config_path.as_deref();
-    match provider.agent {
-        AgentKind::Claude => claude_recent(scan, config_path),
-        AgentKind::Codex => codex_recent(scan, config_path),
-        AgentKind::Hermes => hermes_recent(scan),
-        AgentKind::Pi => pi_recent(scan),
-        AgentKind::Opencode => opencode_recent(scan),
-        AgentKind::Omp => omp_recent(scan),
-        AgentKind::Grok => grok_recent(scan),
-        AgentKind::Muse => muse_recent(scan),
-    }
+    provider
+        .agent
+        .ops()
+        .recent(scan, provider.config_path.as_deref())
 }
 
 /// Saved chats across providers and projects, newest first, a page at a time.

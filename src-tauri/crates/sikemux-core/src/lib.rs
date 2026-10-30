@@ -10,6 +10,7 @@ pub mod agent_accounts;
 mod agent_shell;
 #[rustfmt::skip]
 pub mod agent_catalog;
+mod agent_ops;
 mod backoff;
 pub mod cli;
 #[cfg(unix)]

@@ -5,10 +5,13 @@ use std::sync::Arc;
 use rayon::prelude::*;
 use serde_json::Value;
 
+use super::context::session_transcript_path;
 use super::index::{indexed, Indexed};
+use super::is_jsonl;
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::append_line;
 use super::roots::agent_config_root;
+use super::search::each_line;
 use super::search::Prose;
 use super::AgentSession;
 use super::{
@@ -16,6 +19,8 @@ use super::{
     text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_catalog::AgentKind;
+use crate::agent_ops::{AgentOps, SessionPlaces};
+use notify::RecursiveMode;
 
 // ---- claude — ~/.claude/projects/<cwd-dashed>/<uuid>.jsonl --------------
 const MAX_PROJECT_DIR_NAME: usize = 200;
@@ -204,17 +209,43 @@ fn scan_claude_line(line: &str, titles: &mut ClaudeTitles) {
 }
 
 /// Names a session the way Claude's `/rename` does.
-pub(super) fn rename_claude_session(
-    path: &Path,
+fn rename_claude_session(
+    cwd: &str,
     session_id: &str,
     name: &str,
+    config_path: Option<&str>,
 ) -> Result<(), String> {
+    let path = session_transcript_path(AgentKind::Claude, cwd, session_id, config_path)
+        .filter(|path| path.is_file())
+        .ok_or("session not found")?;
     let line = format!(
         r#"{{"type":"custom-title","customTitle":{},"sessionId":{}}}"#,
         Value::from(name),
         Value::from(session_id),
     );
-    append_line(path, &line)
+    append_line(&path, &line)
+}
+
+/// Claude keeps a session's subagent transcripts, file snapshots and todo lists
+/// beside the transcript, each named by the session id.
+fn remove_claude_leftovers(root: &Path, transcript: &Path, session_id: &str) {
+    if let Some(project) = transcript.parent() {
+        let _ = fs::remove_dir_all(project.join(session_id));
+    }
+    let _ = fs::remove_dir_all(root.join("file-history").join(session_id));
+    let Ok(todos) = fs::read_dir(root.join("todos")) else {
+        return;
+    };
+    let prefix = format!("{session_id}-");
+    for entry in todos.flatten() {
+        let name = entry.file_name();
+        let ours = name
+            .to_str()
+            .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".json"));
+        if ours {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 // Bound the per-file read: the first user prompt sits near the top and Claude
@@ -298,6 +329,62 @@ pub(super) fn claude_prose(line: &str, prose: &mut Prose) {
         return;
     };
     push_texts(content, prose);
+}
+
+pub(crate) struct Claude;
+
+impl AgentOps for Claude {
+    fn sessions(&self, cwd: &str, config_path: Option<&str>) -> Vec<AgentSession> {
+        claude_sessions(cwd, config_path)
+    }
+
+    fn recent(&self, scan: &PageScan<'_>, config_path: Option<&str>) -> Vec<Hit> {
+        claude_recent(scan, config_path)
+    }
+
+    fn session_place(&self, path: &Path) -> Option<PathBuf> {
+        is_jsonl(path).then(|| path.to_path_buf())
+    }
+
+    /// Claude files each project's transcripts in a folder of their own, so this
+    /// trusts the caller on the folder.
+    fn session_at(
+        &self,
+        place: &Path,
+        _cwd: &str,
+        _config_path: Option<&str>,
+    ) -> Option<AgentSession> {
+        claude_session(place, file_stamp(place))
+    }
+
+    fn session_places(&self, cwd: &str, config_path: Option<&str>) -> SessionPlaces {
+        SessionPlaces {
+            sessions: agent_config_root("claude", config_path)
+                .map(|root| (claude_project_dir(&root, cwd), RecursiveMode::NonRecursive))
+                .into_iter()
+                .collect(),
+            listings: Vec::new(),
+        }
+    }
+
+    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+        each_line(found.place.as_deref()?, |line| claude_prose(line, prose));
+        Some(())
+    }
+
+    fn rename_saved(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        name: &str,
+        config_path: Option<&str>,
+    ) -> Option<Result<(), String>> {
+        Some(rename_claude_session(cwd, session_id, name, config_path))
+    }
+
+    fn delete_leftovers(&self, root: &Path, transcript: &Path, session_id: &str) {
+        remove_claude_leftovers(root, transcript, session_id);
+    }
 }
 
 #[cfg(test)]

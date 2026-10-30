@@ -8,16 +8,23 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::claude::{CLAUDE_HEAD_BYTES, CLAUDE_TAIL_BYTES};
+use super::history;
+use super::in_project;
 use super::index::{indexed, Indexed};
+use super::pi::message_prose;
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::now_iso8601;
+use super::rename::session_file_within;
 use super::roots::{omp_agent_root, omp_session_dirs};
+use super::search::{each_line, Prose};
 use super::AgentSession;
 use super::{
     collect_transcripts, condense, file_stamp, is_jsonl, read_prefix, read_suffix,
     stamped_transcripts, text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_catalog::AgentKind;
+use crate::agent_ops::{AgentOps, SessionPlaces};
+use notify::RecursiveMode;
 
 pub(super) fn omp_sessions(cwd: &str) -> Vec<AgentSession> {
     omp_sessions_from_dirs(cwd, omp_session_dirs())
@@ -282,6 +289,67 @@ fn record_omp_title(db: &Path, session_id: &str, title: &str) {
          ON CONFLICT(session_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
         (session_id, title),
     );
+}
+
+pub(crate) struct Omp;
+
+impl AgentOps for Omp {
+    fn sessions(&self, cwd: &str, _config_path: Option<&str>) -> Vec<AgentSession> {
+        omp_sessions(cwd)
+    }
+
+    fn recent(&self, scan: &PageScan<'_>, _config_path: Option<&str>) -> Vec<Hit> {
+        omp_recent(scan)
+    }
+
+    fn session_place(&self, path: &Path) -> Option<PathBuf> {
+        is_jsonl(path).then(|| path.to_path_buf())
+    }
+
+    fn session_at(
+        &self,
+        place: &Path,
+        cwd: &str,
+        _config_path: Option<&str>,
+    ) -> Option<AgentSession> {
+        in_project(omp_session(place, file_stamp(place)), cwd)
+    }
+
+    fn session_places(&self, _cwd: &str, _config_path: Option<&str>) -> SessionPlaces {
+        SessionPlaces {
+            sessions: omp_session_dirs()
+                .into_iter()
+                .map(|dir| (dir, RecursiveMode::Recursive))
+                .collect(),
+            listings: Vec::new(),
+        }
+    }
+
+    fn history(&self, session_id: &str, cwd: &Path) -> Result<Vec<Value>, String> {
+        history::omp(Path::new(session_id), cwd)
+    }
+
+    fn last_model(&self, session_id: &str) -> Option<(String, String)> {
+        omp_last_model(Path::new(session_id))
+    }
+
+    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+        each_line(found.place.as_deref()?, |line| message_prose(line, prose));
+        Some(())
+    }
+
+    fn rename_saved(
+        &self,
+        _cwd: &str,
+        session_id: &str,
+        name: &str,
+        _config_path: Option<&str>,
+    ) -> Option<Result<(), String>> {
+        Some(
+            session_file_within(session_id, &omp_session_dirs())
+                .and_then(|path| rename_omp_session(&path, name, omp_title_index().as_deref())),
+        )
+    }
 }
 
 #[cfg(test)]

@@ -13,6 +13,9 @@ use super::rename::now_iso8601;
 use super::search::{each_line, Prose};
 use super::AgentSession;
 use super::{condense, mtime_of, MAX_AGENT_TRANSCRIPTS_INSPECTED, MAX_AGENT_TRANSCRIPT_PATHS};
+use super::{file_stamp, FileStamp};
+use crate::agent_ops::{AgentOps, SessionPlaces};
+use notify::RecursiveMode;
 
 fn collect_grok_session_dirs(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -346,6 +349,68 @@ pub(super) fn grok_prose(session_dir: &Path, prose: &mut Prose) {
         }
     });
     flush(&mut message, prose);
+}
+
+pub(crate) struct Grok;
+
+impl AgentOps for Grok {
+    fn sessions(&self, cwd: &str, _config_path: Option<&str>) -> Vec<AgentSession> {
+        grok_sessions(cwd)
+    }
+
+    fn recent(&self, scan: &PageScan<'_>, _config_path: Option<&str>) -> Vec<Hit> {
+        grok_recent(scan)
+    }
+
+    /// Grok keeps each session in a folder of its own.
+    fn session_place(&self, path: &Path) -> Option<PathBuf> {
+        let name = path.file_name()?.to_str()?;
+        path.parent()
+            .filter(|_| GROK_SESSION_FILES.contains(&name))
+            .map(Path::to_path_buf)
+    }
+
+    fn session_at(
+        &self,
+        place: &Path,
+        cwd: &str,
+        _config_path: Option<&str>,
+    ) -> Option<AgentSession> {
+        grok_session(place, cwd)
+    }
+
+    fn session_places(&self, _cwd: &str, _config_path: Option<&str>) -> SessionPlaces {
+        SessionPlaces {
+            sessions: AgentKind::Grok
+                .home_root()
+                .map(|root| (root.join("sessions"), RecursiveMode::Recursive))
+                .into_iter()
+                .collect(),
+            listings: Vec::new(),
+        }
+    }
+
+    fn prose_stamp(&self, found: &Found) -> Option<FileStamp> {
+        grok_transcript(found.place.as_deref()?).map(|path| file_stamp(&path))
+    }
+
+    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+        grok_prose(found.place.as_deref()?, prose);
+        Some(())
+    }
+
+    fn rename_saved(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        name: &str,
+        _config_path: Option<&str>,
+    ) -> Option<Result<(), String>> {
+        let Some(root) = AgentKind::Grok.home_root() else {
+            return Some(Err("session not found".to_string()));
+        };
+        Some(rename_grok_session(&root, cwd, session_id, name))
+    }
 }
 
 #[cfg(test)]
