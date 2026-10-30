@@ -27,7 +27,7 @@ use sikemux_wire::protocol::{
 use tokio::sync::mpsc;
 
 use crate::battery::Battery;
-use crate::chat::{Chat, ComposeStage, Composing, Question, Sent};
+use crate::chat::{Answering, Chat, ComposeStage, Composing, Question, Sent};
 use crate::ci::{Ci, CiRepo};
 use crate::codehost::{Area, HostArea, OpenArea};
 use crate::core::{utc_offset_minutes, Ask, ChatAsk, ChatNews, Link, Target, Update, Watch};
@@ -1626,7 +1626,8 @@ impl Workbench {
                     agent,
                     |chat, open| {
                         chat.send_answers(open)
-                            .or_else(|| chat.steer_waiting(agent))
+                            .map(Into::into)
+                            .or_else(|| chat.steer_waiting(agent).map(Into::into))
                     },
                     cx,
                 );
@@ -1691,7 +1692,11 @@ impl Workbench {
         if text.is_empty() || sending {
             return;
         }
-        self.answer(agent, |chat, open| chat.keep_secret(text, open), cx);
+        self.answer(
+            agent,
+            |chat, open| chat.keep_secret(text, open).map(Into::into),
+            cx,
+        );
         field.update(cx, |field, cx| field.set_value("", window, cx));
         cx.notify();
     }
@@ -1700,7 +1705,7 @@ impl Workbench {
     pub fn answer(
         &mut self,
         agent: &str,
-        change: impl FnOnce(&mut Chat, &[&Question]) -> Option<Ask>,
+        change: impl FnOnce(&mut Chat, &[&Question]) -> Option<Answering>,
         cx: &mut Context<Self>,
     ) {
         let open: Vec<&Question> = self

@@ -1006,20 +1006,20 @@ fn views_of(core: &Core, open: Vec<Question>, answered: Vec<Answered>) -> Vec<Ag
         .collect()
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnswerParams {
-    id: String,
+    pub id: String,
     #[serde(default)]
-    answer: Option<String>,
+    pub answer: Option<String>,
     #[serde(default)]
-    choice: Option<usize>,
+    pub choice: Option<usize>,
     /// The choices picked on a question that takes several.
     #[serde(skip_serializing_if = "Option::is_none")]
-    choices: Option<Vec<usize>>,
+    pub choices: Option<Vec<usize>>,
     /// The assumption the agent went on is right.
     #[serde(default)]
-    fine: bool,
+    pub fine: bool,
 }
 
 /// The person's answer: the first one wins, and reaches the asker as a
@@ -1034,9 +1034,9 @@ pub(crate) async fn answer(core: &Arc<Core>, params: AnswerParams) -> Result<(),
     .await
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct AnswersParams {
-    answers: Vec<AnswerParams>,
+    pub answers: Vec<AnswerParams>,
 }
 
 /// The person's answers to questions asked together. Each asker gets all of

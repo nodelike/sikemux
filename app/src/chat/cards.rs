@@ -190,7 +190,7 @@ pub(super) fn secret(
 }
 
 impl Chat {
-    pub fn keep_secret(&mut self, text: String, open: &[&Question]) -> Option<Ask> {
+    pub fn keep_secret(&mut self, text: String, open: &[&Question]) -> Option<Answers> {
         let question = self
             .current(open)
             .filter(|question| question.secret && !self.is_folded(open))?;

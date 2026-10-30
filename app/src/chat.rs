@@ -89,7 +89,7 @@ mod worktree;
 pub use attach::lasting;
 pub use composing::{dictate, ComposeStage, ComposerView, Composing, Sent};
 pub use draft::key as draft_key;
-pub use questions::{question_keys, Question};
+pub use questions::{question_keys, Answering, Question};
 
 /// Turns asked for each time the reader nears the top of what is held.
 const PAGE_TURNS: u32 = 20;

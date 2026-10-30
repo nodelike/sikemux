@@ -3,9 +3,54 @@
 
 use super::*;
 
+use std::future::Future;
+use std::pin::Pin;
+
+use sikemux_core::server::{call, AnswerParams, AnswersParams};
+
 use crate::theme::{
     SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
+
+/// The person's answers on their way to the core, which the questions they answer wait on.
+pub enum Answers {
+    One(AnswerParams),
+    All(AnswersParams),
+}
+
+impl Answers {
+    fn ids(&self) -> Vec<String> {
+        match self {
+            Answers::One(answer) => vec![answer.id.clone()],
+            Answers::All(all) => all.answers.iter().map(|answer| answer.id.clone()).collect(),
+        }
+    }
+
+    fn send(self, target: &Target) -> Pin<Box<dyn Future<Output = Result<(), String>>>> {
+        match self {
+            Answers::One(answer) => Box::pin(target.request_typed::<call::AnswerQuestion>(answer)),
+            Answers::All(all) => Box::pin(target.request_typed::<call::AnswerQuestions>(all)),
+        }
+    }
+}
+
+/// What a change to a chat's questions asks of the core: the person's answers, or another ask.
+pub enum Answering {
+    Answers(Answers),
+    Ask(Ask),
+}
+
+impl From<Answers> for Answering {
+    fn from(answers: Answers) -> Self {
+        Answering::Answers(answers)
+    }
+}
+
+impl From<Ask> for Answering {
+    fn from(ask: Ask) -> Self {
+        Answering::Ask(ask)
+    }
+}
 
 /// A question an agent put to the person, as the core's `questions` call lists it.
 #[derive(Clone)]
@@ -334,7 +379,11 @@ pub(super) fn asking(
                 }
             })
             .on_click(cx.listener(move |bench, _, _, cx| {
-                bench.answer(&agent, |chat, open| chat.send_answers(open), cx);
+                bench.answer(
+                    &agent,
+                    |chat, open| chat.send_answers(open).map(Into::into),
+                    cx,
+                );
                 cx.notify();
             }))
             .child("Send")
@@ -361,11 +410,12 @@ pub(super) fn asking(
             .bg(t.surface_chosen)
             .text_color(t.text_primary)
             .on_click(cx.listener(move |bench, _, _, cx| {
-                let ask = Ask::Call {
-                    method: "answerQuestion",
-                    params: json!({ "id": id, "fine": true }),
+                let fine = AnswerParams {
+                    id: id.clone(),
+                    fine: true,
+                    ..AnswerParams::default()
                 };
-                bench.ask_answering(&agent, ask, cx);
+                bench.ask_answering(&agent, Answers::One(fine), cx);
             }))
             .child("Fine")
     });
@@ -511,7 +561,11 @@ pub(super) fn asking(
             )
             .disabled(chat.sending_answers())
             .on_click(cx.listener(move |bench, _, _, cx| {
-                bench.answer(&agent, |chat, open| chat.choose(&id, ix, open), cx);
+                bench.answer(
+                    &agent,
+                    |chat, open| chat.choose(&id, ix, open).map(Into::into),
+                    cx,
+                );
                 cx.notify();
             }))
             .into_any_element()
@@ -807,13 +861,13 @@ impl Chat {
     }
 
     /// Holds the answer, then moves on to the next question still without one, or sends a lone question.
-    pub(super) fn pick(&mut self, id: &str, pick: Pick, open: &[&Question]) -> Option<Ask> {
+    pub(super) fn pick(&mut self, id: &str, pick: Pick, open: &[&Question]) -> Option<Answers> {
         self.picks.insert(id.to_owned(), pick);
         self.move_on(id, open)
     }
 
     /// Moves on from a question with its answer: to the next still without one, or sends a lone question.
-    pub(super) fn move_on(&mut self, id: &str, open: &[&Question]) -> Option<Ask> {
+    pub(super) fn move_on(&mut self, id: &str, open: &[&Question]) -> Option<Answers> {
         self.cursor = None;
         if open.len() == 1 {
             return self.send_answers(open);
@@ -830,7 +884,7 @@ impl Chat {
 
     /// A key the question on show takes while nothing is written: a number picks, the
     /// arrows move, Space ticks, Enter picks, moves on or sends. Says whether it took it.
-    pub fn press(&mut self, press: Press, open: &[&Question]) -> (bool, Option<Ask>) {
+    pub fn press(&mut self, press: Press, open: &[&Question]) -> (bool, Option<Answers>) {
         let Some(current) = self
             .current(open)
             .filter(|_| !self.is_folded(open) && !self.sending_answers())
@@ -892,7 +946,7 @@ impl Chat {
     }
 
     /// Picks a choice, or on a question that takes several, ticks or unticks it.
-    pub fn choose(&mut self, id: &str, choice: usize, open: &[&Question]) -> Option<Ask> {
+    pub fn choose(&mut self, id: &str, choice: usize, open: &[&Question]) -> Option<Answers> {
         let question = open.iter().find(|question| question.id == id)?;
         let label = |ix: &usize| {
             question
@@ -940,7 +994,7 @@ impl Chat {
     }
 
     /// Sends every open question's answer together, once each has one.
-    pub fn send_answers(&mut self, open: &[&Question]) -> Option<Ask> {
+    pub fn send_answers(&mut self, open: &[&Question]) -> Option<Answers> {
         if open.is_empty()
             || !open
                 .iter()
@@ -948,21 +1002,30 @@ impl Chat {
         {
             return None;
         }
-        let answers: Vec<Value> = open
+        let answers = open
             .iter()
             .filter_map(|question| {
-                let id = &question.id;
-                Some(match &self.picks.get(id)?.answer {
-                    Answer::Choice(choice) => json!({ "id": id, "choice": choice }),
-                    Answer::Choices(choices) => json!({ "id": id, "choices": choices }),
-                    Answer::Text(answer) => json!({ "id": id, "answer": answer }),
+                let id = question.id.clone();
+                Some(match &self.picks.get(&id)?.answer {
+                    Answer::Choice(choice) => AnswerParams {
+                        id,
+                        choice: Some(*choice),
+                        ..AnswerParams::default()
+                    },
+                    Answer::Choices(choices) => AnswerParams {
+                        id,
+                        choices: Some(choices.clone()),
+                        ..AnswerParams::default()
+                    },
+                    Answer::Text(answer) => AnswerParams {
+                        id,
+                        answer: Some(answer.clone()),
+                        ..AnswerParams::default()
+                    },
                 })
             })
             .collect();
-        Some(Ask::Call {
-            method: "answerQuestions",
-            params: json!({ "answers": answers }),
-        })
+        Some(Answers::All(AnswersParams { answers }))
     }
 }
 
@@ -992,26 +1055,17 @@ impl Workbench {
 
     /// Asks what a change to `agent`'s questions asks. Answers wait on the core, the questions
     /// they answer held as sending, then leave the open ones without waiting for its next list.
-    pub fn ask_answering(&mut self, agent: &str, ask: Ask, cx: &mut Context<Self>) {
-        let (method, params) = match ask {
-            Ask::Call {
-                method: method @ ("answerQuestion" | "answerQuestions"),
-                params,
-            } => (method, params),
-            ask => return self.chat_target(agent).ask(ask),
+    pub fn ask_answering(
+        &mut self,
+        agent: &str,
+        asking: impl Into<Answering>,
+        cx: &mut Context<Self>,
+    ) {
+        let answers = match asking.into() {
+            Answering::Answers(answers) => answers,
+            Answering::Ask(ask) => return self.chat_target(agent).ask(ask),
         };
-        let ids: Vec<String> = params["id"]
-            .as_str()
-            .into_iter()
-            .chain(
-                params["answers"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|answer| answer["id"].as_str()),
-            )
-            .map(str::to_owned)
-            .collect();
+        let ids = answers.ids();
         if let Some(chat) = self.chats.open.get_mut(agent) {
             chat.answering.extend(ids.iter().cloned());
             if let Some(composing) = chat.composer.as_mut() {
@@ -1019,7 +1073,7 @@ impl Workbench {
             }
         }
         self.parts.redraw_stage(cx);
-        let answered = self.chat_target(agent).request(method, params);
+        let answered = answers.send(&self.chat_target(agent));
         let agent = agent.to_owned();
         cx.spawn(async move |bench, cx| {
             let error = answered.await.err();

@@ -699,7 +699,7 @@ impl Chat {
         (paths, context): (Vec<String>, Vec<ChatContext>),
         queue: bool,
         open: &[&Question],
-    ) -> Option<Ask> {
+    ) -> Option<Answering> {
         if let Some(composing) = self.composer.as_mut() {
             composing.refusal = None;
             composing.attachments.clear();
@@ -712,14 +712,16 @@ impl Chat {
             .filter(|question| !question.secret && !self.is_folded(open));
         if let Some(id) = answering.map(|question| question.id.clone()) {
             let answer = answer_text(&text, &paths, &context);
-            return self.pick(
-                &id,
-                Pick {
-                    answer: Answer::Text(answer.clone()),
-                    shown: answer,
-                },
-                open,
-            );
+            return self
+                .pick(
+                    &id,
+                    Pick {
+                        answer: Answer::Text(answer.clone()),
+                        shown: answer,
+                    },
+                    open,
+                )
+                .map(Answering::Answers);
         }
         if self.steers() && !queue {
             let message = QueuedMessage {
@@ -727,16 +729,16 @@ impl Chat {
                 paths,
                 context,
             };
-            return Some(self.steer_queued(agent, Some(message)));
+            return Some(Answering::Ask(self.steer_queued(agent, Some(message))));
         }
         self.awaits_agent = !self.ready();
-        Some(Ask::Chat(ChatAsk::Prompt {
+        Some(Answering::Ask(Ask::Chat(ChatAsk::Prompt {
             agent: agent.to_owned(),
             text,
             paths,
             context,
             attach: self.mark.is_none(),
-        }))
+        })))
     }
 
     /// A turn is running that takes words mid-turn.

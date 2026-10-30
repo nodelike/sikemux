@@ -122,6 +122,7 @@ pub use messages::Kind as MessageKind;
 pub use names::ClosedAgent;
 pub use ports::{ListeningPort, PortOwner, ProjectPort};
 pub use project_roots::ProjectEntry;
+pub use questions::{AnswerParams, AnswersParams};
 pub use remote::{trust_remote_file, ApprovalSetting, Pairing};
 pub use saved::SearchParams;
 pub use share::{ShareState, ShareView};
