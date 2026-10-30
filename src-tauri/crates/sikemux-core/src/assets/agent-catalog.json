@@ -35,8 +35,10 @@
                 "driver": "claude"
             },
             "providers": "routed",
+            "routed": { "api": "anthropic", "rank": 1 },
             "resumesByPath": false,
             "relocatableSessions": true,
+            "historyBeforeStart": true,
             "commitMessages": {
                 "models": ["sonnet", "opus", "haiku", "opusplan", "sonnet[1m]", "default"]
             }
@@ -76,8 +78,10 @@
                 "driver": "codex"
             },
             "providers": "routed",
+            "routed": { "api": "responses", "rank": 2 },
             "resumesByPath": false,
             "relocatableSessions": true,
+            "historyBeforeStart": false,
             "commitMessages": {
                 "models": ["gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1", "gpt-5"]
             }
@@ -127,8 +131,10 @@
                 }
             },
             "providers": null,
+            "routed": null,
             "resumesByPath": false,
             "relocatableSessions": false,
+            "historyBeforeStart": false,
             "commitMessages": {
                 "models": ["openai/gpt-5.5", "openai/gpt-5.1", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.1", "google/gemini-2.5-pro"]
             }
@@ -165,8 +171,10 @@
             },
             "chat": null,
             "providers": "reads",
+            "routed": null,
             "resumesByPath": true,
             "relocatableSessions": false,
+            "historyBeforeStart": false,
             "commitMessages": null
         },
         {
@@ -201,8 +209,10 @@
                 "args": ["acp"]
             },
             "providers": "reads",
+            "routed": { "api": "chat", "rank": 4 },
             "resumesByPath": false,
             "relocatableSessions": false,
+            "historyBeforeStart": true,
             "commitMessages": null
         },
         {
@@ -237,8 +247,10 @@
                 "args": ["acp"]
             },
             "providers": "reads",
+            "routed": { "api": "chat", "rank": 3 },
             "resumesByPath": true,
             "relocatableSessions": false,
+            "historyBeforeStart": true,
             "commitMessages": null
         },
         {
@@ -282,8 +294,10 @@
                 "args": ["agent", "--no-leader", "stdio"]
             },
             "providers": null,
+            "routed": null,
             "resumesByPath": false,
             "relocatableSessions": false,
+            "historyBeforeStart": false,
             "commitMessages": null
         },
         {
@@ -321,8 +335,10 @@
                 "driver": "muse"
             },
             "providers": null,
+            "routed": null,
             "resumesByPath": false,
             "relocatableSessions": false,
+            "historyBeforeStart": false,
             "commitMessages": null
         }
     ]

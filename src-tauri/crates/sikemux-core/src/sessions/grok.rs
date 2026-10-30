@@ -17,6 +17,7 @@ use super::{file_stamp, FileStamp};
 use crate::agent_accounts::defaults::{clean_effort, clean_model, toml_section_string};
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::git_guard::shim;
 use crate::launch::tools::TerminalSetup;
 use crate::launch::tools::Tools;
 use notify::RecursiveMode;
@@ -358,6 +359,12 @@ pub(super) fn grok_prose(session_dir: &Path, prose: &mut Prose) {
 pub(crate) struct Grok;
 
 impl AgentOps for Grok {
+    /// The plugin whose hook checks its shell commands, since its login
+    /// profile's PATH puts the system's git ahead of Sikemux's.
+    fn acp_plugin(&self) -> Option<&'static Path> {
+        shim::grok_plugin()
+    }
+
     fn sessions(&self, cwd: &str, _config_path: Option<&str>) -> Vec<AgentSession> {
         grok_sessions(cwd)
     }

@@ -14,6 +14,7 @@ use crate::agent_accounts::sign_in::SignIn;
 use crate::agent_accounts::status::{AccountStatus, AgentStatus};
 use crate::agent_accounts::usage::Usage;
 use crate::agent_catalog::AgentKind;
+use crate::launch::providers::ChatRoute;
 use crate::launch::tools::{TerminalSetup, Tools};
 use crate::sessions::context::SessionContext;
 use crate::sessions::recent::{Found, Hit, PageScan};
@@ -227,6 +228,27 @@ pub(crate) trait AgentOps: Sync {
     /// Who it is signed in as, read from the files its CLI writes, with `env` naming the
     /// account's folder.
     fn signed_in(&self, _env: &BTreeMap<String, String>) -> Option<SignIn> {
+        None
+    }
+
+    /// Points it, an agent that speaks chat completions, at `route`'s provider, through
+    /// its environment and arguments.
+    fn route_chat(
+        &self,
+        _route: &ChatRoute<'_>,
+        _env: &mut BTreeMap<String, String>,
+        _args: &mut Vec<String>,
+    ) {
+    }
+
+    /// Writes what it needs before it is pointed at a provider: for OMP, the extension
+    /// at `omp_extension` that tells it of one.
+    fn prepare_route(&self, _omp_extension: &Path) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    /// The plugin its ACP sessions load, beside their folder and tools.
+    fn acp_plugin(&self) -> Option<&'static Path> {
         None
     }
 

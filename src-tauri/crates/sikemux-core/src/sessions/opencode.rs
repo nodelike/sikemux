@@ -15,6 +15,7 @@ use crate::agent_accounts::defaults::json_model;
 use crate::agent_accounts::status::{self, AgentStatus};
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::launch::providers::ChatRoute;
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
 use serde_json::Value;
@@ -339,6 +340,36 @@ impl AgentOps for Opencode {
         providers: BTreeMap<String, String>,
     ) -> Pending<'a, AgentStatus> {
         Box::pin(status::opencode_sign_in(program, config_path, providers))
+    }
+
+    fn route_chat(
+        &self,
+        route: &ChatRoute<'_>,
+        env: &mut BTreeMap<String, String>,
+        _args: &mut Vec<String>,
+    ) {
+        let mut config = skills::inherited_opencode_config()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| serde_json::json!({}));
+        if !config["provider"].is_object() {
+            config["provider"] = serde_json::json!({});
+        }
+        config["provider"][route.id.as_str()] = serde_json::json!({
+            "npm": "@ai-sdk/openai-compatible",
+            "name": route.label,
+            "options": {
+                "baseURL": route.base_url,
+                "apiKey": format!("{{env:{}}}", route.key_name),
+            },
+            "models": { route.model: {
+                "name": route.model,
+                "attachment": route.images,
+                "modalities": { "input": route.input(), "output": ["text"] },
+            } },
+        });
+        config["model"] = route.agent_model.clone().into();
+        env.insert("OPENCODE_CONFIG_CONTENT".into(), config.to_string());
     }
 }
 

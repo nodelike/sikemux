@@ -76,6 +76,25 @@ pub struct PrivateHome {
     pub session_store_is_folder: bool,
 }
 
+/// The API an agent speaks to a provider Sikemux points it at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoutedApi {
+    /// Anthropic's messages.
+    Anthropic,
+    /// OpenAI's responses.
+    Responses,
+    /// OpenAI's chat completions, which every provider serves. The agent knows the
+    /// provider by an id of Sikemux's and its models as `<id>/<model>`.
+    Chat,
+}
+
+/// How Sikemux points the agent at a provider in place of its maker's account.
+pub struct Routed {
+    pub api: RoutedApi,
+    /// Where it comes among the agents a provider tries, first the one a provider runs with.
+    pub rank: u8,
+}
+
 /// How the agent reaches a connected model provider.
 pub enum ProviderUse {
     /// Sikemux points it at one in place of its maker's account.
@@ -99,6 +118,8 @@ pub struct AgentEntry {
     pub deletable_chats: bool,
     pub resumes_by_path: bool,
     pub relocatable_sessions: bool,
+    /// Whether a resumed chat shows its saved history before its agent starts.
+    pub history_before_start: bool,
     pub bypass: bool,
     /// The models it writes commit messages with, the default first; none when it cannot.
     pub commit_models: &'static [&'static str],
@@ -118,6 +139,8 @@ pub struct AgentEntry {
     pub terminal: Terminal,
     pub chat: Option<ChatDriver>,
     pub providers: Option<ProviderUse>,
+    /// How Sikemux points it at a provider, when it can.
+    pub routed: Option<Routed>,
 }
 
 pub const AGENTS: &[AgentEntry] = &[
@@ -134,6 +157,7 @@ pub const AGENTS: &[AgentEntry] = &[
         deletable_chats: true,
         resumes_by_path: false,
         relocatable_sessions: true,
+        history_before_start: true,
         bypass: true,
         commit_models: &[
             "sonnet", "opus", "haiku", "opusplan", "sonnet[1m]", "default",
@@ -160,6 +184,10 @@ pub const AGENTS: &[AgentEntry] = &[
         },
         chat: Some(ChatDriver::Claude),
         providers: Some(ProviderUse::Routed),
+        routed: Some(Routed {
+            api: RoutedApi::Anthropic,
+            rank: 1,
+        }),
     },
     AgentEntry {
         kind: "codex",
@@ -174,6 +202,7 @@ pub const AGENTS: &[AgentEntry] = &[
         deletable_chats: true,
         resumes_by_path: false,
         relocatable_sessions: true,
+        history_before_start: false,
         bypass: true,
         commit_models: &[
             "gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1",
@@ -201,6 +230,10 @@ pub const AGENTS: &[AgentEntry] = &[
         },
         chat: Some(ChatDriver::Codex),
         providers: Some(ProviderUse::Routed),
+        routed: Some(Routed {
+            api: RoutedApi::Responses,
+            rank: 2,
+        }),
     },
     AgentEntry {
         kind: "hermes",
@@ -215,6 +248,7 @@ pub const AGENTS: &[AgentEntry] = &[
         deletable_chats: false,
         resumes_by_path: false,
         relocatable_sessions: false,
+        history_before_start: false,
         bypass: true,
         commit_models: &[
             "openai/gpt-5.5", "openai/gpt-5.1", "anthropic/claude-sonnet-4.6",
@@ -255,6 +289,7 @@ pub const AGENTS: &[AgentEntry] = &[
             }),
         }),
         providers: None,
+        routed: None,
     },
     AgentEntry {
         kind: "pi",
@@ -269,6 +304,7 @@ pub const AGENTS: &[AgentEntry] = &[
         deletable_chats: false,
         resumes_by_path: true,
         relocatable_sessions: false,
+        history_before_start: false,
         bypass: false,
         commit_models: &[],
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
@@ -293,6 +329,7 @@ pub const AGENTS: &[AgentEntry] = &[
         },
         chat: None,
         providers: Some(ProviderUse::Reads),
+        routed: None,
     },
     AgentEntry {
         kind: "opencode",
@@ -307,6 +344,7 @@ pub const AGENTS: &[AgentEntry] = &[
         deletable_chats: false,
         resumes_by_path: false,
         relocatable_sessions: false,
+        history_before_start: true,
         bypass: false,
         commit_models: &[],
         efforts: &[],
@@ -328,6 +366,10 @@ pub const AGENTS: &[AgentEntry] = &[
             modes: None,
         }),
         providers: Some(ProviderUse::Reads),
+        routed: Some(Routed {
+            api: RoutedApi::Chat,
+            rank: 4,
+        }),
     },
     AgentEntry {
         kind: "omp",
@@ -342,6 +384,7 @@ pub const AGENTS: &[AgentEntry] = &[
         deletable_chats: false,
         resumes_by_path: true,
         relocatable_sessions: false,
+        history_before_start: true,
         bypass: true,
         commit_models: &[],
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
@@ -363,6 +406,10 @@ pub const AGENTS: &[AgentEntry] = &[
             modes: None,
         }),
         providers: Some(ProviderUse::Reads),
+        routed: Some(Routed {
+            api: RoutedApi::Chat,
+            rank: 3,
+        }),
     },
     AgentEntry {
         kind: "grok",
@@ -377,6 +424,7 @@ pub const AGENTS: &[AgentEntry] = &[
         deletable_chats: false,
         resumes_by_path: false,
         relocatable_sessions: false,
+        history_before_start: false,
         bypass: true,
         commit_models: &[],
         efforts: &["none", "minimal", "low", "medium", "high", "xhigh", "max"],
@@ -409,6 +457,7 @@ pub const AGENTS: &[AgentEntry] = &[
             modes: None,
         }),
         providers: None,
+        routed: None,
     },
     AgentEntry {
         kind: "muse",
@@ -423,6 +472,7 @@ pub const AGENTS: &[AgentEntry] = &[
         deletable_chats: false,
         resumes_by_path: false,
         relocatable_sessions: false,
+        history_before_start: false,
         bypass: true,
         commit_models: &[],
         efforts: &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
@@ -447,6 +497,7 @@ pub const AGENTS: &[AgentEntry] = &[
         },
         chat: Some(ChatDriver::Muse),
         providers: None,
+        routed: None,
     },
 ];
 

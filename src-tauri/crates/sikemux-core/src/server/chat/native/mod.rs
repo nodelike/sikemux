@@ -26,7 +26,7 @@ use serde_json::{json, Value};
 use sikemux_fold::update::stamp_replayed;
 use tokio::sync::mpsc;
 
-use crate::agent_catalog::{AgentKind, ChatDriver};
+use crate::agent_catalog::ChatDriver;
 use crate::protocol::ChatLaunch;
 
 use super::rebind::Outcome;
@@ -72,14 +72,9 @@ fn driver(provider: &str) -> Option<&'static ChatDriver> {
     crate::agent_catalog::agent(provider).and_then(|agent| agent.chat.as_ref())
 }
 
-/// Whether a resumed chat of `provider` can show its saved history before its agent starts:
-/// only Claude's is a file the core reads itself.
+/// Whether a resumed chat of `provider` can show its saved history before its agent starts.
 fn shows_saved(provider: &str) -> bool {
-    matches!(driver(provider), Some(ChatDriver::Claude))
-        || matches!(
-            AgentKind::from_name(provider),
-            Some(AgentKind::Omp | AgentKind::Opencode)
-        )
+    crate::agent_catalog::agent(provider).is_some_and(|agent| agent.history_before_start)
 }
 
 /// The models and efforts `launch`'s agent offers, asked of its CLI without a session.

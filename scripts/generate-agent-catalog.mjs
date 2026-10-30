@@ -35,8 +35,11 @@ const FLAGS = [
   "resumesByPath",
   "relocatableSessions",
 ];
+/** Yes-or-no facts only the core reads, which clients are never sent. */
+const CORE_FLAGS = ["historyBeforeStart"];
 const DRIVERS = ["claude", "codex", "muse", "acp"];
 const PROVIDERS = ["routed", "reads"];
+const ROUTED_APIS = ["anthropic", "responses", "chat"];
 
 /** Everything the app paints in an agent's colour, as a selector with `%` for the agent and the property it sets. */
 const BRANDED = [
@@ -68,7 +71,7 @@ for (const agent of agents) {
     throw new Error(
       `${agent.type} maker must be null or the company whose account it runs on`,
     );
-  for (const flag of FLAGS) {
+  for (const flag of [...FLAGS, ...CORE_FLAGS]) {
     if (typeof agent[flag] !== "boolean")
       throw new Error(`${agent.type} does not say whether it has ${flag}`);
   }
@@ -185,7 +188,23 @@ for (const agent of agents) {
     );
   if (agent.providers !== null && !PROVIDERS.includes(agent.providers))
     fail(`providers must be null or ${PROVIDERS.join(" | ")}`);
+  if (
+    agent.routed !== null &&
+    !(
+      ROUTED_APIS.includes(agent.routed?.api) &&
+      Number.isInteger(agent.routed.rank) &&
+      agent.routed.rank > 0
+    )
+  )
+    fail(
+      `routed must be null or { api: ${ROUTED_APIS.join(" | ")}, rank } with rank a positive whole number`,
+    );
 }
+const ranks = agents.flatMap((agent) =>
+  agent.routed ? [agent.routed.rank] : [],
+);
+if (new Set(ranks).size !== ranks.length)
+  throw new Error("two routed agents share a rank");
 if (new Set(agents.map((agent) => agent.type)).size !== agents.length)
   throw new Error(
     "src-tauri/crates/sikemux-core/src/assets/agent-catalog.json lists an agent twice",
@@ -323,7 +342,7 @@ ${privateField}
         command: ${rustString(agent.command)},
         brand: ${rustString(agent.brand)},
         maker: ${rustOption(agent.maker, rustString)},
-${FLAGS.map((flag) => `        ${snake(flag)}: ${agent[flag]},`).join("\n")}
+${[...FLAGS, ...CORE_FLAGS].map((flag) => `        ${snake(flag)}: ${agent[flag]},`).join("\n")}
         bypass: ${terminal.bypass !== null},
 ${rustList(8, "commit_models", agent.commitMessages?.models ?? [])}
 ${rustList(8, "efforts", agent.efforts)}
@@ -342,6 +361,7 @@ ${rustList(12, "with_choices", terminal.withChoices)}
         },
 ${driver}
         providers: ${rustOption(agent.providers, (providers) => `ProviderUse::${pascal(providers)}`)},
+        routed: ${rustOption(agent.routed, (routed) => `Routed {\n            api: RoutedApi::${pascal(routed.api)},\n            rank: ${routed.rank},\n        }`)},
     },`;
 }
 
@@ -418,6 +438,25 @@ pub struct PrivateHome {
     pub session_store_is_folder: bool,
 }
 
+/// The API an agent speaks to a provider Sikemux points it at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoutedApi {
+    /// Anthropic's messages.
+    Anthropic,
+    /// OpenAI's responses.
+    Responses,
+    /// OpenAI's chat completions, which every provider serves. The agent knows the
+    /// provider by an id of Sikemux's and its models as \`<id>/<model>\`.
+    Chat,
+}
+
+/// How Sikemux points the agent at a provider in place of its maker's account.
+pub struct Routed {
+    pub api: RoutedApi,
+    /// Where it comes among the agents a provider tries, first the one a provider runs with.
+    pub rank: u8,
+}
+
 /// How the agent reaches a connected model provider.
 pub enum ProviderUse {
     /// Sikemux points it at one in place of its maker's account.
@@ -436,6 +475,8 @@ pub struct AgentEntry {
     /// The company whose account it runs on by default; none when it has no account of its own.
     pub maker: Option<&'static str>,
 ${FLAGS.map((flag) => `    pub ${snake(flag)}: bool,`).join("\n")}
+    /// Whether a resumed chat shows its saved history before its agent starts.
+    pub history_before_start: bool,
     pub bypass: bool,
     /// The models it writes commit messages with, the default first; none when it cannot.
     pub commit_models: &'static [&'static str],
@@ -455,6 +496,8 @@ ${FLAGS.map((flag) => `    pub ${snake(flag)}: bool,`).join("\n")}
     pub terminal: Terminal,
     pub chat: Option<ChatDriver>,
     pub providers: Option<ProviderUse>,
+    /// How Sikemux points it at a provider, when it can.
+    pub routed: Option<Routed>,
 }
 
 pub const AGENTS: &[AgentEntry] = &[

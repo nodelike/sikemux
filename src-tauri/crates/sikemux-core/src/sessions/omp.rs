@@ -26,6 +26,7 @@ use crate::agent_accounts::defaults::{clean_effort, clean_model, yaml_top_level_
 use crate::agent_catalog::AgentKind;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::launch::providers::{ChatRoute, OMP_EXTENSION, OMP_PROVIDER_ENV};
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
@@ -392,6 +393,39 @@ impl AgentOps for Omp {
             .ok()
             .and_then(|text| yaml_top_level_scalar(&text, "defaultThinkingLevel"))
             .and_then(|value| clean_effort("omp", &value))
+    }
+
+    fn route_chat(
+        &self,
+        route: &ChatRoute<'_>,
+        env: &mut BTreeMap<String, String>,
+        args: &mut Vec<String>,
+    ) {
+        let mut entry = serde_json::json!({ "id": route.model, "input": route.input() });
+        if route.model.to_ascii_lowercase().contains("deepseek") {
+            entry["compat"] = serde_json::json!({
+                "requiresReasoningContentForToolCalls": true,
+                "reasoningContentField": "reasoning_content",
+            });
+        }
+        let registered = serde_json::json!({
+            "id": route.id,
+            "baseUrl": route.base_url,
+            "apiKey": route.key_name,
+            "api": "openai-completions",
+            "models": [entry],
+        });
+        env.insert(OMP_PROVIDER_ENV.into(), registered.to_string());
+        args.extend([
+            "-e".to_owned(),
+            route.omp_extension.to_string_lossy().into_owned(),
+            "--model".to_owned(),
+            route.agent_model.clone(),
+        ]);
+    }
+
+    fn prepare_route(&self, omp_extension: &Path) -> std::io::Result<()> {
+        sikemux_process::files::write_atomic(omp_extension, OMP_EXTENSION.as_bytes(), false)
     }
 }
 
