@@ -938,7 +938,7 @@ impl Workbench {
                     );
                 }
                 if key == crate::settings::ACTIVITY {
-                    self.keep_read(key, Value::Null);
+                    self.reads.keep_activity(key, Value::Null);
                     self.parts.redraw_stage(cx);
                     self.parts.activity.update(cx, |_, cx| cx.notify());
                 }
