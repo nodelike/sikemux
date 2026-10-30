@@ -27,6 +27,7 @@ pub(super) async fn run(core: Arc<Core>) {
 }
 
 /// What the system says about the route out: whether there is one, and over which interfaces.
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NetworkPath {
     pub online: bool,
@@ -34,6 +35,7 @@ pub struct NetworkPath {
 }
 
 /// What a new path means after the last one. The first path only sets the scene.
+#[cfg(any(target_os = "macos", test))]
 pub fn classify(previous: Option<&NetworkPath>, next: &NetworkPath) -> Option<NetworkEvent> {
     let previous = previous?;
     match (previous.online, next.online) {
