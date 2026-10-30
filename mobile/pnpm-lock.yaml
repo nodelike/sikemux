@@ -17,6 +17,9 @@ patchedDependencies:
   '@shopify/flash-list@2.3.3':
     hash: 4cbc1cc00b8bf47e56d5f119da5efb047e2bde838c90b3e96ffcc70f7a950421
     path: patches/@shopify__flash-list@2.3.3.patch
+  expo-router@57.0.24:
+    hash: 26e89715fe06e89e0247a2d5a017b117cb64878664e5f748198dca66acc56960
+    path: patches/expo-router@57.0.24.patch
 
 importers:
 
@@ -116,7 +119,7 @@ importers:
         version: 57.0.21(expo@57.0.26)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
       expo-router:
         specifier: ~57.0.24
-        version: 57.0.24(f499ce420012d230e4b1b6160fb53151)
+        version: 57.0.24(patch_hash=26e89715fe06e89e0247a2d5a017b117cb64878664e5f748198dca66acc56960)(f499ce420012d230e4b1b6160fb53151)
       expo-secure-store:
         specifier: ~57.0.4
         version: 57.0.4(expo@57.0.26)
@@ -5935,7 +5938,7 @@ snapshots:
       ws: 8.22.0
       zod: 3.25.76
     optionalDependencies:
-      expo-router: 57.0.24(f499ce420012d230e4b1b6160fb53151)
+      expo-router: 57.0.24(patch_hash=26e89715fe06e89e0247a2d5a017b117cb64878664e5f748198dca66acc56960)(f499ce420012d230e4b1b6160fb53151)
       react-native: 0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
     transitivePeerDependencies:
       - '@expo/dom-webview'
@@ -6212,7 +6215,7 @@ snapshots:
       react: 19.2.3
     optionalDependencies:
       '@expo/metro-runtime': 57.0.16(@expo/log-box@57.0.4)(expo@57.0.26)(react-dom@19.2.3(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
-      expo-router: 57.0.24(f499ce420012d230e4b1b6160fb53151)
+      expo-router: 57.0.24(patch_hash=26e89715fe06e89e0247a2d5a017b117cb64878664e5f748198dca66acc56960)(f499ce420012d230e4b1b6160fb53151)
       react-dom: 19.2.3(react@19.2.3)
     transitivePeerDependencies:
       - supports-color
@@ -8235,7 +8238,7 @@ snapshots:
       - supports-color
       - typescript
 
-  expo-router@57.0.24(f499ce420012d230e4b1b6160fb53151):
+  expo-router@57.0.24(patch_hash=26e89715fe06e89e0247a2d5a017b117cb64878664e5f748198dca66acc56960)(f499ce420012d230e4b1b6160fb53151):
     dependencies:
       '@expo/log-box': 57.0.4(@expo/dom-webview@57.0.1)(expo@57.0.26)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
       '@expo/metro-runtime': 57.0.16(@expo/log-box@57.0.4)(expo@57.0.26)(react-dom@19.2.3(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)

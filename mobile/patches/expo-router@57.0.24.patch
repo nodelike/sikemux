@@ -1,0 +1,26 @@
+diff --git a/build/react-navigation/stack/utils/gestureActivationCriteria.js b/build/react-navigation/stack/utils/gestureActivationCriteria.js
+--- a/build/react-navigation/stack/utils/gestureActivationCriteria.js
++++ b/build/react-navigation/stack/utils/gestureActivationCriteria.js
+@@ -34,17 +34,18 @@
+         const hitSlop = -layout.width + distance;
+         const invertedMultiplier = (0, getInvertedMultiplier_1.getInvertedMultiplier)(gestureDirection, direction === 'rtl');
+         if (invertedMultiplier === 1) {
++            // A swipe back from anywhere on the screen must be clearly sideways, or it takes the touch from a list scrolling up or down.
+             return {
+-                minOffsetX: 5,
+-                maxDeltaY: 20,
++                activeOffsetX: 15,
++                failOffsetY: [-10, 10],
+                 hitSlop: { right: hitSlop },
+                 enableTrackpadTwoFingerGesture,
+             };
+         }
+         else {
+             return {
+-                minOffsetX: -5,
+-                maxDeltaY: 20,
++                activeOffsetX: -15,
++                failOffsetY: [-10, 10],
+                 hitSlop: { left: hitSlop },
+                 enableTrackpadTwoFingerGesture,
+             };
