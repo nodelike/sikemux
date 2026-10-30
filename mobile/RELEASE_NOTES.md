@@ -1,6 +1,7 @@
-# 0.2.0-nightly.11
+# 0.2.0-nightly.12
 
-• Send while an agent works to steer it, edit a sent message, and find in a chat.
-• Agents' questions get their own dock, with recommended answers marked.
-• @, +, # and ! work in the composer, and a new chat can start in its own worktree.
-• Chats catch up exactly after a reconnect, and the composer rides the keyboard smoothly.
+• An agent's name reads @Name, as it does on the Mac.
+• On Android, lists scroll again under the swipe back.
+• The app icon and splash hold the Sikemux mark centred.
+• Keeps the app in step with the latest Sikemux on your host, including its faster, typed calls.
+• Works with hosts on the Sikemux nightly; update your host to the nightly to use it.

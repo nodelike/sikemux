@@ -1,6 +1,6 @@
 [package]
 name = "sikemux-gpui"
-version = "0.6.0-nightly.10"
+version = "0.6.0-nightly.11"
 edition = "2021"
 publish = false
 description = "The desktop UI on GPUI, a client of the core"

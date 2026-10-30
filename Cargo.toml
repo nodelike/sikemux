@@ -6,7 +6,7 @@ default-members = ["crates/*", "plugins/*", "plugins/*/views"]
 resolver = "2"
 
 [workspace.package]
-version = "0.6.0-nightly.10"
+version = "0.6.0-nightly.11"
 
 # Only crates that set `lints.workspace = true` get these, which is every
 # plugin crate and not the app. A plugin that panics takes the app down.
