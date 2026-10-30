@@ -14,6 +14,7 @@ use sikemux_wire::changed::Topic;
 use crate::core::{self, Ask, Watch};
 use crate::icons::Icon;
 use crate::settings::rows;
+use crate::settings::Settings;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_2XS_H, TEXT_XS,
 };
@@ -138,15 +139,36 @@ struct Field {
     _watching: [Subscription; 2],
 }
 
-fn editor_of(bench: &mut Workbench) -> Option<&mut Editor> {
-    bench
-        .settings
-        .as_mut()?
-        .pages
+/// The theme being edited, while the editor is open.
+fn editor<'a>(bench: &Workbench, cx: &'a App) -> Option<&'a Editor> {
+    super::state(bench, cx)?
         .appearance
-        .as_mut()?
+        .as_ref()?
         .editor
-        .as_mut()
+        .as_ref()
+}
+
+/// Changes the theme being edited, and draws the pages again.
+fn change_editor<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Editor, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_form(
+        bench,
+        cx,
+        |pages| pages.appearance.as_mut()?.editor.as_mut(),
+        change,
+    )
+}
+
+/// Changes what the theme pages keep, and draws them again.
+fn change_appearance<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut super::appearance::Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_form(bench, cx, |pages| pages.appearance.as_mut(), change)
 }
 
 fn new_id() -> String {
@@ -168,12 +190,7 @@ pub(super) fn hex(color: Hsla) -> String {
 
 /// Wears `draft` in the whole window, as the editor's live preview.
 fn preview(bench: &Workbench, cx: &mut Context<Workbench>) {
-    let Some(draft) = bench
-        .settings
-        .as_ref()
-        .and_then(|settings| settings.pages.appearance.as_ref()?.editor.as_ref())
-        .map(|editor| editor.draft.clone())
-    else {
+    let Some(draft) = editor(bench, cx).map(|editor| editor.draft.clone()) else {
         return;
     };
     let asks = bench.asks.clone();
@@ -257,15 +274,14 @@ fn fields(
 
 /// Sets one colour of the draft and wears it.
 fn set(bench: &mut Workbench, group: &str, key: &str, value: String, cx: &mut Context<Workbench>) {
-    let Some(editor) = editor_of(bench) else {
-        return;
-    };
-    if editor.draft[group][key].as_str() == Some(value.as_str()) {
+    let unchanged = editor(bench, cx).map(|editor| editor.draft[group][key] == value.as_str());
+    if unchanged != Some(false) {
         return;
     }
-    editor.draft[group][key] = json!(value);
+    change_editor(bench, cx, |editor, _| {
+        editor.draft[group][key] = json!(value)
+    });
     preview(bench, cx);
-    bench.parts.redraw_stage(cx);
 }
 
 /// Opens the editor on `draft`, which started as `original`.
@@ -290,20 +306,17 @@ fn open(
     let naming = cx.subscribe(&name, |bench, name, event: &InputEvent, cx| {
         if matches!(event, InputEvent::Change) {
             let value = name.read(cx).value().to_string();
-            if let Some(editor) = editor_of(bench) {
-                editor.draft["name"] = json!(value);
-            }
+            bench.settings.update(cx, |settings, _| {
+                let open = settings.open.as_mut();
+                let editor = open.and_then(|open| open.pages.appearance.as_mut()?.editor.as_mut());
+                if let Some(editor) = editor {
+                    editor.draft["name"] = json!(value);
+                }
+            });
         }
     });
     let shown = fields(&draft, 0, window, cx);
-    let Some(appearance) = bench
-        .settings
-        .as_mut()
-        .and_then(|settings| settings.pages.appearance.as_mut())
-    else {
-        return;
-    };
-    appearance.editor = Some(Editor {
+    let editor = Editor {
         draft,
         original,
         new,
@@ -312,9 +325,10 @@ fn open(
         name,
         fields: shown,
         _naming: naming,
-    });
-    preview(bench, cx);
-    bench.parts.redraw_stage(cx);
+    };
+    if change_appearance(bench, cx, |appearance, _| appearance.editor = Some(editor)).is_some() {
+        preview(bench, cx);
+    }
 }
 
 /// Forks the theme `id` into an editable copy.
@@ -381,14 +395,9 @@ pub fn from_picture(
     let Some(path) = path else {
         return;
     };
-    if let Some(appearance) = bench
-        .settings
-        .as_mut()
-        .and_then(|settings| settings.pages.appearance.as_mut())
-    {
-        appearance.reading = Some(picture);
-    }
-    bench.parts.redraw_stage(cx);
+    change_appearance(bench, cx, |appearance, _| {
+        appearance.reading = Some(picture)
+    });
     let asks = bench.asks.clone();
     cx.spawn_in(window, async move |bench, cx| {
         let read = cx
@@ -408,13 +417,7 @@ pub fn from_picture(
             None => None,
         };
         let _ = bench.update_in(cx, |bench, window, cx| {
-            if let Some(appearance) = bench
-                .settings
-                .as_mut()
-                .and_then(|settings| settings.pages.appearance.as_mut())
-            {
-                appearance.reading = None;
-            }
+            change_appearance(bench, cx, |appearance, _| appearance.reading = None);
             if unread {
                 let note = match picture {
                     Picture::Wallpaper => "This wallpaper's format can't be read.",
@@ -427,7 +430,6 @@ pub fn from_picture(
                 draft["id"] = json!(new_id());
                 open(bench, draft, original, true, window, cx);
             }
-            bench.parts.redraw_stage(cx);
         });
     })
     .detach();
@@ -453,20 +455,13 @@ pub fn delete(bench: &Workbench, id: &str) {
 }
 
 fn close(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    if let Some(appearance) = bench
-        .settings
-        .as_mut()
-        .and_then(|settings| settings.pages.appearance.as_mut())
-    {
-        appearance.editor = None;
-    }
+    change_appearance(bench, cx, |appearance, _| appearance.editor = None);
     wear_picked(bench);
-    bench.parts.redraw_stage(cx);
 }
 
 /// Keeps the draft among the person's themes and wears it.
 fn save(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let Some(mut draft) = editor_of(bench).map(|editor| editor.draft.clone()) else {
+    let Some(mut draft) = editor(bench, cx).map(|editor| editor.draft.clone()) else {
         return;
     };
     let named = draft["name"]
@@ -490,14 +485,7 @@ fn save(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     }
     crate::settings::set(bench, "customThemes", Value::Array(themes));
     crate::settings::set(bench, "themeId", id);
-    if let Some(appearance) = bench
-        .settings
-        .as_mut()
-        .and_then(|settings| settings.pages.appearance.as_mut())
-    {
-        appearance.editor = None;
-    }
-    bench.parts.redraw_stage(cx);
+    change_appearance(bench, cx, |appearance, _| appearance.editor = None);
 }
 
 /// Shows group `group`'s colours.
@@ -507,39 +495,39 @@ fn show_group(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(draft) = editor_of(bench).map(|editor| editor.draft.clone()) else {
+    let Some(draft) = editor(bench, cx).map(|editor| editor.draft.clone()) else {
         return;
     };
     let shown = fields(&draft, group, window, cx);
-    if let Some(editor) = editor_of(bench) {
+    change_editor(bench, cx, |editor, _| {
         editor.group = group;
         editor.fields = shown;
-    }
-    bench.parts.redraw_stage(cx);
+    });
 }
 
 /// Puts every colour back as the theme it started from had it, keeping its name.
 fn reset(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(editor) = editor_of(bench) else {
+    let Some(group) = change_editor(bench, cx, |editor, _| {
+        let (id, name) = (editor.draft["id"].clone(), editor.draft["name"].clone());
+        editor.draft = editor.original.clone();
+        editor.draft["id"] = id;
+        editor.draft["name"] = name;
+        editor.group
+    }) else {
         return;
     };
-    let (id, name) = (editor.draft["id"].clone(), editor.draft["name"].clone());
-    editor.draft = editor.original.clone();
-    editor.draft["id"] = id;
-    editor.draft["name"] = name;
-    let group = editor.group;
     show_group(bench, group, window, cx);
     preview(bench, cx);
 }
 
 fn toggle_dark(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let Some(editor) = editor_of(bench) else {
-        return;
-    };
-    let dark = editor.draft["dark"] == true;
-    editor.draft["dark"] = json!(!dark);
-    preview(bench, cx);
-    bench.parts.redraw_stage(cx);
+    let flipped = change_editor(bench, cx, |editor, _| {
+        let dark = editor.draft["dark"] == true;
+        editor.draft["dark"] = json!(!dark);
+    });
+    if flipped.is_some() {
+        preview(bench, cx);
+    }
 }
 
 /// A few lines of code and the terminal's colours, as the draft draws them.

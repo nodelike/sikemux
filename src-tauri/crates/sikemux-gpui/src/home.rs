@@ -40,7 +40,7 @@ pub const METRICS: [(&str, &str); 5] = [
 /// The stage: the tab in front, its views side by side, or what a project with nothing
 /// open says.
 pub fn stage(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
-    if bench.settings.is_some() {
+    if bench.settings.read(cx).is_open() {
         return crate::settings::view(bench, window, cx);
     }
     if bench
@@ -326,7 +326,14 @@ fn welcome_calendar(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElemen
         .on_click(cx.listener(|bench, _, window, cx| {
             bench.open_settings(crate::settings::Page::Usage, window, cx)
         }));
-    calendar(summary, bench, Some(more.into_any_element()), cx).into_any_element()
+    calendar(
+        summary,
+        bench,
+        &cx.entity(),
+        Some(more.into_any_element()),
+        cx,
+    )
+    .into_any_element()
 }
 
 fn pane_header(
@@ -565,8 +572,9 @@ pub(crate) fn overview(totals: &Value, cx: &App) -> impl IntoElement {
 pub(crate) fn calendar(
     summary: &Value,
     bench: &Workbench,
+    this: &Entity<Workbench>,
     footer: Option<AnyElement>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let metric = bench.metric;
@@ -639,20 +647,30 @@ pub(crate) fn calendar(
         .id("activity-days")
         .w_full()
         .aspect_ratio(GRID_RATIO)
-        .on_mouse_move(cx.listener(move |bench, event: &MouseMoveEvent, _, cx| {
-            let day = day_at(placed.get(), event.position)
-                .map(|at| start + at)
-                .filter(|day| *day <= today);
-            if bench.metric_day != day {
-                bench.metric_day = day;
-                bench.parts.redraw_activity(cx);
+        .on_mouse_move({
+            let this = this.clone();
+            move |event: &MouseMoveEvent, _, cx| {
+                let day = day_at(placed.get(), event.position)
+                    .map(|at| start + at)
+                    .filter(|day| *day <= today);
+                this.update(cx, |bench, cx| {
+                    if bench.metric_day != day {
+                        bench.metric_day = day;
+                        bench.parts.redraw_activity(cx);
+                    }
+                })
             }
-        }))
-        .on_hover(cx.listener(|bench, over: &bool, _, cx| {
-            if !*over && bench.metric_day.take().is_some() {
-                bench.parts.redraw_activity(cx);
+        })
+        .on_hover({
+            let this = this.clone();
+            move |over: &bool, _, cx| {
+                this.update(cx, |bench, cx| {
+                    if !*over && bench.metric_day.take().is_some() {
+                        bench.parts.redraw_activity(cx);
+                    }
+                })
             }
-        }))
+        })
         .child(grid);
     let mut last_month = None;
     let mut last_label = -MONTH_LABEL_GAP;
@@ -680,12 +698,13 @@ pub(crate) fn calendar(
         .iter()
         .enumerate()
         .map(|(index, (_, label))| {
-            Toggle::new(("metric", index), *label, index == metric).on_click(cx.listener(
-                move |bench, _, _, cx| {
+            let this = this.clone();
+            Toggle::new(("metric", index), *label, index == metric).on_click(move |_, _, cx| {
+                this.update(cx, |bench, cx| {
                     bench.metric = index;
                     bench.parts.redraw_activity(cx);
-                },
-            ))
+                })
+            })
         })
         .collect();
     div()

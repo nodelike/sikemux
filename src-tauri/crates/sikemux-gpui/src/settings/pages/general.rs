@@ -13,6 +13,7 @@ use sikemux_wire::protocol::{ProjectRoot, MAX_PROJECT_DEPTH};
 use crate::core;
 use crate::icons::Icon;
 use crate::settings::rows;
+use crate::settings::Settings;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
@@ -42,14 +43,14 @@ struct Transfer {
 }
 
 /// Notes that a send went out, with none, or came back, with what it said.
-pub fn sent(bench: &mut Workbench, said: Option<SharedString>) {
-    if let Some(fields) = form_of(bench) {
+pub fn sent(bench: &mut Workbench, said: Option<SharedString>, cx: &mut App) {
+    change_fields(bench, cx, |fields, _| {
         fields.transfer.sending = said.is_none();
         fields.transfer.said = said;
-    }
+    });
 }
 
-fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let path =
         cx.new(|cx| InputState::new(window, cx).placeholder("~/proj    or    /Users/me/work"));
     let entering = cx.subscribe_in(&path, window, |bench, _, event: &InputEvent, window, cx| {
@@ -57,16 +58,14 @@ fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>)
             add_typed(bench, window, cx);
         }
     });
-    if let Some(settings) = bench.settings.as_mut() {
-        settings.pages.general = Some(Fields {
-            path,
-            depth: 1,
-            itself: false,
-            _entering: entering,
-            transfer: Transfer::default(),
-        });
-    }
-    bench.parts.redraw_stage(cx);
+    let fields = Fields {
+        path,
+        depth: 1,
+        itself: false,
+        _entering: entering,
+        transfer: Transfer::default(),
+    };
+    super::change_pages(bench, cx, |pages, _| pages.general = Some(fields));
 }
 
 /// Changes the list of project folders in the core.
@@ -80,21 +79,28 @@ fn change(bench: &Workbench, edit: impl FnOnce(&mut Vec<ProjectRoot>)) {
     );
 }
 
-fn form_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    bench.settings.as_mut()?.pages.general.as_mut()
+/// Changes the add row and the project's move, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_form(bench, cx, |pages| pages.general.as_mut(), change)
 }
 
 /// Adds a folder with the depth and choice the add row holds, and clears it.
 fn add(bench: &mut Workbench, path: String, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(fields) = form_of(bench) else {
+    let Some((depth, itself)) = change_fields(bench, cx, |fields, cx| {
+        let chosen = (fields.depth, fields.itself);
+        fields.depth = 1;
+        fields.itself = false;
+        fields
+            .path
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        chosen
+    }) else {
         return;
     };
-    let (depth, itself) = (fields.depth, fields.itself);
-    fields.depth = 1;
-    fields.itself = false;
-    fields
-        .path
-        .update(cx, |input, cx| input.set_value("", window, cx));
     change(bench, |roots| {
         if !roots.iter().any(|root| root.path == path) {
             roots.push(ProjectRoot {
@@ -104,13 +110,12 @@ fn add(bench: &mut Workbench, path: String, window: &mut Window, cx: &mut Contex
             });
         }
     });
-    bench.parts.redraw_stage(cx);
 }
 
 /// Adds the typed folder once the core says it is one.
 fn add_typed(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(typed) = form_of(bench).map(|fields| fields.path.read(cx).value().trim().to_owned())
-    else {
+    let typed = super::state(bench, cx).and_then(|pages| pages.general.as_ref());
+    let Some(typed) = typed.map(|fields| fields.path.read(cx).value().trim().to_owned()) else {
         return;
     };
     if typed.is_empty() {
@@ -182,11 +187,9 @@ pub fn render(
     pages: &super::State,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let Some(fields) = &pages.general else {
-        cx.defer_in(window, make);
         return Vec::new();
     };
     let t = Tokens::get(cx).clone();
@@ -294,10 +297,7 @@ pub fn render(
                         fields.depth,
                         move |depth, cx| {
                             depth_this.update(cx, |bench, cx| {
-                                if let Some(fields) = form_of(bench) {
-                                    fields.depth = depth;
-                                }
-                                bench.parts.redraw_stage(cx);
+                                change_fields(bench, cx, |fields, _| fields.depth = depth);
                             })
                         },
                         cx,
@@ -343,10 +343,7 @@ pub fn render(
                     .on_click(move |on: &bool, _, cx| {
                         let on = *on;
                         itself_this.update(cx, |bench, cx| {
-                            if let Some(fields) = form_of(bench) {
-                                fields.itself = on;
-                            }
-                            bench.parts.redraw_stage(cx);
+                            change_fields(bench, cx, |fields, _| fields.itself = on);
                         })
                     }),
             )
@@ -421,10 +418,7 @@ pub fn render(
 /// Changes how the project in front is to go.
 fn set_transfer(this: &Entity<Workbench>, change: impl FnOnce(&mut Transfer), cx: &mut App) {
     this.update(cx, |bench, cx| {
-        if let Some(fields) = form_of(bench) {
-            change(&mut fields.transfer);
-        }
-        bench.parts.redraw_stage(cx);
+        change_fields(bench, cx, |fields, _| change(&mut fields.transfer));
     })
 }
 
@@ -432,7 +426,7 @@ fn transfer(
     bench: &Workbench,
     transfer: &Transfer,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let Some(project) = bench.project().cloned() else {
         return rows::note("Open a project to send it to another host.", cx);

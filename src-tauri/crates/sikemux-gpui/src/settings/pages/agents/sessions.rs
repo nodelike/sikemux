@@ -2,7 +2,7 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, AnyElement, Context, Entity, InteractiveElement, ParentElement, SharedString,
+    div, AnyElement, App, Context, Entity, InteractiveElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::json;
@@ -51,10 +51,7 @@ pub fn read_names(bench: &Workbench, window: &mut Window, cx: &mut Context<Workb
                 window,
                 cx,
             );
-            if let Some(fields) = super::fields_of(bench) {
-                fields.sessions.names = Some(names);
-            }
-            bench.parts.redraw_stage(cx);
+            super::change_fields(bench, cx, |fields, _| fields.sessions.names = Some(names));
         });
     })
     .detach();
@@ -110,7 +107,7 @@ pub fn boundary(
     bench: &Workbench,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let current = bench
@@ -194,7 +191,7 @@ pub fn render(
     fields: &Fields,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let keys = if cfg!(target_os = "macos") {
         "⌘↵"
@@ -254,7 +251,7 @@ pub fn notifications(
     bench: &Workbench,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let preferences = bench.preferences();
     let body = div()

@@ -64,9 +64,35 @@ pub fn install(cx: &mut App) {
     pages::install(cx);
 }
 
+/// Settings, which stand in the stage's place while they are open.
+#[derive(Default)]
+pub struct Settings {
+    open: Option<Open>,
+}
+
+impl Settings {
+    pub fn is_open(&self) -> bool {
+        self.open.is_some()
+    }
+}
+
+/// Changes Settings while they are open, and draws them again.
+fn change<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Open, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    bench.settings.update(cx, |settings, cx| {
+        let open = settings.open.as_mut()?;
+        let changed = change(open, cx);
+        cx.notify();
+        Some(changed)
+    })
+}
+
 /// Settings while they are open: the page shown, the search, and what each
 /// page keeps between frames.
-pub struct Settings {
+pub struct Open {
     pub page: Page,
     search: Entity<InputState>,
     query: SharedString,
@@ -95,23 +121,26 @@ fn behind(bench: &Workbench) -> Behind {
 
 /// Opens settings on `page`, or shows `page` when they are open.
 pub fn open(bench: &mut Workbench, page: Page, window: &mut Window, cx: &mut Context<Workbench>) {
-    if let Some(settings) = bench.settings.as_mut() {
+    let shown = change(bench, cx, |settings, _| {
         settings.page = page;
         settings.query = SharedString::default();
         reveal(settings);
-        bench.parts.redraw_stage(cx);
+    });
+    if shown.is_some() {
         return;
     }
     let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search settings"));
     let typing = cx.subscribe(&search, |bench, search, event: &InputEvent, cx| {
-        if let (InputEvent::Change, Some(settings)) = (event, bench.settings.as_mut()) {
-            settings.query = search.read(cx).value();
-            settings.chosen = 0;
-            bench.parts.redraw_stage(cx);
+        if let InputEvent::Change = event {
+            let query = search.read(cx).value();
+            change(bench, cx, |settings, _| {
+                settings.query = query;
+                settings.chosen = 0;
+            });
         }
     });
     search.update(cx, |search, cx| search.focus(window, cx));
-    bench.settings = Some(Settings {
+    let open = Open {
         page,
         search,
         query: SharedString::default(),
@@ -123,18 +152,22 @@ pub fn open(bench: &mut Workbench, page: Page, window: &mut Window, cx: &mut Con
         pages: pages::State::default(),
         behind: behind(bench),
         _typing: typing,
-    });
-    if let Some(settings) = bench.settings.as_mut() {
-        reveal(settings);
-    }
+    };
+    reveal(&open);
+    bench
+        .settings
+        .update(cx, |settings, _| settings.open = Some(open));
     // The list learns where its groups sit only once it is drawn, so it scrolls on the frame after.
-    cx.on_next_frame(window, |bench, _, cx| bench.parts.redraw_stage(cx));
+    let settings = bench.settings.clone();
+    cx.on_next_frame(window, move |_, _, cx| {
+        settings.update(cx, |_, cx| cx.notify())
+    });
     cx.notify();
 }
 
 /// Scrolls the list of pages so the page shown is in it: to its end for a page in the
 /// lower half of the list, and to its start for the rest.
-fn reveal(settings: &Settings) {
+fn reveal(settings: &Open) {
     let all: Vec<Page> = Page::all().collect();
     let at = all
         .iter()
@@ -147,7 +180,7 @@ fn reveal(settings: &Settings) {
 }
 
 pub fn toggle(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    match bench.settings.is_some() {
+    match bench.settings.read(cx).is_open() {
         true => close(bench, window, cx),
         false => open(bench, Page::default(), window, cx),
     }
@@ -160,25 +193,23 @@ pub fn close(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
 
 /// Closes Settings, leaving the keyboard to whatever the stage gives it next.
 fn leave(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let editing = bench
-        .settings
-        .as_ref()
+    let editing = (bench.settings.read(cx).open.as_ref())
         .and_then(|settings| settings.pages.appearance.as_ref())
         .is_some_and(|appearance| appearance.editor.is_some());
     if editing {
         pages::theme_editor::wear_picked(bench);
     }
-    bench.settings = None;
+    bench
+        .settings
+        .update(cx, |settings, _| settings.open = None);
     cx.notify();
 }
 
 /// Settings stand in for the place in front, so they close once it changes behind them, by any
 /// means.
 pub fn front_moved(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    if bench
-        .settings
-        .as_ref()
-        .is_some_and(|settings| settings.behind != behind(bench))
+    let behind_now = behind(bench);
+    if (bench.settings.read(cx).open.as_ref()).is_some_and(|settings| settings.behind != behind_now)
     {
         leave(bench, cx);
     }
@@ -188,7 +219,7 @@ pub fn front_moved(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 /// the person somewhere even when it is already in front.
 pub fn leaves<E: InteractiveElement>(element: E, cx: &mut Context<Workbench>) -> E {
     element.capture_any_mouse_down(cx.listener(|bench, event: &MouseDownEvent, window, cx| {
-        if event.button == MouseButton::Left && bench.settings.is_some() {
+        if event.button == MouseButton::Left && bench.settings.read(cx).is_open() {
             close(bench, window, cx);
         }
     }))
@@ -202,7 +233,7 @@ pub fn before_shortcut(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    if bench.settings.is_none() {
+    if !bench.settings.read(cx).is_open() {
         return;
     }
     let Some(id) = crate::keymap::command_for(keystroke, cx) else {
@@ -253,46 +284,58 @@ fn go_to(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(settings) = bench.settings.as_mut() else {
+    let shown = change(bench, cx, |settings, cx| {
+        settings.page = entry.page;
+        settings.query = SharedString::default();
+        reveal(settings);
+        if entry.shortcut.is_some() {
+            settings.pages.shortcut = entry.shortcut;
+            settings.pages.keybindings = None;
+        }
+        settings.flash = Some((entry.section, Instant::now()));
+        settings
+            .search
+            .update(cx, |search, cx| search.set_value("", window, cx));
+        let section = pages::sections(entry.page)
+            .iter()
+            .position(|section| *section == entry.section);
+        if let Some(at) = section {
+            settings.scroll.scroll_to_item(at + 1);
+        }
+    });
+    if shown.is_none() {
         return;
-    };
-    settings.page = entry.page;
-    settings.query = SharedString::default();
-    reveal(settings);
-    if entry.shortcut.is_some() {
-        settings.pages.shortcut = entry.shortcut;
-        settings.pages.keybindings = None;
     }
-    settings.flash = Some((entry.section, Instant::now()));
-    settings
-        .search
-        .update(cx, |search, cx| search.set_value("", window, cx));
-    let section = pages::sections(entry.page)
-        .iter()
-        .position(|section| *section == entry.section);
-    if let Some(at) = section {
-        settings.scroll.scroll_to_item(at + 1);
-    }
-    cx.spawn(async move |bench, cx| {
+    let settings = bench.settings.downgrade();
+    cx.spawn(async move |_, cx| {
         cx.background_executor().timer(FLASH).await;
-        let _ = bench.update(cx, |bench, cx| {
-            if let Some(settings) = bench.settings.as_mut() {
+        let _ = settings.update(cx, |settings, cx| {
+            if let Some(settings) = settings.open.as_mut() {
                 settings.flash = None;
             }
-            bench.parts.redraw_stage(cx);
+            cx.notify();
         });
     })
     .detach();
-    bench.parts.redraw_stage(cx);
 }
 
 /// Settings in the stage's place.
 pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
-    let Some(settings) = bench.settings.as_ref() else {
+    let Some(settings) = bench.settings.read(cx).open.as_ref() else {
+        return div().into_any_element();
+    };
+    let this = cx.entity();
+    let mut dialogs = Vec::new();
+    if settings.query.trim().is_empty() {
+        let page = settings.page;
+        cx.set_global(rows::Shown(page.name()));
+        pages::prepare(bench, page, window, cx);
+        dialogs = pages::dialogs(bench, &this, window, cx);
+    }
+    let Some(settings) = bench.settings.read(cx).open.as_ref() else {
         return div().into_any_element();
     };
     let t = Tokens::get(cx).clone();
-    let this = cx.entity();
     let found = index::search(&settings.query, cx);
     let searching = !settings.query.trim().is_empty();
     let close_keys = crate::keymap::hint("settings.toggle", cx)
@@ -441,21 +484,19 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             div()
                 .key_context(SEARCH)
                 .on_action(window.listener_for(&this, |bench, _: &ResultUp, _, cx| {
-                    if let Some(settings) = bench.settings.as_mut() {
-                        settings.chosen = settings.chosen.saturating_sub(1);
-                        bench.parts.redraw_stage(cx);
-                    }
+                    change(bench, cx, |settings, _| {
+                        settings.chosen = settings.chosen.saturating_sub(1)
+                    });
                 }))
                 .on_action(window.listener_for(&this, |bench, _: &ResultDown, _, cx| {
-                    if let Some(settings) = bench.settings.as_mut() {
+                    change(bench, cx, |settings, cx| {
                         let found = index::search(&settings.query, cx).len();
                         settings.chosen = (settings.chosen + 1).min(found.saturating_sub(1));
-                        bench.parts.redraw_stage(cx);
-                    }
+                    });
                 }))
                 .on_action(
                     window.listener_for(&this, |bench, _: &OpenResult, window, cx| {
-                        let chosen = bench.settings.as_ref().and_then(|settings| {
+                        let chosen = bench.settings.read(cx).open.as_ref().and_then(|settings| {
                             index::search(&settings.query, cx)
                                 .get(settings.chosen)
                                 .copied()
@@ -576,8 +617,9 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                 .flash
                 .filter(|(_, at)| at.elapsed() < FLASH)
                 .map(|(section, _)| section);
-            cx.set_global(rows::Shown(settings.page.name()));
-            pages::render(bench, settings, flash, &this, window, cx)
+            let mut sections = pages::render(bench, settings, flash, &this, window, cx);
+            sections.extend(dialogs);
+            sections
         }
     };
 
@@ -587,9 +629,9 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         .on_mouse_down(
             MouseButton::Left,
             window.listener_for(&this, |bench, _: &MouseDownEvent, window, cx| {
-                if let Some(settings) = &bench.settings {
+                if let Some(settings) = &bench.settings.read(cx).open {
                     if !settings.focus.contains_focused(window, cx) {
-                        settings.focus.focus(window, cx);
+                        settings.focus.clone().focus(window, cx);
                     }
                 }
             }),
@@ -601,10 +643,9 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         )
         .on_action(
             window.listener_for(&this, |bench, _: &FocusSearch, window, cx| {
-                if let Some(settings) = &bench.settings {
-                    settings
-                        .search
-                        .update(cx, |search, cx| search.focus(window, cx));
+                if let Some(settings) = &bench.settings.read(cx).open {
+                    let search = settings.search.clone();
+                    search.update(cx, |search, cx| search.focus(window, cx));
                 }
             }),
         )

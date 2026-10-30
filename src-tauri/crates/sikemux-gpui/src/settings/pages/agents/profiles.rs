@@ -1,15 +1,16 @@
 //! Which program and account folder each launch uses. Profiles never hold credentials.
 
-use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, AppContext, Context, Entity, InteractiveElement, IntoElement,
+    div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
 use sikemux_core::agent_accounts::Profile;
 
 use crate::icons::{self, Icon};
 use crate::settings::rows;
+use crate::settings::Settings;
 use crate::theme::{
     self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS, TEXT_XS_H,
 };
@@ -31,13 +32,9 @@ fn new_id() -> String {
 }
 
 impl Fields {
-    pub fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
+    pub fn new(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx));
-        let typing = cx.subscribe(&name, |bench, _, event: &InputEvent, cx| {
-            if matches!(event, InputEvent::Change) {
-                bench.parts.redraw_stage(cx);
-            }
-        });
+        let typing = super::super::follow_typing(bench, &name, cx);
         Self {
             id: new_id(),
             provider: "claude".into(),
@@ -51,8 +48,13 @@ impl Fields {
     }
 }
 
-fn fields_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    Some(&mut super::fields_of(bench)?.profiles)
+/// Changes the profile being written, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_fields(bench, cx, |fields, cx| change(&mut fields.profiles, cx))
 }
 
 /// The agents that keep each sign-in in a folder of their own.
@@ -73,9 +75,6 @@ fn load(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(fields) = fields_of(bench) else {
-        return;
-    };
     let profile = profile.unwrap_or_else(|| Profile {
         id: new_id(),
         name: String::new(),
@@ -85,37 +84,24 @@ fn load(
         config_path: None,
         environment_keys: Vec::new(),
     });
-    let set = |input: &Entity<InputState>,
-               value: String,
-               window: &mut Window,
-               cx: &mut Context<Workbench>| {
-        input.update(cx, |input, cx| input.set_value(value, window, cx));
-    };
-    set(&fields.name, profile.name, window, cx);
-    set(
-        &fields.program,
-        profile.executable_path.unwrap_or_default(),
-        window,
-        cx,
-    );
-    set(
-        &fields.folder,
-        profile.config_path.unwrap_or_default(),
-        window,
-        cx,
-    );
-    fields.id = profile.id;
-    fields.provider = profile.provider;
-    bench.parts.redraw_stage(cx);
+    change_fields(bench, cx, |fields, cx| {
+        let mut set = |input: &Entity<InputState>, value: String, cx: &mut Context<Settings>| {
+            input.update(cx, |input, cx| input.set_value(value, window, cx));
+        };
+        set(&fields.name, profile.name, cx);
+        set(
+            &fields.program,
+            profile.executable_path.unwrap_or_default(),
+            cx,
+        );
+        set(&fields.folder, profile.config_path.unwrap_or_default(), cx);
+        fields.id = profile.id;
+        fields.provider = profile.provider;
+    });
 }
 
 fn save(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let Some(fields) = bench
-        .settings
-        .as_ref()
-        .and_then(|settings| settings.pages.agents.as_ref())
-        .map(|agents| &agents.profiles)
-    else {
+    let Some(fields) = super::fields(bench, cx).map(|agents| &agents.profiles) else {
         return;
     };
     let text = |input: &Entity<InputState>| {
@@ -154,7 +140,7 @@ pub fn render(
     fields: &Fields,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let profiles: Vec<Profile> = bench
@@ -254,12 +240,11 @@ pub fn render(
                 return;
             };
             this.update(cx, |bench, cx| {
-                if let Some(fields) =
-                    fields_of(bench).filter(|fields| !fields.id.starts_with("builtin-"))
-                {
-                    fields.provider = kind;
-                }
-                bench.parts.redraw_stage(cx);
+                change_fields(bench, cx, |fields, _| {
+                    if !fields.id.starts_with("builtin-") {
+                        fields.provider = kind;
+                    }
+                });
             })
         })
     };

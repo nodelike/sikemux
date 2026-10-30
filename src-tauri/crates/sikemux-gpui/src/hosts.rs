@@ -231,7 +231,7 @@ impl Workbench {
         // The project's own host sends it, so the call goes to the host in front.
         let asked = self.target().request("sendSession", params);
         let verb = if sending.moving { "Moving" } else { "Copying" };
-        crate::settings::session_sent(self, None);
+        crate::settings::session_sent(self, None, cx);
         self.notify(
             toast::info(format!("{verb} {} to {}…", sending.name, sending.label)),
             cx,
@@ -247,7 +247,7 @@ impl Workbench {
                     Ok(_) => bench.notify(toast::success(said.clone()), cx),
                     Err(_) => bench.notify(toast::error(said.clone()), cx),
                 }
-                crate::settings::session_sent(bench, Some(said.into()));
+                crate::settings::session_sent(bench, Some(said.into()), cx);
                 let Ok(sent) = answer else {
                     return;
                 };

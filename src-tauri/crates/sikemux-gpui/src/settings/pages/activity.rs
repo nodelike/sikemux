@@ -14,6 +14,7 @@ use sikemux_wire::changed::Topic;
 use crate::core::{utc_offset_minutes, Ask, Watch};
 use crate::home::{self, compact, money, number, plural, whole};
 use crate::icons::Icon;
+use crate::settings::Settings;
 use crate::settings::{rows, ACTIVITY};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS, TEXT_2XS_H,
@@ -37,7 +38,7 @@ const PRICES: [(&str, &str, bool); 4] = [
     ("cacheWrite", "Cache write", true),
 ];
 
-fn make(bench: &mut Workbench, _: &mut Window, cx: &mut Context<Workbench>) {
+pub(super) fn make(bench: &mut Workbench, _: &mut Window, cx: &mut Context<Workbench>) {
     let _ = bench.asks.send(Ask::Watch(
         ACTIVITY,
         Watch::new(
@@ -46,17 +47,20 @@ fn make(bench: &mut Workbench, _: &mut Window, cx: &mut Context<Workbench>) {
             &[Topic::Activity],
         ),
     ));
-    if let Some(settings) = bench.settings.as_mut() {
-        settings.pages.activity = Some(Fields {
-            model: None,
-            prices: Vec::new(),
-        });
-    }
-    bench.parts.redraw_stage(cx);
+    let fields = Fields {
+        model: None,
+        prices: Vec::new(),
+    };
+    super::change_pages(bench, cx, |pages, _| pages.activity = Some(fields));
 }
 
-fn fields_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    bench.settings.as_mut()?.pages.activity.as_mut()
+/// Changes the price form, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_form(bench, cx, |pages| pages.activity.as_mut(), change)
 }
 
 /// Opens the price form for `model`, filled with the price the person gave it.
@@ -86,19 +90,17 @@ fn edit(
             })
         })
         .collect();
-    if let Some(fields) = fields_of(bench) {
+    change_fields(bench, cx, |fields, _| {
         fields.model = Some(model);
         fields.prices = prices;
-    }
-    bench.parts.redraw_stage(cx);
+    });
 }
 
 fn close_form(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    if let Some(fields) = fields_of(bench) {
+    change_fields(bench, cx, |fields, _| {
         fields.model = None;
         fields.prices.clear();
-    }
-    bench.parts.redraw_stage(cx);
+    });
 }
 
 fn set_price(bench: &Workbench, model: &str, price: Value) {
@@ -393,10 +395,8 @@ fn price_form(
                         .disabled(!valid)
                         .on_click(move |_, _, cx| {
                             save.update(cx, |bench, cx| {
-                                let price = bench
-                                    .settings
-                                    .as_ref()
-                                    .and_then(|settings| settings.pages.activity.as_ref())
+                                let price = super::state(bench, cx)
+                                    .and_then(|pages| pages.activity.as_ref())
                                     .and_then(|fields| typed_price(&fields.prices, cx));
                                 if let Some(price) = price {
                                     set_price(bench, &model_save, price);
@@ -515,11 +515,9 @@ pub fn render(
     pages: &super::State,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let Some(fields) = &pages.activity else {
-        cx.defer_in(window, make);
         return Vec::new();
     };
     let read = bench.reads.activity_everywhere.as_ref();
@@ -546,7 +544,7 @@ pub fn render(
     let calendar = match summary {
         Some(summary) => div()
             .p(SPACE_4)
-            .child(home::calendar(summary, bench, None, cx))
+            .child(home::calendar(summary, bench, this, None, cx))
             .into_any_element(),
         None => div().into_any_element(),
     };

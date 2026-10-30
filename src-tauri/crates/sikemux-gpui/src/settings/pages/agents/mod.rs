@@ -1,9 +1,10 @@
 //! The agents Sikemux runs: which are installed, the accounts and profiles they
 //! start on, the models they may use, their skills, and how sessions behave.
 
-use gpui_kit::{AnyElement, Context, Entity, Window};
+use gpui_kit::{AnyElement, App, Context, Entity, Window};
 
 use crate::settings::Page;
+use crate::settings::Settings;
 use crate::workbench::Workbench;
 
 mod accounts;
@@ -23,32 +24,39 @@ pub struct Fields {
     skills: skills::Fields,
 }
 
-fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     crate::accounts::read(bench, cx);
     let fields = Fields {
         sessions: sessions::Fields::new(bench, window, cx),
         device: device::Fields::new(bench, window, cx),
-        profiles: profiles::Fields::new(window, cx),
-        providers: providers::Fields::new(window, cx),
-        skills: skills::Fields::new(window, cx),
+        profiles: profiles::Fields::new(bench, window, cx),
+        providers: providers::Fields::new(bench, window, cx),
+        skills: skills::Fields::new(bench, window, cx),
     };
-    if let Some(settings) = bench.settings.as_mut() {
-        settings.pages.agents = Some(fields);
-    }
+    super::change_pages(bench, cx, |pages, _| pages.agents = Some(fields));
     crate::agents::setup::read(bench, cx);
     sessions::read_names(bench, window, cx);
     device::read_simulator(bench, cx);
     providers::read(bench, cx);
     skills::read(bench, cx);
-    bench.parts.redraw_stage(cx);
 }
 
 pub fn read_providers(bench: &Workbench, cx: &mut Context<Workbench>) {
     providers::read(bench, cx);
 }
 
-fn fields_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    bench.settings.as_mut()?.pages.agents.as_mut()
+/// Changes the agent pages' forms, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_form(bench, cx, |pages| pages.agents.as_mut(), change)
+}
+
+/// What the agent pages keep, while one is open.
+fn fields<'a>(bench: &Workbench, cx: &'a App) -> Option<&'a Fields> {
+    super::state(bench, cx)?.agents.as_ref()
 }
 
 pub fn render(
@@ -57,11 +65,9 @@ pub fn render(
     page: Page,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let Some(fields) = &pages.agents else {
-        cx.defer_in(window, make);
         return Vec::new();
     };
     match page {
@@ -79,7 +85,7 @@ pub fn render(
             sections
         }
         Page::Plans | Page::Providers | Page::LocalModels | Page::Helpers => {
-            providers::render(bench, &fields.providers, page, lit, this, window, cx)
+            providers::render(bench, &fields.providers, page, lit, this, cx)
         }
         Page::Notch | Page::Voice | Page::Simulator => {
             device::render(bench, &fields.device, page, lit, this, cx)
@@ -87,6 +93,16 @@ pub fn render(
         _ => Vec::new(),
     }
 }
+
+/// Whether the helper's dropdowns on `page` were made for another helper than the one chosen.
+pub(super) fn stale(fields: &Fields, page: Page) -> bool {
+    matches!(
+        page,
+        Page::Plans | Page::Providers | Page::LocalModels | Page::Helpers
+    ) && providers::stale(&fields.providers)
+}
+
+pub(super) use providers::rebuild_choices;
 
 /// The agents the catalog says keep each sign-in apart, so the person can hold several accounts.
 fn signs_in(bench: &Workbench) -> Vec<String> {

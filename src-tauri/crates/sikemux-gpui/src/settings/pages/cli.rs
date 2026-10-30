@@ -1,7 +1,7 @@
 //! The `sikemux` command: whether it is installed, and how it is used.
 
 use gpui_kit::prelude::FluentBuilder;
-use gpui_kit::{div, px, AnyElement, Context, Entity, ParentElement, SharedString, Styled, Window};
+use gpui_kit::{div, px, AnyElement, App, Context, Entity, ParentElement, SharedString, Styled};
 use serde_json::{json, Value};
 
 use crate::core;
@@ -12,13 +12,14 @@ use crate::ui;
 use crate::workbench::Workbench;
 
 /// Asks the core how the command is installed, or installs it.
-fn ask(bench: &mut Workbench, method: &'static str, cx: &mut Context<Workbench>) {
-    let Some(settings) = bench.settings.as_mut() else {
+pub(super) fn ask(bench: &mut Workbench, method: &'static str, cx: &mut Context<Workbench>) {
+    let asked = super::change_pages(bench, cx, |pages, _| {
+        pages.cli.get_or_insert(Value::Null);
+        pages.cli_busy = method == "installCli";
+    });
+    if asked.is_none() {
         return;
-    };
-    settings.pages.cli.get_or_insert(Value::Null);
-    settings.pages.cli_busy = method == "installCli";
-    bench.parts.redraw_stage(cx);
+    }
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
         let answer = core::request(&asks, method, json!({})).await;
@@ -30,11 +31,10 @@ fn ask(bench: &mut Workbench, method: &'static str, cx: &mut Context<Workbench>)
             (Err(_), _) => Value::Null,
         };
         let _ = bench.update(cx, |bench, cx| {
-            if let Some(settings) = bench.settings.as_mut() {
-                settings.pages.cli = Some(answer);
-                settings.pages.cli_busy = false;
-            }
-            bench.parts.redraw_stage(cx);
+            super::change_pages(bench, cx, |pages, _| {
+                pages.cli = Some(answer);
+                pages.cli_busy = false;
+            });
         });
     })
     .detach();
@@ -45,12 +45,10 @@ pub fn render(
     pages: &super::State,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let t = Tokens::get(cx).clone();
     let Some(status) = &pages.cli else {
-        cx.defer_in(window, |bench, _, cx| ask(bench, "cliInstall", cx));
         return Vec::new();
     };
     let state = status["state"].as_str().unwrap_or("checking");

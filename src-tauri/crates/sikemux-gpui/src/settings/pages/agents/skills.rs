@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
+use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement,
@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 
 use crate::core;
 use crate::settings::rows;
+use crate::settings::Settings;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM, TEXT_XS,
 };
@@ -42,7 +43,7 @@ pub struct Fields {
 }
 
 impl Fields {
-    pub fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
+    pub fn new(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("deploy-preview"));
         let description = cx.new(|cx| {
             InputState::new(window, cx).placeholder("What it does and when an agent should use it")
@@ -56,17 +57,10 @@ impl Fields {
             InputState::new(window, cx)
                 .placeholder("Folder inside the repository, if the skill is not at its root")
         });
-        let redraw = |bench: &mut Workbench, event: &InputEvent, cx: &mut Context<Workbench>| {
-            if matches!(event, InputEvent::Change) {
-                bench.parts.redraw_stage(cx);
-            }
-        };
         let typing = vec![
-            cx.subscribe(&name, move |bench, _, event, cx| redraw(bench, event, cx)),
-            cx.subscribe(&description, move |bench, _, event, cx| {
-                redraw(bench, event, cx)
-            }),
-            cx.subscribe(&source, move |bench, _, event, cx| redraw(bench, event, cx)),
+            super::super::follow_typing(bench, &name, cx),
+            super::super::follow_typing(bench, &description, cx),
+            super::super::follow_typing(bench, &source, cx),
         ];
         Self {
             overview: None,
@@ -84,8 +78,13 @@ impl Fields {
     }
 }
 
-fn fields_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    Some(&mut super::fields_of(bench)?.skills)
+/// Changes the skills page's list and forms, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_fields(bench, cx, |fields, cx| change(&mut fields.skills, cx))
 }
 
 pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
@@ -93,10 +92,9 @@ pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
     cx.spawn(async move |bench, cx| {
         let overview = core::request(&asks, "skillsOverview", json!({})).await;
         let _ = bench.update(cx, |bench, cx| {
-            if let (Some(fields), Ok(overview)) = (fields_of(bench), overview) {
-                fields.overview = Some(overview);
+            if let Ok(overview) = overview {
+                change_fields(bench, cx, |fields, _| fields.overview = Some(overview));
             }
-            bench.parts.redraw_stage(cx);
         });
     })
     .detach();
@@ -109,31 +107,29 @@ fn show(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(fields) = fields_of(bench) else {
-        return;
-    };
-    fields.form = form;
-    fields.failure = None;
-    for input in [
-        &fields.name,
-        &fields.description,
-        &fields.source,
-        &fields.subfolder,
-    ] {
-        input.update(cx, |input, cx| input.set_value("", window, cx));
-    }
-    fields
-        .body
-        .update(cx, |input, cx| input.set_value("", window, cx));
-    let first = match form {
-        Some(Form::Create) => Some(fields.name.clone()),
-        Some(Form::Install) => Some(fields.source.clone()),
-        None => None,
-    };
-    if let Some(first) = first {
-        first.update(cx, |input, cx| input.focus(window, cx));
-    }
-    bench.parts.redraw_stage(cx);
+    change_fields(bench, cx, |fields, cx| {
+        fields.form = form;
+        fields.failure = None;
+        for input in [
+            &fields.name,
+            &fields.description,
+            &fields.source,
+            &fields.subfolder,
+        ] {
+            input.update(cx, |input, cx| input.set_value("", window, cx));
+        }
+        fields
+            .body
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        let first = match form {
+            Some(Form::Create) => Some(fields.name.clone()),
+            Some(Form::Install) => Some(fields.source.clone()),
+            None => None,
+        };
+        if let Some(first) = first {
+            first.update(cx, |input, cx| input.focus(window, cx));
+        }
+    });
 }
 
 /// Runs `method`; a failure stays on the row `at`, and `after` runs once it worked.
@@ -145,22 +141,21 @@ fn run(
     after: impl FnOnce(&mut Fields) + 'static,
     cx: &mut Context<Workbench>,
 ) {
-    if let Some(fields) = fields_of(bench) {
+    change_fields(bench, cx, |fields, _| {
         fields.busy = true;
         fields.failure = None;
-    }
-    bench.parts.redraw_stage(cx);
+    });
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
         let answer = core::request(&asks, method, params).await;
         let _ = bench.update(cx, |bench, cx| {
-            if let Some(fields) = fields_of(bench) {
+            change_fields(bench, cx, |fields, _| {
                 fields.busy = false;
                 match answer {
                     Ok(_) => after(fields),
                     Err(message) => fields.failure = Some((at, message)),
                 }
-            }
+            });
             read(bench, cx);
         });
     })
@@ -168,7 +163,7 @@ fn run(
 }
 
 fn submit(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let Some(fields) = fields_of(bench) else {
+    let Some(fields) = super::fields(bench, cx).map(|agents| &agents.skills) else {
         return;
     };
     let text = |input: &Entity<InputState>| input.read(cx).value().trim().to_owned();
@@ -218,12 +213,11 @@ fn choose_folder(_: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
             return;
         };
         let _ = bench.update_in(cx, |bench, window, cx| {
-            if let Some(fields) = fields_of(bench) {
+            change_fields(bench, cx, |fields, cx| {
                 fields
                     .source
-                    .update(cx, |input, cx| input.set_value(path, window, cx));
-            }
-            bench.parts.redraw_stage(cx);
+                    .update(cx, |input, cx| input.set_value(path, window, cx))
+            });
         });
     })
     .detach();
@@ -289,7 +283,7 @@ pub fn render(
     fields: &Fields,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let failed = |at: &str| {
@@ -550,10 +544,7 @@ pub fn render(
                         .flex()
                         .gap(SPACE_2)
                         .child(button(format!("skill-move-cancel-{path}"), "Cancel", ui::Variant::Outline, false, this, Rc::new(|bench, _, cx| {
-                            if let Some(fields) = fields_of(bench) {
-                                fields.moving = None;
-                            }
-                            bench.parts.redraw_stage(cx);
+                            change_fields(bench, cx, |fields, _| fields.moving = None);
                         })))
                         .child(button(format!("skill-move-{path}"), "Move", ui::Variant::Primary, busy, this, Rc::new(move |bench, _, cx| {
                             let path = moved.clone();
@@ -564,10 +555,7 @@ pub fn render(
                 false => {
                     let asked = path.clone();
                     button(format!("skill-move-ask-{path}"), "Move into Sikemux", ui::Variant::Outline, false, this, Rc::new(move |bench, _, cx| {
-                        if let Some(fields) = fields_of(bench) {
-                            fields.moving = Some(asked.clone());
-                        }
-                        bench.parts.redraw_stage(cx);
+                        change_fields(bench, cx, |fields, _| fields.moving = Some(asked.clone()));
                     }))
                     .into_any_element()
                 }

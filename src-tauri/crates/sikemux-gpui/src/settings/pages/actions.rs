@@ -1,16 +1,17 @@
 //! Shell commands the person adds beside the built-in ones.
 
 use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
+use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, AppContext, Context, Entity, InteractiveElement, IntoElement,
+    div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
 use sikemux_wire::protocol::{CustomCommand, CustomCommandPlacement};
 
 use crate::icons::Icon;
 use crate::settings::rows;
+use crate::settings::Settings;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3H, SPACE_4, TEXT_2XS_H, TEXT_SM, TEXT_XS,
 };
@@ -47,38 +48,34 @@ fn new_id() -> String {
     format!("command-{now:x}")
 }
 
-fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let title = cx.new(|cx| InputState::new(window, cx).placeholder("Display name"));
     let detail = cx.new(|cx| InputState::new(window, cx).placeholder("What it does"));
     let command = cx.new(|cx| TextareaState::new(window, cx).placeholder("shell command"));
-    let redraw = |bench: &mut Workbench, event: &InputEvent, cx: &mut Context<Workbench>| {
-        if matches!(event, InputEvent::Change) {
-            bench.parts.redraw_stage(cx);
-        }
-    };
     let typing = vec![
-        cx.subscribe(&title, move |bench, _, event, cx| redraw(bench, event, cx)),
-        cx.subscribe(&detail, move |bench, _, event, cx| redraw(bench, event, cx)),
-        cx.subscribe(&command, move |bench, _, event, cx| {
-            redraw(bench, event, cx)
-        }),
+        super::follow_typing(bench, &title, cx),
+        super::follow_typing(bench, &detail, cx),
+        super::follow_typing(bench, &command, cx),
     ];
-    if let Some(settings) = bench.settings.as_mut() {
-        settings.pages.actions = Some(Fields {
-            id: new_id(),
-            title,
-            detail,
-            command,
-            placement: CustomCommandPlacement::Terminal,
-            contexts: Vec::new(),
-            _typing: typing,
-        });
-    }
-    bench.parts.redraw_stage(cx);
+    let fields = Fields {
+        id: new_id(),
+        title,
+        detail,
+        command,
+        placement: CustomCommandPlacement::Terminal,
+        contexts: Vec::new(),
+        _typing: typing,
+    };
+    super::change_pages(bench, cx, |pages, _| pages.actions = Some(fields));
 }
 
-fn fields_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    bench.settings.as_mut()?.pages.actions.as_mut()
+/// Changes the action being written, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_form(bench, cx, |pages| pages.actions.as_mut(), change)
 }
 
 /// Puts `command` in the form, or empties it for a new one.
@@ -88,9 +85,6 @@ fn load(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(fields) = fields_of(bench) else {
-        return;
-    };
     let command = command.unwrap_or_else(|| CustomCommand {
         id: new_id(),
         title: String::new(),
@@ -99,19 +93,20 @@ fn load(
         contexts: Vec::new(),
         placement: CustomCommandPlacement::Terminal,
     });
-    fields
-        .title
-        .update(cx, |input, cx| input.set_value(command.title, window, cx));
-    fields
-        .detail
-        .update(cx, |input, cx| input.set_value(command.detail, window, cx));
-    fields
-        .command
-        .update(cx, |input, cx| input.set_value(command.command, window, cx));
-    fields.id = command.id;
-    fields.placement = command.placement;
-    fields.contexts = command.contexts;
-    bench.parts.redraw_stage(cx);
+    change_fields(bench, cx, |fields, cx| {
+        fields
+            .title
+            .update(cx, |input, cx| input.set_value(command.title, window, cx));
+        fields
+            .detail
+            .update(cx, |input, cx| input.set_value(command.detail, window, cx));
+        fields
+            .command
+            .update(cx, |input, cx| input.set_value(command.command, window, cx));
+        fields.id = command.id;
+        fields.placement = command.placement;
+        fields.contexts = command.contexts;
+    });
 }
 
 /// Changes the person's actions in the core.
@@ -126,11 +121,7 @@ fn change(bench: &Workbench, edit: impl FnOnce(&mut Vec<CustomCommand>)) {
 }
 
 fn save(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(fields) = bench
-        .settings
-        .as_ref()
-        .and_then(|settings| settings.pages.actions.as_ref())
-    else {
+    let Some(fields) = super::state(bench, cx).and_then(|pages| pages.actions.as_ref()) else {
         return;
     };
     let command = CustomCommand {
@@ -163,11 +154,9 @@ pub fn render(
     pages: &super::State,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let Some(fields) = &pages.actions else {
-        cx.defer_in(window, make);
         return Vec::new();
     };
     let t = Tokens::get(cx).clone();
@@ -244,11 +233,8 @@ pub fn render(
         .on_select(move |chosen, _, cx| {
             let placement = PLACEMENTS[*chosen].0;
             this.update(cx, |bench, cx| {
-                if let Some(fields) = fields_of(bench) {
-                    fields.placement = placement;
-                }
-                bench.parts.redraw_stage(cx);
-            })
+                change_fields(bench, cx, |fields, _| fields.placement = placement)
+            });
         })
     };
     let contexts = div()
@@ -263,14 +249,13 @@ pub fn render(
                 .on_click(move |on: &bool, _, cx| {
                     let on = *on;
                     this.update(cx, |bench, cx| {
-                        if let Some(fields) = fields_of(bench) {
+                        change_fields(bench, cx, |fields, _| {
                             fields.contexts.retain(|chosen| chosen != context);
                             if on {
                                 fields.contexts.push((*context).to_owned());
                             }
-                        }
-                        bench.parts.redraw_stage(cx);
-                    })
+                        })
+                    });
                 })
         }));
     let stacked = |label: &'static str, about: &'static str, control: AnyElement| {

@@ -1,9 +1,7 @@
 //! The plugins built into the app, each switched on or off.
 
 use gpui_kit::component::switch::Switch;
-use gpui_kit::{
-    div, AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Window,
-};
+use gpui_kit::{div, AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Window};
 use serde_json::json;
 
 use crate::core::Ask;
@@ -35,7 +33,7 @@ pub fn render(
     bench: &Workbench,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let ink = Tokens::get(cx).text_secondary;
     let plugins = &bench.reads.plugins;

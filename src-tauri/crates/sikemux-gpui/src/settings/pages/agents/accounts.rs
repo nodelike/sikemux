@@ -297,7 +297,7 @@ pub fn render(
     provider: &str,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let title = bench.agent_name(provider).to_owned();
     let list = bench.accounts.of(provider);

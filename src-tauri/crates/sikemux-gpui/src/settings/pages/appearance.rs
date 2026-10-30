@@ -21,6 +21,7 @@ use crate::core::{Ask, Watch};
 use crate::icons::Icon;
 use crate::settings::rows;
 use crate::settings::Page;
+use crate::settings::Settings;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS,
     TEXT_2XS_H, TEXT_SM, TEXT_XS,
@@ -46,8 +47,13 @@ pub fn install(cx: &mut App) {
     ]);
 }
 
-fn appearance_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    bench.settings.as_mut()?.pages.appearance.as_mut()
+/// Changes the theme library's search and filters, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_form(bench, cx, |pages| pages.appearance.as_mut(), change)
 }
 
 /// Theme cards across a row of the library.
@@ -120,7 +126,7 @@ fn slider(
     (state, moved)
 }
 
-fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let _ = bench.asks.send(Ask::Watch(
         "themes",
         Watch::new("themes", json!({}), &[Topic::Preferences]),
@@ -128,15 +134,9 @@ fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>)
     let preferences = bench.preferences();
     let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search themes"));
     let typing = cx.subscribe(&search, |bench, search, event: &InputEvent, cx| {
-        if let (InputEvent::Change, Some(fields)) = (
-            event,
-            bench
-                .settings
-                .as_mut()
-                .and_then(|settings| settings.pages.appearance.as_mut()),
-        ) {
-            fields.query = search.read(cx).value();
-            bench.parts.redraw_stage(cx);
+        if let InputEvent::Change = event {
+            let query = search.read(cx).value();
+            change_fields(bench, cx, |fields, _| fields.query = query);
         }
     });
     let (strength, moved_strength) = slider(
@@ -227,30 +227,28 @@ fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>)
         true,
         cx,
     );
-    if let Some(settings) = bench.settings.as_mut() {
-        settings.pages.appearance = Some(Fields {
-            search,
-            query: SharedString::default(),
-            tone: Tone::All,
-            source: None,
-            strength,
-            dot_size,
-            contrast,
-            brightness,
-            glow,
-            glow_size,
-            inks,
-            opacity,
-            blur,
-            editor: None,
-            reading: None,
-            _watching: {
-                watching.extend([moved_opacity, moved_blur]);
-                watching
-            },
-        });
-    }
-    bench.parts.redraw_stage(cx);
+    let fields = Fields {
+        search,
+        query: SharedString::default(),
+        tone: Tone::All,
+        source: None,
+        strength,
+        dot_size,
+        contrast,
+        brightness,
+        glow,
+        glow_size,
+        inks,
+        opacity,
+        blur,
+        editor: None,
+        reading: None,
+        _watching: {
+            watching.extend([moved_opacity, moved_blur]);
+            watching
+        },
+    };
+    super::change_pages(bench, cx, |pages, _| pages.appearance = Some(fields));
 }
 
 /// How the pane picture is dithered: a preview drawn as the panes draw it, then each control.
@@ -390,12 +388,8 @@ fn picture_rows(
 }
 
 /// Wears the theme `by` places from the one worn in the library as filtered, else its first or last.
-fn step(bench: &Workbench, by: isize) {
-    let Some(fields) = bench
-        .settings
-        .as_ref()
-        .and_then(|settings| settings.pages.appearance.as_ref())
-    else {
+fn step(bench: &Workbench, by: isize, cx: &App) {
+    let Some(fields) = super::state(bench, cx).and_then(|pages| pages.appearance.as_ref()) else {
         return;
     };
     let themes = &bench.reads.themes;
@@ -531,10 +525,9 @@ pub fn render(
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
     window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let Some(fields) = &pages.appearance else {
-        cx.defer_in(window, make);
         return Vec::new();
     };
     let t = Tokens::get(cx).clone();
@@ -564,10 +557,7 @@ pub fn render(
         .on_select(move |chosen, _, cx| {
             let tone = [Tone::All, Tone::Dark, Tone::Light][*chosen];
             this.update(cx, |bench, cx| {
-                if let Some(fields) = appearance_of(bench) {
-                    fields.tone = tone;
-                }
-                bench.parts.redraw_stage(cx);
+                change_fields(bench, cx, |fields, _| fields.tone = tone);
             })
         })
     };
@@ -606,10 +596,7 @@ pub fn render(
         .on_select(move |chosen, _, cx| {
             let source = picked.get(*chosen).copied().flatten();
             this.update(cx, |bench, cx| {
-                if let Some(fields) = appearance_of(bench) {
-                    fields.source = source;
-                }
-                bench.parts.redraw_stage(cx);
+                change_fields(bench, cx, |fields, _| fields.source = source);
             })
         })
     };
@@ -847,19 +834,21 @@ pub fn render(
                     div()
                         .flex_1()
                         .key_context(THEME_SEARCH)
-                        .on_action(window.listener_for(this, |bench, _: &PreviousTheme, _, _| {
-                            step(bench, -(COLUMNS as isize))
-                        }))
-                        .on_action(window.listener_for(this, |bench, _: &NextTheme, _, _| {
-                            step(bench, COLUMNS as isize)
-                        }))
                         .on_action(
-                            window.listener_for(this, |bench, _: &EarlierTheme, _, _| {
-                                step(bench, -1)
+                            window.listener_for(this, |bench, _: &PreviousTheme, _, cx| {
+                                step(bench, -(COLUMNS as isize), cx)
                             }),
                         )
+                        .on_action(window.listener_for(this, |bench, _: &NextTheme, _, cx| {
+                            step(bench, COLUMNS as isize, cx)
+                        }))
+                        .on_action(window.listener_for(this, |bench, _: &EarlierTheme, _, cx| {
+                            step(bench, -1, cx)
+                        }))
                         .on_action(
-                            window.listener_for(this, |bench, _: &LaterTheme, _, _| step(bench, 1)),
+                            window.listener_for(this, |bench, _: &LaterTheme, _, cx| {
+                                step(bench, 1, cx)
+                            }),
                         )
                         .child(ui::Field::new(&fields.search).icon(Icon::Search)),
                 )

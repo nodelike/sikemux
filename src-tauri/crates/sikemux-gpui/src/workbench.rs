@@ -183,7 +183,7 @@ pub struct Workbench {
     plugin_opening: HashMap<String, String>,
     pub top_bar_hovered: bool,
     /// Settings, while they take the stage's place.
-    pub settings: Option<crate::settings::Settings>,
+    pub settings: Entity<crate::settings::Settings>,
     pub hosts: crate::hosts::Hosts,
     /// The stage's tabs while they move between one another.
     pub(crate) track: crate::track::Slide<String>,
@@ -526,7 +526,7 @@ impl Workbench {
                 crate::terminal::keep_blinking(bench, cx)
             }),
             cx.observe(&voice, |bench, _, cx| {
-                if bench.settings.is_some() {
+                if bench.settings.read(cx).is_open() {
                     bench.parts.redraw_stage(cx);
                 }
             }),
@@ -663,7 +663,7 @@ impl Workbench {
             plugin_bars: HashMap::new(),
             plugin_opening: HashMap::new(),
             top_bar_hovered: false,
-            settings: None,
+            settings: cx.new(|_| crate::settings::Settings::default()),
             window: window.window_handle(),
             parts: Parts::new(cx),
             panes: crate::panes::Panes::default(),
@@ -677,6 +677,7 @@ impl Workbench {
         bench.parts.stage_follows(&bench.sims, cx);
         bench.parts.stage_follows(&bench.desks, cx);
         bench.parts.stage_follows(&bench.editors, cx);
+        bench.parts.stage_follows(&bench.settings, cx);
         bench.keys.focus.focus(window, cx);
         bench.wait_patiently(cx);
         crate::handover::follow(&mut bench, cx);
@@ -3412,7 +3413,7 @@ impl Workbench {
             return;
         }
         let held = window.focused(cx);
-        let kept = self.settings.is_some()
+        let kept = self.settings.read(cx).is_open()
             || self.overlays.take_keys()
             || self.front_asks().is_some()
             || self.waits_for_keys();

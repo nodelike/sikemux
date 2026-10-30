@@ -2,7 +2,8 @@
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
-    div, px, AnyElement, AppContext, Context, Entity, ParentElement, Styled, Subscription, Window,
+    div, px, AnyElement, App, AppContext, Context, Entity, ParentElement, Styled, Subscription,
+    Window,
 };
 
 use crate::settings::rows;
@@ -36,7 +37,7 @@ fn field(
     (input, typing)
 }
 
-fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let preferences = bench.preferences();
     let (browser, typed_browser) = field(
         "cloudBrowser",
@@ -52,14 +53,12 @@ fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>)
         window,
         cx,
     );
-    if let Some(settings) = bench.settings.as_mut() {
-        settings.pages.cloud = Some(Fields {
-            browser,
-            shortcut,
-            _typing: [typed_browser, typed_shortcut],
-        });
-    }
-    bench.parts.redraw_stage(cx);
+    let fields = Fields {
+        browser,
+        shortcut,
+        _typing: [typed_browser, typed_shortcut],
+    };
+    super::change_pages(bench, cx, |pages, _| pages.cloud = Some(fields));
 }
 
 pub fn render(
@@ -67,11 +66,9 @@ pub fn render(
     pages: &super::State,
     lit: &dyn Fn(&str) -> bool,
     _: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let Some(fields) = &pages.cloud else {
-        cx.defer_in(window, make);
         return Vec::new();
     };
     let wide = |input: &Entity<InputState>| div().w(px(280.)).child(ui::Field::new(input));

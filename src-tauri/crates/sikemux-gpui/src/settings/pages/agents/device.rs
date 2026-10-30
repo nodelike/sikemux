@@ -44,11 +44,10 @@ pub fn read_simulator(bench: &Workbench, cx: &mut Context<Workbench>) {
             None => None,
         };
         let _ = bench.update(cx, |bench, cx| {
-            if let Some(fields) = super::fields_of(bench) {
+            super::change_fields(bench, cx, |fields, _| {
                 fields.device.sim_status = status;
                 fields.device.sim_setup = setup;
-            }
-            bench.parts.redraw_stage(cx);
+            });
         });
     })
     .detach();
@@ -238,7 +237,7 @@ pub fn render(
     page: Page,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let preferences = bench.preferences();
     let dictating = preferences.voice_dictation;

@@ -2,7 +2,7 @@
 //! usage is shared.
 
 use gpui_kit::{
-    div, px, AnyElement, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
+    div, px, AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
 use serde_json::json;
 use sikemux_wire::protocol::UpdateChannel;
@@ -19,7 +19,7 @@ pub fn render(
     bench: &Workbench,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let preferences = bench.preferences();
     let channel = {

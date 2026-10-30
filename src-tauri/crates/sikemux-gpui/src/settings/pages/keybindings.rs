@@ -3,17 +3,18 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, Animation, AnimationExt, AnyElement, AppContext, Context, Entity, InteractiveElement,
-    IntoElement, Keystroke, ParentElement, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, Window,
+    div, px, Animation, AnimationExt, AnyElement, App, AppContext, Context, Entity,
+    InteractiveElement, IntoElement, Keystroke, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Window,
 };
 
 use crate::icons::Icon;
 use crate::keymap::{self, Shortcut};
 use crate::settings::rows;
+use crate::settings::Settings;
 use crate::theme::{
     self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_3XS_H, TEXT_XS,
 };
@@ -34,11 +35,11 @@ struct Recording {
     _keys: Subscription,
 }
 
-fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(settings) = bench.settings.as_mut() else {
+pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    let Some(shortcut) = super::change_pages(bench, cx, |pages, _| pages.shortcut.take()) else {
         return;
     };
-    let jump = settings.pages.shortcut.take().and_then(|id| {
+    let jump = shortcut.and_then(|id| {
         keymap::shortcuts()
             .iter()
             .find(|shortcut| shortcut.id == id)
@@ -52,22 +53,23 @@ fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>)
         }
         input
     });
-    let typing = cx.subscribe(&filter, |bench, _, event: &InputEvent, cx| {
-        if matches!(event, InputEvent::Change) {
-            bench.parts.redraw_stage(cx);
-        }
-    });
-    settings.pages.keybindings = Some(Fields {
+    let typing = super::follow_typing(bench, &filter, cx);
+    let fields = Fields {
         filter,
         recording: None,
         message: None,
         _typing: typing,
-    });
-    bench.parts.redraw_stage(cx);
+    };
+    super::change_pages(bench, cx, |pages, _| pages.keybindings = Some(fields));
 }
 
-fn fields_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    bench.settings.as_mut()?.pages.keybindings.as_mut()
+/// Changes the shortcuts page's filter and recording, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_form(bench, cx, |pages| pages.keybindings.as_mut(), change)
 }
 
 /// Changes the keys the person chose, in the core.
@@ -82,16 +84,11 @@ fn change(bench: &Workbench, edit: impl FnOnce(&mut BTreeMap<String, Option<Stri
 }
 
 fn say(bench: &mut Workbench, message: String, cx: &mut Context<Workbench>) {
-    if let Some(fields) = fields_of(bench) {
-        fields.message = Some(message.into());
-    }
-    bench.parts.redraw_stage(cx);
+    change_fields(bench, cx, |fields, _| fields.message = Some(message.into()));
 }
 
 fn stop(bench: &mut Workbench, message: String, cx: &mut Context<Workbench>) {
-    if let Some(fields) = fields_of(bench) {
-        fields.recording = None;
-    }
+    change_fields(bench, cx, |fields, _| fields.recording = None);
     say(bench, message, cx);
 }
 
@@ -102,9 +99,9 @@ fn record(bench: &mut Workbench, id: &'static str, cx: &mut Context<Workbench>) 
         let keystroke = event.keystroke.clone();
         let _ = this.update(cx, |bench, cx| capture(bench, &keystroke, cx));
     });
-    if let Some(fields) = fields_of(bench) {
-        fields.recording = Some(Recording { id, _keys: keys });
-    }
+    change_fields(bench, cx, |fields, _| {
+        fields.recording = Some(Recording { id, _keys: keys })
+    });
     say(
         bench,
         "Press a shortcut. Backspace clears it; Escape cancels.".into(),
@@ -119,7 +116,8 @@ fn keys_label(keys: Option<&str>) -> SharedString {
 
 /// Binds the recorded command to the keys pressed, unless they cannot take it.
 fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbench>) {
-    let Some(id) = fields_of(bench).and_then(|fields| Some(fields.recording.as_ref()?.id)) else {
+    let recording = super::state(bench, cx).and_then(|pages| pages.keybindings.as_ref());
+    let Some(id) = recording.and_then(|fields| Some(fields.recording.as_ref()?.id)) else {
         return;
     };
     let Some(shortcut) = keymap::shortcuts()
@@ -245,11 +243,9 @@ pub fn render(
     pages: &super::State,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let Some(fields) = &pages.keybindings else {
-        cx.defer_in(window, make);
         return Vec::new();
     };
     let t = Tokens::get(cx).clone();

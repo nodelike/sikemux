@@ -25,6 +25,7 @@ use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::settings::rows;
 use crate::settings::Page;
+use crate::settings::Settings;
 use crate::theme::{
     Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, SPACE_5, TEXT_2XS_H,
     TEXT_MD, TEXT_SM, TEXT_XS,
@@ -44,17 +45,21 @@ pub struct Fields {
     approvals: HashMap<String, Option<bool>>,
 }
 
-fn make(bench: &mut Workbench, _: &mut Window, cx: &mut Context<Workbench>) {
-    if let Some(settings) = bench.settings.as_mut() {
-        settings.pages.devices = Some(Fields::default());
-    }
+pub(super) fn make(bench: &mut Workbench, _: &mut Window, cx: &mut Context<Workbench>) {
+    super::change_pages(bench, cx, |pages, _| {
+        pages.devices = Some(Fields::default())
+    });
     let _ = bench.asks.send(Ask::Remote(RemoteAsk::Status));
     read_links(bench, cx);
-    bench.parts.redraw_stage(cx);
 }
 
-fn fields_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    bench.settings.as_mut()?.pages.devices.as_mut()
+/// Changes the hosts the Devices page lists, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_form(bench, cx, |pages| pages.devices.as_mut(), change)
 }
 
 /// Lists the other hosts on the account again.
@@ -70,10 +75,7 @@ pub fn read_links(bench: &Workbench, cx: &mut Context<Workbench>) {
             .filter_map(|link| link["id"].as_str().map(str::to_owned))
             .collect();
         let _ = bench.update(cx, |bench, cx| {
-            if let Some(fields) = fields_of(bench) {
-                fields.links = Some(links);
-            }
-            bench.parts.redraw_stage(cx);
+            change_fields(bench, cx, |fields, _| fields.links = Some(links));
         });
         for host in hosts {
             let read = core::Target::new(&asks, Place::Account(host.clone()))
@@ -81,10 +83,7 @@ pub fn read_links(bench: &Workbench, cx: &mut Context<Workbench>) {
                 .await;
             let on = read.ok().map(|read| read.require_approval);
             let _ = bench.update(cx, |bench, cx| {
-                if let Some(fields) = fields_of(bench) {
-                    fields.approvals.insert(host, on);
-                }
-                bench.parts.redraw_stage(cx);
+                change_fields(bench, cx, |fields, _| fields.approvals.insert(host, on));
             });
         }
     })
@@ -392,11 +391,12 @@ fn rename(
             return;
         }
         let name = input.read(cx).value().trim().to_owned();
-        let Some((id, _, _)) = fields_of(bench).and_then(|fields| fields.renaming.take()) else {
+        let Some(Some((id, _, _))) = change_fields(bench, cx, |fields, _| fields.renaming.take())
+        else {
             return;
         };
-        let unchanged = fields_of(bench)
-            .and_then(|fields| fields.links.as_ref())
+        let unchanged = super::state(bench, cx)
+            .and_then(|pages| pages.devices.as_ref()?.links.as_ref())
             .and_then(|links| links.iter().find(|link| link["id"] == id.as_str()))
             .is_some_and(|link| link["name"] == name.as_str());
         if !name.is_empty() && !unchanged {
@@ -412,13 +412,11 @@ fn rename(
             })
             .detach();
         }
-        bench.parts.redraw_stage(cx);
     });
     input.update(cx, |input, cx| input.focus(window, cx));
-    if let Some(fields) = fields_of(bench) {
-        fields.renaming = Some((id, input, done));
-    }
-    bench.parts.redraw_stage(cx);
+    change_fields(bench, cx, |fields, _| {
+        fields.renaming = Some((id, input, done))
+    });
 }
 
 fn remove_host(
@@ -464,10 +462,9 @@ fn set_host_approval(bench: &Workbench, host: String, on: bool, cx: &mut Context
             return;
         }
         let _ = bench.update(cx, |bench, cx| {
-            if let Some(fields) = fields_of(bench) {
-                fields.approvals.insert(host, Some(on));
-            }
-            bench.parts.redraw_stage(cx);
+            change_fields(bench, cx, |fields, _| {
+                fields.approvals.insert(host, Some(on))
+            });
         });
     })
     .detach();
@@ -611,11 +608,9 @@ pub fn render(
     page: Page,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let Some(fields) = &pages.devices else {
-        cx.defer_in(window, make);
         return Vec::new();
     };
     let t = Tokens::get(cx).clone();

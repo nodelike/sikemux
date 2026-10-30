@@ -178,7 +178,10 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
                 .group_hover(ui::ROW, move |style| style.text_color(t.text_primary)),
         )
         .quiet()
-        .chosen(bench.settings.is_none() && bench.chosen_host() == crate::hosts::HostChoice::This)
+        .chosen(
+            !bench.settings.read(cx).is_open()
+                && bench.chosen_host() == crate::hosts::HostChoice::This,
+        )
         .on_click(
             cx.listener(|bench, _, _, cx| bench.choose_host(crate::hosts::HostChoice::This, cx)),
         )
@@ -328,7 +331,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
             let alias = host["ssh"].as_str().filter(|_| !linked).map(str::to_owned);
             let front = alias.is_some() && bench.strip() == alias.clone().map(Strip::Host);
             let key = host["id"].as_str().map(str::to_owned);
-            let chosen = bench.settings.is_none()
+            let chosen = !bench.settings.read(cx).is_open()
                 && (front
                     || key.as_ref().is_some_and(|key| {
                         bench.chosen_host() == crate::hosts::HostChoice::Account(key.clone())
@@ -582,7 +585,7 @@ fn terminals(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> 
                 SharedString::from(format!("terminal-{id}")),
                 session.rail_name.clone().unwrap_or_default(),
             )
-            .chosen(bench.settings.is_none() && front.as_ref() == Some(&id))
+            .chosen(!bench.settings.read(cx).is_open() && front.as_ref() == Some(&id))
             .on_click(cx.listener(move |bench, _, _, _| {
                 let params = json!({ "kind": PaneKind::Terminal, "target": id });
                 bench.call("openTab", Strip::Terminals.with(params));
@@ -680,8 +683,8 @@ fn project_tree(
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let active =
-        bench.settings.is_none() && bench.strip() == Some(Strip::Project(project.id.clone()));
+    let active = !bench.settings.read(cx).is_open()
+        && bench.strip() == Some(Strip::Project(project.id.clone()));
     let agents = bench.agents_of(&project.id);
     let id = project.id.clone();
     let menu = project_menu(bench, project, cx);

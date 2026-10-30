@@ -3,7 +3,7 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
+    div, px, AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
 use sikemux_core::agent_accounts::status::AgentStatus;
 
@@ -18,7 +18,7 @@ pub fn render(
     setup: &Setup,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let t = crate::theme::Tokens::get(cx).clone();
     let body: AnyElement = match &setup.found {

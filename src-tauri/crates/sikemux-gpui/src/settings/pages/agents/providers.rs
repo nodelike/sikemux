@@ -14,6 +14,7 @@ use crate::core;
 use crate::home::compact;
 use crate::settings::rows::{self, Choice};
 use crate::settings::Page;
+use crate::settings::Settings;
 use crate::theme::{Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM};
 use crate::ui;
 use crate::workbench::Workbench;
@@ -34,7 +35,7 @@ pub struct Fields {
 }
 
 impl Fields {
-    pub fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
+    pub fn new(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> Self {
         let key = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("Paste the API key")
@@ -42,10 +43,11 @@ impl Fields {
         });
         let helper_model = cx.new(|cx| InputState::new(window, cx));
         let entering = vec![
-            cx.subscribe(&key, |bench, _, event: &InputEvent, cx| match event {
-                InputEvent::PressEnter { .. } => connect(bench, cx),
-                InputEvent::Change => bench.parts.redraw_stage(cx),
-                _ => {}
+            super::super::follow_typing(bench, &key, cx),
+            cx.subscribe(&key, |bench, _, event: &InputEvent, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    connect(bench, cx)
+                }
             }),
             cx.subscribe(&helper_model, |bench, model, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
@@ -69,8 +71,18 @@ impl Fields {
     }
 }
 
-fn fields_of(bench: &mut Workbench) -> Option<&mut Fields> {
-    Some(&mut super::fields_of(bench)?.providers)
+/// Changes the providers and helper as the pages show them, and draws the pages again.
+fn change_fields<R>(
+    bench: &Workbench,
+    cx: &mut App,
+    change: impl FnOnce(&mut Fields, &mut Context<Settings>) -> R,
+) -> Option<R> {
+    super::change_fields(bench, cx, |fields, cx| change(&mut fields.providers, cx))
+}
+
+/// The providers and helper, while an agent page is open.
+fn fields<'a>(bench: &Workbench, cx: &'a App) -> Option<&'a Fields> {
+    Some(&super::fields(bench, cx)?.providers)
 }
 
 /// Reads the providers and what helpers run on.
@@ -80,7 +92,7 @@ pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
         let providers = core::request(&asks, "modelProviders", json!({})).await;
         let helper = core::request(&asks, "modelHelper", json!({})).await;
         let _ = bench.update(cx, |bench, cx| {
-            if let Some(fields) = fields_of(bench) {
+            change_fields(bench, cx, |fields, _| {
                 fields.providers = providers
                     .ok()
                     .and_then(|providers| providers.as_array().cloned())
@@ -88,8 +100,7 @@ pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
                 fields.helper = helper.ok().filter(|helper| !helper.is_null());
                 fields.checking = false;
                 fields.helper_choices = None;
-            }
-            bench.parts.redraw_stage(cx);
+            });
         });
     })
     .detach();
@@ -103,22 +114,21 @@ fn change(
     params: Value,
     cx: &mut Context<Workbench>,
 ) {
-    if let Some(fields) = fields_of(bench) {
+    change_fields(bench, cx, |fields, _| {
         fields.busy = Some(id.clone());
         fields.failure = None;
-    }
-    bench.parts.redraw_stage(cx);
+    });
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
         let answer = core::request(&asks, method, params).await;
         let _ = bench.update(cx, |bench, cx| {
-            if let Some(fields) = fields_of(bench) {
+            change_fields(bench, cx, |fields, _| {
                 fields.busy = None;
                 match answer {
                     Ok(_) => fields.editing = None,
                     Err(message) => fields.failure = Some((id, message)),
                 }
-            }
+            });
             read(bench, cx);
         });
     })
@@ -126,7 +136,7 @@ fn change(
 }
 
 fn connect(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let Some((id, key)) = fields_of(bench).and_then(|fields| {
+    let Some((id, key)) = fields(bench, cx).and_then(|fields| {
         let key = fields.key.read(cx).value().trim().to_owned();
         Some((fields.editing.clone()?, key)).filter(|(_, key)| !key.is_empty())
     }) else {
@@ -147,16 +157,14 @@ fn edit(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let Some(fields) = fields_of(bench) else {
-        return;
-    };
-    fields.editing = id;
-    fields.failure = None;
-    fields.key.update(cx, |key, cx| {
-        key.set_value("", window, cx);
-        key.focus(window, cx);
+    change_fields(bench, cx, |fields, cx| {
+        fields.editing = id;
+        fields.failure = None;
+        fields.key.update(cx, |key, cx| {
+            key.set_value("", window, cx);
+            key.focus(window, cx);
+        });
     });
-    bench.parts.redraw_stage(cx);
 }
 
 /// The model a check asks about: the provider's coding model, else the first a local runner has.
@@ -539,9 +547,7 @@ fn local_row(
                 checking,
                 this,
                 |bench, _, cx| {
-                    if let Some(fields) = fields_of(bench) {
-                        fields.checking = true;
-                    }
+                    change_fields(bench, cx, |fields, _| fields.checking = true);
                     read(bench, cx);
                 },
             ))
@@ -570,18 +576,15 @@ fn local_row(
 
 /// Keeps what helpers run on in the core.
 fn save_helper(bench: &mut Workbench, helper: Option<Value>, cx: &mut Context<Workbench>) {
-    if let Some(fields) = fields_of(bench) {
-        fields.helper = helper.clone();
-    }
+    change_fields(bench, cx, |fields, _| fields.helper = helper.clone());
     let _ = bench.asks.send(core::Ask::Call {
         method: "setModelHelper",
         params: json!({ "helper": helper }),
     });
-    bench.parts.redraw_stage(cx);
 }
 
 fn save_model(bench: &mut Workbench, model: String, cx: &mut Context<Workbench>) {
-    let Some(mut helper) = fields_of(bench).and_then(|fields| fields.helper.clone()) else {
+    let Some(mut helper) = fields(bench, cx).and_then(|fields| fields.helper.clone()) else {
         return;
     };
     if helper["model"].as_str().unwrap_or_default() == model {
@@ -606,9 +609,18 @@ fn chat_agents(bench: &Workbench) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Whether the helper's dropdowns were made for another helper than the one chosen now.
+pub(super) fn stale(fields: &Fields) -> bool {
+    (fields.helper_choices.as_ref()).is_none_or(|(made_for, _, _)| *made_for != fields.helper)
+}
+
 /// Makes the helper's dropdowns again for the helper as it is now.
-fn rebuild_choices(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(helper) = fields_of(bench).map(|fields| fields.helper.clone()) else {
+pub(in crate::settings::pages) fn rebuild_choices(
+    bench: &mut Workbench,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let Some(helper) = fields(bench, cx).map(|fields| fields.helper.clone()) else {
         return;
     };
     let agents = chat_agents(bench);
@@ -638,7 +650,7 @@ fn rebuild_choices(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         cx,
     );
     let paid = agent.map(|agent| {
-        let routes: Vec<(String, String)> = fields_of(bench)
+        let routes: Vec<(String, String)> = fields(bench, cx)
             .map(|fields| {
                 fields
                     .providers
@@ -673,7 +685,7 @@ fn rebuild_choices(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
             labels,
             chosen,
             move |bench, at, cx| {
-                let Some(mut helper) = fields_of(bench).and_then(|fields| fields.helper.clone())
+                let Some(mut helper) = fields(bench, cx).and_then(|fields| fields.helper.clone())
                 else {
                     return;
                 };
@@ -693,7 +705,7 @@ fn rebuild_choices(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         .and_then(|helper| helper["model"].as_str())
         .unwrap_or_default()
         .to_owned();
-    let route = fields_of(bench).and_then(|fields| {
+    let route = fields(bench, cx).and_then(|fields| {
         let helper = helper.as_ref()?;
         let route = fields
             .providers
@@ -704,17 +716,16 @@ fn rebuild_choices(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
             .map(str::to_owned)
     });
     let placeholder = route.unwrap_or_else(|| "The agent's own".into());
-    if let Some(fields) = fields_of(bench) {
+    change_fields(bench, cx, |fields, cx| {
         fields.helper_model.update(cx, |input, cx| {
             input.set_placeholder(placeholder, window, cx);
             input.set_value(model, window, cx);
         });
         fields.helper_choices = Some((helper, agent_choice, paid));
-    }
-    bench.parts.redraw_stage(cx);
+    });
 }
 
-fn helpers(bench: &Workbench, fields: &Fields, cx: &mut Context<Workbench>) -> AnyElement {
+fn helpers(bench: &Workbench, fields: &Fields, cx: &App) -> AnyElement {
     let Some((_, agent, paid)) = &fields.helper_choices else {
         return div().into_any_element();
     };
@@ -744,16 +755,8 @@ pub fn render(
     page: Page,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
-    let stale = fields
-        .helper_choices
-        .as_ref()
-        .is_none_or(|(made_for, _, _)| *made_for != fields.helper);
-    if stale {
-        cx.defer_in(window, rebuild_choices);
-    }
     let of_kind = |kind: &str| -> Vec<&Value> {
         let mut providers: Vec<&Value> = fields
             .providers
@@ -769,39 +772,38 @@ pub fn render(
             .filter(|provider| provider["connected"] == true)
             .count()
     };
-    let keyed =
-        |kind: &str, title: &'static str, sub: &'static str, cx: &mut Context<Workbench>| {
-            let providers = of_kind(kind);
-            let count = connected(&providers);
-            let adds = (kind == "api").then(|| {
-                let this = this.clone();
-                div().flex().px(SPACE_4).py(SPACE_2H).child(
-                    ui::Button::new("provider-add-own", "Add provider", ui::Variant::Outline)
-                        .icon(crate::icons::Icon::Plus)
-                        .on_click(move |_, window, cx| {
-                            this.update(cx, |bench, cx| {
-                                let here = core::Target::here(&bench.asks);
-                                bench.add_provider_to(here, None, window, cx)
-                            })
-                        }),
-                )
-            });
-            let body = div()
-                .children(
-                    providers
-                        .iter()
-                        .map(|provider| keyed_row(bench, fields, provider, this, cx)),
-                )
-                .children(adds);
-            rows::section(
-                title,
-                (count > 0).then(|| format!("{count} connected").into()),
-                Some(sub.into()),
-                lit(title),
-                body,
-                cx,
+    let keyed = |kind: &str, title: &'static str, sub: &'static str, cx: &App| {
+        let providers = of_kind(kind);
+        let count = connected(&providers);
+        let adds = (kind == "api").then(|| {
+            let this = this.clone();
+            div().flex().px(SPACE_4).py(SPACE_2H).child(
+                ui::Button::new("provider-add-own", "Add provider", ui::Variant::Outline)
+                    .icon(crate::icons::Icon::Plus)
+                    .on_click(move |_, window, cx| {
+                        this.update(cx, |bench, cx| {
+                            let here = core::Target::here(&bench.asks);
+                            bench.add_provider_to(here, None, window, cx)
+                        })
+                    }),
             )
-        };
+        });
+        let body = div()
+            .children(
+                providers
+                    .iter()
+                    .map(|provider| keyed_row(bench, fields, provider, this, cx)),
+            )
+            .children(adds);
+        rows::section(
+            title,
+            (count > 0).then(|| format!("{count} connected").into()),
+            Some(sub.into()),
+            lit(title),
+            body,
+            cx,
+        )
+    };
     let section = match page {
         Page::Plans => keyed(
         "plan",
