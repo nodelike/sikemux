@@ -28,7 +28,7 @@ use sikemux_fold::{ChatEvent, Fold, PageOf, PAGE_BYTES};
 use sikemux_gpui::core::{Ask, ChatAsk, ChatNews, Link, Update};
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{icons, theme, WINDOW_SIZE};
-use sikemux_wire::chat::{ChatChange, ChatHead, ChatMessage, ChatView};
+use sikemux_wire::chat::{ChatChange, ChatHead, ChatMessage, ChatPage, ChatView};
 use sikemux_wire::protocol::{ChatAttachment, ChatMark, DeviceView, Event, PermissionMode};
 use tokio::sync::mpsc;
 
@@ -291,7 +291,7 @@ impl Folded {
     }
 
     /// The page before event `before`, as the core answers `AcpHistory`.
-    fn page(&self, before: u64) -> Value {
+    fn page(&self, before: u64) -> ChatPage {
         let start = before.saturating_sub(PAGE).max(1);
         let events: Vec<(u64, ChatEvent)> = self
             .events
@@ -300,14 +300,13 @@ impl Folded {
             .cloned()
             .collect();
         let older_before = (start > 1).then_some(start);
-        let page = (self.fold).page_of(
+        (self.fold).page_of(
             &events,
             PageOf::Before(before),
             PAGE_BYTES,
             older_before,
             None,
-        );
-        serde_json::to_value(page).expect("a page")
+        )
     }
 }
 
@@ -397,7 +396,7 @@ impl Bench {
         for before in due {
             self.served += 1;
             let page = self.folded.page(before);
-            self.send(ChatNews::Page(page));
+            self.send(ChatNews::Page(Some(page)));
         }
     }
 

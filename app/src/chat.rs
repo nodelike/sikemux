@@ -26,7 +26,7 @@ use sikemux_wire::catalog::Driver;
 use sikemux_wire::chat::{
     ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView, FiredRequest,
     LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk, SubagentCard,
-    SubagentState, WorkFold,
+    SubagentState, ToolDetail, WorkFold,
 };
 use sikemux_wire::protocol::{
     AgentStatus, ChatAttachment, ChatContext, ChatMark, ConfigPicker, MidTurnSend, PermissionMode,
@@ -815,13 +815,11 @@ impl Chat {
     }
 
     /// What the core sent of a tool call the reader opened.
-    fn detail(&mut self, tool: String, detail: Value, cx: &mut App) {
-        if let Ok(detail) = serde_json::from_value(detail) {
-            self.reader.update(cx, |reading, cx| {
-                reading.tools.held(tool, detail);
-                cx.notify();
-            });
-        }
+    fn detail(&mut self, tool: String, detail: ToolDetail, cx: &mut App) {
+        self.reader.update(cx, |reading, cx| {
+            reading.tools.held(tool, detail);
+            cx.notify();
+        });
     }
 
     /// Takes what the core sent about this chat, other than what a find found, and asks it
@@ -1044,9 +1042,9 @@ impl Chat {
         })
     }
 
-    fn page(&mut self, page: Value, cx: &mut App) {
+    fn page(&mut self, page: Option<ChatPage>, cx: &mut App) {
         self.asked_earlier = false;
-        let Ok(page) = serde_json::from_value::<ChatPage>(page) else {
+        let Some(page) = page else {
             return;
         };
         self.older_before = page.older_before;
@@ -1095,11 +1093,11 @@ impl Chat {
         })
     }
 
-    /// A later page, a `ChatPage` as JSON, whose `newer_after` is none once it reached the live
+    /// A later page, whose `newer_after` is none once it reached the live
     /// rows; the chat then attaches again from its mark, which it answers.
-    fn later_page(&mut self, agent: &str, page: Value, cx: &mut App) -> Option<ChatAsk> {
+    fn later_page(&mut self, agent: &str, page: Option<ChatPage>, cx: &mut App) -> Option<ChatAsk> {
         self.asked_later = false;
-        let page = serde_json::from_value::<ChatPage>(page).ok()?;
+        let page = page?;
         let newer_after = page.newer_after;
         self.newer_after = newer_after;
         let rows = page.rows.into_iter().map(ChatRow::new).collect();
@@ -1114,8 +1112,8 @@ impl Chat {
 
     /// The rows around a place found, which take the place of those held; the chat follows only
     /// its head until the reader pages back down to its live rows.
-    fn around_page(&mut self, page: Value, cx: &mut App) {
-        let Ok(page) = serde_json::from_value::<ChatPage>(page) else {
+    fn around_page(&mut self, page: Option<ChatPage>, cx: &mut App) {
+        let Some(page) = page else {
             return;
         };
         self.older_before = page.older_before;
@@ -1128,8 +1126,8 @@ impl Chat {
     }
 
     /// The chat's latest rows, which take the place of those held.
-    fn latest_page(&mut self, page: Value, cx: &mut App) {
-        let Ok(page) = serde_json::from_value::<ChatPage>(page) else {
+    fn latest_page(&mut self, page: Option<ChatPage>, cx: &mut App) {
+        let Some(page) = page else {
             return;
         };
         self.older_before = page.older_before;

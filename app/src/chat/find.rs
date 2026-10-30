@@ -8,15 +8,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{AppContext, Context, Entity, Focusable, Subscription, Window};
 use gpui_transcript::Query;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use sikemux_core::server::{FindAnswer, FindAt, FindDirection, FindHit, FindParams};
 
 use crate::core::ChatAsk;
 use crate::ui::FindBar;
 use crate::workbench::Workbench;
 
 /// Places found the core is asked for at a time.
-const HITS: u32 = 200;
+const HITS: usize = 200;
 /// Counting stops here, and the bar says 999+.
 const MOST_COUNTED: u64 = 1000;
 
@@ -35,8 +34,8 @@ struct WholeChat {
     /// The number of the bar's last ask, so an answer to an older query is let go.
     asked: u64,
     /// Places found, newest first, and where the core goes on from.
-    hits: Vec<Hit>,
-    next: Option<Value>,
+    hits: Vec<FindHit>,
+    next: Option<FindAt>,
     /// The place among `hits` the reader is on, once they stepped.
     at: Option<usize>,
     /// Stepping older went past `hits`, and waits for more.
@@ -47,34 +46,11 @@ struct WholeChat {
     complete: bool,
 }
 
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Hit {
-    row: String,
-    from_event: u64,
-    part: String,
-    range: [u64; 2],
-}
-
-#[derive(Deserialize)]
-struct Found {
-    #[serde(default)]
-    hits: Vec<Hit>,
-    next: Option<Value>,
-    counted: Counted,
-}
-
-#[derive(Deserialize)]
-struct Counted {
-    matches: u64,
-    complete: bool,
-}
-
 static ASKED: AtomicU64 = AtomicU64::new(1);
 
 impl WholeChat {
     /// Which of the places found in its part `hit` is, as the rows' own find counts them.
-    fn nth(&self, hit: &Hit) -> usize {
+    fn nth(&self, hit: &FindHit) -> usize {
         self.hits
             .iter()
             .filter(|other| {
@@ -105,6 +81,21 @@ impl WholeChat {
         let place = at.map_or(self.counted, |at| self.counted.saturating_sub(at as u64));
         let more = if self.complete { "" } else { "…" };
         Some(format!("{place}/{}{more}", self.counted))
+    }
+}
+
+/// What `chatFind` is asked for `query` in `agent`'s chat, from its newest rows back.
+fn find_params(agent: &str, feed: String, query: Query) -> FindParams {
+    FindParams {
+        agent_id: agent.to_owned(),
+        feed,
+        query: query.text,
+        match_case: query.match_case,
+        whole_word: query.whole_word,
+        from: None,
+        direction: FindDirection::Older,
+        limit: Some(HITS),
+        count_only: false,
     }
 }
 
@@ -161,11 +152,7 @@ impl Workbench {
         };
         finding.whole = WholeChat::default();
         if let (Some(query), Some(feed)) = (query, feed) {
-            let params = json!({
-                "agentId": agent, "feed": feed, "query": query.text,
-                "matchCase": query.match_case, "wholeWord": query.whole_word,
-                "direction": "older", "limit": HITS,
-            });
+            let params = find_params(agent, feed, query);
             let asked = ASKED.fetch_add(1, Ordering::Relaxed);
             finding.whole.asked = asked;
             self.ask_chat(ChatAsk::Find {
@@ -179,15 +166,12 @@ impl Workbench {
 
     /// Takes what the core found, asks it to go on counting until the count is whole or large,
     /// and goes on a step that waited for more places.
-    pub fn found(&mut self, agent: &str, asked: u64, found: Value, cx: &mut Context<Self>) {
+    pub fn found(&mut self, agent: &str, asked: u64, found: FindAnswer, cx: &mut Context<Self>) {
         let Some(whole) = self
             .finding_mut(agent)
             .map(|finding| &mut finding.whole)
             .filter(|whole| whole.asked == asked)
         else {
-            return;
-        };
-        let Ok(found) = serde_json::from_value::<Found>(found) else {
             return;
         };
         if !std::mem::take(&mut whole.counting) {
@@ -208,8 +192,7 @@ impl Workbench {
             _ => found.next.filter(|_| count_on).map(|from| (from, true)),
         };
         if let (Some((from, counting)), Some(mut params)) = (more, self.find_params(agent, cx)) {
-            params["from"] = from;
-            params["countOnly"] = json!(counting);
+            (params.from, params.count_only) = (Some(from), counting);
             let asked = ASKED.fetch_add(1, Ordering::Relaxed);
             if let Some(finding) = self.finding_mut(agent) {
                 (finding.whole.asked, finding.whole.counting) = (asked, counting);
@@ -231,15 +214,16 @@ impl Workbench {
     }
 
     /// What the bar asks `chatFind` for now, without where to go on from.
-    fn find_params(&self, agent: &str, cx: &Context<Self>) -> Option<Value> {
+    fn find_params(&self, agent: &str, cx: &Context<Self>) -> Option<FindParams> {
         let chat = self.chats.open.get(agent)?;
         let finding = chat.finding.as_ref()?;
         let feed = chat.mark.as_ref()?.feed.clone();
-        Some(json!({
-            "agentId": agent, "feed": feed, "query": finding.input.read(cx).value().to_string(),
-            "matchCase": finding.match_case, "wholeWord": finding.whole_word,
-            "direction": "older", "limit": HITS,
-        }))
+        let query = Query {
+            text: finding.input.read(cx).value().to_string(),
+            match_case: finding.match_case,
+            whole_word: finding.whole_word,
+        };
+        Some(find_params(agent, feed, query))
     }
 
     fn flip_find(&mut self, agent: &str, flip: fn(&mut Finding), cx: &mut Context<Self>) {
@@ -296,7 +280,7 @@ impl Workbench {
             let (Some(from), Some(mut params)) = (whole.next.clone(), params) else {
                 return;
             };
-            params["from"] = from;
+            params.from = Some(from);
             let asked = ASKED.fetch_add(1, Ordering::Relaxed);
             (whole.at, whole.asked) = (here, asked);
             (whole.stepping, whole.counting) = (true, false);

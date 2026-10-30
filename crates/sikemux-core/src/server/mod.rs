@@ -109,8 +109,9 @@ pub use board::{
 };
 pub use calls::{
     call, AgentMessageRows, AgentMessagesParams, ClosedAgentsParams, NoParams, QueuedParams,
-    SetDraftParams, WorktreeDefaultParams,
+    SetDraftParams, ToolDetailParams, WorktreeDefaultParams,
 };
+pub use chat::find::{Direction as FindDirection, FindAnswer, FindAt, FindParams, Hit as FindHit};
 pub use chat::queue::Message as QueuedMessage;
 pub use codehost::{ReleasesParams, TrackedParams};
 pub use drafts::Draft;

@@ -18,7 +18,7 @@ const BATCH_BYTES: usize = 512 * 1024;
 /// The words shown either side of a hit.
 const PREVIEW_CHARS: usize = 30;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Direction {
     #[default]
@@ -40,7 +40,7 @@ pub struct FindAt {
     pub counted: u64,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FindParams {
     pub agent_id: String,
@@ -60,7 +60,7 @@ pub struct FindParams {
     pub count_only: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hit {
     pub row: String,
@@ -71,21 +71,21 @@ pub struct Hit {
     pub preview: String,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Scanned {
     pub from_event: Option<u64>,
     pub to_event: Option<u64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Counted {
     pub matches: u64,
     pub complete: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FindAnswer {
     pub hits: Vec<Hit>,

@@ -1,4 +1,6 @@
+use sikemux_core::server::{call, FindAnswer, FindParams, ToolDetailParams};
 use sikemux_wire::changed::Topic;
+use sikemux_wire::chat::{ChatPage, ToolDetail};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -101,23 +103,23 @@ pub enum ChatNews {
         seq: u64,
         changes: Result<Vec<crate::chat::changes::Changed>, String>,
     },
-    /// Earlier rows, a `ChatPage` as JSON, or null when the core had none to give.
-    Page(Value),
-    /// Later rows, a `ChatPage` as JSON with `newerAfter`.
-    Later(Value),
-    /// The rows around a place found, a `ChatPage` as JSON.
-    Around(Value),
-    /// The chat's latest rows, a `ChatPage` as JSON.
-    Latest(Value),
+    /// Earlier rows, or none when the core's answer did not read.
+    Page(Option<ChatPage>),
+    /// Later rows, with `newer_after`, or none when the answer did not read.
+    Later(Option<ChatPage>),
+    /// The rows around a place found.
+    Around(Option<ChatPage>),
+    /// The chat's latest rows.
+    Latest(Option<ChatPage>),
     /// What `chatFind` answered the ask numbered `asked`.
     Found {
         asked: u64,
-        found: Value,
+        found: FindAnswer,
     },
-    /// A `ToolDetail` as JSON.
+    /// What a tool call changed and printed.
     Detail {
         tool: String,
-        detail: Value,
+        detail: ToolDetail,
     },
     /// The core turned down what the person sent, which goes back to them with why.
     Refused {
@@ -401,7 +403,7 @@ pub enum ChatAsk {
     /// makes; `asked` is the bar's count of what it asked, so a late answer is known.
     Find {
         agent: String,
-        params: Value,
+        params: FindParams,
         asked: u64,
     },
     /// Words for the agent. The core starts a stopped chat on its own session to take them,
@@ -1677,20 +1679,20 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             before,
             turns,
         } => match client.acp_history(agent.clone(), feed, before, turns).await {
-            Ok(page) => (agent, ChatNews::Page(page)),
+            Ok(page) => (agent, ChatNews::Page(page_of(page))),
             Err(error) => return eprintln!("sikemux: the core gave no earlier page: {error}"),
         },
         ChatAsk::Later { agent, feed, after } => {
             let asked = json!({ "agentId": agent, "feed": feed, "after": after });
             match client.call("chatPage", asked).await {
-                Ok(page) => (agent, ChatNews::Later(page)),
+                Ok(page) => (agent, ChatNews::Later(page_of(page))),
                 Err(error) => return eprintln!("sikemux: the core gave no later page: {error}"),
             }
         }
         ChatAsk::Latest { agent, feed } => {
             let asked = json!({ "agentId": agent, "feed": feed, "before": u64::MAX });
             match client.call("chatPage", asked).await {
-                Ok(page) => (agent, ChatNews::Latest(page)),
+                Ok(page) => (agent, ChatNews::Latest(page_of(page))),
                 Err(error) => return eprintln!("sikemux: the core gave no latest page: {error}"),
             }
         }
@@ -1701,7 +1703,7 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
         } => {
             let asked = json!({ "agentId": agent, "feed": feed, "around": around });
             match client.call("chatPage", asked).await {
-                Ok(page) => (agent, ChatNews::Around(page)),
+                Ok(page) => (agent, ChatNews::Around(page_of(page))),
                 Err(error) => return eprintln!("sikemux: the core gave no page there: {error}"),
             }
         }
@@ -1709,7 +1711,7 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             agent,
             params,
             asked,
-        } => match client.call("chatFind", params).await {
+        } => match called::<call::ChatFind>(client, params).await {
             Ok(found) => (agent, ChatNews::Found { asked, found }),
             Err(error) => return eprintln!("sikemux: the core's find failed: {error}"),
         },
@@ -1801,8 +1803,11 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             (agent, ChatNews::TaskStopped { task, error })
         }
         ChatAsk::Detail { agent, tool } => {
-            let asked = json!({ "agentId": agent, "toolCallId": tool });
-            match client.call("chatToolDetail", asked).await {
+            let asked = ToolDetailParams {
+                agent_id: agent.clone(),
+                tool_call_id: tool.clone(),
+            };
+            match called::<call::ChatToolDetail>(client, asked).await {
                 Ok(detail) => (agent, ChatNews::Detail { tool, detail }),
                 Err(error) => {
                     return eprintln!("sikemux: the core refused a tool's detail: {error}")
@@ -1817,6 +1822,28 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
         }
     };
     let _ = updates.send(Update::Chat(agent, news));
+}
+
+/// A page of a chat's rows the core answered, or none when it does not read.
+fn page_of(page: Value) -> Option<ChatPage> {
+    serde_json::from_value(page)
+        .inspect_err(|error| eprintln!("sikemux: the core's chat page does not read: {error}"))
+        .ok()
+}
+
+/// Asks `client`'s core for the call `C`, and reads its answer here, off the window's thread.
+async fn called<C: Call>(client: &CoreClient, params: C::Params) -> Result<C::Answer, String>
+where
+    C::Params: Serialize,
+    C::Answer: DeserializeOwned,
+{
+    let params = serde_json::to_value(params).map_err(|error| error.to_string())?;
+    let answer = client
+        .call(C::METHOD, params)
+        .await
+        .map_err(|error| error.to_string())?;
+    serde_json::from_value(answer)
+        .map_err(|error| format!("the core's answer to {} did not read: {error}", C::METHOD))
 }
 
 /// Starts `agent`'s session again and attaches to it.

@@ -1077,11 +1077,11 @@ pub(crate) struct ChatPageParams {
     pub turns: Option<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolDetailParams {
-    agent_id: String,
-    tool_call_id: String,
+    pub agent_id: String,
+    pub tool_call_id: String,
 }
 
 #[derive(Deserialize)]
