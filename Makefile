@@ -76,7 +76,6 @@ ci: check
 
 clean:
 	cargo clean
-	rm -rf node_modules/.vite
 
 # Drops Rust build copies no recent build has used; `make dev` runs it daily.
 prune:
