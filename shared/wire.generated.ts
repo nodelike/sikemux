@@ -2617,6 +2617,7 @@ export type DiffKind = "add" | "mod" | "del";
 /** A draft as the apps read it. */
 export interface Draft {
     text: string;
+    /** What the app keeps beside the text, such as its chips and files, as the app shaped it. */
     extra?: unknown;
     /** Moves on with every change, so an app saving the draft says which one it last read. */
     rev?: number;
@@ -2867,7 +2868,7 @@ export interface AgentWorktreeParams {
     /** What the agent was asked first, which names the branch. */
     message: string;
     /** The repository to use when the agent's folder holds several. */
-    repo?: string | null;
+    repo?: string;
 }
 
 export interface MadeAgentWorktree {
@@ -2936,7 +2937,7 @@ export interface AttachStashParams {
      * False when the app keeps its own draft: the item's file is only kept here, and the app
      * adds it to its message and marks the item used once it is sent.
      */
-    draft?: boolean | null;
+    draft?: boolean;
 }
 
 /** What attaching an item put in the chat's draft. */
@@ -2955,9 +2956,9 @@ export interface StashItemParams {
 export interface SetDraftParams {
     key: string;
     text: string;
-    extra?: unknown | null;
+    extra?: unknown;
     /** The draft's revision the app last read. */
-    rev?: number | null;
+    rev?: number;
 }
 
 /** Whether a new chat in the project at the folder `project` starts in a worktree of its own. */

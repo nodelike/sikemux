@@ -532,6 +532,11 @@ function parseType(text, file) {
   if (path === "Option") return { kind: "option", of: one() };
   if (path === "Vec") return { kind: "list", of: one() };
   if (path === "Box") return one();
+  if (path === "Cow") {
+    const owned = args.filter((arg) => !arg.startsWith("'"));
+    if (owned.length !== 1) fail(`${text} needs one type argument`);
+    return parseType(owned[0] === "str" ? "String" : owned[0], file);
+  }
   if (path === "BTreeMap" || path === "HashMap") {
     if (args.length !== 2 || parseType(args[0], file).kind !== "string")
       fail(`${text} is not keyed by strings`);
