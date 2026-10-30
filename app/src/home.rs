@@ -375,7 +375,7 @@ fn pane_header(
     let open_share = cx.listener(move |bench, _, window, cx| bench.open_share(&shared, window, cx));
     let share = match bench.share_of(&agent.id) {
         Some(share) => {
-            let viewers = share.viewers();
+            let viewers = share.viewers;
             div()
                 .id("agent-share")
                 .h(px(24.))
@@ -388,7 +388,7 @@ fn pane_header(
                 .rounded(crate::theme::RADIUS_2)
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.live)
-                .tooltip(ui::tooltip(share.watching()))
+                .tooltip(ui::tooltip(crate::share::watching(share)))
                 .on_click(open_share)
                 .child(ui::icon(Icon::Eye, 13.).text_color(t.live))
                 .when(viewers > 0, |button| button.child(viewers.to_string()))

@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_wire::share::{ShareAsk, ShareFrame, ShareReply, SharedChat, SharedFile};
@@ -40,9 +40,9 @@ const PAGE_TURNS: u32 = 20;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// What the app shows of one share.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ShareView {
+pub struct ShareView {
     pub id: String,
     pub agent_id: String,
     pub url: String,
@@ -51,13 +51,13 @@ pub(crate) struct ShareView {
     pub viewers: u32,
     pub state: ShareState,
     /// Why the server would not open it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum ShareState {
+pub enum ShareState {
     /// Waiting for the accounts server, which is out of reach or has not
     /// answered yet.
     Connecting,

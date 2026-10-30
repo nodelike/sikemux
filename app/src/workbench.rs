@@ -1019,6 +1019,11 @@ impl Workbench {
                 self.drafts(&value, key == "host-drafts", cx);
                 self.keep_read(key, value);
             }
+            Update::Read("shares", value) => {
+                if !self.reads.keep_shares(value) {
+                    return;
+                }
+            }
             Update::Read("themes", value) => {
                 if !self.reads.keep_themes(value) {
                     return;

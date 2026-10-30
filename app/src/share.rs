@@ -9,8 +9,8 @@ use gpui_kit::{
     div, px, AnyElement, ClipboardItem, Context, Div, FontWeight, InteractiveElement, IntoElement,
     ParentElement, StatefulInteractiveElement, Styled, Window,
 };
-use serde::Deserialize;
 use serde_json::json;
+use sikemux_core::server::{ShareState, ShareView};
 
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_SM, TEXT_XS};
@@ -24,58 +24,28 @@ const LIFETIMES: [(&str, u64); 3] = [
     ("7 days", 7 * 24 * HOUR_MS),
 ];
 
-/// A chat this host shares, as the core's `shares` lists it.
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Share {
-    id: String,
-    agent_id: String,
-    url: String,
-    expires_at: u64,
-    viewers: u32,
-    state: String,
-    problem: Option<String>,
-}
-
-impl Share {
-    /// Who reads it now, in the words beside the chat's name and in the dialog.
-    pub fn watching(&self) -> String {
-        match (self.state.as_str(), self.viewers) {
-            ("connecting", _) => "Connecting…".to_owned(),
-            (_, 0) => "No one watching yet".to_owned(),
-            (_, 1) => "1 person watching".to_owned(),
-            (_, viewers) => format!("{viewers} people watching"),
-        }
-    }
-
-    pub fn viewers(&self) -> u32 {
-        self.viewers
+/// Who reads `share` now, in the words beside the chat's name and in the dialog.
+pub fn watching(share: &ShareView) -> String {
+    match (share.state, share.viewers) {
+        (ShareState::Connecting, _) => "Connecting…".to_owned(),
+        (_, 0) => "No one watching yet".to_owned(),
+        (_, 1) => "1 person watching".to_owned(),
+        (_, viewers) => format!("{viewers} people watching"),
     }
 }
 
 impl Workbench {
-    fn shares(&self) -> Vec<Share> {
-        self.reads
-            .shares
-            .as_ref()
-            .and_then(|shares| serde_json::from_value(shares.clone()).ok())
-            .unwrap_or_default()
-    }
-
     /// The share of `agent`'s chat that is open or opening.
-    pub fn share_of(&self, agent: &str) -> Option<Share> {
-        self.shares()
-            .into_iter()
-            .find(|share| share.agent_id == agent && share.state != "refused")
+    pub fn share_of(&self, agent: &str) -> Option<&ShareView> {
+        (self.reads.shares.iter())
+            .find(|share| share.agent_id == agent && share.state != ShareState::Refused)
     }
 
     /// Why the server turned down the last share of `agent`'s chat, while it stands.
     fn refusal_of(&self, agent: &str) -> Option<String> {
-        let refused = self
-            .shares()
-            .into_iter()
-            .find(|share| share.agent_id == agent && share.state == "refused");
-        refused.and_then(|share| share.problem)
+        (self.reads.shares.iter())
+            .find(|share| share.agent_id == agent && share.state == ShareState::Refused)
+            .and_then(|share| share.problem.clone())
     }
 
     /// Opens the dialog that shares `agent`'s chat, or shows the share it has.
@@ -230,7 +200,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     ui::text(
                         format!(
                             "{} · ends in {}",
-                            share.watching(),
+                            watching(share),
                             crate::ui::time::left(share.expires_at)
                         ),
                         TEXT_XS,
@@ -308,9 +278,9 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let (title, foot, yes): (&str, Div, dialog::Answer) = match share {
         Some(share) => {
             let stop: dialog::Answer = {
-                let this = this.clone();
+                let (this, id) = (this.clone(), share.id.clone());
                 Rc::new(move |window, cx| {
-                    let id = share.id.clone();
+                    let id = id.clone();
                     this.update(cx, |bench, cx| bench.stop_share(id, window, cx))
                 })
             };

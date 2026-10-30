@@ -4,7 +4,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sikemux_core::server::{
-    HostRow, ProjectEntry, RunView, SshHost, TaskList, TrustQuestion, UpdateStatus,
+    HostRow, ProjectEntry, RunView, ShareView, SshHost, TaskList, TrustQuestion, UpdateStatus,
 };
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_wire::catalog::CatalogAgent;
@@ -76,7 +76,8 @@ pub struct Reads {
     /// How updating this app stands, once the core has said.
     pub update: Option<UpdateStatus>,
     pub usage: Option<Value>,
-    pub shares: Option<Value>,
+    /// The chats this host shares read-only.
+    pub shares: Vec<ShareView>,
     pub stash: Option<Value>,
     pub themes: Vec<ThemeSummary>,
     /// This host's trust questions, and those of the account host in front.
@@ -127,7 +128,6 @@ macro_rules! slots {
 
 slots! {
     "usage" => usage,
-    "shares" => shares,
     "stash" => stash,
     "drafts" => drafts,
     "host-drafts" => host_drafts,
@@ -165,6 +165,11 @@ impl Reads {
     /// Keeps how updating stands, and says whether it differs from what was kept.
     pub fn keep_update(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.update, value, "update status")
+    }
+
+    /// Keeps the chats this host shares, and says whether they differ from those kept.
+    pub fn keep_shares(&mut self, value: Value) -> bool {
+        keep_decoded(&mut self.shares, value, "shares")
     }
 
     /// Keeps what the pickers were answered: the folders under the project roots, or this
