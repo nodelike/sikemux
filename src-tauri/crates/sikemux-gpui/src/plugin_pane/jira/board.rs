@@ -321,7 +321,14 @@ impl Jira {
                         || issue.summary.to_lowercase().contains(shape.wanted)
                 })
                 .collect();
+            let target = Target {
+                column: column.name.clone(),
+                status_ids: column.status_ids.clone(),
+                site: shape.site.to_owned(),
+            };
+            let (here, hover) = (lane.to_owned(), lane.to_owned());
             let mut list = div()
+                .id(SharedString::from(format!("jira-column-{lane}-{at}")))
                 .w(px(250.))
                 .flex_none()
                 .p(SPACE_1H)
@@ -330,6 +337,27 @@ impl Jira {
                 .gap(SPACE_1H)
                 .rounded(RADIUS_2)
                 .bg(t.surface_sunken)
+                .drag_over::<DraggedIssue>(move |style, dragged, _, _| {
+                    match dragged.takes(&hover, at) {
+                        true => style.bg(t.surface_hover),
+                        false => style,
+                    }
+                })
+                .on_drop(listen::<Jira, DraggedIssue>(
+                    cx,
+                    move |jira, host, dragged, _, cx| {
+                        if dragged.takes(&here, at) {
+                            let moved = Moved {
+                                key: &dragged.key,
+                                to: at,
+                                column: &target.column,
+                                status_ids: &target.status_ids,
+                                site: &target.site,
+                            };
+                            jira.move_card(host, moved, cx);
+                        }
+                    },
+                ))
                 .child(
                     div()
                         .px(SPACE_1)
@@ -409,6 +437,15 @@ impl Jira {
             .when(moving, |card| card.opacity(0.6))
             .cursor_pointer()
             .hover(move |card| card.border_color(t.border_strong))
+            .on_drag(
+                DraggedIssue {
+                    key: issue.key.clone(),
+                    label: ghost_label(&issue.key, &issue.summary),
+                    lane: lane.to_owned(),
+                    from: at,
+                },
+                |dragged: &DraggedIssue, _, _, cx| crate::drag::ghost(dragged.label.clone(), cx),
+            )
             .child(
                 ui::text(issue.summary.clone(), 12.5, FontWeight::NORMAL)
                     .text_color(t.text_primary)
@@ -473,6 +510,39 @@ struct Shape<'a> {
     site: &'a str,
 }
 
+/// A card dragged to another column of its lane.
+#[derive(Clone)]
+struct DraggedIssue {
+    key: String,
+    label: SharedString,
+    lane: String,
+    from: usize,
+}
+
+impl DraggedIssue {
+    /// Whether column `to` of lane `lane` takes the card: one of its own lane's other columns.
+    fn takes(&self, lane: &str, to: usize) -> bool {
+        self.lane == lane && self.from != to
+    }
+}
+
+/// What follows the pointer while a card is dragged: its key and the start of its summary.
+fn ghost_label(key: &str, summary: &str) -> SharedString {
+    const MOST: usize = 48;
+    let mut label: String = summary.chars().take(MOST).collect();
+    if summary.chars().count() > MOST {
+        label.push('…');
+    }
+    format!("{key} {label}").into()
+}
+
+/// The column a card dropped on goes to.
+struct Target {
+    column: String,
+    status_ids: Vec<String>,
+    site: String,
+}
+
 /// A card moved to another column.
 struct Moved<'a> {
     key: &'a str,
@@ -521,19 +591,23 @@ fn with_moves<'a>(
 /// Moves a card to another column through whichever transition leads to one of its
 /// statuses, showing it there until the board comes again.
 fn move_card(pane: &WeakEntity<PluginPane>, moved: Moved, cx: &mut App) {
-    let key = moved.key.to_owned();
-    let params = MoveRequest {
-        key: moved.key.to_owned(),
-        status_ids: moved.status_ids.to_vec(),
-        column: moved.column.to_owned(),
-        site: site_of(moved.site),
-    };
-    let to = moved.to;
     let _ = pane.update(cx, |pane, cx| {
-        let Some((jira, host)) = pane.parts::<Jira>() else {
-            return;
+        if let Some((jira, host)) = pane.parts::<Jira>() {
+            jira.move_card(host, moved, cx);
+        }
+    });
+}
+
+impl Jira {
+    fn move_card(&mut self, host: &Host, moved: Moved, cx: &mut Context<PluginPane>) {
+        let key = moved.key.to_owned();
+        let params = MoveRequest {
+            key: moved.key.to_owned(),
+            status_ids: moved.status_ids.to_vec(),
+            column: moved.column.to_owned(),
+            site: site_of(moved.site),
         };
-        jira.listing.moves.insert(key.clone(), to);
+        self.listing.moves.insert(key.clone(), moved.to);
         let call = host.call("moveIssue", params);
         after::<Jira, _>(
             call,
@@ -546,5 +620,5 @@ fn move_card(pane: &WeakEntity<PluginPane>, moved: Moved, cx: &mut App) {
             cx,
         );
         cx.notify();
-    });
+    }
 }
