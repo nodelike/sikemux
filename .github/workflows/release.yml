@@ -139,7 +139,7 @@ jobs:
           flags=(--stage helpers)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
-          (cd src-tauri/binaries && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" sikemux-voice-* sikemux-sim-*)
+          (cd packaging/binaries && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" sikemux-voice-* sikemux-sim-*)
 
       - name: Keep the unsigned helpers
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -178,21 +178,20 @@ jobs:
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
           CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
         run: cargo build --locked --release -p sikemux-host --bin sikemux-host
-        working-directory: src-tauri
 
       - name: Keep the core
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mac-core
           if-no-files-found: error
-          path: src-tauri/target/release/sikemux-host
+          path: target/release/sikemux-host
 
       - name: Pack the core's symbols
         env:
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
           mkdir -p "$RUNNER_TEMP/symbols"
-          ditto -c -k --keepParent src-tauri/target/release/sikemux-host.dSYM "$RUNNER_TEMP/symbols/Sikemux_${VERSION}_aarch64.core.dSYM.zip"
+          ditto -c -k --keepParent target/release/sikemux-host.dSYM "$RUNNER_TEMP/symbols/Sikemux_${VERSION}_aarch64.core.dSYM.zip"
 
       - name: Keep the core's symbols
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -301,7 +300,7 @@ jobs:
       # release.sh refreshes Cargo.lock offline, which needs every crate
       # already on disk; a fresh runner has none.
       - name: Fetch Rust dependencies
-        run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+        run: cargo fetch --locked
 
       - name: Compile the app around the signed helpers
         env:
@@ -315,10 +314,10 @@ jobs:
           CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p src-tauri/binaries
+          mkdir -p packaging/binaries
           # The same build release.sh runs, with the environment it exports, so its work is reused.
           set -m
-          (cd src-tauri/crates/sikemux-gpui && SIKEMUX_USAGE_REPORTING=app exec cargo build --release --locked --bin sikemux) &
+          (cd app && SIKEMUX_USAGE_REPORTING=app exec cargo build --release --locked --bin sikemux) &
           early=$!
           set +m
           ./scripts/wait-for-artifact.sh helpers "$RUNNER_TEMP/helpers" "Build the helpers" "Sign the helpers"
@@ -326,13 +325,13 @@ jobs:
           kill -TERM -- "-$early" 2>/dev/null || true
           wait "$early" || true
           while pgrep -g "$early" >/dev/null; do sleep 1; done
-          tar -xmf "$RUNNER_TEMP/helpers/helpers.tar" -C src-tauri/binaries
+          tar -xmf "$RUNNER_TEMP/helpers/helpers.tar" -C packaging/binaries
           flags=(--publish --stage compile)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
-          COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/compiled.tar" src-tauri/target/release/sikemux
+          COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/compiled.tar" target/release/sikemux
           mkdir -p "$RUNNER_TEMP/symbols"
-          ditto -c -k --keepParent src-tauri/target/release/sikemux.dSYM "$RUNNER_TEMP/symbols/Sikemux_${VERSION}_aarch64.app.dSYM.zip"
+          ditto -c -k --keepParent target/release/sikemux.dSYM "$RUNNER_TEMP/symbols/Sikemux_${VERSION}_aarch64.app.dSYM.zip"
 
       - name: Keep the compiled app
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -378,7 +377,7 @@ jobs:
         run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
 
       - name: Fetch Rust dependencies
-        run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+        run: cargo fetch --locked
 
       - name: Fetch helpers
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -404,13 +403,13 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           CHANNEL: ${{ needs.plan.outputs.channel }}
         run: |
-          mkdir -p src-tauri/binaries
-          tar -xf "$RUNNER_TEMP/helpers/helpers.tar" -C src-tauri/binaries
+          mkdir -p packaging/binaries
+          tar -xf "$RUNNER_TEMP/helpers/helpers.tar" -C packaging/binaries
           tar -xf "$RUNNER_TEMP/compiled/compiled.tar"
           flags=(--publish --stage package)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
-          COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/app.tar" -C src-tauri/target/release/bundle macos/Sikemux.app dmg
+          COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/app.tar" -C target/release/bundle macos/Sikemux.app dmg
 
       - name: Keep the unsigned app
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -475,7 +474,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
-          bundle=src-tauri/target/release/bundle
+          bundle=target/release/bundle
           mkdir -p "$bundle"
           tar -xf "$RUNNER_TEMP/unsigned/app.tar" -C "$bundle"
           ./scripts/sign-mac.sh "$VERSION"
@@ -527,9 +526,9 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           CHANNEL: ${{ needs.plan.outputs.channel }}
         run: |
-          mkdir -p src-tauri/target/release/bundle src-tauri/binaries
-          tar -xf "$RUNNER_TEMP/signed/signed.tar" -C src-tauri/target/release/bundle
-          tar -xf "$RUNNER_TEMP/helpers/helpers.tar" -C src-tauri/binaries
+          mkdir -p target/release/bundle packaging/binaries
+          tar -xf "$RUNNER_TEMP/signed/signed.tar" -C target/release/bundle
+          tar -xf "$RUNNER_TEMP/helpers/helpers.tar" -C packaging/binaries
           flags=()
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/verify-release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
@@ -540,12 +539,12 @@ jobs:
           name: sikemux-${{ needs.plan.outputs.version }}
           if-no-files-found: error
           path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
-            src-tauri/target/release/bundle/latest.json
-            src-tauri/binaries/sikemux-voice-*
-            src-tauri/binaries/sikemux-sim-*
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/macos/*.app.tar.gz
+            target/release/bundle/macos/*.app.tar.gz.sig
+            target/release/bundle/latest.json
+            packaging/binaries/sikemux-voice-*
+            packaging/binaries/sikemux-sim-*
             latest.json
 
   build-linux:
@@ -596,9 +595,9 @@ jobs:
           name: sikemux-linux-${{ github.ref_name }}
           if-no-files-found: error
           path: |
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/rpm/*.rpm
-            src-tauri/target/release/bundle/appimage/*.AppImage
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/appimage/*.AppImage
 
   build-host:
     name: Build the Linux host core (${{ matrix.arch }})
@@ -631,7 +630,6 @@ jobs:
           VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
           KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: cargo build --locked --release -p sikemux-host --bin sikemux-host
-        working-directory: src-tauri
 
       - name: Check it runs without a window
         run: scripts/package-host.sh "${{ matrix.arch }}"
@@ -644,7 +642,7 @@ jobs:
         with:
           name: sikemux-host-${{ matrix.arch }}-${{ github.ref_name }}
           if-no-files-found: error
-          path: src-tauri/target/host/*.tar.gz
+          path: target/host/*.tar.gz
 
   sign-host:
     name: Sign the Linux host cores and the AppImage
@@ -671,13 +669,13 @@ jobs:
         with:
           pattern: sikemux-host-*-${{ github.ref_name }}
           merge-multiple: true
-          path: src-tauri/target/host
+          path: target/host
 
       - name: Fetch the Linux packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sikemux-linux-${{ github.ref_name }}
-          path: src-tauri/target/release/bundle
+          path: target/release/bundle
 
       - name: Sign them
         env:
@@ -690,14 +688,14 @@ jobs:
         with:
           name: host-signatures-${{ github.ref_name }}
           if-no-files-found: error
-          path: src-tauri/target/host/*.tar.gz.sig
+          path: target/host/*.tar.gz.sig
 
       - name: Keep the AppImage's signature on the run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: appimage-signature-${{ github.ref_name }}
           if-no-files-found: error
-          path: src-tauri/target/release/bundle/appimage/*.AppImage.sig
+          path: target/release/bundle/appimage/*.AppImage.sig
 
   publish:
     name: Publish
@@ -727,33 +725,33 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sikemux-linux-${{ github.ref_name }}
-          path: src-tauri/target/release/bundle
+          path: target/release/bundle
 
       - name: Fetch the Linux host cores
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: sikemux-host-*-${{ github.ref_name }}
           merge-multiple: true
-          path: src-tauri/target/host
+          path: target/host
 
       - name: Fetch their signatures
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: host-signatures-${{ github.ref_name }}
-          path: src-tauri/target/host
+          path: target/host
 
       - name: Fetch the AppImage's signature
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: appimage-signature-${{ github.ref_name }}
-          path: src-tauri/target/release/bundle/appimage
+          path: target/release/bundle/appimage
 
       - name: Fetch the Mac symbols
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: mac-symbols-*
           merge-multiple: true
-          path: src-tauri/target/symbols
+          path: target/symbols
 
       - name: Publish
         env:

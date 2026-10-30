@@ -6,7 +6,7 @@ const { rustClientSources } = require('./scripts/rust-sources');
 // The runtime version is this fingerprint: an over-the-air update only reaches builds with the native code
 // it was made for. The Rust client is native code too, so what it links counts, and nothing the desktop app
 // alone builds with: a desktop release must not strand every installed phone on an old runtime.
-const RUST = rustClientSources(join(__dirname, '../../src-tauri'));
+const RUST = rustClientSources(join(__dirname, '../..'));
 
 // mobile/native is generated from the Rust sources above, differently on each machine, and is only linked once
 // it has been built, so the fingerprint counts its own few files instead and drops it from the linked modules.
@@ -25,7 +25,7 @@ module.exports = {
   sourceSkips: ['ExpoConfigVersions', 'PackageJsonAndroidAndIosScriptsIfNotContainRun'],
   extraSources: [
     { type: 'file', filePath: '../../rust-toolchain.toml', reasons: ['rustClient'] },
-    ...RUST.crates.map((dir) => ({ type: 'dir', filePath: `../../src-tauri/crates/${dir}`, reasons: ['rustClient'] })),
+    ...RUST.crates.map((dir) => ({ type: 'dir', filePath: `../../crates/${dir}`, reasons: ['rustClient'] })),
     { type: 'contents', id: 'rust/locked', contents: RUST.locked, reasons: ['rustClient'] },
     { type: 'contents', id: 'rust/workspace', contents: RUST.settings, reasons: ['rustClient'] },
     ...NATIVE_FILES.map((name) => ({

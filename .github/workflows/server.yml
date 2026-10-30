@@ -5,28 +5,28 @@ on:
     branches: [main]
     paths:
       - "server/**"
-      - "src-tauri/crates/sikemux-core/src/accounts/**"
-      - "src-tauri/crates/sikemux-wire/src/accounts/**"
+      - "crates/sikemux-core/src/accounts/**"
+      - "crates/sikemux-wire/src/accounts/**"
       # A shared chat's page draws with shared/ and its fonts, the core's themes and markdown, and the mark.
       - "shared/**"
       - "brand/mark/**"
-      - "src-tauri/crates/sikemux-core/src/server/themes/**"
-      - "src-tauri/crates/sikemux-markdown/**"
-      - "src-tauri/crates/sikemux-markdown-wasm/**"
+      - "crates/sikemux-core/src/server/themes/**"
+      - "crates/sikemux-markdown/**"
+      - "crates/sikemux-markdown-wasm/**"
       - mobile/app/certs/updates-certificate.pem
       - .github/workflows/server.yml
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "server/**"
-      - "src-tauri/crates/sikemux-core/src/accounts/**"
-      - "src-tauri/crates/sikemux-wire/src/accounts/**"
+      - "crates/sikemux-core/src/accounts/**"
+      - "crates/sikemux-wire/src/accounts/**"
       # A shared chat's page draws with shared/ and its fonts, the core's themes and markdown, and the mark.
       - "shared/**"
       - "brand/mark/**"
-      - "src-tauri/crates/sikemux-core/src/server/themes/**"
-      - "src-tauri/crates/sikemux-markdown/**"
-      - "src-tauri/crates/sikemux-markdown-wasm/**"
+      - "crates/sikemux-core/src/server/themes/**"
+      - "crates/sikemux-markdown/**"
+      - "crates/sikemux-markdown-wasm/**"
       - mobile/app/certs/updates-certificate.pem
       - .github/workflows/server.yml
   workflow_dispatch:

@@ -15,7 +15,7 @@
         "NSLocalNetworkUsageDescription": "Sikemux reaches your hosts directly when they are on the same network.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "icon": "../../src-tauri/icons/sikemux.icon"
+      "icon": "../../packaging/icons/sikemux.icon"
     },
     "android": {
       "package": "com.nodelike.sikemux.mobile",

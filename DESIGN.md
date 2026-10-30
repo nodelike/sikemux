@@ -2,7 +2,7 @@
 
 Quiet, dense and beautiful, in the spirit of shadcn: neutral surfaces, one
 hairline where two things meet, and colour only where it means something. Every
-value lives in the app's `Tokens` (`sikemux-gpui/src/theme.rs`); the share page
+value lives in the app's `Tokens` (`app/src/theme.rs`); the share page
 carries the same values as the CSS variables named below. Each component builds
 its own look from those tokens.
 

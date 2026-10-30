@@ -21,7 +21,7 @@ function run(command, args) {
   return result;
 }
 
-const lockfile = "src-tauri/Cargo.lock";
+const lockfile = "Cargo.lock";
 const observedWarnings = new Set();
 const rust = run("cargo", ["audit", "--file", lockfile, "--json"]);
 let rustReport;

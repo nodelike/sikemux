@@ -16,7 +16,7 @@ node --check scripts/build-voice-helper.mjs
 node --check scripts/build-notch-helper.mjs
 node scripts/generate-notch-icons.mjs --check
 node --check scripts/build-sim-helper.mjs
-/usr/bin/plutil -lint src-tauri/Info.plist >/dev/null
+/usr/bin/plutil -lint packaging/Info.plist >/dev/null
 
 if RELEASE_CHANNEL=preview scripts/release.sh 0.2.0-beta.1 fixture >/dev/null 2>&1; then
   echo "release tooling accepted an unsupported channel" >&2
@@ -49,11 +49,11 @@ if (app.name !== "Sikemux" || app.identifier !== "com.nodelike.sikemux") fail("t
 if (app["dev-name"] !== "Sikemux Dev" || app["dev-identifier"] !== "com.nodelike.sikemux.dev") fail("the dev app's name or identifier changed");
 if (!macBuild.includes("cargo build --release --locked --bin sikemux")) fail("macOS build does not build the GPUI app");
 if (!macBuild.includes('/usr/bin/hdiutil convert "$LAYOUT.rw.dmg" -format ULMO')) fail("macOS build does not pack the DMG");
-if (!macBuild.includes('"$ROOT/src-tauri/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"')) fail("Assets.car is not bundled");
-if (!macBuild.includes('-c "Merge $ROOT/src-tauri/Info.plist"')) fail("pre-signing Info.plist merge is not configured");
+if (!macBuild.includes('"$ROOT/packaging/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"')) fail("Assets.car is not bundled");
+if (!macBuild.includes('-c "Merge $ROOT/packaging/Info.plist"')) fail("pre-signing Info.plist merge is not configured");
 if (app["minimum-macos"] !== "11.0") fail("unexpected minimum macOS version");
 if (!app.description) fail("the app has no description for its Linux packages");
-if (!macBuild.includes('--entitlements "$ROOT/src-tauri/Entitlements.plist"')) fail("microphone entitlement is not configured");
+if (!macBuild.includes('--entitlements "$ROOT/packaging/Entitlements.plist"')) fail("microphone entitlement is not configured");
 if (pkg.scripts?.["build:linux"] !== "scripts/build-linux.sh") fail("pnpm build:linux does not run scripts/build-linux.sh");
 if (!linuxBuild.includes("node scripts/build-cli-sidecar.mjs")) fail("Linux build does not build the core");
 if (!linuxBuild.includes("cargo build --release --locked --bin sikemux")) fail("Linux build does not build the GPUI app");
@@ -77,16 +77,16 @@ if (!publish.includes('manifest["platforms"][f"host-linux-{arch}"]')) fail("the 
 if (!releaseWorkflow.includes("scripts/smoke-host-install.sh")) fail("the Release workflow does not install the host core with its own installer");
 if (!macBuild.includes("build-voice-helper.mjs")) fail("macOS build does not build the voice helper");
 if (!macBuild.includes("build-notch-helper.mjs")) fail("macOS build does not build the notch helper");
-if (!macBuild.includes('"$ROOT/src-tauri/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"')) fail("the macOS bundle must carry the notch helper app");
+if (!macBuild.includes('"$ROOT/packaging/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"')) fail("the macOS bundle must carry the notch helper app");
 if (!publish.includes('"$SIG" "$VOICE"')) fail("releases do not publish the voice helper the app downloads");
 if (!macBuild.includes("build-sim-helper.mjs")) fail("macOS build does not build the simulator helper");
 if (!publish.includes('"$VOICE" "$SIM"')) fail("releases do not publish the simulator helper the app downloads");
 if (!linuxBuild.includes('"$PI_TOOLS" "$PACKAGE/usr/lib/sikemux/sikemux_pi_tools.ts"')) fail("Linux packages do not carry the Pi browser extension");
 if (!macBuild.includes("build-cli-sidecar.mjs")) fail("macOS build does not build the CLI sidecar");
-if (!macBuild.includes('"$ROOT/src-tauri/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"')) fail("the macOS bundle must carry the core app");
+if (!macBuild.includes('"$ROOT/packaging/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"')) fail("the macOS bundle must carry the core app");
 if (!macBuild.includes('ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Contents/MacOS/sikemux-host"')) fail("the macOS bundle must link Contents/MacOS/sikemux-host to the core");
 for (const profile of ["sikemux-developer-id", "sikemux-core-developer-id"]) {
-  if (!fs.existsSync(`src-tauri/macos/${profile}.provisionprofile`)) fail(`src-tauri/macos/${profile}.provisionprofile is missing`);
+  if (!fs.existsSync(`packaging/macos/${profile}.provisionprofile`)) fail(`packaging/macos/${profile}.provisionprofile is missing`);
 }
 if (!sidecarBuild.includes("smokeBrowserSidecar")) fail("sidecar build does not run the browser smoke test");
 for (const [name, text] of [["scripts/build-mac.sh", macBuild], ["scripts/build-cli-sidecar.mjs", sidecarBuild], [".github/workflows/release.yml", releaseWorkflow]]) {
@@ -95,11 +95,11 @@ for (const [name, text] of [["scripts/build-mac.sh", macBuild], ["scripts/build-
 if (!macBuild.includes("this test kit has no answer for that") || !macBuild.includes("window driver could not listen")) {
     fail("macOS build no longer refuses a binary built with a test kit's feature");
 }
-const updates = fs.readFileSync("src-tauri/crates/sikemux-core/src/release_feed.rs", "utf8");
+const updates = fs.readFileSync("crates/sikemux-core/src/release_feed.rs", "utf8");
 if (!updates.includes('"https://github.com/nodelike/sikemux/releases/latest/download/latest.json"')) {
   fail("the stable update feed is not the expected HTTPS latest.json URL");
 }
-if (!updates.includes('include_str!("../../sikemux-gpui/Cargo.toml")')) fail("the core does not take the updater key from the GPUI app's Cargo.toml");
+if (!updates.includes('include_str!("../../../app/Cargo.toml")')) fail("the core does not take the updater key from the GPUI app's Cargo.toml");
 const publicKeyText = Buffer.from(app["updater-key"], "base64").toString("utf8").trim();
 const publicLines = publicKeyText.split("\n");
 if (publicLines.length !== 2 || !publicLines[0].startsWith("untrusted comment:")) fail("invalid updater public-key envelope");
@@ -108,7 +108,7 @@ if (packet.length !== 42 || packet.subarray(0, 2).toString("ascii") !== "Ed") fa
 NODE
 
 # Shipped clients resolve this exact URL, so the endpoint is a fixed contract.
-grep -Fq 'releases/download/nightly/latest.json' src-tauri/crates/sikemux-core/src/release_feed.rs || {
+grep -Fq 'releases/download/nightly/latest.json' crates/sikemux-core/src/release_feed.rs || {
   echo "nightly updater endpoint is missing" >&2
   exit 1
 }
@@ -164,7 +164,7 @@ grep -Fq 'group: release' .github/workflows/release.yml || {
   exit 1
 }
 
-CARGO_METADATA="$(cargo metadata --manifest-path src-tauri/Cargo.toml --offline --locked --no-deps --format-version 1)"
+CARGO_METADATA="$(cargo metadata --offline --locked --no-deps --format-version 1)"
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"
 CARGO_VERSION="$(node -e '
   const metadata = JSON.parse(require("fs").readFileSync(0, "utf8"));

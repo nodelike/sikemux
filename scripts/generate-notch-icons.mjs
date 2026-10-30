@@ -12,7 +12,7 @@ const iconsPath = resolve(root, "shared/ui/Icons.tsx");
 const logosDir = resolve(root, "shared/assets/agent-logos");
 const outputPath = resolve(
   root,
-  "src-tauri/notch/Sources/NotchKit/Icons.generated.swift",
+  "helpers/notch/Sources/NotchKit/Icons.generated.swift",
 );
 const check = process.argv.includes("--check");
 
@@ -51,10 +51,7 @@ const BRAND_MARK = resolve(root, "brand/mark/mark-white.svg");
 const BRAND = Object.fromEntries(
   JSON.parse(
     await readFile(
-      resolve(
-        root,
-        "src-tauri/crates/sikemux-core/src/assets/agent-catalog.json",
-      ),
+      resolve(root, "crates/sikemux-core/src/assets/agent-catalog.json"),
       "utf8",
     ),
   ).agents.map((agent) => [agent.type, agent.brand]),

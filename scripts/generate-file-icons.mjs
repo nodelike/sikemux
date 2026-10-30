@@ -7,10 +7,7 @@ const root = resolve(import.meta.dirname, "..");
 const themeDir = resolve(root, "node_modules/material-icon-theme");
 const iconsOutputDir = resolve(root, "server/app/public/file-icons");
 const indexOutputPath = resolve(iconsOutputDir, "index.json");
-const gpuiBundlePath = resolve(
-  root,
-  "src-tauri/crates/sikemux-gpui/assets/file-icons.json.gz",
-);
+const gpuiBundlePath = resolve(root, "app/assets/file-icons.json.gz");
 const grammarsPath = resolve(
   root,
   "server/app/src/chat/languages/generated/grammars.ts",

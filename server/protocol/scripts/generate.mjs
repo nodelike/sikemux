@@ -62,13 +62,13 @@ try {
       openapi(definitions, routes),
     ),
     [join(protocol, "generated/client.ts")]: client(routes),
-    [join(repo, "src-tauri/crates/sikemux-wire/src/accounts/protocol.rs")]:
+    [join(repo, "crates/sikemux-wire/src/accounts/protocol.rs")]:
       rust(definitions, {
         include: (definition) => !CORE_ONLY.has(definition.file),
       }),
   };
   for (const [file, module] of CORE_ONLY)
-    outputs[join(repo, "src-tauri/crates/sikemux-core/src/accounts", module)] =
+    outputs[join(repo, "crates/sikemux-core/src/accounts", module)] =
       rust(definitions, {
         include: (definition) => definition.file === file,
         imports: "\nuse super::protocol::*;\n",

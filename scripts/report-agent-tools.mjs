@@ -88,7 +88,7 @@ for (const tool of [...served]
 
 // A plugin's tools are sent only to agents in a repository where they would
 // work, so each family is billed on its own.
-const pluginsDir = resolve(root, "src-tauri/plugins");
+const pluginsDir = resolve(root, "plugins");
 console.log("\nplugin tools, sent where the plugin would work");
 for (const entry of (await readdir(pluginsDir, { withFileTypes: true })).filter(
   (entry) => entry.isDirectory(),

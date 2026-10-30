@@ -5,15 +5,14 @@ dist
 *.local
 /latest.json
 data/
-src-tauri/icons/build/
-src-tauri/binaries/sikemux-host-*
-src-tauri/binaries/sikemux-voice-*
-src-tauri/voice/.build/
-src-tauri/binaries/sikemux-sim-*
-src-tauri/sim/.build/
-src-tauri/sim/Frameworks/
-src-tauri/sim/FBControlCore.xcodeproj/
-src-tauri/sim/Fixture/SimFixture.xcodeproj/
+/target/
+packaging/icons/build/
+packaging/binaries/
+helpers/voice/.build/
+helpers/sim/.build/
+helpers/sim/Frameworks/
+helpers/sim/FBControlCore.xcodeproj/
+helpers/sim/Fixture/SimFixture.xcodeproj/
 .env
 .design/
 
@@ -29,9 +28,7 @@ marketing/
 graphify-out/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
-src-tauri/notch/.build/
-src-tauri/binaries/notch/
-src-tauri/binaries/core/
+helpers/notch/.build/
 
 # Research notes, kept local only.
 docs/research/

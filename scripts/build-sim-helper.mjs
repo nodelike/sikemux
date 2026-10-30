@@ -17,8 +17,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const tauriDir = join(root, "src-tauri");
-const simDir = join(tauriDir, "sim");
+const simDir = join(root, "helpers", "sim");
 const idbDir = join(simDir, "idb");
 const buildDir = join(simDir, ".build");
 const args = process.argv.slice(2);
@@ -226,8 +225,8 @@ function buildHelper(arch) {
 buildFBControlCore();
 const built = archs.map(buildHelper);
 const destination = args.includes("--dev")
-  ? join(tauriDir, "target", "debug", name)
-  : join(tauriDir, "binaries", `${name}-${target}`);
+  ? join(root, "target", "debug", name)
+  : join(root, "packaging", "binaries", `${name}-${target}`);
 mkdirSync(dirname(destination), { recursive: true });
 if (built.length === 1) copyFileSync(built[0], destination);
 else run("lipo", ["-create", ...built, "-output", destination]);

@@ -3,10 +3,10 @@
 # the key installed apps trust. A change to any of these waits for the owner.
 /.github/ @nodelike
 /scripts/ @nodelike
-/src-tauri/Entitlements.plist @nodelike
-/src-tauri/Info.plist @nodelike
+/packaging/Entitlements.plist @nodelike
+/packaging/Info.plist @nodelike
 **/build.rs @nodelike
 **/Cargo.toml @nodelike
-/src-tauri/Cargo.lock @nodelike
+/Cargo.lock @nodelike
 /package.json @nodelike
 /pnpm-lock.yaml @nodelike

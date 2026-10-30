@@ -57,7 +57,7 @@ sees terminal bytes or prompts.
 - Remote connections drop during an in-place update; devices reconnect and take their
   sessions back with a fresh snapshot, as the app does.
 - While remote access is on, a LaunchAgent starts the core at login
-  (`src-tauri/crates/sikemux-host/src/login_item.rs`), so the Mac is reachable after a restart without
+  (`crates/sikemux-host/src/login_item.rs`), so the Mac is reachable after a restart without
   Sikemux being opened. It restarts the core only after a crash; turning remote access
   off removes it.
 - While remote access is on, the core also advertises itself over Bonjour, and a

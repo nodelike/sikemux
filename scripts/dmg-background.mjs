@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const OUT = join(ROOT, "src-tauri/dmg/background.tiff");
+const OUT = join(ROOT, "packaging/dmg/background.tiff");
 const [width, height] = [660, 440];
 const app = { x: 180, y: 180 };
 const folder = { x: 480, y: 180 };

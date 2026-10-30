@@ -19,7 +19,7 @@ function readMarkdown(texts) {
         'run',
         '--quiet',
         '--manifest-path',
-        path.resolve(__dirname, '../../src-tauri/Cargo.toml'),
+        path.resolve(__dirname, '../../Cargo.toml'),
         '-p',
         'sikemux-markdown',
         '--example',

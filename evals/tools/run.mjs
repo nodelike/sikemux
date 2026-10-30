@@ -14,8 +14,8 @@ import { judge, readVerdict } from './lib/judge.mjs';
 import { report } from './lib/report.mjs';
 
 const EVAL = join(REPO, 'evals/tools');
-const SURFACE = ['browser', 'src-tauri/crates/sikemux-host/src/tools_mcp', 'src-tauri/plugins', 'AGENTS.md'];
-const BUILT_HOST = join(REPO, 'src-tauri/target/debug/sikemux-host');
+const SURFACE = ['browser', 'crates/sikemux-host/src/tools_mcp', 'plugins', 'AGENTS.md'];
+const BUILT_HOST = join(REPO, 'target/debug/sikemux-host');
 const HOSTS = '/tmp/sikemux-tool-eval/hosts';
 
 const { values: options } = parseArgs({
@@ -150,16 +150,16 @@ function loadCases() {
 }
 
 function ensureHost() {
-  const sources = join(REPO, 'src-tauri/crates/sikemux-host/src/tools_mcp');
+  const sources = join(REPO, 'crates/sikemux-host/src/tools_mcp');
   const newest = Math.max(...readdirSync(sources).map((name) => statSync(join(sources, name)).mtimeMs));
   if (options.build || !existsSync(BUILT_HOST) || statSync(BUILT_HOST).mtimeMs < newest) {
     console.log('building sikemux-host…');
-    execFileSync('cargo', ['build', '--manifest-path', join(REPO, 'src-tauri/Cargo.toml'), '-p', 'sikemux-host', '--bin', 'sikemux-host'], {
+    execFileSync('cargo', ['build', '--manifest-path', join(REPO, 'Cargo.toml'), '-p', 'sikemux-host', '--bin', 'sikemux-host'], {
       stdio: 'inherit',
       env: { ...process.env, PATH: `${join(process.env.HOME, '.cargo/bin')}:${process.env.PATH}` },
     });
   }
-  if (git('status', '--porcelain', '--untracked-files=no', '--', 'src-tauri') === '') {
+  if (git('status', '--porcelain', '--untracked-files=no', '--', 'crates', 'plugins', 'Cargo.toml', 'Cargo.lock') === '') {
     const saved = join(HOSTS, git('rev-parse', '--short=9', 'HEAD'));
     mkdirSync(saved, { recursive: true });
     copyFileSync(BUILT_HOST, join(saved, 'sikemux-host'));

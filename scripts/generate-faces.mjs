@@ -14,11 +14,8 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
-const manifestPath = resolve(
-  root,
-  "src-tauri/crates/sikemux-core/src/assets/faces.json",
-);
-const drawingsDir = resolve(root, "src-tauri/crates/sikemux-gpui/assets/faces");
+const manifestPath = resolve(root, "crates/sikemux-core/src/assets/faces.json");
+const drawingsDir = resolve(root, "app/assets/faces");
 const check = process.argv.includes("--check");
 const STATES = ["idle", "working", "waiting", "done", "error"];
 // The art repeats an attribute on some elements. WebKit, which draws it on the Mac,

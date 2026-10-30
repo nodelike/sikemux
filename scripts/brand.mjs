@@ -13,8 +13,8 @@ import { chromium } from "playwright-core";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const OUT = join(ROOT, "brand");
-const WORDMARK = join(ROOT, "src-tauri/icons/sikemux.icon/Assets/wordmark.svg");
-const FIGTREE = join(ROOT, "src-tauri/notch/Fonts/Figtree_600SemiBold.ttf");
+const WORDMARK = join(ROOT, "packaging/icons/sikemux.icon/Assets/wordmark.svg");
+const FIGTREE = join(ROOT, "helpers/notch/Fonts/Figtree_600SemiBold.ttf");
 
 const shapes = readFileSync(WORDMARK, "utf8")
   .match(/<g transform="translate\(-4\.5, 53\.5\)">([\s\S]*?)<\/g>/)[1]

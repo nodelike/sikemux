@@ -45,7 +45,7 @@ unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE
 
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 APP_IDENTIFIER="$(node scripts/app-metadata.mjs identifier)"
-BUNDLE="$ROOT/src-tauri/target/release/bundle"
+BUNDLE="$ROOT/target/release/bundle"
 APP="$BUNDLE/macos/${APP_NAME}.app"
 TAR="$BUNDLE/macos/${APP_NAME}.app.tar.gz"
 SIG="$TAR.sig"
@@ -112,8 +112,8 @@ notarize() {
 
 echo "→ Signing $APP_NAME.app as $IDENTITY"
 # The profiles let the app and its core claim the keychain group they share.
-/usr/bin/ditto "$ROOT/src-tauri/macos/sikemux-developer-id.provisionprofile" "$APP/Contents/embedded.provisionprofile"
-/usr/bin/ditto "$ROOT/src-tauri/macos/sikemux-core-developer-id.provisionprofile" "$CORE_APP/Contents/embedded.provisionprofile"
+/usr/bin/ditto "$ROOT/packaging/macos/sikemux-developer-id.provisionprofile" "$APP/Contents/embedded.provisionprofile"
+/usr/bin/ditto "$ROOT/packaging/macos/sikemux-core-developer-id.provisionprofile" "$CORE_APP/Contents/embedded.provisionprofile"
 "$ROOT/scripts/mac-entitlements.sh" app >"$WORK/app.entitlements"
 "$ROOT/scripts/mac-entitlements.sh" core >"$WORK/core.entitlements"
 /usr/bin/codesign --force --options runtime ${TIMESTAMP[@]+"${TIMESTAMP[@]}"} --sign "$IDENTITY" "$NOTCH_APP"
@@ -155,8 +155,8 @@ done
 shopt -u nullglob dotglob
 [[ -d "$MOUNT/$APP_NAME.app" && ! -L "$MOUNT/$APP_NAME.app" ]] || fail "the DMG does not hold $APP_NAME.app"
 if [[ "$(ls -A "$MOUNT/.background")" != "background.tiff" ]] ||
-  ! /usr/bin/cmp -s "$MOUNT/.background/background.tiff" "$ROOT/src-tauri/dmg/background.tiff"; then
-  fail "the DMG background is not src-tauri/dmg/background.tiff"
+  ! /usr/bin/cmp -s "$MOUNT/.background/background.tiff" "$ROOT/packaging/dmg/background.tiff"; then
+  fail "the DMG background is not packaging/dmg/background.tiff"
 fi
 rm -rf "${MOUNT:?}/$APP_NAME.app" "$MOUNT/.fseventsd" "$MOUNT/.Trashes"
 /usr/bin/ditto "$APP" "$MOUNT/$APP_NAME.app"

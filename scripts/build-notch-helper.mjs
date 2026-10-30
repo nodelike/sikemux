@@ -19,8 +19,7 @@ import { fileURLToPath } from "node:url";
 import { appMetadata } from "./app-metadata.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const tauriDir = join(root, "src-tauri");
-const packageDir = join(tauriDir, "notch");
+const packageDir = join(root, "helpers", "notch");
 const args = process.argv.slice(2);
 const name = "sikemux-notch";
 
@@ -93,8 +92,8 @@ const built = join(
 const dev = args.includes("--dev");
 const appName = dev ? "Sikemux Notch Dev" : "Sikemux Notch";
 const bundle = dev
-  ? join(tauriDir, "target", "debug", `${appName}.app`)
-  : join(tauriDir, "binaries", "notch", `${appName}.app`);
+  ? join(root, "target", "debug", `${appName}.app`)
+  : join(root, "packaging", "binaries", "notch", `${appName}.app`);
 const { version } = appMetadata();
 rmSync(bundle, { recursive: true, force: true });
 mkdirSync(join(bundle, "Contents", "MacOS"), { recursive: true });

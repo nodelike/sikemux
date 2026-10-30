@@ -130,7 +130,7 @@ if [[ "$STAGE" != "helpers" ]]; then
 fi
 
 PKG_VER="$(node -p "require('./package.json').version")"
-if ! CARGO_METADATA="$(cargo metadata --manifest-path src-tauri/Cargo.toml --locked --no-deps --format-version 1)"; then
+if ! CARGO_METADATA="$(cargo metadata --locked --no-deps --format-version 1)"; then
   fail "Cargo.lock is missing or out of date"
 fi
 package_version() {
@@ -209,7 +209,7 @@ else
   echo "✓ Preflight passed; bumping version to $VERSION"
 fi
 BACKUP="$(mktemp -d)"
-FILES=(package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/crates/sikemux-gpui/Cargo.toml latest.json)
+FILES=(package.json Cargo.toml Cargo.lock app/Cargo.toml latest.json)
 for file in "${FILES[@]}"; do
   if [[ -e "$file" ]]; then mkdir -p "$BACKUP/$(dirname "$file")"; cp "$file" "$BACKUP/$file"; fi
 done
@@ -250,7 +250,7 @@ path = pathlib.Path("package.json")
 data = json.loads(path.read_text())
 data["version"] = version
 path.write_text(json.dumps(data, indent=2) + "\n")
-for name in ("src-tauri/Cargo.toml", "src-tauri/crates/sikemux-gpui/Cargo.toml"):
+for name in ("Cargo.toml", "app/Cargo.toml"):
     path = pathlib.Path(name)
     text = path.read_text()
     updated, count = re.subn(r'(?m)^(version = ")[^"]+("\s*)$', rf'\g<1>{version}\2', text, count=1)
@@ -261,17 +261,17 @@ PY
 # Cargo.lock records the workspace version and the sidecar builds with --locked,
 # so the bump has to reach the lock file or the build fails partway through.
 if [[ "$VERSION" != "$PKG_VER" ]]; then
-  cargo metadata --manifest-path src-tauri/Cargo.toml --offline --format-version 1 >/dev/null \
+  cargo metadata --offline --format-version 1 >/dev/null \
     || fail "could not refresh Cargo.lock for $VERSION"
 fi
 snapshot_expected
 
-BUNDLE="$ROOT/src-tauri/target/release/bundle"
+BUNDLE="$ROOT/target/release/bundle"
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 APP="$BUNDLE/macos/${APP_NAME}.app"
 HOST="$(rustc -vV | sed -n 's/^host: //p')"
-VOICE="$ROOT/src-tauri/binaries/sikemux-voice-$HOST"
-SIM="$ROOT/src-tauri/binaries/sikemux-sim-$HOST"
+VOICE="$ROOT/packaging/binaries/sikemux-voice-$HOST"
+SIM="$ROOT/packaging/binaries/sikemux-sim-$HOST"
 # Remove stale outputs before the one release build. Their absence afterwards
 # is stronger evidence of freshness than directory mtimes, which do not change
 # when a bundler updates files in place.

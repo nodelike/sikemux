@@ -16,7 +16,7 @@ const NEVER_RUN = [
   ...['.cargo/bin/cargo', '.cargo/bin/rustc', '.cargo/bin/rustup', '.local/bin/npm', '.local/bin/npx', '.local/bin/vercel'].map((path) => join(HOME, path)),
 ];
 const SIKEMUX_REGEX = ['^/Applications/Sikemux[^/]*\\.app(/|$)', '/Sikemux[^/]*\\.app/Contents/'];
-const SIKEMUX_PATHS = [join(REPO, 'src-tauri/target'), '/tmp/sikemux-tool-eval/hosts', '/private/tmp/sikemux-tool-eval/hosts'];
+const SIKEMUX_PATHS = [join(REPO, 'target'), '/tmp/sikemux-tool-eval/hosts', '/private/tmp/sikemux-tool-eval/hosts'];
 // Other cases' homes, the run folders with every fixture and grade, and other sessions' temporary files.
 const OTHERS = [`^/private/tmp/u${'[A-Za-z0-9]'.repeat(6)}(/|$)`, '^/private/tmp/sikemux-tool-eval(/|$)', '^/private/tmp/omphome(/|$)', '^/private/tmp/claude-[0-9]+(/|$)'];
 const SIKEMUX_SOCKETS = ['.config/sikemux', 'Library/Application Support/com.nodelike.sikemux'].map((path) => join(HOME, path));
@@ -121,7 +121,7 @@ function claudeAccount() {
 // The tools profile is the same without that, for the one sikemux-host the harness itself runs.
 // The zsh options Sikemux starts agents' shells with.
 function agentZshOptions(at) {
-  return readRepo('src-tauri/crates/sikemux-core/src/agent_shell.rs', at).match(/const OPTIONS: &str = "([^"]+)"/)[1];
+  return readRepo('crates/sikemux-core/src/agent_shell.rs', at).match(/const OPTIONS: &str = "([^"]+)"/)[1];
 }
 
 // Sikemux links a GNU-style timeout beside its git shim; macOS has none.

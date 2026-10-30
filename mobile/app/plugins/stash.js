@@ -11,7 +11,7 @@ const {
 
 const EXTENSION = 'SikemuxShare';
 const MODULE = path.join(__dirname, '..', 'modules', 'stash', 'ios');
-const NOTCH = path.join(__dirname, '..', '..', '..', 'src-tauri', 'notch', 'Sources', 'NotchKit');
+const NOTCH = path.join(__dirname, '..', '..', '..', 'helpers', 'notch', 'Sources', 'NotchKit');
 const EXTENSION_SOURCES = [
   path.join(MODULE, 'Extension', 'ShareViewController.swift'),
   path.join(MODULE, 'Extension', 'ShareModel.swift'),

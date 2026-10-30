@@ -18,7 +18,7 @@ const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const target =
   args.find((arg) => !arg.startsWith("--")) ??
-  join(import.meta.dirname, "..", "src-tauri", "target");
+  join(import.meta.dirname, "..", "target");
 const now = Date.now();
 let freed = 0;
 

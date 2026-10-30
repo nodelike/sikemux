@@ -8,36 +8,27 @@ import { dirname, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const manifestPath = resolve(root, "browser/tools.json");
-const rustOutputPath = resolve(
-  root,
-  "src-tauri/crates/sikemux-base/src/cli/methods.rs",
-);
+const rustOutputPath = resolve(root, "crates/sikemux-base/src/cli/methods.rs");
 const browserHandlersPath = resolve(
   root,
-  "src-tauri/crates/sikemux-browser/src/tools.rs",
+  "crates/sikemux-browser/src/tools.rs",
 );
 const simulatorHandlersPath = resolve(
   root,
-  "src-tauri/crates/sikemux-simulator/src/tools.rs",
+  "crates/sikemux-simulator/src/tools.rs",
 );
-const windowHandlersPath = resolve(
-  root,
-  "src-tauri/crates/sikemux-gpui/src/desk.rs",
-);
-const pluginsPath = resolve(root, "src-tauri/plugins");
-const rowsOutputPath = resolve(
-  root,
-  "src-tauri/crates/sikemux-fold/src/tool_rows.rs",
-);
+const windowHandlersPath = resolve(root, "app/src/desk.rs");
+const pluginsPath = resolve(root, "plugins");
+const rowsOutputPath = resolve(root, "crates/sikemux-fold/src/tool_rows.rs");
 const rowIconsPath = resolve(root, "shared/chat/toolRows.ts");
 const wireTypesPath = resolve(root, "shared/wire.generated.ts");
 const coreHandlersPath = resolve(
   root,
-  "src-tauri/crates/sikemux-core/src/server/harness.rs",
+  "crates/sikemux-core/src/server/harness.rs",
 );
 const cliProtocolPath = resolve(
   root,
-  "src-tauri/crates/sikemux-base/src/cli/protocol.rs",
+  "crates/sikemux-base/src/cli/protocol.rs",
 );
 const check = process.argv.includes("--check");
 
@@ -92,7 +83,7 @@ compare(
     /((?:"[a-z.]+"\s*\|\s*)*"[a-z.]+")\s*=>/gu,
     "browser.",
   ),
-  "src-tauri/crates/sikemux-browser/src/tools.rs",
+  "crates/sikemux-browser/src/tools.rs",
 );
 compare(
   simulatorMethods,
@@ -101,7 +92,7 @@ compare(
     /((?:"[a-zA-Z0-9.]+"\s*\|\s*)*"[a-zA-Z0-9.]+")\s*=>/gu,
     "sim.",
   ),
-  "src-tauri/crates/sikemux-simulator/src/tools.rs",
+  "crates/sikemux-simulator/src/tools.rs",
 );
 // The core answers some harness methods itself and hands the rest to the
 // window, so a method counts as handled by either side's dispatch.
@@ -140,7 +131,7 @@ const windowHandled = handlersIn(
 compare(
   harnessMethods,
   new Set([...coreHandled, ...windowHandled]),
-  "the core's harness dispatch and the GPUI window's in sikemux-gpui/src/desk.rs",
+  "the core's harness dispatch and the GPUI window's in app/src/desk.rs",
 );
 
 // A method the core hands on to the window needs a GPUI handler, unless the core
@@ -174,7 +165,7 @@ const missingInWindow = harnessMethods.filter((method) => {
 });
 if (missingInWindow.length > 0)
   throw new Error(
-    `the core hands ${missingInWindow.join(", ")} to the window, which has no GPUI handler in sikemux-gpui/src/desk.rs`,
+    `the core hands ${missingInWindow.join(", ")} to the window, which has no GPUI handler in app/src/desk.rs`,
   );
 for (const [prefix, dispatcher] of [
   ["browser.", "is_browser_method"],
@@ -224,7 +215,7 @@ for (const entry of await readdir(pluginsPath, { withFileTypes: true })) {
   const path = resolve(pluginsPath, entry.name, "manifest.json");
   const plugin = JSON.parse(await readFile(path, "utf8"));
   plugins.push({
-    where: `src-tauri/plugins/${entry.name}/manifest.json`,
+    where: `plugins/${entry.name}/manifest.json`,
     plugin: plugin.id,
     tools: plugin.tools ?? [],
   });

@@ -6,8 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const tauriDir = join(root, "src-tauri");
-const packageDir = join(tauriDir, "voice");
+const packageDir = join(root, "helpers", "voice");
 const args = process.argv.slice(2);
 const name = "sikemux-voice";
 
@@ -76,8 +75,8 @@ const built = join(
 );
 
 const destination = args.includes("--dev")
-  ? join(tauriDir, "target", "debug", name)
-  : join(tauriDir, "binaries", `${name}-${target}`);
+  ? join(root, "target", "debug", name)
+  : join(root, "packaging", "binaries", `${name}-${target}`);
 mkdirSync(dirname(destination), { recursive: true });
 copyFileSync(built, destination);
 chmodSync(destination, 0o755);

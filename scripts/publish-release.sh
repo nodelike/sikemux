@@ -17,7 +17,7 @@ fail() {
 [[ -n "$VERSION" && -n "$NOTES" ]] || { echo "Usage: $0 <version> <notes> [--nightly]" >&2; exit 2; }
 [[ "${GITHUB_ACTIONS:-}" == "true" ]] || fail "releases publish from the Release workflow"
 
-BUNDLE="$ROOT/src-tauri/target/release/bundle"
+BUNDLE="$ROOT/target/release/bundle"
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 TAR="$BUNDLE/macos/${APP_NAME}.app.tar.gz"
 SIG="$TAR.sig"
@@ -28,13 +28,13 @@ else
 fi
 shopt -s nullglob
 DMGS=("$BUNDLE"/dmg/*.dmg)
-VOICES=("$ROOT"/src-tauri/binaries/sikemux-voice-*)
-SIMS=("$ROOT"/src-tauri/binaries/sikemux-sim-*)
+VOICES=("$ROOT"/packaging/binaries/sikemux-voice-*)
+SIMS=("$ROOT"/packaging/binaries/sikemux-sim-*)
 DEBS=("$BUNDLE"/deb/*.deb)
 RPMS=("$BUNDLE"/rpm/*.rpm)
 APPIMAGES=("$BUNDLE"/appimage/*.AppImage)
-HOSTS=("$ROOT"/src-tauri/target/host/sikemux-host-"$VERSION"-linux-*.tar.gz)
-SYMBOLS=("$ROOT"/src-tauri/target/symbols/Sikemux_"$VERSION"_*.dSYM.zip)
+HOSTS=("$ROOT"/target/host/sikemux-host-"$VERSION"-linux-*.tar.gz)
+SYMBOLS=("$ROOT"/target/symbols/Sikemux_"$VERSION"_*.dSYM.zip)
 shopt -u nullglob
 [[ ${#DMGS[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMGS[@]}"
 [[ ${#VOICES[@]} -eq 1 ]] || fail "expected exactly one voice helper, found ${#VOICES[@]}"

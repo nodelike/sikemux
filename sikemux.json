@@ -5,7 +5,7 @@
       {
         "id": "link-build-outputs",
         "label": "Link the app's build outputs",
-        "command": "main=\"$(git rev-parse --path-format=absolute --git-common-dir)/..\"; for built in src-tauri/binaries src-tauri/icons/build src-tauri/gen; do if [ -e \"$main/$built\" ] && [ ! -e \"$built\" ]; then ln -s \"$main/$built\" \"$built\"; fi; done"
+        "command": "main=\"$(git rev-parse --path-format=absolute --git-common-dir)/..\"; for built in packaging/binaries packaging/icons/build; do if [ -e \"$main/$built\" ] && [ ! -e \"$built\" ]; then ln -s \"$main/$built\" \"$built\"; fi; done"
       }
     ]
   },
@@ -13,7 +13,7 @@
     "command": "pnpm -s wire:generate",
     "outputs": [
       "shared/wire.generated.ts",
-      "src-tauri/notch/Sources/NotchKit/Wire.generated.swift",
+      "helpers/notch/Sources/NotchKit/Wire.generated.swift",
       "mobile/app/modules/notify/ios/Shared/Card.generated.swift",
       "mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt"
     ]

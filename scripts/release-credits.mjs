@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Prints the credits a release ships in latest.json, so What's new needs nothing from GitHub.
-// Mirrors src-tauri/crates/sikemux-core/src/releases.rs. Prints nothing for a first release.
+// Mirrors crates/sikemux-core/src/releases.rs. Prints nothing for a first release.
 import { execFileSync } from "node:child_process";
 
 const REPO_API = "https://api.github.com/repos/nodelike/sikemux";

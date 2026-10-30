@@ -49,8 +49,8 @@ if [[ "${PREBUILT_HELPERS:-0}" != "1" && "$STEP" != "package" ]]; then
   node "$ROOT/scripts/build-voice-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
   node "$ROOT/scripts/build-sim-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 fi
-GPUI="$ROOT/src-tauri/crates/sikemux-gpui"
-TARGET_ROOT="$ROOT/src-tauri/target"
+GPUI="$ROOT/app"
+TARGET_ROOT="$ROOT/target"
 [[ -n "$TARGET" ]] && TARGET_ROOT="$TARGET_ROOT/$TARGET"
 if [[ "$STEP" != "package" ]]; then
   echo "→ cargo build --release --locked --bin sikemux ${TARGET_ARGS[*]-}"
@@ -73,11 +73,11 @@ echo "→ Assembling $APP_NAME.app"
 rm -rf "$APP_PATH" "$BUNDLE/dmg"
 mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$APP_PATH/Contents/Helpers" "$BUNDLE/dmg"
 /usr/bin/ditto "$TARGET_ROOT/release/sikemux" "$APP_PATH/Contents/MacOS/sikemux"
-/usr/bin/ditto "$ROOT/src-tauri/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"
-/usr/bin/ditto "$ROOT/src-tauri/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"
+/usr/bin/ditto "$ROOT/packaging/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"
+/usr/bin/ditto "$ROOT/packaging/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"
 ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Contents/MacOS/sikemux-host"
-/usr/bin/ditto "$ROOT/src-tauri/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"
-/usr/bin/ditto "$ROOT/src-tauri/icons/icon.icns" "$APP_PATH/Contents/Resources/icon.icns"
+/usr/bin/ditto "$ROOT/packaging/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"
+/usr/bin/ditto "$ROOT/packaging/icons/icon.icns" "$APP_PATH/Contents/Resources/icon.icns"
 /usr/libexec/PlistBuddy \
   -c "Add :CFBundleDevelopmentRegion string English" \
   -c "Add :CFBundleDisplayName string $APP_NAME" \
@@ -91,9 +91,9 @@ ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Conte
   -c "Add :CFBundleVersion string $APP_VERSION" \
   -c "Add :LSMinimumSystemVersion string $MINIMUM_MACOS" \
   -c "Add :NSHighResolutionCapable bool true" \
-  -c "Merge $ROOT/src-tauri/Info.plist" \
+  -c "Merge $ROOT/packaging/Info.plist" \
   "$PLIST" >/dev/null
-/usr/bin/codesign --force --options runtime --entitlements "$ROOT/src-tauri/Entitlements.plist" --sign - "$APP_PATH"
+/usr/bin/codesign --force --options runtime --entitlements "$ROOT/packaging/Entitlements.plist" --sign - "$APP_PATH"
 
 # The README and sikemux.com promise a small download, so a release that grows
 # past this fails here instead of shipping. scripts/sign-mac.sh checks it again.
@@ -108,8 +108,8 @@ trap 'rm -rf "$LAYOUT"' EXIT
 mkdir "$LAYOUT/.background"
 /usr/bin/ditto "$APP_PATH" "$LAYOUT/$APP_NAME.app"
 ln -s /Applications "$LAYOUT/Applications"
-/usr/bin/ditto "$ROOT/src-tauri/dmg/background.tiff" "$LAYOUT/.background/background.tiff"
-/usr/bin/ditto "$ROOT/src-tauri/icons/icon.icns" "$LAYOUT/.VolumeIcon.icns"
+/usr/bin/ditto "$ROOT/packaging/dmg/background.tiff" "$LAYOUT/.background/background.tiff"
+/usr/bin/ditto "$ROOT/packaging/icons/icon.icns" "$LAYOUT/.VolumeIcon.icns"
 /usr/bin/hdiutil create -volname "$APP_NAME" -srcfolder "$LAYOUT" -fs HFS+ -format UDRW -ov -quiet "$LAYOUT.rw.dmg" ||
   fail "could not lay out the DMG"
 VOLUME="$LAYOUT.volume"
@@ -125,7 +125,7 @@ DMG_BYTES="$(stat -f%z "$DMG")"
 [[ -d "$APP_PATH" ]] || fail "missing app at $APP_PATH"
 [[ -f "$PLIST" ]] || fail "missing $PLIST"
 [[ -s "$APP_PATH/Contents/Resources/Assets.car" ]] || fail "missing or empty Assets.car"
-/usr/bin/cmp -s "$ROOT/src-tauri/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car" || fail "bundled Assets.car differs from the generated asset catalog"
+/usr/bin/cmp -s "$ROOT/packaging/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car" || fail "bundled Assets.car differs from the generated asset catalog"
 /usr/bin/plutil -lint "$PLIST" >/dev/null || fail "invalid Info.plist"
 
 plist_value() {
@@ -158,7 +158,7 @@ CLI_ARCHS="$(/usr/bin/lipo -archs "$CLI_EXECUTABLE")"
 # The voice helper is published beside the release and downloaded with the
 # speech model, so it must be built and signed but stay out of the app.
 VOICE_TARGET="${TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
-VOICE_EXECUTABLE="$ROOT/src-tauri/binaries/sikemux-voice-$VOICE_TARGET"
+VOICE_EXECUTABLE="$ROOT/packaging/binaries/sikemux-voice-$VOICE_TARGET"
 [[ -x "$VOICE_EXECUTABLE" ]] || fail "voice helper is missing or not executable"
 [[ ! -e "$APP_PATH/Contents/MacOS/sikemux-voice" ]] || fail "the voice helper is bundled in the app"
 /usr/bin/codesign --verify --strict "$VOICE_EXECUTABLE" || fail "voice helper signature is invalid"
@@ -174,7 +174,7 @@ NOTCH_EXECUTABLE="$NOTCH_APP/Contents/MacOS/sikemux-notch"
 NOTCH_ARCHS="$(/usr/bin/lipo -archs "$NOTCH_EXECUTABLE")"
 [[ "$(sorted_archs "$NOTCH_ARCHS")" == "$(sorted_archs "$ARCHS")" ]] || fail "notch helper architecture ($NOTCH_ARCHS) differs from app ($ARCHS)"
 # The simulator helper is published and downloaded the same way.
-SIM_EXECUTABLE="$ROOT/src-tauri/binaries/sikemux-sim-$VOICE_TARGET"
+SIM_EXECUTABLE="$ROOT/packaging/binaries/sikemux-sim-$VOICE_TARGET"
 [[ -x "$SIM_EXECUTABLE" ]] || fail "simulator helper is missing or not executable"
 [[ ! -e "$APP_PATH/Contents/MacOS/sikemux-sim" ]] || fail "the simulator helper is bundled in the app"
 /usr/bin/codesign --verify --strict "$SIM_EXECUTABLE" || fail "simulator helper signature is invalid"

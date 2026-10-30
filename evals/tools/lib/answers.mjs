@@ -391,7 +391,7 @@ const THEME = {
 
 // The page as Sikemux draws it: its theme and base styles ahead of everything the agent wrote.
 function themed(path) {
-  const base = readRepo('src-tauri/crates/sikemux-base/src/pages.rs').match(/const BASE_CSS: &str = "([^"]+)";/)[1];
+  const base = readRepo('crates/sikemux-base/src/pages.rs').match(/const BASE_CSS: &str = "([^"]+)";/)[1];
   const theme = `:root{color-scheme:dark;${Object.entries(THEME).map(([name, value]) => `${name}:${value};`).join('')}}`;
   const head = `<meta charset="utf-8"><base href="${pathToFileURL(dirname(path)).href}/"><style id="sikemux-theme">${theme}</style><style>${base}</style>`;
   return head + readFileSync(path, 'utf8');

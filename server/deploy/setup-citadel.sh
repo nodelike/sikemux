@@ -213,7 +213,7 @@ sudo -u caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >
 systemctl reload caddy
 
 # n0's release of the relay, the same version as the iroh the apps are built with
-# (src-tauri/Cargo.lock). Bump it together with them.
+# (Cargo.lock). Bump it together with them.
 RELAY_VERSION=1.3.0
 case "$(uname -m)" in
   x86_64)

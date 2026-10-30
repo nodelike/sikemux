@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const outputPath = resolve(root, "src-tauri/voice-models.json");
+const outputPath = resolve(root, "crates/sikemux-voice/voice-models.json");
 const check = process.argv.includes("--check");
 
 const MODELS = [

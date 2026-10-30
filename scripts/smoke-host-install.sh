@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ARCH="${1:?usage: $0 <x86_64|aarch64>}"
 VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json)"
-ASSET="src-tauri/target/host/sikemux-host-${VERSION}-linux-${ARCH}.tar.gz"
+ASSET="target/host/sikemux-host-${VERSION}-linux-${ARCH}.tar.gz"
 
 fail() {
   echo "Host install smoke failed: $*" >&2

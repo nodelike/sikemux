@@ -19,7 +19,7 @@ core every time the protocol changes.
   brings EAS builds for TestFlight and the Play Store, push notifications, the camera for
   pairing QR codes, the secure store for the device key, routing and over-the-air updates.
   Expo Go cannot load our module, so it is not used.
-- **The core's client, compiled for the phone.** `src-tauri/crates/sikemux-mobile` exposes
+- **The core's client, compiled for the phone.** `crates/sikemux-mobile` exposes
   `sikemux-core`'s client, pairing and iroh connection through UniFFI.
   `uniffi-bindgen-react-native` turns it into a Turbo Module (`@sikemux/native`), the way
   Mozilla's tooling and apps such as Fressh do. Requests and answers cross as the core's

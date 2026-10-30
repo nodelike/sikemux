@@ -16,8 +16,8 @@ dev: icons
 
 # Stops the dev build's core, the terminals and agents it runs, and its notch.
 dev-stop:
-	@test -x src-tauri/target/debug/sikemux-host || { echo "No dev build yet; run make dev first."; exit 1; }
-	src-tauri/target/debug/sikemux-host stop
+	@test -x target/debug/sikemux-host || { echo "No dev build yet; run make dev first."; exit 1; }
+	target/debug/sikemux-host stop
 	@pid=$$(cat "$(HOME)/.config/sikemux/notch.dev.lock" 2>/dev/null); [ -z "$$pid" ] || kill "$$pid" 2>/dev/null || true
 
 # Release artifacts target the host architecture (Apple Silicon on the
@@ -29,7 +29,7 @@ build: icons
 preflight: build
 
 run:
-	open src-tauri/target/release/bundle/macos/Sikemux.app
+	open target/release/bundle/macos/Sikemux.app
 
 format:
 	pnpm format
@@ -75,7 +75,7 @@ check:
 ci: check
 
 clean:
-	cd src-tauri && cargo clean
+	cargo clean
 	rm -rf node_modules/.vite
 
 # Drops Rust build copies no recent build has used; `make dev` runs it daily.
@@ -83,4 +83,4 @@ prune:
 	node scripts/prune-target.mjs
 
 clean-dev:
-	cargo clean --manifest-path src-tauri/Cargo.toml --profile dev
+	cargo clean --profile dev

@@ -14,7 +14,7 @@ import { defineConfig, type Plugin } from "vite";
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const WASM = join(
   repo,
-  "src-tauri/target/wasm32-unknown-unknown/release/sikemux_markdown_wasm.wasm",
+  "target/wasm32-unknown-unknown/release/sikemux_markdown_wasm.wasm",
 );
 const TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
@@ -37,7 +37,7 @@ function buildMarkdown() {
       "--release",
     ],
     {
-      cwd: join(repo, "src-tauri"),
+      cwd: repo,
       stdio: "inherit",
       env: {
         ...process.env,

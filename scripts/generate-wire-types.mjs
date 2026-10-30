@@ -12,9 +12,9 @@ import { format, resolveConfig } from "prettier";
 const root = resolve(import.meta.dirname, "..");
 const check = process.argv.includes("--check");
 
-const WIRE = "src-tauri/crates/sikemux-wire/src";
-const CORE = "src-tauri/crates/sikemux-core/src";
-const PLUGIN_API = "src-tauri/crates/sikemux-plugin-api/src";
+const WIRE = "crates/sikemux-wire/src";
+const CORE = "crates/sikemux-core/src";
+const PLUGIN_API = "crates/sikemux-plugin-api/src";
 const SOURCES = [
   `${WIRE}/protocol.rs`,
   `${WIRE}/protocol/ask.rs`,
@@ -247,7 +247,7 @@ const SWIFT_CALLS = [
 ];
 /** The events the notch reads; it ignores the rest. */
 const SWIFT_EVENTS = ["Changed", "Remote", "DeviceView"];
-/** Types the notch declares itself, from src-tauri/notch/settings.json. */
+/** Types the notch declares itself, from helpers/notch/settings.json. */
 const SWIFT_DECLARED = ["NotchSettings"];
 
 /** Types whose `Default` the app shows until the core has answered with its own values. */
@@ -268,7 +268,7 @@ const LIMITS = [
 
 const OUTPUTS = {
   ts: "shared/wire.generated.ts",
-  notch: "src-tauri/notch/Sources/NotchKit/Wire.generated.swift",
+  notch: "helpers/notch/Sources/NotchKit/Wire.generated.swift",
   cardSwift: "mobile/app/modules/notify/ios/Shared/Card.generated.swift",
   cardKotlin:
     "mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt",

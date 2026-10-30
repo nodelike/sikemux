@@ -16,8 +16,8 @@ import { appMetadata } from "./app-metadata.mjs";
 import { smokeBrowserSidecar } from "./smoke-browser-sidecar.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const tauriDir = join(root, "src-tauri");
-const binariesDir = join(tauriDir, "binaries");
+const packaging = join(root, "packaging");
+const binariesDir = join(packaging, "binaries");
 const args = process.argv.slice(2);
 const sidecars = ["sikemux-host"];
 
@@ -65,12 +65,11 @@ function executableName(name, target) {
 function buildFor(target, explicitTarget) {
   const cargoArgs = ["build", "--locked", "--release", "-p", "sikemux-host"];
   for (const name of sidecars) cargoArgs.push("--bin", name);
-  cargoArgs.push("--manifest-path", join(tauriDir, "Cargo.toml"));
   if (explicitTarget) cargoArgs.push("--target", target);
   run("cargo", cargoArgs);
   const releaseDir = explicitTarget
-    ? join(tauriDir, "target", target, "release")
-    : join(tauriDir, "target", "release");
+    ? join(root, "target", target, "release")
+    : join(root, "target", "release");
   return (name) => join(releaseDir, executableName(name, target));
 }
 
@@ -87,7 +86,7 @@ function bundleCore(binary) {
   const appInfo = JSON.parse(
     run(
       "plutil",
-      ["-convert", "json", "-o", "-", join(tauriDir, "Info.plist")],
+      ["-convert", "json", "-o", "-", join(packaging, "Info.plist")],
       { capture: true },
     ),
   );
@@ -110,11 +109,11 @@ function bundleCore(binary) {
   writeFileSync(plist, JSON.stringify(info));
   run("plutil", ["-convert", "xml1", plist]);
   copyFileSync(
-    join(tauriDir, "icons", "icon.icns"),
+    join(packaging, "icons", "icon.icns"),
     join(contents, "Resources", "sikemux.icns"),
   );
   copyFileSync(
-    join(tauriDir, "resources", "sikemux_pi_tools.ts"),
+    join(root, "crates", "sikemux-core", "resources", "sikemux_pi_tools.ts"),
     join(contents, "Resources", "sikemux_pi_tools.ts"),
   );
   const executable = join(contents, "MacOS", "sikemux-host");
@@ -132,7 +131,7 @@ function bundleCore(binary) {
     "runtime",
     ...(identity === "-" ? [] : ["--timestamp"]),
     "--entitlements",
-    join(tauriDir, "Entitlements.plist"),
+    join(packaging, "Entitlements.plist"),
     "--sign",
     identity,
     app,

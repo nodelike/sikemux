@@ -91,11 +91,11 @@ if [ "${PREPUSH_FULL:-}" = "1" ] || [ -z "$CHANGED" ]; then
   RUST=1 FRONTEND=1 SHELL_SCRIPTS=1 RELEASE=1 SERVER=1
 else
   RUST=0 FRONTEND=0 SHELL_SCRIPTS=0 RELEASE=0 SERVER=0
-  touches '^(src-tauri/|rust-toolchain\.toml$)' && RUST=1
+  touches '^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|rust-toolchain\.toml$)' && RUST=1
   touches '^(shared/|package\.json|pnpm-lock\.yaml|eslint\.config\.js|tsconfig\.json)' && FRONTEND=1
   touches '^scripts/.*\.sh$' && SHELL_SCRIPTS=1
   touches '^(scripts/|package\.json|latest\.json)' && RELEASE=1
-  touches '^(server/|src-tauri/crates/sikemux-(core|wire)/src/accounts/)' && SERVER=1
+  touches '^(server/|crates/sikemux-(core|wire)/src/accounts/)' && SERVER=1
 fi
 
 printf '%sChecking %s commits against the CI gates%s\n' "$BOLD" "$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')" "$RESET"
@@ -106,7 +106,7 @@ step 'prettier format' pnpm format:check
 [ "$RUST" = 1 ] && step 'rust toolchain' rust_toolchain_matches
 [ "$RUST" = 1 ] && step 'cargo fmt' pnpm rust:fmt:check
 [ "$RUST" = 1 ] && needs cargo-hakari 'workspace-hack' && step 'workspace-hack' pnpm rust:hakari:check
-[ "$RUST" = 1 ] && needs cargo-audit 'rust security audit' && step 'rust security audit' cargo audit --file src-tauri/Cargo.lock
+[ "$RUST" = 1 ] && needs cargo-audit 'rust security audit' && step 'rust security audit' cargo audit --file Cargo.lock
 [ "$FRONTEND" = 1 ] && step 'eslint' pnpm lint
 [ "$FRONTEND" = 1 ] && step 'typescript' pnpm typecheck
 [ "$FRONTEND" = 1 ] && step 'grammar manifest' pnpm grammars:check

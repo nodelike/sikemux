@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ARCH="${1:?usage: $0 <x86_64|aarch64>}"
-BINARY=src-tauri/target/release/sikemux-host
+BINARY=target/release/sikemux-host
 VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json)"
 
 fail() {
@@ -20,7 +20,7 @@ if ldd "$BINARY" | grep -Eiq 'webkit|gtk|gdk|libX|wayland|soup'; then
 fi
 "$BINARY" --help >/dev/null || fail "the core does not start"
 
-OUT=src-tauri/target/host
+OUT=target/host
 mkdir -p "$OUT"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT

@@ -68,7 +68,7 @@ describe('the Rust client in the fingerprint', () => {
   });
 
   it('counts the crates sikemux-mobile links in this workspace, and none the desktop app alone uses', () => {
-    const sources = rustClientSources(new URL('../../../src-tauri', import.meta.url).pathname);
+    const sources = rustClientSources(new URL('../../..', import.meta.url).pathname);
     expect(sources.crates).toEqual(['sikemux-client', 'sikemux-mobile', 'sikemux-wire']);
     expect(sources.locked).toMatch(/^iroh /m);
     expect(sources.locked).not.toMatch(/^(tauri|wry|tao) /m);
@@ -81,14 +81,14 @@ describe('the Rust client in the fingerprint', () => {
     expect(named).toEqual(
       expect.arrayContaining([
         '../../rust-toolchain.toml',
-        '../../src-tauri/crates/sikemux-client',
-        '../../src-tauri/crates/sikemux-mobile',
-        '../../src-tauri/crates/sikemux-wire',
+        '../../crates/sikemux-client',
+        '../../crates/sikemux-mobile',
+        '../../crates/sikemux-wire',
         'rust/locked',
         'rust/workspace',
       ]),
     );
-    expect(named).not.toContain('../../src-tauri/Cargo.toml');
-    expect(named).not.toContain('../../src-tauri/Cargo.lock');
+    expect(named).not.toContain('../../Cargo.toml');
+    expect(named).not.toContain('../../Cargo.lock');
   });
 });

@@ -17,7 +17,7 @@ for helper in "$@"; do
   timestamp=()
   [[ "$IDENTITY" != "-" ]] && timestamp=(--timestamp)
   /usr/bin/codesign --force --identifier "$identifier" --options runtime \
-    --entitlements "$ROOT/src-tauri/Entitlements.plist" ${timestamp[@]+"${timestamp[@]}"} \
+    --entitlements "$ROOT/packaging/Entitlements.plist" ${timestamp[@]+"${timestamp[@]}"} \
     --sign "$IDENTITY" "$helper"
   /usr/bin/codesign --verify --strict "$helper"
 done

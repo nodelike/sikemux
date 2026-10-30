@@ -33,7 +33,7 @@ const cell = (text) =>
 // The app's default shortcuts, from the table GPUI's keymap reads, labelled as a Mac shows them.
 const keybindings = JSON.parse(
   await readFile(
-    resolve(root, "src-tauri/crates/sikemux-core/src/assets/keybindings.json"),
+    resolve(root, "crates/sikemux-core/src/assets/keybindings.json"),
     "utf8",
   ),
 );
@@ -83,13 +83,13 @@ await emit(
 );
 
 const cliSource = await readFile(
-  resolve(root, "src-tauri/crates/sikemux-host/src/cli_client/mod.rs"),
+  resolve(root, "crates/sikemux-host/src/cli_client/mod.rs"),
   "utf8",
 );
 const help = cliSource.match(/const HELP: &str = r#"([\s\S]*?)"#;/)?.[1];
 if (!help)
   throw new Error(
-    "could not find the CLI help in src-tauri/crates/sikemux-host/src/cli_client/mod.rs",
+    "could not find the CLI help in crates/sikemux-host/src/cli_client/mod.rs",
   );
 await emit(
   "cli.mdx",

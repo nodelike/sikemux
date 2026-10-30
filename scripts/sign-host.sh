@@ -20,10 +20,10 @@ fail() {
 [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]] || fail "TAURI_SIGNING_PRIVATE_KEY is not set"
 
 shopt -s nullglob
-HOSTS=("$ROOT"/src-tauri/target/host/sikemux-host-"$VERSION"-linux-*.tar.gz)
+HOSTS=("$ROOT"/target/host/sikemux-host-"$VERSION"-linux-*.tar.gz)
 shopt -u nullglob
 [[ ${#HOSTS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 host cores, found ${#HOSTS[@]}"
-APPIMAGE="$ROOT/src-tauri/target/release/bundle/appimage/Sikemux_${VERSION}_amd64.AppImage"
+APPIMAGE="$ROOT/target/release/bundle/appimage/Sikemux_${VERSION}_amd64.AppImage"
 [[ -s "$APPIMAGE" ]] || fail "missing $APPIMAGE"
 
 WORK="$(mktemp -d)"

@@ -23,7 +23,7 @@ import {
 } from "./dev-process.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const debug = join(root, "src-tauri", "target", "debug");
+const debug = join(root, "target", "debug");
 const appBinary = join(debug, "sikemux");
 const bundle = join(debug, "Sikemux Dev.app");
 const contents = join(bundle, "Contents");
@@ -55,7 +55,7 @@ function buildApp() {
   run("cargo", [
     "build",
     "--manifest-path",
-    "src-tauri/crates/sikemux-gpui/Cargo.toml",
+    "app/Cargo.toml",
     "--bin",
     "sikemux",
   ]);

@@ -1,4 +1,4 @@
-import curated from "../../../../../src-tauri/crates/sikemux-core/src/server/themes/curated.json";
+import curated from "../../../../../crates/sikemux-core/src/server/themes/curated.json";
 import {
   DEFAULT_THEME_ID,
   TERMINAL_KEYS,

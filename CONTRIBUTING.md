@@ -18,27 +18,29 @@ are about to push. Install it by hand in an existing clone with `make hooks`.
 
 ## Project layout
 
-| Path                             | What lives there                                                                                             |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `src-tauri/crates/sikemux-gpui/` | The app, drawn with GPUI: its window, panes, editor, terminal and plugin panes                               |
-| `src-tauri/crates/`              | Shared Rust crates: the terminal engine, the background core, plugin API, process runner, keychain, markdown |
-| `src-tauri/plugins/`             | Plugin backends, one crate per plugin behind a Cargo feature                                                 |
-| `shared/`                        | TypeScript the phone and the share page both use, imported as `@shared/*`                                    |
-| `server/`                        | The accounts API, the web app at app.sikemux.com and their protocol; its own pnpm workspace                  |
-| `browser/`                       | Agent tool declarations (`tools.json`) and the guide agents read                                             |
-| `scripts/`                       | Code generators, CI checks, icon pipeline and release tooling                                                |
-| `docs/architecture/`             | How the app fits together, and the decisions behind it                                                       |
-| `mobile/`                        | The phone app (Expo) and `@sikemux/native`, the core's client compiled from Rust; its own pnpm workspace     |
+| Path                 | What lives there                                                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `app/`               | The app, drawn with GPUI: its window, panes, editor, terminal and plugin panes                                                             |
+| `crates/`            | Shared Rust crates: the terminal engine, the background core, plugin API, process runner, keychain, markdown                               |
+| `plugins/`           | Plugin backends, one crate per plugin behind a Cargo feature                                                                               |
+| `helpers/`           | The Swift helpers: the notch island, dictation and the iOS Simulator bridge                                                                |
+| `packaging/`         | What only the app bundle and the Linux packages are built from: Info.plist, entitlements, icons, the DMG background, provisioning profiles |
+| `shared/`            | TypeScript the phone and the share page both use, imported as `@shared/*`                                                                  |
+| `server/`            | The accounts API, the web app at app.sikemux.com and their protocol; its own pnpm workspace                                                |
+| `browser/`           | Agent tool declarations (`tools.json`) and the guide agents read                                                                           |
+| `scripts/`           | Code generators, CI checks, icon pipeline and release tooling                                                                              |
+| `docs/architecture/` | How the app fits together, and the decisions behind it                                                                                     |
+| `mobile/`            | The phone app (Expo) and `@sikemux/native`, the core's client compiled from Rust; its own pnpm workspace                                   |
 
 Read [the architecture overview](docs/architecture/overview.md) before a large change, and the decision records beside it before proposing to undo one.
 
 ### The background core in development
 
-Terminals, agents and tasks run in a separate process, the core (`sikemux core`), which keeps running after the app quits. `make dev` builds the core, its helpers and the app into `src-tauri/target/debug/Sikemux Dev.app` and opens it. After changing core code, quit the app and run `make dev` again: it updates its core in place and your terminals stay open. It refuses to start while another checkout's Sikemux Dev core is running; quit that one and run `make dev-stop` there first. The dev core listens on `~/.config/sikemux/core.dev.sock` and logs to `core.log` in the dev app's log directory. Quit and Stop Everything (`⌥⌘Q`) stops it.
+Terminals, agents and tasks run in a separate process, the core (`sikemux core`), which keeps running after the app quits. `make dev` builds the core, its helpers and the app into `target/debug/Sikemux Dev.app` and opens it. After changing core code, quit the app and run `make dev` again: it updates its core in place and your terminals stay open. It refuses to start while another checkout's Sikemux Dev core is running; quit that one and run `make dev-stop` there first. The dev core listens on `~/.config/sikemux/core.dev.sock` and logs to `core.log` in the dev app's log directory. Quit and Stop Everything (`⌥⌘Q`) stops it.
 
 ### The mobile app
 
-The phone app lives in `mobile/`, a pnpm workspace of its own, so nothing in it is installed or checked with the desktop app. `mobile/app` is the Expo app and `mobile/native` is `@sikemux/native`, a Turbo Module that `uniffi-bindgen-react-native` generates from `src-tauri/crates/sikemux-mobile`: the core's own client, pairing and iroh connection. [ADR 0008](docs/architecture/0008-mobile-app-expo-and-rust-client.md) records why.
+The phone app lives in `mobile/`, a pnpm workspace of its own, so nothing in it is installed or checked with the desktop app. `mobile/app` is the Expo app and `mobile/native` is `@sikemux/native`, a Turbo Module that `uniffi-bindgen-react-native` generates from `crates/sikemux-mobile`: the core's own client, pairing and iroh connection. [ADR 0008](docs/architecture/0008-mobile-app-expo-and-rust-client.md) records why.
 
 You need rustup's Rust (Homebrew's Rust ignores `rust-toolchain.toml` and has no phone targets), Xcode, and for Android the NDK and `cargo-ndk`. `rust-toolchain.toml` lists the phone targets, so rustup installs them with the toolchain:
 
@@ -63,7 +65,7 @@ Every phone screen is drawn first in `mobile/design/screens.src.html`, with the 
 
 `server/` holds the backend behind phone sign-in and the device list: the API at api.sikemux.com and the web app at app.sikemux.com. Like `mobile/`, it is a pnpm workspace of its own. [ADR 0009](docs/architecture/0009-accounts-and-backend.md) records the design.
 
-- `server/protocol` is the contract. Its JSON Schema in `schema/` and the routes in `routes.json` generate the TypeScript types, a bundled schema the API validates with, an OpenAPI document, and the Rust types in `src-tauri/crates/sikemux-wire/src/accounts/protocol.rs`. Change the schema, then run `pnpm protocol:generate`; never edit the generated files. Every definition needs an example in `fixtures/`, which both the TypeScript and the Rust tests read.
+- `server/protocol` is the contract. Its JSON Schema in `schema/` and the routes in `routes.json` generate the TypeScript types, a bundled schema the API validates with, an OpenAPI document, and the Rust types in `crates/sikemux-wire/src/accounts/protocol.rs`. Change the schema, then run `pnpm protocol:generate`; never edit the generated files. Every definition needs an example in `fixtures/`, which both the TypeScript and the Rust tests read.
 - `server/api` is the API (Hono on Node, Postgres through Kysely). Schema changes are numbered SQL files in `api/migrations`; a shipped one is never edited, only followed by a new one.
 - `server/app` is the web app (Vite and React).
 - `server/deploy` is what runs it on the server: the systemd unit, the Caddy sites, the one-time setup and the script that installs a release.
@@ -97,7 +99,7 @@ Skip the hook for a work-in-progress push with `git push --no-verify`, or `SKIP_
 
 Releases publish only from the Release workflow ([docs/releasing.md](docs/releasing.md)); `scripts/release.sh --publish` refuses to run outside GitHub Actions. Release tooling supports two explicit modes. The default community mode requires the updater private key but no Apple membership and produces an updater-signed, ad-hoc code-signed release. `RELEASE_NOTARIZED=1` additionally requires a Developer ID and Apple notarization credentials and enforces Gatekeeper and stapled-ticket verification.
 
-Agent tools are declared once in `browser/tools.json`. Add or change one there, run `pnpm agent-tools:generate`, and commit the regenerated `src-tauri/crates/sikemux-core/src/cli/methods.rs`. `pnpm agent-tools:check` fails when a declared method has no handler, when a handler is exposed by no tool, or when the generated file is stale. Keep tool descriptions to one line: they are sent on every agent request, so protocol detail belongs in `browser/SIKEMUX_GUIDE.md`, which agents fetch once through `guide`. `pnpm agent-tools:report` prints what the surface currently costs.
+Agent tools are declared once in `browser/tools.json`. Add or change one there, run `pnpm agent-tools:generate`, and commit the regenerated `crates/sikemux-core/src/cli/methods.rs`. `pnpm agent-tools:check` fails when a declared method has no handler, when a handler is exposed by no tool, or when the generated file is stale. Keep tool descriptions to one line: they are sent on every agent request, so protocol detail belongs in `browser/SIKEMUX_GUIDE.md`, which agents fetch once through `guide`. `pnpm agent-tools:report` prints what the surface currently costs.
 
 - **Scope** — keep PRs focused. One feature or fix per PR is much easier to review.
 - **No regressions** — keep things efficient and performant; if a change touches the editor, terminal, or git panes, verify the affected views still behave.

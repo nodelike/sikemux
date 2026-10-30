@@ -20,7 +20,7 @@ fail() {
 [[ -n "$VERSION" && -n "$NOTES" ]] || { echo "Usage: $0 <version> <notes> [--nightly]" >&2; exit 2; }
 [[ "$NOTARIZED" == "0" || "$NOTARIZED" == "1" ]] || fail "RELEASE_NOTARIZED must be 0 or 1"
 
-BUNDLE="$ROOT/src-tauri/target/release/bundle"
+BUNDLE="$ROOT/target/release/bundle"
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 APP_IDENTIFIER="$(node scripts/app-metadata.mjs identifier)"
 TAR="$BUNDLE/macos/${APP_NAME}.app.tar.gz"
@@ -28,8 +28,8 @@ SIG="$TAR.sig"
 APP="$BUNDLE/macos/${APP_NAME}.app"
 shopt -s nullglob
 DMG_CANDIDATES=("$BUNDLE"/dmg/*.dmg)
-VOICES=("$ROOT"/src-tauri/binaries/sikemux-voice-*)
-SIMS=("$ROOT"/src-tauri/binaries/sikemux-sim-*)
+VOICES=("$ROOT"/packaging/binaries/sikemux-voice-*)
+SIMS=("$ROOT"/packaging/binaries/sikemux-sim-*)
 shopt -u nullglob
 [[ ${#DMG_CANDIDATES[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMG_CANDIDATES[@]}"
 [[ ${#VOICES[@]} -eq 1 ]] || fail "expected exactly one voice helper, found ${#VOICES[@]}"
@@ -111,7 +111,7 @@ grep -qx "Identifier=$APP_IDENTIFIER.core" <<<"$(signing_info "$CORE_APP")" || f
 # which macOS allows only with the profile that names them.
 TEAM=D577WD6Z5U
 check_keychain_entitlements() {
-  local bundle="$1" kind="$2" profile="$ROOT/src-tauri/macos/$3" name signed decoded application now
+  local bundle="$1" kind="$2" profile="$ROOT/packaging/macos/$3" name signed decoded application now
   name="$(basename "$bundle")"
   signed="$EXTRACTED/$kind.entitlements"
   decoded="$EXTRACTED/$kind.provisionprofile.plist"

@@ -60,7 +60,7 @@ A nightly is a prerelease of the next stable release. After a stable `0.x.y`, `m
 A nightly that has been in use becomes stable without anything newer from `main`. On `release/<major.minor>`:
 
 1. A merge commit whose content is exactly that nightly's tagged commit.
-2. A commit that sets the stable version in `package.json`, `[workspace.package]` in `src-tauri/Cargo.toml`, the GPUI app's `src-tauri/crates/sikemux-gpui/Cargo.toml` and the workspace's own crates in `src-tauri/Cargo.lock`, and writes `RELEASE_NOTES.md` for everything since the last stable release.
+2. A commit that sets the stable version in `package.json`, `[workspace.package]` in `Cargo.toml`, the GPUI app's `app/Cargo.toml` and the workspace's own crates in `Cargo.lock`, and writes `RELEASE_NOTES.md` for everything since the last stable release.
 3. The `v<version>` tag on that commit.
 
 None of this lands on `main`. Commits made to `main` meanwhile stay out of the release.
@@ -86,7 +86,7 @@ export GIT_INDEX_FILE=$(mktemp -u); git read-tree "${merge}"
 from=$(git show "${merge}:package.json" | sed -n 's/.*"version": "\(.*\)".*/\1/p')
 put() { git update-index --cacheinfo "100644,$(git hash-object -w --stdin),$1"; }
 git show "${merge}:package.json" | sed "s/\"version\": \"${from}\"/\"version\": \"${version}\"/" | put package.json
-for file in src-tauri/Cargo.toml src-tauri/crates/sikemux-gpui/Cargo.toml src-tauri/Cargo.lock; do
+for file in Cargo.toml app/Cargo.toml Cargo.lock; do
   git show "${merge}:${file}" | sed "s/^version = \"${from}\"$/version = \"${version}\"/" | put "${file}"
 done
 put RELEASE_NOTES.md < /path/to/notes.md
@@ -159,7 +159,7 @@ A release build asks `updates.sikemux.com` for newer JavaScript and assets each 
 
 Every push to `main` that changes the phone's JavaScript or assets runs the **Mobile update** workflow; `mobile/app/test/updatePaths.test.ts` fails when the bundle reads a file its path list misses. One job checks the phone app and exports it with `expo export`; a second, which sees only the exported files, signs the update and sends it to citadel on `nightly`. The signature is checked against `mobile/app/certs/updates-certificate.pem` before anything is sent, and phones refuse an update without it.
 
-An update carries a runtime version, a fingerprint of everything native in the app: the Expo config, native modules, and the Rust the phone links, found by following `src-tauri/Cargo.lock` from `sikemux-mobile` (see `mobile/app/scripts/rust-sources.js`). A desktop release or a desktop-only dependency does not change it. A phone only takes updates with its own build's runtime version, so when no phone release lists the update's runtime in its `runtime-android.txt`, the run skips publishing with a warning: the update would reach no phone, and the next phone release ships that code itself. A nightly phone release runs **Mobile update** on `main` once its APK is published, so code pushed while it was building, which no release matched yet, reaches the new build. The run's summary shows the update id and runtime version.
+An update carries a runtime version, a fingerprint of everything native in the app: the Expo config, native modules, and the Rust the phone links, found by following `Cargo.lock` from `sikemux-mobile` (see `mobile/app/scripts/rust-sources.js`). A desktop release or a desktop-only dependency does not change it. A phone only takes updates with its own build's runtime version, so when no phone release lists the update's runtime in its `runtime-android.txt`, the run skips publishing with a warning: the update would reach no phone, and the next phone release ships that code itself. A nightly phone release runs **Mobile update** on `main` once its APK is published, so code pushed while it was building, which no release matched yet, reaches the new build. The run's summary shows the update id and runtime version.
 
 To promote a nightly update to stable, run **Mobile update** by hand with its id and the action `promote`. It waits for the owner's approval on the `approval` environment and then serves the same signed update on `stable`.
 

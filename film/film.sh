@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-GPUI="$ROOT/src-tauri/crates/sikemux-gpui"
+GPUI="$ROOT/app"
 export PATH="$HOME/.cargo/bin:$PATH"
 
 say() { printf '\033[35m›\033[0m %s\n' "$*"; }
@@ -35,10 +35,10 @@ done
 command -v ffmpeg >/dev/null || fail "ffmpeg is needed (brew install ffmpeg)"
 
 say "building the core, the stand-in Claude and the film"
-cargo build --quiet --manifest-path "$ROOT/src-tauri/Cargo.toml" \
+cargo build --quiet --manifest-path "$ROOT/Cargo.toml" \
   -p sikemux-host -p sikemux-core --bin sikemux-host --bin sikemux-fake-claude
 cargo build --quiet --manifest-path "$GPUI/Cargo.toml" --example film
-bin="$ROOT/src-tauri/target/debug"
+bin="$ROOT/target/debug"
 
 work="$(mktemp -d -t sxfilm)"
 trap 'rm -rf "$work"' EXIT

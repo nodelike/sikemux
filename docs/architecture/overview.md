@@ -37,20 +37,18 @@ website login, which would read as a chat or terminal session.
 
 ## Processes
 
-The `crates/` and `plugins/` folders named below are in `src-tauri/`.
-
 The desktop app is a Rust program drawn with [GPUI](https://www.gpui.rs). It is a client of
 the core, a long-lived process that owns every shell, agent and project, and that phones and
 other hosts reach too.
 
 | Process           | Where it lives                          | What it does                                                                                                                                                                                                                                                                           |
 | ----------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Desktop app       | `crates/sikemux-gpui` (`sikemux`)       | One window that draws the core's views, the browser tabs on its desks and the native views it places in its layout. See [The desktop app](#the-desktop-app).                                                                                                                           |
+| Desktop app       | `app` (`sikemux`)                       | One window that draws the core's views, the browser tabs on its desks and the native views it places in its layout. See [The desktop app](#the-desktop-app).                                                                                                                           |
 | Core              | `sikemux core` → `crates/sikemux-core`  | Owns terminals, tasks, chat agents, Git, search, language servers, the harness and the agents' tool endpoint. It outlives the window; see [The core](#the-core).                                                                                                                       |
 | `sikemux-host`    | `crates/sikemux-host` → `cli_client.rs` | The `sikemux` launcher, which asks the running app to open files and projects. With `--tools-mcp` it is the MCP server agents launch over stdio; with `core` it is the core, with the built-in plugins. It never links the window's code, so a host with no screen installs only this. |
-| Notch             | `src-tauri/notch` (Swift package)       | The island over a MacBook's notch, a client of the core that reads the view phones get. The app starts it; it keeps running after the app quits.                                                                                                                                       |
-| `sikemux-voice`   | `src-tauri/voice` (Swift package)       | Speech to text, downloaded with the speech model. The `sikemux-voice` crate starts it and puts what it hears on a channel.                                                                                                                                                             |
-| Simulator helper  | `src-tauri/sim` (Swift package)         | Streams an iOS Simulator's screen and takes its input, for the desk and the agents' simulator tools (`crates/sikemux-simulator`). Mac only.                                                                                                                                            |
+| Notch             | `helpers/notch` (Swift package)         | The island over a MacBook's notch, a client of the core that reads the view phones get. The app starts it; it keeps running after the app quits.                                                                                                                                       |
+| `sikemux-voice`   | `helpers/voice` (Swift package)         | Speech to text, downloaded with the speech model. The `sikemux-voice` crate starts it and puts what it hears on a channel.                                                                                                                                                             |
+| Simulator helper  | `helpers/sim` (Swift package)           | Streams an iOS Simulator's screen and takes its input, for the desk and the agents' simulator tools (`crates/sikemux-simulator`). Mac only.                                                                                                                                            |
 | Shells and agents | spawned by the core                     | Children of the core, not of the app, so closing or quitting the app leaves them running.                                                                                                                                                                                              |
 
 On macOS, `scripts/build-mac.sh` lays out the bundle: the GPUI app, the core as an app of its
@@ -110,10 +108,10 @@ such as a file open or an agent's browser, go to the one that registered last.
 
 ## The desktop app
 
-`sikemux-gpui` shares the one Cargo workspace and lockfile in `src-tauri`, which builds it only
-when asked with `-p`. `src/main.rs` opens
-one window; in a Wayland session it takes XWayland's display, since browser pages are X11
-windows inside it.
+`app/` holds the GPUI app, the `sikemux-gpui` package. It shares the one Cargo workspace and
+lockfile at the root, which builds it only when asked with `-p`. `src/main.rs` opens one
+window; in a Wayland session it takes XWayland's display, since browser pages are X11 windows
+inside it.
 
 **One store, one direction.** `Workbench` (`workbench.rs`) is the one store: what the core last
 said, and the little the window decides itself, such as focus, open menus, scroll and sizes.
@@ -138,7 +136,7 @@ goes out as `Call`s. No view keeps a copy of the core's data.
 | `notifications.rs`, `voice.rs`, `handoff.rs`                       | System notifications and the badge, dictation, and links opened from outside               |
 | `drive.rs`                                                         | The in-app driver for the real-window checks (see [Tests](#tests))                         |
 
-Its own crates are in `sikemux-gpui/crates/`:
+Its own crates are in `app/crates/`:
 
 | Crate                | Purpose                                                                                                           |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -183,7 +181,7 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 `window_x11` gives the window to parent X11 windows to. A window that holds native views calls
 `enable_scene_overlay` as it opens, so menus and popovers show above them.
 
-## Crates (`src-tauri/crates/`)
+## Crates (`crates/`)
 
 | Crate                | Purpose                                                                                                                                                                                    |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -211,7 +209,7 @@ Plugins are compiled in; there is no marketplace and no runtime loading
 ([ADR 0002](./0002-plugins-are-compiled-in.md)). The twelve built-ins are AWS, Bitbucket, Bruno,
 Database, GitHub, GitLab, Jira, Linear, Rundeck, SigNoz, Slack and Vercel.
 
-- **In the core:** a crate in `src-tauri/plugins/<name>/` implements the `Plugin` trait from
+- **In the core:** a crate in `plugins/<name>/` implements the `Plugin` trait from
   `sikemux-plugin-api`. `sikemux-host` gives each one a Cargo feature of the same name, all on
   by default, and `crates/sikemux-host/src/plugins/builtin.rs` lists them. Plugin crates opt
   in to the workspace Clippy lints that forbid `unwrap`, `expect`, `panic` and unchecked
@@ -271,7 +269,7 @@ no window open and event cursors survive restarts. `pnpm agent-tools:generate` w
   `crates/sikemux-core/src/bin/` (`sikemux-fake-acp-agent` and others), which answer prompts
   by script and never reach a real agent CLI.
 - **Real windows.** Built with `--features drive`, the app listens for steps from the checks in
-  `sikemux-gpui/ci/` (`drive.rs`) and reports what it shows. `desk-checks.py` drives the desk on
+  `app/ci/` (`drive.rs`) and reports what it shows. `desk-checks.py` drives the desk on
   macOS; `linux-window.py` opens the app under Xvfb with a window manager, drives the agents'
   browser tools on a local page and checks the pages drew; `ground-check.py`, `sky-check.py` and
   `trust-check.py` check the window's ground, What's New's sky and how the core trusts the app.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Print the entitlements a release signs the app or its core with: every
 # build's own, plus the keychain group the two share, which they may claim
-# only because the provisioning profiles in src-tauri/macos allow it.
+# only because the provisioning profiles in packaging/macos allow it.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,7 +15,7 @@ esac
 
 PLIST="$(mktemp)"
 trap 'rm -f "$PLIST"' EXIT
-cp src-tauri/Entitlements.plist "$PLIST"
+cp packaging/Entitlements.plist "$PLIST"
 /usr/libexec/PlistBuddy \
   -c "Add :com.apple.application-identifier string $APPLICATION" \
   -c "Add :com.apple.developer.team-identifier string $TEAM" \

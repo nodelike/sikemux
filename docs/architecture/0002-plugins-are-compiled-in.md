@@ -21,9 +21,9 @@ product goal (the README promises a download of about 10 MB):
 
 - There is no marketplace and no third-party plugin loading. Every plugin is
   written in this repository and compiled into the app.
-- Each plugin is a Rust crate in `src-tauri/plugins/<name>` behind its own Cargo
+- Each plugin is a Rust crate in `plugins/<name>` behind its own Cargo
   feature of the core (`sikemux-host`), and its pane in the app is drawn by
-  `src-tauri/crates/sikemux-gpui/src/plugin_pane/<name>`. Users turn plugins on and
+  `app/src/plugin_pane/<name>`. Users turn plugins on and
   off in the app.
 - A plugin crate depends on `sikemux-plugin-api` and, where it needs them, the small
   `sikemux-process`, `sikemux-keychain` and `sikemux-loopback` crates, never on the
@@ -35,7 +35,7 @@ product goal (the README promises a download of about 10 MB):
 Crash containment comes from cheaper measures instead:
 
 - Plugins run in the core's process on their own Tokio runtime
-  (`src-tauri/crates/sikemux-host/src/plugins/host.rs`), so a stuck plugin cannot
+  (`crates/sikemux-host/src/plugins/host.rs`), so a stuck plugin cannot
   starve the terminals and agents.
 - Every plugin call has a timeout: 60 seconds by default, which a plugin's
   manifest can set between 1 second and 10 minutes.

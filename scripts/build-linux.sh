@@ -47,13 +47,13 @@ fail() {
 }
 
 [[ "$(uname -s)-$(uname -m)" == "Linux-x86_64" ]] || fail "Linux x86_64 is required"
-[[ -n "$SUMMARY" ]] || fail "the app has no description in src-tauri/crates/sikemux-gpui/Cargo.toml"
+[[ -n "$SUMMARY" ]] || fail "the app has no description in app/Cargo.toml"
 for command in cargo node dpkg-deb dpkg-shlibdeps rpmbuild patchelf curl sha256sum; do
   command -v "$command" >/dev/null || fail "missing required command: $command"
 done
 
-BUNDLE="$ROOT/src-tauri/target/release/bundle"
-WORK="$ROOT/src-tauri/target/release/linux"
+BUNDLE="$ROOT/target/release/bundle"
+WORK="$ROOT/target/release/linux"
 TOOLS="$WORK/tools"
 rm -rf "$WORK" "$BUNDLE/deb" "$BUNDLE/rpm" "$BUNDLE/appimage"
 mkdir -p "$TOOLS" "$BUNDLE/deb" "$BUNDLE/rpm" "$BUNDLE/appimage"
@@ -67,12 +67,12 @@ fetch() {
 
 echo "→ Building the core"
 node scripts/build-cli-sidecar.mjs
-CORE="$ROOT/src-tauri/binaries/sikemux-host-$TRIPLE"
+CORE="$ROOT/packaging/binaries/sikemux-host-$TRIPLE"
 echo "→ Building the app"
-(cd src-tauri/crates/sikemux-gpui && cargo build --release --locked --bin sikemux)
-APP="$ROOT/src-tauri/target/release/sikemux"
-PI_TOOLS="$ROOT/src-tauri/resources/sikemux_pi_tools.ts"
-POSTINST="$ROOT/src-tauri/linux/postinst.sh"
+(cd app && cargo build --release --locked --bin sikemux)
+APP="$ROOT/target/release/sikemux"
+PI_TOOLS="$ROOT/crates/sikemux-core/resources/sikemux_pi_tools.ts"
+POSTINST="$ROOT/packaging/linux/postinst.sh"
 
 desktop_entry() {
   cat <<DESKTOP
@@ -95,7 +95,7 @@ lay_out_shared() {
   desktop_entry sikemux >"$root/usr/share/applications/com.nodelike.sikemux.desktop"
   for icon in 32x32:32x32 128x128:128x128 128x128@2x:256x256 icon:512x512; do
     mkdir -p "$root/usr/share/icons/hicolor/${icon#*:}/apps"
-    install -m 644 "$ROOT/src-tauri/icons/${icon%%:*}.png" "$root/usr/share/icons/hicolor/${icon#*:}/apps/sikemux.png"
+    install -m 644 "$ROOT/packaging/icons/${icon%%:*}.png" "$root/usr/share/icons/hicolor/${icon#*:}/apps/sikemux.png"
   done
 }
 

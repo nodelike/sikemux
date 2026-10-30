@@ -71,7 +71,7 @@
 ## Mobile app
 
 - The phone app is in `mobile/` (Expo, `mobile/app`) with the core's Rust client bridged
-  in `mobile/native` from `src-tauri/crates/sikemux-mobile`. `mobile/` is its own pnpm
+  in `mobile/native` from `crates/sikemux-mobile`. `mobile/` is its own pnpm
   workspace: never add it to the root install, scripts or checks.
 - The phone and the core share `sikemux-wire`'s protocol. A protocol change must keep
   `sikemux-mobile` building, and bumps `PROTOCOL_VERSION` once anything already released
@@ -133,24 +133,24 @@
     the mark, in white, black, or purple mark with white name, as SVG and PNG at 2048 wide.
   - `brand/macos/`: the real Dock icon (Liquid Glass) at 128 to 1024.
   - `brand/social/avatar-400.png`: profile picture.
-- The source is `src-tauri/icons/sikemux.icon`. After changing it, run `pnpm brand` to
+- The source is `packaging/icons/sikemux.icon`. After changing it, run `pnpm brand` to
   redraw everything; the Dock icon is taken from the installed `/Applications/Sikemux.app`
   (or `SIKEMUX_APP`), so install the new build first.
 
 ## Notch
 
-- The island over the MacBook notch is `sikemux-notch`, a SwiftUI helper in `src-tauri/notch`
+- The island over the MacBook notch is `sikemux-notch`, a SwiftUI helper in `helpers/notch`
   and a client of the core: it reads the device view phones get. The app starts it; it keeps
   running after the app quits.
-- It is designed in `src-tauri/notch/design/screens.html` before it is built, and must keep
+- It is designed in `helpers/notch/design/screens.html` before it is built, and must keep
   matching it. Change the design in the same commit as the island; view it by serving the repo
-  root (`python3 -m http.server`) and opening `/src-tauri/notch/design/screens.html`.
+  root (`python3 -m http.server`) and opening `/helpers/notch/design/screens.html`.
 - Its icons come from `shared/ui/Icons.tsx`, the agent marks and `brand/`. After changing one it
   uses, run `node scripts/generate-notch-icons.mjs`; the release checks fail on a stale copy.
-- Its agent rows are laid out like the app's tab rail rows (`sikemux-gpui/src/agents/mod.rs`):
+- Its agent rows are laid out like the app's tab rail rows (`app/src/agents/mod.rs`):
   the task with how long ago, the project, then the name, counts and state together at the end.
   When the rail's row changes, change the island's and its design to match.
-- `swift run --package-path src-tauri/notch notch-snapshots <dir>` renders every state to PNGs,
+- `swift run --package-path helpers/notch notch-snapshots <dir>` renders every state to PNGs,
   for comparing with the design.
 
 ## Website

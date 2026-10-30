@@ -8,9 +8,9 @@ on:
     branches: [main]
     paths:
       - "mobile/**"
-      - "src-tauri/crates/sikemux-mobile/**"
-      - "src-tauri/crates/sikemux-core/**"
-      - "src-tauri/Cargo.lock"
+      - "crates/sikemux-mobile/**"
+      - "crates/sikemux-core/**"
+      - "Cargo.lock"
       - "server/protocol/**"
       - "shared/**"
       - .github/workflows/mobile-ci.yml
@@ -19,9 +19,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "mobile/**"
-      - "src-tauri/crates/sikemux-mobile/**"
-      - "src-tauri/crates/sikemux-core/**"
-      - "src-tauri/Cargo.lock"
+      - "crates/sikemux-mobile/**"
+      - "crates/sikemux-core/**"
+      - "Cargo.lock"
       - "server/protocol/**"
       - "shared/**"
       - .github/workflows/mobile-ci.yml
@@ -74,7 +74,6 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: src-tauri
           shared-key: mobile-android
           save-if: ${{ github.ref == 'refs/heads/main' }}
 

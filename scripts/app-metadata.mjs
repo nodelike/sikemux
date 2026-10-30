@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export const MANIFEST = fileURLToPath(
-  new URL("../src-tauri/crates/sikemux-gpui/Cargo.toml", import.meta.url),
+  new URL("../app/Cargo.toml", import.meta.url),
 );
 
 function table(text, name) {

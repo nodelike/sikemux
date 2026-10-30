@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Writes what the notch helper shares with the app: its settings from
-// src-tauri/notch/settings.json, for the core's Rust and the helper's Swift,
+// helpers/notch/settings.json, for the core's Rust and the helper's Swift,
 // its colours from the share page's base.css, and the app's buddies from
 // shared/buddies, which the helper runs to draw them. `--check` fails when one is
 // out of date instead of writing it.
@@ -10,24 +10,21 @@ import { dirname, resolve } from "node:path";
 import { build } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
-const settingsSource = resolve(root, "src-tauri/notch/settings.json");
+const settingsSource = resolve(root, "helpers/notch/settings.json");
 const cssSource = resolve(root, "server/app/src/chat/styles/base.css");
-const settingsRustPath = resolve(
-  root,
-  "src-tauri/crates/sikemux-wire/src/notch.rs",
-);
+const settingsRustPath = resolve(root, "crates/sikemux-wire/src/notch.rs");
 const settingsSwiftPath = resolve(
   root,
-  "src-tauri/notch/Sources/NotchKit/Settings.generated.swift",
+  "helpers/notch/Sources/NotchKit/Settings.generated.swift",
 );
 const themeSwiftPath = resolve(
   root,
-  "src-tauri/notch/Sources/NotchKit/Theme.generated.swift",
+  "helpers/notch/Sources/NotchKit/Theme.generated.swift",
 );
 const buddiesSource = resolve(root, "shared/buddies/notch.ts");
 const buddiesSwiftPath = resolve(
   root,
-  "src-tauri/notch/Sources/NotchKit/Buddies.generated.swift",
+  "helpers/notch/Sources/NotchKit/Buddies.generated.swift",
 );
 const check = process.argv.includes("--check");
 
@@ -85,7 +82,7 @@ const rustType = ([key, setting]) =>
 
 await emit(
   settingsRustPath,
-  `// ${banner("src-tauri/notch/settings.json")}
+  `// ${banner("helpers/notch/settings.json")}
 
 use serde::{Deserialize, Serialize};
 
@@ -132,7 +129,7 @@ const swiftValue = ([, setting]) =>
 
 await emit(
   settingsSwiftPath,
-  `// ${banner("src-tauri/notch/settings.json")}
+  `// ${banner("helpers/notch/settings.json")}
 
 import Foundation
 

@@ -2,15 +2,15 @@
 #
 # Compile sikemux.icon → Liquid Glass Assets.car + legacy .icns, in one
 # pass. Called from `make dev` and `make build` (via build-mac.sh), so
-# `src-tauri/icons/sikemux.icon` is the single source of every icon the app
+# `packaging/icons/sikemux.icon` is the single source of every icon the app
 # wears: build-mac.sh copies Assets.car and icon.icns into the bundle.
 #
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
-ICON_SOURCE="$ROOT/src-tauri/icons/sikemux.icon"
-ICON_BUILD="$ROOT/src-tauri/icons/build"
+ICON_SOURCE="$ROOT/packaging/icons/sikemux.icon"
+ICON_BUILD="$ROOT/packaging/icons/build"
 
 # Skip the rebuild when the .icon source hasn't changed since the last
 # compile — actool takes a couple of seconds and we don't want to add
@@ -50,7 +50,7 @@ fi
 
 # Sync the legacy .icns macOS shows before Liquid Glass.
 if [[ -f "$ICON_BUILD/sikemux.icns" ]]; then
-  cp "$ICON_BUILD/sikemux.icns" "$ROOT/src-tauri/icons/icon.icns"
+  cp "$ICON_BUILD/sikemux.icns" "$ROOT/packaging/icons/icon.icns"
 fi
 
 touch "$STAMP"

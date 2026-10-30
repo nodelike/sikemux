@@ -11,7 +11,7 @@ import { createServer } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
 const langsDir = resolve(root, "node_modules/@shikijs/langs");
-const assetsDir = resolve(root, "src-tauri/crates/sikemux-gpui/assets");
+const assetsDir = resolve(root, "app/assets");
 const indexPath = resolve(assetsDir, "syntax.json");
 const grammarsPath = resolve(assetsDir, "grammars.bin");
 const check = process.argv.includes("--check");

@@ -17,7 +17,7 @@ export function loadSurface(plugins = SIGNED_IN_PLUGINS, at = null) {
   const guide = readRepo(`browser/${manifest.guide.file}`, at);
   const byMethod = new Map(manifest.tools.map((tool) => [tool.method, tool.name]));
   const pluginTools = plugins.flatMap((folder) => {
-    const plugin = JSON.parse(readRepo(`src-tauri/plugins/${folder}/manifest.json`, at));
+    const plugin = JSON.parse(readRepo(`plugins/${folder}/manifest.json`, at));
     return (plugin.tools ?? []).map((tool) => ({
       plugin: plugin.id,
       name: tool.name,
@@ -31,7 +31,7 @@ export function loadSurface(plugins = SIGNED_IN_PLUGINS, at = null) {
 }
 
 export function allPlugins() {
-  return readdirSync(join(REPO, 'src-tauri/plugins'), { withFileTypes: true })
+  return readdirSync(join(REPO, 'plugins'), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
 }

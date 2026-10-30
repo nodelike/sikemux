@@ -6,8 +6,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const fixture = join(root, "src-tauri", "sim", "Fixture");
-const derived = join(root, "src-tauri", "sim", ".build", "fixture");
+const fixture = join(root, "helpers", "sim", "Fixture");
+const derived = join(root, "helpers", "sim", ".build", "fixture");
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: fixture, stdio: "inherit" });
