@@ -37,14 +37,18 @@ class NotifierTest {
     assertNull(card.timeLeft(12_000))
   }
 
-  private fun card(expiresAt: Long) = Card(
-    kind = "permission",
-    channel = Notifier.NEEDS_YOU,
+  private fun card(expiresAt: Long) = NotificationCard(
+    v = CARD_VERSION,
+    kind = NotificationKind.PERMISSION,
+    channel = NotificationChannel.NEEDS_YOU,
+    category = NotificationCategory.PERMISSION,
     collapseId = "card-1",
     thread = "thread",
-    host = "host",
+    hostKey = "host",
     hostName = "Desk",
     agentId = "agent",
+    provider = "claude",
+    chatTitle = null,
     title = "Run a command?",
     body = "ls",
     detail = null,
@@ -54,5 +58,4 @@ class NotifierTest {
     rejectOptionId = "reject",
     at = 0,
     expiresAt = expiresAt,
-  )
-}
+  )}

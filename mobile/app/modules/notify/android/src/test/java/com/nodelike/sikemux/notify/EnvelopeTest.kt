@@ -28,7 +28,7 @@ class EnvelopeTest {
   @Test
   fun readsTheCardInside() {
     val opened = Envelope.open(vector.getString("blob"), phone, listOf(HostKey(host, keyId, key))) as Opened.Read
-    val card = Card.parse(opened.plaintext, opened.host)
+    val card = parseCard(opened.plaintext, opened.host)
     assertNotNull(card)
     val expected = vector.getJSONObject("notification")
     assertEquals(expected.getString("collapseId"), card!!.collapseId)
@@ -36,7 +36,7 @@ class EnvelopeTest {
     assertEquals(expected.getString("detail"), card.detail)
     assertEquals(expected.getString("allowOptionId"), card.allowOptionId)
     assertTrue(card.answerable)
-    assertEquals(null, Card.parse(opened.plaintext, phone))
+    assertEquals(null, parseCard(opened.plaintext, phone))
   }
 
   @Test
