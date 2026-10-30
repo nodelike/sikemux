@@ -7,29 +7,29 @@ the core sends.
 
 ```sh
 node icons.mjs     # after an icon in shared/ui/Icons.tsx changes
-python3 fonts.py   # after the mono font in public/fonts changes (needs fontTools, brotli)
+python3 fonts.py   # after the mono font in shared/fonts changes (needs fontTools, brotli)
 cargo build -p sikemux-host
 cargo run -p sikemux-gpui
 ```
 
-The app starts its core, or moves the one running onto its own build, as the
-Tauri app does. A dev core takes requests only from the program named
-`sikemux` beside it, and both build into the workspace's one target folder.
+The app starts its core, or moves the one running onto its own build. `make dev`
+does all of this and opens the app as Sikemux Dev. A dev core takes requests
+only from the program named `sikemux` beside it, and both build into the
+workspace's one target folder.
 
-GPUI comes from the `sikemux` branch of sikemux/gpui, our fork of sonorahq/gpui,
-pinned by commit in `[patch.crates-io]`. That branch is upstream plus our
-commits and a commit that renames the crates to the gpui-pre names and version
-GPUI Kit pins; commits made since sit on top of it, so the pin keeps working.
-To move onto a newer upstream, rebase our commits, drop the rename commit and
-run `node tooling/gpui-pre-names.mjs <version>` again.
+GPUI comes from sikemux/gpui, our fork of sonorahq/gpui, pinned by commit in
+the root `Cargo.toml`'s `[patch.crates-io]` (today the head of its
+`sikemux-zed-08cbb88` branch). That branch is upstream plus our commits and a
+last commit that renames the crates to the gpui-pre names and version GPUI Kit
+pins. To move onto a newer upstream, replay our commits, drop the rename commit
+and run the fork's `node tooling/gpui-pre-names.mjs <version>` again.
 
 It talks to the core at `SIKEMUX_CORE_SOCKET`, else `~/.config/sikemux/core.dev.sock`
 in a dev build and `core.sock` in a release one.
 
 ## Rules
 
-- Built from scratch and lean. Port the Tauri app's behaviour and look, never
-  its structure.
+- Built from scratch and lean.
 - One source of truth. The core owns the data. The UI keeps one store of the
   core's view, fed by the core's changes, plus UI-only state: focus, open menus,
   scroll, sizes. No view keeps a copy of core data or a cache of its own, and
@@ -43,5 +43,4 @@ in a dev build and `core.sock` in a release one.
   means the set is missing something: add it there, once.
 - Fewer, bigger pieces. No pass-through layers, and no per-screen copies of the
   same row or header.
-- Line counts stay well below today's TypeScript and CSS for the same area.
 - Before a screen lands, check it against these rules and simplify it.

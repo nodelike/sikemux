@@ -13,8 +13,9 @@ pnpm install        # also points core.hooksPath at .githooks
 make dev            # builds the core, its helpers and the app, and opens it
 ```
 
-`pnpm install` installs a `pre-push` hook that runs the CI gates for whatever you
-are about to push. Install it by hand in an existing clone with `make hooks`.
+`pnpm install` installs a `pre-push` hook that refuses commits that credit Claude
+as a co-author, and a `commit-msg` hook that strips those lines. Install
+them by hand in an existing clone with `make hooks`.
 
 ## Project layout
 
@@ -55,7 +56,7 @@ pnpm ios                    # builds the development app and runs it in the simu
 
 Rebuild with `pnpm native:ios:sim` after changing `sikemux-mobile` or the protocol in `sikemux-core`; it builds only the simulator slice, which is the quickest loop. `pnpm native:ios` adds the device slice, `pnpm native:android` builds for Android, and the `:release` variants build with the small `mobile` profile that release runs require. These scripts put `~/.cargo/bin` first on `PATH` themselves and stop if the toolchain or a target is missing. `pnpm clean` deletes the generated native projects and bindings. The generated bindings and native libraries are build output and are not committed. The app needs a development build; Expo Go cannot load `@sikemux/native`. To pair the simulator with your Mac, turn on Settings, Devices in a dev build of Sikemux.
 
-`pnpm check` in `mobile/` runs the phone's typecheck, lint, Prettier check and unit tests (vitest, with stand-ins for React Native and the native modules in `mobile/app/test/mocks`). Its lint also fails if Mac code the phone imports through `@mac/` reaches `@tauri-apps/*`, which Metro cannot bundle; the repo's `pnpm lint` runs that check too.
+`pnpm check` in `mobile/` runs the phone's typecheck, lint, Prettier check and unit tests (vitest, with stand-ins for React Native and the native modules in `mobile/app/test/mocks`). Its lint also fails if anything `shared/` imports reaches a desktop-only package or a file outside `shared/` and `server/protocol`, which the phone and the share page cannot bundle; the repo's `pnpm lint` runs that check too.
 
 #### Designing phone screens
 
@@ -82,7 +83,7 @@ Merging a change under `server/` to `main` deploys it: `.github/workflows/server
 
 ## Before you open a PR
 
-The `pre-push` hook already runs these for you. To check without pushing:
+CI runs these gates on every push. To run them before pushing:
 
 ```bash
 make prepush          # the CI gates, limited to what your commits touched
@@ -95,11 +96,9 @@ One CI job stays out of every push: **GPUI in a real window**. It runs daily and
 
 `cargo audit` reads a database that changes daily, so a push that was clean can go red later with no code change. That is the advisory database moving, not your commit.
 
-Skip the hook for a work-in-progress push with `git push --no-verify`, or `SKIP_PREPUSH=1 git push`. Force every gate to run with `PREPUSH_FULL=1`.
-
 Releases publish only from the Release workflow ([docs/releasing.md](docs/releasing.md)); `scripts/release.sh --publish` refuses to run outside GitHub Actions. Release tooling supports two explicit modes. The default community mode requires the updater private key but no Apple membership and produces an updater-signed, ad-hoc code-signed release. `RELEASE_NOTARIZED=1` additionally requires a Developer ID and Apple notarization credentials and enforces Gatekeeper and stapled-ticket verification.
 
-Agent tools are declared once in `browser/tools.json`. Add or change one there, run `pnpm agent-tools:generate`, and commit the regenerated `crates/sikemux-core/src/cli/methods.rs`. `pnpm agent-tools:check` fails when a declared method has no handler, when a handler is exposed by no tool, or when the generated file is stale. Keep tool descriptions to one line: they are sent on every agent request, so protocol detail belongs in `browser/SIKEMUX_GUIDE.md`, which agents fetch once through `guide`. `pnpm agent-tools:report` prints what the surface currently costs.
+Agent tools are declared once in `browser/tools.json`. Add or change one there, run `pnpm agent-tools:generate`, and commit the regenerated `crates/sikemux-base/src/cli/methods.rs`. `pnpm agent-tools:check` fails when a declared method has no handler, when a handler is exposed by no tool, or when the generated file is stale. Keep tool descriptions to one line: they are sent on every agent request, so protocol detail belongs in `browser/SIKEMUX_GUIDE.md`, which agents fetch once through `guide`. `pnpm agent-tools:report` prints what the surface currently costs.
 
 - **Scope** — keep PRs focused. One feature or fix per PR is much easier to review.
 - **No regressions** — keep things efficient and performant; if a change touches the editor, terminal, or git panes, verify the affected views still behave.

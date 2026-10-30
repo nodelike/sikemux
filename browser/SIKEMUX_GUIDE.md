@@ -621,11 +621,10 @@ for a thrown error nobody caught, `unhandled rejection` for a failed promise)
 and its text. `errors: true` drops the log, info and debug noise. Up to 200
 messages are kept, and the newest 20 are returned unless you pass `limit`.
 
-`app_console` reads the Sikemux app's own window the same way, not a tab.
-Its levels add `swallowed`, for errors the app caught and kept quiet, and
-each message carries an ISO `at` time. Use it when Sikemux itself misbehaves,
-such as a blank avatar or a panel that does not load, instead of asking the
-person to open Web Inspector.
+`app_console` reads what the Sikemux app itself printed, not a tab. Its
+levels are `log`, `error` for the app's own complaints and `uncaught` for a
+panic, and each message carries an ISO `at` time. Use it when Sikemux itself
+misbehaves, such as a blank avatar or a panel that does not load.
 
 `browser_evaluate` runs JavaScript in the page and returns the result as
 JSON. The code goes in `script`: an expression such as `document.title`, or
