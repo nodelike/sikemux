@@ -2,6 +2,7 @@
 //! `AgentOps` once, in `sessions/<agent>.rs`, and `AgentKind::ops` is the one place
 //! that picks an implementation; what is only yes or no sits on its catalog entry.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -10,6 +11,7 @@ use notify::RecursiveMode;
 use serde_json::Value;
 
 use crate::agent_catalog::AgentKind;
+use crate::launch::tools::{TerminalSetup, Tools};
 use crate::sessions::context::SessionContext;
 use crate::sessions::recent::{Found, Hit, PageScan};
 use crate::sessions::search::Prose;
@@ -133,6 +135,36 @@ pub(crate) trait AgentOps: Sync {
     /// subagents, beside the transcript.
     fn project_folder(&self, _root: &Path, _cwd: &str) -> Option<PathBuf> {
         None
+    }
+
+    /// The arguments it starts with in a terminal to reach Sikemux's tools, put in front
+    /// of its own, adding what it reads from its environment to `setup`.
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>>;
+
+    /// A private home holding the skills `library` for a chat, as the variable that
+    /// names it and the folder, for agents that read skills only from their home.
+    fn chat_home<'a>(
+        &self,
+        _tools: &'a Tools,
+        _agent_id: &'a str,
+        _program: &'a str,
+        _library: &'a Path,
+    ) -> Option<Pending<'a, Result<(String, String), String>>> {
+        None
+    }
+
+    /// Gives a chat the skills library in `data_dir`, at `library`, through its
+    /// arguments or environment.
+    fn chat_skills(
+        &self,
+        _data_dir: &Path,
+        _library: &Path,
+        _args: &mut Vec<String>,
+        _env: &mut BTreeMap<String, String>,
+    ) {
     }
 
     /// Removes what it keeps of a deleted session beside the transcript, under `root`.

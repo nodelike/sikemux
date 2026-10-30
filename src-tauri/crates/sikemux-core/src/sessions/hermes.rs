@@ -11,7 +11,10 @@ use super::recent::{Found, Hit, Listed, PageScan};
 use super::search::Prose;
 use super::AgentSession;
 use super::FileStamp;
+use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
+use crate::launch::tools::TerminalSetup;
+use crate::launch::tools::Tools;
 
 // ---- hermes — `sessions` table in ~/.hermes/state.db (SQLite) -----------
 fn hermes_db() -> Option<Connection> {
@@ -188,6 +191,29 @@ impl AgentOps for Hermes {
         Some(|executable, _config_path, session_id, name| {
             Box::pin(rename_hermes_session(executable, session_id, name))
         })
+    }
+
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>> {
+        Box::pin(setup.hermes_home())
+    }
+
+    fn chat_home<'a>(
+        &self,
+        tools: &'a Tools,
+        agent_id: &'a str,
+        program: &'a str,
+        library: &'a Path,
+    ) -> Option<Pending<'a, Result<(String, String), String>>> {
+        Some(Box::pin(tools.hermes_home(
+            "hermes-chat",
+            agent_id,
+            program,
+            None,
+            Some(library),
+        )))
     }
 }
 

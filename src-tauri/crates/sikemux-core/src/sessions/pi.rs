@@ -22,8 +22,12 @@ use super::rename::session_file_within;
 use super::roots::environment_path;
 use super::search::each_line;
 use super::AgentSession;
+use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::launch::skills;
+use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
+use std::future::ready;
 
 // ---- pi — ~/.pi/agent/sessions/**/<session>.jsonl ----------------------
 pub fn pi_session_dir() -> Option<PathBuf> {
@@ -269,6 +273,15 @@ impl AgentOps for Pi {
             session_file_within(session_id, &[root])
                 .and_then(|path| rename_pi_session(&path, name)),
         )
+    }
+
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>> {
+        Box::pin(ready(setup.extension_args(|data_dir| {
+            skills::skill_args(data_dir, |dir| Ok(skills::pi_args(dir)))
+        })))
     }
 }
 

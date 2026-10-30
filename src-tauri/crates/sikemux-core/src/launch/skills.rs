@@ -22,8 +22,8 @@ pub fn ready(data_dir: &Path) -> Option<&Path> {
     }
 }
 
-/// Gives a chat agent the library in `data_dir`. Hermes and Grok take it in a
-/// private home of their own, which their launcher makes.
+/// Gives a chat agent the library in `data_dir`. Agents that take it in a private
+/// home of their own get it from their launcher.
 pub(super) fn chat(
     data_dir: &Path,
     provider: &str,
@@ -32,23 +32,21 @@ pub(super) fn chat(
 ) {
     let library = library(data_dir);
     env.insert(LIBRARY_ENV.into(), library.to_string_lossy().into_owned());
-    match AgentKind::from_name(provider) {
-        Some(AgentKind::Claude) => {
-            args.splice(0..0, skill_args(Some(data_dir), claude_args));
-        }
-        Some(AgentKind::Omp) => args.extend(skill_args(Some(data_dir), omp_args)),
-        Some(AgentKind::Opencode) => {
-            let existing = env
-                .get("OPENCODE_CONFIG_CONTENT")
-                .cloned()
-                .or_else(inherited_opencode_config);
-            if let Some(config) =
-                chat_opencode_config(existing.as_deref(), &opencode_user_paths(), &library)
-            {
-                env.insert("OPENCODE_CONFIG_CONTENT".into(), config);
-            }
-        }
-        _ => {}
+    if let Some(kind) = AgentKind::from_name(provider) {
+        kind.ops().chat_skills(data_dir, &library, args, env);
+    }
+}
+
+/// An OpenCode chat's inline config, as `env` or the person's shell sets it, with the
+/// skills `library` added.
+pub(crate) fn add_to_opencode_chat(library: &Path, env: &mut BTreeMap<String, String>) {
+    let existing = env
+        .get("OPENCODE_CONFIG_CONTENT")
+        .cloned()
+        .or_else(inherited_opencode_config);
+    if let Some(config) = chat_opencode_config(existing.as_deref(), &opencode_user_paths(), library)
+    {
+        env.insert("OPENCODE_CONFIG_CONTENT".into(), config);
     }
 }
 

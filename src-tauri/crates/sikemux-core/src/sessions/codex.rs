@@ -24,8 +24,11 @@ use super::{
     transcript_lines, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_catalog::AgentKind;
+use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, DeleteCommand, RenameCommand, SessionPlaces};
+use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
+use std::future::ready;
 
 // ---- codex — ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl[.zst] ----------
 
@@ -471,6 +474,13 @@ impl AgentOps for Codex {
         Some(|executable, config_path, session_id| {
             Box::pin(delete_codex_session(executable, config_path, session_id))
         })
+    }
+
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>> {
+        Box::pin(ready(setup.codex_args()))
     }
 }
 

@@ -14,7 +14,10 @@ use super::search::{each_line, Prose};
 use super::AgentSession;
 use super::{condense, mtime_of, MAX_AGENT_TRANSCRIPTS_INSPECTED, MAX_AGENT_TRANSCRIPT_PATHS};
 use super::{file_stamp, FileStamp};
+use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::launch::tools::TerminalSetup;
+use crate::launch::tools::Tools;
 use notify::RecursiveMode;
 
 fn collect_grok_session_dirs(root: &Path) -> Vec<PathBuf> {
@@ -410,6 +413,29 @@ impl AgentOps for Grok {
             return Some(Err("session not found".to_string()));
         };
         Some(rename_grok_session(&root, cwd, session_id, name))
+    }
+
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>> {
+        Box::pin(setup.grok_home())
+    }
+
+    fn chat_home<'a>(
+        &self,
+        tools: &'a Tools,
+        agent_id: &'a str,
+        program: &'a str,
+        library: &'a Path,
+    ) -> Option<Pending<'a, Result<(String, String), String>>> {
+        Some(Box::pin(tools.grok_home(
+            "grok-chat",
+            agent_id,
+            program,
+            None,
+            Some(library),
+        )))
     }
 }
 

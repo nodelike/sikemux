@@ -20,8 +20,13 @@ use super::{
     text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_catalog::AgentKind;
+use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::launch::skills;
+use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
+use std::collections::BTreeMap;
+use std::future::ready;
 
 // ---- claude — ~/.claude/projects/<cwd-dashed>/<uuid>.jsonl --------------
 const MAX_PROJECT_DIR_NAME: usize = 200;
@@ -444,6 +449,26 @@ impl AgentOps for Claude {
 
     fn delete_leftovers(&self, root: &Path, transcript: &Path, session_id: &str) {
         remove_claude_leftovers(root, transcript, session_id);
+    }
+
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>> {
+        Box::pin(ready(setup.claude_args()))
+    }
+
+    fn chat_skills(
+        &self,
+        data_dir: &Path,
+        _library: &Path,
+        args: &mut Vec<String>,
+        _env: &mut BTreeMap<String, String>,
+    ) {
+        args.splice(
+            0..0,
+            skills::skill_args(Some(data_dir), skills::claude_args),
+        );
     }
 }
 

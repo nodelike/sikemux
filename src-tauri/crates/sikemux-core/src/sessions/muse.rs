@@ -13,7 +13,10 @@ use super::roots::muse_data_root;
 use super::search::Prose;
 use super::AgentSession;
 use super::FileStamp;
+use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
+use crate::launch::tools::TerminalSetup;
+use std::future::ready;
 
 // ---- muse — `sessions` table in ~/.local/share/muse/session-index.db -----
 fn muse_db() -> Option<Connection> {
@@ -250,5 +253,12 @@ impl AgentOps for Muse {
         Some(|executable, _config_path, session_id, name| {
             Box::pin(rename_muse_session(executable, session_id, name))
         })
+    }
+
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>> {
+        Box::pin(ready(setup.muse_args()))
     }
 }

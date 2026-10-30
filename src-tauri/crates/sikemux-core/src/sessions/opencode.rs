@@ -11,8 +11,13 @@ use super::roots::environment_path;
 use super::search::Prose;
 use super::AgentSession;
 use super::FileStamp;
+use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::launch::skills;
+use crate::launch::tools::TerminalSetup;
 use serde_json::Value;
+use std::collections::BTreeMap;
+use std::future::ready;
 
 // ---- opencode — SQLite in the user's opencode data dir ------------------
 pub fn opencode_data_dirs() -> Vec<PathBuf> {
@@ -295,6 +300,23 @@ impl AgentOps for Opencode {
         _config_path: Option<&str>,
     ) -> Option<Result<(), String>> {
         Some(rename_opencode_session(session_id, name))
+    }
+
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>> {
+        Box::pin(ready(setup.opencode_config()))
+    }
+
+    fn chat_skills(
+        &self,
+        _data_dir: &Path,
+        library: &Path,
+        _args: &mut Vec<String>,
+        env: &mut BTreeMap<String, String>,
+    ) {
+        skills::add_to_opencode_chat(library, env);
     }
 }
 

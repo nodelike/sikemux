@@ -1,7 +1,7 @@
 //! Every agent learns about Sikemux's tools a different way: a config file
 //! named on the command line, a dotted override, an extension, its own home
-//! directory, or for a chat the protocol itself. This is that per-agent
-//! knowledge in one place, for the core that starts them.
+//! directory, or for a chat the protocol itself. These are those ways; each
+//! agent's `AgentOps` picks its own.
 //!
 //! An agent's existing MCP servers are never disturbed. Each integration either
 //! adds to what the person already configured or works on a private copy of the
@@ -57,9 +57,103 @@ impl TerminalTools {
     }
 }
 
-struct McpLaunch {
+pub(crate) struct McpLaunch {
     command: String,
     args: Vec<String>,
+}
+
+/// One terminal agent's launch while its tools are set up: what the tools' server
+/// is started with, and the environment its process gets.
+pub(crate) struct TerminalSetup<'a> {
+    pub(crate) tools: &'a Tools,
+    pub(crate) agent_id: &'a str,
+    pub(crate) program: &'a str,
+    pub(crate) launch: McpLaunch,
+    pub(crate) environment: Vec<(String, String)>,
+    /// The data folder with the skills library ready in it.
+    pub(crate) data_dir: Option<&'a Path>,
+    pub(crate) library: Option<PathBuf>,
+}
+
+impl TerminalSetup<'_> {
+    /// Claude Code merges `--mcp-config` with the servers the person already
+    /// has, so this adds the tools without hiding anything else.
+    pub(crate) fn claude_args(&self) -> Result<Vec<String>, String> {
+        let mut args = self.tools.claude_args(&self.launch)?;
+        args.extend(skills::skill_args(self.data_dir, skills::claude_args));
+        Ok(args)
+    }
+
+    pub(crate) fn codex_args(&self) -> Result<Vec<String>, String> {
+        codex_args(&self.launch)
+    }
+
+    /// Pi and OMP load the tools through Sikemux's extension, which reads the
+    /// server from the environment, beside the skill arguments `skills` makes.
+    pub(crate) fn extension_args(
+        &mut self,
+        skills: impl FnOnce(Option<&Path>) -> Vec<String>,
+    ) -> Result<Vec<String>, String> {
+        self.environment
+            .push((vars::TOOLS_MCP_COMMAND.into(), self.launch.command.clone()));
+        self.environment.push((
+            vars::TOOLS_MCP_ARGS.into(),
+            serde_json::to_string(&self.launch.args).map_err(|error| error.to_string())?,
+        ));
+        let mut args = vec![
+            "--extension".into(),
+            self.tools.pi_extension()?.to_string_lossy().into_owned(),
+        ];
+        args.extend(skills(self.data_dir));
+        Ok(args)
+    }
+
+    pub(crate) async fn hermes_home(&mut self) -> Result<Vec<String>, String> {
+        let home = self
+            .tools
+            .hermes_home(
+                "hermes",
+                self.agent_id,
+                self.program,
+                Some(&self.launch),
+                self.library.as_deref(),
+            )
+            .await?;
+        self.environment.push(home);
+        Ok(Vec::new())
+    }
+
+    pub(crate) async fn grok_home(&mut self) -> Result<Vec<String>, String> {
+        let home = self
+            .tools
+            .grok_home(
+                "grok",
+                self.agent_id,
+                self.program,
+                Some(&self.launch),
+                self.library.as_deref(),
+            )
+            .await?;
+        self.environment.push(home);
+        Ok(Vec::new())
+    }
+
+    pub(crate) fn muse_args(&self) -> Result<Vec<String>, String> {
+        muse_args(&self.launch, &self.environment)
+    }
+
+    pub(crate) fn opencode_config(&mut self) -> Result<Vec<String>, String> {
+        let config = opencode_config(
+            skills::inherited_opencode_config().as_deref(),
+            &self.launch,
+            self.library
+                .clone()
+                .map(|library| (skills::opencode_user_paths(), library)),
+        )?;
+        self.environment
+            .push(("OPENCODE_CONFIG_CONTENT".into(), config));
+        Ok(Vec::new())
+    }
 }
 
 impl Tools {
@@ -96,76 +190,20 @@ impl Tools {
             return Ok(TerminalTools::default());
         };
         valid_agent_id(agent_id)?;
-        let launch = self.mcp();
-        let mut environment = self.base_environment(agent_id);
         let data_dir = self.skills_dir();
-        let library = data_dir.map(crate::skills::library);
-        let args_prefix = match kind {
-            AgentKind::Claude => {
-                let mut args = self.claude_args(&launch)?;
-                args.extend(skills::skill_args(data_dir, skills::claude_args));
-                args
-            }
-            AgentKind::Codex => codex_args(&launch)?,
-            AgentKind::Pi | AgentKind::Omp => {
-                environment.push((vars::TOOLS_MCP_COMMAND.into(), launch.command.clone()));
-                environment.push((
-                    vars::TOOLS_MCP_ARGS.into(),
-                    serde_json::to_string(&launch.args).map_err(|error| error.to_string())?,
-                ));
-                let mut args = vec![
-                    "--extension".into(),
-                    self.pi_extension()?.to_string_lossy().into_owned(),
-                ];
-                args.extend(if kind == AgentKind::Pi {
-                    skills::skill_args(data_dir, |dir| Ok(skills::pi_args(dir)))
-                } else {
-                    skills::skill_args(data_dir, skills::omp_args)
-                });
-                args
-            }
-            AgentKind::Hermes => {
-                let home = self
-                    .hermes_home(
-                        "hermes",
-                        agent_id,
-                        agent_program,
-                        Some(&launch),
-                        library.as_deref(),
-                    )
-                    .await?;
-                environment.push(home);
-                Vec::new()
-            }
-            AgentKind::Grok => {
-                let home = self
-                    .grok_home(
-                        "grok",
-                        agent_id,
-                        agent_program,
-                        Some(&launch),
-                        library.as_deref(),
-                    )
-                    .await?;
-                environment.push(home);
-                Vec::new()
-            }
-            AgentKind::Muse => muse_args(&launch, &environment)?,
-            AgentKind::Opencode => {
-                environment.push((
-                    "OPENCODE_CONFIG_CONTENT".into(),
-                    opencode_config(
-                        skills::inherited_opencode_config().as_deref(),
-                        &launch,
-                        library.map(|library| (skills::opencode_user_paths(), library)),
-                    )?,
-                ));
-                Vec::new()
-            }
+        let mut setup = TerminalSetup {
+            tools: self,
+            agent_id,
+            program: agent_program,
+            launch: self.mcp(),
+            environment: self.base_environment(agent_id),
+            data_dir,
+            library: data_dir.map(crate::skills::library),
         };
+        let args_prefix = kind.ops().terminal_tools(&mut setup).await?;
         Ok(TerminalTools {
             args_prefix,
-            environment,
+            environment: setup.environment,
         })
     }
 
@@ -184,8 +222,8 @@ impl Tools {
         serde_json::to_value(McpServer::Stdio(server)).map_err(|error| error.to_string())
     }
 
-    /// Gives a Hermes or Grok chat a private home holding the skills library,
-    /// since the tools reach them over the protocol rather than their config.
+    /// Gives a chat of an agent that takes the skills library in a home of its own
+    /// a private home holding it, since the tools reach it over the protocol.
     pub async fn chat_home(
         &self,
         agent_id: &str,
@@ -197,18 +235,12 @@ impl Tools {
             return;
         };
         let program = program.to_string_lossy();
-        let home = match AgentKind::from_name(provider) {
-            Some(AgentKind::Hermes) => {
-                self.hermes_home("hermes-chat", agent_id, &program, None, Some(&library))
-                    .await
-            }
-            Some(AgentKind::Grok) => {
-                self.grok_home("grok-chat", agent_id, &program, None, Some(&library))
-                    .await
-            }
-            _ => return,
+        let Some(home) = AgentKind::from_name(provider)
+            .and_then(|kind| kind.ops().chat_home(self, agent_id, &program, &library))
+        else {
+            return;
         };
-        match home {
+        match home.await {
             Ok((variable, home)) => {
                 env.insert(variable, home);
             }
@@ -230,10 +262,8 @@ impl Tools {
         ]
     }
 
-    /// Claude Code merges `--mcp-config` with the servers the person already
-    /// has, so this adds the tools without hiding anything else. The flag
-    /// takes a list, so it is written as one `=` token: given a separate one
-    /// it would swallow whatever plain word came next.
+    /// Claude Code's `--mcp-config` takes a list, so it is written as one `=` token:
+    /// given a separate one it would swallow whatever plain word came next.
     fn claude_args(&self, launch: &McpLaunch) -> Result<Vec<String>, String> {
         let directory = self.state_dir()?;
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
@@ -268,7 +298,7 @@ impl Tools {
 
     /// A private Hermes home for `agent_id`, kept under `host`, given the tools
     /// when `tools` names them and the skills `library`.
-    async fn hermes_home(
+    pub(crate) async fn hermes_home(
         &self,
         host: &str,
         agent_id: &str,
@@ -302,7 +332,7 @@ impl Tools {
 
     /// A private Grok home for `agent_id`, kept under `host`, given the tools
     /// when `tools` names them and the skills `library`.
-    async fn grok_home(
+    pub(crate) async fn grok_home(
         &self,
         host: &str,
         agent_id: &str,

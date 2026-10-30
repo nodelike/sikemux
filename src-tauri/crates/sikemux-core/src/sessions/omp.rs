@@ -23,8 +23,13 @@ use super::{
     stamped_transcripts, text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_catalog::AgentKind;
+use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::launch::skills;
+use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
+use std::collections::BTreeMap;
+use std::future::ready;
 
 pub(super) fn omp_sessions(cwd: &str) -> Vec<AgentSession> {
     omp_sessions_from_dirs(cwd, omp_session_dirs())
@@ -353,6 +358,25 @@ impl AgentOps for Omp {
             session_file_within(session_id, &omp_session_dirs())
                 .and_then(|path| rename_omp_session(&path, name, omp_title_index().as_deref())),
         )
+    }
+
+    fn terminal_tools<'a>(
+        &'a self,
+        setup: &'a mut TerminalSetup<'_>,
+    ) -> Pending<'a, Result<Vec<String>, String>> {
+        Box::pin(ready(setup.extension_args(|data_dir| {
+            skills::skill_args(data_dir, skills::omp_args)
+        })))
+    }
+
+    fn chat_skills(
+        &self,
+        data_dir: &Path,
+        _library: &Path,
+        args: &mut Vec<String>,
+        _env: &mut BTreeMap<String, String>,
+    ) {
+        args.extend(skills::skill_args(Some(data_dir), skills::omp_args));
     }
 }
 
