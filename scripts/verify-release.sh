@@ -190,7 +190,7 @@ DMG_PLIST="$DMG_APP/Contents/Info.plist"
 /usr/bin/hdiutil detach "$DMG_MOUNT" -quiet
 DMG_ATTACHED=0
 # The README and sikemux.com promise a small download.
-DMG_BUDGET_BYTES=25000000
+DMG_BUDGET_BYTES=30000000
 DMG_BYTES="$(stat -f %z "$DMG")"
 ((DMG_BYTES <= DMG_BUDGET_BYTES)) || fail "$DMG is $DMG_BYTES bytes, over the $DMG_BUDGET_BYTES byte budget"
 

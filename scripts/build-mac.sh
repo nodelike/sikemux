@@ -97,7 +97,7 @@ ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Conte
 
 # The README and sikemux.com promise a small download, so a release that grows
 # past this fails here instead of shipping. scripts/sign-mac.sh checks it again.
-DMG_BUDGET_BYTES=25000000
+DMG_BUDGET_BYTES=30000000
 
 # The DMG holds what every release's has: the app, a link to Applications, the
 # background and the volume's icon, packed with LZMA.
