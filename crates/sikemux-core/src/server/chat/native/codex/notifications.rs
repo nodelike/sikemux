@@ -64,7 +64,7 @@ struct ItemFields<'a> {
 }
 
 /// What every item says of itself; the rest is read by the item's kind.
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 pub(super) struct ItemHead<'a> {
     pub id: &'a str,
     #[serde(rename = "type")]
@@ -171,11 +171,25 @@ pub(super) struct ConfigWarning<'a> {
     pub details: Option<&'a str>,
 }
 
-/// The thread a notification is about, when it names one.
-#[derive(Deserialize)]
+/// Where a message from Codex belongs: the thread and the turn it names, when it names them.
+#[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct OfThread<'a> {
-    thread_id: Option<&'a str>,
+pub(super) struct Place<'a> {
+    pub thread_id: Option<&'a str>,
+    pub turn_id: Option<&'a str>,
+}
+
+/// A turn of a thread's history, as `thread/read` and `thread/turns/list` answer; its
+/// items are read by their kind.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct HistoryTurn<'a> {
+    pub id: &'a str,
+    /// `completed`, `interrupted` or `failed`, once it ended.
+    pub status: Option<&'a str>,
+    /// In seconds.
+    pub started_at: Option<u64>,
+    pub completed_at: Option<u64>,
 }
 
 /// An item about Codex's subagents, which the chat routes to their own sessions.
@@ -262,18 +276,19 @@ pub(super) fn readable<'a, T: Deserialize<'a>>(
     })
 }
 
-/// The thread `method`'s notification is about, when it names one.
-pub(super) fn thread_of<'a>(method: &str, params: &'a Value) -> Option<&'a str> {
-    readable::<OfThread>(method, params)
-        .ok()
-        .and_then(|of| of.thread_id)
+/// Where `method`'s message belongs, as far as it says.
+pub(super) fn place<'a>(method: &str, params: &'a Value) -> Place<'a> {
+    readable(method, params).unwrap_or_default()
 }
 
-/// The subagent item an item notification carries, or None for any other item.
-pub(super) fn subagent_item<'a>(method: &str, params: &'a Value) -> Option<SubagentItem<'a>> {
-    let fields = ItemFields::deserialize(params).ok()?;
-    let item = &params["item"];
-    match fields.item.kind {
+/// What `item` of `method` says of itself, or None when Sikemux cannot read it.
+pub(super) fn item_head<'a>(method: &str, item: &'a Value) -> Option<ItemHead<'a>> {
+    readable(method, item).ok()
+}
+
+/// The subagent item `item` is, or None for any other item.
+pub(super) fn subagent_item<'a>(method: &str, item: &'a Value) -> Option<SubagentItem<'a>> {
+    match ItemHead::deserialize(item).ok()?.kind {
         "subAgentActivity" => readable(method, item).ok().map(SubagentItem::Activity),
         "collabAgentToolCall" => readable(method, item).ok().map(SubagentItem::Collaboration),
         _ => None,

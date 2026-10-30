@@ -296,7 +296,10 @@ impl Session {
     pub fn handle(&mut self, method: &str, params: &Value) -> Vec<Effect> {
         let mut out = Vec::new();
         let mut replay = Vec::new();
-        let route = self.subagents.route(method, params, &mut out, &mut replay);
+        let place = notifications::place(method, params);
+        let route = self
+            .subagents
+            .route(method, place.thread_id, params, &mut out, &mut replay);
         let mut effects: Vec<Effect> = out
             .into_iter()
             .map(|(session, update)| Effect::Update(session, update))
@@ -308,12 +311,10 @@ impl Session {
                 }
             }
             Route::Session(session) => {
-                let root = params["threadId"]
-                    .as_str()
+                let root = place
+                    .thread_id
                     .is_none_or(|thread| thread == self.thread_id);
-                let stale = params["turnId"]
-                    .as_str()
-                    .is_some_and(|turn| self.turns.is_stale(turn));
+                let stale = place.turn_id.is_some_and(|turn| self.turns.is_stale(turn));
                 match notifications::read(method, params) {
                     Some(Notification::Unreadable { method, error }) => {
                         if root {
@@ -533,14 +534,10 @@ impl Session {
 
     /// How to answer one of Codex's requests.
     pub fn question(&mut self, method: &str, params: &Value) -> Reply {
-        let thread = params["threadId"]
-            .as_str()
-            .unwrap_or(&self.thread_id)
-            .to_owned();
+        let place = notifications::place(method, params);
+        let thread = place.thread_id.unwrap_or(&self.thread_id).to_owned();
         let session = self.subagents.session_of(&thread);
-        let stale = params["turnId"]
-            .as_str()
-            .is_some_and(|turn| self.turns.is_stale(turn));
+        let stale = place.turn_id.is_some_and(|turn| self.turns.is_stale(turn));
         match method {
             "item/commandExecution/requestApproval" => match approvals::command(&session, params) {
                 Some(question) if !stale => Reply::Ask(question),

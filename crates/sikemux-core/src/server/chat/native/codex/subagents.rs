@@ -114,13 +114,12 @@ impl Subagents {
     pub fn route(
         &mut self,
         method: &str,
+        thread: Option<&str>,
         params: &Value,
         out: &mut Vec<Addressed>,
         replay: &mut Vec<(String, Value)>,
     ) -> Route {
-        let thread = notifications::thread_of(method, params)
-            .unwrap_or(&self.root)
-            .to_owned();
+        let thread = thread.unwrap_or(&self.root).to_owned();
         match method {
             "turn/started" if self.known(&thread) => return Route::Taken,
             "turn/completed" if self.known(&thread) => {
@@ -143,7 +142,9 @@ impl Subagents {
             return Route::Taken;
         }
         if matches!(method, "item/started" | "item/completed")
-            && notifications::subagent_item(method, params)
+            && params
+                .get("item")
+                .and_then(|item| notifications::subagent_item(method, item))
                 .is_some_and(|item| self.claims(item, out, replay))
         {
             return Route::Taken;
@@ -343,7 +344,8 @@ mod tests {
     ) -> (Route, Vec<Addressed>, Vec<(String, Value)>) {
         let mut out = Vec::new();
         let mut replay = Vec::new();
-        let route = subagents.route(method, &params, &mut out, &mut replay);
+        let thread = notifications::place(method, &params).thread_id;
+        let route = subagents.route(method, thread, &params, &mut out, &mut replay);
         (route, out, replay)
     }
 

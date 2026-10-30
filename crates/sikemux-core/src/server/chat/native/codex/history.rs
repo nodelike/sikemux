@@ -8,18 +8,35 @@ use serde_json::{json, Value};
 
 use super::super::super::states::Subagent;
 use super::items;
+use super::notifications::{self, HistoryTurn, ItemHead, SubagentItem};
 use super::subagents::{Addressed, Route, Subagents};
 
 pub(super) use super::super::super::feed::title;
 
-fn user_messages(turns: &[Value]) -> impl Iterator<Item = (&Value, &Value)> {
-    turns.iter().flat_map(|turn| {
-        turn["items"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|item| item["type"] == "userMessage")
-            .map(move |item| (turn, item))
+/// The request a thread's history is read with, for saying what could not be read.
+const LISTED: &str = "thread/turns/list";
+
+/// Each of `turns` with what it says of itself, leaving out one Sikemux cannot read.
+fn turn_heads(turns: &[Value]) -> impl Iterator<Item = (HistoryTurn<'_>, &Value)> {
+    turns
+        .iter()
+        .filter_map(|turn| Some((notifications::readable(LISTED, turn).ok()?, turn)))
+}
+
+/// Each item of `turn` with what it says of itself, leaving out one Sikemux cannot read.
+fn items_of(turn: &Value) -> impl Iterator<Item = (ItemHead<'_>, &Value)> {
+    turn.get("items")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| Some((notifications::item_head(LISTED, item)?, item)))
+}
+
+fn user_messages(turns: &[Value]) -> impl Iterator<Item = (HistoryTurn<'_>, &Value)> {
+    turn_heads(turns).flat_map(|(turn, whole)| {
+        items_of(whole)
+            .filter(|(head, _)| head.kind == "userMessage")
+            .map(move |(_, item)| (turn, item))
     })
 }
 
@@ -47,10 +64,7 @@ pub(super) fn thread_title(thread: &Value, turns: &[Value]) -> Option<String> {
 pub(super) fn message_turns(turns: &[Value]) -> HashMap<String, String> {
     user_messages(turns)
         .filter_map(|(turn, item)| {
-            Some((
-                item["clientId"].as_str()?.to_owned(),
-                turn["id"].as_str()?.to_owned(),
-            ))
+            Some((item["clientId"].as_str()?.to_owned(), turn.id.to_owned()))
         })
         .collect()
 }
@@ -59,13 +73,14 @@ pub(super) fn message_turns(turns: &[Value]) -> HashMap<String, String> {
 pub(super) fn subagent_threads(turns: &[Value]) -> Vec<String> {
     let mut threads = Vec::new();
     for turn in turns {
-        for item in turn["items"].as_array().into_iter().flatten() {
-            if item["type"] == "subAgentActivity" && item["kind"] == "started" {
-                if let Some(thread) = item["agentThreadId"].as_str() {
-                    if !threads.iter().any(|known| known == thread) {
-                        threads.push(thread.to_owned());
-                    }
-                }
+        for (_, item) in items_of(turn) {
+            let Some(SubagentItem::Activity(activity)) = notifications::subagent_item(LISTED, item)
+            else {
+                continue;
+            };
+            let thread = activity.agent_thread_id;
+            if activity.kind == "started" && !threads.iter().any(|known| known == thread) {
+                threads.push(thread.to_owned());
             }
         }
     }
@@ -112,19 +127,19 @@ struct Replaying<'a, R> {
 impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
     fn thread(&mut self, thread: &str, turns: &[Value]) {
         let session = self.subagents.session_of(thread);
-        for turn in turns {
+        for (turn, whole) in turn_heads(turns) {
             let mut first_message = true;
-            let seconds = |field: &str| turn[field].as_u64().map(|at| at * 1000);
-            let (started, completed) = (seconds("startedAt"), seconds("completedAt"));
-            for item in turn["items"].as_array().into_iter().flatten() {
+            let milliseconds = |seconds: Option<u64>| seconds.map(|at| at * 1000);
+            let (started, completed) = (
+                milliseconds(turn.started_at),
+                milliseconds(turn.completed_at),
+            );
+            for (head, item) in items_of(whole) {
                 let from = self.out.len();
                 let mut opened = Vec::new();
-                if item["type"] == "userMessage" {
-                    let id = if first_message {
-                        &turn["id"]
-                    } else {
-                        &item["id"]
-                    };
+                let said = head.kind == "userMessage";
+                if said {
+                    let id = if first_message { turn.id } else { head.id };
                     first_message = false;
                     for block in items::user_blocks(item) {
                         self.out.push((
@@ -135,11 +150,7 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
                 } else {
                     opened = self.item(thread, item);
                 }
-                let at = if item["type"] == "userMessage" {
-                    started
-                } else {
-                    completed
-                };
+                let at = if said { started } else { completed };
                 if let Some(at) = at {
                     for (target, update) in &mut self.out[from..] {
                         if *target == session {
@@ -159,10 +170,13 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
     fn item(&mut self, thread: &str, item: &Value) -> Vec<String> {
         let params = json!({ "threadId": thread, "item": item });
         let mut said = Vec::new();
-        if let Route::Session(target) =
-            self.subagents
-                .route("item/completed", &params, &mut said, &mut Vec::new())
-        {
+        if let Route::Session(target) = self.subagents.route(
+            "item/completed",
+            Some(thread),
+            &params,
+            &mut said,
+            &mut Vec::new(),
+        ) {
             self.out.extend(
                 items::replayed(item, self.read)
                     .into_iter()
@@ -178,12 +192,8 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
             .filter_map(|(_, update)| update["subagentSessionId"].as_str().map(str::to_owned))
             .collect();
         self.out.extend(said);
-        if item["type"] == "subAgentActivity" {
-            if let (Some(child), Some(kind)) =
-                (item["agentThreadId"].as_str(), item["kind"].as_str())
-            {
-                self.settle(child, kind);
-            }
+        if let Some(SubagentItem::Activity(activity)) = notifications::subagent_item(LISTED, item) {
+            self.settle(activity.agent_thread_id, activity.kind);
         }
         opened
     }
@@ -195,7 +205,10 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
         };
         *told += 1;
         self.thread(child, std::slice::from_ref(turn));
-        if let Some(status) = turn["status"].as_str() {
+        let ended = notifications::readable::<HistoryTurn>(LISTED, turn)
+            .ok()
+            .and_then(|turn| turn.status);
+        if let Some(status) = ended {
             self.settle(child, status);
         }
     }
@@ -204,8 +217,13 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
     fn settle(&mut self, child: &str, status: &str) {
         let params = json!({ "threadId": child, "turn": { "status": status } });
         let mut said = Vec::new();
-        self.subagents
-            .route("turn/completed", &params, &mut said, &mut Vec::new());
+        self.subagents.route(
+            "turn/completed",
+            Some(child),
+            &params,
+            &mut said,
+            &mut Vec::new(),
+        );
         self.out.extend(said);
     }
 }
