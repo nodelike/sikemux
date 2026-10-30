@@ -3,7 +3,7 @@ title: WebKit
 description: "Desk tabs use the same engine as Safari, and what that means."
 ---
 
-Desk tabs run **WebKit**, the engine Safari runs on. A page that works on the desk works in Safari. When an agent checks a page, it checks it here rather than in a headless Chromium.
+Desk tabs run **WebKit**, the engine Safari runs on: on a Mac, the system's own WebKit, and on Linux, WebKitGTK. Each page is drawn inside the Sikemux window, not in a separate browser. A page that works on the desk works in Safari. When an agent checks a page, it checks it here rather than in a headless Chromium.
 
 Because it is Safari's engine, a page that only supports Chrome may look or behave differently on the desk. Open it in your own browser to compare.
 

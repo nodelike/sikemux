@@ -10,9 +10,9 @@ The first time Sikemux opens it shows a welcome screen with four ways in:
 | Open a project | `⌘O` | Pick a folder or repository to work in |
 | Start an agent | `⌘N` | Start a coding agent in a project you pick |
 | Browse commands | `⌘⇧P` | Search every action and its shortcut |
-| Connect to a host | `⌘⇧S` | A host from your SSH config |
+| Connect to a host | `⌘⇧S` | Hosts from your SSH config |
 
-Press `esc` to skip it. You can see it again from the command deck (`⌘⇧P`, then **Show welcome**) or from **Settings → About**.
+If `git` is not installed, the welcome says so, since the Git view needs it. Press `esc` to skip it. You can see it again from the command deck (`⌘⇧P`, then **Show welcome**) or from **Settings → About**.
 
 ## Agents on this machine
 
@@ -23,6 +23,6 @@ Below the moves, Sikemux lists the coding agents it found on your computer and w
 - **Not installed**: Sikemux can run the agent's own installer for you. Click **Install** to watch it run in a terminal, then Sikemux looks for the agent again.
 - **Not working**: installed, but it fails to start. Click **Reinstall** to run its installer again.
 
-The same list, with the same buttons, is under **Agents on this machine** in Settings. The agent palette (`⌘⇧N`) also offers **Sign in to** a signed-out agent beside starting it.
+The same list, with the same buttons, is under **Agents on this host** in **Settings → Installed**. The agent palette (`⌘⇧N`) also offers **Sign in to** a signed-out agent beside starting it.
 
 See [Supported agents](/agents/supported/) for the list.
