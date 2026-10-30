@@ -3,7 +3,7 @@ title: Model providers
 description: "Run chats on a model provider's API key instead of an agent's own account, and add any OpenAI-compatible provider by its base URL and key."
 ---
 
-An agent normally runs on its maker's account: Claude on Anthropic's, Codex on OpenAI's. A chat can run on a model provider instead, such as OpenRouter, DeepSeek, Groq, a coding plan, Ollama on this host, or any provider with an OpenAI-compatible API.
+An agent normally runs on its maker's account: Claude on Anthropic's, Codex on OpenAI's. A chat can run on a model provider instead, such as OpenRouter, DeepSeek, Groq, a coding plan, Ollama or LM Studio on this host, or any provider with an OpenAI-compatible API.
 
 ## Picking a model
 
@@ -41,6 +41,16 @@ When that agent isn't installed, Sikemux installs it with the agent's own instal
 
 OMP and OpenCode can run any provider. Sikemux tells them of it for that one chat: your own OMP and OpenCode settings, sign-ins and models stay as they are.
 
-## Removing a provider
+## Providers in settings
 
-Providers you added are listed in **Settings → API providers**, or **Local models** for one on this host that needs no key, each with **Remove**. **Add provider** at the end of API providers opens the same paste.
+Settings lists the providers Sikemux knows on three pages:
+
+- **Coding plans**: monthly plans made for coding agents.
+- **API providers**: hosted models you pay for by the token. **Add provider** at the end opens the same paste as the model picker.
+- **Local models**: Ollama or LM Studio on this host. They need no key, and nothing leaves this host.
+
+A provider you haven't connected offers **Get a key**, which opens its site, and **Add key**. A connected one says which agents can run it and the model it starts on, and **Check tool calls** tries whether its models work with agents. **Disconnect** forgets a known provider's key, and **Remove** takes away one you added by its URL, key and all.
+
+## Helpers
+
+When an agent starts another agent without naming a model, the new one runs as **Settings → Helpers** says: as the agent that started it, or as an agent you pick, paid by its own account or by a provider you connected, on the model you type. Claude Code's own subagents take that model too. The agent you work with keeps the model you picked.

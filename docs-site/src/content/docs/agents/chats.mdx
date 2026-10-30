@@ -12,12 +12,13 @@ The **GUI / TUI** switch at the top of an agent swaps between:
 - **GUI**: Sikemux's chat, with the transcript, tool calls, questions and the composer.
 - **TUI**: the agent's own terminal interface, running in a Sikemux terminal.
 
-Switch while the agent is idle. A switch waits until the agent finishes its reply.
+Switch while the agent is idle: while it works, the switch is greyed out until it finishes its reply. An agent with no chat of its own, such as Pi, has only its TUI.
 
 What you typed but did not send comes with you. A draft in the composer waits at the TUI's prompt, unsent, and what is typed in Claude's input box comes back to the composer.
 
 ## The composer
 
+- `↑` in an empty box brings back what you sent before, and `↓` goes forward again.
 - `/` lists the session's commands and skills; the one you pick goes in as a chip, like a mention. A command the session doesn't have isn't sent: it stays in the draft, and the composer says so.
 - `@` names another agent, in this project or any other, or an earlier chat to open again. An agent you renamed keeps its name and buddy after you close it, so `@` finds it by that name and opens its chat again.
 - `#` hands over a GitHub, GitLab or Bitbucket issue, and `!` a pull request.
@@ -35,16 +36,29 @@ What you typed but did not send comes with you. A draft in the composer waits at
 | `Enter` | Sends it now, steering the agent in the middle of its reply |
 | `⌘Enter` | Your message waits and is sent when the agent finishes its reply |
 | `⌘Enter` in an empty box | Sends the messages that were waiting, now |
+| `Esc` in an empty box | Stops the agent's reply |
 
-To swap the two, set **Settings › Chats › Sending while an agent works** to **Queue**. An agent that can't be steered always queues. Sending from your phone follows the same setting.
+To swap the two, set **Settings → Chats → Sending while an agent works** to **Queue**. An agent that can't be steered always queues. Sending from your phone follows the same setting.
 
 ## Triggers
 
 An agent can set a trigger on its own chat, to be sent a prompt later: once, such as "check the deploy in 20 minutes", or on a schedule, such as every hour or each weekday at 9:00. Ask it to, in your own words.
 
-Its triggers are listed above the composer under **Triggers**, each with when it next fires. **×** removes one. When a trigger fires, its prompt arrives in the chat as a message from **Trigger**, and an agent that was asleep wakes for it. A time that passes while the host is off fires once the host is back: a one-time trigger always, a repeating one only within 15 minutes of its time. Closing the agent removes its triggers.
+Its triggers are listed above the composer, each with when it next fires. **×** removes one. When a trigger fires, its prompt arrives in the chat as a message from **Trigger**, and an agent that was asleep wakes for it. A time that passes while the host is off fires once the host is back: a one-time trigger always, a repeating one only within 15 minutes of its time. Closing the agent removes its triggers.
 
 For recurring work that shouldn't depend on one chat, such as triaging new issues every morning, ask the agent to put the trigger on the board. Each time it fires, it adds a card to the project's board as if you added it, so Auto starts an agent on it when Auto is on. Board triggers are listed under **Triggers** at the top of the **Agent board**, where **×** removes one; they stay after the agent that set them closes.
+
+## Editing a message you sent
+
+In a Claude Code, Codex or Muse chat, click the pencil under a message you sent, **Edit message**, while the agent is idle. Change it and press `Enter`; `Esc` leaves it as it was. The chat goes back to that message: the replies after it are dropped, and your new text is sent in its place.
+
+## Subagents
+
+When an agent hands part of its work to subagents, each one shows in the chat as a card with its name, its task and how it stands: working, done, failed, lost or stopped, with its tool calls and tokens. Click a card to see what that subagent did. While any are still working, they are also listed above the composer.
+
+## Sharing a chat
+
+The share button at the top of a chat makes a read-only link to it. Pick how long the link works, 1 hour, 24 hours or 7 days, and **Create link**. Anyone signed in to Sikemux who has the link can read the chat as it happens, from its start, but can't type in it or answer its questions. They see everything the agent read and ran, including what's in your files, so share with care. While it is shared, the button shows how many people are watching; click it to copy the link again or **Stop sharing**.
 
 ## Schemas in a reply
 
@@ -60,7 +74,7 @@ A chat holds only the part of its transcript near what you're reading, so a long
 
 ## Agent names
 
-Each agent gets a one-word name when it starts, an anime character's such as Luffy or Frieren, that no other open agent in its project has. To name new agents after nature instead, such as Otter or Maple, set **Settings › Chats › Agent names** to **Nature**. Agents already open keep their names, and so does any agent you renamed.
+Each agent gets a one-word name when it starts, an anime character's such as Luffy or Frieren, that no other open agent in its project has. To name new agents after nature instead, such as Otter or Maple, set **Settings → Chats → Agent names** to **Nature**. Agents already open keep their names, and so does any agent you renamed.
 
 When you name an agent with `@` in a message, or another agent messages it, a band of light passes once over its row in the tab rail and on the island.
 

@@ -7,9 +7,9 @@ Claude Code and Codex can keep several accounts, such as one for work and one fo
 
 ## Add an account
 
-In **Settings → Accounts**, under Claude or Codex, choose **Add account**, give it a name, then sign in in your browser. Once it is signed in, **Switch to** it, or **Keep using** the account you had.
+In **Settings → Accounts**, under Claude or Codex, choose **Add account**, give it a name, then sign in in your browser. Once it is signed in, **Switch to** it, or **Keep using** the account you had. Each account in the list has **Use** to start new chats on it, and its **⋯** menu signs it out or removes it.
 
-With two or more accounts, **Move chats when one runs out** lets a chat that hits a usage limit carry on with your next signed-in account. It is off by default: each provider's terms expect one person's ordinary use per plan.
+With two or more accounts, **Auto-rotate at limits** lets a chat that hits a usage limit carry on with your next signed-in account. It is off by default: each provider's terms expect one person's ordinary use per plan.
 
 ## Choose a chat's account
 
@@ -19,4 +19,8 @@ With two or more signed-in accounts, the strip above a chat's composer shows the
 
 The tab rail shows how much of the selected account's plan is used, with a countdown to each reset. Sikemux reads it when it starts and every five minutes while **Limits** is in view, and the last reading shows at once after a restart; the refresh button beside it reads it again now. It shows the account new chats start on; with more than one account, rest the pointer on it and your other accounts open below, each with every window of its plan. Click one to start new chats on it, without moving any chat that is already running. The **+** beside the refresh button adds an account, and a signed-out account offers **Sign in**.
 
-An account you signed out of waits under **Add account…**, where you can sign in to it again or remove it.
+An account you signed out of waits under **Add account**, where you can sign in to it again or remove it.
+
+## Agent profiles
+
+**Agent profiles**, at the foot of **Settings → Accounts**, choose which copy of an agent a launch uses: give a profile a name, the agent, and the path to its program, or leave the path empty to use the one on your `PATH`. A profile can also name its own folder, for keeping several accounts side by side. Profiles never hold credentials.

@@ -33,4 +33,4 @@ Each agent's page covers how to install it and sign in, how Sikemux runs it, and
 
 Sikemux finds an agent on your `PATH`, and in `~/.local/bin`, `~/Library/pnpm`, `~/.npm/bin` and `~/.bun/bin`, plus each agent's own folder: `~/.claude/local` and `~/.claude/bin` for Claude, `~/.opencode/bin` for OpenCode, `~/.grok/bin` for Grok, and the ChatGPT app for Codex. Before using one, it checks that the program runs.
 
-An agent that isn't installed shows **Not installed** on the welcome screen with an **Install** button, which runs the agent's own installer in a terminal you can watch. It installs where the agent's own updater expects, so the CLI works in your own terminal too.
+An agent that isn't installed shows **Not installed** on the welcome screen and in **Settings → Installed**, with an **Install** button, which runs the agent's own installer in a terminal you can watch. It installs where the agent's own updater expects, so the CLI works in your own terminal too. One that is signed out offers **Sign in** there, which runs the agent's own sign-in the same way, and one that is installed but won't run offers **Reinstall**.

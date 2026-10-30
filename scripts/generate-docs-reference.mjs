@@ -78,7 +78,7 @@ await emit(
   page(
     "Keyboard shortcuts",
     "Every default shortcut in Sikemux on a Mac.",
-    `These are the defaults. Change any of them in **Settings → Keybindings**, and search every action with the command deck (\`⌘⇧P\`).\n\n${shortcuts}`,
+    `These are the defaults. Change any of them in **Settings → Keyboard**, and search every action with the command deck (\`⌘⇧P\`).\n\n${shortcuts}`,
   ),
 );
 
@@ -96,7 +96,7 @@ await emit(
   page(
     "CLI",
     "The sikemux command: run this host's core, open files and projects, call Sikemux's tools.",
-    `On a Mac, install the \`sikemux\` command from **Settings → CLI**. On a server it comes with the core. \`sikemux help <command>\` explains each one.\n\n\`\`\`text\n${help}\`\`\``,
+    `On a Mac, install the \`sikemux\` command from **Settings → Command line**. On a server it comes with the core. \`sikemux help <command>\` explains each one.\n\n\`\`\`text\n${help}\`\`\``,
   ),
 );
 
