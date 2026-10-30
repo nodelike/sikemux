@@ -1906,7 +1906,6 @@ pub fn pane(
                 at_work,
                 ui::spot(|| format!("desk-close-{agent}-{}", page.title)),
                 cx.listener(move |bench, _, _, cx| {
-                    cx.stop_propagation();
                     bench.with_engine(cx, |engine| engine.close_tab(&close_agent, &close_tab))
                 }),
                 cx,
@@ -1969,7 +1968,6 @@ pub fn pane(
                 None,
                 ui::spot(|| format!("desk-close-{agent}-{label}")),
                 cx.listener(move |bench, _, _, cx| {
-                    cx.stop_propagation();
                     bench.close_desk_item(&close_agent, close_item.clone(), cx);
                     bench.parts.redraw_stage(cx);
                     bench.parts.redraw(&bench.parts.tabs, cx);

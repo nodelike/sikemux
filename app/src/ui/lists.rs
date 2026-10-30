@@ -628,7 +628,10 @@ pub fn close_button(
                 ..t.danger
             })
         })
-        .on_click(on_click)
+        .on_click(move |event, window, cx| {
+            cx.stop_propagation();
+            on_click(event, window, cx)
+        })
         .child(
             icon(Icon::Close, 11.)
                 .text_color(t.text_tertiary)
