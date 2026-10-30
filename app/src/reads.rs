@@ -4,8 +4,8 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sikemux_core::server::{
-    AccountUsage, HostRow, ProjectEntry, RunView, ShareView, SshHost, TaskList, TrustQuestion,
-    UpdateStatus,
+    AccountUsage, HostRow, ProjectEntry, RunView, ShareView, ShownStash, SshHost, TaskList,
+    TrustQuestion, UpdateStatus,
 };
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_wire::catalog::CatalogAgent;
@@ -80,7 +80,8 @@ pub struct Reads {
     pub usage: Vec<AccountUsage>,
     /// The chats this host shares read-only.
     pub shares: Vec<ShareView>,
-    pub stash: Option<Value>,
+    /// The account's Stash, as this host last listed it.
+    pub stash: Option<ShownStash>,
     pub themes: Vec<ThemeSummary>,
     /// This host's trust questions, and those of the account host in front.
     pub trust: Vec<TrustQuestion>,
@@ -129,7 +130,6 @@ macro_rules! slots {
 }
 
 slots! {
-    "stash" => stash,
     "drafts" => drafts,
     "host-drafts" => host_drafts,
     "ports" => ports,
@@ -171,6 +171,28 @@ impl Reads {
     /// Keeps the accounts' plan usage, and says whether it differs from what was kept.
     pub fn keep_usage(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.usage, value, "plan usage")
+    }
+
+    /// Keeps the stash the core listed, and says whether it differs from the one kept. When
+    /// this window counted the stash seen later than the answer says, its time stands.
+    pub fn keep_stash(&mut self, value: Value) -> bool {
+        let Some(mut told) = decoded::<ShownStash>(value, "stash") else {
+            return false;
+        };
+        let seen = |stash: &ShownStash| {
+            let at = stash.seen_at.as_deref()?;
+            chrono::DateTime::parse_from_rfc3339(at).ok()
+        };
+        if let Some(kept) = self.stash.as_ref() {
+            if seen(kept).is_some_and(|at| seen(&told).is_none_or(|told| told < at)) {
+                told.seen_at = kept.seen_at.clone();
+            }
+        }
+        if self.stash.as_ref() == Some(&told) {
+            return false;
+        }
+        self.stash = Some(told);
+        true
     }
 
     /// Keeps the chats this host shares, and says whether they differ from those kept.
@@ -234,15 +256,19 @@ impl Reads {
 /// Keeps `value` decoded in `slot`, and says whether it differs from what was kept. An answer
 /// that does not read leaves the slot as it was.
 fn keep_decoded<T: DeserializeOwned + PartialEq>(slot: &mut T, value: Value, what: &str) -> bool {
-    match serde_json::from_value::<T>(value) {
-        Ok(read) if read == *slot => false,
-        Ok(read) => {
+    match decoded::<T>(value, what) {
+        Some(read) if read == *slot => false,
+        Some(read) => {
             *slot = read;
             true
         }
-        Err(error) => {
-            eprintln!("sikemux: the core's {what} did not read: {error}");
-            false
-        }
+        None => false,
     }
+}
+
+/// `value` read as a `T`, or none when it does not read as one, which is logged.
+fn decoded<T: DeserializeOwned>(value: Value, what: &str) -> Option<T> {
+    serde_json::from_value(value)
+        .inspect_err(|error| eprintln!("sikemux: the core's {what} did not read: {error}"))
+        .ok()
 }

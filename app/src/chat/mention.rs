@@ -16,7 +16,8 @@ use gpui_kit::{
     Window,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
+use sikemux_core::server::ShownStashItem;
 use sikemux_wire::protocol::{ChatContext, ProjectInfo};
 
 use super::Composing;
@@ -93,7 +94,7 @@ enum Choice {
     },
     Tracked(Item),
     /// An item of the Stash, as the core lists it.
-    Stashed(Value),
+    Stashed(Box<ShownStashItem>),
 }
 
 /// The code host's open issues and pull requests, as `codeHostTracked` answers.
@@ -201,7 +202,7 @@ pub struct Menu {
 /// The Stash's tray as the menu holds it: its items, the one picked, those new when it opened,
 /// and what was typed after `&`.
 pub struct Tray<'a> {
-    pub items: Vec<&'a Value>,
+    pub items: Vec<&'a ShownStashItem>,
     pub selected: usize,
     pub fresh: &'a [String],
     pub needle: &'a str,
@@ -221,7 +222,7 @@ impl Menu {
                 .choices
                 .iter()
                 .filter_map(|choice| match choice {
-                    Choice::Stashed(item) => Some(item),
+                    Choice::Stashed(item) => Some(&**item),
                     _ => None,
                 })
                 .collect(),
@@ -350,15 +351,15 @@ impl Workbench {
             '&' => {
                 let stash = crate::stash::Stash::of(self);
                 let fresh = stash.new_items();
-                let (mut new, old): (Vec<&Value>, Vec<&Value>) = stash
+                let (mut new, old): (Vec<&ShownStashItem>, Vec<&ShownStashItem>) = stash
                     .items
-                    .into_iter()
-                    .filter(|item| crate::stash::matches(item, &typed.needle))
+                    .iter()
+                    .filter(|shown| crate::stash::matches(&shown.item, &typed.needle))
                     .partition(|item| fresh.contains(item));
                 new.extend(old);
                 new.into_iter()
                     .take(STASH_SHOWN)
-                    .map(|item| Choice::Stashed(item.clone()))
+                    .map(|item| Choice::Stashed(Box::new(item.clone())))
                     .collect::<Vec<_>>()
                     .into()
             }
@@ -379,7 +380,7 @@ impl Workbench {
                 let fresh = crate::stash::Stash::of(self)
                     .new_items()
                     .iter()
-                    .filter_map(|item| item["id"].as_str().map(str::to_owned))
+                    .map(|shown| shown.item.id.clone())
                     .collect();
                 self.see_stash();
                 fresh
@@ -794,7 +795,7 @@ impl Workbench {
             return;
         };
         let stashed = match &choice {
-            Choice::Stashed(item) => item["id"].as_str().map(str::to_owned),
+            Choice::Stashed(shown) => Some(shown.item.id.clone()),
             _ => None,
         };
         if let Some(id) = stashed.clone().filter(|_| menu.pinned) {
@@ -1105,9 +1106,11 @@ pub fn dock(
                     .mark(ui::icon(icon, 13.).text_color(tint).into_any_element())
                     .detail(item.title.clone())
             }
-            Choice::Stashed(item) => DockRow::new(clipped(&crate::stash::title(item)), choose)
-                .mark(crate::stash::mark(bench, item, 15., cx))
-                .detail(crate::stash::place(item)),
+            Choice::Stashed(shown) => {
+                DockRow::new(clipped(&crate::stash::title(&shown.item)), choose)
+                    .mark(crate::stash::mark(bench, &shown.item, 15., cx))
+                    .detail(crate::stash::place(&shown.item))
+            }
         }
     });
     let rows: Vec<DockRow> = rows.collect();

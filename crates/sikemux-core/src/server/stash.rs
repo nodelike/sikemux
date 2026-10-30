@@ -15,8 +15,8 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use crate::accounts::protocol::{
-    AccountEvent, AccountEventType, StashItem, StashKind, StashList, StashSeen, StashTaken,
-    StashTarget, StashUpdate,
+    AccountEvent, AccountEventType, StashItem, StashKind, StashLink, StashList, StashSeen,
+    StashTaken, StashTarget, StashUpdate,
 };
 
 use super::changed::Topic;
@@ -40,26 +40,42 @@ pub(crate) struct ListParams {
 }
 
 /// The stash as the apps draw it: none while this host is signed out.
-#[derive(Serialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Shown {
-    signed_in: bool,
-    /// Each item as the server keeps it, with what [`shown_item`] adds.
-    items: Vec<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cursor: Option<String>,
-    seen_at: Option<String>,
+pub struct ShownStash {
+    pub signed_in: bool,
+    pub items: Vec<ShownStashItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    pub seen_at: Option<String>,
+}
+
+/// An item as the server keeps it, with what apps draw a text or prompt by: its `words`, its
+/// text with the links to pages taken out, and the state of each pull request or issue it
+/// links to.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShownStashItem {
+    #[serde(flatten)]
+    pub item: StashItem,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links: Option<Vec<ShownStashLink>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub words: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShownStashLink {
+    #[serde(flatten)]
+    pub link: StashLink,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
 }
 
 /// One page of the account's stash, newest first; by default only what has not been used.
-pub(crate) async fn list(core: &Core, params: ListParams) -> CoreResult<Shown> {
+pub(crate) async fn list(core: &Core, params: ListParams) -> CoreResult<ShownStash> {
     if core.remote.signed_in_api().is_none() {
-        return Ok(Shown {
-            signed_in: false,
-            items: Vec::new(),
-            cursor: None,
-            seen_at: None,
-        });
+        return Ok(ShownStash::default());
     }
     let taken = params.taken.unwrap_or(StashTaken::False);
     let list = page(core, taken, params.cursor.as_deref()).await?;
@@ -69,13 +85,10 @@ pub(crate) async fn list(core: &Core, params: ListParams) -> CoreResult<Shown> {
         .filter(|url| sikemux_markdown::reference(url).is_some())
         .collect();
     let states = super::codehost::known_states(core, &references);
-    let mut items = Vec::with_capacity(list.items.len());
-    for item in &list.items {
-        let mut item = serde_json::to_value(item)?;
-        shown_item(&mut item, &states);
-        items.push(item);
-    }
-    Ok(Shown {
+    let items = (list.items.into_iter())
+        .map(|item| shown_item(item, &states))
+        .collect();
+    Ok(ShownStash {
         signed_in: true,
         items,
         cursor: list.cursor,
@@ -83,29 +96,37 @@ pub(crate) async fn list(core: &Core, params: ListParams) -> CoreResult<Shown> {
     })
 }
 
-/// Adds to an item, as the server keeps it, what apps draw it by: a text's or prompt's `words`,
-/// its text with the links to pages taken out, and the `state` of each pull request or issue it
-/// links to that `states` holds, by its address.
-fn shown_item(item: &mut Value, states: &HashMap<String, String>) {
-    if !matches!(item["kind"].as_str(), Some("text" | "prompt")) {
-        return;
+/// Adds to an item what apps draw a text or prompt by: its words, and the `state` of each pull
+/// request or issue it links to that `states` holds, by its address.
+fn shown_item(mut item: StashItem, states: &HashMap<String, String>) -> ShownStashItem {
+    if !matches!(item.kind, StashKind::Text | StashKind::Prompt) {
+        return ShownStashItem {
+            item,
+            links: None,
+            words: None,
+        };
     }
     let mut cut = Vec::new();
-    for link in item["links"].as_array_mut().into_iter().flatten() {
-        let Some(url) = link["url"].as_str().map(str::to_owned) else {
-            continue;
-        };
-        match sikemux_markdown::reference(&url) {
-            Some(_) => {
-                if let Some(state) = states.get(&url) {
-                    link["state"] = json!(state);
-                }
-            }
-            None => cut.push(url),
-        }
+    let links = item.links.take().map(|links| {
+        (links.into_iter())
+            .map(|link| {
+                let state = match sikemux_markdown::reference(&link.url) {
+                    Some(_) => states.get(&link.url).cloned(),
+                    None => {
+                        cut.push(link.url.clone());
+                        None
+                    }
+                };
+                ShownStashLink { link, state }
+            })
+            .collect()
+    });
+    let words = words(item.text.as_deref().unwrap_or_default(), &mut cut);
+    ShownStashItem {
+        item,
+        links,
+        words: Some(words),
     }
-    let words = words(item["text"].as_str().unwrap_or_default(), &mut cut);
-    item["words"] = json!(words);
 }
 
 /// Where a link was taken out of a text, while what it leaves around it is tidied.

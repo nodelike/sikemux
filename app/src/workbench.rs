@@ -998,20 +998,10 @@ impl Workbench {
                 self.git.drafts(&value, cx);
                 self.keep_read("git-draft", value);
             }
-            Update::Read("stash", mut value) => {
-                let seen = |read: &Value| {
-                    read["seenAt"]
-                        .as_str()
-                        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
-                };
-                let kept = self.reads.stash.as_ref().and_then(|read| {
-                    let at = seen(read)?;
-                    (seen(&value).is_none_or(|told| told < at)).then(|| read["seenAt"].clone())
-                });
-                if let Some(kept) = kept {
-                    value["seenAt"] = kept;
+            Update::Read("stash", value) => {
+                if !self.reads.keep_stash(value) {
+                    return;
                 }
-                self.keep_read("stash", value);
                 let unseen = !crate::stash::Stash::of(self).new_items().is_empty();
                 if unseen && self.stash_in_front() {
                     self.see_stash();
@@ -4232,12 +4222,11 @@ impl Workbench {
     }
 
     /// The project's agents in the order the core ranks them for the person.
-    /// The agent `id` as the rails draw it, in whichever project it is.
     /// Counts the stash as seen up to `at` here at once, ahead of the server, whose answer
     /// then agrees.
     pub fn seen_stash_at(&mut self, at: &str) {
         if let Some(stash) = self.reads.stash.as_mut() {
-            stash["seenAt"] = Value::from(at);
+            stash.seen_at = Some(at.to_owned());
         }
     }
 

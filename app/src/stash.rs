@@ -12,7 +12,9 @@ use gpui_kit::{
     IntoElement, ObjectFit, ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement,
     Styled, StyledImage, Window,
 };
-use serde_json::{json, Value};
+use serde_json::json;
+use sikemux_core::server::{ShownStashItem, ShownStashLink};
+use sikemux_wire::accounts::protocol::{StashItem, StashKind, StashPreview};
 
 use crate::icons::Icon;
 use crate::picture::{Picture, Remote};
@@ -52,7 +54,7 @@ pub struct DraggedStash {
 /// The stash as the core last read it.
 pub struct Stash<'a> {
     pub signed_in: bool,
-    pub items: Vec<&'a Value>,
+    pub items: &'a [ShownStashItem],
     seen_at: Option<&'a str>,
 }
 
@@ -60,25 +62,25 @@ impl<'a> Stash<'a> {
     pub fn of(bench: &'a Workbench) -> Self {
         let read = bench.reads.stash.as_ref();
         Self {
-            signed_in: read.is_some_and(|read| read["signedIn"].as_bool() == Some(true)),
-            items: read
-                .and_then(|read| read["items"].as_array())
-                .map_or_else(Vec::new, |items| items.iter().collect()),
-            seen_at: read.and_then(|read| read["seenAt"].as_str()),
+            signed_in: read.is_some_and(|read| read.signed_in),
+            items: read.map_or(&[][..], |read| read.items.as_slice()),
+            seen_at: read.and_then(|read| read.seen_at.as_deref()),
         }
     }
 
     /// The items stashed since the person last looked, on any device.
-    pub fn new_items(&self) -> Vec<&'a Value> {
+    pub fn new_items(&self) -> Vec<&'a ShownStashItem> {
         self.items
             .iter()
-            .copied()
-            .filter(
-                |item| match (self.seen_at.and_then(epoch_ms), created(item)) {
+            .filter(|shown| {
+                match (
+                    self.seen_at.and_then(epoch_ms),
+                    epoch_ms(&shown.item.created_at),
+                ) {
                     (Some(seen), Some(at)) => at > seen,
                     _ => self.seen_at.is_none(),
-                },
-            )
+                }
+            })
             .collect()
     }
 
@@ -88,7 +90,7 @@ impl<'a> Stash<'a> {
             true => self
                 .new_items()
                 .iter()
-                .filter(|item| item["takenAt"].is_null())
+                .filter(|shown| shown.item.taken_at.is_none())
                 .count(),
             false => 0,
         }
@@ -98,7 +100,7 @@ impl<'a> Stash<'a> {
     fn newest(&self) -> Option<&'a str> {
         self.items
             .iter()
-            .filter_map(|item| item["createdAt"].as_str())
+            .map(|shown| shown.item.created_at.as_str())
             .max_by_key(|at| epoch_ms(at))
     }
 }
@@ -109,21 +111,16 @@ fn epoch_ms(at: &str) -> Option<i64> {
         .map(|at| at.timestamp_millis())
 }
 
-fn created(item: &Value) -> Option<i64> {
-    item["createdAt"].as_str().and_then(epoch_ms)
-}
-
 /// What an item is called: its page's title, its text's first line, or its file's name.
-pub fn title(item: &Value) -> String {
-    let text = |key: &str| {
-        item[key]
-            .as_str()
+pub fn title(item: &StashItem) -> String {
+    fn text(said: &Option<String>) -> Option<&str> {
+        said.as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty())
-    };
-    match item["kind"].as_str() {
-        Some("link") => text("url").map(|url| {
-            (item["preview"]["title"].as_str().map(str::trim))
+    }
+    match item.kind {
+        StashKind::Link => text(&item.url).map(|url| {
+            (item.preview.as_ref().map(|preview| preview.title.trim()))
                 .filter(|title| !title.is_empty())
                 .unwrap_or_else(|| {
                     url.trim_start_matches("https://")
@@ -131,31 +128,31 @@ pub fn title(item: &Value) -> String {
                 })
                 .to_owned()
         }),
-        Some("text" | "prompt") => {
-            text("text").map(|text| text.lines().next().unwrap_or(text).to_owned())
+        StashKind::Text | StashKind::Prompt => {
+            text(&item.text).map(|text| text.lines().next().unwrap_or(text).to_owned())
         }
-        _ => text("name").map(str::to_owned),
+        _ => text(&item.name).map(str::to_owned),
     }
     .unwrap_or_else(|| "Untitled".to_owned())
 }
 
 /// Where a link goes, how many files a prompt carries or how large a file is, then how long ago it
 /// was stashed.
-pub fn place(item: &Value) -> String {
-    let what = match item["kind"].as_str() {
-        Some("link") => (item["preview"]["site"].as_str())
+pub fn place(item: &StashItem) -> String {
+    let what = match item.kind {
+        StashKind::Link => (item.preview.as_ref().map(|preview| preview.site.as_str()))
             .filter(|site| !site.is_empty())
             .map(str::to_owned)
-            .or_else(|| site_of(item["url"].as_str()?)),
-        Some("text") => None,
-        Some("prompt") => match item["attachments"].as_array().map_or(0, Vec::len) {
+            .or_else(|| site_of(item.url.as_deref()?)),
+        StashKind::Text => None,
+        StashKind::Prompt => match item.attachments.as_ref().map_or(0, Vec::len) {
             0 => None,
             1 => Some("1 file".to_owned()),
             files => Some(format!("{files} files")),
         },
-        _ => item["size"].as_u64().map(crate::codehost::bytes),
+        _ => size(item).map(crate::codehost::bytes),
     };
-    let ago = item["createdAt"].as_str().map(crate::ui::time::ago_written);
+    let ago = Some(crate::ui::time::ago_written(&item.created_at));
     [what, ago]
         .into_iter()
         .flatten()
@@ -164,18 +161,23 @@ pub fn place(item: &Value) -> String {
         .join(" · ")
 }
 
+/// The file's size in bytes, when the item has a file.
+fn size(item: &StashItem) -> Option<u64> {
+    item.size.and_then(|size| u64::try_from(size).ok())
+}
+
 fn site_of(url: &str) -> Option<String> {
     url::Url::parse(url).ok()?.host_str().map(str::to_owned)
 }
 
 /// Whether the item's title, note, link or text holds every word of `query`, ignoring case.
-pub fn matches(item: &Value, query: &str) -> bool {
+pub fn matches(item: &StashItem, query: &str) -> bool {
     let said = [
         Some(title(item)),
-        item["note"].as_str().map(str::to_owned),
-        item["url"].as_str().map(str::to_owned),
-        item["text"].as_str().map(str::to_owned),
-        item["preview"]["site"].as_str().map(str::to_owned),
+        item.note.clone(),
+        item.url.clone(),
+        item.text.clone(),
+        item.preview.as_ref().map(|preview| preview.site.clone()),
     ]
     .into_iter()
     .flatten()
@@ -190,42 +192,43 @@ pub fn matches(item: &Value, query: &str) -> bool {
 }
 
 /// The glyph of an item with no picture to show: its file's, or its kind's.
-pub fn glyph(item: &Value, size: f32, cx: &App) -> AnyElement {
+pub fn glyph(item: &StashItem, size: f32, cx: &App) -> AnyElement {
     let ink = Tokens::get(cx).text_tertiary;
-    if item["kind"].as_str() == Some("file") {
-        if let Some(name) = item["name"].as_str() {
+    if item.kind == StashKind::File {
+        if let Some(name) = &item.name {
             return crate::file_icons::glyph(name, size, cx);
         }
     }
-    let icon = match item["kind"].as_str() {
-        Some("link") => Icon::Globe,
-        Some("text") => Icon::Text,
-        Some("prompt") => Icon::Message,
-        Some("image") => Icon::Image,
-        Some("video") => Icon::Camera,
+    let icon = match item.kind {
+        StashKind::Link => Icon::Globe,
+        StashKind::Text => Icon::Text,
+        StashKind::Prompt => Icon::Message,
+        StashKind::Image => Icon::Image,
+        StashKind::Video => Icon::Camera,
         _ => Icon::File,
     };
     ui::icon(icon, size).text_color(ink).into_any_element()
 }
 
 /// The item's picture, or its page's, when it has one, which the core fetches.
-fn picture(bench: &Workbench, item: &Value) -> Option<Picture> {
+fn picture(bench: &Workbench, item: &StashItem) -> Option<Picture> {
     let asks = bench.asks.clone();
-    match item["kind"].as_str()? {
-        "image" => Some(Picture::Remote(Remote::stashed(
-            item["id"].as_str()?.to_owned(),
-            asks,
-        ))),
-        "link" => Some(Picture::Remote(Remote::new(
-            item["preview"]["imageUrl"].as_str()?.to_owned(),
+    match item.kind {
+        StashKind::Image => Some(Picture::Remote(Remote::stashed(item.id.clone(), asks))),
+        StashKind::Link => Some(Picture::Remote(Remote::new(
+            image_url(item.preview.as_ref())?.to_owned(),
             asks,
         ))),
         _ => None,
     }
 }
 
+fn image_url(preview: Option<&StashPreview>) -> Option<&str> {
+    preview?.image_url.as_deref()
+}
+
 /// The item small, as a mark beside its words: its picture, else its glyph.
-pub fn mark(bench: &Workbench, item: &Value, size: f32, cx: &App) -> AnyElement {
+pub fn mark(bench: &Workbench, item: &StashItem, size: f32, cx: &App) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let tile = div()
         .size(px(size))
@@ -381,23 +384,20 @@ impl Workbench {
 
     /// Opens a link in the browser, copies text, and opens a file in the app the system picks
     /// once this host has kept it.
-    pub fn open_stash_item(&self, item: &Value, cx: &mut Context<Self>) {
-        match item["kind"].as_str() {
-            Some("link") => {
-                if let Some(url) = item["url"].as_str() {
+    pub fn open_stash_item(&self, item: &StashItem, cx: &mut Context<Self>) {
+        match item.kind {
+            StashKind::Link => {
+                if let Some(url) = &item.url {
                     cx.open_url(url);
                 }
             }
-            Some("text" | "prompt") => {
-                let text = item["text"].as_str().unwrap_or_default().to_owned();
+            StashKind::Text | StashKind::Prompt => {
+                let text = item.text.clone().unwrap_or_default();
                 cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
                 self.notify(crate::toast::success("Copied"), cx);
             }
             _ => {
-                let Some(id) = item["id"].as_str() else {
-                    return;
-                };
-                let asked = crate::core::request(&self.asks, "stashFile", json!({ "id": id }));
+                let asked = crate::core::request(&self.asks, "stashFile", json!({ "id": item.id }));
                 cx.spawn(async move |bench, cx| match asked.await {
                     Ok(kept) => {
                         if let Some(path) = kept["path"].as_str() {
@@ -464,12 +464,7 @@ pub fn tray(
     let fresh: Vec<String> = tray
         .fresh
         .iter()
-        .filter(|id| {
-            stash
-                .items
-                .iter()
-                .any(|item| item["id"].as_str() == Some(id.as_str()))
-        })
+        .filter(|id| stash.items.iter().any(|shown| shown.item.id == **id))
         .cloned()
         .collect();
     let link = |id: &'static str, words: String| {
@@ -547,9 +542,7 @@ pub fn tray(
     } else {
         let agents = crate::chat::named_agents(bench);
         let rows = tray.items.iter().enumerate().map(|(index, item)| {
-            let new = item["id"]
-                .as_str()
-                .is_some_and(|id| fresh.iter().any(|fresh| fresh == id));
+            let new = fresh.contains(&item.item.id);
             let picked = index == tray.selected;
             tray_row(bench, agent, index, item, picked, new, &agents, cx)
         });
@@ -605,19 +598,19 @@ pub fn tray(
 #[derive(Clone, Copy)]
 struct Page<'a> {
     url: &'a str,
-    preview: &'a Value,
+    preview: Option<&'a StashPreview>,
     state: Option<&'a str>,
 }
 
 impl Page<'_> {
     fn title(&self) -> String {
-        (self.preview["title"].as_str().map(str::trim))
+        (self.preview.map(|preview| preview.title.trim()))
             .filter(|title| !title.is_empty())
             .map_or_else(|| bare_url(self.url), str::to_owned)
     }
 
     fn site(&self) -> String {
-        (self.preview["site"].as_str().map(str::trim))
+        (self.preview.map(|preview| preview.site.trim()))
             .filter(|site| !site.is_empty())
             .map(str::to_owned)
             .or_else(|| site_of(self.url))
@@ -649,41 +642,36 @@ struct Said<'a> {
     lead: Option<Page<'a>>,
     /// The other pages, not to a pull request or issue, which the words name.
     pages: Vec<Page<'a>>,
-    photos: Vec<&'a Value>,
+    photos: Vec<&'a StashItem>,
     /// The files the words do not name.
-    files: Vec<&'a Value>,
+    files: Vec<&'a StashItem>,
     /// The first agent the words name.
     agent: Option<String>,
 }
 
-fn said<'a>(item: &'a Value, agents: &[(String, String)]) -> Said<'a> {
-    let attachments: Vec<&Value> = item["attachments"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .collect();
-    let pages: Vec<Page> = match item["kind"].as_str() {
-        Some("link") => (item["url"].as_str())
+fn said<'a>(shown: &'a ShownStashItem, agents: &[(String, String)]) -> Said<'a> {
+    let item = &shown.item;
+    let attachments: Vec<&StashItem> = item.attachments.iter().flatten().collect();
+    let pages: Vec<Page> = match item.kind {
+        StashKind::Link => (item.url.as_deref())
             .map(|url| Page {
                 url,
-                preview: &item["preview"],
+                preview: item.preview.as_ref(),
                 state: None,
             })
             .into_iter()
             .collect(),
-        _ => (item["links"].as_array().into_iter().flatten())
-            .filter_map(|link| {
-                Some(Page {
-                    url: link["url"].as_str()?,
-                    preview: &link["preview"],
-                    state: link["state"].as_str(),
-                })
+        _ => (shown.links.iter().flatten())
+            .map(|ShownStashLink { link, state }| Page {
+                url: &link.url,
+                preview: link.preview.as_ref(),
+                state: state.as_deref(),
             })
             .collect(),
     };
-    let text = item["words"].as_str().unwrap_or_default();
+    let text = shown.words.as_deref().unwrap_or_default();
     let names: Vec<String> = (attachments.iter())
-        .filter_map(|file| file["name"].as_str().map(str::to_owned))
+        .filter_map(|file| file.name.clone())
         .collect();
     let context: Vec<SentContext> = (pages.iter())
         .map(|page| SentContext {
@@ -693,11 +681,11 @@ fn said<'a>(item: &'a Value, agents: &[(String, String)]) -> Said<'a> {
         .collect();
     let named = crate::chat::named(text, &names, &context, agents, &[]);
     let words = pieces(text, &named, &pages);
-    let (photos, files): (Vec<&Value>, Vec<&Value>) =
-        (attachments.into_iter()).partition(|file| file["kind"].as_str() == Some("image"));
+    let (photos, files): (Vec<&StashItem>, Vec<&StashItem>) =
+        (attachments.into_iter()).partition(|file| file.kind == StashKind::Image);
     let files = (files.into_iter())
         .filter(|file| {
-            !(named.iter()).any(|mention| file["name"].as_str() == Some(mention.carried.as_str()))
+            !(named.iter()).any(|mention| file.name.as_deref() == Some(mention.carried.as_str()))
         })
         .collect();
     let mut pages: Vec<Page> = (pages.into_iter())
@@ -784,20 +772,21 @@ fn tray_row(
     bench: &Workbench,
     agent: &str,
     index: usize,
-    item: &Value,
+    shown: &ShownStashItem,
     selected: bool,
     new: bool,
     agents: &[(String, String)],
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let said = said(item, agents);
+    let item = &shown.item;
+    let said = said(shown, agents);
     let words = match (said.words.is_empty(), said.lead) {
-        (false, _) => sentence(item["id"].as_str(), &said.words, bench, &t, cx),
+        (false, _) => sentence(Some(item.id.as_str()), &said.words, bench, &t, cx),
         (true, Some(page)) => sentence(None, &[Piece::Word(page.title())], bench, &t, cx),
         (true, None) => sentence(None, &[Piece::Word(name_of(item, &said))], bench, &t, cx),
     };
-    let under = match (said.lead, item["kind"].as_str()) {
+    let under = match (said.lead, item.kind) {
         (Some(page), _) => {
             let said_more = !said.words.is_empty();
             Some(
@@ -818,7 +807,7 @@ fn tray_row(
                     ),
             )
         }
-        (None, Some("file" | "video")) => item["size"].as_u64().map(|size| {
+        (None, StashKind::File | StashKind::Video) => size(item).map(|size| {
             div().child(
                 ui::text(crate::codehost::bytes(size), TEXT_2XS_H, FontWeight::NORMAL)
                     .text_color(t.text_tertiary),
@@ -837,7 +826,7 @@ fn tray_row(
             .children(files)
             .children(pages)
     });
-    let ago = item["createdAt"].as_str().map(crate::ui::time::ago_written);
+    let ago = Some(crate::ui::time::ago_written(&item.created_at));
     let agent = agent.to_owned();
     div()
         .id(("stash-tray-row", index))
@@ -892,9 +881,9 @@ fn tray_row(
 }
 
 /// What to call an item with no words of its own: its file's name, or how many photos it holds.
-fn name_of(item: &Value, said: &Said) -> String {
+fn name_of(item: &StashItem, said: &Said) -> String {
     match (said.photos.len(), said.files.first()) {
-        (0, Some(file)) => file["name"].as_str().unwrap_or_default().to_owned(),
+        (0, Some(file)) => file.name.clone().unwrap_or_default(),
         (0, None) => title(item),
         (1, _) => "1 photo".to_owned(),
         (photos, _) => format!("{photos} photos"),
@@ -1051,14 +1040,13 @@ fn state_mark(id: &str, state: &str, t: &Tokens) -> Option<AnyElement> {
 
 /// The row's square: its first photo, counted when there are more; its own picture or its page's;
 /// the mark of the first agent it names; or its glyph.
-fn square(bench: &Workbench, item: &Value, said: &Said, t: &Tokens, cx: &App) -> AnyElement {
+fn square(bench: &Workbench, item: &StashItem, said: &Said, t: &Tokens, cx: &App) -> AnyElement {
     let asks = bench.asks.clone();
     let shown = (said.photos.first())
-        .and_then(|photo| photo["id"].as_str())
-        .map(|id| Picture::Remote(Remote::stashed(id.to_owned(), asks.clone())))
+        .map(|photo| Picture::Remote(Remote::stashed(photo.id.clone(), asks.clone())))
         .or_else(|| picture(bench, item))
         .or_else(|| {
-            let url = said.lead?.preview["imageUrl"].as_str()?;
+            let url = image_url(said.lead?.preview)?;
             Some(Picture::Remote(Remote::new(url.to_owned(), asks)))
         });
     let named = said.agent.as_deref().and_then(|id| bench.agent_by_id(id));
@@ -1126,8 +1114,8 @@ fn chip(t: &Tokens) -> Div {
 }
 
 /// A file the words do not name: its type, then its name.
-fn file_chip(file: &Value, t: &Tokens) -> Div {
-    let name = file["name"].as_str().unwrap_or("file");
+fn file_chip(file: &StashItem, t: &Tokens) -> Div {
+    let name = file.name.as_deref().unwrap_or("file");
     let (stem, kind) = name
         .rsplit_once('.')
         .filter(|(stem, kind)| !stem.is_empty() && (1..=4).contains(&kind.len()))
@@ -1184,7 +1172,7 @@ fn pages_chip(bench: &Workbench, said: &Said, t: &Tokens) -> Div {
 /// A page's site icon, small: the one the page names, else the site's `favicon.ico`, else a globe.
 fn favicon_small(bench: &Workbench, page: Page, t: &Tokens) -> AnyElement {
     let site = crate::chat::site_icon(page.url, true, Icon::Globe, Some(&bench.asks), t);
-    let Some(named) = page.preview["iconUrl"].as_str() else {
+    let Some(named) = page.preview.and_then(|preview| preview.icon_url.as_deref()) else {
         return site;
     };
     let shown = Picture::Remote(Remote::new(named.to_owned(), bench.asks.clone()));
@@ -1204,14 +1192,14 @@ fn favicon_small(bench: &Workbench, page: Page, t: &Tokens) -> AnyElement {
 /// A prompt's opening words over a row of its files' thumbnails.
 fn prompt_preview(
     bench: &Workbench,
-    item: &Value,
+    item: &StashItem,
     inset: f32,
     size: f32,
     thumb: f32,
     t: &Tokens,
     cx: &App,
 ) -> AnyElement {
-    let files = item["attachments"].as_array().cloned().unwrap_or_default();
+    let files = item.attachments.as_deref().unwrap_or_default();
     div()
         .size_full()
         .p(px(inset))
@@ -1226,7 +1214,7 @@ fn prompt_preview(
                 .text_size(theme::ui_text(size))
                 .line_height(theme::ui_text(size * 1.4))
                 .text_color(t.text_secondary)
-                .child(item["text"].as_str().unwrap_or_default().trim().to_owned()),
+                .child(item.text.as_deref().unwrap_or_default().trim().to_owned()),
         )
         .when(!files.is_empty(), |preview| {
             preview.child(
@@ -1285,7 +1273,7 @@ pub fn pane(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .items
             .iter()
             .enumerate()
-            .map(|(at, item)| (card(bench, at, item, cx), tall(item)))
+            .map(|(at, shown)| (card(bench, at, &shown.item, cx), tall(&shown.item)))
             .collect();
         div()
             .id("stash-cards")
@@ -1318,17 +1306,19 @@ impl gpui_kit::Global for Columns {}
 
 /// Roughly how tall a card draws, for placing it in the shortest column: a compact link's is a
 /// row, any other's has a picture.
-fn tall(item: &Value) -> f32 {
-    let compact = item["kind"].as_str() == Some("link") && item["preview"]["imageUrl"].is_null();
-    let noted = item["note"]
-        .as_str()
-        .is_some_and(|note| !note.trim().is_empty());
-    match (compact, noted) {
+fn tall(item: &StashItem) -> f32 {
+    let noted = (item.note.as_deref()).is_some_and(|note| !note.trim().is_empty());
+    match (compact(item), noted) {
         (true, true) => 128.,
         (true, false) => 106.,
-        (false, _) if matches!(item["kind"].as_str(), Some("text" | "prompt")) => 352.,
+        (false, _) if matches!(item.kind, StashKind::Text | StashKind::Prompt) => 352.,
         (false, _) => 372.,
     }
+}
+
+/// Whether the item is a link with no picture, which draws as a row.
+fn compact(item: &StashItem) -> bool {
+    item.kind == StashKind::Link && image_url(item.preview.as_ref()).is_none()
 }
 
 /// The cards in as many columns as fit, each column as wide as the others and each card going
@@ -1417,18 +1407,17 @@ fn empty(signed_in: bool, t: &Tokens) -> Div {
 }
 
 /// One item: its preview over its title, where it is from and its note, then what to do with it.
-fn card(bench: &Workbench, at: usize, item: &Value, cx: &mut Context<Workbench>) -> AnyElement {
+fn card(bench: &Workbench, at: usize, item: &StashItem, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let id = item["id"].as_str().unwrap_or_default().to_owned();
-    let note = item["note"]
-        .as_str()
+    let id = item.id.clone();
+    let note = (item.note.as_deref())
         .map(str::trim)
         .filter(|note| !note.is_empty())
         .map(|note| format!("“{note}”"));
     let dragged = DraggedStash { id: id.clone() };
     let label: SharedString = title(item).into();
     let ghost = label.clone();
-    let compact = item["kind"].as_str() == Some("link") && item["preview"]["imageUrl"].is_null();
+    let compact = compact(item);
     let words = div()
         .flex_1()
         .min_w_0()
@@ -1436,7 +1425,7 @@ fn card(bench: &Workbench, at: usize, item: &Value, cx: &mut Context<Workbench>)
         .flex_col()
         .gap(SPACE_0)
         .when(
-            !matches!(item["kind"].as_str(), Some("text" | "prompt")),
+            !matches!(item.kind, StashKind::Text | StashKind::Prompt),
             |words| {
                 words.child(
                     ui::text(label, TEXT_XS_H, FontWeight::MEDIUM)
@@ -1496,7 +1485,7 @@ fn card(bench: &Workbench, at: usize, item: &Value, cx: &mut Context<Workbench>)
 }
 
 /// A link's site in a small tile: its icon when the site has one, else a globe.
-fn favicon(bench: &Workbench, item: &Value, t: &Tokens, cx: &App) -> AnyElement {
+fn favicon(bench: &Workbench, item: &StashItem, t: &Tokens, cx: &App) -> AnyElement {
     let tile = div()
         .size(px(32.))
         .flex_none()
@@ -1508,7 +1497,7 @@ fn favicon(bench: &Workbench, item: &Value, t: &Tokens, cx: &App) -> AnyElement 
         .bg(t.surface_sunken)
         .border_1()
         .border_color(t.line);
-    let icon = item["url"].as_str().and_then(|url| {
+    let icon = item.url.as_deref().and_then(|url| {
         let url = url::Url::parse(url).ok()?;
         Some(format!(
             "{}://{}/favicon.ico",
@@ -1539,7 +1528,7 @@ fn favicon(bench: &Workbench, item: &Value, t: &Tokens, cx: &App) -> AnyElement 
 
 /// The top of a card: a photo or a page's picture filling it, a text's opening lines, or a
 /// file's glyph.
-fn preview(bench: &Workbench, item: &Value, t: &Tokens, cx: &App) -> AnyElement {
+fn preview(bench: &Workbench, item: &StashItem, t: &Tokens, cx: &App) -> AnyElement {
     let frame = div()
         .h(px(PREVIEW))
         .w_full()
@@ -1551,10 +1540,9 @@ fn preview(bench: &Workbench, item: &Value, t: &Tokens, cx: &App) -> AnyElement 
         .border_b_1()
         .border_color(t.line);
     let plain = |cx: &App| {
-        let site = match item["kind"].as_str() {
-            Some("link") => item["url"].as_str().and_then(site_of),
-            Some("file" | "video" | "image") => item["name"]
-                .as_str()
+        let site = match item.kind {
+            StashKind::Link => item.url.as_deref().and_then(site_of),
+            StashKind::File | StashKind::Video | StashKind::Image => (item.name.as_deref())
                 .and_then(|name| name.rsplit_once('.'))
                 .map(|(_, extension)| extension.to_uppercase()),
             _ => None,
@@ -1572,13 +1560,13 @@ fn preview(bench: &Workbench, item: &Value, t: &Tokens, cx: &App) -> AnyElement 
             }))
             .into_any_element()
     };
-    if item["kind"].as_str() == Some("prompt") {
+    if item.kind == StashKind::Prompt {
         return frame
             .child(prompt_preview(bench, item, 12., 12., 30., t, cx))
             .into_any_element();
     }
-    if item["kind"].as_str() == Some("text") {
-        let text = item["text"].as_str().unwrap_or_default().trim().to_owned();
+    if item.kind == StashKind::Text {
+        let text = item.text.as_deref().unwrap_or_default().trim().to_owned();
         return frame
             .items_start()
             .justify_start()
@@ -1620,7 +1608,7 @@ fn preview(bench: &Workbench, item: &Value, t: &Tokens, cx: &App) -> AnyElement 
 fn actions(
     bench: &Workbench,
     at: usize,
-    item: &Value,
+    item: &StashItem,
     id: &str,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
@@ -1711,14 +1699,14 @@ fn actions(
             .into_any_element(),
     };
     let (opened, removed) = (item.clone(), id.to_owned());
-    let open_label = match item["kind"].as_str() {
-        Some("link") => "Open in browser",
-        Some("text" | "prompt") => "Copy",
+    let open_label = match item.kind {
+        StashKind::Link => "Open in browser",
+        StashKind::Text | StashKind::Prompt => "Copy",
         _ => "Open",
     };
-    let open_icon = match item["kind"].as_str() {
-        Some("text" | "prompt") => Icon::Copy,
-        Some("link") => Icon::Globe,
+    let open_icon = match item.kind {
+        StashKind::Text | StashKind::Prompt => Icon::Copy,
+        StashKind::Link => Icon::Globe,
         _ => Icon::Eye,
     };
     div()
