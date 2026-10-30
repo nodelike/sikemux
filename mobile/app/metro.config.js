@@ -15,16 +15,7 @@ function readMarkdown(texts) {
   if (!parser) {
     const child = require('node:child_process').spawn(
       'cargo',
-      [
-        'run',
-        '--quiet',
-        '--manifest-path',
-        path.resolve(__dirname, '../../Cargo.toml'),
-        '-p',
-        'sikemux-markdown',
-        '--example',
-        'stdio',
-      ],
+      ['run', '--quiet', '--manifest-path', path.resolve(__dirname, '../../Cargo.toml'), '-p', 'sikemux-markdown', '--example', 'stdio'],
       { stdio: ['pipe', 'pipe', 'inherit'] },
     );
     const waiting = [];
