@@ -4,7 +4,7 @@
 
 **The IDE for you and your coding agents.**
 
-Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, logs and deploys, in one 22 MB native app.
+Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, logs and deploys, in one 25 MB native app.
 
 ![Sikemux with a Claude Code agent and its browser tab](docs/screenshots/sikemux-hero.png)
 
@@ -22,7 +22,7 @@ curl -fsSL https://sikemux.com/install | sh
 
 On a Mac this puts Sikemux in `/Applications`; on Linux it asks whether you want the desktop app (x86_64: the `.deb` or `.rpm`, or the AppImage in `~/Applications`) or just the core for a server. Add `SIKEMUX_CHANNEL=nightly` before `sh` for the nightly build.
 
-Or download the latest `.dmg` from [sikemux.com](https://sikemux.com) or [Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 22 MB, needs macOS 11 or later on Apple Silicon, and keeps itself up to date.
+Or download the latest `.dmg` from [sikemux.com](https://sikemux.com) or [Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 25 MB, needs macOS 11 or later on Apple Silicon, and keeps itself up to date.
 
 On x86_64 Linux, the `.deb`, `.rpm` and `.AppImage` are in the same release:
 

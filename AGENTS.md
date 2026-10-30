@@ -161,7 +161,7 @@
   latest release, both at build time and in the visitor's browser. It finds the
   download by the `_aarch64.dmg` suffix, so renaming that asset or leaving it off a
   release breaks every Download button. Nightlies are pre-releases and never show up.
-- The README rounds the download to "about 16 MB" and the site says it is smaller than
+- The README rounds the download to "about 25 MB" and the site says it is smaller than
   Ghostty (33.8 MB). Update both if a release moves the DMG past either.
 - Its screenshots come from this repo. `pnpm shots` in the site runs the phone showcase
   (`mobile/showcase/`) and cuts the feature cards from the Mac pictures already in the
