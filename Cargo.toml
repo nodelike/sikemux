@@ -92,6 +92,26 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-vercel]
 opt-level = "z"
+[profile.release.package.sikemux-plugin-api]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-aws-views]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-bruno-views]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-database-views]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-jira-views]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-linear-views]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-rundeck-views]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-signoz-views]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-slack-views]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-vercel-views]
+opt-level = "z"
 # Terminal output, serialization and search run through these for every byte,
 # so they stay at full speed: built for size, parsing a terminal flood took 55%
 # longer and encoding JSON 48% longer.
