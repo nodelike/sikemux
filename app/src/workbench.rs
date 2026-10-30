@@ -117,9 +117,7 @@ pub struct Workbench {
     pub project_settings: HashMap<String, crate::project_settings::ProjectSettings>,
     pub shown: crate::experience::Shown,
     pub ci: Ci,
-    /// The account's picture, and the hash the core named the one asked for by.
-    picture: Option<Arc<Image>>,
-    picture_hash: Option<String>,
+    picture: crate::picture::AccountPicture,
     /// From asking the core to sign in until the browser is done or gives up.
     pub signing_in: bool,
     /// Where remote access stands, once the core has said.
@@ -589,8 +587,7 @@ impl Workbench {
             open_waits: Vec::new(),
             pairing: crate::pairing::Pairing::new(cx),
             shown: Default::default(),
-            picture: None,
-            picture_hash: None,
+            picture: crate::picture::AccountPicture::default(),
             signing_in: false,
             remote: None,
             accounts: Default::default(),
@@ -898,7 +895,7 @@ impl Workbench {
                     cx.refresh_windows();
                 }
             }
-            Update::Read("picture", value) => self.picture = decode_picture(&value),
+            Update::Read("picture", value) => self.picture.read(&value),
             Update::Read("sign-in", value) => match value["url"].as_str() {
                 Some(url) => {
                     cx.open_url(url);
@@ -2151,17 +2148,7 @@ impl Workbench {
             .view
             .as_ref()
             .and_then(|view| view.account.as_ref()?.picture_hash.clone());
-        if hash == self.picture_hash {
-            return;
-        }
-        self.picture = None;
-        if let Some(hash) = &hash {
-            let _ = self.asks.send(Ask::Watch(
-                "picture",
-                Watch::new("accountPicture", json!({ "hash": hash }), &[]),
-            ));
-        }
-        self.picture_hash = hash;
+        self.picture.follow(hash, &self.asks);
     }
 
     /// Files dropped where nothing takes them go to the terminal holding the keys, else to the
@@ -2289,7 +2276,7 @@ impl Workbench {
     }
 
     pub fn picture(&self) -> Option<Arc<Image>> {
-        self.picture.clone()
+        self.picture.image()
     }
 
     /// The person's preferences, once the core has said them.
@@ -4424,11 +4411,6 @@ impl Workbench {
         filter.update(cx, |state, cx| state.focus(window, cx));
         self.filter = Some(filter);
     }
-}
-
-/// The picture `accountPicture` answers with: its type, and its bytes in base64.
-fn decode_picture(value: &Value) -> Option<Arc<Image>> {
-    crate::picture::decode(value["mime"].as_str()?, value["data"].as_str()?)
 }
 
 /// Whether two tabs show the same kind of pane, as ⌃Tab steps between them.

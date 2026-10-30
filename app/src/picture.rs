@@ -16,7 +16,7 @@ use gpui_kit::{
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::core::Ask;
+use crate::core::{Ask, Watch};
 use crate::icons::Icon;
 use crate::theme;
 use crate::theme::{SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_SM, TEXT_XS};
@@ -226,6 +226,41 @@ fn shrinks(format: ImageFormat) -> bool {
 impl From<PathBuf> for Picture {
     fn from(path: PathBuf) -> Self {
         Picture::File(path)
+    }
+}
+
+/// The account's picture, and the hash the core named the one asked for by.
+#[derive(Default)]
+pub struct AccountPicture {
+    image: Option<Arc<Image>>,
+    hash: Option<String>,
+}
+
+impl AccountPicture {
+    pub fn image(&self) -> Option<Arc<Image>> {
+        self.image.clone()
+    }
+
+    /// Asks the core for the picture named `hash` when it is not the one held.
+    pub fn follow(&mut self, hash: Option<String>, asks: &mpsc::UnboundedSender<Ask>) {
+        if hash == self.hash {
+            return;
+        }
+        self.image = None;
+        if let Some(hash) = &hash {
+            let _ = asks.send(Ask::Watch(
+                "picture",
+                Watch::new("accountPicture", json!({ "hash": hash }), &[]),
+            ));
+        }
+        self.hash = hash;
+    }
+
+    /// Keeps the picture `accountPicture` answered with: its type, and its bytes in base64.
+    pub fn read(&mut self, value: &Value) {
+        self.image = (value["mime"].as_str())
+            .zip(value["data"].as_str())
+            .and_then(|(mime, data)| decode(mime, data));
     }
 }
 
