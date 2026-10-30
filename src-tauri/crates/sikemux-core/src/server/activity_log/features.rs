@@ -100,6 +100,7 @@ const COMMANDS: &[&str] = &[
     "settings.toggle",
     "view.focusMode",
     "desk.toggle",
+    "desk.alone",
     "theme.switch",
     "agent.permissions",
     "session.lastUsed",
