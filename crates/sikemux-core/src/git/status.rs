@@ -37,14 +37,14 @@ impl GitStatus {
     }
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DiscoveredRepo {
-    path: String,
-    name: String,
-    branch: String,
-    ahead: i32,
-    behind: i32,
-    changes: usize,
+    pub path: String,
+    pub name: String,
+    pub branch: String,
+    pub ahead: i32,
+    pub behind: i32,
+    pub changes: usize,
 }
 
 fn status_chars(s: Status) -> (char, char) {
@@ -415,11 +415,11 @@ pub async fn git_discover_repos(root: String) -> Result<Vec<DiscoveredRepo>, Str
 
 /// The repository a project's Git views open on, and the repositories inside the project
 /// folder when it is not one itself.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ProjectRepo {
     /// None while the person has to pick among several.
-    repo: Option<String>,
-    repos: Option<Vec<DiscoveredRepo>>,
+    pub repo: Option<String>,
+    pub repos: Option<Vec<DiscoveredRepo>>,
 }
 
 /// The folder itself when it is in a repository, else the one the person chose among the

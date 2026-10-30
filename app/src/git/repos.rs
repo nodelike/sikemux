@@ -59,13 +59,10 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         format!("{} repositories inside", repos.len())
     };
     let rows = repos.iter().enumerate().map(|(index, repo)| {
-        let path = repo["path"].as_str().unwrap_or_default().to_owned();
-        let changes = repo["changes"].as_u64().unwrap_or_default();
-        let (ahead, behind) = (
-            repo["ahead"].as_i64().unwrap_or_default(),
-            repo["behind"].as_i64().unwrap_or_default(),
-        );
-        let branch = repo["branch"].as_str().filter(|branch| !branch.is_empty());
+        let path = repo.path.clone();
+        let changes = repo.changes;
+        let (ahead, behind) = (repo.ahead, repo.behind);
+        let branch = Some(repo.branch.as_str()).filter(|branch| !branch.is_empty());
         let default = chosen.as_deref() == Some(path.as_str());
         let (opened, starred, folder) = (path.clone(), path.clone(), folder.clone());
         div()
@@ -91,7 +88,7 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     .truncate()
                     .text_size(crate::theme::ui_text(TEXT_XS_H))
                     .text_color(t.text_primary)
-                    .child(repo["name"].as_str().unwrap_or_default().to_owned()),
+                    .child(repo.name.clone()),
             )
             .child(
                 ui::mono(branch.unwrap_or("no commits").to_owned(), TEXT_2XS, cx)

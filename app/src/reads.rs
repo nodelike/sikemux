@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use sikemux_core::git::log::GitOverview;
+use sikemux_core::git::status::ProjectRepo;
 use sikemux_core::server::{
     AccountUsage, ActivitySummary, Draft, HostRow, ProjectEntry, ProjectPort, RunView, ShareView,
     ShownStash, SshHost, TaskList, TrustQuestion, UpdateStatus,
@@ -100,8 +102,9 @@ pub struct Reads {
     pub runs: Vec<RunView>,
     pub ports: Vec<ProjectPort>,
     pub activity: Option<ActivitySummary>,
-    pub git_project_repo: Option<Value>,
-    pub git_overview: Option<Value>,
+    pub git_project_repo: Option<ProjectRepo>,
+    /// The repository's status, branches and log, or why they did not read.
+    pub git_overview: Option<Result<GitOverview, String>>,
     pub git_draft: Option<Drafts>,
     /// Activity across every project, for Settings; `Some(None)` when the core refused it.
     pub activity_everywhere: Option<Option<ActivitySummary>>,
@@ -128,8 +131,6 @@ macro_rules! slots {
 }
 
 slots! {
-    "git-project-repo" => git_project_repo,
-    "git-overview" => git_overview,
     crate::worktree_head::PULLS => worktree_pulls,
     crate::worktree_head::MERGED => worktree_merged,
 }
@@ -214,6 +215,18 @@ impl Reads {
         }
     }
 
+    /// Keeps which repository the project's Git views open on, and those inside its folder.
+    pub fn keep_project_repo(&mut self, value: Value) {
+        if let Some(found) = decoded(value, "project repository") {
+            self.git_project_repo = Some(found);
+        }
+    }
+
+    /// Keeps the repository's overview, even one that does not read, which the Git pane says.
+    pub fn keep_overview(&mut self, value: Value) {
+        self.git_overview = Some(serde_json::from_value(value).map_err(|error| error.to_string()));
+    }
+
     /// Keeps the chats this host shares, and says whether they differ from those kept.
     pub fn keep_shares(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.shares, value, "shares")
@@ -258,6 +271,7 @@ impl Reads {
             "runs" => self.runs.clear(),
             "ports" => self.ports.clear(),
             "activity" => self.activity = None,
+            "git-project-repo" => self.git_project_repo = None,
             "trust" => self.trust.clear(),
             "host-trust" => self.host_trust.clear(),
             _ => {

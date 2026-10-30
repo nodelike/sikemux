@@ -17,6 +17,7 @@ use gpui_kit::{
     WeakEntity, Window,
 };
 use serde_json::{json, Value};
+use sikemux_core::git::log::GitOverview;
 use sikemux_wire::protocol::PaneKind;
 
 use crate::core::Target;
@@ -348,7 +349,7 @@ impl FileTree {
     }
 
     /// Takes in what git says of the project's files.
-    pub fn mark(&mut self, overview: &Value) {
+    pub fn mark(&mut self, overview: &GitOverview) {
         if let Some(root) = &self.root {
             self.marks = git_marks(root, overview);
         }
@@ -426,16 +427,11 @@ impl Mark {
 
 /// Every changed file's letter and mark, and every folder holding changes with the most
 /// telling mark below it, by absolute path.
-fn git_marks(root: &Path, overview: &Value) -> HashMap<PathBuf, (Option<char>, Mark)> {
+fn git_marks(root: &Path, overview: &GitOverview) -> HashMap<PathBuf, (Option<char>, Mark)> {
     let mut marks: HashMap<PathBuf, (Option<char>, Mark)> = HashMap::new();
-    for file in overview["status"]["files"].as_array().into_iter().flatten() {
-        let Some(path) = file["path"].as_str() else {
-            continue;
-        };
-        let sides = [
-            file["index"].as_str().unwrap_or(" "),
-            file["worktree"].as_str().unwrap_or(" "),
-        ];
+    for file in &overview.status.files {
+        let path = file.path.as_str();
+        let sides = [file.index.as_str(), file.worktree.as_str()];
         let Some((letter, mark)) = sides
             .into_iter()
             .filter_map(Mark::of)

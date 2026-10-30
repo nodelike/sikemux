@@ -19,7 +19,6 @@ use gpui_kit::{
     ScrollEvent, SharedString, StatefulInteractiveElement, Styled, Subscription, Task,
     Transformation, WeakEntity, Window,
 };
-use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_core::git::log::{GitCommit, GitOverview};
 use sikemux_core::git::stash::GitStash;
@@ -499,9 +498,9 @@ impl GitPane {
     }
 
     /// Takes what `git.overview` last answered for the repository.
-    pub fn overview(&mut self, value: &Value, cx: &mut Context<Self>) {
+    pub fn overview(&mut self, overview: &Result<GitOverview, String>, cx: &mut Context<Self>) {
         let first = self.overview.is_none();
-        self.overview = Some(GitOverview::deserialize(value).map_err(|error| error.to_string()));
+        self.overview = Some(overview.clone());
         for path in self.moved.drain(..) {
             self.moving.remove(&path);
         }
@@ -1742,6 +1741,7 @@ impl GitPane {
         let answer = self.core.request("git.overview", self.repo_call(json!({})));
         cx.spawn(async move |pane, cx| {
             if let Ok(overview) = answer.await {
+                let overview = serde_json::from_value(overview).map_err(|error| error.to_string());
                 pane.update(cx, |pane, cx| pane.overview(&overview, cx))
                     .ok();
             }

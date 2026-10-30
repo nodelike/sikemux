@@ -17,6 +17,7 @@ use gpui_kit::{
 };
 use serde_json::{json, Value};
 use sikemux_core::git::diff::{changes, DiffRow, ROW_ADDED, ROW_DELETED, ROW_HIDDEN};
+use sikemux_core::git::log::GitOverview;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::core::{request, Ask};
@@ -47,7 +48,12 @@ pub struct GitTab {
 impl GitTab {
     /// Hands the repository's overview to the Git pane, or marks it behind while it is out of
     /// sight.
-    pub fn overview(&mut self, overview: &Value, in_front: bool, cx: &mut App) {
+    pub fn overview(
+        &mut self,
+        overview: &Result<GitOverview, String>,
+        in_front: bool,
+        cx: &mut App,
+    ) {
         match (&self.pane, in_front) {
             (Some(pane), true) => pane.update(cx, |pane, cx| pane.overview(overview, cx)),
             (Some(_), false) => self.behind = true,

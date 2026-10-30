@@ -47,6 +47,7 @@ use crate::terminal::NewTerminal;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
+use sikemux_core::git::status::DiscoveredRepo;
 use sikemux_core::server::{
     AccountUsage, PortOwner, ProjectPort, RunView, TaskView, TrustQuestion, UpdateState,
     UpdateStatus,
@@ -949,14 +950,19 @@ impl Workbench {
             }
             Update::Read("git-project-repo", value) => {
                 let was = self.git_repo();
-                self.keep_read("git-project-repo", value);
+                self.reads.keep_project_repo(value);
                 return self.follow_git_repo(was, cx);
             }
             Update::Read("git-overview", value) => {
-                self.files.mark(&value);
+                self.reads.keep_overview(value);
+                let overview = self.reads.git_overview.as_ref();
+                if let Some(Ok(overview)) = overview {
+                    self.files.mark(overview);
+                }
                 let in_front = self.git_in_front();
-                self.git.overview(&value, in_front, cx);
-                self.keep_read("git-overview", value);
+                if let Some(overview) = overview {
+                    self.git.overview(overview, in_front, cx);
+                }
                 self.parts.redraw(&self.parts.top, cx);
                 return self.parts.redraw(&self.parts.tabs, cx);
             }
@@ -1931,9 +1937,9 @@ impl Workbench {
             }
         }
         let found = self.reads.git_project_repo.as_ref()?;
-        match found["repo"].as_str() {
-            Some(repo) => Some(repo.to_owned()),
-            None if found["repos"].is_array() => None,
+        match &found.repo {
+            Some(repo) => Some(repo.clone()),
+            None if found.repos.is_some() => None,
             None => Some(folder.clone()),
         }
     }
@@ -1944,8 +1950,8 @@ impl Workbench {
     }
 
     /// The repositories directly inside the project folder, while it is not one itself.
-    pub(crate) fn git_repos(&self) -> Option<&Vec<Value>> {
-        self.reads.git_project_repo.as_ref()?["repos"].as_array()
+    pub(crate) fn git_repos(&self) -> Option<&Vec<DiscoveredRepo>> {
+        self.reads.git_project_repo.as_ref()?.repos.as_ref()
     }
 
     /// Opens `repo` in the project's Git views until the project changes.

@@ -17,7 +17,7 @@ use gpui_kit::{
 };
 use gpui_transcript::Style;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 use sikemux_core::git::log::GitCommit;
 
@@ -673,20 +673,16 @@ impl Host {
     /// until they have, and a read without a branch while HEAD is detached.
     pub fn current_branch(&self, cx: &App) -> Option<Option<String>> {
         let bench = self.bench.upgrade()?;
-        let overview = bench.read(cx).reads.git_overview.as_ref()?;
-        Some(
-            overview["status"]["branch"]
-                .as_str()
-                .filter(|branch| !branch.is_empty())
-                .map(str::to_owned),
-        )
+        let overview = bench.read(cx).reads.git_overview.as_ref()?.as_ref().ok()?;
+        let branch = &overview.status.branch;
+        Some((!branch.is_empty()).then(|| branch.clone()))
     }
 
     /// The latest commits in the project in front, as the Git views last read them.
     pub fn recent_commits(&self, cx: &App) -> Option<Vec<GitCommit>> {
         let bench = self.bench.upgrade()?;
-        let overview = bench.read(cx).reads.git_overview.as_ref()?;
-        Vec::<GitCommit>::deserialize(&overview["log"]).ok()
+        let overview = bench.read(cx).reads.git_overview.as_ref()?.as_ref().ok()?;
+        Some(overview.log.clone())
     }
 
     /// Puts a ticket on the board of the project in front, as the core's `boardAddTicket` takes
