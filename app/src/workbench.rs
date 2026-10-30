@@ -1068,6 +1068,11 @@ impl Workbench {
                 self.show_started_runs();
                 self.time_run(cx);
             }
+            Update::Read(key @ ("activity" | crate::settings::ACTIVITY), value) => {
+                if !self.reads.keep_activity(key, value) {
+                    return;
+                }
+            }
             Update::Read("ports", value) => {
                 if !self.reads.keep_ports(value) {
                     return;

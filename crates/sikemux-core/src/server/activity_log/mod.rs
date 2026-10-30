@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
@@ -23,8 +23,8 @@ use sikemux_process::sync::Locked;
 use crate::agent_catalog::AgentKind;
 use crate::launch::model_feed::Feed;
 use crate::launch::named_account;
-pub(crate) use pricing::PriceOverride;
-use pricing::{Prices, PricingInfo};
+use pricing::Prices;
+pub use pricing::{PriceOverride, PricingInfo};
 pub(crate) use report::{ReportedDay, ReportedTokens};
 
 use super::transcript;
@@ -817,100 +817,100 @@ pub(crate) fn count_codex_tokens(text: &str, state: ReadState) -> (ModelTally, R
 
 // ---- summary -----------------------------------------------------------
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActivityTotals {
-    sessions: i64,
-    resumed: i64,
-    turns: i64,
-    agent_ms: i64,
-    commits: i64,
-    agent_commits: i64,
-    input: i64,
-    output: i64,
-    cache_read: i64,
-    cache_write: i64,
-    first_at_ms: Option<i64>,
+pub struct ActivityTotals {
+    pub sessions: i64,
+    pub resumed: i64,
+    pub turns: i64,
+    pub agent_ms: i64,
+    pub commits: i64,
+    pub agent_commits: i64,
+    pub input: i64,
+    pub output: i64,
+    pub cache_read: i64,
+    pub cache_write: i64,
+    pub first_at_ms: Option<i64>,
     /// What the tokens would cost at API prices. Subscription plans bill separately.
-    cost_usd: f64,
+    pub cost_usd: f64,
     /// What reading from the cache saved against sending the same input fresh.
-    cache_savings_usd: f64,
+    pub cache_savings_usd: f64,
     /// Tokens with no price: no model was recorded, or no price is known for it.
-    unpriced_tokens: i64,
+    pub unpriced_tokens: i64,
 }
 
-#[derive(Serialize, Default, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Default, Clone)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActivityDay {
-    day: i64,
-    sessions: i64,
-    agent_ms: i64,
-    commits: i64,
-    tokens: i64,
-    cost_usd: f64,
+pub struct ActivityDay {
+    pub day: i64,
+    pub sessions: i64,
+    pub agent_ms: i64,
+    pub commits: i64,
+    pub tokens: i64,
+    pub cost_usd: f64,
     /// How full the calendar draws the day for each measure.
-    levels: ActivityLevels,
+    pub levels: ActivityLevels,
 }
 
 /// From 0 for nothing to 4, by which quarter of the days with anything the
 /// day falls in, so one huge day does not wash out the rest.
-#[derive(Serialize, Default, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Default, Clone)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActivityLevels {
-    sessions: u8,
-    agent_ms: u8,
-    commits: u8,
-    tokens: u8,
-    cost_usd: u8,
+pub struct ActivityLevels {
+    pub sessions: u8,
+    pub agent_ms: u8,
+    pub commits: u8,
+    pub tokens: u8,
+    pub cost_usd: u8,
 }
 
 /// Days in a row with any activity. A streak that reached yesterday still
 /// counts as current until today is over.
-#[derive(Serialize, Default)]
+#[derive(Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActivityStreaks {
-    active_days: usize,
-    longest: usize,
-    current: usize,
+pub struct ActivityStreaks {
+    pub active_days: usize,
+    pub longest: usize,
+    pub current: usize,
 }
 
-#[derive(Serialize, Default, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Default, Clone)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActivityShare {
-    name: String,
-    sessions: i64,
-    agent_ms: i64,
-    commits: i64,
-    tokens: i64,
-    cost_usd: f64,
+pub struct ActivityShare {
+    pub name: String,
+    pub sessions: i64,
+    pub agent_ms: i64,
+    pub commits: i64,
+    pub tokens: i64,
+    pub cost_usd: f64,
 }
 
-#[derive(Serialize, Default, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Default, Clone)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActivityModel {
-    model: String,
-    agent: String,
-    input: i64,
-    output: i64,
-    cache_read: i64,
-    cache_write: i64,
-    cost_usd: f64,
-    fast_cost_usd: f64,
-    priced: bool,
+pub struct ActivityModel {
+    pub model: String,
+    pub agent: String,
+    pub input: i64,
+    pub output: i64,
+    pub cache_read: i64,
+    pub cache_write: i64,
+    pub cost_usd: f64,
+    pub fast_cost_usd: f64,
+    pub priced: bool,
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActivitySummary {
-    totals: ActivityTotals,
+pub struct ActivitySummary {
+    pub totals: ActivityTotals,
     /// Local calendar days, counted from the Unix epoch, with anything on them.
-    days: Vec<ActivityDay>,
-    streaks: ActivityStreaks,
-    agents: Vec<ActivityShare>,
-    projects: Vec<ActivityShare>,
+    pub days: Vec<ActivityDay>,
+    pub streaks: ActivityStreaks,
+    pub agents: Vec<ActivityShare>,
+    pub projects: Vec<ActivityShare>,
     /// Models by cost, then by tokens.
-    models: Vec<ActivityModel>,
-    pricing: PricingInfo,
+    pub models: Vec<ActivityModel>,
+    pub pricing: PricingInfo,
 }
 
 /// A query yielding `(at_ms, agent, project, amount)` rows, and where each amount adds up.

@@ -70,9 +70,9 @@ fn rates(cost: Cost, standard: Option<&Rates>) -> Option<Rates> {
 }
 
 /// A price the person entered, in USD per million tokens.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PriceOverride {
+pub struct PriceOverride {
     pub input: f64,
     pub output: f64,
     pub cache_read: Option<f64>,
@@ -96,9 +96,9 @@ impl PriceOverride {
     }
 }
 
-#[derive(Serialize, Clone, Default, Debug)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PricingInfo {
+pub struct PricingInfo {
     pub fetched_at_ms: Option<i64>,
     /// The person's own prices, by model.
     pub overrides: HashMap<String, PriceOverride>,

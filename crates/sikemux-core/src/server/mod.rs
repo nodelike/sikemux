@@ -98,6 +98,10 @@ mod window;
 mod workspace;
 mod worktree;
 
+pub use activity_log::{
+    ActivityDay, ActivityLevels, ActivityModel, ActivityShare, ActivityStreaks, ActivitySummary,
+    ActivityTotals, PriceOverride, PricingInfo,
+};
 pub use agent_accounts::AccountUsage;
 pub use calls::{call, NoParams};
 pub use drafts::Draft;

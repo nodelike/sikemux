@@ -13,7 +13,9 @@ use gpui_kit::{
     ParentElement, Pixels, Point, Render, SharedString, StatefulInteractiveElement, Styled,
     Subscription, WeakEntity, Window,
 };
-use serde_json::Value;
+use sikemux_core::server::{
+    ActivityDay, ActivityLevels, ActivityShare, ActivityStreaks, ActivitySummary, ActivityTotals,
+};
 
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
@@ -28,14 +30,57 @@ use crate::{chat, terminal};
 const WEEKS: i64 = 53;
 const CELL_GAP: f32 = 3.;
 
-/// The calendar's metrics, as the activity summary names them, in the order its buttons show.
-pub const METRICS: [(&str, &str); 5] = [
-    ("tokens", "Tokens"),
-    ("costUsd", "Cost"),
-    ("commits", "Commits"),
-    ("agentMs", "Agent time"),
-    ("sessions", "Sessions"),
+/// What the calendar can measure the days by.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Metric {
+    Tokens,
+    Cost,
+    Commits,
+    AgentTime,
+    Sessions,
+}
+
+/// The calendar's metrics, in the order its buttons show.
+pub const METRICS: [(Metric, &str); 5] = [
+    (Metric::Tokens, "Tokens"),
+    (Metric::Cost, "Cost"),
+    (Metric::Commits, "Commits"),
+    (Metric::AgentTime, "Agent time"),
+    (Metric::Sessions, "Sessions"),
 ];
+
+impl Metric {
+    fn of_day(self, day: &ActivityDay) -> f64 {
+        match self {
+            Metric::Tokens => day.tokens as f64,
+            Metric::Cost => day.cost_usd,
+            Metric::Commits => day.commits as f64,
+            Metric::AgentTime => day.agent_ms as f64,
+            Metric::Sessions => day.sessions as f64,
+        }
+    }
+
+    /// How full the calendar draws a day, from 0 to 4.
+    fn level(self, levels: &ActivityLevels) -> u8 {
+        match self {
+            Metric::Tokens => levels.tokens,
+            Metric::Cost => levels.cost_usd,
+            Metric::Commits => levels.commits,
+            Metric::AgentTime => levels.agent_ms,
+            Metric::Sessions => levels.sessions,
+        }
+    }
+
+    pub fn of_share(self, share: &ActivityShare) -> f64 {
+        match self {
+            Metric::Tokens => share.tokens as f64,
+            Metric::Cost => share.cost_usd,
+            Metric::Commits => share.commits as f64,
+            Metric::AgentTime => share.agent_ms as f64,
+            Metric::Sessions => share.sessions as f64,
+        }
+    }
+}
 
 /// The stage: the tab in front, its views side by side, or what a project with nothing
 /// open says.
@@ -478,44 +523,38 @@ fn pane_header(
         )
 }
 
-pub(crate) fn number(value: &Value) -> f64 {
-    value.as_f64().unwrap_or(0.)
-}
-
-pub(crate) fn is_empty(totals: &Value) -> bool {
-    number(&totals["sessions"]) == 0.
-        && number(&totals["turns"]) == 0.
-        && number(&totals["commits"]) == 0.
+pub(crate) fn is_empty(totals: &ActivityTotals) -> bool {
+    totals.sessions == 0 && totals.turns == 0 && totals.commits == 0
 }
 
 /// Tokens the agents read and wrote, leaving out what they read again from cache.
-fn burnt(totals: &Value) -> f64 {
-    number(&totals["input"]) + number(&totals["cacheWrite"]) + number(&totals["output"])
+fn burnt(totals: &ActivityTotals) -> f64 {
+    (totals.input + totals.cache_write + totals.output) as f64
 }
 
-pub(crate) fn overview(totals: &Value, cx: &App) -> impl IntoElement {
+pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let tokens = burnt(totals);
-    let cost = number(&totals["costUsd"]);
-    let saved = number(&totals["cacheSavingsUsd"]);
+    let cost = totals.cost_usd;
+    let saved = totals.cache_savings_usd;
     let stats = [
         (
             "Agent time",
             None,
-            crate::ui::time::total(number(&totals["agentMs"])),
-            plural(number(&totals["turns"]), "turn"),
+            crate::ui::time::total(totals.agent_ms as f64),
+            plural(totals.turns as f64, "turn"),
         ),
         (
             "Sessions",
             None,
-            whole(number(&totals["sessions"])),
-            format!("{} resumed", whole(number(&totals["resumed"]))),
+            whole(totals.sessions as f64),
+            format!("{} resumed", whole(totals.resumed as f64)),
         ),
         (
             "Tokens",
             None,
             compact(tokens),
-            format!("{} cached", compact(number(&totals["cacheRead"]))),
+            format!("{} cached", compact(totals.cache_read as f64)),
         ),
         (
             "Cost",
@@ -530,8 +569,8 @@ pub(crate) fn overview(totals: &Value, cx: &App) -> impl IntoElement {
         (
             "Commits",
             None,
-            whole(number(&totals["commits"])),
-            format!("{} by agents", whole(number(&totals["agentCommits"]))),
+            whole(totals.commits as f64),
+            format!("{} by agents", whole(totals.agent_commits as f64)),
         ),
     ];
     div().flex().children(stats.into_iter().enumerate().map(
@@ -570,7 +609,7 @@ pub(crate) fn overview(totals: &Value, cx: &App) -> impl IntoElement {
 /// under a chat's welcome, it shows only tokens, has no readout or measure choice, and the
 /// footer leads the legend's row.
 pub(crate) fn calendar(
-    summary: &Value,
+    summary: &ActivitySummary,
     bench: &Workbench,
     this: &Entity<Workbench>,
     footer: Option<AnyElement>,
@@ -579,22 +618,18 @@ pub(crate) fn calendar(
     let t = Tokens::get(cx).clone();
     let metric = bench.metric;
     let welcome = footer.is_some();
-    let key = if welcome { "tokens" } else { METRICS[metric].0 };
+    let measure = if welcome {
+        Metric::Tokens
+    } else {
+        METRICS[metric].0
+    };
     let today = (chrono::Local::now().date_naive() - epoch()).num_days();
     let start = today - (today + 3).rem_euclid(7) - (WEEKS - 1) * 7;
-    let days: HashMap<i64, &Value> = summary["days"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|day| (day["day"].as_i64().unwrap_or(0), day))
-        .collect();
-    let level = |day: i64| {
-        days.get(&day)
-            .and_then(|day| day["levels"][key].as_u64())
-            .unwrap_or(0)
-    };
+    let days: HashMap<i64, &ActivityDay> =
+        (summary.days.iter()).map(|day| (day.day, day)).collect();
+    let level = |day: i64| days.get(&day).map_or(0, |day| measure.level(&day.levels));
     let hovered = bench.metric_day.filter(|day| *day <= today);
-    let colour = |level: u64| match level {
+    let colour = |level: u8| match level {
         0 => Hsla {
             a: 0.07,
             ..t.text_primary
@@ -693,7 +728,7 @@ pub(crate) fn calendar(
             })
         })
         .collect();
-    let streaks = &summary["streaks"];
+    let streaks = &summary.streaks;
     let toggles: Vec<_> = METRICS
         .iter()
         .enumerate()
@@ -727,8 +762,8 @@ pub(crate) fn calendar(
                                     "{} · {}",
                                     long_date(day),
                                     metric_text(
-                                        key,
-                                        days.get(&day).map_or(0., |day| number(&day[key]))
+                                        measure,
+                                        days.get(&day).map_or(0., |day| measure.of_day(day))
                                     )
                                 ),
                                 None => readout(streaks),
@@ -842,16 +877,16 @@ fn long_date(day: i64) -> String {
         .to_string()
 }
 
-fn readout(streaks: &Value) -> String {
-    let active = number(&streaks["activeDays"]);
+fn readout(streaks: &ActivityStreaks) -> String {
+    let active = streaks.active_days as f64;
     if active == 0. {
         return "No activity yet".into();
     }
-    let current = number(&streaks["current"]);
+    let current = streaks.current as f64;
     let mut readout = format!(
         "{} · longest streak {}",
         plural(active, "active day"),
-        plural(number(&streaks["longest"]), "day")
+        plural(streaks.longest as f64, "day")
     );
     if current > 1. {
         readout.push_str(&format!(" · {current} days running"));
@@ -860,18 +895,18 @@ fn readout(streaks: &Value) -> String {
 }
 
 /// A day's measure as the calendar reads it out.
-fn metric_text(key: &str, value: f64) -> String {
-    match (key, value > 0.) {
-        ("agentMs", true) => format!("{} of agent time", crate::ui::time::total(value)),
-        ("agentMs", false) => "No agent time".into(),
-        ("tokens", true) => format!("{} tokens", compact(value)),
-        ("tokens", false) => "No tokens".into(),
-        ("sessions", true) => plural(value, "session"),
-        ("sessions", false) => "No sessions".into(),
-        ("costUsd", true) => format!("{} at API prices", money(value)),
-        ("costUsd", false) => "No cost".into(),
-        (_, true) => plural(value, "commit"),
-        (_, false) => "No commits".into(),
+fn metric_text(measure: Metric, value: f64) -> String {
+    match (measure, value > 0.) {
+        (Metric::AgentTime, true) => format!("{} of agent time", crate::ui::time::total(value)),
+        (Metric::AgentTime, false) => "No agent time".into(),
+        (Metric::Tokens, true) => format!("{} tokens", compact(value)),
+        (Metric::Tokens, false) => "No tokens".into(),
+        (Metric::Sessions, true) => plural(value, "session"),
+        (Metric::Sessions, false) => "No sessions".into(),
+        (Metric::Cost, true) => format!("{} at API prices", money(value)),
+        (Metric::Cost, false) => "No cost".into(),
+        (Metric::Commits, true) => plural(value, "commit"),
+        (Metric::Commits, false) => "No commits".into(),
     }
 }
 

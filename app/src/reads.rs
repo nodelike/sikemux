@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sikemux_core::server::{
-    AccountUsage, Draft, HostRow, ProjectEntry, ProjectPort, RunView, ShareView, ShownStash,
-    SshHost, TaskList, TrustQuestion, UpdateStatus,
+    AccountUsage, ActivitySummary, Draft, HostRow, ProjectEntry, ProjectPort, RunView, ShareView,
+    ShownStash, SshHost, TaskList, TrustQuestion, UpdateStatus,
 };
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_wire::catalog::CatalogAgent;
@@ -99,12 +99,12 @@ pub struct Reads {
     pub tasks: Option<TaskList>,
     pub runs: Vec<RunView>,
     pub ports: Vec<ProjectPort>,
-    pub activity: Option<Value>,
+    pub activity: Option<ActivitySummary>,
     pub git_project_repo: Option<Value>,
     pub git_overview: Option<Value>,
     pub git_draft: Option<Drafts>,
-    /// Activity across every project, for Settings; null when the core refused it.
-    pub activity_everywhere: Option<Value>,
+    /// Activity across every project, for Settings; `Some(None)` when the core refused it.
+    pub activity_everywhere: Option<Option<ActivitySummary>>,
     /// The worktree in front's pull requests, and whether its branch is merged.
     pub worktree_pulls: Option<Value>,
     pub worktree_merged: Option<Value>,
@@ -128,10 +128,8 @@ macro_rules! slots {
 }
 
 slots! {
-    "activity" => activity,
     "git-project-repo" => git_project_repo,
     "git-overview" => git_overview,
-    crate::settings::ACTIVITY => activity_everywhere,
     crate::worktree_head::PULLS => worktree_pulls,
     crate::worktree_head::MERGED => worktree_merged,
 }
@@ -182,11 +180,7 @@ impl Reads {
                 told.seen_at = kept.seen_at.clone();
             }
         }
-        if self.stash.as_ref() == Some(&told) {
-            return false;
-        }
-        self.stash = Some(told);
-        true
+        keep(&mut self.stash, Some(told))
     }
 
     /// Keeps the drafts `key`'s watch answered, and says whether they differ from those kept.
@@ -202,6 +196,22 @@ impl Reads {
     /// Keeps what listens on the project's ports, and says whether it differs from what was kept.
     pub fn keep_ports(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.ports, value, "ports")
+    }
+
+    /// Keeps the activity summary `key`'s watch answered, and says whether it differs from the
+    /// one kept. The project's activity draws empty when the core refused it.
+    pub fn keep_activity(&mut self, key: &str, value: Value) -> bool {
+        let read = match value.is_null() {
+            true => None,
+            false => match decoded::<ActivitySummary>(value, "activity") {
+                Some(summary) => Some(summary),
+                None => return false,
+            },
+        };
+        match key {
+            "activity" => keep(&mut self.activity, Some(read.unwrap_or_default())),
+            _ => keep(&mut self.activity_everywhere, Some(read)),
+        }
     }
 
     /// Keeps the chats this host shares, and says whether they differ from those kept.
@@ -247,6 +257,7 @@ impl Reads {
             "git-draft" => self.git_draft = None,
             "runs" => self.runs.clear(),
             "ports" => self.ports.clear(),
+            "activity" => self.activity = None,
             "trust" => self.trust.clear(),
             "host-trust" => self.host_trust.clear(),
             _ => {
@@ -261,14 +272,14 @@ impl Reads {
 /// Keeps `value` decoded in `slot`, and says whether it differs from what was kept. An answer
 /// that does not read leaves the slot as it was.
 fn keep_decoded<T: DeserializeOwned + PartialEq>(slot: &mut T, value: Value, what: &str) -> bool {
-    match decoded::<T>(value, what) {
-        Some(read) if read == *slot => false,
-        Some(read) => {
-            *slot = read;
-            true
-        }
-        None => false,
-    }
+    decoded(value, what).is_some_and(|read| keep(slot, read))
+}
+
+/// Puts `read` in `slot`, and says whether it differs from what was there.
+fn keep<T: PartialEq>(slot: &mut T, read: T) -> bool {
+    let changed = *slot != read;
+    *slot = read;
+    changed
 }
 
 /// `value` read as a `T`, or none when it does not read as one, which is logged.

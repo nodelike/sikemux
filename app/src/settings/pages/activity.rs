@@ -9,10 +9,11 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::{json, Map, Value};
+use sikemux_core::server::{ActivityShare, ActivitySummary, PriceOverride};
 use sikemux_wire::changed::Topic;
 
 use crate::core::{utc_offset_minutes, Ask, Watch};
-use crate::home::{self, compact, money, number, plural, whole};
+use crate::home::{self, compact, money, plural, whole, Metric};
 use crate::icons::Icon;
 use crate::settings::Settings;
 use crate::settings::{rows, ACTIVITY};
@@ -67,16 +68,23 @@ fn change_fields<R>(
 fn edit(
     bench: &mut Workbench,
     model: String,
-    price: Option<Value>,
+    price: Option<PriceOverride>,
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
     let prices = PRICES
         .iter()
-        .map(|(key, _, optional)| {
+        .enumerate()
+        .map(|(at, (_, _, optional))| {
             let value = price
-                .as_ref()
-                .and_then(|price| price[key].as_f64())
+                .and_then(|price| {
+                    [
+                        Some(price.input),
+                        Some(price.output),
+                        price.cache_read,
+                        price.cache_write,
+                    ][at]
+                })
                 .map(|value| value.to_string())
                 .unwrap_or_default();
             cx.new(|cx| {
@@ -190,16 +198,16 @@ fn percent(part: f64, whole: f64) -> i64 {
 }
 
 /// A share's value under the calendar's measure.
-fn share_value(share: &Value, key: &str) -> String {
-    let value = number(&share[key]);
+fn share_value(share: &ActivityShare, measure: Metric) -> String {
+    let value = measure.of_share(share);
     if value <= 0. {
         return "—".into();
     }
-    match key {
-        "costUsd" => money(value),
-        "tokens" => compact(value),
-        "agentMs" => total(value),
-        _ => whole(value),
+    match measure {
+        Metric::Cost => money(value),
+        Metric::Tokens => compact(value),
+        Metric::AgentTime => total(value),
+        Metric::Commits | Metric::Sessions => whole(value),
     }
 }
 
@@ -264,26 +272,33 @@ fn share_row(
         )
 }
 
-fn shares(bench: &Workbench, shares: &[Value], agents: bool, key: &str, cx: &App) -> AnyElement {
+fn shares(
+    bench: &Workbench,
+    shares: &[ActivityShare],
+    agents: bool,
+    measure: Metric,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     if shares.is_empty() {
         return rows::note("Nothing recorded yet.", cx);
     }
     div()
         .children(shares.iter().map(|share| {
-            let name = share["name"].as_str().unwrap_or_default();
+            let name = share.name.as_str();
             let details: Vec<String> = [
-                ("sessions", number(&share["sessions"])),
-                ("tokens", number(&share["tokens"])),
-                ("commits", number(&share["commits"])),
-                ("agentMs", number(&share["agentMs"])),
+                Metric::Sessions,
+                Metric::Tokens,
+                Metric::Commits,
+                Metric::AgentTime,
             ]
             .into_iter()
-            .filter(|(measure, value)| *measure != key && *value > 0.)
-            .map(|(measure, value)| match measure {
-                "sessions" => plural(value, "session"),
-                "tokens" => format!("{} tokens", compact(value)),
-                "commits" => plural(value, "commit"),
+            .map(|other| (other, other.of_share(share)))
+            .filter(|(other, value)| *other != measure && *value > 0.)
+            .map(|(other, value)| match other {
+                Metric::Sessions => plural(value, "session"),
+                Metric::Tokens => format!("{} tokens", compact(value)),
+                Metric::Commits => plural(value, "commit"),
                 _ => total(value),
             })
             .collect();
@@ -308,7 +323,7 @@ fn shares(bench: &Workbench, shares: &[Value], agents: bool, key: &str, cx: &App
                 title,
                 under,
                 details.join(" · "),
-                div().child(share_value(share, key)).into_any_element(),
+                div().child(share_value(share, measure)).into_any_element(),
                 &t,
             )
         }))
@@ -409,43 +424,40 @@ fn price_form(
         .into_any_element()
 }
 
-fn models(summary: &Value, fields: &Fields, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+fn models(
+    summary: &ActivitySummary,
+    fields: &Fields,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let Some(models) = summary["models"].as_array() else {
-        return div().into_any_element();
-    };
+    let models = &summary.models;
     if models.is_empty() {
         return rows::note("Nothing recorded yet.", cx);
     }
-    let prices = &summary["pricing"]["overrides"];
+    let prices = &summary.pricing.overrides;
     div()
         .children(models.iter().map(|model| {
-            let id = model["model"].as_str().unwrap_or_default().to_owned();
+            let id = model.model.clone();
             let name = model_name(&id);
-            let own = prices.get(&id).filter(|price| !price.is_null()).cloned();
-            let input = number(&model["input"])
-                + number(&model["cacheRead"])
-                + number(&model["cacheWrite"]);
-            let cost = number(&model["costUsd"]);
+            let own = prices.get(&id).copied();
+            let input = (model.input + model.cache_read + model.cache_write) as f64;
+            let cost = model.cost_usd;
+            let cache_read = model.cache_read as f64;
             let details: Vec<String> = [
                 Some(format!(
                     "{} tokens",
-                    compact(
-                        number(&model["input"])
-                            + number(&model["output"])
-                            + number(&model["cacheWrite"])
-                    )
+                    compact((model.input + model.output + model.cache_write) as f64)
                 )),
-                (number(&model["cacheRead"]) > 0.)
-                    .then(|| format!("{}% cached", percent(number(&model["cacheRead"]), input))),
-                (number(&model["fastCostUsd"]) > 0.)
-                    .then(|| format!("{}% fast", percent(number(&model["fastCostUsd"]), cost))),
+                (cache_read > 0.).then(|| format!("{}% cached", percent(cache_read, input))),
+                (model.fast_cost_usd > 0.)
+                    .then(|| format!("{}% fast", percent(model.fast_cost_usd, cost))),
             ]
             .into_iter()
             .flatten()
             .collect();
             let opener = |label: &'static str, tag: &'static str| {
-                let (this, id, own) = (this.clone(), id.clone(), own.clone());
+                let (this, id) = (this.clone(), id.clone());
                 div()
                     .id(SharedString::from(format!("{tag}-{id}")))
                     .cursor_pointer()
@@ -454,16 +466,16 @@ fn models(summary: &Value, fields: &Fields, this: &Entity<Workbench>, cx: &App) 
                     .hover(|style| style.text_color(t.text_primary))
                     .child(label)
                     .on_click(move |_, window, cx| {
-                        let (id, own) = (id.clone(), own.clone());
+                        let id = id.clone();
                         this.update(cx, |bench, cx| edit(bench, id, own, window, cx))
                     })
             };
-            let value = match model["priced"].as_bool() == Some(true) {
+            let value = match model.priced {
                 true => div().child(money(cost)).into_any_element(),
                 false => opener("Set price", "price-set").into_any_element(),
             };
             let row = share_row(
-                ui::mark(model["agent"].as_str().unwrap_or_default(), 20.),
+                ui::mark(&model.agent, 20.),
                 name.clone(),
                 (name != id).then(|| id.clone()),
                 details.join(" · "),
@@ -483,11 +495,10 @@ fn models(summary: &Value, fields: &Fields, this: &Entity<Workbench>, cx: &App) 
         .into_any_element()
 }
 
-fn pricing_note(summary: &Value, cx: &App) -> AnyElement {
+fn pricing_note(summary: &ActivitySummary, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
-    let unpriced = number(&summary["totals"]["unpricedTokens"]);
-    let fetched = summary["pricing"]["fetchedAtMs"]
-        .as_i64()
+    let unpriced = summary.totals.unpriced_tokens as f64;
+    let fetched = (summary.pricing.fetched_at_ms)
         .and_then(|ms| chrono::Local.timestamp_millis_opt(ms).single());
     let source = match fetched {
         Some(at) => format!("Prices from models.dev, {}", at.format("%b %-d")),
@@ -521,12 +532,12 @@ pub fn render(
         return Vec::new();
     };
     let read = bench.reads.activity_everywhere.as_ref();
-    let failed = read.is_some_and(Value::is_null);
-    let summary = read.filter(|summary| !summary.is_null());
-    let key = home::METRICS[bench.metric].0;
-    let totals = summary.map(|summary| &summary["totals"]);
+    let failed = read.is_some_and(Option::is_none);
+    let summary = read.and_then(Option::as_ref);
+    let measure = home::METRICS[bench.metric].0;
+    let totals = summary.map(|summary| &summary.totals);
     let since = totals
-        .and_then(|totals| totals["firstAtMs"].as_i64())
+        .and_then(|totals| totals.first_at_ms)
         .and_then(|ms| chrono::Local.timestamp_millis_opt(ms).single())
         .map(|at| SharedString::from(format!("since {}", at.format("%b %-d, %Y"))));
     let overview = match totals {
@@ -548,19 +559,17 @@ pub fn render(
             .into_any_element(),
         None => div().into_any_element(),
     };
-    let list = |name: &str, limit: usize| {
-        summary
-            .and_then(|summary| summary[name].as_array())
-            .map(|all| all.iter().take(limit).cloned().collect::<Vec<_>>())
-    };
     let by_model = summary
         .map(|summary| models(summary, fields, this, cx))
         .unwrap_or_else(|| div().into_any_element());
-    let by_agent = list("agents", usize::MAX)
-        .map(|agents| shares(bench, &agents, true, key, cx))
+    let by_agent = summary
+        .map(|summary| shares(bench, &summary.agents, true, measure, cx))
         .unwrap_or_else(|| div().into_any_element());
     let by_project = div()
-        .children(list("projects", 8).map(|projects| shares(bench, &projects, false, key, cx)))
+        .children(summary.map(|summary| {
+            let shown = &summary.projects[..summary.projects.len().min(8)];
+            shares(bench, shown, false, measure, cx)
+        }))
         .children(summary.map(|summary| pricing_note(summary, cx)));
     vec![
         rows::section(
