@@ -264,13 +264,14 @@ pub(super) fn section_of(
         .into_any_element()
 }
 
-/// The goal's assertions a slice fulfils, each ticked once its evidence held up.
+/// The goal's assertions a slice fulfils, each ticked once its evidence held up, then quietly
+/// those it named that no longer stand on its goal, so the person sees what was freed.
 pub(super) fn ticks(
     goal: &CardView,
     slice: &SliceView,
     cx: &Context<GoalsPane>,
 ) -> Option<AnyElement> {
-    if slice.asserts.is_empty() {
+    if slice.asserts.is_empty() && slice.detached.is_empty() {
         return None;
     }
     let t = Tokens::get(cx);
@@ -327,6 +328,29 @@ pub(super) fn ticks(
                         )
                         .child(ui::meta(kind_words(assertion.evidence), cx)),
                 )
+            }))
+            .children(slice.detached.iter().map(|id| {
+                let kept = goal.assertions.iter().find(|kept| kept.id == *id);
+                let words = kept.map_or("an assertion no longer on this goal".into(), |kept| {
+                    kept.text.clone()
+                });
+                div()
+                    .py(px(3.))
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_2)
+                    .child(ui::mark_box(13., div()))
+                    .child(div().w(px(12.)).flex_none())
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(theme::ui_text(TEXT_XS_H))
+                            .text_color(t.text_disabled)
+                            .line_through()
+                            .child(words),
+                    )
+                    .child(ui::meta("freed", cx))
             }))
             .into_any_element(),
     )
