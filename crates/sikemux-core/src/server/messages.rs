@@ -1391,8 +1391,8 @@ pub(crate) async fn from_board(
     deliver(core, &target, letter).await
 }
 
-/// Hands an agent the prompt of a trigger it set, waking it first when it sleeps. Fails when
-/// the agent has stopped or is gone.
+/// Hands an agent the prompt of a trigger it set, waking it first when it sleeps, unless it
+/// sleeps since the person stopped everything. Fails when the agent has stopped or is gone.
 pub(crate) async fn from_trigger(
     core: &Arc<Core>,
     to: String,
@@ -1400,7 +1400,7 @@ pub(crate) async fn from_trigger(
     note: String,
 ) -> Result<Value, String> {
     let mut target = running(core, to.clone()).await?;
-    if target.reach == Reach::Asleep {
+    if target.reach == Reach::Asleep && !core.workspaces.held(&to) {
         launching::wake(core, to.clone())
             .await
             .map_err(|error| format!("it is asleep and did not wake: {error}"))?;
@@ -1635,6 +1635,9 @@ async fn handed(
         Reach::Chat | Reach::Terminal => {}
         Reach::Asleep if notice => held = Some("is asleep"),
         Reach::Asleep if !core.window.is_open() => held = Some("is asleep while Sikemux is closed"),
+        Reach::Asleep if core.workspaces.held(&target.agent_id) => {
+            held = Some("was put to sleep when the person stopped everything")
+        }
         Reach::Asleep => {
             launching::wake(core, target.agent_id.clone())
                 .await
@@ -1998,7 +2001,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .agent(&agent_id)
             .is_some_and(|agent| agent.asleep || agent.terminal)
         {
-            if !core.window.is_open() {
+            if !core.window.is_open() || core.workspaces.held(&agent_id) {
                 continue;
             }
             let failed = mailbox.state.locked().wake_failed.get(&agent_id).copied();
@@ -2038,6 +2041,7 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
                     }
                 }
             }
+            Pending::Asleep if core.workspaces.held(&agent_id) => {}
             Pending::Asleep => {
                 let woke = launching::wake(&core, agent_id.clone()).await;
                 let mut state = mailbox.state.locked();

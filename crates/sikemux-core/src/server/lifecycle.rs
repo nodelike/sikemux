@@ -131,13 +131,16 @@ pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
 
 /// Puts every chat to sleep at the person's word to stop everything, ending
 /// its agent and any turn it was in, so each stays listed asleep on its saved
-/// conversation, here and in the next core, to wake when shown or messaged.
+/// conversation, here and in the next core. Every agent is held asleep until
+/// the person opens or writes to it, so mail sent as things stop wakes none.
 pub(crate) fn sleep_all(core: &Core) {
+    core.workspaces.hold_all();
     for chat in core.chats.stop_all() {
         core.workspaces.note_stopping(&chat);
         core.chats.rest(&chat);
         core.workspaces.set_asleep(chat.agent_id(), true);
     }
+    core.workspaces.flush();
 }
 
 /// Puts the agent to sleep at the person's word: a chat as [`sleep`] does, and
