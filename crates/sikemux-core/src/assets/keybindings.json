@@ -448,6 +448,14 @@
         "other": "Ctrl+Alt+Digit6"
     },
     {
+        "id": "window.goals",
+        "label": "Focus goals",
+        "detail": "Jump to the project's goals and what each needs from you",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit7",
+        "other": "Ctrl+Alt+Digit7"
+    },
+    {
         "id": "browser.tabNew",
         "label": "New browser tab",
         "detail": "Open a page on the desk of the agent in front, or the one that worked last",

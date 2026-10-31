@@ -844,13 +844,14 @@ fn rollup(bench: &Workbench, project: &str, cx: &App) -> Option<gpui_kit::AnyEle
 }
 
 /// What a project opens, in the order the rail lists them.
-const SURFACES: [PaneKind; 6] = [
+const SURFACES: [PaneKind; 7] = [
     PaneKind::Files,
     PaneKind::Terminal,
     PaneKind::Agent,
     PaneKind::Git,
     PaneKind::Search,
     PaneKind::Board,
+    PaneKind::Goals,
 ];
 
 /// The project's surfaces, hung off a spine with a tick to each, the one in front lit.

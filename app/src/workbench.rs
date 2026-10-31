@@ -170,6 +170,7 @@ pub struct Workbench {
     /// The Search pane of the project whose Search tab was last in front.
     pub search: Option<Entity<SearchPane>>,
     pub board: Option<Entity<crate::board::BoardPane>>,
+    pub goals: Option<Entity<crate::goals::GoalsPane>>,
     /// Settings, while they take the stage's place.
     pub settings: Entity<crate::settings::Settings>,
     pub hosts: crate::hosts::Hosts,
@@ -629,6 +630,7 @@ impl Workbench {
             editors: cx.new(|_| crate::editor::Editors::default()),
             search: None,
             board: None,
+            goals: None,
             settings: cx.new(|_| crate::settings::Settings::default()),
             window: window.window_handle(),
             parts: Parts::new(cx),
@@ -1135,6 +1137,9 @@ impl Workbench {
                 if topic == Topic::Boards {
                     if let Some(board) = &self.board {
                         board.update(cx, |board, cx| board.changed(cx));
+                    }
+                    if let Some(goals) = &self.goals {
+                        goals.update(cx, |goals, cx| goals.changed(cx));
                     }
                 }
                 if topic == Topic::Lsp {
@@ -3384,6 +3389,7 @@ impl Workbench {
             Some(PaneKind::Git) => self.git_pane(window, cx),
             Some(PaneKind::Search) => self.search_pane(cx),
             Some(PaneKind::Board) => self.board_pane(cx),
+            Some(PaneKind::Goals) => self.goals_pane(cx),
             _ => {}
         }
     }
@@ -3469,6 +3475,23 @@ impl Workbench {
         }
         let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
         self.board = Some(cx.new(|cx| crate::board::BoardPane::new(asks, folder, bench, cx)));
+    }
+
+    /// Makes the goals pane when the project's Goals tab comes to the front.
+    fn goals_pane(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.project() else {
+            return;
+        };
+        let folder = project.path.to_string_lossy().into_owned();
+        if self
+            .goals
+            .as_ref()
+            .is_some_and(|pane| pane.read(cx).folder == folder)
+        {
+            return;
+        }
+        let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
+        self.goals = Some(cx.new(|cx| crate::goals::GoalsPane::new(asks, folder, bench, cx)));
     }
 
     /// Brings the project's Search tab to the front with the keyboard in its find field,
@@ -4064,6 +4087,7 @@ pub enum TakesKeys {
     Git,
     File(PathBuf),
     Board,
+    Goals,
 }
 
 impl TakesKeys {
@@ -4073,6 +4097,7 @@ impl TakesKeys {
             Self::Git => PaneKind::Git,
             Self::File(_) => PaneKind::Files,
             Self::Board => PaneKind::Board,
+            Self::Goals => PaneKind::Goals,
         }
     }
 }
@@ -4375,6 +4400,9 @@ impl Render for Workbench {
             )
             .on_action(
                 cx.listener(|bench, _: &crate::places::FocusBoard, _, cx| bench.focus_board(cx)),
+            )
+            .on_action(
+                cx.listener(|bench, _: &crate::places::FocusGoals, _, cx| bench.focus_goals(cx)),
             )
             .on_action(
                 cx.listener(|bench, _: &crate::switcher::NextPlace, window, cx| {

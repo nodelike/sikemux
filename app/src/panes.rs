@@ -581,6 +581,16 @@ fn view(
             }
             None => ui::pane(cx).into_any_element(),
         },
+        PaneKind::Goals => match &bench.goals {
+            Some(pane) => {
+                if bench.claims_keys(TakesKeys::Goals) {
+                    let focus = pane.read(cx).focus_handle(cx);
+                    cx.defer_in(window, move |_, window, cx| window.focus(&focus, cx));
+                }
+                ui::pane(cx).child(pane.clone()).into_any_element()
+            }
+            None => ui::pane(cx).into_any_element(),
+        },
         PaneKind::Agent => home::agent_view(bench, tab, id, target, cx),
         PaneKind::Desk => desk::pane(bench, target, window, cx),
         PaneKind::ProjectSettings => crate::project_settings::pane(bench, target, window, cx),

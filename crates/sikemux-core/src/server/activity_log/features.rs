@@ -104,6 +104,7 @@ const COMMANDS: &[&str] = &[
     "window.agents",
     "window.search",
     "window.board",
+    "window.goals",
     "browser.tabNew",
     "text.sizeIncrease",
 ];
