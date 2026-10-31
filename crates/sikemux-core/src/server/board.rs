@@ -23,7 +23,7 @@ use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_wire::inbox::InboxRecording;
-use sikemux_wire::slice::{Decision, Gate, GoalRule, NextGate, SliceView};
+use sikemux_wire::slice::{Decision, Gate, GoalRule, NextGate, SliceView, Wait};
 
 pub(crate) mod auto;
 mod blind;
@@ -33,6 +33,7 @@ pub(crate) mod goal;
 mod review;
 mod slice;
 mod tickets;
+mod wait;
 
 pub(crate) use auto::Pull;
 use auto::Run;
@@ -180,6 +181,12 @@ struct Board {
     /// Why Auto cannot start anything here now.
     #[serde(skip)]
     auto_note: Option<String>,
+    /// The project's check as the board heard of it while the core runs.
+    #[serde(skip)]
+    checking: wait::Checking,
+    /// What each of its slices waited on when clients were last told.
+    #[serde(skip)]
+    told_waits: HashMap<u64, Wait>,
 }
 
 impl Board {
@@ -988,6 +995,7 @@ pub struct BoardView {
 
 fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
     let team = team_of(core, board, card);
+    let now = epoch_ms();
     CardView {
         id: card.id,
         title: card.title.clone(),
@@ -1016,9 +1024,10 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         recordings: card.recordings.clone(),
         slice: card.slice.as_ref().map(|slice| {
             let held_up = card.owner.is_none() || !board.waits_on(card).is_empty();
-            slice.view(card.owner_id(), held_up, |agent| name_of(core, agent))
+            let wait = wait::of(core, board, card, now);
+            slice.view(card.owner_id(), held_up, |agent| name_of(core, agent), wait)
         }),
-        next: slice::next_gates(board, card),
+        next: slice::next_gates(core, board, card, now),
         decisions: card.goal.decisions(),
         rules: card.goal.rules(),
         at: card.at,
@@ -2651,6 +2660,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     auto::start_free(core);
     next = sooner(next, finish::due(core));
     next = sooner(next, tickets::due(core));
+    next = sooner(next, wait::settle(core, &mut core.boards.state.locked()));
     if let Some(next) = next {
         core.boards.wake.at(next);
     }

@@ -19,6 +19,17 @@ The goal shows who leads it and which agents own its slices, a strip with one se
 
 Every slice wears the same mark: solid green when done, a green ring while it moves, a dashed grey ring while it waits, amber when it needs you and red when its latest check failed.
 
+## What a slice waits on
+
+You never have to ask an agent for its status. Next and each slice's row say what the slice waits on now, and roughly how long that takes:
+
+- **the project's check** on its owner's latest commit, here or in CI: queued, then running, such as "check · ~3 min" or "CI Release · ~6 min"
+- **another card** it waits on, such as "waits for #4"
+- **you**, at a gate only you pass
+- **its owner**, in the middle of a turn
+
+A check's estimate comes from how long the project's last few checks took since Sikemux last started; there is none until one has run. A wait that runs past its estimate says "over" instead, such as "check · over 3 min". The pane changes the moment a wait starts, ends or runs over.
+
 ## A slice
 
 Click a slice to open it. Under its promise and owner, the ladder shows each gate with who passed it and when, or who may pass it and what it still needs.

@@ -18,7 +18,7 @@ use super::{tell, State};
 use crate::git::Git;
 use crate::server::repo_events::RepoEvent;
 use crate::server::Core;
-use sikemux_wire::slice::Verdict;
+use sikemux_wire::slice::{CheckRun, Verdict};
 
 /// Checks running at once, across projects.
 const MAX_RUNNING: usize = 2;
@@ -167,9 +167,14 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
             };
             {
                 let mut state = core.collisions.state.locked();
-                let shas = commits.iter().map(|commit| commit.sha.clone()).collect();
-                state.checks.running.insert(project.clone(), shas);
+                let shas: Vec<String> = commits.iter().map(|commit| commit.sha.clone()).collect();
+                state.checks.running.insert(project.clone(), shas.clone());
                 state.checks.wait_again(project.clone(), dir.clone(), later);
+                core.repo_events.tell(RepoEvent::CheckStarted {
+                    project: project.clone(),
+                    covered: shas,
+                    run: CheckRun::Local,
+                });
             }
             let agents: Vec<String> = commits
                 .iter()

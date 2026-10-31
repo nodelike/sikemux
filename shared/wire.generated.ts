@@ -2199,6 +2199,11 @@ export interface SliceView {
     /** What the core collected itself to show its work, oldest first. */
     evidence: Evidence[];
     notes: Note[];
+    /**
+     * What the gate it waits at waits on now; none when it is done, or
+     * nothing is under way.
+     */
+    wait?: Wait | null;
 }
 
 /** Where a slice stands as a whole, so clients mark it without working it out. */
@@ -2315,12 +2320,68 @@ export interface Note {
     at: number;
 }
 
+/** What a slice waits on now, since when, and roughly how long it takes. */
+export interface Wait {
+    on: WaitOn;
+    since: number;
+    /**
+     * Roughly how long it takes from `since`, from what the core saw it take
+     * before; none when it has no idea.
+     */
+    estimateMs?: number | null;
+    /** It has taken longer than `estimate_ms`. */
+    overdue?: boolean;
+}
+
+/** The kinds of thing a slice waits on. */
+export type WaitOn =
+    /** The project's check on its owner's latest commit. */
+    | {
+          kind: "check";
+          sha: string;
+          run: CheckRun;
+      }
+    /** Another card it waits on, not done yet. */
+    | {
+          kind: "card";
+          card: number;
+      }
+    /** The person, to pass `gate`. */
+    | {
+          kind: "person";
+          gate: Gate;
+      }
+    /** Its owner, in the middle of a turn. */
+    | {
+          kind: "agent";
+          agent: string;
+      };
+
+/** How far a check on a commit has got. */
+export type CheckRun =
+    /** It waits its turn to run. */
+    | {
+          kind: "queued";
+      }
+    /** It runs here, in the project's integration checkout. */
+    | {
+          kind: "local";
+      }
+    /** It runs in CI, as `workflow`, at `url` when the code host gives one. */
+    | {
+          kind: "ci";
+          workflow: string;
+          url: string | null;
+      };
+
 /** A gate one of a goal's slices waits at, as the goal lists what comes next. */
 export interface NextGate {
     /** The slice's card. */
     card: number;
     gate: Gate;
     passer: Passer;
+    /** What that gate waits on now. */
+    wait?: Wait | null;
 }
 
 /** What a goal decided, kept on its card. */

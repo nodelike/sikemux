@@ -5,7 +5,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::Mutex;
 
 use sikemux_process::sync::Locked;
-use sikemux_wire::slice::Verdict;
+use sikemux_wire::slice::{CheckRun, Verdict};
 use tokio::sync::Notify;
 
 /// Told events the board has not read yet, past which the oldest go.
@@ -28,6 +28,13 @@ pub(crate) enum RepoEvent {
         onto: String,
         tip: String,
     },
+    /// The project's check started on the `covered` commits, the newest last,
+    /// here or in CI as `run` says.
+    CheckStarted {
+        project: String,
+        covered: Vec<String>,
+        run: CheckRun,
+    },
     /// The project's check ended at `sha`, taking in the `covered` commits:
     /// with no verdict when it did not run, for the reason in `output`.
     Checked {
@@ -45,6 +52,7 @@ impl RepoEvent {
         match self {
             RepoEvent::Committed { project, .. }
             | RepoEvent::Landed { project, .. }
+            | RepoEvent::CheckStarted { project, .. }
             | RepoEvent::Checked { project, .. } => project,
         }
     }

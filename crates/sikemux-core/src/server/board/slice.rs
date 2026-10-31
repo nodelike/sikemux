@@ -18,7 +18,7 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::inbox::InboxRecording;
 use sikemux_wire::slice::{
     Evidence, Gate, GateState, GateView, Need, NextGate, Note, Passer, Proof, SliceState,
-    SliceView, Verdict,
+    SliceView, Verdict, Wait,
 };
 
 use super::{
@@ -138,6 +138,9 @@ struct Work {
     on_branch: bool,
     /// What the project's check said of `head`.
     check: Option<Check>,
+    /// When `head` became its latest work.
+    #[serde(default)]
+    at: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -266,6 +269,23 @@ impl Slice {
         self.work.as_ref().map(|work| work.head.as_str())
     }
 
+    /// Since when it has waited at its gate: the gate before it passed, or
+    /// its latest work came, whichever is later.
+    pub(super) fn waiting_since(&self) -> u64 {
+        let passed = self.passes.iter().map(|pass| pass.at).max().unwrap_or(0);
+        let worked = self.work.as_ref().map_or(0, |work| work.at);
+        passed.max(worked)
+    }
+
+    /// The commit whose check the gate it waits at still needs, once the
+    /// check has not said anything of it yet.
+    pub(super) fn awaits_check(&self) -> Option<&str> {
+        let gate = self.waiting()?;
+        let work = self.work.as_ref()?;
+        (rule(gate).needs.contains(&Need::PassingCheck) && work.check.is_none())
+            .then_some(work.head.as_str())
+    }
+
     fn evidence(&self, id: u64) -> Option<&Evidence> {
         self.evidence.iter().find(|evidence| evidence.id == id)
     }
@@ -363,6 +383,7 @@ impl Slice {
             head: at.head.clone(),
             on_branch: at.on_branch,
             check: None,
+            at: epoch_ms(),
         });
         if new_work {
             self.done_said = false;
@@ -657,6 +678,7 @@ impl Slice {
         owner: Option<&str>,
         held_up: bool,
         name: impl Fn(&str) -> String,
+        wait: Option<Wait>,
     ) -> SliceView {
         let waiting = self.waiting();
         let gates = self
@@ -695,6 +717,7 @@ impl Slice {
             gates,
             evidence: self.evidence.clone(),
             notes: self.notes.clone(),
+            wait,
         }
     }
 
@@ -729,8 +752,8 @@ fn proof_words(proof: &Proof) -> &'static str {
 }
 
 /// The gates a goal's slices wait at, in the order they will be reached: a
-/// slice that waits on another comes after it.
-pub(super) fn next_gates(board: &Board, goal: &Card) -> Vec<NextGate> {
+/// slice that waits on another comes after it. Each says what it waits on now.
+pub(super) fn next_gates(core: &Core, board: &Board, goal: &Card, now: u64) -> Vec<NextGate> {
     let under: Vec<&Card> = board
         .cards
         .iter()
@@ -759,6 +782,7 @@ pub(super) fn next_gates(board: &Board, goal: &Card) -> Vec<NextGate> {
                     card: card.id,
                     gate,
                     passer: rule(gate).passer,
+                    wait: super::wait::of(core, board, card, now),
                 });
             }
         }
@@ -1120,6 +1144,7 @@ pub(crate) async fn follow(core: Arc<Core>) {
             .map(|event| match event {
                 RepoEvent::Committed { project, .. }
                 | RepoEvent::Landed { project, .. }
+                | RepoEvent::CheckStarted { project, .. }
                 | RepoEvent::Checked { project, .. } => project.clone(),
             })
             .chain(told.lost.iter().cloned())
@@ -1184,7 +1209,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
             .trimmed(&["rev-parse", &format!("{sha}^")])
             .unwrap_or_else(|_| sha.clone()),
         RepoEvent::Landed { onto, .. } => onto.clone(),
-        RepoEvent::Checked { .. } => String::new(),
+        RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => String::new(),
     };
     let older = match &event {
         RepoEvent::Committed {
@@ -1213,7 +1238,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                         .is_ok()
             })
         }
-        RepoEvent::Checked { .. } => None,
+        RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => None,
     };
     let behind = |card: &Card| {
         older.is_some() && card.slice.as_ref().and_then(Slice::head) == older.as_deref()
@@ -1273,6 +1298,18 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                 let id = card.id;
                 (project, vec![id])
             }
+            RepoEvent::CheckStarted {
+                project,
+                covered,
+                run,
+            } => {
+                if let Some(board) = boards.get_mut(&project) {
+                    board.checking.started(covered, run);
+                }
+                drop(state);
+                core.boards.wake.now();
+                return;
+            }
             RepoEvent::Checked {
                 project,
                 command,
@@ -1281,6 +1318,9 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                 verdict,
                 output,
             } => {
+                if let Some(board) = boards.get_mut(&project) {
+                    board.checking.ended(&covered, verdict);
+                }
                 let run = HeardRun {
                     sha,
                     covered,

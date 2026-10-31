@@ -679,7 +679,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
 }
 
 /// Whether the agent is in the middle of a turn.
-fn mid_turn(core: &Core, agent_id: &str) -> bool {
+pub(super) fn mid_turn(core: &Core, agent_id: &str) -> bool {
     if let Some(chat) = core.chats.get(agent_id) {
         return chat.turn_running();
     }

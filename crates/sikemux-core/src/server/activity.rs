@@ -53,6 +53,7 @@ impl Core {
             Activity::Started => {
                 self.seen.started(&agent_id);
                 self.inbox.started(&agent_id);
+                self.boards.wake.now();
                 self.notify.send(Signal::TurnStarted { agent_id });
             }
             Activity::Working => self.seen.working(&agent_id),

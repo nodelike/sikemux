@@ -171,6 +171,62 @@ pub struct SliceView {
     /// What the core collected itself to show its work, oldest first.
     pub evidence: Vec<Evidence>,
     pub notes: Vec<Note>,
+    /// What the gate it waits at waits on now; none when it is done, or
+    /// nothing is under way.
+    #[serde(default)]
+    pub wait: Option<Wait>,
+}
+
+/// What a slice waits on now, since when, and roughly how long it takes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Wait {
+    pub on: WaitOn,
+    pub since: u64,
+    /// Roughly how long it takes from `since`, from what the core saw it take
+    /// before; none when it has no idea.
+    #[serde(default)]
+    pub estimate_ms: Option<u64>,
+    /// It has taken longer than `estimate_ms`.
+    #[serde(default)]
+    pub overdue: bool,
+}
+
+/// The kinds of thing a slice waits on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum WaitOn {
+    /// The project's check on its owner's latest commit.
+    Check { sha: String, run: CheckRun },
+    /// Another card it waits on, not done yet.
+    Card { card: u64 },
+    /// The person, to pass `gate`.
+    Person { gate: Gate },
+    /// Its owner, in the middle of a turn.
+    Agent { agent: String },
+}
+
+/// How far a check on a commit has got.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum CheckRun {
+    /// It waits its turn to run.
+    Queued,
+    /// It runs here, in the project's integration checkout.
+    Local,
+    /// It runs in CI, as `workflow`, at `url` when the code host gives one.
+    Ci {
+        workflow: String,
+        url: Option<String>,
+    },
 }
 
 /// Where a slice stands as a whole, so clients mark it without working it out.
@@ -196,6 +252,9 @@ pub struct NextGate {
     pub card: u64,
     pub gate: Gate,
     pub passer: Passer,
+    /// What that gate waits on now.
+    #[serde(default)]
+    pub wait: Option<Wait>,
 }
 
 /// What a goal decided, kept on its card.
