@@ -610,7 +610,7 @@ impl Slice {
             }
             (_, true) if checking == (Checking::Ci { pushed: false }) => Said::Pending {
                 note: format!(
-                    "Not {words} yet: this project's check is its CI, which checks only pushed commits, and {} isn't pushed. Push it; {words} passes by itself once CI passes on it, and you will hear.",
+                    "Not {words} yet: this project's check is its CI, which checks the project's branch as pushed, and {} isn't on it there yet. Land it if it isn't on the project's branch, then push the branch; {words} passes by itself once CI passes on it, and you will hear.",
                     short(&work.head)
                 ),
                 recheck: Some(work.head.clone()),
@@ -845,7 +845,8 @@ pub(super) enum Checking {
     Nothing,
     /// Its check command runs on each commit on the project's branch.
     Command,
-    /// Its CI runs on pushed commits; `pushed` says whether the slice's head is.
+    /// Its CI runs on the project's branch as pushed; `pushed` says whether
+    /// that holds the slice's head.
     Ci { pushed: bool },
 }
 

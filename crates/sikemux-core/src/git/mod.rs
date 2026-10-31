@@ -270,11 +270,22 @@ pub fn origin(repo: &std::path::Path) -> Option<String> {
         .filter(|url| !url.is_empty())
 }
 
-/// Whether a branch on a remote holds `sha`, as `repo` last heard.
-pub fn pushed(repo: &std::path::Path, sha: &str) -> bool {
+/// The remote branch `repo`'s branch pushes to, such as `refs/remotes/origin/main`.
+pub fn upstream(repo: &std::path::Path) -> Option<String> {
     Git::quick(repo)
-        .trimmed(&["branch", "--remotes", "--contains", sha])
-        .is_ok_and(|branches| !branches.is_empty())
+        .trimmed(&["rev-parse", "--symbolic-full-name", "@{upstream}"])
+        .ok()
+        .filter(|name| name.starts_with("refs/remotes/"))
+}
+
+/// Whether the remote branch `repo`'s branch pushes to holds `sha`, as `repo`
+/// last heard.
+pub fn pushed(repo: &std::path::Path, sha: &str) -> bool {
+    upstream(repo).is_some_and(|upstream| {
+        Git::quick(repo)
+            .output(&["merge-base", "--is-ancestor", sha, &upstream])
+            .is_ok_and(|output| output.status.success())
+    })
 }
 
 fn run_git(repo: &str, args: &[&str]) -> Result<(bool, String, String), String> {

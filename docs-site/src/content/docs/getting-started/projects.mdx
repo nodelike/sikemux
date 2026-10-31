@@ -84,7 +84,7 @@ Or name the CI workflows that count, when the project's CI is its check:
 { "version": 1, "check": { "ci": ["CI"] } }
 ```
 
-Sikemux then reads the code host's runs on the agent's commit instead of building it, so the commit has to be pushed: an agent whose commit isn't is told to push it, and the slice waits until it does. Every workflow named has to pass on that commit. A run that is cancelled, or that doesn't start within a few minutes of the push, counts as no verdict, so the agent marks the card done again to have it checked.
+Sikemux then reads the code host's runs on the project's branch as pushed, instead of building it, so the agent's commit has to be on that branch and pushed: an agent whose commit isn't is told to land and push it, and the slice waits until it is. Every workflow named has to pass on the pushed branch's newest commit, which holds the agent's. Other branches on the remote, such as work in progress, decide nothing. A run that is cancelled, or that doesn't start within a few minutes of the push, counts as no verdict, so the agent marks the card done again to have it checked.
 
 ## Quitting
 

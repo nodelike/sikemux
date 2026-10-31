@@ -294,14 +294,28 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
 /// What git says of the commits a CI check waits on.
 #[derive(Default)]
 struct Looked {
-    /// Each pushed branch tip that holds some of them, with those it holds.
-    tips: Vec<(String, Vec<String>)>,
+    /// The tip of the remote branch the project's branch pushes to, when it
+    /// holds some of them, with those it holds.
+    tip: Option<(String, Vec<String>)>,
     /// Those no branch holds.
     gone: Vec<String>,
 }
 
-/// Reads which branches hold each of `waiting`.
+/// Waiting commits a CI check ruled on: under `tip`, or with none when no
+/// branch holds them any more.
+struct Ruled {
+    held: Vec<String>,
+    tip: Option<String>,
+    outcome: Result<(bool, String), String>,
+}
+
+/// Reads which of `waiting` the project's pushed branch holds, and which no
+/// branch does. Other remote branches, such as work in progress, decide nothing.
 fn look(dir: &Path, waiting: &[String]) -> Looked {
+    let upstream = crate::git::upstream(dir);
+    let tip = upstream
+        .as_deref()
+        .and_then(|upstream| Git::quick(dir).trimmed(&["rev-parse", upstream]).ok());
     let mut looked = Looked::default();
     for sha in waiting {
         let refs = Git::quick(dir)
@@ -309,7 +323,7 @@ fn look(dir: &Path, waiting: &[String]) -> Looked {
                 "for-each-ref",
                 "--contains",
                 sha,
-                "--format=%(objectname) %(refname)",
+                "--format=%(refname)",
                 "refs/heads",
                 "refs/remotes",
             ])
@@ -318,24 +332,23 @@ fn look(dir: &Path, waiting: &[String]) -> Looked {
             looked.gone.push(sha.clone());
             continue;
         }
-        let pushed = refs
-            .lines()
-            .filter_map(|line| line.split_once(' '))
-            .filter(|(_, name)| name.starts_with("refs/remotes/") && !name.ends_with("/HEAD"));
-        for (tip, _) in pushed {
-            match looked.tips.iter_mut().find(|(known, _)| known == tip) {
-                Some((_, held)) if !held.contains(sha) => held.push(sha.clone()),
-                Some(_) => {}
-                None => looked.tips.push((tip.to_owned(), vec![sha.clone()])),
-            }
+        let (Some(upstream), Some(tip)) = (&upstream, &tip) else {
+            continue;
+        };
+        if refs.lines().any(|name| name == upstream) {
+            looked
+                .tip
+                .get_or_insert_with(|| (tip.clone(), Vec::new()))
+                .1
+                .push(sha.clone());
         }
     }
     looked
 }
 
 /// Waits for the code host's CI to rule on `commits` and those of the
-/// project's that come meanwhile. CI runs on pushed branch tips, so each tip's
-/// verdict goes to every waiting commit it holds: once every workflow named
+/// project's that come meanwhile. CI runs on the pushed tip of the project's
+/// branch, so that tip's verdict goes to every waiting commit it holds: once every workflow named
 /// has run there, all must have passed. A commit nobody pushes waits for it;
 /// one on no branch for a while, as after a rebase, ends with no verdict, as
 /// do those under a tip that no run starts on or whose runs were cancelled.
@@ -390,8 +403,7 @@ async fn wait_for_ci(
             .unwrap_or_default();
         let now = epoch_ms();
         gone_since.retain(|sha, _| looked.gone.contains(sha));
-        let mut ruled: Vec<(Vec<String>, Option<String>, Result<(bool, String), String>)> =
-            Vec::new();
+        let mut ruled: Vec<Ruled> = Vec::new();
         for sha in &looked.gone {
             let since = *gone_since.entry(sha.clone()).or_insert(now);
             if now.saturating_sub(since) >= GONE_AFTER_MS {
@@ -399,13 +411,17 @@ async fn wait_for_ci(
                     "{} is on no branch any more, so CI will never check it",
                     sha.get(..7).unwrap_or(sha)
                 );
-                ruled.push((vec![sha.clone()], None, Err(why)));
+                ruled.push(Ruled {
+                    held: vec![sha.clone()],
+                    tip: None,
+                    outcome: Err(why),
+                });
             }
         }
-        let listed = |tip: &String| looked.tips.iter().any(|(known, _)| known == tip);
+        let listed = |tip: &String| looked.tip.as_ref().is_some_and(|(known, _)| known == tip);
         tips_since.retain(|tip, _| listed(tip));
         started.retain(|tip| listed(tip));
-        if !looked.tips.is_empty() && repo.is_none() {
+        if looked.tip.is_some() && repo.is_none() {
             match codehost::of_project(&core, &project).await {
                 Ok(found) => {
                     if let Some(wait) = core.collisions.state.locked().checks.ci.get_mut(&project) {
@@ -416,23 +432,28 @@ async fn wait_for_ci(
                 }
                 Err(error) => {
                     let why = format!("its CI can't be read: {}", String::from(error));
-                    for (tip, held) in &looked.tips {
-                        ruled.push((held.clone(), Some(tip.clone()), Err(why.clone())));
+                    if let Some((tip, held)) = &looked.tip {
+                        ruled.push(Ruled {
+                            held: held.clone(),
+                            tip: Some(tip.clone()),
+                            outcome: Err(why),
+                        });
                     }
                 }
             }
         }
         let mut credited: HashSet<String> =
-            ruled.iter().flat_map(|(held, ..)| held.clone()).collect();
-        for (tip, held) in looked.tips.iter().filter(|_| repo.is_some()) {
+            ruled.iter().flat_map(|ruled| ruled.held.clone()).collect();
+        let unruled = looked.tip.as_ref().and_then(|(tip, held)| {
             let held: Vec<String> = held
                 .iter()
                 .filter(|sha| !credited.contains(*sha))
                 .cloned()
                 .collect();
-            let Some(repo) = repo.as_ref().filter(|_| !held.is_empty()) else {
-                continue;
-            };
+            let repo = repo.as_ref().filter(|_| !held.is_empty())?;
+            Some((tip, held, repo))
+        });
+        if let Some((tip, held, repo)) = unruled {
             let since = *tips_since.entry(tip.clone()).or_insert(now);
             let overdue = now.saturating_sub(since) >= CI_START_WAIT_MS;
             let outcome = match codehost::commit_checks(repo, None, tip, &workflows).await {
@@ -463,10 +484,14 @@ async fn wait_for_ci(
             };
             if let Some(outcome) = outcome {
                 credited.extend(held.iter().cloned());
-                ruled.push((held, Some(tip.clone()), outcome));
+                ruled.push(Ruled {
+                    held,
+                    tip: Some(tip.clone()),
+                    outcome,
+                });
             }
         }
-        for (held, tip, outcome) in ruled {
+        for Ruled { held, tip, outcome } in ruled {
             if tip.is_none() {
                 let mut state = core.collisions.state.locked();
                 for commit in commits.iter().filter(|commit| held.contains(&commit.sha)) {
