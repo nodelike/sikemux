@@ -404,50 +404,55 @@ impl Slice {
         }
     }
 
-    /// The workflows its assertions need a verdict of on its latest commit,
-    /// which none has given yet: each assertion's id and workflow.
+    /// The workflows whose run has not passed on its latest commit, so a
+    /// first run or a re-run is still awaited: each assertion's id and workflow.
     pub(super) fn awaiting_workflows(&self) -> Vec<(u64, String)> {
         (self.asserts.iter())
+            .filter(|named| !self.asserted(named))
             .filter_map(|named| match &named.evidence {
-                Collect::Workflow { name } => Some((named, name)),
+                Collect::Workflow { name } => Some((named.id, name.clone())),
                 _ => None,
             })
-            .filter(|(named, _)| {
-                self.latest_for(named)
-                    .is_none_or(|evidence| evidence.commit.as_deref() != self.head())
-            })
-            .map(|(named, name)| (named.id, name.clone()))
             .collect()
     }
 
-    /// Workflow `name` ruled on its latest commit, held by the pushed `tip`:
-    /// the run is the evidence of each of its assertions that workflow shows,
-    /// with no verdict when it gave none.
+    /// Workflow `name` ruled on `head`, held by the pushed `tip`: the run is
+    /// the evidence of each of its assertions that workflow shows, with no
+    /// verdict when it gave none. Kept only while `head` is still its latest
+    /// commit, and once for the same ruling.
     pub(super) fn workflow_ran(
         &mut self,
+        head: &str,
         name: &str,
         tip: &str,
         verdict: Option<Verdict>,
         output: String,
     ) {
-        let Some(gate) = self.waiting() else {
+        let Some(gate) = self.waiting().filter(|_| self.head() == Some(head)) else {
             return;
         };
-        let assertions = self.asserting(Collect::Workflow {
+        let proof = Proof::Run {
+            command: name.to_owned(),
+            sha: Some(tip.to_owned()),
+            output,
+        };
+        let shows = Collect::Workflow {
             name: name.to_owned(),
-        });
-        self.add_evidence(
-            gate,
-            epoch_ms(),
-            None,
-            verdict,
-            Proof::Run {
-                command: name.to_owned(),
-                sha: Some(tip.to_owned()),
-                output,
-            },
-            &assertions,
-        );
+        };
+        let ruled_already = (self.asserts.iter())
+            .filter(|named| named.evidence == shows)
+            .all(|named| {
+                self.latest_for(named).is_some_and(|evidence| {
+                    evidence.commit.as_deref() == Some(head)
+                        && evidence.verdict == verdict
+                        && evidence.proof == proof
+                })
+            });
+        if ruled_already {
+            return;
+        }
+        let assertions = self.asserting(shows);
+        self.add_evidence(gate, epoch_ms(), None, verdict, proof, &assertions);
     }
 
     /// The assertions still without what they need on its latest commit.
@@ -1166,19 +1171,29 @@ pub(super) struct Later {
     /// Commits the project's check is to run on again: project, commit and
     /// the agent whose it is.
     rechecks: Vec<(String, String, String)>,
+    /// Projects whose workflows are to be read again.
+    looks: Vec<String>,
 }
 
 impl Later {
     pub(super) fn recheck(project: &str, sha: String, agent: &str) -> Self {
         Self {
-            diffs: Vec::new(),
             rechecks: vec![(project.to_owned(), sha, agent.to_owned())],
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn look_again(project: &str) -> Self {
+        Self {
+            looks: vec![project.to_owned()],
+            ..Self::default()
         }
     }
 
     pub(super) fn and(mut self, other: Later) -> Self {
         self.diffs.extend(other.diffs);
         self.rechecks.extend(other.rechecks);
+        self.looks.extend(other.looks);
         self
     }
 
@@ -1191,6 +1206,9 @@ impl Later {
         }
         for diff in self.diffs {
             collect_diff(core, diff);
+        }
+        for project in self.looks {
+            super::workflows::look_again(core, &project);
         }
     }
 }

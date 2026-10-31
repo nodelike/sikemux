@@ -1674,11 +1674,12 @@ fn change_in(
     let mut pending = None;
     let mut later = slice::Later::default();
     if let (Some(Status::Done), By::Agent(agent), Some(slice)) = (status, by, card.slice.as_mut()) {
+        later = slice::Later::look_again(project);
         match slice.say_done(&label, seen.checking, confirmed) {
             Ok(slice::Said::Pending { note, recheck }) => {
                 pending = Some(note);
                 if let Some(sha) = recheck {
-                    later = slice::Later::recheck(project, sha, agent);
+                    later = later.and(slice::Later::recheck(project, sha, agent));
                 }
             }
             Ok(slice::Said::Ready) => {}

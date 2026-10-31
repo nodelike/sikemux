@@ -27,16 +27,32 @@ struct Watch {
     repo: Option<Shown>,
     /// A look is under way.
     looking: bool,
-    /// What waited at the last look; a look is due when it changes.
+    /// What waited at the last look; a look is due when something new waits.
     looked: BTreeSet<(u64, String)>,
+    /// When to look again though nothing moved.
+    next: Option<u64>,
     /// When each pushed tip was first seen holding a waiting head, so a
     /// workflow that never starts there ends with no verdict.
     tips: HashMap<String, u64>,
 }
 
+/// How long a look waits for runs to move before looking again by itself.
+/// The CI watch wakes it sooner when they do.
+const LOOK_AGAIN_MS: u64 = 5 * 60_000;
+
 /// A slice that waits on workflows: its card, its latest commit, and each
 /// assertion's id and workflow.
 type Waiting = (u64, String, Vec<(u64, String)>);
+
+/// What a workflow said on the tip holding a slice's latest commit.
+struct Ruled {
+    card: u64,
+    head: String,
+    name: String,
+    tip: String,
+    verdict: Option<Verdict>,
+    output: String,
+}
 
 fn waiting(state: &State) -> HashMap<String, Vec<Waiting>> {
     let mut found: HashMap<String, Vec<Waiting>> = HashMap::new();
@@ -64,9 +80,8 @@ fn waiting(state: &State) -> HashMap<String, Vec<Waiting>> {
     found
 }
 
-/// Starts a look at each project whose waiting slices changed, whose runs
-/// moved, or whose tip waited long enough for a workflow to start. Answers
-/// when a tip next runs out of time.
+/// Starts a look at each project where a slice newly waits, whose runs
+/// moved, or whose time to look again came. Answers when one next comes.
 pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     let now = epoch_ms();
     let mut next = None;
@@ -78,22 +93,18 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
         watches.retain(|project, watch| watch.looking || waiting.contains_key(project));
         for (project, slices) in waiting {
             let watch = watches.entry(project.clone()).or_default();
-            let deadline = watch
-                .tips
-                .values()
-                .map(|since| since + CI_START_WAIT_MS)
-                .min();
-            let overdue = deadline.is_some_and(|deadline| deadline <= now);
-            next = crate::server::wake::sooner(next, deadline.filter(|_| !overdue));
             let looked: BTreeSet<(u64, String)> = slices
                 .iter()
                 .map(|(card, head, _)| (*card, head.clone()))
                 .collect();
-            if watch.looking || (watch.looked == looked && !overdue) {
+            let fresh = !looked.is_subset(&watch.looked);
+            if watch.looking || !(fresh || watch.next.is_some_and(|at| at <= now)) {
+                next = crate::server::wake::sooner(next, watch.next);
                 continue;
             }
             watch.looking = true;
             watch.looked = looked;
+            watch.next = None;
             looks.push((project, slices));
         }
     }
@@ -104,31 +115,36 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
 }
 
 /// Reads each waiting workflow's verdict on the pushed tip that holds the
-/// slices' heads, and keeps those it gave.
+/// slices' heads, keeps those it gave, and sets when to look again.
 async fn look(core: Arc<Core>, project: String, slices: Vec<Waiting>) {
-    let ruled = read(&core, &project, &slices).await;
-    for (card, name, tip, verdict, output) in ruled {
-        moved_by_evidence(&core, &project, card, |slice| {
-            slice.workflow_ran(&name, &tip, verdict, output)
+    let (ruled, again) = read(&core, &project, &slices).await;
+    for ruled in ruled {
+        moved_by_evidence(&core, &project, ruled.card, |slice| {
+            slice.workflow_ran(
+                &ruled.head,
+                &ruled.name,
+                &ruled.tip,
+                ruled.verdict,
+                ruled.output,
+            )
         });
     }
     let mut state = core.boards.state.locked();
     if let Some(watch) = state.workflows.0.get_mut(&project) {
         watch.looking = false;
+        watch.next = Some(again);
     }
     drop(state);
-    core.boards.wake.now();
+    core.boards.wake.at(again);
 }
 
-/// What each workflow said that the slices wait on: card, workflow, tip, the
-/// verdict, and what it said.
-async fn read(
-    core: &Arc<Core>,
-    project: &str,
-    slices: &[Waiting],
-) -> Vec<(u64, String, String, Option<Verdict>, String)> {
+/// What each workflow said that the slices wait on, and when to look again:
+/// by itself after a while, or sooner once a tip has waited long enough for
+/// a workflow to start.
+async fn read(core: &Arc<Core>, project: &str, slices: &[Waiting]) -> (Vec<Ruled>, u64) {
+    let again = epoch_ms() + LOOK_AGAIN_MS;
     let Ok(repo) = codehost::of_project(core, project).await else {
-        return Vec::new();
+        return (Vec::new(), again);
     };
     if let Some(watch) = core.boards.state.locked().workflows.0.get_mut(project) {
         watch.repo = Some(repo.watched());
@@ -146,21 +162,24 @@ async fn read(
     })
     .await
     .unwrap_or_default();
-    let Some((tip, held)) = looked.tip else {
-        return Vec::new();
-    };
+    let tip = looked.tip.as_ref().map(|(tip, _)| tip.clone());
     let since = {
         let mut state = core.boards.state.locked();
         let watch = state.workflows.0.entry(project.to_owned()).or_default();
-        watch.tips.retain(|known, _| *known == tip);
-        *watch.tips.entry(tip.clone()).or_insert_with(epoch_ms)
+        watch.tips.retain(|known, _| tip.as_ref() == Some(known));
+        tip.map(|tip| *watch.tips.entry(tip).or_insert_with(epoch_ms))
     };
-    let overdue = epoch_ms().saturating_sub(since) >= CI_START_WAIT_MS;
+    let (Some((tip, held)), Some(since)) = (looked.tip, since) else {
+        return (Vec::new(), again);
+    };
+    let starts_by = since + CI_START_WAIT_MS;
+    let overdue = epoch_ms() >= starts_by;
     let names: BTreeSet<&String> = (slices.iter())
         .filter(|(_, head, _)| held.contains(head))
         .flat_map(|(_, _, awaiting)| awaiting.iter().map(|(_, name)| name))
         .collect();
     let mut ruled = Vec::new();
+    let mut again = again;
     for name in names {
         let said = match codehost::commit_checks(&repo, None, &tip, std::slice::from_ref(name))
             .await
@@ -171,18 +190,40 @@ async fn read(
             Ok(Checks::None) if overdue => {
                 Some((None, format!("no run of {name} started on {tip}")))
             }
-            Ok(Checks::None | Checks::Running { .. }) | Err(_) => None,
+            Ok(Checks::None) => {
+                again = again.min(starts_by);
+                None
+            }
+            Ok(Checks::Running { .. }) | Err(_) => None,
         };
         let Some((verdict, output)) = said else {
             continue;
         };
         for (card, head, awaiting) in slices {
             if held.contains(head) && awaiting.iter().any(|(_, wanted)| wanted == name) {
-                ruled.push((*card, name.clone(), tip.clone(), verdict, output.clone()));
+                ruled.push(Ruled {
+                    card: *card,
+                    head: head.clone(),
+                    name: name.clone(),
+                    tip: tip.clone(),
+                    verdict,
+                    output: output.clone(),
+                });
             }
         }
     }
-    ruled
+    (ruled, again)
+}
+
+/// Someone asks after the project's slices, so their workflows are read again.
+pub(super) fn look_again(core: &Core, project: &str) {
+    let mut state = core.boards.state.locked();
+    let Some(watch) = state.workflows.0.get_mut(project) else {
+        return;
+    };
+    watch.looked.clear();
+    drop(state);
+    core.boards.wake.now();
 }
 
 /// The repositories of projects whose slices wait on a workflow, for the CI watch.
