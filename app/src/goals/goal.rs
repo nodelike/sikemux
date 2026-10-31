@@ -213,7 +213,7 @@ fn next(pane: &GoalsPane, goal: &CardView, cx: &Context<GoalsPane>) -> Option<An
 }
 
 /// A gate a slice waits at, as a short sentence: who does what to which slice.
-fn step(pane: &GoalsPane, next: &NextGate) -> Option<String> {
+pub(super) fn step(pane: &GoalsPane, next: &NextGate) -> Option<String> {
     let card = pane.card(next.card)?;
     let you = next.passer == Passer::Person;
     let verb = match (next.gate, you) {

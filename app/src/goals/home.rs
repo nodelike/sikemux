@@ -194,7 +194,8 @@ fn needs_row(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) ->
         .into_any_element()
 }
 
-/// A goal on one line: its title, how many slices are done, and its strip.
+/// A goal on one line: its title, how many slices are done, what comes next and what that
+/// waits on, and its strip.
 fn goal_row(pane: &GoalsPane, goal: &CardView, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = goal.id;
@@ -210,6 +211,11 @@ fn goal_row(pane: &GoalsPane, goal: &CardView, cx: &mut Context<GoalsPane>) -> A
                 .text_color(t.text_primary),
         )
         .child(ui::meta(format!("{done} of {} done", slices.len()), cx))
+        .children(
+            (goal.next.first())
+                .and_then(|next| super::goal::step(pane, next))
+                .map(|next| ui::meta(next, cx).flex_shrink_1().min_w_0().truncate()),
+        )
         .child(div().flex_1())
         .child(strip(&slices, px(120.), cx))
         .into_any_element()
