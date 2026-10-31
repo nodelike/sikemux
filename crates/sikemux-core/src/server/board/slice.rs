@@ -560,15 +560,17 @@ impl Slice {
                 seconds: Some(recording.seconds),
                 feed: recording.feed.clone(),
                 turn: recording.turn,
+                width: None,
             },
             &assertions,
         );
         true
     }
 
-    /// Keeps the screenshot at `path` for the assertions a screenshot shows,
-    /// in place of the one they had, unless a note is pinned to it.
-    fn screenshot(&mut self, agent: &str, path: &str) {
+    /// Keeps the screenshots at `shots`, the agent's and those the core took
+    /// beside it at set widths, for the assertions a screenshot shows, in place
+    /// of those they had, unless a note is pinned to one.
+    fn screenshots(&mut self, agent: &str, shots: &[(String, Option<u32>)]) {
         let Some(gate) = self.waiting() else {
             return;
         };
@@ -579,19 +581,22 @@ impl Slice {
                 && evidence.assertions.iter().any(|id| assertions.contains(id));
             !replaced || notes.iter().any(|note| note.evidence == Some(evidence.id))
         });
-        self.add_evidence(
-            gate,
-            epoch_ms(),
-            Some(agent.to_owned()),
-            None,
-            Proof::Picture {
-                path: path.to_owned(),
-                seconds: None,
-                feed: None,
-                turn: None,
-            },
-            &assertions,
-        );
+        for (path, width) in shots {
+            self.add_evidence(
+                gate,
+                epoch_ms(),
+                Some(agent.to_owned()),
+                None,
+                Proof::Picture {
+                    path: path.clone(),
+                    seconds: None,
+                    feed: None,
+                    turn: None,
+                    width: *width,
+                },
+                &assertions,
+            );
+        }
     }
 
     /// The owner's work now ends at `head`, made on `from`, and takes the
@@ -948,6 +953,7 @@ impl Slice {
                     seconds: Some(seconds),
                     feed,
                     turn,
+                    ..
                 } => Some(InboxRecording {
                     path: path.clone(),
                     seconds: *seconds,
@@ -2075,51 +2081,84 @@ pub(super) fn picture(card: &mut Card, agent: &str, recording: &InboxRecording) 
     Some(card.slice.as_mut()?.picture(Some(agent), recording))
 }
 
-/// The agent took a screenshot: when the card it works is a slice with
-/// assertions a screenshot shows, the core keeps it as their evidence, each
-/// in a file of its own, and moves the slice on. The board's writer removes
-/// a file once no evidence names it.
-pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, answer: &Value) {
+/// The viewport presets, a phone's and a tablet's, a screenshot of a slice's page is also
+/// taken at, so its evidence shows the page at those widths too.
+pub(crate) const SCREENSHOT_WIDTHS: [&str; 2] = ["mobile", "tablet"];
+
+/// Whether a screenshot `agent` takes now is kept as evidence: the card it works is a
+/// slice with assertions a screenshot shows.
+pub(crate) fn wants_screenshot(core: &Core, agent: &str) -> bool {
+    let state = core.boards.state.locked();
+    state.boards.values().any(|board| {
+        working_slice(board, agent)
+            .and_then(|id| board.card(id).ok()?.slice.as_ref())
+            .is_some_and(|slice| !slice.asserting(Collect::Screenshot).is_empty())
+    })
+}
+
+/// The agent took a screenshot, and the core took the same page beside it at each
+/// width it is held at: when the card the agent works is a slice with assertions a
+/// screenshot shows, the core keeps them all as their evidence, each in a file of its
+/// own, and moves the slice on. `shots` are the browser's answers, the agent's first.
+/// The board's writer removes a file once no evidence names it.
+pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, shots: &[Value]) {
     use base64::Engine;
-    let Some(bytes) = (answer.get("data").and_then(Value::as_str))
-        .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
-    else {
+    let decoded: Vec<(Vec<u8>, Option<u32>)> = shots
+        .iter()
+        .filter_map(|shot| {
+            let bytes = (shot.get("data").and_then(Value::as_str))
+                .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())?;
+            let width = shot
+                .pointer("/viewport/width")
+                .and_then(Value::as_u64)
+                .and_then(|width| u32::try_from(width).ok());
+            Some((bytes, width))
+        })
+        .collect();
+    if decoded.is_empty() {
         return;
-    };
+    }
     let target = {
         let mut state = core.boards.state.locked();
         let found = state.boards.iter().find_map(|(project, board)| {
             let id = working_slice(board, agent)?;
             let slice = board.card(id).ok()?.slice.as_ref()?;
-            let path = core.boards.evidence_file(project, id)?;
-            (!slice.asserting(Collect::Screenshot).is_empty()).then(|| (project.clone(), id, path))
+            let paths = (decoded.iter())
+                .map(|(_, width)| core.boards.evidence_file(project, id, *width))
+                .collect::<Option<Vec<_>>>()?;
+            (!slice.asserting(Collect::Screenshot).is_empty()).then(|| (project.clone(), id, paths))
         });
-        if let Some((project, _, path)) = &found {
+        if let Some((project, _, paths)) = &found {
             if let Some(board) = state.boards.get_mut(project) {
-                board.writing.push(path.clone());
+                board.writing.extend(paths.iter().cloned());
             }
         }
         found
     };
-    let Some((project, id, path)) = target else {
+    let Some((project, id, paths)) = target else {
         return;
     };
-    let written = (path.parent())
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .map_err(|error| error.to_string())
-        .and_then(|()| {
-            sikemux_process::files::write_atomic(&path, &bytes, true)
-                .map_err(|error| error.to_string())
-        });
-    match written {
-        Ok(_) => {
-            let named = path.to_string_lossy().into_owned();
-            moved_by_evidence(core, &project, id, |slice| slice.screenshot(agent, &named));
+    let mut kept = Vec::new();
+    for ((bytes, width), path) in decoded.iter().zip(&paths) {
+        let written = (path.parent())
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .map_err(|error| error.to_string())
+            .and_then(|()| {
+                sikemux_process::files::write_atomic(path, bytes, true)
+                    .map_err(|error| error.to_string())
+            });
+        match written {
+            Ok(_) => kept.push((path.to_string_lossy().into_owned(), *width)),
+            Err(error) => {
+                eprintln!("sikemux core: a screenshot was not kept as evidence: {error}");
+            }
         }
-        Err(error) => eprintln!("sikemux core: the screenshot was not kept as evidence: {error}"),
+    }
+    if !kept.is_empty() {
+        moved_by_evidence(core, &project, id, |slice| slice.screenshots(agent, &kept));
     }
     if let Some(board) = core.boards.state.locked().boards.get_mut(&project) {
-        board.writing.retain(|writing| *writing != path);
+        board.writing.retain(|writing| !paths.contains(writing));
     }
 }
 

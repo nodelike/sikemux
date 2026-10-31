@@ -489,6 +489,42 @@ pub(crate) async fn answer_of(
     }
 }
 
+/// The agent's screenshot, and when its slice keeps screenshots as evidence, the same
+/// page taken beside it at each of [`board::SCREENSHOT_WIDTHS`], before the agent's call
+/// returns so nothing the agent does next meets its tab at another width. The browser
+/// puts the tab back as it was after each.
+async fn slice_screenshots(
+    core: &Core,
+    request: &HarnessRequest,
+    agent_id: &str,
+    answer: &Value,
+) -> Vec<Value> {
+    let mut shots = vec![answer.clone()];
+    if !board::wants_screenshot(core, agent_id) {
+        return shots;
+    }
+    for preset in board::SCREENSHOT_WIDTHS {
+        let mut params = json!({ "viewport": preset });
+        if request.params.get("fullPage") == Some(&Value::Bool(true)) {
+            params["fullPage"] = Value::Bool(true);
+        }
+        let asked = HarnessRequest {
+            id: format!("{}-{preset}", request.id),
+            project: request.project.clone(),
+            agent_id: Some(agent_id.to_owned()),
+            method: request.method.clone(),
+            params,
+        };
+        match forward(core, asked).await {
+            Ok(shot) => shots.push(shot),
+            Err(error) => {
+                eprintln!("sikemux core: the page was not taken at the {preset} width: {error}")
+            }
+        }
+    }
+    shots
+}
+
 async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> {
     let in_window = ["browser.", "sim."]
         .iter()
@@ -624,12 +660,12 @@ async fn dispatch(
         COMMIT_FOOTER_METHOD => super::edits::footer::call(core, &request, grant).await,
         GIT_GUARD_METHOD => super::edits::guard::call(core, &request).await,
         "browser.screenshot" => {
-            let agent_id = request.agent_id.clone();
-            let answer = forward(core, request).await?;
-            if let Some(agent_id) = agent_id {
-                let (core, kept) = (core.clone(), answer.clone());
+            let answer = forward(core, request.clone()).await?;
+            if let Some(agent_id) = request.agent_id.clone() {
+                let shots = slice_screenshots(core, &request, &agent_id, &answer).await;
+                let core = core.clone();
                 tokio::task::spawn_blocking(move || {
-                    board::screenshot_taken(&core, &agent_id, &kept);
+                    board::screenshot_taken(&core, &agent_id, &shots);
                 });
             }
             Ok(answer)

@@ -49,7 +49,10 @@ pub use auto::{
 };
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 pub use goal::AssertParams;
-pub(crate) use slice::{follow, gate_key, gate_words, person_note, person_pass, screenshot_taken};
+pub(crate) use slice::{
+    follow, gate_key, gate_words, person_note, person_pass, screenshot_taken, wants_screenshot,
+    SCREENSHOT_WIDTHS,
+};
 pub use slice::{NoteParams, PassParams};
 
 const FOLDER: &str = "boards";
@@ -669,10 +672,17 @@ impl Boards {
             .hand(folder.join(kept::file_for(project)), board.saved(), prune);
     }
 
-    /// A new file for a screenshot kept as evidence on card `id` of `project`.
-    pub(super) fn evidence_file(&self, project: &str, id: u64) -> Option<PathBuf> {
+    /// A new file for a screenshot kept as evidence on card `id` of `project`,
+    /// taken at `width` when the core took it at a set width.
+    pub(super) fn evidence_file(
+        &self,
+        project: &str,
+        id: u64,
+        width: Option<u32>,
+    ) -> Option<PathBuf> {
         let data = self.folder.as_deref()?.parent()?;
-        let name = format!("{}{id}-{}.jpg", evidence_prefix(project), epoch_ms());
+        let at = width.map_or_else(String::new, |width| format!("-w{width}"));
+        let name = format!("{}{id}-{}{at}.jpg", evidence_prefix(project), epoch_ms());
         Some(data.join(EVIDENCE).join(name))
     }
 

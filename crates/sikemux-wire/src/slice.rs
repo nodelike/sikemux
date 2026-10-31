@@ -116,6 +116,10 @@ pub enum Proof {
         /// The chat run and turn it was made in.
         feed: Option<String>,
         turn: Option<u64>,
+        /// The width the page was laid out at, in CSS pixels, for a screenshot
+        /// the core took beside the agent's at a phone's or a tablet's width.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<u32>,
     },
     /// The change from `base` to `head`, which are the ends of a run of the
     /// slice's own commits with nobody else's between them.

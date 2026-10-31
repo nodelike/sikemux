@@ -570,59 +570,85 @@ async fn run(
             .await
         }
         "browser.screenshot" => {
-            let (tab_id, view) = active(manager, agent_id)?;
-            let annotate = params.get("annotate").and_then(Value::as_bool) == Some(true);
-            let full_page = params.get("fullPage").and_then(Value::as_bool) == Some(true);
-            let named = element_target(params, "index");
-            let area = if named == Value::Null {
-                None
-            } else {
-                if full_page {
-                    return Err("pass fullPage or an element, not both".into());
+            let held = text("viewport")
+                .map(|name| {
+                    Viewport::preset(&name)
+                        .ok_or_else(|| "viewport must be desktop, tablet or mobile".to_owned())
+                })
+                .transpose()?;
+            let restore = match held {
+                Some(fixed) => {
+                    let (tab_id, _) = active(manager, agent_id)?;
+                    let before = manager.viewport(agent_id, &tab_id);
+                    hold_viewport(manager, agent_id, &tab_id, Some(fixed)).await?;
+                    Some((tab_id, before))
                 }
-                Some(call(&view, "areaOf", &[named]).await?)
+                None => None,
             };
-            let marked = if annotate {
-                let page = state(manager, agent_id).await?;
-                let shown = call(&view, "showMarks", &[json!(true)]).await?;
-                Some(marked_elements(&page, &shown))
-            } else {
-                let _ = call(&view, "pointerVisible", &[json!(false)]).await;
-                None
-            };
-            let height = if full_page {
-                call(&view, "pageHeight", &[])
-                    .await?
-                    .as_f64()
-                    .map(Some)
-                    .ok_or("the page did not report its height")?
-            } else {
-                None
-            };
-            let image = screenshot(&view, height, area.as_ref().map(area_rect)).await;
-            let _ = if annotate {
-                call(&view, "showMarks", &[json!(false)]).await
-            } else {
-                call(&view, "pointerVisible", &[json!(true)]).await
-            };
-            let page = manager.page(agent_id, &tab_id).unwrap_or_default();
-            let mut result = json!({
-                "tabId": tab_id,
-                "url": page.url,
-                "title": page.title,
-                "mimeType": "image/jpeg",
-                "data": base64_encode(&image?),
-            });
-            if let Some(elements) = marked {
-                result["elements"] = elements;
+            let shot: Result<Value, String> = async {
+                let (tab_id, view) = active(manager, agent_id)?;
+                let annotate = params.get("annotate").and_then(Value::as_bool) == Some(true);
+                let full_page = params.get("fullPage").and_then(Value::as_bool) == Some(true);
+                let named = element_target(params, "index");
+                let area = if named == Value::Null {
+                    None
+                } else {
+                    if full_page {
+                        return Err("pass fullPage or an element, not both".into());
+                    }
+                    Some(call(&view, "areaOf", &[named]).await?)
+                };
+                let marked = if annotate {
+                    let page = state(manager, agent_id).await?;
+                    let shown = call(&view, "showMarks", &[json!(true)]).await?;
+                    Some(marked_elements(&page, &shown))
+                } else {
+                    let _ = call(&view, "pointerVisible", &[json!(false)]).await;
+                    None
+                };
+                let height = if full_page {
+                    call(&view, "pageHeight", &[])
+                        .await?
+                        .as_f64()
+                        .map(Some)
+                        .ok_or("the page did not report its height")?
+                } else {
+                    None
+                };
+                let image = screenshot(&view, height, area.as_ref().map(area_rect)).await;
+                let _ = if annotate {
+                    call(&view, "showMarks", &[json!(false)]).await
+                } else {
+                    call(&view, "pointerVisible", &[json!(true)]).await
+                };
+                let page = manager.page(agent_id, &tab_id).unwrap_or_default();
+                let mut result = json!({
+                    "tabId": tab_id,
+                    "url": page.url,
+                    "title": page.title,
+                    "mimeType": "image/jpeg",
+                    "data": base64_encode(&image?),
+                });
+                if let Some(elements) = marked {
+                    result["elements"] = elements;
+                }
+                if let Some(area) = area {
+                    result["element"] = json!({ "index": area["index"], "label": area["label"] });
+                }
+                if height.is_some_and(|height| height > MAX_PAGE_HEIGHT) {
+                    result["cutAt"] = json!(MAX_PAGE_HEIGHT);
+                }
+                Ok(result)
             }
-            if let Some(area) = area {
-                result["element"] = json!({ "index": area["index"], "label": area["label"] });
+            .await;
+            if let Some((tab_id, before)) = restore {
+                hold_viewport(manager, agent_id, &tab_id, before).await?;
             }
-            if height.is_some_and(|height| height > MAX_PAGE_HEIGHT) {
-                result["cutAt"] = json!(MAX_PAGE_HEIGHT);
+            let mut shot = shot?;
+            if let Some(fixed) = held {
+                shot["viewport"] = json!(fixed);
             }
-            Ok(result)
+            Ok(shot)
         }
         "browser.record" => match text("action").as_deref() {
             Some("start") => native::start_recording(manager, agent_id, text("path")).await,
@@ -714,13 +740,7 @@ async fn run(
                 (None, _, _) => return Err("pass both width and height".into()),
             };
             if let Some(fixed) = fixed {
-                manager
-                    .set_viewport(agent_id, &tab_id, fixed)
-                    .map_err(|error| error.to_string())?;
-                let _ = manager
-                    .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
-                    .await;
-                manager.settle_viewport(agent_id, &tab_id).await?;
+                hold_viewport(manager, agent_id, &tab_id, fixed).await?;
             }
             let (_, view) = active(manager, agent_id)?;
             let mut size = call(&view, "viewportSize", &[]).await?;
@@ -788,6 +808,23 @@ async fn run(
 
 /// Runs an agent's script in `view`, an expression or statements ending in
 /// return, and answers with what it returned as JSON.
+/// Holds the tab at `fixed`, or lets it fit its pane, once its page has laid out again.
+async fn hold_viewport(
+    manager: &BrowserManager,
+    agent_id: &str,
+    tab_id: &str,
+    fixed: Option<Viewport>,
+) -> Result<(), String> {
+    manager
+        .set_viewport(agent_id, tab_id, fixed)
+        .map_err(|error| error.to_string())?;
+    let _ = manager
+        .wait_until_loaded(agent_id, tab_id, LOAD_TIMEOUT)
+        .await;
+    manager.settle_viewport(agent_id, tab_id).await?;
+    Ok(())
+}
+
 async fn run_agent_script(view: &Tab, script: &str, limit: Duration) -> Result<Value, String> {
     let body = match run_helper(view, &shape_check(script)).await?.as_str() {
         "expression" => script_body(&format!("return ({script}\n);")),

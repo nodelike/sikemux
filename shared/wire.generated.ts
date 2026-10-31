@@ -2297,6 +2297,11 @@ export type Proof =
           /** The chat run and turn it was made in. */
           feed: string | null;
           turn: number | null;
+          /**
+           * The width the page was laid out at, in CSS pixels, for a screenshot
+           * the core took beside the agent's at a phone's or a tablet's width.
+           */
+          width?: number;
       }
     /**
      * The change from `base` to `head`, which are the ends of a run of the
