@@ -609,7 +609,7 @@ async fn dispatch(
         "board.list" => board::list(core, &request).await,
         "board.claim" => board::claim(core, &request).await,
         "board.update" => board::update(core, &request).await,
-        "board.decide" => board::decisions::tool(core, &request).await,
+        "board.decide" => board::goal::tool(core, &request).await,
         "review.verdict" => board::verdict(core, &request).await,
         "memory.add" => super::memory::tool_add(core, &request).await,
         "memory.update" => super::memory::tool_update(core, &request).await,

@@ -17,8 +17,8 @@ use sikemux_wire::memory::{
 };
 
 use super::access::Peer;
-use super::board::decisions::learned;
-use super::board::{self, project_at, GoalRef};
+use super::board::goal::{self, learned};
+use super::board::{self, project_at};
 use super::changed::Topic;
 use super::connection::blocking;
 use super::kept::{self, Kept};
@@ -245,8 +245,8 @@ fn folder_for(project: &str, folder: Option<&str>) -> Result<String, String> {
 pub enum NewMemory {
     Rule {
         text: String,
-        /// The project's goal card it is kept for, when only that goal's
-        /// agents follow it.
+        /// The goal card it is kept on instead, for a rule only that goal's
+        /// agents follow.
         goal: Option<u64>,
         sensitive: bool,
         /// A folder above the project, to keep it for every project under it.
@@ -303,16 +303,10 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
         .get_mut(&folder)
         .ok_or("the folder went while it was being written to")?;
     match new {
-        NewMemory::Rule {
-            goal, sensitive, ..
-        } => {
-            if goal.is_some() && folder != project {
-                return Err("A goal's rule is kept for its project, not a folder above it".into());
-            }
+        NewMemory::Rule { sensitive, .. } => {
             held.rules.push(Rule {
                 id,
                 text,
-                goal,
                 sensitive,
                 learned,
                 was: None,
@@ -361,6 +355,58 @@ pub struct MemoryUpdateParams {
     /// The core stops testing knowledge.
     #[serde(default)]
     pub drop_check: bool,
+    /// The goal card whose own rule `id` is.
+    pub goal: Option<u64>,
+}
+
+/// Keeps a rule or knowledge, or a goal's rule on its card; answers what
+/// happened, in words.
+fn keep(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<String, String> {
+    match new {
+        NewMemory::Rule {
+            text,
+            goal: Some(card),
+            sensitive,
+            folder,
+        } => {
+            if sensitive || folder.is_some() {
+                return Err("A goal's rule shows on its card and belongs to its project; keep sensitive or shared rules without goal".into());
+            }
+            let rule = goal::Change::of(goal::List::Rules, None, Some(&text), None, false)?;
+            goal::change(core, project, card, goal::List::Rules, rule, learned)
+        }
+        new => add(core, project, new, learned).map(|id| format!("Kept as #{id}.")),
+    }
+}
+
+/// Changes a rule or knowledge, or a goal's rule on its card.
+fn amend(
+    core: &Core,
+    project: &str,
+    update: MemoryUpdateParams,
+    by: Learned,
+) -> Result<(), String> {
+    let Some(card) = update.goal else {
+        return change(core, project, update, by);
+    };
+    if update.wrong.is_some()
+        || update.about.is_some()
+        || update.check.is_some()
+        || update.drop_check
+    {
+        return Err(format!(
+            "#{} is a goal's rule: correct it with text, or retire it",
+            update.id
+        ));
+    }
+    let rule = goal::Change::of(
+        goal::List::Rules,
+        Some(update.id),
+        update.text.as_deref(),
+        None,
+        update.retire,
+    )?;
+    goal::change(core, project, card, goal::List::Rules, rule, by).map(drop)
 }
 
 fn change(
@@ -455,31 +501,6 @@ fn change(
     Ok(())
 }
 
-/// Forgets the rules of goal card `card`, which the board removed.
-pub(crate) fn goal_removed(core: &Core, project: &str, card: u64) {
-    let mut state = core.memory.state.locked();
-    let Some(held) = state.held.get_mut(project) else {
-        return;
-    };
-    let before = held.rules.len();
-    held.rules.retain(|rule| rule.goal != Some(card));
-    if held.rules.len() == before {
-        return;
-    }
-    core.memory.save(&mut state, project);
-    drop(state);
-    tell_clients(core, false);
-}
-
-/// Whether goal card `card` of `project` has rules of its own.
-pub(crate) fn has_goal_rules(core: &Core, project: &str, card: u64) -> bool {
-    let state = core.memory.state.locked();
-    state
-        .held
-        .get(project)
-        .is_some_and(|held| held.rules.iter().any(|rule| rule.goal == Some(card)))
-}
-
 /// What applies to `project`, with sensitive entries left out unless Sikemux's
 /// own window reads it.
 fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
@@ -549,12 +570,6 @@ pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
     listed
 }
 
-/// Whether a rule kept in `folder` for `goal` applies under `live`, the goal
-/// an agent's live card sits under.
-fn goal_applies(folder: &str, goal: Option<u64>, live: Option<&GoalRef>) -> bool {
-    goal.is_none_or(|card| live.is_some_and(|live| live.project == folder && live.card == card))
-}
-
 fn caller(request: &HarnessRequest, tool: &str) -> Result<String, String> {
     request
         .agent_id
@@ -593,7 +608,33 @@ enum ToolAdd {
     },
 }
 
-/// `memory_add`: a rule or knowledge for the agent's project.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ToolUpdate {
+    id: u64,
+    #[serde(default)]
+    goal: bool,
+    text: Option<String>,
+    wrong: Option<String>,
+    #[serde(default)]
+    retire: bool,
+    about: Option<Vec<String>>,
+    check: Option<MemoryCheck>,
+    #[serde(default)]
+    drop_check: bool,
+}
+
+/// The goal card the agent's live card sits under.
+fn goal_card(core: &Core, agent: &str) -> Result<u64, String> {
+    board::goal_of(core, agent)
+        .map(|goal| goal.card)
+        .ok_or_else(|| {
+            "You work on no card that is not done, so there is no goal for the rule".into()
+        })
+}
+
+/// `memory_add`: a rule or knowledge for the agent's project, or a rule for
+/// the goal its live card sits under.
 pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = caller(request, "memory_add")?;
     let adding: ToolAdd = params(request.params.clone())?;
@@ -607,13 +648,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 sensitive,
                 folder,
             } => {
-                let goal = if goal {
-                    let goal = board::goal_of(&core, &agent)
-                        .ok_or("You work on no card under a goal of this project, so the rule has no goal to belong to")?;
-                    Some(goal.card)
-                } else {
-                    None
-                };
+                let goal = goal.then(|| goal_card(&core, &agent)).transpose()?;
                 NewMemory::Rule {
                     text,
                     goal,
@@ -635,8 +670,8 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 folder,
             },
         };
-        let id = add(&core, &project, new, learned(&core, Some(&agent)))?;
-        Ok(json!({ "id": id }))
+        let note = keep(&core, &project, new, learned(&core, Some(&agent)))?;
+        Ok(json!({ "note": note }))
     })
     .await
 }
@@ -648,16 +683,23 @@ pub(crate) async fn tool_update(
     request: &HarnessRequest,
 ) -> Result<Value, String> {
     let agent = caller(request, "memory_update")?;
+    let given: ToolUpdate = params(request.params.clone())?;
     let project = board::caller_project(core, request);
-    let mut given = request.params.clone();
-    if let Some(given) = given.as_object_mut() {
-        given.insert("project".into(), project.clone().into());
-    }
-    let update: MemoryUpdateParams = params(given)?;
-    let id = update.id;
+    let id = given.id;
     let core = core.clone();
     run(move || {
-        change(&core, &project, update, learned(&core, Some(&agent)))?;
+        let update = MemoryUpdateParams {
+            goal: given.goal.then(|| goal_card(&core, &agent)).transpose()?,
+            project: project.clone(),
+            id: given.id,
+            text: given.text,
+            wrong: given.wrong,
+            retire: given.retire,
+            about: given.about,
+            check: given.check,
+            drop_check: given.drop_check,
+        };
+        amend(&core, &project, update, learned(&core, Some(&agent)))?;
         Ok(json!({ "id": id }))
     })
     .await
@@ -672,25 +714,17 @@ fn said_by(learned: &Learned) -> &str {
 pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = caller(request, "memory_list")?;
     let project = board::caller_project(core, request);
-    let goal = board::goal_of(core, &agent);
-    let decisions = goal
-        .as_ref()
-        .map(|goal| board::decisions::of_goal(core, goal))
-        .unwrap_or_default();
+    let goal = board::goal_of(core, &agent).map(|goal| (goal.card, goal::standing(core, &goal)));
     let state = core.memory.state.locked();
     let (mut rules, mut knowledge) = (Vec::new(), Vec::new());
     for held in state.applying(&project) {
         let folder = (held.folder != project).then_some(held.folder.as_str());
         for rule in &held.rules {
-            if !goal_applies(&held.folder, rule.goal, goal.as_ref()) {
-                continue;
-            }
             rules.push(json!({
                 "id": rule.id,
                 "text": rule.text,
                 "from": said_by(&rule.learned),
                 "at": rule.learned.at,
-                "goal": rule.goal,
                 "folder": folder,
                 "sensitive": rule.sensitive,
             }));
@@ -721,7 +755,11 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
     Ok(json!({
         "rules": rules,
         "knowledge": knowledge,
-        "goal": goal.map(|goal| json!({ "card": goal.card, "decisions": decisions })),
+        "goal": goal.map(|(card, standing)| json!({
+            "card": card,
+            "rules": standing.rules,
+            "decisions": standing.decisions,
+        })),
     }))
 }
 
@@ -768,15 +806,9 @@ pub(crate) async fn person_add(
     params: MemoryAddParams,
 ) -> Result<MemoryView, String> {
     let project = project_at(core, &params.project)?;
-    if let NewMemory::Rule {
-        goal: Some(card), ..
-    } = &params.entry
-    {
-        board::check_goal(core, &project, *card)?;
-    }
     let core = core.clone();
     run(move || {
-        add(&core, &project, params.entry, learned(&core, None))?;
+        keep(&core, &project, params.entry, learned(&core, None))?;
         Ok(view(&core, &project, &peer))
     })
     .await
@@ -790,7 +822,7 @@ pub(crate) async fn person_update(
     let project = project_at(core, &params.project)?;
     let core = core.clone();
     run(move || {
-        change(&core, &project, params, learned(&core, None))?;
+        amend(&core, &project, params, learned(&core, None))?;
         Ok(view(&core, &project, &peer))
     })
     .await

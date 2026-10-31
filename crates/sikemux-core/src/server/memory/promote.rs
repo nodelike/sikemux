@@ -82,9 +82,6 @@ pub(crate) async fn promote(
             let rule = (state.held.get(&folder))
                 .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
                 .ok_or_else(|| format!("#{id} is not a rule, and only rules go into {FILE}"))?;
-            if rule.goal.is_some() {
-                return Err(format!("#{id} is a goal's rule, which stays with the goal"));
-            }
             if rule.sensitive {
                 return Err(format!(
                     "#{id} is sensitive, so it never goes into the repository"

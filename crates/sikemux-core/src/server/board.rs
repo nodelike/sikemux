@@ -19,18 +19,17 @@ use crate::text::clipped;
 
 use super::connection::blocking;
 use super::kept::{self, Kept};
-use super::memory;
 use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_wire::inbox::InboxRecording;
-use sikemux_wire::slice::{Decision, Gate, NextGate, SliceView};
+use sikemux_wire::slice::{Decision, Gate, GoalRule, NextGate, SliceView};
 
 pub(crate) mod auto;
 mod blind;
-pub(crate) mod decisions;
 mod finish;
 pub(crate) mod git;
+pub(crate) mod goal;
 mod review;
 mod slice;
 mod tickets;
@@ -159,9 +158,9 @@ struct Card {
     /// What it promises and how far up its ladder it is, once it makes a promise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     slice: Option<slice::Slice>,
-    /// What it decided, for a goal.
-    #[serde(default, skip_serializing_if = "decisions::Decisions::is_none")]
-    decisions: decisions::Decisions,
+    /// What it decided and its own rules, for a goal.
+    #[serde(default, skip_serializing_if = "goal::Goal::is_none")]
+    goal: goal::Goal,
     at: u64,
     updated_at: u64,
     /// When its owner last claimed it, which nothing else changes: the
@@ -927,6 +926,9 @@ pub struct CardView {
     pub next: Vec<NextGate>,
     /// For a goal, what it decided, oldest first, retired ones too.
     pub decisions: Vec<Decision>,
+    /// For a goal, rules only its own agents follow, oldest first, retired
+    /// ones too.
+    pub rules: Vec<GoalRule>,
     pub at: u64,
     pub updated_at: u64,
 }
@@ -1015,7 +1017,8 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
             slice.view(card.owner_id(), held_up, |agent| name_of(core, agent))
         }),
         next: slice::next_gates(board, card),
-        decisions: card.decisions.listed(),
+        decisions: card.goal.decisions(),
+        rules: card.goal.rules(),
         at: card.at,
         updated_at: card.updated_at,
     }
@@ -1177,7 +1180,7 @@ fn add_card(
         slice: adding
             .promise
             .map(|promise| slice::Slice::new(promise, Vec::new(), None)),
-        decisions: decisions::Decisions::default(),
+        goal: goal::Goal::default(),
         at: now,
         updated_at: now,
         acted_at: now,
@@ -1358,10 +1361,9 @@ fn change_in(
     }
     if let Some(parent) = changes.parent {
         board.check_parent(Some(id), parent)?;
-        let holds_goal = !before.decisions.is_none() || memory::has_goal_rules(core, project, id);
-        if parent.is_some() && holds_goal {
+        if parent.is_some() && !before.goal.is_none() {
             return Err(format!(
-                "#{id} is a goal with decisions or rules of its own, so it stays at the top"
+                "#{id} is a goal that keeps decisions or rules of its own, so it stays at the top"
             ));
         }
     }
@@ -2028,19 +2030,6 @@ pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
     })
 }
 
-/// Refuses card `id` unless it is a goal of `project`'s board, a card at the top.
-pub(crate) fn check_goal(core: &Core, project: &str, id: u64) -> Result<(), String> {
-    let state = core.boards.state.locked();
-    let board = (state.boards.get(project))
-        .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
-    if board.card(id)?.parent.is_some() {
-        return Err(format!(
-            "Card #{id} sits under another card; a goal is a card at the top"
-        ));
-    }
-    Ok(())
-}
-
 /// Every project's board, as the app draws them.
 pub(crate) fn boards(core: &Core) -> Vec<BoardView> {
     let state = core.boards.state.locked();
@@ -2478,7 +2467,6 @@ pub(crate) async fn person_remove(
             let project = project_at(&core, &params.project)?;
             let id = card_number(Some(params.id), "id")?;
             let notices = remove_card(&core, &project, id)?;
-            memory::goal_removed(&core, &project, id);
             Ok((project_view(&core, &project), notices))
         })
         .await

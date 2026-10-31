@@ -1977,7 +1977,7 @@
           }
         },
         "goal": {
-          "description": "A rule only the agents of your card's goal follow",
+          "description": "A rule only the agents of your card's goal follow, kept on the goal's card",
           "type": "boolean"
         },
         "sensitive": {
@@ -2033,6 +2033,10 @@
         "id": {
           "type": "integer",
           "minimum": 1
+        },
+        "goal": {
+          "description": "The id is a rule of your card's goal",
+          "type": "boolean"
         },
         "text": {
           "type": "string",

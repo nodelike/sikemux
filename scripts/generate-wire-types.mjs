@@ -63,7 +63,7 @@ const SOURCES = [
   `${CORE}/server/board.rs`,
   `${CORE}/server/board/auto.rs`,
   `${CORE}/server/board/slice.rs`,
-  `${CORE}/server/board/decisions.rs`,
+  `${CORE}/server/board/goal.rs`,
   `${CORE}/server/memory/mod.rs`,
   `${CORE}/server/workspace.rs`,
   `${CORE}/server/workspace/launchers.rs`,

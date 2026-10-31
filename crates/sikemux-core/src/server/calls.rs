@@ -585,8 +585,8 @@ calls! { core, client, params;
     "boardSettings" BoardSettings (board::SettingsParams) -> board::BoardView: Full => {
         board::person_settings(&core, params).await?
     },
-    "boardDecide" BoardDecide (board::decisions::DecideParams) -> board::BoardView: Full => {
-        board::decisions::person_decide(&core, params).await?
+    "boardDecide" BoardDecide (board::goal::DecideParams) -> board::BoardView: Full => {
+        board::goal::person_decide(&core, params).await?
     },
     "memory" Memory (memory::MemoryParams) -> MemoryView: Watch, any_program => memory::person_view(&core, &client.peer, params)?,
     "memoryAdd" MemoryAdd (memory::MemoryAddParams) -> MemoryView: Full => memory::person_add(&core, client.peer.clone(), params).await?,

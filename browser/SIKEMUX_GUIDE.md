@@ -1360,7 +1360,8 @@ said each and when.
 `memory_add` keeps one thing, by `kind`:
 
 - `rule`: how agents work here, such as "shadows, never glows". `goal: true`
-  keeps it for the agents of the goal your card sits under only.
+  keeps it on the card of the goal your card sits under, for that goal's
+  agents only.
 - `knowledge`: how something is, such as "the service is called ai-service
   now". `about` names the paths and services it concerns, as whole words; it
   goes only to agents whose task or card names one of them, or to every agent
@@ -1375,7 +1376,8 @@ project under it, for a product that spans several repositories.
 Keep what the person told you to keep, or found out and would want kept,
 never what the code or AGENTS.md already says. When something kept turns out
 wrong, mend it at once with `memory_update` and its `id`: `text` with what is
-so instead, or `retire: true` when it no longer applies. For knowledge you may
+so instead, or `retire: true` when it no longer applies; add `goal: true` for
+a rule of your goal. For knowledge you may
 also say `wrong`, why it no longer holds when you do not know what does, and
 change `about`, `check` or `dropCheck`. Knowledge marked wrong, or that fails
 Sikemux's own test, stays out of briefs and waits in the person's inbox.

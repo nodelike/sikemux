@@ -2130,6 +2130,11 @@ export interface BoardCard {
     next: NextGate[];
     /** For a goal, what it decided, oldest first, retired ones too. */
     decisions: Decision[];
+    /**
+     * For a goal, rules only its own agents follow, oldest first, retired
+     * ones too.
+     */
+    rules: GoalRule[];
     at: number;
     updatedAt: number;
 }
@@ -2318,7 +2323,10 @@ export interface NextGate {
 
 /** What a goal decided, kept on its card. */
 export interface Decision {
-    /** The same for as long as the goal keeps it. */
+    /**
+     * The same for as long as the goal keeps it, never given to a decision
+     * or rule of the goal again.
+     */
     id: number;
     text: string;
     why: string | null;
@@ -2341,6 +2349,24 @@ export interface Learned {
     feed: string | null;
     turn: number | null;
     at: number;
+}
+
+/** A rule only a goal's own agents follow, kept on its card. */
+export interface GoalRule {
+    /**
+     * The same for as long as the goal keeps it, never given to a decision
+     * or rule of the goal again.
+     */
+    id: number;
+    text: string;
+    learned: Learned;
+    /** What it said before it was last corrected. */
+    was: string | null;
+    /**
+     * Who retired it and when. A full goal drops its oldest retired rules
+     * first.
+     */
+    retired: Learned | null;
 }
 
 /** How a project's board runs on its own. */
@@ -3407,11 +3433,6 @@ export interface MemoryRule {
     id: number;
     text: string;
     /**
-     * The goal card of the project it is kept for, when only that goal's
-     * agents follow it.
-     */
-    goal: number | null;
-    /**
      * It never goes into the repository. Agents read it; only Sikemux's own
      * window shows it, and other readers get a count of what is hidden.
      */
@@ -3502,8 +3523,8 @@ export type NewMemory =
           kind: "rule";
           text: string;
           /**
-           * The project's goal card it is kept for, when only that goal's
-           * agents follow it.
+           * The goal card it is kept on instead, for a rule only that goal's
+           * agents follow.
            */
           goal: number | null;
           sensitive: boolean;
@@ -3538,6 +3559,8 @@ export interface MemoryUpdateParams {
     check: MemoryCheck | null;
     /** The core stops testing knowledge. */
     dropCheck?: boolean;
+    /** The goal card whose own rule `id` is. */
+    goal: number | null;
 }
 
 export interface MemoryEntryParams {

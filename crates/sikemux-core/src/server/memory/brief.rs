@@ -9,7 +9,7 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::memory::Learned;
 
 use super::check::{want, FRESH_MS};
-use super::{goal_applies, Core};
+use super::Core;
 use crate::server::board;
 
 const MAX_RULES: usize = 30;
@@ -50,10 +50,7 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
         let state = core.memory.state.locked();
         for held in state.applying(&project) {
             for rule in &held.rules {
-                if rules.len() < MAX_RULES
-                    && from_person(&rule.learned)
-                    && goal_applies(&held.folder, rule.goal, goal.as_ref())
-                {
+                if rules.len() < MAX_RULES && from_person(&rule.learned) {
                     rules.push(format!("- #{} {}", rule.id, one_line(&rule.text)));
                 }
             }
@@ -90,7 +87,20 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
         sections.push(format!("Knowledge:\n{}", knowledge.join("\n")));
     }
     if let Some(goal) = &goal {
-        let mut decisions = board::decisions::of_goal(core, goal);
+        let standing = board::goal::standing(core, goal);
+        let goal_rules: Vec<String> = (standing.rules.iter())
+            .filter(|rule| from_person(&rule.learned))
+            .take(MAX_RULES)
+            .map(|rule| format!("- #{} {}", rule.id, one_line(&rule.text)))
+            .collect();
+        if !goal_rules.is_empty() {
+            sections.push(format!(
+                "Rules of goal card #{}:\n{}",
+                goal.card,
+                goal_rules.join("\n")
+            ));
+        }
+        let mut decisions = standing.decisions;
         decisions.retain(|decision| from_person(&decision.learned));
         let newest = decisions.len().saturating_sub(MAX_DECISIONS);
         let decisions: Vec<String> = decisions[newest..]
@@ -117,7 +127,7 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
         return None;
     }
     Some(format!(
-        "---\n\n**What Sikemux keeps for this project.** Follow its rules and decisions. When something here is wrong, correct it: rules and knowledge with memory_update, decisions with board_decide. memory_list shows the rest and where each came from.\n\n{}",
+        "---\n\n**What Sikemux keeps for this project.** Follow its rules and decisions. When something here is wrong, correct it: rules and knowledge with memory_update, a goal's rules with memory_update and goal: true, decisions with board_decide. memory_list shows the rest and where each came from.\n\n{}",
         sections.join("\n\n")
     ))
 }

@@ -1,7 +1,8 @@
 //! What the core remembers so the person never says it twice: rules agents
 //! follow and knowledge of how things are, kept for a project or a folder
 //! above it. Each entry says where it was learned, so it can be checked, and
-//! knowledge visibly goes stale. A goal's decisions are the board's.
+//! knowledge visibly goes stale. What a goal decided and a goal's own rules
+//! are kept on its card by the board.
 
 use serde::{Deserialize, Serialize};
 
@@ -25,9 +26,6 @@ pub struct Rule {
     /// The same for as long as it is kept, and never given to another.
     pub id: u64,
     pub text: String,
-    /// The goal card of the project it is kept for, when only that goal's
-    /// agents follow it.
-    pub goal: Option<u64>,
     /// It never goes into the repository. Agents read it; only Sikemux's own
     /// window shows it, and other readers get a count of what is hidden.
     pub sensitive: bool,

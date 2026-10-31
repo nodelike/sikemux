@@ -202,7 +202,8 @@ pub struct NextGate {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Decision {
-    /// The same for as long as the goal keeps it.
+    /// The same for as long as the goal keeps it, never given to a decision
+    /// or rule of the goal again.
     pub id: u64,
     pub text: String,
     pub why: Option<String>,
@@ -211,5 +212,21 @@ pub struct Decision {
     pub was: Option<String>,
     /// Who retired it and when. A full goal drops its oldest retired
     /// decisions first.
+    pub retired: Option<Learned>,
+}
+
+/// A rule only a goal's own agents follow, kept on its card.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalRule {
+    /// The same for as long as the goal keeps it, never given to a decision
+    /// or rule of the goal again.
+    pub id: u64,
+    pub text: String,
+    pub learned: Learned,
+    /// What it said before it was last corrected.
+    pub was: Option<String>,
+    /// Who retired it and when. A full goal drops its oldest retired rules
+    /// first.
     pub retired: Option<Learned>,
 }
