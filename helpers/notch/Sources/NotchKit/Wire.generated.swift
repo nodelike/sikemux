@@ -426,6 +426,8 @@ enum InboxKind: String, Codable, Hashable {
     case held
     /// The agent went on with an assumption the person may correct.
     case assumption
+    /// The slice on `card` waits for the person to pass `gate`.
+    case gate
     /// The card's pull request at `url` is ready for review.
     case pullRequest
     /// A turn or card that changed files.

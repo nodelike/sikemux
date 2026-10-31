@@ -31,6 +31,7 @@ const SOURCES = [
   `${WIRE}/chat.rs`,
   `${WIRE}/theme.rs`,
   `${WIRE}/notch.rs`,
+  `${WIRE}/slice.rs`,
   `${WIRE}/inbox.rs`,
   `${WIRE}/share.rs`,
   `${WIRE}/pty/shell_protocol.rs`,

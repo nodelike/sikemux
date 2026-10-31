@@ -24,6 +24,7 @@ use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_wire::inbox::InboxRecording;
+use sikemux_wire::slice::{Evidence, GateView, NextGate, Note};
 
 pub(crate) mod auto;
 mod blind;
@@ -818,6 +819,16 @@ pub struct CardView {
     pub column: Column,
     pub auto: Option<RunView>,
     pub recordings: Vec<InboxRecording>,
+    /// One sentence saying what it changes, for a slice of a goal.
+    pub claim: String,
+    /// The gates it passes on its way to done, in order; none for a card without a ladder.
+    pub gates: Vec<GateView>,
+    /// What the core collected itself to show its work, oldest first.
+    pub evidence: Vec<Evidence>,
+    pub notes: Vec<Note>,
+    /// For a goal, the gates its slices wait at, in the order they will be
+    /// reached: a slice that waits on another comes after it.
+    pub next: Vec<NextGate>,
     pub at: u64,
     pub updated_at: u64,
 }
@@ -909,6 +920,11 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         column: column_of(core, card),
         auto: card.auto.as_ref().map(Run::view),
         recordings: card.recordings.clone(),
+        claim: String::new(),
+        gates: Vec::new(),
+        evidence: Vec::new(),
+        notes: Vec::new(),
+        next: Vec::new(),
         at: card.at,
         updated_at: card.updated_at,
     }
