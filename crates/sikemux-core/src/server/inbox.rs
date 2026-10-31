@@ -14,7 +14,7 @@ use crate::protocol::{AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, 
 use crate::text::{clipped, clipped_line};
 use sikemux_wire::inbox::{
     AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandoff, InboxItem, InboxKind,
-    InboxNeed, InboxRecording, InboxTier, RemoteAgent, TeamLink,
+    InboxRecording, InboxTier, RemoteAgent, TeamLink,
 };
 
 use super::board::{self, Summary, Waits};
@@ -35,26 +35,10 @@ fn tier(kind: InboxKind) -> InboxTier {
         | InboxKind::Question
         | InboxKind::Input
         | InboxKind::Held
-        | InboxKind::Assumption
-        | InboxKind::Gate => InboxTier::Needs,
+        | InboxKind::Assumption => InboxTier::Needs,
         InboxKind::PullRequest | InboxKind::Changes => InboxTier::Review,
         InboxKind::Failed | InboxKind::Finished => InboxTier::Finished,
         InboxKind::Working => InboxTier::Progress,
-    }
-}
-
-fn need(kind: InboxKind) -> Option<InboxNeed> {
-    match kind {
-        InboxKind::Permission | InboxKind::Question | InboxKind::Assumption | InboxKind::Gate => {
-            Some(InboxNeed::Decide)
-        }
-        InboxKind::Input => Some(InboxNeed::Unblock),
-        InboxKind::Held => Some(InboxNeed::Fix),
-        InboxKind::PullRequest
-        | InboxKind::Changes
-        | InboxKind::Failed
-        | InboxKind::Finished
-        | InboxKind::Working => None,
     }
 }
 
@@ -363,7 +347,6 @@ fn item(id: String, kind: InboxKind, what: String, at: u64) -> InboxItem {
         id,
         tier: tier(kind),
         kind,
-        need: need(kind),
         agent_id: None,
         name: None,
         cli: None,
@@ -376,7 +359,6 @@ fn item(id: String, kind: InboxKind, what: String, at: u64) -> InboxItem {
         feed: None,
         turn: None,
         card: None,
-        gate: None,
         request_id: None,
         choices: None,
         question_id: None,

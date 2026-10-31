@@ -641,8 +641,6 @@ export interface InboxItem {
     id: string;
     tier: InboxTier;
     kind: InboxKind;
-    /** What the person is needed for; none while nothing waits on them. */
-    need?: InboxNeed;
     agentId: string | null;
     name: string | null;
     cli: string | null;
@@ -658,8 +656,6 @@ export interface InboxItem {
     feed: string | null;
     turn: number | null;
     card: InboxCard | null;
-    /** The gate the slice on `card` waits at. */
-    gate?: Gate;
     requestId: string | null;
     /** The options a permission is answered with. */
     choices: PermissionChoices | null;
@@ -673,20 +669,13 @@ export interface InboxItem {
 
 export type InboxTier = "needs" | "review" | "finished" | "progress";
 
-export type InboxKind =
-    "permission" | "question" | "input" | "held" | "assumption" | "gate" | "pullRequest" | "changes" | "failed" | "finished" | "working";
-
-/** What the person is needed for, for an item that waits on them. */
-export type InboxNeed = "decide" | "unblock" | "fix";
+export type InboxKind = "permission" | "question" | "input" | "held" | "assumption" | "pullRequest" | "changes" | "failed" | "finished" | "working";
 
 export interface InboxCard {
     project: string;
     id: number;
     title: string;
 }
-
-/** A step a slice passes on its way to done, in the order a ladder lists them. */
-export type Gate = "built" | "looksRight" | "landed";
 
 /** What an agent left when its turn ended, for whoever picks it up. */
 export interface InboxHandoff {
@@ -2120,18 +2109,6 @@ export interface BoardCard {
     column: BoardColumn;
     auto: CardRun | null;
     recordings: InboxRecording[];
-    /** One sentence saying what it changes, for a slice of a goal. */
-    claim: string;
-    /** The gates it passes on its way to done, in order; none for a card without a ladder. */
-    gates: GateView[];
-    /** What the core collected itself to show its work, oldest first. */
-    evidence: Evidence[];
-    notes: Note[];
-    /**
-     * For a goal, the gates its slices wait at, in the order they will be
-     * reached: a slice that waits on another comes after it.
-     */
-    next: NextGate[];
     at: number;
     updatedAt: number;
 }
@@ -2182,122 +2159,6 @@ export interface CardPull {
     number: number;
     url: string;
     host: string;
-}
-
-/** A gate of a slice's ladder as clients draw it. */
-export interface GateView {
-    gate: Gate;
-    passer: Passer;
-    state: GateState;
-    /**
-     * The agent that passed it, or that may pass it as the owner; none for
-     * the person and the core.
-     */
-    agent: string | null;
-    agentName: string | null;
-    /** When it was passed. */
-    at: number | null;
-    /** What is not so yet that it needs before it can pass. */
-    needs: Need[];
-}
-
-/** Who may pass a gate. */
-export type Passer = "owner" | "person" | "core";
-
-/** Where a gate of a slice's ladder stands. */
-export type GateState = "passed" | "waiting" | "ahead";
-
-/** What a gate needs before it can pass, besides the gates before it. */
-export type Need = "passingCheck" | "onBranch";
-
-/**
- * Something the core collected itself to show a slice's work, toward the
- * gate the slice was at then. With a verdict it is a check.
- */
-export interface Evidence {
-    /** The same for as long as the slice keeps it. */
-    id: number;
-    gate: Gate;
-    at: number;
-    /** The agent whose work it shows, which notes pinned to it go to. */
-    agent: string | null;
-    verdict: Verdict | null;
-    proof: Proof;
-}
-
-/** Whether evidence held up when the core checked it. */
-export type Verdict = "passed" | "failed";
-
-/** The five kinds of evidence, each drawn one way. */
-export type Proof =
-    /** A screenshot, or a recording when it has a length. */
-    | {
-          kind: "picture";
-          path: string;
-          seconds: number | null;
-          /** The chat run and turn it was made in. */
-          feed: string | null;
-          turn: number | null;
-      }
-    /** A change between two commits. */
-    | {
-          kind: "diff";
-          base: string;
-          head: string;
-          /** The files it changes, the first few. */
-          files: string[];
-          added: number;
-          removed: number;
-      }
-    /** Measures before and after, such as seconds or cost. */
-    | {
-          kind: "numbers";
-          measures: Measure[];
-      }
-    /** A command and what it printed, such as the project's check. */
-    | {
-          kind: "run";
-          command: string;
-          /** The commit it ran on. */
-          sha: string | null;
-          /** The end of what it printed. */
-          output: string;
-      }
-    /** Logs and events in order. */
-    | {
-          kind: "timeline";
-          moments: Moment[];
-      };
-
-export interface Measure {
-    label: string;
-    before: string | null;
-    after: string;
-}
-
-export interface Moment {
-    at: number;
-    text: string;
-}
-
-/**
- * What someone wrote about a slice, pinned to a piece of its evidence when
- * it was written on one, for the agent whose work that is.
- */
-export interface Note {
-    text: string;
-    /** The agent that wrote it; none for the person. */
-    by: string | null;
-    evidence: number | null;
-    at: number;
-}
-
-/** A gate one of a goal's slices waits at, as the goal lists what comes next. */
-export interface NextGate {
-    /** The slice's card. */
-    card: number;
-    gate: Gate;
-    passer: Passer;
 }
 
 /** How a project's board runs on its own. */
