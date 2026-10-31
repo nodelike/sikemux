@@ -526,6 +526,7 @@ impl About for InboxItem {
             project: card.project.clone(),
             id: card.id,
             title: card.title.clone(),
+            goal: card.goal,
         });
         self.project.get_or_insert_with(|| card.project.clone());
         if self.agent_id.is_none() {
@@ -1054,7 +1055,7 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
 
 /// What finished, failed and waits since the person last left, or since
 /// `since` when given.
-pub(crate) fn digest(core: &Core, since: Option<u64>) -> InboxDigest {
+pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> InboxDigest {
     let (left_at, away) = core.notify.absence();
     let since = since.or(left_at);
     let (chats, sessions) = core.ranked_infos();
@@ -1097,11 +1098,20 @@ pub(crate) fn digest(core: &Core, since: Option<u64>) -> InboxDigest {
             finished.push(item.on_card(Some(&card)));
         }
     }
+    let here = |items: Vec<InboxItem>| -> Vec<InboxItem> {
+        match project {
+            Some(project) => items
+                .into_iter()
+                .filter(|item| item.project.as_deref() == Some(project))
+                .collect(),
+            None => items,
+        }
+    };
     InboxDigest {
         since,
         away,
-        finished: ranked(finished),
-        failed: ranked(failed),
-        waiting,
+        finished: here(ranked(finished)),
+        failed: here(ranked(failed)),
+        waiting: here(waiting),
     }
 }

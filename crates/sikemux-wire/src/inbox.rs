@@ -94,6 +94,9 @@ pub struct InboxCard {
     pub project: String,
     pub id: u64,
     pub title: String,
+    /// The goal card above it, the one at the top; none when it is at the top.
+    #[serde(default)]
+    pub goal: Option<u64>,
 }
 
 /// One thing in the inbox: who, what they need or did, and where to open it.

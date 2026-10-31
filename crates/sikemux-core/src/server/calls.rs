@@ -1396,6 +1396,8 @@ async fn inbox(core: &Arc<Core>) -> CoreResult<sikemux_wire::inbox::Inbox> {
 #[serde(rename_all = "camelCase")]
 struct DigestParams {
     since: Option<u64>,
+    /// Only what is about this project, by its path.
+    project: Option<String>,
 }
 
 /// What finished, failed and waits since the person last left, or `since`.
@@ -1403,6 +1405,9 @@ async fn digest(
     core: &Arc<Core>,
     params: DigestParams,
 ) -> CoreResult<sikemux_wire::inbox::InboxDigest> {
+    let project = (params.project)
+        .map(|project| board::project_at(core, &project))
+        .transpose()?;
     let core = core.clone();
-    blocking(move || Ok(inbox::digest(&core, params.since))).await
+    blocking(move || Ok(inbox::digest(&core, params.since, project.as_deref()))).await
 }

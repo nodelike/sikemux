@@ -685,6 +685,8 @@ export interface InboxCard {
     project: string;
     id: number;
     title: string;
+    /** The goal card above it, the one at the top; none when it is at the top. */
+    goal?: number | null;
 }
 
 /**

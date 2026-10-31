@@ -215,6 +215,19 @@ impl Board {
         }
     }
 
+    /// The goal `card` belongs to: the card at the top above it, or itself
+    /// when nothing is above it.
+    fn goal_above<'a>(&'a self, card: &'a Card) -> &'a Card {
+        let mut goal = card;
+        for _ in 0..self.cards.len() {
+            let Some(parent) = goal.parent.and_then(|id| self.card(id).ok()) else {
+                break;
+            };
+            goal = parent;
+        }
+        goal
+    }
+
     fn card(&self, id: u64) -> Result<&Card, String> {
         self.cards
             .iter()
@@ -1967,6 +1980,8 @@ fn waits(core: &Core, card: &Card) -> Option<Waits> {
 pub(crate) struct Summary {
     pub project: String,
     pub id: u64,
+    /// The goal card above it, the one at the top; none when it is at the top.
+    pub goal: Option<u64>,
     pub title: String,
     pub done: bool,
     pub owner: Option<String>,
@@ -1986,10 +2001,11 @@ impl Card {
         }
     }
 
-    fn summary(&self, core: &Core, project: &str) -> Summary {
+    fn summary(&self, core: &Core, board: &Board) -> Summary {
         Summary {
-            project: project.to_owned(),
+            project: board.project.clone(),
             id: self.id,
+            goal: Some(board.goal_above(self).id).filter(|goal| *goal != self.id),
             title: self.title.clone(),
             done: self.status == Status::Done,
             owner: self.owner_id().map(str::to_owned),
@@ -2005,11 +2021,13 @@ impl Card {
 /// The card the agent works, or the one it reviews for Auto.
 pub(crate) fn agent_card(core: &Core, agent_id: &str) -> Option<Summary> {
     let mut state = core.boards.state.locked();
-    if let Some((project, card)) = held_card(&mut state, agent_id) {
-        return Some(card.summary(core, project));
-    }
-    let (project, card) = blind::reviewed_card(&state, agent_id)?;
-    Some(card.summary(core, project))
+    let (project, id) = match held_card(&mut state, agent_id) {
+        Some((project, card)) => (project.clone(), card.id),
+        None => blind::reviewed_card(&state, agent_id)
+            .map(|(project, card)| (project.clone(), card.id))?,
+    };
+    let board = state.boards.get(&project)?;
+    Some(board.card(id).ok()?.summary(core, board))
 }
 
 /// A reviewer Auto started gives its verdict on the change it reviews.
@@ -2028,8 +2046,8 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
     let state = core.boards.state.locked();
     state
         .boards
-        .iter()
-        .flat_map(|(project, board)| board.cards.iter().map(move |card| (project, card)))
+        .values()
+        .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
         .filter(|(_, card)| {
             matches!(
                 waits(core, card),
@@ -2037,7 +2055,7 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
             ) || done_since
                 .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)
         })
-        .map(|(project, card)| card.summary(core, project))
+        .map(|(board, card)| card.summary(core, board))
         .collect()
 }
 
@@ -2084,13 +2102,7 @@ pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
         .iter()
         .filter(|card| card.owner_id() == Some(agent_id) && card.status != Status::Done)
         .max_by_key(|card| (card.status == Status::Progress, card.updated_at))?;
-    let mut goal = live;
-    for _ in 0..board.cards.len() {
-        let Some(parent) = goal.parent.and_then(|id| board.card(id).ok()) else {
-            break;
-        };
-        goal = parent;
-    }
+    let goal = board.goal_above(live);
     let promise = live.slice.as_ref().map(|slice| slice.promise.as_str());
     let text = [
         Some(live.title.as_str()),
