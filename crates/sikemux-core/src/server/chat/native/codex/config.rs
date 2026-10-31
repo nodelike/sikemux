@@ -171,6 +171,19 @@ pub(super) fn session_config(cwd: &str, tools: &[McpServer], configured: &[Strin
 }
 
 /// The tool server names Codex's own config already has, in any layer.
+/// The developer instructions a new thread is sent: the person's own from
+/// Codex's config, which sending any replaces, then `brief`.
+pub(super) fn developer_instructions(config: &Value, brief: &str) -> String {
+    match config["config"]["developer_instructions"]
+        .as_str()
+        .map(str::trim)
+        .filter(|own| !own.is_empty())
+    {
+        Some(own) => format!("{own}\n\n{brief}"),
+        None => brief.to_owned(),
+    }
+}
+
 pub(super) fn configured_servers(config: &Value) -> Vec<String> {
     let layers = config["layers"].as_array().into_iter().flatten();
     std::iter::once(&config["config"])

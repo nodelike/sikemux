@@ -621,11 +621,18 @@ impl Backend for Codex {
         };
 
         let cwd = launch.cwd.to_string_lossy().into_owned();
-        let configured = rpc
+        let read = rpc
             .request("config/read", json!({ "includeLayers": true, "cwd": cwd }))
             .await
-            .map(|read| config::configured_servers(&read))
+            .ok();
+        let configured = read
+            .as_ref()
+            .map(config::configured_servers)
             .unwrap_or_default();
+        let instructions = read
+            .as_ref()
+            .zip(brief)
+            .map(|(read, brief)| config::developer_instructions(read, brief));
         let session_config =
             config::session_config(&cwd, &servers::tool_servers(launch), &configured);
         let servers: Vec<String> = session_config["mcp_servers"]
@@ -634,8 +641,8 @@ impl Backend for Codex {
             .unwrap_or_default();
         let start_thread = || {
             let mut params = json!({ "cwd": cwd, "config": session_config });
-            if let Some(brief) = brief {
-                params["developerInstructions"] = brief.into();
+            if let Some(instructions) = &instructions {
+                params["developerInstructions"] = instructions.as_str().into();
             }
             rpc.request("thread/start", params)
         };

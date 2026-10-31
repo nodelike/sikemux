@@ -763,16 +763,24 @@ impl<B: Backend> Running<'_, B> {
 
     /// Starts the next turn with `replay`, which is kept to go again should the agent be
     /// started again under the chat, or says why it could not start.
-    async fn send(&mut self, replay: Replay) {
+    async fn send(&mut self, mut replay: Replay) {
         self.state.turn += 1;
         self.chat.emit(ChatEventKind::TurnStarted, json!({}));
-        let mut prompt = Prompt::from(&replay);
-        if !B::INSTRUCTIONS && prompt.context.len() < MAX_CONTEXT_ITEMS {
-            prompt
+        // A slash command takes what follows it as its arguments, so the brief waits for
+        // the next message. Kept on the replay, it goes again with the message.
+        let carries = !B::INSTRUCTIONS
+            && replay.context.len() < MAX_CONTEXT_ITEMS
+            && !replay.text.trim_start().starts_with('/');
+        if carries {
+            replay
                 .context
                 .extend(self.chat.take_brief().map(brief_context));
         }
-        if let Err(error) = self.backend.prompt(self.state.turn, prompt).await {
+        if let Err(error) = self
+            .backend
+            .prompt(self.state.turn, Prompt::from(&replay))
+            .await
+        {
             self.chat.stop_running();
             self.chat.emit(ChatEventKind::Error, error_message(error));
         }
