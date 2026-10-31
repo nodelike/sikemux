@@ -465,12 +465,12 @@ fn personal_ask(project: &Path, task: &Definition) -> TrustAsk {
     };
     TrustAsk {
         title: format!("Run {}?", task.label),
-        body: "This task comes from the project's .sikemux/tasks.json. Trust lasts until the task changes.".into(),
+        body: "This process comes from the project's .sikemux/tasks.json. Trust lasts until the process changes.".into(),
         commands: vec![TrustCommand {
             label: task.label.clone(),
             command,
         }],
-        confirm_label: "Run task".into(),
+        confirm_label: "Run process".into(),
         grant: Grant::Personal(TrustedTask {
             project: project.to_string_lossy().into_owned(),
             cwd,
@@ -636,7 +636,7 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
         .map(|port| {
             let (kind, label) = match &port.listening.owner {
                 PortOwner::Terminal { .. } => ("terminal", "terminal".to_owned()),
-                PortOwner::Task { label, .. } => ("task", label.clone()),
+                PortOwner::Task { label, .. } => ("process", label.clone()),
                 PortOwner::Agent { label, .. } => ("agent", label.clone()),
             };
             json!({
@@ -648,7 +648,7 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
         })
         .collect();
     let mut value = json!({
-        "tasks": listed,
+        "processes": listed,
         "configStatus": match &config {
             ConfigLoad::Absent { .. } => "absent",
             ConfigLoad::Invalid { .. } => "invalid",
@@ -793,11 +793,11 @@ fn resolve(
         return Ok((task, config));
     }
     if task_id.starts_with(detect::DETECTED_PREFIX) || task_id.starts_with(PERSONAL_PREFIX) {
-        return Err("No task with this id in the project's build files; call workspace_inspect for the current list".into());
+        return Err("No process with this id in the project's build files; call workspace_inspect for the current list".into());
     }
     Err(match config {
         ConfigLoad::Absent { .. } => {
-            "Project has no sikemux.json; add one that defines tasks".into()
+            "Project has no sikemux.json; add one that defines processes".into()
         }
         ConfigLoad::Invalid { errors, .. } => format!(
             "sikemux.json is invalid: {}",
@@ -807,7 +807,7 @@ fn resolve(
                 .collect::<Vec<_>>()
                 .join(" · ")
         ),
-        ConfigLoad::Valid { .. } => "Task is not defined in sikemux.json".into(),
+        ConfigLoad::Valid { .. } => "Process is not defined in sikemux.json".into(),
     })
 }
 

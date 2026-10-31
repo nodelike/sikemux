@@ -27,7 +27,7 @@ pub struct JournalEntry {
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "processId", skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
@@ -301,9 +301,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut journal = journals(dir.path());
         assert_eq!(journal.cursor("/one"), 0);
-        journal.append("/one", "task.starting", Some("a"), Some("dev"));
+        journal.append("/one", "process.starting", Some("a"), Some("dev"));
         journal.append("/two", "ui.opened", None, None);
-        journal.append("/one", "task.running", Some("b"), Some("test"));
+        journal.append("/one", "process.running", Some("b"), Some("test"));
         assert_eq!(journal.cursor("/one"), 2);
         assert_eq!(journal.cursor("/two"), 1);
         let page = journal.since("/one", 0, Some("b")).unwrap();
@@ -314,7 +314,7 @@ mod tests {
                 .iter()
                 .map(|entry| entry.kind.as_str())
                 .collect::<Vec<_>>(),
-            ["task.running"]
+            ["process.running"]
         );
         assert!(journal.since("/one", 2, None).unwrap().events.is_empty());
         assert!(journal.since("/one", 3, None).is_err());
@@ -324,19 +324,21 @@ mod tests {
     fn a_new_core_reads_the_tail_and_keeps_counting_from_it() {
         let dir = tempfile::tempdir().unwrap();
         let mut first = journals(dir.path());
-        first.append("/one", "task.starting", Some("a"), Some("dev"));
-        first.append("/one", "task.running", Some("a"), Some("dev"));
+        first.append("/one", "process.starting", Some("a"), Some("dev"));
+        first.append("/one", "process.running", Some("a"), Some("dev"));
         drop(first);
 
         let mut second = journals(dir.path());
         assert_eq!(second.cursor("/one"), 2);
         let page = second.since("/one", 1, None).unwrap();
         assert_eq!(page.events.len(), 1);
-        assert_eq!(page.events[0].kind, "task.running");
+        assert_eq!(page.events[0].kind, "process.running");
         assert!(second.mentions_task("/one", "dev"));
         assert!(!second.mentions_task("/one", "other"));
         assert_eq!(
-            second.append("/one", "task.stopped", Some("a"), None).seq,
+            second
+                .append("/one", "process.stopped", Some("a"), None)
+                .seq,
             3
         );
     }
@@ -345,7 +347,7 @@ mod tests {
     fn a_wait_from_before_the_kept_events_is_truncated() {
         let mut journal = Journals::new(None);
         for _ in 0..RETAINED_EVENTS + 10 {
-            journal.append("/one", "task.output", Some("a"), None);
+            journal.append("/one", "process.output", Some("a"), None);
         }
         let page = journal.since("/one", 3, None).unwrap();
         assert!(page.truncated);
@@ -361,15 +363,15 @@ mod tests {
         let mut last = 0;
         while journal.project("/one").size <= MAX_JOURNAL_BYTES - 8000 {
             last = journal
-                .append("/one", "task.output", Some(&padding), None)
+                .append("/one", "process.output", Some(&padding), None)
                 .seq;
         }
         last = journal
-            .append("/one", "task.output", Some(&padding), None)
+            .append("/one", "process.output", Some(&padding), None)
             .seq
             .max(last);
         last = journal
-            .append("/one", "task.output", Some(&padding), None)
+            .append("/one", "process.output", Some(&padding), None)
             .seq
             .max(last);
         let path = dir.path().join(journal_file_name("/one"));

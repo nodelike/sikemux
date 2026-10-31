@@ -4,7 +4,7 @@
     "from": ["err_tools_sikemux-026"],
     "category": "malformed_call",
     "severity": "med",
-    "tools": ["sim_install", "sim_launch", "task_start"],
+    "tools": ["sim_install", "sim_launch", "process_start"],
     "prompt": "A simulator is attached on your desk. Build the phone app for it (mobile/app/ios, workspace SikemuxDev.xcworkspace, scheme SikemuxDev, bundle id com.nodelike.sikemux.dev), install it and launch it.",
     "fixture": {
       "files": {
@@ -14,7 +14,7 @@
         "mobile/app/ios/build/Build/Products/Debug-iphonesimulator/SikemuxDev.app/Info.plist": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleIdentifier</key>\n\t<string>com.nodelike.sikemux.dev</string>\n\t<key>CFBundleName</key>\n\t<string>Sikemux Dev</string>\n</dict>\n</plist>\n",
         "mobile/app/app.json": "{\n  \"expo\": {\n    \"name\": \"Sikemux Dev\",\n    \"slug\": \"sikemux\",\n    \"ios\": { \"bundleIdentifier\": \"com.nodelike.sikemux.dev\" }\n  }\n}\n"
       },
-      "taskOutput": "Build settings from command line:\n    SDK = iphonesimulator\n\n** BUILD SUCCEEDED **\n",
+      "processOutput": "Build settings from command line:\n    SDK = iphonesimulator\n\n** BUILD SUCCEEDED **\n",
       "shell": [
         { "match": "/^xcodebuild\\s+-version\\b/", "stdout": "Xcode 27.1\nBuild version 27A9275\n" },
         { "match": "/^cargo\\s+(--version|-V)\\b/", "stdout": "cargo 1.99.0 (1d3cd6b0a 2026-09-18)\n" }
@@ -35,7 +35,7 @@
     "grade": {
       "expect": [
         {
-          "tool": ["task_start", "Bash"],
+          "tool": ["process_start", "Bash"],
           "args": { "command": "/xcodebuild[^\\n]*-derivedDataPath[ =]+(?![ =\"']*([\\/~]|\\$(HOME|TMPDIR)))|xcodebuild[^\\n]*-derivedDataPath[ =]+[\"']?\\S*\\/proj\\/app\\//" }
         },
         { "tool": "sim_install", "args": { "path": { "$not": "/^(~|\\$HOME|\\/(?!.*\\/proj\\/app\\/))/" } } },

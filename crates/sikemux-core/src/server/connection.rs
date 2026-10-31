@@ -559,7 +559,9 @@ async fn run_requests(
                 tokio::spawn(async move {
                     let result = match session_or_missing(&core, id) {
                         Ok(target) => blocking(move || session::task_output(&target, &query)).await,
-                        Err(_) => Err("Task output expired or task no longer exists".into()),
+                        Err(_) => {
+                            Err("Process output expired or the process no longer exists".into())
+                        }
                     };
                     client.answer::<ask::TaskOutput>(request_id, result);
                 });

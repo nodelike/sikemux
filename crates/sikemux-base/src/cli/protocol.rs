@@ -312,10 +312,10 @@ mod tests {
         assert!(validate_harness(&request("browser.click")).is_ok());
         assert!(validate_harness(&request("plugins.call")).is_ok());
         assert!(validate_harness(&request("pty_kill")).is_err());
-        let mut relative = request("task.read");
+        let mut relative = request("process.read");
         relative.project = "project".into();
         assert!(validate_harness(&relative).is_err());
-        let mut list = request("task.read");
+        let mut list = request("process.read");
         list.params = serde_json::json!([]);
         assert!(validate_harness(&list).is_err());
     }

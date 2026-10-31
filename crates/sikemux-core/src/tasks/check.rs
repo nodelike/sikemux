@@ -103,7 +103,7 @@ impl CheckItem {
             } => (name.clone(), format!("{program} is installed")),
             Self::BuildTool { name, program, .. } => (
                 format!("{name} isn't installed"),
-                format!("This task runs {program}"),
+                format!("This process runs {program}"),
             ),
             Self::Java {
                 ok: true,
@@ -368,7 +368,7 @@ pub fn problems(checks: &[Check]) -> Option<String> {
                     format!("{title}. {detail}. Install a Java {required} JDK on this host.")
                 }
                 CheckItem::Deps { install, .. } => {
-                    format!("{title}. Run `{install}` in the task's folder first.")
+                    format!("{title}. Run `{install}` in the process's folder first.")
                 }
                 CheckItem::Port { .. } => format!("{title}. {detail}."),
             }

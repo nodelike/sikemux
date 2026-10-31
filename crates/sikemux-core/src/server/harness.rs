@@ -1,4 +1,4 @@
-//! Agents' tool calls. The core answers the task tools and `events.wait` from
+//! Agents' tool calls. The core answers the process tools and `events.wait` from
 //! its own runs and journal, so they work while the window is closed, and
 //! hands everything that needs the window to it.
 
@@ -74,11 +74,11 @@ pub(crate) const AGENT_EVENT: &str = "agent.";
 const LAYOUT_FIELDS: [&str; 4] = ["sessionId", "active", "activeWindowId", "windows"];
 const NO_WINDOW_NOTE: &str =
     "No Sikemux window is open on this host; any tabs listed are the ones it shows when it opens.";
-const AWAITING_TRUST_NOTE: &str = "Waiting for the person to trust this project's sikemux.json in Sikemux. Call task_start again with the same idempotencyKey, or events_wait with this executionId, to see when it starts.";
-const STARTING_NOTE: &str = "Still starting. Call task_start again with the same idempotencyKey, or events_wait with this executionId, to see when it runs.";
-const NOT_READY_NOTE: &str = "The task is running but readyWhen has not appeared yet. Wait with events_wait on this executionId, or task_read with search.";
+const AWAITING_TRUST_NOTE: &str = "Waiting for the person to trust this project's sikemux.json in Sikemux. Call process_start again with the same idempotencyKey, or events_wait with this executionId, to see when it starts.";
+const STARTING_NOTE: &str = "Still starting. Call process_start again with the same idempotencyKey, or events_wait with this executionId, to see when it runs.";
+const NOT_READY_NOTE: &str = "The process is running but readyWhen has not appeared yet. Wait with events_wait on this executionId, or process_read with search.";
 
-const LAUNCH_CUT_SHORT: &str = "Sikemux's background process was updated while the window was starting this task; start it again";
+const LAUNCH_CUT_SHORT: &str = "Sikemux's background process was updated while the window was starting this process; start it again";
 
 /// The harness as a replacement core takes it over.
 #[derive(Serialize, Deserialize)]
@@ -116,22 +116,22 @@ impl State {
         self.runs.get(project, execution_id).cloned()
     }
 
-    /// The run a call names by `executionId`, or by `taskId` for its latest.
+    /// The run a call names by `executionId`, or by `processId` for its latest.
     fn execution_for(&mut self, project: &str, params: &Value) -> Result<String, String> {
         let execution_id = text(params, "executionId")?;
-        let task_id = text(params, "taskId")?;
+        let task_id = text(params, "processId")?;
         match (execution_id, task_id) {
-            (Some(_), Some(_)) => Err("Pass either executionId or taskId, not both".into()),
+            (Some(_), Some(_)) => Err("Pass either executionId or processId, not both".into()),
             (Some(execution_id), None) => Ok(execution_id.to_owned()),
-            (None, None) => Err("executionId or taskId is required".into()),
+            (None, None) => Err("executionId or processId is required".into()),
             (None, Some(task_id)) => {
                 if let Some(run) = self.runs.latest(project, task_id) {
                     return Ok(run.execution_id.clone());
                 }
                 if self.journals.mentions_task(project, task_id) {
-                    return Err(format!("Task {task_id} was started earlier, but its run is gone: it ended a while ago or was stopped with Quit and Stop Everything. Start it again with task_start."));
+                    return Err(format!("Process {task_id} was started earlier, but its run is gone: it ended a while ago or was stopped with Quit and Stop Everything. Start it again with process_start."));
                 }
-                Err(format!("Task {task_id} has not been started; call workspace_inspect to see the runs Sikemux knows about, or start it with task_start"))
+                Err(format!("Process {task_id} has not been started; call workspace_inspect to see the runs Sikemux knows about, or start it with process_start"))
             }
         }
     }
@@ -141,10 +141,10 @@ impl State {
             return Ok(spec.clone());
         }
         if self.journals.mentions_task(project, task_id) {
-            return Err(format!("Task {task_id} was started earlier, but its run and command are gone; start it again with command"));
+            return Err(format!("Process {task_id} was started earlier, but its run and command are gone; start it again with command"));
         }
         Err(format!(
-            "Task {task_id} has not been started; start it with command"
+            "Process {task_id} has not been started; start it with command"
         ))
     }
 }
@@ -402,7 +402,7 @@ pub(crate) fn note_output(core: &Arc<Core>, id: SessionId) {
             state.output_pending.remove(&execution_id);
             state
                 .journals
-                .append(&project, "task.output", Some(&execution_id), None);
+                .append(&project, "process.output", Some(&execution_id), None);
         });
     });
 }
@@ -435,8 +435,18 @@ fn integer(params: &Value, key: &str, fallback: u64, max: u64, min: u64) -> Resu
         .ok_or_else(|| format!("{key} must be an integer between {min} and {max}"))
 }
 
-fn with_fields(run: &Run, fields: Value) -> Value {
+/// A run as agents see it: clients call its process a task, agents a process.
+fn for_agent(run: &Run) -> Value {
     let mut value = serde_json::to_value(run).unwrap_or_else(|_| json!({}));
+    if let Some(object) = value.as_object_mut() {
+        object.remove("taskId");
+        object.insert("processId".into(), run.task_id.clone().into());
+    }
+    value
+}
+
+fn with_fields(run: &Run, fields: Value) -> Value {
+    let mut value = for_agent(run);
     if let (Some(object), Value::Object(fields)) = (value.as_object_mut(), fields) {
         object.extend(fields);
     }
@@ -569,8 +579,8 @@ async fn dispatch(
         }
     }
     match request.method.as_str() {
-        "task.read" => task_read(core, &request).await,
-        "task.stop" => {
+        "process.read" => process_read(core, &request).await,
+        "process.stop" => {
             let execution_id = core
                 .harness
                 .read(|state| state.execution_for(&request.project, &request.params))?;
@@ -619,8 +629,8 @@ async fn dispatch(
         "plugins.tools" => super::plugins::agent_tools(core, &request.project).await,
         "plugins.call" => super::plugins::call_agent_tool(core, &request).await,
         "skills.manage" => skills_call(core, &request).await,
-        "task.start" => task_start(core, &request, false).await,
-        "task.restart" => task_start(core, &request, true).await,
+        "process.start" => process_start(core, &request, false).await,
+        "process.restart" => process_start(core, &request, true).await,
         "workspace.inspect" => inspect(core, request).await,
         "page.show" => show_page(core, request).await,
         "ui.open" => {
@@ -760,7 +770,13 @@ async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
         core.harness.read(|state| {
             object.insert(
                 "runs".into(),
-                serde_json::to_value(state.runs.list(&project)).unwrap_or_default(),
+                state
+                    .runs
+                    .list(&project)
+                    .iter()
+                    .map(for_agent)
+                    .collect::<Vec<_>>()
+                    .into(),
             );
             object.insert(
                 "cursor".into(),
@@ -884,13 +900,13 @@ fn skills_answer(data_dir: &Path, params: &Value) -> Result<Value, String> {
 async fn read_output(core: &Core, id: SessionId, query: OutputQuery) -> Result<OutputPage, String> {
     let session = core
         .session(id)
-        .ok_or("Task output expired or task no longer exists")?;
+        .ok_or("Process output expired or the process no longer exists")?;
     blocking(move || session::task_output(&session, &query))
         .await
         .map_err(|error| error.to_string())
 }
 
-async fn task_read(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
+async fn process_read(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let params = &request.params;
     let run = core.harness.read(|state| {
         let execution_id = state.execution_for(&request.project, params)?;
@@ -1120,7 +1136,7 @@ fn launch_target(
     restart: bool,
 ) -> Result<(String, Option<CommandLaunch>), String> {
     if restart {
-        let task_id = required_text(params, "taskId")?;
+        let task_id = required_text(params, "processId")?;
         let spec = if task_id.starts_with(COMMAND_TASK_PREFIX) {
             Some(state.earlier_command(project, task_id)?)
         } else {
@@ -1128,11 +1144,11 @@ fn launch_target(
         };
         return Ok((task_id.to_owned(), spec));
     }
-    let task_id = text(params, "taskId")?;
+    let task_id = text(params, "processId")?;
     let has_command = params.get("command").is_some();
     match task_id {
-        Some(_) if has_command => Err("Pass either taskId or command, not both".into()),
-        None if !has_command => Err("taskId or command is required".into()),
+        Some(_) if has_command => Err("Pass either processId or command, not both".into()),
+        None if !has_command => Err("processId or command is required".into()),
         None => {
             let command = required_text(params, "command")?;
             let label = text(params, "label")?;
@@ -1154,7 +1170,7 @@ fn launch_target(
         Some(task_id) => {
             if params.get("cwd").is_some() || params.get("label").is_some() {
                 return Err(
-                    "cwd and label go with command; a sikemux.json task sets its own".into(),
+                    "cwd and label go with command; a sikemux.json process sets its own".into(),
                 );
             }
             Ok((task_id.to_owned(), None))
@@ -1274,14 +1290,14 @@ pub(crate) fn start_for_person(
     project: &str,
     task_id: &str,
 ) -> Result<String, String> {
-    let params = json!({ "taskId": task_id });
+    let params = json!({ "processId": task_id });
     let key = uuid::Uuid::new_v4().to_string();
     let Begun::New {
         execution_id,
         previous,
     } = begin_start(core, project, None, &params, &key, true)?
     else {
-        return Err("The task did not start".into());
+        return Err("The process did not start".into());
     };
     let others = core.harness.read(|state| {
         state.runs.matching(|run| {
@@ -1301,7 +1317,7 @@ pub(crate) fn start_for_person(
     Ok(execution_id)
 }
 
-async fn task_start(
+async fn process_start(
     core: &Arc<Core>,
     request: &HarnessRequest,
     restart: bool,
@@ -1502,7 +1518,7 @@ pub(crate) fn tell_agent_run_failed(core: &Core, run: FailedRun) {
     };
     runtime.spawn(async move {
         let mut text = format!(
-            "Your task \"{}\" (executionId {}) stopped: {}. Read its output with task_read, fix the cause, and start it again with task_start under the same label.",
+            "Your process \"{}\" (executionId {}) stopped: {}. Read its output with process_read, fix the cause, and start it again with process_start under the same label.",
             run.label, run.execution_id, run.reason
         );
         if let Some(held) = port_holders(&core, &run).await {
@@ -1539,7 +1555,7 @@ async fn port_holders(core: &Arc<Core>, run: &FailedRun) -> Option<String> {
         .into_iter()
         .filter_map(|port| {
             let holder = match &port.listening.owner {
-                super::ports::PortOwner::Task { label, .. } => format!("task \"{label}\""),
+                super::ports::PortOwner::Task { label, .. } => format!("process \"{label}\""),
                 super::ports::PortOwner::Agent { label, .. } => format!("agent {label}"),
                 super::ports::PortOwner::Terminal { .. } => return None,
             };
@@ -1547,9 +1563,9 @@ async fn port_holders(core: &Arc<Core>, run: &FailedRun) -> Option<String> {
         })
         .collect();
     Some(match held.as_slice() {
-        [] => "Its port is taken by a program outside this project's tasks and agents; workspace_inspect lists the ports in use.".to_owned(),
+        [] => "Its port is taken by a program outside this project's processes and agents; workspace_inspect lists the ports in use.".to_owned(),
         _ => format!(
-            "Its port was taken. In this project, {}. Use that server, or stop it with task_stop, rather than picking another port.",
+            "Its port was taken. In this project, {}. Use that server, or stop it with process_stop, rather than picking another port.",
             held.join(", ")
         ),
     })
@@ -1654,7 +1670,7 @@ mod tests {
         let path = dir.path().join("nested").join(TOOL_CALLS_FILE);
         add_tool_call(&path, "browser.click", true).expect("counts");
         add_tool_call(&path, "browser.click", false).expect("counts");
-        add_tool_call(&path, "task.start", true).expect("counts");
+        add_tool_call(&path, "process.start", true).expect("counts");
         let tallies: BTreeMap<String, Tally> =
             serde_json::from_slice(&std::fs::read(&path).expect("written")).expect("parses");
         assert_eq!(
@@ -1664,7 +1680,10 @@ mod tests {
                 failures: 1
             })
         );
-        assert_eq!(tallies.get("task.start").map(|tally| tally.calls), Some(1));
+        assert_eq!(
+            tallies.get("process.start").map(|tally| tally.calls),
+            Some(1)
+        );
     }
 
     #[test]
@@ -1680,23 +1699,25 @@ mod tests {
         .unwrap();
         assert!(task_id.starts_with("sh:web-"));
         assert_eq!(spec.unwrap().cwd, "web");
-        assert!(resolve(json!({ "taskId": "test", "command": "ls" }), false)
-            .unwrap_err()
-            .contains("not both"));
+        assert!(
+            resolve(json!({ "processId": "test", "command": "ls" }), false)
+                .unwrap_err()
+                .contains("not both")
+        );
         assert!(resolve(json!({}), false)
             .unwrap_err()
-            .contains("taskId or command"));
-        assert!(resolve(json!({ "taskId": "test", "cwd": "web" }), false)
+            .contains("processId or command"));
+        assert!(resolve(json!({ "processId": "test", "cwd": "web" }), false)
             .unwrap_err()
             .contains("go with command"));
         assert!(resolve(json!({ "command": "ls", "cwd": "../x" }), false)
             .unwrap_err()
             .contains("inside the project"));
-        assert!(resolve(json!({ "taskId": "sh:never-abcdef" }), true)
+        assert!(resolve(json!({ "processId": "sh:never-abcdef" }), true)
             .unwrap_err()
             .contains("has not been started"));
         assert_eq!(
-            resolve(json!({ "taskId": "dev" }), true).unwrap(),
+            resolve(json!({ "processId": "dev" }), true).unwrap(),
             ("dev".into(), None)
         );
     }
@@ -1741,7 +1762,11 @@ mod tests {
         assert_eq!(run.pty_id, Some(7));
         assert_eq!(
             kinds,
-            ["task.awaiting-trust", "task.running", "task.failed"]
+            [
+                "process.awaiting-trust",
+                "process.running",
+                "process.failed"
+            ]
         );
 
         harness.change(|state| {

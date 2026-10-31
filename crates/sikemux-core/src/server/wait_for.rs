@@ -31,7 +31,7 @@ pub(crate) fn asked(params: &Value) -> bool {
 pub(crate) async fn call(request: &HarnessRequest) -> Result<Value, String> {
     let params = &request.params;
     if params.get("cursor").is_some() {
-        return Err("pass a cursor for task or UI events, or a file or pid, not both".into());
+        return Err("pass a cursor for process or UI events, or a file or pid, not both".into());
     }
     let file = params
         .get("file")

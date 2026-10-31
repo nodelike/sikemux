@@ -46,10 +46,10 @@ pub const SIM_METHODS: &[&str] = &[
 
 pub const HARNESS_METHODS: &[&str] = &[
     "workspace.inspect",
-    "task.start",
-    "task.restart",
-    "task.read",
-    "task.stop",
+    "process.start",
+    "process.restart",
+    "process.read",
+    "process.stop",
     "ui.open",
     "page.show",
     "events.wait",

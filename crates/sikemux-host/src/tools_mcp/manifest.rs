@@ -158,8 +158,8 @@ impl Manifest {
 
     pub fn instructions(&self) -> String {
         let mut instructions = format!(
-            "Sikemux drives the person's project and your desk's browser tabs. Call {} before your first task or browser click. \
-             Run dev servers, builds and anything the person may watch with task_start, not your shell; wait with events_wait, task_read or agent_wait, never sleep. \
+            "Sikemux drives the person's project and your desk's browser tabs. Call {} before your first process or browser click. \
+             Run dev servers, builds and anything the person may watch with process_start, not your shell; wait with events_wait, process_read or agent_wait, never sleep. \
              Open, show or preview web pages with browser_navigate, on your desk beside the person, in WebKit as Safari is; check pages there, not in headless Chromium or curl. \
              Before saying a page change works or is gone, look at the page there. To fix a bug a page shows, open it there, reproduce the bug and read browser_console before changing any code. \
              Desk tabs are signed in as the person, so read what you need there, such as a mailbox, before asking them. When they say they are paying or typing in a tab right now, leave it alone and open others with newTab: true. \
@@ -170,9 +170,9 @@ impl Manifest {
              Reach other agents, named with a word such as Otter, only with agent_list, agent_sessions for closed ones, agent_send, agent_spawn to start or resume one, agent_read and who_wrote, never your CLI's SendMessage; load them together and read the agents topic of {} first. \
              who_wrote finds who broke CI, a build or a test, or wrote a commit or lines: call it before git log, gh or a CI's API, and if it says to sign in, tell the person. \
              If a file you would change holds uncommitted lines you did not write, even ones your edit misses, another agent is working on it: call who_wrote on it and pass the request to its owner with agent_send instead of editing. Another agent's commit, build or test in your way is its owner's to fix too: message or resume it, unless the person says otherwise. \
-             Ask owners, not the person, about their changes. When a tool refuses, do what its error says, such as messaging an agent, or tell the person; never get around it another way, such as raw git or a cd in a task's command. \
+             Ask owners, not the person, about their changes. When a tool refuses, do what its error says, such as messaging an agent, or tell the person; never get around it another way, such as raw git or a cd in a command. \
              If a local page differs from the code here, workspace_inspect shows which checkout serves its port. \
-             Hand a change the person calls big or long, or that will take you more than a few minutes, to a teammate with agent_spawn, which they can watch, pause and resume, instead of starting it, and tell them; a long build or command is a task, and your own subagents are for short pieces. \
+             Hand a change the person calls big or long, or that will take you more than a few minutes, to a teammate with agent_spawn, which they can watch, pause and resume, instead of starting it, and tell them; a long command is a process, and your own subagents are for short pieces. \
              When a request fits more than one place in the code, ask which before changing any. \
              Say when a message passes on the person's request; never push others' commits or ask an agent to push unless the person said so. \
              ask puts a question to your lead, or the person when you have none. \
@@ -376,7 +376,7 @@ impl Tool {
             ),
             ("selector", &["query", "css"]),
             ("tail", &["lines"]),
-            ("taskId", &["name", "task", "id"]),
+            ("processId", &["name", "process", "task", "taskid", "id"]),
             ("deltaY", &["y", "dy", "amount", "pixels"]),
             ("url", &["href", "link"]),
             ("text", &["value", "content"]),

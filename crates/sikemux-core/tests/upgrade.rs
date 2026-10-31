@@ -364,7 +364,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
 
     let running = call(
         &core,
-        "task.start",
+        "process.start",
         json!({ "command": "printf 'task-out\\n'; sleep 30", "idempotencyKey": "keep", "readyWhen": "task-out" }),
     )
     .await
@@ -373,14 +373,14 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     let running_id = running["executionId"].as_str().expect("id").to_owned();
     let finished = call(
         &core,
-        "task.start",
+        "process.start",
         json!({ "command": "printf 'done-out\\n'; exit 3", "idempotencyKey": "done" }),
     )
     .await
     .expect("start a task that ends");
     let finished_id = finished["executionId"].as_str().expect("id").to_owned();
     let deadline = Instant::now() + WAIT;
-    while call(&core, "task.read", json!({ "executionId": finished_id }))
+    while call(&core, "process.read", json!({ "executionId": finished_id }))
         .await
         .expect("read")["exitCode"]
         != 3
@@ -469,7 +469,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     );
     let read = call(
         &core,
-        "task.read",
+        "process.read",
         json!({ "executionId": running_id, "plain": true }),
     )
     .await
@@ -481,7 +481,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     assert_eq!(read["status"], "running");
     let ended = call(
         &core,
-        "task.read",
+        "process.read",
         json!({ "executionId": finished_id, "plain": true }),
     )
     .await
@@ -493,7 +493,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
         .contains("done-out"));
     let again = call(
         &core,
-        "task.start",
+        "process.start",
         json!({ "command": "printf 'task-out\\n'; sleep 30", "idempotencyKey": "keep" }),
     )
     .await
@@ -523,7 +523,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     )
     .await
     .expect("history");
-    assert_eq!(history["events"][1]["kind"], "task.running");
+    assert_eq!(history["events"][1]["kind"], "process.running");
 
     client.write(shell, b"exit 5\r").await.expect("write");
     assert_eq!(stream.until_exit(&client, shell).await, Some(5));

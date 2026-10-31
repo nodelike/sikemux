@@ -691,7 +691,7 @@ def df3(run):
 
 def df4(run):
     command = "i=0; while [ $i -lt 900 ]; do i=$((i+1)); echo line $i; sleep 0.2; done"
-    said = run.prompt(json_tool("task.start", {"command": command, "label": "Count", "idempotencyKey": "desk-checks-df4"}))
+    said = run.prompt(json_tool("process.start", {"command": command, "label": "Count", "idempotencyKey": "desk-checks-df4"}))
     desk = until(lambda: (lambda desk: desk if (desk.get("front") or {}).get("terminal") else None)(run.desk()), 15) or {}
     run.execution = answered(said).get("executionId")
     run.report("DF4", desk.get("open") and (desk.get("front") or {}).get("terminal") == "Count",

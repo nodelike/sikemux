@@ -1249,7 +1249,7 @@
         {
           "tool": "workspace_inspect",
           "reply": {
-            "tasks": [
+            "processes": [
               {
                 "label": "dev",
                 "command": "pnpm dev",

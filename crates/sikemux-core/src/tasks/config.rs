@@ -408,7 +408,7 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
     if tasks > 0 {
         reasons.push(format!(
             "{tasks} project {}",
-            if tasks == 1 { "task" } else { "tasks" }
+            if tasks == 1 { "process" } else { "processes" }
         ));
     }
     if previews > 0 {
@@ -478,7 +478,7 @@ pub fn trust_commands(config: &ProjectConfig) -> Vec<TrustCommand> {
         command: action.command.clone(),
     });
     let tasks = config.tasks.iter().map(|task| TrustCommand {
-        label: format!("Task · {}", task.label),
+        label: format!("Process · {}", task.label),
         command: task_command_line(task),
     });
     let preview = preview_command(config).map(|command| TrustCommand {
@@ -766,7 +766,7 @@ fn parse_actions(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Pr
 }
 
 fn parse_task_cwd(value: Option<&Value>, path: &str, errors: &mut Vec<ConfigError>) -> String {
-    let cwd = bounded_optional(value, path, "Task working directory", 512, errors)
+    let cwd = bounded_optional(value, path, "Process working directory", 512, errors)
         .unwrap_or_else(|| ".".to_owned());
     let slashed = cwd.replace('\\', "/");
     let trimmed = slashed.trim_end_matches('/');
@@ -782,7 +782,7 @@ fn parse_task_cwd(value: Option<&Value>, path: &str, errors: &mut Vec<ConfigErro
         errors.push(issue(
             path,
             ConfigErrorCode::InvalidValue,
-            "Task working directory must stay within the project and contain no dot segments.",
+            "Process working directory must stay within the project and contain no dot segments.",
         ));
         return ".".to_owned();
     }
@@ -801,7 +801,7 @@ fn parse_task_env(
         errors.push(issue(
             path,
             ConfigErrorCode::InvalidType,
-            "Task environment must be an object of string values.",
+            "Process environment must be an object of string values.",
         ));
         return Vec::new();
     };
@@ -810,7 +810,7 @@ fn parse_task_env(
         errors.push(issue(
             path,
             ConfigErrorCode::LimitExceeded,
-            format!("Task environment may contain at most {MAX_TASK_ENV_ENTRIES} entries."),
+            format!("Process environment may contain at most {MAX_TASK_ENV_ENTRIES} entries."),
         ));
     }
     let mut total_length = 0;
@@ -855,7 +855,7 @@ fn parse_task_env(
             errors.push(issue(
                 path,
                 ConfigErrorCode::LimitExceeded,
-                format!("Task environment must be {MAX_TASK_ENV_TOTAL_LENGTH} characters or fewer in total."),
+                format!("Process environment must be {MAX_TASK_ENV_TOTAL_LENGTH} characters or fewer in total."),
             ));
             break;
         }
@@ -872,7 +872,7 @@ fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Proj
         errors.push(issue(
             "$.tasks",
             ConfigErrorCode::InvalidType,
-            "Tasks must be an array.",
+            "tasks must be an array of processes.",
         ));
         return Vec::new();
     };
@@ -880,7 +880,7 @@ fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Proj
         errors.push(issue(
             "$.tasks",
             ConfigErrorCode::LimitExceeded,
-            format!("At most {MAX_TASKS} tasks are allowed."),
+            format!("At most {MAX_TASKS} processes are allowed."),
         ));
     }
     let mut tasks = Vec::new();
@@ -891,7 +891,7 @@ fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Proj
             errors.push(issue(
                 path,
                 ConfigErrorCode::InvalidType,
-                "Task must be an object.",
+                "A process must be an object.",
             ));
             continue;
         };
@@ -907,7 +907,7 @@ fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Proj
         let command = parse_command(candidate.get("command"), &format!("{path}.command"), errors);
         let cwd = parse_task_cwd(candidate.get("cwd"), &format!("{path}.cwd"), errors);
         let env = parse_task_env(candidate.get("env"), &format!("{path}.env"), errors);
-        note_id(&mut ids, id.as_ref(), &path, "Task", errors);
+        note_id(&mut ids, id.as_ref(), &path, "Process", errors);
         if let (Some(id), Some(label), Some(command)) = (id, label, command) {
             tasks.push(ProjectTask {
                 id,

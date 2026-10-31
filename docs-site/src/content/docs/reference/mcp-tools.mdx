@@ -59,22 +59,22 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 
 | Tool | What it does |
 |---|---|
-| `workspace_inspect` | The open project: tasks, runs and ports. |
+| `workspace_inspect` | The open project: processes, runs and ports. |
 
-## task
+## process
 
 | Tool | What it does |
 |---|---|
-| `task_start` | Start a sikemux.json task or a shell command. |
-| `task_restart` | Restart a task's latest run. |
-| `task_read` | Read a task's output by cursor, tail or search. |
-| `task_stop` | Stop a task's run and its process tree. |
+| `process_start` | Start a sikemux.json process or shell command. |
+| `process_restart` | Restart a process's latest run. |
+| `process_read` | Read a process's output by cursor, tail or search. |
+| `process_stop` | Stop a run and everything it started. |
 
 ## ui
 
 | Tool | What it does |
 |---|---|
-| `ui_open` | Open a file, diff, task terminal or the preview. |
+| `ui_open` | Open a file, diff, terminal or the preview. |
 
 ## page
 
@@ -87,7 +87,7 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 
 | Tool | What it does |
 |---|---|
-| `events_wait` | Wait for task or UI events, a file or a process. |
+| `events_wait` | Wait for process or UI events, a file or a pid. |
 
 ## agent
 

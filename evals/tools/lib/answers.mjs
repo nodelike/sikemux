@@ -235,19 +235,19 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
           note: 'The person sees the page in your reply, above the text you write next. Do not describe or restate it; write only what it does not already say.',
         },
       };
-    case 'task_start': {
+    case 'process_start': {
       const executionId = `exec-eval-${++state.executions}`;
-      return { value: { executionId, taskId: `sh:${args.label ?? 'task'}`, project, status: 'running', label: args.label ?? args.command, command: args.command, ready: false } };
+      return { value: { executionId, processId: `sh:${args.label ?? 'process'}`, project, status: 'running', label: args.label ?? args.command, command: args.command, ready: false } };
     }
-    case 'task_read':
-      return { value: { executionId: args.executionId, status: 'exited', exitCode: 0, output: fixture.taskOutput ?? 'done\n' } };
-    case 'task_stop':
-    case 'task_restart':
-      return { value: { executionId: args.executionId, status: tool === 'task_stop' ? 'stopped' : 'running' } };
+    case 'process_read':
+      return { value: { executionId: args.executionId, status: 'exited', exitCode: 0, output: fixture.processOutput ?? 'done\n' } };
+    case 'process_stop':
+    case 'process_restart':
+      return { value: { executionId: args.executionId, status: tool === 'process_stop' ? 'stopped' : 'running' } };
     case 'events_wait':
       return {
         value: {
-          events: [{ kind: 'task.exited', executionId: args.executionId ?? 'exec-eval-1', exitCode: 0 }],
+          events: [{ kind: 'process.exited', executionId: args.executionId ?? 'exec-eval-1', exitCode: 0 }],
           cursor: String(++state.cursor),
         },
       };
@@ -291,7 +291,7 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
     case 'app_console':
       return { value: { recorded: 0, matched: 0, messages: [] } };
     case 'workspace_inspect':
-      return { value: { project, roots: [project], tasks: [] } };
+      return { value: { project, roots: [project], processes: [] } };
     case 'ui_open':
       return { value: { opened: args.kind ?? 'file' } };
     case 'board_list':

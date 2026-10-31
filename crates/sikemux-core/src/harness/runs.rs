@@ -28,13 +28,13 @@ impl RunStatus {
 
     pub fn event_kind(self) -> &'static str {
         match self {
-            Self::AwaitingTrust => "task.awaiting-trust",
-            Self::Starting => "task.starting",
-            Self::Running => "task.running",
-            Self::Completed => "task.completed",
-            Self::Failed => "task.failed",
-            Self::Stopping => "task.stopping",
-            Self::Stopped => "task.stopped",
+            Self::AwaitingTrust => "process.awaiting-trust",
+            Self::Starting => "process.starting",
+            Self::Running => "process.running",
+            Self::Completed => "process.completed",
+            Self::Failed => "process.failed",
+            Self::Stopping => "process.stopping",
+            Self::Stopped => "process.stopped",
         }
     }
 }
@@ -205,7 +205,7 @@ pub struct Runs {
     keys: Vec<Key>,
 }
 
-pub const NOT_IN_PROJECT: &str = "Task execution does not belong to this project";
+pub const NOT_IN_PROJECT: &str = "This run belongs to another project";
 
 impl Runs {
     pub fn record(&self) -> RunsRecord {
@@ -322,7 +322,7 @@ impl Runs {
             return Ok(None);
         };
         if entry.task_id != task_id {
-            return Err("idempotencyKey was already used for another task".into());
+            return Err("idempotencyKey was already used for another process".into());
         }
         Ok(Some(entry.execution_id.clone()))
     }
@@ -344,7 +344,7 @@ impl Runs {
                 .keys
                 .iter()
                 .position(|entry| self.finished(&entry.execution_id))
-                .ok_or("Too many idempotency keys name tasks that are still running; stop one with task_stop first")?;
+                .ok_or("Too many idempotency keys name processes that are still running; stop one with process_stop first")?;
             self.keys.remove(oldest);
         }
         self.keys.push(Key {
@@ -368,7 +368,9 @@ impl Runs {
                 .runs
                 .iter()
                 .position(|run| !run.status.is_active())
-                .ok_or("Too many harness tasks are still running; stop one with task_stop first")?;
+                .ok_or(
+                    "Too many agent processes are still running; stop one with process_stop first",
+                )?;
             let evicted = self.runs.remove(oldest);
             self.keys
                 .retain(|entry| entry.execution_id != evicted.execution_id);

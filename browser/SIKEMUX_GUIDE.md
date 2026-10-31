@@ -1,15 +1,15 @@
 ---
 name: sikemux-harness
-description: How to drive a Sikemux project and its browser — task launches, output and event cursors, opening UI, and the tab model.
+description: How to drive a Sikemux project and its browser — starting processes, output and event cursors, opening UI, and the tab model.
 ---
 
 # Working inside Sikemux
 
 You are running in a pane of a Sikemux workspace. `workspace_inspect`, the
-`task_*` tools, `ui_open` and `events_wait` act on the project the person has
+`process_*` tools, `ui_open` and `events_wait` act on the project the person has
 open. The tools named `browser_*` act on the browser tabs on your desk, the
 pane beside yours that the person can see. Your desk holds the pages, files and
-task terminals you open for the person, as tabs in one strip.
+process terminals you open for the person, as tabs in one strip.
 
 When the person asks you to open, show or preview a page, open it on your desk
 with `browser_navigate`, not in their own browser. Desk tabs run WebKit, the
@@ -20,15 +20,15 @@ from the list below.
 
 ## Essentials
 
-- `workspace_inspect` comes first. It returns the open project, the tasks in
-  `sikemux.json`, the runs you already started and an event cursor. Task ids
-  come from there; do not guess one. Its `ports` lists the ports the
-  project's terminals, tasks and agents listen on.
-- `task_start` takes an `idempotencyKey` you choose and either a `taskId` or a
-  `command`. Reusing a key returns the original run, so pick one key per
-  attempt and reuse it when a call fails or you are unsure it landed. Use
-  tasks for dev servers and watchers rather than background shell jobs.
-- `task_read` pages output by byte cursor: start at `0` and pass back the
+- `workspace_inspect` comes first. It returns the open project, its processes,
+  the runs you already started and an event cursor. Process ids come from
+  there; do not guess one. Its `ports` lists the ports the project's
+  terminals, processes and agents listen on.
+- `process_start` takes an `idempotencyKey` you choose and either a
+  `processId` or a `command`. Reusing a key returns the original run, so pick
+  one key per attempt and reuse it when a call fails or you are unsure it
+  landed. Use processes for dev servers and watchers, not shell jobs.
+- `process_read` pages output by byte cursor: start at `0` and pass back the
   `cursor` it returns. Output comes as plain text; `plain: false` keeps the
   terminal escapes. `tail: N` gives the last lines and `search` the matching ones.
 - `events_wait` takes an event cursor from `workspace_inspect` or the last
@@ -57,8 +57,8 @@ from the list below.
 Pass one of these as `topic`:
 
 - `config` — writing or fixing `sikemux.json`, and `configStatus`
-- `tasks` — launching, trust prompts, `readyWhen`, restarting, stopping
-- `output` — `task_read` paging, `plain`, `tail`, `search`, `events_wait`
+- `processes` — starting, trust prompts, `readyWhen`, restarting, stopping
+- `output` — `process_read` paging, `plain`, `tail`, `search`, `events_wait`
 - `ui` — `ui_open` for files, diffs, terminals and the preview
 - `pages` — charts, tables, diagrams and mockups in your reply
 - `browser-reading` — page state, report modes, element numbers, `browser_find`, frames
@@ -79,9 +79,10 @@ Pass one of these as `topic`:
 
 `configStatus` is `absent` when the project has no `sikemux.json`, and
 `invalid` when it has one that failed to load; `configErrors` then lists each
-problem by path. Neither state offers any tasks.
+problem by path. Neither state offers its processes.
 
-The file sits at the project root. Tasks are what `task_start` launches:
+The file sits at the project root. Its `tasks` list holds the processes
+`process_start` launches:
 
 ```json
 {
@@ -94,28 +95,29 @@ The file sits at the project root. Tasks are what `task_start` launches:
 }
 ```
 
-`version` is required and must be `1`. A task needs `id`, `label` and
+`version` is required and must be `1`. A process needs `id`, `label` and
 `command`; `cwd` is relative to the project and defaults to `.`, and `env`
 holds string values. Ids use letters, numbers, `.`, `_` and `-`. Unknown fields
 are rejected. If the project already describes its processes elsewhere, such
 as `.claude/launch.json` or a Procfile, carry those commands over rather than
 inventing new ones. Inspect again after writing to see `configErrors`.
 
-## tasks: Running and stopping tasks
+## processes: Starting and stopping processes
 
-`task_start` takes an `idempotencyKey` you choose and either a `taskId` or a
-`command` to run. `workspace_inspect` lists the task ids: those from
+A process is a named command that runs in a terminal; each start of it is a
+run. `process_start` takes an `idempotencyKey` you choose and either a
+`processId` or a `command` to run. `workspace_inspect` lists the process ids: those from
 `sikemux.json`, then those Sikemux found in the project's build files
 (`foundIn: "build files"`), and those the person added for themselves
-(`foundIn: ".sikemux/tasks.json"`). The found ones include Maven, Gradle and
-Go run, test and build tasks, Cargo run, test and build tasks, a
+(`foundIn: ".sikemux/tasks.json"`). The found ones include Maven, Gradle,
+Go and Cargo run, test and build commands, a
 `package.json`'s scripts, and a Python project's FastAPI, Flask or Django app
-and pytest. A found task runs on the Java its build asks for (`java.runsOn`),
+and pytest. A found process runs on the Java its build asks for (`java.runsOn`),
 so prefer it to running `mvn` or `gradle` yourself. A `command` runs in the
-same kind of managed terminal as a configured task, in the project root or in
+same kind of managed terminal as a configured process, in the project root or in
 `cwd`, a directory inside the project, relative to it or whole, and `label` names
-its tab. The result's `taskId` looks like `sh:pnpm-dev-3fa2c1`; use it with
-`task_read`, `task_stop` and `task_restart`, or pass it back to `task_start`
+its tab. The result's `processId` looks like `sh:pnpm-dev-3fa2c1`; use it with
+`process_read`, `process_stop` and `process_restart`, or pass it back to `process_start`
 to run the same command again. Starting the same command in the same directory
 while it still runs returns that run. Use this for dev servers and watchers
 rather than background shell jobs: you can read their output, see when they
@@ -128,92 +130,92 @@ call fails or you are unsure whether it landed.
 
 Two things can stop a launch:
 
-- A `sikemux.json` task, or one the person keeps in `.sikemux/tasks.json`,
+- A `sikemux.json` process, or one the person keeps in `.sikemux/tasks.json`,
   may need trust. Sikemux asks the person in whichever Sikemux app they have
   open; their answer holds on this host until the file changes. While the
-  question waits, `task_start` returns at once with
-  `status: "awaiting-trust"` and an `executionId` that `task_read` and
-  `task_stop` already know. Call `task_start` again with the same key, or
+  question waits, `process_start` returns at once with
+  `status: "awaiting-trust"` and an `executionId` that `process_read` and
+  `process_stop` already know. Call `process_start` again with the same key, or
   `events_wait` with that `executionId`, to see it start. If the person
   refuses, the run ends as `failed`. A `command` needs no trust, and neither
   does anything you start while the person runs you in YOLO mode.
-- A task is checked first: its build tool must be installed, a new enough Java
+- A process is checked first: its build tool must be installed, a new enough Java
   must exist, and a Node.js project's dependencies must be installed. If not,
-  `task_start` fails and says what is missing and how to install it. When a
+  `process_start` fails and says what is missing and how to install it. When a
   Spring Boot, Next.js, FastAPI or Flask app's port is taken, it runs on the
   next free one instead, and the result's `previewUrl` says where.
-- Starting a task that is already running, whether you, another agent or the
+- Starting a process that is already running, whether you, another agent or the
   person started it, returns that execution.
 
-After a Maven, Gradle, Vitest, Jest, pytest, Go or Cargo test task, `workspace_inspect` has
+After a Maven, Gradle, Vitest, Jest, pytest, Go or Cargo test run, `workspace_inspect` has
 `testResults`: per module, the counts and each failing test with its message,
 file and line, read from the reports the runner writes. Read those instead of the whole build log.
 
 `events_wait` with a `file` or `pid` in place of a cursor waits on work
-started outside tasks, such as a background job writing its output to a file,
-a log under `/tmp` or a process: until the file holds `text`, until it stops
+started outside processes, such as a background job writing its output to a file,
+a log under `/tmp` or a program by its pid: until the file holds `text`, until it stops
 changing for two seconds when no text is given, or until `pid` exits, for up
 to `timeoutMs` (30 seconds). It answers `met`, what is still `failing`, and the
 file's last lines in `tail`. Call it again when it times out rather than
 sleeping in a shell.
 
-If a task you started stops with an error while you are doing something else,
+If a process you started stops with an error while you are doing something else,
 such as a dev server crashing, Sikemux sends you a notice with its
-`executionId`. Read its output with `task_read` before starting it again.
+`executionId`. Read its output with `process_read` before starting it again.
 
-`task_start` always answers within about 30 seconds. If the task is still
+`process_start` always answers within about 30 seconds. If the process is still
 launching it returns `status: "starting"`; call again with the same key.
 `readyWhen` makes it wait, within those 30 seconds, until that text appears
 in the output, such as `Ready in` for a dev server. The result then carries
-`ready`: `true` once it appeared, `false` if the task stopped or time ran out,
+`ready`: `true` once it appeared, `false` if the process stopped or time ran out,
 with a `note` when it is still running; keep waiting with `events_wait`, or
-`task_read` with `search`.
+`process_read` with `search`.
 
-`task_restart` takes a `taskId`, stops that task's latest execution, starts a
+`process_restart` takes a `processId`, stops that process's latest execution, starts a
 new one, and returns it. Use it instead of a stop followed by a start with a
 new key. Starting a command under a label you used before replaces that
 earlier run, even with a changed command: it stops if it still runs, and the
 new terminal takes its place on your desk. When a run fails because its port
-is taken, the message names the task or agent holding it; use that server or
+is taken, the message names the process or agent holding it; use that server or
 stop it rather than picking another port.
 
-A task you start opens its terminal as a tab on your desk, without taking the
+A process you start opens its terminal as a tab on your desk, without taking the
 person's focus. When your turn ends, the terminals of your runs that finished
 leave the desk, but the one in front; their output stays readable for a while.
-Stop servers once nobody needs them. Closing you stops every task you started. To bring the person to it, call `ui_open` with
+Stop servers once nobody needs them. Closing you stops every process you started. To bring the person to it, call `ui_open` with
 `kind: "terminal"`, the `executionId`, and `focus: true`.
 
-`task_stop` takes an `executionId` and stops that exact execution and
-its process tree. A `taskId` instead stops that task's latest execution.
+`process_stop` takes an `executionId` and stops that exact execution and
+everything it started. A `processId` instead stops that process's latest execution.
 
 ### What survives a reload or restart
 
-Tasks, their runs and idempotency keys live in Sikemux's background process,
+Processes, their runs and idempotency keys live in Sikemux's background process,
 so they survive the window reloading, the app quitting and Sikemux updating.
-Every task tool works while the window is closed, and so does
+Every process tool works while the window is closed, and so does
 `workspace_inspect`, which then lists no panes and says so in a `note`.
 `ui_open` and the browser tools need the window; with it closed they fail
 and say so. While Sikemux updates its background process a call can fail for
-a moment saying so; call it again. When Sikemux opens again the tasks'
+a moment saying so; call it again. When Sikemux opens again the processes'
 terminals come back. Chat agents keep running too: a turn in progress goes
 on while the window is closed, and a permission it asks for waits for the
 person. A terminal agent whose process dies, other than by the person quitting
 it or Sikemux stopping it, is started again on its saved conversation in the
-same pane. A task that ended stays readable for about ten minutes.
+same pane. A process that ended stays readable for about ten minutes.
 Event cursors stay valid across reloads, restarts and updates, so keep the one
 you have.
 
-"Quit and Stop Everything" (⌥⌘Q) stops every task and the background process,
-and its runs and keys go with it; `task_read` then says the task was started
+"Quit and Stop Everything" (⌥⌘Q) stops every process and Sikemux's background process,
+and its runs and keys go with it; `process_read` then says the process was started
 earlier and its run is gone. Sikemux keeps 128 runs and 256 keys, forgetting
 the oldest finished ones first; only when that many are still running does a
-start fail, and stopping one with `task_stop` makes room. Closing the project
-stops its harness tasks.
+start fail, and stopping one with `process_stop` makes room. Closing the project
+stops the processes agents started in it.
 
 ## output: Reading output and waiting
 
-`task_read` pages through a task's output by byte cursor. Name the run with
-its `executionId`, or pass a `taskId` to read that task's latest execution.
+`process_read` pages through a process's output by byte cursor. Name the run with
+its `executionId`, or pass a `processId` to read that process's latest execution.
 
 Start at cursor `0`. Pass the returned `cursor` into the next call. Keep
 reading while `hasMore` is true. Every page reports `end`, the length of the
@@ -236,7 +238,7 @@ same either way. Three options change what comes back:
   forward from `cursor` like a normal read; with `tail: N` it returns the last
   N matches instead, such as the latest stack trace.
 
-A task retains about 1 MiB. If your cursor is older than the retained bytes,
+A run retains about 1 MiB of output. If your cursor is older than the retained bytes,
 `truncated` comes back true — you have lost the gap and should read on from
 the cursor you were given rather than trying to recover it.
 
@@ -245,8 +247,8 @@ when the app is under pressure. Read output you care about promptly.
 
 ### Waiting for something to happen
 
-`events_wait` blocks for up to 30 seconds and returns task output,
-task lifecycle, and UI-open events, `git.moved` when the project's branch
+`events_wait` blocks for up to 30 seconds and returns process output,
+process lifecycle (`process.running`, `process.failed`…), and UI-open events, `git.moved` when the project's branch
 moves by anyone's commit, and `check.passed` or `check.failed` when the
 project's check of its newest commit ends. Wait on those rather than asking
 another agent to tell you once it has committed.
@@ -257,7 +259,7 @@ pass each returned cursor into the next wait. Passing an output cursor here is
 a mistake.
 
 A timeout is normal: you get an empty event list and a fresh cursor. Wait
-again. Pass an `executionId` to hear only about one task.
+again. Pass an `executionId` to hear only about one run.
 
 A wait reaches the project's newest 1024 events. If one comes back
 `truncated`, stop replaying and inspect the workspace again for current state.
@@ -282,7 +284,7 @@ Paths must resolve inside the project; a path that escapes it is refused.
 
 Preview needs an agent session and opens as a page on your desk. The `previewUrl`
 you get back is configuration, not proof that anything is listening. If you
-need to know the server is up, read the task output or navigate to it.
+need to know the server is up, read the process output or navigate to it.
 
 ## pages: Showing a page in your reply
 
@@ -736,7 +738,7 @@ stops the call at its next step. `sim_screenshot` returns the screen as an
 image at its size in points; read `sim_state` rather than a screenshot to
 decide what to tap.
 
-To try an app: build it for the simulator with a task (`xcodebuild` with
+To try an app: build it for the simulator as a process (`xcodebuild` with
 `-sdk iphonesimulator` and a `-derivedDataPath` inside the project), then
 `sim_install` the `.app` it produced, which must be inside the project, and
 `sim_launch` it by bundle id, with optional `arguments` and `environment`.
@@ -749,13 +751,13 @@ Do not install with `expo run:ios`, `react-native run-ios`, `flutter run` or
 `open -a Simulator`: once the app is on the device they open Simulator.app,
 or DeviceHub from Xcode 27, over the person's screen. For an Expo or React
 Native app, build it with `xcodebuild` as above and start only the bundler as
-a task (`expo start --dev-client` or `react-native start`, without `--ios`).
+a process (`expo start --dev-client` or `react-native start`, without `--ios`).
 An Expo development build then reaches it through `sim_open_url` with
 `<scheme>://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081`.
 
 `sim_logs` reads the device's log, kept from when you attached it, by
 `cursor`: start at `0` and pass back the `cursor` and `generation` it
-returns, as with `task_read`. It holds what apps log through `Logger`, `os_log` or `NSLog` at
+returns, as with `process_read`. It holds what apps log through `Logger`, `os_log` or `NSLog` at
 the default level and above; `print()` goes to the app's standard output,
 which the log never sees, and debug-level messages are left out, so log what
 you need at `.info` or higher. Apple's frameworks are left out too. Ask for
@@ -967,7 +969,7 @@ you about them in messages from Sikemux itself, never from the person:
   both of you and your leads hear which lines of which file. Read the file
   again before you edit it, and agree on those lines with `agent_send`.
 - A change no edit tool made while you were at work, by your commands,
-  subagents or tasks, may be your own, so you are not told about it. When
+  subagents or processes, may be your own, so you are not told about it. When
   Sikemux cannot tell who made a change, the note says so rather than naming
   an agent that was only at work then. A note you cannot read at once is
   dropped rather than arriving late.
@@ -1421,19 +1423,19 @@ url private, and remove the trigger when it is no longer needed.
 
 ## shell: The same operations from a shell
 
-Every tool here is also a CLI verb, which is useful inside a task or a script:
+Every tool here is also a CLI verb, which is useful inside a process or a script:
 
 ```bash
 sikemux tool workspace.inspect
-sikemux tool task.start '{"taskId":"dev","idempotencyKey":"dev-first-run"}'
-sikemux tool task.read '{"executionId":"ID","cursor":0}'
-sikemux tool task.read '{"taskId":"dev","tail":50,"plain":true}'
+sikemux tool process.start '{"processId":"dev","idempotencyKey":"dev-first-run"}'
+sikemux tool process.read '{"executionId":"ID","cursor":0}'
+sikemux tool process.read '{"processId":"dev","tail":50,"plain":true}'
 sikemux tool events.wait '{"cursor":"CURSOR","timeoutMs":30000}'
 sikemux tool ui.open '{"kind":"file","path":"src/App.tsx","line":42,"focus":true}'
-sikemux tool task.stop '{"executionId":"ID"}'
+sikemux tool process.stop '{"executionId":"ID"}'
 ```
 
-`sikemux` is on PATH for the terminals, tasks and agents Sikemux launches,
+`sikemux` is on PATH for the terminals, processes and agents Sikemux launches,
 including your own shell tool. Where it is not, `workspace_inspect` returns
 its absolute path as `cli`.
 

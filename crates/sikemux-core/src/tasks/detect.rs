@@ -796,22 +796,22 @@ pub fn save_check(project: &Path, command: &str) -> Result<(), String> {
 /// leaving everything else in the file as it was.
 pub fn remove_saved(project: &Path, task_id: &str) -> Result<(), String> {
     if task_id.starts_with(DETECTED_PREFIX) {
-        return Err("a task found in the build files cannot be removed".into());
+        return Err("a process found in the build files cannot be removed".into());
     }
     let (path, id) = match task_id.strip_prefix(PERSONAL_PREFIX) {
         Some(id) => (project.join(PERSONAL_TASKS), id),
         None => (project.join(CONFIG_FILE), task_id),
     };
     let Some(mut stored) = read_object(&path)? else {
-        return Err(format!("{} has no tasks", path.display()));
+        return Err(format!("{} has no processes", path.display()));
     };
     let Some(Value::Array(tasks)) = stored.get_mut("tasks") else {
-        return Err(format!("{} has no tasks", path.display()));
+        return Err(format!("{} has no processes", path.display()));
     };
     let before = tasks.len();
     tasks.retain(|task| task.get("id").and_then(Value::as_str) != Some(id));
     if tasks.len() == before {
-        return Err(format!("{} has no task {id}", path.display()));
+        return Err(format!("{} has no process {id}", path.display()));
     }
     write_json(&path, stored)
 }
