@@ -44,6 +44,7 @@ pub(crate) fn leave_be(tab_id: &str) -> Result<(), String> {
 }
 
 /// The person clicked or typed in the tab.
+#[cfg(target_os = "macos")]
 pub(crate) fn touched(tab_id: &str) {
     TOUCHED
         .locked()
