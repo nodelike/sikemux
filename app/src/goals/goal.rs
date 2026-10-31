@@ -266,12 +266,12 @@ fn step(pane: &GoalsPane, next: &NextGate) -> Option<String> {
         (Gate::Landed, false) => "lands",
     };
     let who = match next.passer {
-        Passer::Person => "you".to_owned(),
-        Passer::Core => "Sikemux".to_owned(),
-        Passer::Owner => card
-            .owner_name
-            .clone()
-            .unwrap_or_else(|| "its owner".into()),
+        Passer::Person => "you",
+        Passer::Core => "Sikemux",
+        Passer::Owner => match card.owner_name.as_deref() {
+            Some(owner) => owner,
+            None => return Some(format!("{} waits for an owner", card.title)),
+        },
     };
     Some(format!("{who} {verb} {}", card.title))
 }

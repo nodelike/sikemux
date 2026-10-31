@@ -311,7 +311,7 @@ fn passer_name(gate: &GateView, card: &CardView) -> String {
             .agent_name
             .clone()
             .or_else(|| card.owner_name.clone())
-            .unwrap_or_else(|| "its owner".into()),
+            .unwrap_or_else(|| "no owner yet".into()),
     }
 }
 
