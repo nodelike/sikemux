@@ -28,19 +28,19 @@ use sikemux_wire::protocol::PermissionMode;
 
 use sikemux_wire::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
-    ChatDraft, ChatFailure, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger, ContentBlock,
-    ContextUsage, FailureKind, MoveReason, NoticeSeverity, NoticeState, PermissionAsk,
-    PermissionKind, PermissionOption, PlanEntry, QueuedMessage, Retrying, SentContext,
-    SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage,
-    ToolDetail, ToolStatus, TurnStart, UsageCost, WorkflowAgent,
+    ChatDraft, ChatFailure, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger, Compactions,
+    ContentBlock, ContextUsage, FailureKind, MoveReason, NoticeSeverity, NoticeState,
+    PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage, Retrying,
+    SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice, TaskState,
+    TaskUsage, ToolDetail, ToolStatus, TurnStart, UsageCost, WorkflowAgent,
 };
 use tools::WithRow;
 
 pub use event::{ChatEvent, ChatEventKind};
 pub use find::{found_in, matches, searchable, Found, Query};
 pub use send::{with_trees, PageOf, PAGE_BYTES, TAIL_TURNS};
-use update::stamped_at;
 pub use update::UpdateKind;
+use update::{finished_compaction, stamped_at};
 
 /// Whether a call is one of our gestures, such as a reaction, which a chat shows
 /// only by what it did.
@@ -295,6 +295,8 @@ pub struct Fold {
     gestures: HashMap<(Option<String>, String), Option<Raw>>,
     details: Details,
     notices: HashSet<String>,
+    /// The compactions already counted, as an agent may say one has finished more than once.
+    compacted: HashSet<String>,
     suppress_user_echo: bool,
     /// Head fields changed since the last flush.
     head_dirty: BTreeSet<&'static str>,
@@ -567,6 +569,7 @@ impl Fold {
             gestures: HashMap::new(),
             details: Details::default(),
             notices: HashSet::new(),
+            compacted: HashSet::new(),
             suppress_user_echo: false,
             head_dirty: BTreeSet::new(),
             dropped: None,
@@ -1041,6 +1044,9 @@ impl Fold {
             .turn_opening
             .clone()
             .or_else(|| replayed_turn_start(update));
+        if let Some(id) = finished_compaction(update) {
+            self.count_compaction(id, stamped_at(update).unwrap_or(at));
+        }
         let rows = self.main.rows.len();
         let timed = self.head.running;
         if self.transcript_update(index, &None, update, timed, opening.is_some(), at, until) {
@@ -1164,6 +1170,15 @@ impl Fold {
             }
             _ => {}
         }
+    }
+
+    fn count_compaction(&mut self, id: &str, at: u64) {
+        if !self.compacted.insert(id.to_owned()) {
+            return;
+        }
+        let count = self.head.compactions.as_ref().map_or(0, |had| had.count) + 1;
+        self.head.compactions = Some(Compactions { count, last_at: at });
+        self.set_head("compactions");
     }
 
     /// History the agent kept says when each part of it happened. A turn

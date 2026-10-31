@@ -13,7 +13,7 @@ use gpui_kit::{
     Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
 };
-use sikemux_wire::chat::ContextUsage;
+use sikemux_wire::chat::{Compactions, ContextUsage};
 use sikemux_wire::protocol::ConfigPicker;
 
 use crate::chat::model_picker::Picked;
@@ -77,6 +77,7 @@ pub struct Composer {
     /// provider; the strip picks the account.
     model_menu: Option<(Picked, Entity<Workbench>)>,
     usage: Option<ContextUsage>,
+    compactions: Option<Compactions>,
     /// The files going with the message, the button that picks more, what a paste of
     /// files or pictures does, and how the draft draws the tags that name them.
     attachments: Option<(Option<AnyElement>, Act, Paste, Chip)>,
@@ -117,6 +118,7 @@ impl Composer {
             pickers: None,
             model_menu: None,
             usage: None,
+            compactions: None,
             attachments: None,
             menu: None,
             stash: None,
@@ -223,8 +225,9 @@ impl Composer {
         self
     }
 
-    pub fn usage(mut self, usage: Option<ContextUsage>) -> Self {
+    pub fn usage(mut self, usage: Option<ContextUsage>, compactions: Option<Compactions>) -> Self {
         self.usage = usage;
+        self.compactions = compactions;
         self
     }
 }
@@ -348,7 +351,7 @@ impl RenderOnce for Composer {
         let bar = bar
             .children(
                 self.usage
-                    .map(|usage| context_meter(usage, &self.provider, cx)),
+                    .map(|usage| context_meter(usage, self.compactions, &self.provider, cx)),
             )
             .child(div().flex_1())
             .children(self.dictation)
@@ -910,7 +913,12 @@ fn picker(
 }
 
 /// How much of the context window the session has used, as a ring.
-fn context_meter(usage: ContextUsage, provider: &str, cx: &App) -> impl IntoElement {
+fn context_meter(
+    usage: ContextUsage,
+    compactions: Option<Compactions>,
+    provider: &str,
+    cx: &App,
+) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let percent = if usage.size > 0. {
         (usage.used / usage.size * 100.).clamp(0., 100.)
@@ -942,17 +950,55 @@ fn context_meter(usage: ContextUsage, provider: &str, cx: &App) -> impl IntoElem
                 ..t.text_primary
             })
         })
-        .tooltip(ui::card_tooltip(236., move |cx| {
-            context_card(usage.clone(), percent, signal, percent_ink, cx)
+        .tooltip(ui::card_tooltip(236., {
+            let compactions = compactions.clone();
+            move |cx| {
+                context_card(
+                    usage.clone(),
+                    compactions.clone(),
+                    percent,
+                    signal,
+                    percent_ink,
+                    cx,
+                )
+            }
         }))
-        .child(ui::ring(Some((percent, signal)), 14., 1.9, t.line))
+        .child(match compactions {
+            None => ui::ring(Some((percent, signal)), 14., 1.9, t.line).into_any_element(),
+            Some(compactions) => counted_ring(percent, signal, compactions.count, &t),
+        })
+}
+
+/// The context ring grown to hold how often the conversation was compacted.
+fn counted_ring(percent: f64, signal: Hsla, count: u32, t: &Tokens) -> AnyElement {
+    let size = if count < 10 { 10. } else { 8.5 };
+    div()
+        .relative()
+        .size(px(18.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .child(ui::ring(Some((percent, signal)), 18., 2., t.line)),
+        )
+        .child(
+            ui::text(count.to_string(), size, FontWeight::SEMIBOLD)
+                .font_features(theme::tabular())
+                .text_color(t.text_primary),
+        )
+        .into_any_element()
 }
 
 const CONTEXT_SEGMENTS: usize = 24;
 
-/// The context meter's tooltip: the share used as a row of segments, then tokens and cost.
+/// The context meter's tooltip: the share used as a row of segments, then tokens, compactions
+/// and cost.
 fn context_card(
     usage: ContextUsage,
+    compactions: Option<Compactions>,
     percent: f64,
     signal: Hsla,
     percent_ink: Hsla,
@@ -1032,6 +1078,28 @@ fn context_card(
                 .flex_col()
                 .gap(px(3.))
                 .child(row("Tokens", tokens.into_any_element()))
+                .children(compactions.map(|compactions| {
+                    let ink = match compactions.count {
+                        10.. => t.danger,
+                        5.. => t.warn,
+                        _ => t.text_primary,
+                    };
+                    let times = match compactions.count {
+                        1 => "Once".to_owned(),
+                        count => format!("{count} times"),
+                    };
+                    row(
+                        "Compacted",
+                        ui::text(
+                            format!("{times} · {}", ui::time::ago(compactions.last_at)),
+                            TEXT_2XS_H,
+                            FontWeight::NORMAL,
+                        )
+                        .font_features(theme::tabular())
+                        .text_color(ink)
+                        .into_any_element(),
+                    )
+                }))
                 .children(usage.cost.map(|cost| {
                     row(
                         "Session cost",

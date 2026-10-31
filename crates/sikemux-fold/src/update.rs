@@ -185,6 +185,7 @@ pub fn compaction(id: &str, opens: bool, status: &str, error: Option<&str>) -> V
         "toolCallId": id,
         "title": "Compact conversation",
         "status": status,
+        "_meta": { "sikemux": { "compaction": true } },
     });
     if opens {
         update["kind"] = json!("think");
@@ -228,6 +229,14 @@ fn sikemux_meta(update: &Value) -> Option<&Map<String, Value>> {
 /// When a replayed update first happened, as [`stamp_replayed`] marked it.
 pub fn stamped_at(update: &Value) -> Option<u64> {
     sikemux_meta(update)?.get("at").and_then(Value::as_u64)
+}
+
+/// The id of a compaction [`compaction`] says has finished.
+pub fn finished_compaction(update: &Value) -> Option<&str> {
+    let marked = sikemux_meta(update)?.get("compaction") == Some(&Value::Bool(true));
+    (marked && update.get("status").and_then(Value::as_str) == Some("completed"))
+        .then(|| update.get("toolCallId").and_then(Value::as_str))
+        .flatten()
 }
 
 /// Whether a replayed update began a turn the agent started by itself, and when.

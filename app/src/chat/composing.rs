@@ -419,7 +419,10 @@ pub(super) fn composer(
         .ready(head.is_some_and(|head| head.connection == ChatConnection::Ready))
         .running(chat.running())
         .steers(bench.preferences().mid_turn_send == MidTurnSend::Steer)
-        .usage(head.and_then(|head| head.usage.clone()));
+        .usage(
+            head.and_then(|head| head.usage.clone()),
+            head.and_then(|head| head.compactions.clone()),
+        );
     let pick: crate::chat::model_picker::Set = {
         let (this, agent) = (this.clone(), agent.id.clone());
         Rc::new(

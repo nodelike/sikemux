@@ -236,6 +236,9 @@ pub struct ChatHead {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<ContextUsage>,
+    /// How often the agent has compacted the conversation to free its context, once it has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactions: Option<Compactions>,
     /// The steps the agent plans for the turn, once it has said them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<Vec<PlanEntry>>,
@@ -341,6 +344,14 @@ pub struct ContextUsage {
     pub size: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<UsageCost>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Compactions {
+    pub count: u32,
+    /// When the last one finished, in Unix milliseconds.
+    pub last_at: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

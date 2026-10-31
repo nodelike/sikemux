@@ -993,6 +993,8 @@ export interface ChatHead {
     stopReason?: StopReason;
     title?: string;
     usage?: ContextUsage;
+    /** How often the agent has compacted the conversation to free its context, once it has. */
+    compactions?: Compactions;
     /** The steps the agent plans for the turn, once it has said them. */
     plan?: PlanEntry[];
     commands: ChatCommandInfo[];
@@ -1062,6 +1064,12 @@ export interface ContextUsage {
 export interface UsageCost {
     amount: number;
     currency: string;
+}
+
+export interface Compactions {
+    count: number;
+    /** When the last one finished, in Unix milliseconds. */
+    lastAt: number;
 }
 
 /** One step of the plan an agent keeps for its turn. */
