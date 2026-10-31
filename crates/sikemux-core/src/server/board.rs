@@ -30,6 +30,7 @@ mod blind;
 mod finish;
 pub(crate) mod git;
 pub(crate) mod goal;
+mod migrate;
 mod review;
 mod slice;
 mod tickets;
@@ -171,9 +172,15 @@ struct Card {
     acted_at: u64,
 }
 
+/// Bumped by a change to what a board file holds that an earlier file needs
+/// carried over to, which `migrate` does.
+const VERSION: u32 = 1;
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Board {
+    #[serde(default)]
+    version: u32,
     project: String,
     next: u64,
     cards: Vec<Card>,
@@ -193,6 +200,7 @@ struct Board {
 impl Board {
     fn empty(project: &str) -> Self {
         Self {
+            version: VERSION,
             project: project.to_owned(),
             next: 1,
             ..Self::default()
@@ -467,20 +475,32 @@ impl Boards {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let folder = data_dir.map(|dir| dir.join(FOLDER));
         let mut state = State::default();
-        for board in kept::load_all::<Board>(folder.as_deref()) {
+        let mut upgraded = Vec::new();
+        for mut board in kept::load_all_upgraded::<Board>(folder.as_deref(), migrate::carry_over) {
+            if board.version < VERSION {
+                board.version = VERSION;
+                upgraded.push(board.project.clone());
+            }
             state.dirty.insert(board.project.clone());
             state.boards.insert(board.project.clone(), board);
         }
         if let Some(Err(error)) = folder.as_deref().map(std::fs::create_dir_all) {
             eprintln!("sikemux core: boards will not be saved: {error}");
         }
-        Self {
+        let boards = Self {
             state: Mutex::new(state),
             folder,
             writer: Arc::default(),
             footers: slice::Footers::default(),
             wake: Wake::default(),
+        };
+        {
+            let mut state = boards.state.locked();
+            for project in upgraded {
+                boards.save(&mut state, &project);
+            }
         }
+        boards
     }
 
     fn save(&self, state: &mut State, project: &str) {

@@ -208,6 +208,16 @@ pub(crate) fn file_for(key: &str) -> String {
 /// Every record kept in `folder`, one file each; a file that cannot be read
 /// is moved aside.
 pub(crate) fn load_all<T: DeserializeOwned>(folder: Option<&Path>) -> Vec<T> {
+    load_all_upgraded(folder, |value| value)
+}
+
+/// Every record kept in `folder`, each carried over by `upgrade` from how an
+/// earlier core wrote it before it is read; a file that cannot be read is
+/// moved aside.
+pub(crate) fn load_all_upgraded<T: DeserializeOwned>(
+    folder: Option<&Path>,
+    upgrade: impl Fn(serde_json::Value) -> serde_json::Value,
+) -> Vec<T> {
     let Some(entries) = folder.and_then(|dir| std::fs::read_dir(dir).ok()) else {
         return Vec::new();
     };
@@ -215,7 +225,11 @@ pub(crate) fn load_all<T: DeserializeOwned>(folder: Option<&Path>) -> Vec<T> {
         .flatten()
         .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
         .filter_map(|entry| {
-            Kept::new(folder, &entry.file_name().to_string_lossy()).load::<Option<T>>()
+            let kept = Kept::new(folder, &entry.file_name().to_string_lossy());
+            let value = kept.load::<Option<serde_json::Value>>()?;
+            serde_json::from_value::<T>(upgrade(value))
+                .map_err(|error| kept.set_aside(&error.to_string()))
+                .ok()
         })
         .collect()
 }
