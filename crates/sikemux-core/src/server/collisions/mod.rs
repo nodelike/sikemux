@@ -831,6 +831,11 @@ impl Collisions {
         self.state.locked().checks.ci_moved(repo);
     }
 
+    /// `project`'s refs moved, as a push moves them, so its CI check looks again.
+    pub(crate) fn refs_moved(&self, project: &str) {
+        self.state.locked().checks.refs_moved(project);
+    }
+
     /// The pairs of agents that keep colliding.
     pub(crate) fn pairs(&self) -> Vec<Pair> {
         let state = self.state.locked();

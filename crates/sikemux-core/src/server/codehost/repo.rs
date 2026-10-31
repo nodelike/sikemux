@@ -383,7 +383,7 @@ pub(crate) async fn branch_pull(repo: &Repo, branch: &str) -> Result<Option<Proj
     let checks = match text(found, "headSha") {
         Some(sha) => match commit_checks(repo, Some(branch), &sha, &[]).await? {
             Checks::None | Checks::Stopped(_) => None,
-            Checks::Running => Some(PullChecks::Pending),
+            Checks::Running { .. } => Some(PullChecks::Pending),
             Checks::Passed => Some(PullChecks::Passing),
             Checks::Failed(_) => Some(PullChecks::Failing),
         },
@@ -468,7 +468,11 @@ pub(crate) const CI_START_WAIT_MS: u64 = 3 * 60 * 1000;
 pub(crate) enum Checks {
     /// Nothing has run on the commit yet.
     None,
-    Running,
+    /// `workflow`'s run, at `url`, is among those still going.
+    Running {
+        workflow: String,
+        url: Option<String>,
+    },
     Passed,
     /// What failed, a line each.
     Failed(String),
@@ -512,11 +516,14 @@ pub(crate) async fn commit_checks(
         .filter(|run| run["sha"].as_str() == Some(sha))
         .filter(named)
         .collect();
-    if runs
+    if let Some(going) = runs
         .iter()
-        .any(|run| run["status"].as_str() != Some("completed"))
+        .find(|run| run["status"].as_str() != Some("completed"))
     {
-        return Ok(Checks::Running);
+        return Ok(Checks::Running {
+            workflow: text(going, "name").unwrap_or_default(),
+            url: text(going, "url"),
+        });
     }
     let all_ran = workflows.iter().all(|workflow| {
         runs.iter()

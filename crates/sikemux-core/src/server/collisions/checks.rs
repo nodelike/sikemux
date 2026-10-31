@@ -4,8 +4,8 @@
 //! once, and to the person once the project has stayed broken a while. It is
 //! the board's check; a project without one is not checked. Commits that land
 //! while a check runs are checked together, at the newest, once it ends. A
-//! project whose check is its CI is not built here: the code host's runs on the
-//! commit, once pushed, give the verdict.
+//! project whose check is its CI is not built here: the code host's runs on
+//! the pushed branch tips that hold its commits give the verdict.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -33,8 +33,12 @@ const MAX_RUNNING: usize = 2;
 pub(super) const PERSON_AFTER_MS: u64 = 15 * 60_000;
 /// Commits kept as checked per project, so the same one is not run twice.
 const MAX_CHECKED: usize = 64;
-/// How often a commit waiting on CI is looked at when nothing says its runs moved.
-const CI_LOOK: std::time::Duration = std::time::Duration::from_secs(60);
+/// How often the commits waiting on CI are looked at when nothing says their
+/// refs or runs moved.
+const CI_LOOK: std::time::Duration = std::time::Duration::from_secs(300);
+/// How long a commit waiting on CI may be on no branch, as while a rebase
+/// runs, before it counts as gone.
+const GONE_AFTER_MS: u64 = 10 * 60_000;
 
 #[derive(Clone)]
 pub(super) struct Commit {
@@ -53,9 +57,17 @@ pub(super) struct Checks {
     checked: HashMap<String, Vec<String>>,
     /// The broken projects the person was told of.
     shown: HashSet<String>,
-    /// The code-host repository each project's CI check waits on, and what
-    /// wakes that wait when its runs move.
-    ci: HashMap<String, (Shown, Arc<Notify>)>,
+    /// Each project's CI check that waits, by project.
+    ci: HashMap<String, CiWait>,
+}
+
+/// A project's CI check while it waits.
+struct CiWait {
+    /// The code-host repository its runs are read from, once something it
+    /// waits on is pushed.
+    repo: Option<Shown>,
+    /// Wakes it when its commits, refs or runs move.
+    wake: Arc<Notify>,
 }
 
 /// A project whose check has failed after its latest commits.
@@ -112,15 +124,25 @@ impl Checks {
 
     /// The code-host repositories CI checks wait on.
     pub(super) fn ci_repos(&self) -> Vec<Shown> {
-        self.ci.values().map(|(repo, _)| repo.clone()).collect()
+        self.ci
+            .values()
+            .filter_map(|wait| wait.repo.clone())
+            .collect()
     }
 
     /// The runs on `repo` moved, so the CI checks waiting on it look again.
     pub(super) fn ci_moved(&self, repo: &Shown) {
-        for (watched, wake) in self.ci.values() {
-            if watched == repo {
-                wake.notify_one();
+        for wait in self.ci.values() {
+            if wait.repo.as_ref() == Some(repo) {
+                wait.wake.notify_one();
             }
+        }
+    }
+
+    /// `project`'s refs moved, as a push moves them, so its CI check looks again.
+    pub(super) fn refs_moved(&self, project: &str) {
+        if let Some(wait) = self.ci.get(project) {
+            wait.wake.notify_one();
         }
     }
 
@@ -167,6 +189,11 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
     if listed != state.checks.shown {
         state.checks.shown = listed;
         state.publish = true;
+    }
+    for (project, wait) in &state.checks.ci {
+        if state.checks.waiting.contains_key(project) {
+            wait.wake.notify_one();
+        }
     }
     for (project, dir, commits) in state.checks.startable() {
         let command = match crate::server::board::project_check(core, &project) {
@@ -253,15 +280,65 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
                 }
                 Err(error) => Err(error),
             };
+            core.collisions
+                .state
+                .locked()
+                .checks
+                .running
+                .remove(&project);
             ended(&core, &project, &command, &commits, outcome);
         });
     }
 }
 
-/// Waits for the code host's CI to rule on the newest of `commits`, taking in
-/// the project's commits that come meanwhile: once that commit is pushed,
-/// every workflow named must pass. A commit nobody pushes waits for it; one no
-/// run starts on, or whose runs were cancelled, ends with no verdict.
+/// What git says of the commits a CI check waits on.
+#[derive(Default)]
+struct Looked {
+    /// Each pushed branch tip that holds some of them, with those it holds.
+    tips: Vec<(String, Vec<String>)>,
+    /// Those no branch holds.
+    gone: Vec<String>,
+}
+
+/// Reads which branches hold each of `waiting`.
+fn look(dir: &Path, waiting: &[String]) -> Looked {
+    let mut looked = Looked::default();
+    for sha in waiting {
+        let refs = Git::quick(dir)
+            .trimmed(&[
+                "for-each-ref",
+                "--contains",
+                sha,
+                "--format=%(objectname) %(refname)",
+                "refs/heads",
+                "refs/remotes",
+            ])
+            .unwrap_or_default();
+        if refs.is_empty() {
+            looked.gone.push(sha.clone());
+            continue;
+        }
+        let pushed = refs
+            .lines()
+            .filter_map(|line| line.split_once(' '))
+            .filter(|(_, name)| name.starts_with("refs/remotes/") && !name.ends_with("/HEAD"));
+        for (tip, _) in pushed {
+            match looked.tips.iter_mut().find(|(known, _)| known == tip) {
+                Some((_, held)) if !held.contains(sha) => held.push(sha.clone()),
+                Some(_) => {}
+                None => looked.tips.push((tip.to_owned(), vec![sha.clone()])),
+            }
+        }
+    }
+    looked
+}
+
+/// Waits for the code host's CI to rule on `commits` and those of the
+/// project's that come meanwhile. CI runs on pushed branch tips, so each tip's
+/// verdict goes to every waiting commit it holds: once every workflow named
+/// has run there, all must have passed. A commit nobody pushes waits for it;
+/// one on no branch for a while, as after a rebase, ends with no verdict, as
+/// do those under a tip that no run starts on or whose runs were cancelled.
 async fn wait_for_ci(
     core: Arc<Core>,
     project: String,
@@ -273,94 +350,167 @@ async fn wait_for_ci(
         ci: workflows.clone(),
     }
     .label();
-    let repo = match codehost::of_project(&core, &project).await {
-        Ok(repo) => repo,
-        Err(error) => {
-            let why = format!("its CI can't be read: {}", String::from(error));
-            ended(&core, &project, &label, &commits, Err(why));
-            return;
-        }
-    };
     let wake = Arc::new(Notify::new());
-    core.collisions
-        .state
-        .locked()
-        .checks
-        .ci
-        .insert(project.clone(), (repo.watched(), wake.clone()));
-    crate::server::codehost::ci::start(&core);
-    let mut pushed_since: Option<(String, u64)> = None;
-    let (held, later, outcome) = loop {
+    core.collisions.state.locked().checks.ci.insert(
+        project.clone(),
+        CiWait {
+            repo: None,
+            wake: wake.clone(),
+        },
+    );
+    let mut repo = None;
+    let mut gone_since: HashMap<String, u64> = HashMap::new();
+    let mut tips_since: HashMap<String, u64> = HashMap::new();
+    let mut started: HashSet<String> = HashSet::new();
+    loop {
         {
             let mut state = core.collisions.state.locked();
             if let Some((_, more)) = state.checks.waiting.remove(&project) {
-                commits.extend(more);
+                for commit in more {
+                    if commits.iter().all(|kept| kept.sha != commit.sha) {
+                        commits.push(commit);
+                    }
+                }
             }
-            let over = commits.len().saturating_sub(MAX_CHECKED);
-            commits.drain(..over);
             let shas = commits.iter().map(|commit| commit.sha.clone()).collect();
             state.checks.running.insert(project.clone(), shas);
         }
-        let (ordering, all) = (dir.clone(), commits.clone());
-        let (held, later) = tokio::task::spawn_blocking(move || newest_with(&ordering, all))
+        if commits.is_empty() {
+            break;
+        }
+        let (at, waiting) = (
+            dir.clone(),
+            commits
+                .iter()
+                .map(|commit| commit.sha.clone())
+                .collect::<Vec<_>>(),
+        );
+        let looked = tokio::task::spawn_blocking(move || look(&at, &waiting))
             .await
             .unwrap_or_default();
-        let Some(newest) = held.last().map(|commit| commit.sha.clone()) else {
-            break (held, later, None);
-        };
-        let (at, sha) = (dir.clone(), newest.clone());
-        let pushed = tokio::task::spawn_blocking(move || crate::git::pushed(&at, &sha))
-            .await
-            .unwrap_or(false);
-        if pushed {
-            let since = match &pushed_since {
-                Some((sha, since)) if *sha == newest => *since,
-                _ => {
-                    pushed_since = Some((newest.clone(), epoch_ms()));
-                    epoch_ms()
+        let now = epoch_ms();
+        gone_since.retain(|sha, _| looked.gone.contains(sha));
+        let mut ruled: Vec<(Vec<String>, Option<String>, Result<(bool, String), String>)> =
+            Vec::new();
+        for sha in &looked.gone {
+            let since = *gone_since.entry(sha.clone()).or_insert(now);
+            if now.saturating_sub(since) >= GONE_AFTER_MS {
+                let why = format!(
+                    "{} is on no branch any more, so CI will never check it",
+                    sha.get(..7).unwrap_or(sha)
+                );
+                ruled.push((vec![sha.clone()], None, Err(why)));
+            }
+        }
+        let listed = |tip: &String| looked.tips.iter().any(|(known, _)| known == tip);
+        tips_since.retain(|tip, _| listed(tip));
+        started.retain(|tip| listed(tip));
+        if !looked.tips.is_empty() && repo.is_none() {
+            match codehost::of_project(&core, &project).await {
+                Ok(found) => {
+                    if let Some(wait) = core.collisions.state.locked().checks.ci.get_mut(&project) {
+                        wait.repo = Some(found.watched());
+                    }
+                    crate::server::codehost::ci::start(&core);
+                    repo = Some(found);
                 }
+                Err(error) => {
+                    let why = format!("its CI can't be read: {}", String::from(error));
+                    for (tip, held) in &looked.tips {
+                        ruled.push((held.clone(), Some(tip.clone()), Err(why.clone())));
+                    }
+                }
+            }
+        }
+        let mut credited: HashSet<String> =
+            ruled.iter().flat_map(|(held, ..)| held.clone()).collect();
+        for (tip, held) in looked.tips.iter().filter(|_| repo.is_some()) {
+            let held: Vec<String> = held
+                .iter()
+                .filter(|sha| !credited.contains(*sha))
+                .cloned()
+                .collect();
+            let Some(repo) = repo.as_ref().filter(|_| !held.is_empty()) else {
+                continue;
             };
-            let ruled = match codehost::commit_checks(&repo, None, &newest, &workflows).await {
-                Ok(CiChecks::Passed) => Some(Ok((true, format!("{label} passed on {newest}")))),
+            let since = *tips_since.entry(tip.clone()).or_insert(now);
+            let overdue = now.saturating_sub(since) >= CI_START_WAIT_MS;
+            let outcome = match codehost::commit_checks(repo, None, tip, &workflows).await {
+                Ok(CiChecks::Passed) => Some(Ok((true, format!("{label} passed on {tip}")))),
                 Ok(CiChecks::Failed(what)) => Some(Ok((false, what))),
                 Ok(CiChecks::Stopped(why)) => Some(Err(format!(
                     "its CI runs were cancelled or ended without a verdict:\n{why}"
                 ))),
-                Ok(CiChecks::None) if epoch_ms().saturating_sub(since) >= CI_START_WAIT_MS => Some(
-                    Err(format!("no run of {} started on it", workflows.join(", "))),
-                ),
-                Ok(CiChecks::None | CiChecks::Running) | Err(_) => None,
+                Ok(CiChecks::Running { workflow, url }) => {
+                    if started.insert(tip.clone()) {
+                        let mut covered = held.clone();
+                        covered.push(tip.clone());
+                        core.repo_events.tell(RepoEvent::CheckStarted {
+                            project: project.clone(),
+                            covered,
+                            run: CheckRun::Ci { workflow, url },
+                        });
+                    }
+                    None
+                }
+                Ok(CiChecks::None) if overdue => Some(Err(format!(
+                    "no run of {} started on {}",
+                    workflows.join(", "),
+                    tip.get(..7).unwrap_or(tip)
+                ))),
+                Err(error) if overdue => Some(Err(format!("its CI can't be read: {error}"))),
+                Ok(CiChecks::None) | Err(_) => None,
             };
-            if let Some(outcome) = ruled {
-                break (held, later, Some(outcome));
+            if let Some(outcome) = outcome {
+                credited.extend(held.iter().cloned());
+                ruled.push((held, Some(tip.clone()), outcome));
             }
+        }
+        for (held, tip, outcome) in ruled {
+            if tip.is_none() {
+                let mut state = core.collisions.state.locked();
+                for commit in commits.iter().filter(|commit| held.contains(&commit.sha)) {
+                    for agent in &commit.agents {
+                        tell(
+                            &mut state,
+                            agent,
+                            format!(
+                                "Your commit {} ({}) is on no branch any more, as after a rebase or an amend, so CI will never check it. Commit and push the work again to have it checked.",
+                                commit.sha.get(..7).unwrap_or(&commit.sha),
+                                commit.subject
+                            ),
+                        );
+                    }
+                }
+            }
+            let mut checked: Vec<Commit> = commits
+                .iter()
+                .filter(|commit| held.contains(&commit.sha))
+                .cloned()
+                .collect();
+            if let Some(tip) = tip.filter(|tip| !held.contains(tip)) {
+                checked.push(Commit {
+                    sha: tip,
+                    subject: String::new(),
+                    agents: Vec::new(),
+                });
+            }
+            ended(&core, &project, &label, &checked, outcome);
+        }
+        commits.retain(|commit| !credited.contains(&commit.sha));
+        if commits.is_empty() {
+            continue;
         }
         tokio::select! {
             () = wake.notified() => {}
             () = tokio::time::sleep(CI_LOOK) => {}
         }
-    };
-    core.collisions.state.locked().checks.ci.remove(&project);
-    match outcome {
-        Some(outcome) => ended(&core, &project, &label, &held, outcome),
-        None => {
-            core.collisions
-                .state
-                .locked()
-                .checks
-                .running
-                .remove(&project);
-            core.collisions.wake.now();
-        }
     }
-    if !later.is_empty() {
-        core.collisions
-            .state
-            .locked()
-            .checks
-            .wait_again(project, dir, later);
-        core.collisions.wake.now();
-    }
+    let mut state = core.collisions.state.locked();
+    state.checks.ci.remove(&project);
+    state.checks.running.remove(&project);
+    drop(state);
+    core.collisions.wake.now();
 }
 
 /// The newest of `commits` by ancestry, last, with those of them it holds,
@@ -397,7 +547,6 @@ fn ended(
     let collisions = &core.collisions;
     let agents: BTreeSet<&String> = commits.iter().flat_map(|commit| &commit.agents).collect();
     let mut state = collisions.state.locked();
-    state.checks.running.remove(project);
     let checked = |verdict, output| RepoEvent::Checked {
         project: project.to_owned(),
         command: command.to_owned(),

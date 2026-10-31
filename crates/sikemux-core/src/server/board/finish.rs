@@ -686,7 +686,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
     };
     let waited = epoch_ms().saturating_sub(step.run.checks_since.unwrap_or(0));
     match checks {
-        Checks::Running => step.note(core, Stage::Checking, "Its checks are running"),
+        Checks::Running { .. } => step.note(core, Stage::Checking, "Its checks are running"),
         Checks::Passed => {
             step.checked(core, PULL_CHECKS, Verdict::Passed, "");
             passed(core, &step, &pull, &head).await
