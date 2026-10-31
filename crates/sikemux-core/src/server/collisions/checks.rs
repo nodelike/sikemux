@@ -7,7 +7,7 @@
 //! ends.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -15,6 +15,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::{tell, State};
+use crate::git::Git;
 use crate::server::repo_events::RepoEvent;
 use crate::server::Core;
 use sikemux_wire::slice::Verdict;
@@ -143,39 +144,60 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
         state.publish = true;
     }
     for (project, dir, commits) in state.checks.startable() {
-        let (Some(command), Some(newest)) = (
-            crate::server::board::check_command(core, &project),
-            commits.last().map(|commit| commit.sha.clone()),
-        ) else {
+        let Some(command) = crate::server::board::check_command(core, &project) else {
             state.checks.running.remove(&project);
             continue;
         };
         let core = core.clone();
         tokio::spawn(async move {
+            let ordering = dir.clone();
+            let (commits, later) =
+                tokio::task::spawn_blocking(move || newest_with(&ordering, commits))
+                    .await
+                    .unwrap_or_default();
+            let Some(newest) = commits.last().map(|commit| commit.sha.clone()) else {
+                core.collisions
+                    .state
+                    .locked()
+                    .checks
+                    .running
+                    .remove(&project);
+                core.collisions.wake.now();
+                return;
+            };
+            {
+                let mut state = core.collisions.state.locked();
+                let shas = commits.iter().map(|commit| commit.sha.clone()).collect();
+                state.checks.running.insert(project.clone(), shas);
+                state.checks.wait_again(project.clone(), dir.clone(), later);
+            }
             let agents: Vec<String> = commits
                 .iter()
                 .flat_map(|commit| commit.agents.iter().cloned())
                 .collect();
-            let outcome =
-                match crate::server::worktree::agent::integration(&core, &dir, &newest).await {
-                    Ok(checkout) => {
-                        let (owner, command) = (core.clone(), command.clone());
-                        let (dir, agents) = (dir.clone(), agents.clone());
-                        tokio::task::spawn_blocking(move || {
+            let outcome = match crate::server::worktree::agent::integration(&core, &dir, &newest)
+                .await
+            {
+                Ok(checkout) => {
+                    let (owner, command) = (core.clone(), command.clone());
+                    let (dir, agents) = (dir.clone(), agents.clone());
+                    tokio::task::spawn_blocking(move || {
                             use crate::server::edits::generate::regenerate;
                             match regenerate(&owner, &dir, &checkout, &newest, &agents) {
                                 Ok(Some(generated)) => Ok(Err(generated)),
                                 Ok(None) => {
                                     crate::server::board::git::check(&checkout, &command).map(Ok)
                                 }
-                                Err(error) => Ok(Ok((false, error))),
+                                Err(error) => Err(format!(
+                                    "the files the project generates could not be brought up to date: {error}"
+                                )),
                             }
                         })
                         .await
                         .unwrap_or_else(|error| Err(error.to_string()))
-                    }
-                    Err(error) => Err(format!("the integration checkout is not ready: {error}")),
-                };
+                }
+                Err(error) => Err(format!("the integration checkout is not ready: {error}")),
+            };
             let outcome = match outcome {
                 Ok(Ok(outcome)) => Ok(outcome),
                 Ok(Err(generated)) => {
@@ -197,6 +219,30 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
             ended(&core, &project, &command, &commits, outcome);
         });
     }
+}
+
+/// The newest of `commits` by ancestry, last, with those of them it holds,
+/// which its check is for; and the others, which wait for a check of their own.
+fn newest_with(dir: &Path, commits: Vec<Commit>) -> (Vec<Commit>, Vec<Commit>) {
+    let holds = |newer: &str, commit: &str| {
+        commit == newer
+            || Git::quick(dir)
+                .output(&["merge-base", "--is-ancestor", commit, newer])
+                .is_ok_and(|output| output.status.success())
+    };
+    let Some(mut newest) = commits.first().map(|commit| commit.sha.clone()) else {
+        return (Vec::new(), Vec::new());
+    };
+    for commit in &commits[1..] {
+        if holds(&commit.sha, &newest) {
+            newest.clone_from(&commit.sha);
+        }
+    }
+    let (mut held, others): (Vec<Commit>, Vec<Commit>) = commits
+        .into_iter()
+        .partition(|commit| holds(&newest, &commit.sha));
+    held.sort_by_key(|commit| commit.sha == newest);
+    (held, others)
 }
 
 fn ended(

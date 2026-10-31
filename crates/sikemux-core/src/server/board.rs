@@ -4,9 +4,9 @@
 //! in `boards/` in the data folder, one file per project, so a board outlives
 //! a window reload, a restart and an update.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -160,6 +160,10 @@ struct Card {
     slice: Option<slice::Slice>,
     at: u64,
     updated_at: u64,
+    /// When its owner last claimed or changed it, which the board's own
+    /// changes leave alone: the owner's latest is the card it works now.
+    #[serde(default)]
+    acted_at: u64,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -356,10 +360,81 @@ impl State {
 pub(crate) struct Boards {
     state: Mutex<State>,
     folder: Option<PathBuf>,
-    /// Each project's board file, written off the board's lock.
-    files: Mutex<HashMap<String, Kept>>,
+    writer: Arc<Writer>,
+    /// What commits' footers name, for telling an agent's commits on the branch.
+    footers: slice::Footers,
     /// Offers cards, runs Auto and keeps tickets and the window up to date.
     pub(crate) wake: Wake,
+}
+
+/// Writes board files in the order they are handed over, at once, on a
+/// thread of its own, so nobody holding a board's lock waits on the disk.
+#[derive(Default)]
+struct Writer {
+    writes: Mutex<Writes>,
+    done: Condvar,
+}
+
+#[derive(Default)]
+struct Writes {
+    /// One write per file: a newer one takes the place of the one waiting.
+    waiting: VecDeque<(PathBuf, Vec<u8>)>,
+    writing: bool,
+}
+
+impl Writer {
+    fn hand(self: &Arc<Self>, path: PathBuf, bytes: Vec<u8>) {
+        let mut writes = self.writes.locked();
+        match writes
+            .waiting
+            .iter_mut()
+            .find(|(waiting, _)| *waiting == path)
+        {
+            Some((_, waiting)) => *waiting = bytes,
+            None => writes.waiting.push_back((path, bytes)),
+        }
+        if writes.writing {
+            return;
+        }
+        writes.writing = true;
+        drop(writes);
+        let writer = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("sikemux-boards".into())
+            .spawn(move || writer.write_all());
+        if spawned.is_err() {
+            self.write_all();
+        }
+    }
+
+    fn write_all(&self) {
+        loop {
+            let next = {
+                let mut writes = self.writes.locked();
+                let next = writes.waiting.pop_front();
+                if next.is_none() {
+                    writes.writing = false;
+                    self.done.notify_all();
+                }
+                next
+            };
+            let Some((path, bytes)) = next else {
+                return;
+            };
+            if let Err(error) = sikemux_process::files::write_atomic(&path, &bytes, true) {
+                eprintln!("sikemux core: {} was not saved: {error}", path.display());
+            }
+        }
+    }
+
+    fn flush(&self) {
+        let writes = self.writes.locked();
+        drop(
+            self.done
+                .wait_while(writes, |writes| writes.writing)
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+    }
 }
 
 /// Who changes a board.
@@ -408,7 +483,8 @@ impl Boards {
         Self {
             state: Mutex::new(state),
             folder,
-            files: Mutex::default(),
+            writer: Arc::default(),
+            footers: slice::Footers::default(),
             wake: Wake::default(),
         }
     }
@@ -419,19 +495,16 @@ impl Boards {
         let (Some(folder), Some(board)) = (&self.folder, state.boards.get(project)) else {
             return;
         };
-        self.files
-            .locked()
-            .entry(project.to_owned())
-            .or_insert_with(|| Kept::new(Some(folder), &file_name(project)))
-            .save_soon(board);
+        match serde_json::to_vec(board) {
+            Ok(bytes) => self.writer.hand(folder.join(file_name(project)), bytes),
+            Err(error) => eprintln!("sikemux core: the board was not saved: {error}"),
+        }
     }
 
     /// Waits until every board saved so far is on disk, for a core about to
     /// stop or hand over to another.
     pub(crate) fn flush(&self) {
-        for file in self.files.locked().values() {
-            file.flush();
-        }
+        self.writer.flush();
     }
 
     /// A step Auto took on the card is over.
@@ -1116,6 +1189,7 @@ fn add_card(
             .map(|promise| slice::Slice::new(promise, Vec::new(), None)),
         at: now,
         updated_at: now,
+        acted_at: now,
     };
     let mut note = None;
     if let (true, By::Agent(agent)) = (claim, by) {
@@ -1171,6 +1245,7 @@ fn take(core: &Core, card: &mut Card, agent: &str) {
     card.owner = Some(Owner::of(core, agent));
     card.status = Status::Progress;
     card.updated_at = epoch_ms();
+    card.acted_at = card.updated_at;
 }
 
 fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value, String> {
@@ -1225,22 +1300,12 @@ fn change_card(
             "Say what changes: title, details, promise, status, result, dependsOn or parent".into(),
         );
     }
-    let mut seen = slice::Seen::default();
-    if let (By::Agent(_), Some(Status::Done)) = (by, changes.status) {
-        let owner = {
-            let state = core.boards.state.locked();
-            state
-                .boards
-                .get(project)
-                .and_then(|board| board.card(id).ok())
-                .filter(|card| card.slice.is_some())
-                .and_then(|card| card.owner_id().map(str::to_owned))
-        };
-        if let Some(owner) = owner {
-            seen.has_check = check_command(core, project).is_some();
-            seen.head = slice::owner_head(core, project, &owner);
+    let seen = match (by, changes.status) {
+        (By::Agent(_), Some(Status::Done)) => {
+            slice::seen(core, project, id, check_command(core, project).is_some())
         }
-    }
+        _ => slice::Seen::unread(),
+    };
     let (view, notices, later) = {
         let mut state = core.boards.state.locked();
         let changed = change_in(core, &mut state, project, by, id, changes, &seen)?;
@@ -1304,8 +1369,8 @@ fn change_in(
     let card = board.card_mut(id)?;
     let label = card.label();
     let owner = card.owner_id().map(str::to_owned);
-    let verified = seen.head.as_ref().map(|head| head.head.as_str());
-    if let (Some(slice), Some(head)) = (card.slice.as_mut(), &seen.head) {
+    let verified = seen.verified(card);
+    if let (Some(slice), Ok(_), Ok(head)) = (card.slice.as_mut(), verified, &seen.head) {
         slice::follow_head(slice, head, owner.as_deref(), runs.get(project));
     }
     let mut status = changes.status;
@@ -1383,12 +1448,15 @@ fn change_in(
         }
         None => {}
     }
-    let moved = slice::progress(project, card, passed, verified);
+    let moved = slice::progress(project, card, passed, verified.ok());
     if moved.done && card.status != Status::Done {
         mark_done(core, card, by, project, dropped);
     }
     let later = later.and(moved.later);
     card.updated_at = epoch_ms();
+    if matches!(by, By::Agent(agent) if card.owner_id() == Some(agent.as_str())) {
+        card.acted_at = card.updated_at;
+    }
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
     let run_dropped = before.auto.as_ref().is_some_and(|run| !run.stage.is_over())
@@ -1738,7 +1806,7 @@ fn held_card<'a>(state: &'a mut State, agent_id: &str) -> Option<(&'a String, &'
         .iter_mut()
         .flat_map(|(project, board)| board.cards.iter_mut().map(move |card| (project, card)))
         .filter(|(_, card)| card.owner_id() == Some(agent_id))
-        .max_by_key(|(_, card)| (card.status == Status::Progress, card.updated_at))
+        .max_by_key(|(_, card)| (card.status == Status::Progress, card.acted_at))
 }
 
 /// A line naming the agent's card, for the report its lead gets when its

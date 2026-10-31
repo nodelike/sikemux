@@ -21,6 +21,9 @@ use crate::trailers::{self, Agent, Commit};
 const GENERATE_WAIT: Duration = Duration::from_secs(10 * 60);
 const GENERATE_OUTPUT_LIMIT: usize = 256 * 1024;
 
+/// How the subject of a commit that brings generated files up to date starts.
+pub(crate) const GENERATED_SUBJECT: &str = "build(gen): ";
+
 /// Runs the project's `generate` command in `checkout`, the integration
 /// checkout at `commit` of the branch `project`'s checkout is on, and commits
 /// what it changed of its outputs, credited to `agents`. The commit made, if
@@ -102,7 +105,7 @@ fn bring_up_to_date(
     };
     let parents = vec![commit.to_owned()];
     let subject = format!(
-        "build(gen): {} brought up to date",
+        "{GENERATED_SUBJECT}{} brought up to date",
         generate.outputs.join(", ")
     );
     let footer = trailers::footer(
