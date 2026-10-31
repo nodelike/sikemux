@@ -129,11 +129,10 @@ impl Case {
 
 /// How soon an item comes among those of its tier: what stops an agent until the
 /// person acts first, and a proposal on a turn's item, which stops nothing, last.
-/// Only a proposal is answered with `answerQuestion` on an item that is not a question.
 fn urgency(item: &InboxItem) -> u8 {
     match item.kind {
         InboxKind::Permission | InboxKind::Question | InboxKind::Input => 0,
-        _ if item.question_id.is_some() => 2,
+        InboxKind::Proposal | InboxKind::Changes if item.question_id.is_some() => 2,
         _ => 1,
     }
 }

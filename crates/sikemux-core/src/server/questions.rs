@@ -1118,7 +1118,8 @@ fn proposal(reply: &str) -> Option<&str> {
 /// The chat's turn ended by itself, so when its reply ends proposing more to the person or
 /// asking them to choose, that waits on them as a proposal. An agent with a lead, here or on a
 /// linked host, or that Auto runs, answers to them instead, and one with a question, an answer
-/// or a message still on its way is not done.
+/// or a message still on its way, or at work again already, is not done. The questions'
+/// lock is held across the last look, so a turn that starts meanwhile takes the proposal back.
 pub(crate) fn proposed(core: &Core, agent_id: &str) {
     let Some(chat) = core.chats.get(agent_id) else {
         return;
@@ -1155,7 +1156,7 @@ pub(crate) fn proposed(core: &Core, agent_id: &str) {
     let asking = (state.open.iter())
         .chain(state.answered.iter().map(|answered| &answered.question))
         .any(|question| question.agent_id == agent_id);
-    if asking {
+    if asking || chat.working() {
         return;
     }
     state
