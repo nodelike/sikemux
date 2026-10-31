@@ -1214,6 +1214,7 @@ pub(crate) async fn run_core(
     }
     core.workspaces.flush();
     core.boards.flush();
+    core.memory.flush();
     remote::stop_network(&core);
     within_stop_limit("remote access", remote::stop(&core)).await;
     remote::stop_live(&core);

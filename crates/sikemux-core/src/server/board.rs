@@ -158,9 +158,9 @@ struct Card {
     /// What it promises and how far up its ladder it is, once it makes a promise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     slice: Option<slice::Slice>,
-    /// What it decided, for a goal, oldest first.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    decisions: Vec<Decision>,
+    /// What it decided, for a goal.
+    #[serde(default, skip_serializing_if = "decisions::Decisions::is_none")]
+    decisions: decisions::Decisions,
     at: u64,
     updated_at: u64,
     /// When its owner last claimed it, which nothing else changes: the
@@ -1014,7 +1014,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
             slice.view(card.owner_id(), held_up, |agent| name_of(core, agent))
         }),
         next: slice::next_gates(board, card),
-        decisions: card.decisions.clone(),
+        decisions: card.decisions.listed(),
         at: card.at,
         updated_at: card.updated_at,
     }
@@ -1176,7 +1176,7 @@ fn add_card(
         slice: adding
             .promise
             .map(|promise| slice::Slice::new(promise, Vec::new(), None)),
-        decisions: Vec::new(),
+        decisions: decisions::Decisions::default(),
         at: now,
         updated_at: now,
         acted_at: now,

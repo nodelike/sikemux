@@ -1,6 +1,7 @@
 //! Testing knowledge again, on a slow schedule and soon after a brief carried
 //! it on a test that was not fresh. Every test starts here, a few at a time,
-//! and nothing waits for one: a brief carries what the last test found.
+//! and nothing waits for one: a brief carries what the last test found. The
+//! same wake forgets goal rules whose goal card was removed.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -11,9 +12,10 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::memory::{LastCheck, MemoryCheck, Stale};
 
 use super::{tell_clients, Core};
-use crate::server::wake::sooner;
 
 const EVERY_MS: u64 = 6 * 60 * 60 * 1000;
+/// How often goal rules whose goal card was removed are forgotten.
+const SWEEP_MS: u64 = 60 * 60 * 1000;
 /// How old a test may be for a brief to carry knowledge without asking for
 /// another.
 pub(super) const FRESH_MS: u64 = 10 * 60 * 1000;
@@ -29,8 +31,9 @@ struct Due {
 /// Starts the tests that are due, as many as the budget allows, and wakes
 /// again when the next one is.
 pub(crate) fn settle(core: &Arc<Core>) {
+    super::forget_gone_goals(core);
     let now = epoch_ms();
-    let mut next: Option<u64> = None;
+    let mut next = now + SWEEP_MS;
     let mut due = Vec::new();
     {
         let mut state = core.memory.state.locked();
@@ -53,7 +56,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
                     .as_ref()
                     .map_or(0, |checked| checked.at + every);
                 if at > now {
-                    next = sooner(next, Some(at));
+                    next = next.min(at);
                 } else if room > 0 {
                     room -= 1;
                     due.push(Due {
@@ -76,9 +79,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             record(&core, &due, result);
         });
     }
-    if let Some(next) = next {
-        core.memory.wake.at(next);
-    }
+    core.memory.wake.at(next);
 }
 
 async fn run(folder: &Path, check: &MemoryCheck) -> LastCheck {

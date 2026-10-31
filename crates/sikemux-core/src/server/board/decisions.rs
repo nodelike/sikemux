@@ -12,7 +12,7 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::memory::Learned;
 use sikemux_wire::slice::Decision;
 
-use super::{caller, goal_of, project_at, project_view, BoardView, Card, GoalRef};
+use super::{caller, goal_of, project_at, project_view, BoardView, GoalRef};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::Core;
@@ -33,6 +33,26 @@ pub(crate) fn learned(core: &Core, agent: Option<&str>) -> Learned {
     }
 }
 
+/// A goal's decisions, oldest first, with the last id given, so an id never
+/// comes back once its decision is dropped.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Decisions {
+    last: u64,
+    kept: Vec<Decision>,
+}
+
+impl Decisions {
+    /// Nothing was ever decided.
+    pub(super) fn is_none(&self) -> bool {
+        self.last == 0
+    }
+
+    pub(super) fn listed(&self) -> Vec<Decision> {
+        self.kept.clone()
+    }
+}
+
 /// The goal's decisions that still stand, oldest first.
 pub(crate) fn of_goal(core: &Core, goal: &GoalRef) -> Vec<Decision> {
     let state = core.boards.state.locked();
@@ -44,6 +64,7 @@ pub(crate) fn of_goal(core: &Core, goal: &GoalRef) -> Vec<Decision> {
         return Vec::new();
     };
     card.decisions
+        .kept
         .iter()
         .filter(|decision| decision.retired.is_none())
         .cloned()
@@ -90,8 +111,9 @@ impl Deciding {
     }
 }
 
-fn decision_mut(card: &mut Card, goal: u64, id: u64) -> Result<&mut Decision, String> {
-    card.decisions
+fn decision_mut(decisions: &mut Decisions, goal: u64, id: u64) -> Result<&mut Decision, String> {
+    decisions
+        .kept
         .iter_mut()
         .find(|decision| decision.id == id)
         .ok_or_else(|| format!("Goal #{goal} has no decision #{id}"))
@@ -112,29 +134,28 @@ fn decide(
         .get_mut(project)
         .ok_or_else(|| format!("There is no card #{goal} on this project's board"))?
         .card_mut(goal)?;
+    if card.parent.is_some() {
+        return Err(format!(
+            "Card #{goal} sits under another card; decisions are kept on the goal, the card at the top"
+        ));
+    }
+    let decisions = &mut card.decisions;
     let said = match deciding {
         Deciding::New { text, why } => {
             let mut said = String::new();
-            if card.decisions.len() >= MAX_DECISIONS {
-                let oldest = card
-                    .decisions
-                    .iter()
+            if decisions.kept.len() >= MAX_DECISIONS {
+                let oldest = (decisions.kept.iter())
                     .position(|decision| decision.retired.is_some())
                     .unwrap_or(0);
-                let dropped = card.decisions.remove(oldest);
+                let dropped = decisions.kept.remove(oldest);
                 said = format!(
                     " Goal #{goal} keeps {MAX_DECISIONS} decisions, so #{} was dropped.",
                     dropped.id
                 );
             }
-            let id = card
-                .decisions
-                .iter()
-                .map(|decision| decision.id)
-                .max()
-                .unwrap_or(0)
-                + 1;
-            card.decisions.push(Decision {
+            decisions.last += 1;
+            let id = decisions.last;
+            decisions.kept.push(Decision {
                 id,
                 text,
                 why,
@@ -145,7 +166,7 @@ fn decide(
             format!("Decision #{id} is kept on goal #{goal}.{said}")
         }
         Deciding::Correct { id, text, why } => {
-            let decision = decision_mut(card, goal, id)?;
+            let decision = decision_mut(decisions, goal, id)?;
             if decision.retired.is_some() {
                 return Err(format!("Decision #{id} was retired; decide again instead"));
             }
@@ -159,7 +180,7 @@ fn decide(
             format!("Decision #{id} on goal #{goal} is corrected.")
         }
         Deciding::Retire { id } => {
-            decision_mut(card, goal, id)?.retired = Some(by);
+            decision_mut(decisions, goal, id)?.retired = Some(by);
             format!("Decision #{id} on goal #{goal} is retired.")
         }
     };

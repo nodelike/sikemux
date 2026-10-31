@@ -526,22 +526,23 @@ pub(crate) fn task(
     } else {
         format!("Your answers do not go to {lead_name} by themselves: send {lead_name} what it needs with agent_send when you are done.")
     };
-    let brief = super::memory::brief(core, agent_id, &text);
-    with_brief(wrapped(&Letter {
+    let brief = super::memory::brief(core, agent_id, Some(&text));
+    wrapped(&Letter {
         kind: Kind::Message,
         from_id: lead_id.to_owned(),
         from_name: lead_name.to_owned(),
         cli: lead_cli.to_owned(),
-        text,
+        text: with_brief(text, brief),
         at: epoch_ms(),
         answers: None,
         note: Some(format!(
             "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person. {answer}"
         )),
-    }), brief)
+    })
 }
 
-/// A new agent's task with what Sikemux keeps for its project after it.
+/// A new agent's task with what Sikemux keeps for its project after it, in
+/// the same letter.
 fn with_brief(task: String, brief: Option<String>) -> String {
     match brief {
         Some(brief) => format!("{task}\n\n{brief}"),
@@ -1468,8 +1469,8 @@ fn auto_letter(text: String) -> Letter {
 
 /// The task Auto gives an agent it started, as that agent reads it.
 pub(crate) fn auto_task(core: &Core, agent_id: &str, text: String) -> String {
-    let brief = super::memory::brief(core, agent_id, &text);
-    with_brief(wrapped(&auto_letter(text)), brief)
+    let brief = super::memory::brief(core, agent_id, None);
+    wrapped(&auto_letter(with_brief(text, brief)))
 }
 
 /// Auto tells an agent of its own what its card needs next.

@@ -1350,9 +1350,10 @@ as messages from `Board`.
 ### What Sikemux remembers
 
 Sikemux keeps what the person should never have to say twice and hands it to
-agents started in the project. A task you are given may end with a
-`<sikemux-memory>` block: the project's rules, the knowledge your task names
-and, once you hold a card, the rules and decisions of the goal it sits under.
+agents started in the project. A task you are given may end with what
+Sikemux keeps, under **What Sikemux keeps for this project**: the project's
+rules, the knowledge your task names and, once you hold a card, the rules and
+decisions of the goal it sits under.
 Follow it as you would the person. `memory_list` shows all of it, with who
 said each and when.
 
@@ -1380,7 +1381,8 @@ change `about`, `check` or `dropCheck`. Knowledge marked wrong, or that fails
 Sikemux's own test, stays out of briefs and waits in the person's inbox.
 
 `board_decide` records what the goal your card sits under decided, with
-`text` and `why`. It stays on the goal's card for as long as the goal. Pass
+`text` and `why`. It stays on the goal's card, the card at the top, for as
+long as the goal. Pass
 `decision` with its number to correct it with new `text` or `why`, or with
 `retire: true` when it no longer stands.
 

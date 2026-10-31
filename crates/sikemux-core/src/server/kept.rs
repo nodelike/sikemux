@@ -12,6 +12,8 @@ use sikemux_process::sync::Locked;
 
 /// How long [`Kept::save_soon`] waits for more changes before writing.
 const SETTLE: Duration = Duration::from_millis(250);
+/// How many times a write that failed is tried again, a settle apart.
+const RETRIES: usize = 5;
 
 pub(crate) struct Kept {
     path: Option<PathBuf>,
@@ -149,6 +151,7 @@ impl Kept {
 impl Queue {
     fn write_all(&self, path: &Path) {
         let mut pending = self.state.locked();
+        let mut failed = 0;
         loop {
             if !pending.hurry {
                 pending = self
@@ -163,7 +166,12 @@ impl Queue {
             drop(pending);
             let written = write(path, &bytes);
             pending = self.state.locked();
-            if !written {
+            if written {
+                failed = 0;
+            } else if pending.next.is_none() && failed < RETRIES {
+                failed += 1;
+                pending.next = Some(bytes);
+            } else {
                 pending.last.clear();
             }
         }

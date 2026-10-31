@@ -1,7 +1,8 @@
-//! What a new agent is handed after its task: the project's rules, and once
-//! it holds a card, its goal's rules and decisions, with only the knowledge
-//! its task and card name. Stale knowledge stays out. A reviewer Auto started
-//! blind gets only what the person said, nothing an agent added.
+//! What a new agent is handed at the end of its task, in the same letter:
+//! the project's rules, and once it holds a card, its goal's rules and
+//! decisions, with only the knowledge its task and card name. Stale knowledge
+//! stays out. A reviewer Auto started blind gets only what the person said,
+//! nothing an agent added.
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
@@ -15,7 +16,6 @@ const MAX_RULES: usize = 30;
 const MAX_KNOWLEDGE: usize = 12;
 /// The newest decisions a brief carries; memory_list shows the rest.
 const MAX_DECISIONS: usize = 20;
-const TAG: &str = "sikemux-memory";
 
 /// Whether `text` names `term` as a whole word, such as `ai-service` in
 /// "move ai-service to ECS" but not `ai` in "details".
@@ -32,14 +32,14 @@ fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// What Sikemux keeps for the agent, for after `task`, its lead's or Auto's
-/// own words.
-pub(crate) fn brief(core: &Core, agent_id: &str, task: &str) -> Option<String> {
+/// What Sikemux keeps for the agent, for after its task. Knowledge is picked
+/// by the words of `task`, a lead's own, when given, and of the agent's card.
+pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<String> {
     let project = core.names.get(agent_id)?.project;
     let blind = core.names.is_blind(agent_id);
     let from_person = |learned: &Learned| !blind || learned.agent.is_none();
     let goal = board::goal_of(core, agent_id);
-    let mut read = task.to_lowercase();
+    let mut read = task.unwrap_or_default().to_lowercase();
     if let Some(goal) = &goal {
         read.push('\n');
         read.push_str(&goal.live.to_lowercase());
@@ -117,7 +117,7 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: &str) -> Option<String> {
         return None;
     }
     Some(format!(
-        "<{TAG} note=\"What Sikemux keeps for this project, not your lead's words. Follow its rules and decisions. When something here is wrong, correct it: rules and knowledge with memory_update, decisions with board_decide. memory_list shows the rest and where each came from.\">\n{}\n</{TAG}>",
-        sections.join("\n\n").replace(&format!("</{TAG}"), &format!("&lt;/{TAG}"))
+        "---\n\n**What Sikemux keeps for this project.** Follow its rules and decisions. When something here is wrong, correct it: rules and knowledge with memory_update, decisions with board_decide. memory_list shows the rest and where each came from.\n\n{}",
+        sections.join("\n\n")
     ))
 }

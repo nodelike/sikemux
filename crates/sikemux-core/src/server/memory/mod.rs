@@ -67,13 +67,11 @@ impl Held {
 #[derive(Default)]
 struct State {
     held: BTreeMap<String, Held>,
-    files: HashMap<String, Kept>,
+    files: HashMap<String, Arc<Kept>>,
     /// Knowledge being tested now.
     checking: HashSet<u64>,
     /// Knowledge a brief carried on a test that was not fresh, to test soon.
     wanted: HashSet<u64>,
-    /// Rules being written into AGENTS.md, which nothing else may change.
-    promoting: HashSet<u64>,
 }
 
 impl State {
@@ -135,17 +133,26 @@ impl Memory {
         }
     }
 
-    /// Hands the folder's file to be written on a thread of its own.
-    fn save(&self, state: &mut State, folder: &str) {
+    /// Hands the folder's file to be written on a thread of its own, and
+    /// answers it, to wait for with [`Kept::flush`].
+    fn save(&self, state: &mut State, folder: &str) -> Option<Arc<Kept>> {
         self.wake.now();
         let State { held, files, .. } = state;
-        let Some(held) = held.get(folder) else {
-            return;
-        };
-        files
-            .entry(folder.to_owned())
-            .or_insert_with(|| Kept::new(self.folder.as_deref(), &kept::file_for(folder)))
-            .save_soon(held);
+        let held = held.get(folder)?;
+        let file = files.entry(folder.to_owned()).or_insert_with(|| {
+            Arc::new(Kept::new(self.folder.as_deref(), &kept::file_for(folder)))
+        });
+        file.save_soon(held);
+        Some(file.clone())
+    }
+
+    /// Waits until every change so far is on disk, before the core stops or
+    /// is replaced.
+    pub(crate) fn flush(&self) {
+        let files: Vec<Arc<Kept>> = self.state.locked().files.values().cloned().collect();
+        for file in files {
+            file.flush();
+        }
     }
 }
 
@@ -235,6 +242,7 @@ pub enum NewMemory {
 }
 
 fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {
+    forget_gone_goals(core);
     let (text, folder) = match &new {
         NewMemory::Rule { text, folder, .. } | NewMemory::Knowledge { text, folder, .. } => (
             to_keep(text, "text", MAX_TEXT_CHARS)?,
@@ -364,9 +372,6 @@ fn change(
     let check = update.check.map(checked_check).transpose()?;
     let id = update.id;
     let mut state = core.memory.state.locked();
-    if state.promoting.contains(&id) {
-        return Err(format!("#{id} is being written into AGENTS.md"));
-    }
     let folder = state.folder_of(project, id)?;
     let held = state
         .held
@@ -427,6 +432,39 @@ fn change(
     Ok(())
 }
 
+/// Forgets goal rules whose goal card is no longer on its board.
+fn forget_gone_goals(core: &Core) {
+    let goal_rules: Vec<(String, u64, u64)> = {
+        let state = core.memory.state.locked();
+        state
+            .held
+            .values()
+            .flat_map(|held| {
+                held.rules
+                    .iter()
+                    .filter_map(|rule| Some((held.folder.clone(), rule.id, rule.goal?)))
+            })
+            .collect()
+    };
+    let gone: Vec<(String, u64)> = goal_rules
+        .into_iter()
+        .filter(|(folder, _, card)| board::card_exists(core, folder, *card).is_err())
+        .map(|(folder, id, _)| (folder, id))
+        .collect();
+    if gone.is_empty() {
+        return;
+    }
+    let mut state = core.memory.state.locked();
+    for (folder, id) in &gone {
+        if let Some(held) = state.held.get_mut(folder) {
+            held.rules.retain(|rule| rule.id != *id);
+        }
+        core.memory.save(&mut state, folder);
+    }
+    drop(state);
+    tell_clients(core, false);
+}
+
 /// What applies to `project`, with sensitive entries left out unless Sikemux's
 /// own window reads it.
 fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
@@ -458,9 +496,9 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
 pub(crate) struct StaleKnowledge {
     pub folder: String,
     pub id: u64,
-    /// None for sensitive knowledge, which the inbox does not show.
-    pub text: Option<String>,
-    pub why: String,
+    /// What it says and why it no longer holds; none for sensitive
+    /// knowledge, whose words the inbox never shows.
+    pub said: Option<(String, String)>,
     pub at: u64,
     /// The agent that said it no longer holds.
     pub agent: Option<String>,
@@ -487,8 +525,7 @@ pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
             listed.push(StaleKnowledge {
                 folder: held.folder.clone(),
                 id: known.id,
-                text: (!known.sensitive).then(|| known.text.clone()),
-                why,
+                said: (!known.sensitive).then(|| (known.text.clone(), why)),
                 at,
                 agent,
             });

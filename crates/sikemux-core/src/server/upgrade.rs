@@ -401,6 +401,7 @@ async fn hand_over(core: &Arc<Core>, binary: PathBuf) -> String {
         let mut chats = chats;
         replacing.workspaces.flush();
         replacing.boards.flush();
+        replacing.memory.flush();
         let error = handover::replace_process(&replacing, &binary, &mut chats);
         Ok((error, chats))
     })

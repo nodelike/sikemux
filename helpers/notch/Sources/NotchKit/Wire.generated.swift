@@ -263,7 +263,7 @@ enum CoreChangeTopic: String, Codable, Hashable {
     case update
     /// What the account keeps in its Stash.
     case stash
-    /// What the core remembers for a project, or what a goal decided.
+    /// The rules and knowledge the core keeps for a project or a folder above it.
     case memory
     /// The core is stopping on purpose, so its clients do not start it again.
     case stopping
