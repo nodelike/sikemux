@@ -1,17 +1,18 @@
 //! One goal: who leads it, how far its slices are, what comes next, what needs the person, a
-//! line for each slice and the rules its agents follow.
+//! line for each slice, how the project's slices land and the rules its agents follow.
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::CardView;
+use sikemux_core::server::{call, BoardSettingsParams, CardView};
 use sikemux_wire::slice::{Gate, NextGate, Passer, SliceState, SliceView};
 
 use super::{
     gate_name, state_count, state_mark, wait_words, waiting, waiting_words, At, GoalsPane,
 };
+use crate::board::panels::{landing_choice, landing_of, landing_picks};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_5, TEXT_2XS,
     TEXT_SM, TEXT_XL, TEXT_XS_H,
@@ -93,8 +94,44 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
                 .iter()
                 .map(|(card, slice)| slice_row(card, slice, cx)),
         )
+        .children(landing(pane, cx))
         .children(super::rules::rules(pane, goal, cx))
         .into_any_element()
+}
+
+/// Who passes Landed in the project, which the person sets here as on the board.
+fn landing(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> Option<AnyElement> {
+    let project = pane.here.clone()?;
+    let (key, shown) = landing_choice(pane.board_of(&project)?.settings.landing);
+    let entity = cx.entity();
+    let pick = ui::select(
+        "goals-landing",
+        shown,
+        landing_picks(),
+        Some(key.into()),
+        pane.busy,
+        move |picked, _, cx| {
+            let params = BoardSettingsParams {
+                project: project.clone(),
+                landing: Some(landing_of(picked.as_ref())),
+                ..BoardSettingsParams::default()
+            };
+            entity.update(cx, |pane, cx| {
+                pane.ask::<call::BoardSettings>(params, |_| {}, cx)
+            })
+        },
+        cx,
+    );
+    Some(
+        div()
+            .pt(SPACE_5)
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .child(ui::meta("Slices land", cx))
+            .child(pick)
+            .into_any_element(),
+    )
 }
 
 pub(super) fn count(slices: &[(&CardView, &SliceView)], state: SliceState) -> usize {

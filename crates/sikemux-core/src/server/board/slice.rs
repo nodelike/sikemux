@@ -21,6 +21,7 @@ use sikemux_wire::slice::{
     SliceState, SliceView, Verdict, Wait,
 };
 
+use super::auto::Landing;
 use super::{
     change_card, change_in, messages, project_at, project_view, send_notices, Board, BoardView, By,
     Card, Changes, Notice, State, Status,
@@ -54,9 +55,8 @@ const OWNER_COMMITS_READ: usize = 500;
 /// Commits whose footer is kept as read, past which the board reads afresh.
 const MAX_FOOTERS: usize = 4096;
 
-/// Who passes a gate, what must be so before it can, and what it is called.
+/// What a gate must have before it can pass, and what it is called.
 pub(super) struct Rule {
-    pub passer: Passer,
     pub needs: &'static [Need],
     pub words: &'static str,
     /// What ids and agents name it by.
@@ -66,23 +66,29 @@ pub(super) struct Rule {
 pub(super) fn rule(gate: Gate) -> Rule {
     match gate {
         Gate::Built => Rule {
-            passer: Passer::Owner,
             needs: &[Need::PassingCheck, Need::Assertions],
             words: "Built",
             key: "built",
         },
         Gate::LooksRight => Rule {
-            passer: Passer::Person,
             needs: &[],
             words: "Looks right",
             key: "looksRight",
         },
         Gate::Landed => Rule {
-            passer: Passer::Core,
             needs: &[Need::OnBranch],
             words: "Landed",
             key: "landed",
         },
+    }
+}
+
+/// Who passes `gate` in a project whose Landed is `landing`'s to pass.
+pub(super) fn passer(gate: Gate, landing: Landing) -> Passer {
+    match (gate, landing) {
+        (Gate::Built, _) => Passer::Owner,
+        (Gate::LooksRight, _) | (Gate::Landed, Landing::Person) => Passer::Person,
+        (Gate::Landed, Landing::Core) => Passer::Core,
     }
 }
 
@@ -317,9 +323,9 @@ impl Slice {
 
     /// The gate it waits at when that is the person's to pass and nothing it
     /// needs is missing.
-    pub(super) fn waits_on_person(&self) -> Option<Gate> {
+    pub(super) fn waits_on_person(&self, landing: Landing) -> Option<Gate> {
         self.waiting()
-            .filter(|gate| rule(*gate).passer == Passer::Person && self.unmet(*gate).is_empty())
+            .filter(|gate| passer(*gate, landing) == Passer::Person && self.unmet(*gate).is_empty())
     }
 
     pub(super) fn head(&self) -> Option<&str> {
@@ -700,13 +706,13 @@ impl Slice {
 
     /// Passes each gate in turn whose passer may pass it now and whose needs
     /// are met: the owner's once it said so, which git confirmed. The gates passed.
-    fn advance(&mut self, owner: Option<&str>) -> Vec<Gate> {
+    fn advance(&mut self, owner: Option<&str>, landing: Landing) -> Vec<Gate> {
         let mut passed = Vec::new();
         while let Some(gate) = self.waiting() {
             if !self.unmet(gate).is_empty() {
                 break;
             }
-            let by = match (rule(gate).passer, owner) {
+            let by = match (passer(gate, landing), owner) {
                 (Passer::Core, _) => PassedBy::Core,
                 (Passer::Owner, Some(owner)) if self.done_said => PassedBy::Agent(owner.to_owned()),
                 _ => break,
@@ -738,9 +744,9 @@ impl Slice {
     /// Its pull request merged, so it landed: the gates left pass, the
     /// person's and its owner's as the person's when they merged it
     /// themselves, the rest as the core's.
-    pub(super) fn merged(&mut self, by_person: bool) {
+    pub(super) fn merged(&mut self, by_person: bool, landing: Landing) {
         while let Some(gate) = self.waiting() {
-            let by = match by_person && rule(gate).passer != Passer::Core {
+            let by = match by_person && passer(gate, landing) != Passer::Core {
                 true => PassedBy::Person,
                 false => PassedBy::Core,
             };
@@ -765,7 +771,12 @@ impl Slice {
     }
 
     /// The person passes `gate`, when it is the one waiting and theirs.
-    pub(super) fn pass_by_person(&mut self, gate: Gate, label: &str) -> Result<(), String> {
+    pub(super) fn pass_by_person(
+        &mut self,
+        gate: Gate,
+        label: &str,
+        landing: Landing,
+    ) -> Result<(), String> {
         match self.waiting() {
             Some(waiting) if waiting != gate => {
                 return Err(format!(
@@ -777,7 +788,7 @@ impl Slice {
             None => return Err(format!("{label} passed every gate already")),
             Some(_) => {}
         }
-        if self.waits_on_person() != Some(gate) {
+        if self.waits_on_person(landing) != Some(gate) {
             return Err(format!(
                 "{} is not yours to pass on {label}",
                 gate_words(gate)
@@ -799,11 +810,12 @@ impl Slice {
         label: &str,
         checking: Checking,
         confirmed: Result<(), &str>,
+        landing: Landing,
     ) -> Result<Said, Refused> {
         let Some(gate) = self.waiting() else {
             return Err(format!("{label} is done already").into());
         };
-        if rule(gate).passer != Passer::Owner {
+        if passer(gate, landing) != Passer::Owner {
             return Err(format!(
                 "{label} waits at {}, which is not yours to pass. If it needs more work, commit it and mark the card done again",
                 gate_words(gate)
@@ -967,7 +979,7 @@ impl Slice {
     }
 
     /// `held_up`: it waits on another card, or nobody holds it.
-    fn state(&self, held_up: bool) -> SliceState {
+    fn state(&self, held_up: bool, landing: Landing) -> SliceState {
         let Some(gate) = self.waiting() else {
             return SliceState::Done;
         };
@@ -978,7 +990,7 @@ impl Slice {
             .is_some_and(|check| check.gate == gate && check.verdict == Some(Verdict::Failed));
         if failed {
             SliceState::Failed
-        } else if self.waits_on_person().is_some() {
+        } else if self.waits_on_person(landing).is_some() {
             SliceState::NeedsYou
         } else if held_up {
             SliceState::Waiting
@@ -993,22 +1005,23 @@ impl Slice {
         held_up: bool,
         name: impl Fn(&str) -> String,
         wait: Option<Wait>,
+        landing: Landing,
     ) -> SliceView {
         let waiting = self.waiting();
         let gates = self
             .ladder
             .iter()
             .map(|gate| {
-                let rule = rule(*gate);
+                let passer = passer(*gate, landing);
                 let pass = self.pass_of(*gate);
-                let agent = match (pass.map(|pass| &pass.by), rule.passer) {
+                let agent = match (pass.map(|pass| &pass.by), passer) {
                     (Some(PassedBy::Agent(agent)), _) => Some(agent.clone()),
                     (None, Passer::Owner) => owner.map(str::to_owned),
                     _ => None,
                 };
                 GateView {
                     gate: *gate,
-                    passer: rule.passer,
+                    passer,
                     state: match (pass, waiting == Some(*gate)) {
                         (Some(_), _) => GateState::Passed,
                         (None, true) => GateState::Waiting,
@@ -1027,7 +1040,7 @@ impl Slice {
             .collect();
         SliceView {
             promise: self.promise.clone(),
-            state: self.state(held_up),
+            state: self.state(held_up, landing),
             gates,
             evidence: self.evidence.clone(),
             notes: self.notes.clone(),
@@ -1184,7 +1197,10 @@ fn proof_words(proof: &Proof) -> &'static str {
 pub(super) fn goal_state(board: &Board, goal: &Card) -> Option<SliceState> {
     let states: Vec<SliceState> = (board.cards.iter())
         .filter(|card| card.parent == Some(goal.id))
-        .filter_map(|card| Some(card.slice.as_ref()?.state(board.held_up(card))))
+        .filter_map(|card| {
+            let held_up = board.held_up(card);
+            Some(card.slice.as_ref()?.state(held_up, board.settings.landing))
+        })
         .collect();
     let any = |state: SliceState| states.contains(&state);
     Some(match () {
@@ -1227,7 +1243,7 @@ pub(super) fn next_gates(core: &Core, board: &Board, goal: &Card, now: u64) -> V
                 next.push(NextGate {
                     card: card.id,
                     gate,
-                    passer: rule(gate).passer,
+                    passer: passer(gate, board.settings.landing),
                     wait: super::wait::of(core, board, card, now),
                 });
             }
@@ -1346,7 +1362,12 @@ pub(super) struct Moved {
 
 /// Moves the slice on `card` up its ladder as far as it goes now, after the
 /// gates `passed` already. Marking the card done is the caller's.
-pub(super) fn progress(project: &str, card: &mut Card, mut passed: Vec<Gate>) -> Moved {
+pub(super) fn progress(
+    project: &str,
+    card: &mut Card,
+    mut passed: Vec<Gate>,
+    landing: Landing,
+) -> Moved {
     let owner = card.owner_id().map(str::to_owned);
     let Some(slice) = card.slice.as_mut() else {
         return Moved {
@@ -1355,7 +1376,7 @@ pub(super) fn progress(project: &str, card: &mut Card, mut passed: Vec<Gate>) ->
             later: Later::default(),
         };
     };
-    passed.extend(slice.advance(owner.as_deref()));
+    passed.extend(slice.advance(owner.as_deref(), landing));
     let mut later = Later::default();
     if let (Some(gate), Some(work)) = (
         passed
@@ -1380,7 +1401,7 @@ pub(super) fn progress(project: &str, card: &mut Card, mut passed: Vec<Gate>) ->
 }
 
 /// What the owner hears of the gates its slice passed.
-pub(super) fn passed_notice(card: &Card, passed: &[Gate]) -> Option<Notice> {
+pub(super) fn passed_notice(card: &Card, passed: &[Gate], landing: Landing) -> Option<Notice> {
     let owner = card.owner_id()?;
     if passed.is_empty() {
         return None;
@@ -1388,7 +1409,7 @@ pub(super) fn passed_notice(card: &Card, passed: &[Gate]) -> Option<Notice> {
     let names: Vec<&str> = passed.iter().map(|gate| gate_words(*gate)).collect();
     let then = match card.slice.as_ref().and_then(Slice::waiting) {
         None => "It is done.".to_owned(),
-        Some(gate) if rule(gate).passer == Passer::Person => {
+        Some(gate) if passer(gate, landing) == Passer::Person => {
             format!("It waits for the person at {}.", gate_words(gate))
         }
         Some(gate) => format!("Next is {}.", gate_words(gate)),

@@ -1397,7 +1397,8 @@ in a git worktree and branch of its own. Its task comes as a message from
 `Auto`. Plan first and ask everything at once with `ask`; then do the work,
 run the checks and commit on that branch. Do not push, open a pull request or
 merge: when your turn ends, Auto commits what is left, pushes, opens the pull
-request and merges it once its checks pass. So end your turn only when the
+request and merges it once its checks pass, or leaves it for the person to
+merge when the project lands only when they say. So end your turn only when the
 work is done or you wait on an answer. If you start workers, Auto ships only
 once none of them is still working, so a turn that ends while they work does
 not ship half the change. Marking such a card done with

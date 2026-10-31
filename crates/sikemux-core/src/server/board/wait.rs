@@ -98,7 +98,7 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
             now,
         ));
     }
-    if slice.waits_on_person().is_some() {
+    if slice.waits_on_person(board.settings.landing).is_some() {
         return Some(wait(
             WaitOn::Person { gate },
             slice.waiting_since(),

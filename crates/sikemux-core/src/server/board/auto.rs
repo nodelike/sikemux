@@ -25,14 +25,18 @@ const DEFAULT_SLOTS: u32 = 2;
 const MAX_LAUNCHER_CHARS: usize = 256;
 const MAX_MODEL_CHARS: usize = 200;
 
-/// Where a card's run ends when its checks pass.
+/// Who passes a slice's Landed gate in a project, and so whether anything
+/// lands before the person says.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Finish {
+pub enum Landing {
+    /// Sikemux, once the slice's commits are on the branch; Auto merges its
+    /// pull request itself once its checks pass and its reviewer approves.
     #[default]
-    Merge,
-    /// At an open pull request, for the person to merge.
-    Pr,
+    Core,
+    /// The person: nothing counts as landed until they pass it, and Auto
+    /// leaves its pull request open for them to merge.
+    Person,
 }
 
 /// The agent that reviews a card's change before Auto merges it.
@@ -58,7 +62,7 @@ pub struct Settings {
     /// The connected provider its agents run on in place of their own accounts.
     pub provider: Option<String>,
     pub model: Option<String>,
-    pub finish: Finish,
+    pub landing: Landing,
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     pub reviewer: Option<ReviewerChoice>,
@@ -72,7 +76,7 @@ impl Default for Settings {
             launcher: None,
             provider: None,
             model: None,
-            finish: Finish::Merge,
+            landing: Landing::Core,
             reviewer: None,
         }
     }
@@ -123,7 +127,7 @@ pub struct SettingsParams {
     )]
     pub reviewer: Option<Option<ReviewerParams>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub finish: Option<Finish>,
+    pub landing: Option<Landing>,
 }
 
 /// The agent the person picks to review each change.
@@ -190,8 +194,8 @@ impl Settings {
                 .map(|reviewer| reviewer.choice(&knows))
                 .transpose()?;
         }
-        if let Some(finish) = params.finish {
-            settings.finish = finish;
+        if let Some(landing) = params.landing {
+            settings.landing = landing;
         }
         Ok(settings)
     }
@@ -458,7 +462,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
             if picks.is_empty() {
                 continue;
             }
-            let merges = board.settings.finish == Finish::Merge;
+            let merges = board.settings.landing == Landing::Core;
             for id in picks {
                 let agent = format!("agent-{}", uuid::Uuid::new_v4().simple());
                 if let Ok(card) = board.card_mut(id) {
@@ -521,12 +525,12 @@ fn task(card: &Card, tree: &worktree::Tree, settings: &Settings, ticket: Option<
     if let Some(ticket) = ticket {
         text.push_str(&format!("\n\nTicket: {ticket}"));
     }
-    let landing = match settings.finish {
-        Finish::Merge => format!(
+    let landing = match settings.landing {
+        Landing::Core => format!(
             "waits for its checks to pass, has an agent on another CLI review it, and merges it into {}",
             tree.base
         ),
-        Finish::Pr => "leaves it for the person to review and merge".to_owned(),
+        Landing::Person => "leaves it for the person to review and merge".to_owned(),
     };
     text.push_str(&format!(
         "\n\nYou are in {} on branch {}, cut from {}.\n\n1. Plan first. Read what you need, then ask every question you have at once with ask, before you change anything. If you cannot go on without an answer, ask with blocked true and end your turn: the answer comes back to you. Otherwise say what you assume and go on.\n2. Do the work, and run the tests and checks that cover it.\n3. Commit it on {}, and put a short summary in the card's result with board_update.\n\nDo not push, open a pull request or merge. When your turn ends, Sikemux commits anything left, pushes the branch, opens the pull request and {landing}. So do not end your turn before the work is done, unless you are waiting on an answer. If you start other agents to help, Sikemux ships only once none of them is still working.",

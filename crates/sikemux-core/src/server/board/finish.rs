@@ -10,7 +10,7 @@ use std::sync::Arc;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use super::auto::{Finish, Hold, Pull, Run, Settings, Stage};
+use super::auto::{Hold, Landing, Pull, Run, Settings, Stage};
 use super::review::{self, MAX_ROUNDS};
 use super::{blind, change_card, git, send_notices, By, Card, Changes, Status};
 use crate::server::codehost::ci;
@@ -460,13 +460,13 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
             "{} could not settle these review comments:\n{stuck}",
             step.name(core)
         ))
-    } else if let (Finish::Pr, Some(answers)) = (step.settings.finish, &answered) {
+    } else if let (Landing::Person, Some(answers)) = (step.settings.landing, &answered) {
         Some(format!(
             "It answered {} review comment{}, and its pull request waits for review again",
             answers.replies.len(),
             if answers.replies.len() == 1 { "" } else { "s" }
         ))
-    } else if step.settings.finish == Finish::Pr {
+    } else if step.settings.landing == Landing::Person {
         Some("Its pull request waits for you to review and merge it".to_owned())
     } else {
         unanswered(core, step)
@@ -926,7 +926,7 @@ async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
     let url = step.pull_url();
     let kept = change_run(core, &step.project, step.id, step.agent(), |card, run| {
         if let Some(slice) = card.slice.as_mut() {
-            slice.merged(by_person);
+            slice.merged(by_person, step.settings.landing);
         }
         run.note = Some("Merged".to_owned());
     });

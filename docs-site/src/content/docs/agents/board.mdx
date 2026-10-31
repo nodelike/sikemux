@@ -15,11 +15,18 @@ A card that makes a **promise**, one sentence saying what it changes, is a slice
 | --- | --- | --- |
 | **Built** | The agent that holds the card | The project's check passed on the agent's latest commit |
 | **Looks right** | You | Built |
-| **Landed** | Sikemux | Looks right, and the slice's commits on the branch |
+| **Landed** | Sikemux, or you when the project says so | Looks right, and the slice's commits on the branch |
 
 An agent saying a slice is done passes nothing by itself. When it marks the card done, Sikemux looks at the latest check run on the agent's latest commit. If that run failed, or the agent committed nothing, the card stays in progress and the agent is told why. If the check has not run on that commit yet, Built passes by itself once it does, and the agent hears. Sikemux reads the agent's latest commit from git each time before Built passes, so a commit it didn't hear about can't slip through. In the project's own checkout with commit attribution off, git can't tell whose a commit is, so Sikemux goes by the latest commit it saw the agent make with `git_commit`. A project whose `sikemux.json` names no `check` can't pass Built. The check is a command Sikemux runs, or the project's CI, which counts only once the agent's commit is on the project's branch and pushed; see [the project's check](/getting-started/projects/#the-projects-check).
 
-A check command runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass; so does CI, once the project's branch is pushed. Work can land before you look at it; Landed passes as soon as you pass Looks right. A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see. Marking a slice done yourself passes every gate it has left, and moving it back to Open clears them.
+A check command runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass; so does CI, once the project's branch is pushed. Work can land before you look at it; Landed passes as soon as you pass Looks right, unless the project lands only when you say.
+
+## When slices land
+
+Each project says once who passes Landed, under **Lands** in the board's settings or **Slices land** on a goal:
+
+- **Once on the branch**: Sikemux passes Landed as soon as the slice's commits are on the project's branch, and Auto merges its pull requests itself once their checks pass and a reviewer approves.
+- **When you pass it**: nothing counts as landed until you pass Landed yourself. Auto leaves its pull requests open for you to merge, and merging one passes Landed as yours. An agent can still land its own commits with `git_commit`, but its slice then waits for you at Landed. A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see. Marking a slice done yourself passes every gate it has left, and moving it back to Open clears them.
 
 ## Assertions
 
@@ -33,8 +40,8 @@ When Built is refused because the project's check failed, Sikemux files the fix 
 
 When Auto takes a card, the card becomes a slice, promising what its title says unless it already makes a promise. Shipping its work counts as the agent saying it's done, and Built passes once the pull request's checks pass on the commit Auto pushed.
 
-- When Auto merges the work itself once its reviewer approves, the card has no Looks right gate: it passes Built, then Landed when it merges.
-- When Auto leaves pull requests for you to merge, the card waits for you at Looks right with its pull request. Merging it yourself passes Looks right as yours, and Landed follows.
+- When the project's slices land once on the branch, Auto merges the work itself once its reviewer approves, and the card has no Looks right gate: it passes Built, then Landed when it merges.
+- When they land only when you pass it, Auto leaves the pull request for you to merge, and the card waits for you at Looks right with its pull request. Merging it yourself passes Looks right and Landed as yours.
 
 A pull request Auto opens lists the slice's evidence on its latest commit in the description: each check run and how it went, the change, and the screenshots and recordings by name. The files themselves stay with the card on the host that took them, since no code host takes them.
 

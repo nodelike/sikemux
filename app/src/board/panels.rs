@@ -11,8 +11,8 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::{
-    BoardCardParams, BoardReviewerParams, BoardUpdateParams, CardRun, CardStatus, CardView, Finish,
-    MessageKind, MessageOutcome, MessageRow, MessageTone, Stage,
+    BoardCardParams, BoardReviewerParams, BoardUpdateParams, CardRun, CardStatus, CardView,
+    Landing, MessageKind, MessageOutcome, MessageRow, MessageTone, Stage,
 };
 
 use crate::board::{owner, short_title, waits_on_person, BoardPane, Open};
@@ -116,6 +116,32 @@ fn fact(name: &'static str, value: AnyElement, cx: &mut Context<BoardPane>) -> A
 }
 
 /// A group of settings running edge to edge under a hairline, its name above its fields.
+/// The two ways a project's slices land, as the board's and the Goals view's settings offer them.
+pub(crate) fn landing_picks() -> Vec<Pick> {
+    vec![
+        Pick::new("core", "Once on the branch")
+            .hint("Sikemux passes Landed, and Auto merges its pull request itself"),
+        Pick::new("person", "When you pass it").hint(
+            "Nothing counts as landed until you pass Landed; Auto leaves its pull request for you to merge",
+        ),
+    ]
+}
+
+/// The pick and words shown for `landing`.
+pub(crate) fn landing_choice(landing: Landing) -> (&'static str, &'static str) {
+    match landing {
+        Landing::Core => ("core", "Once on the branch"),
+        Landing::Person => ("person", "When you pass it"),
+    }
+}
+
+pub(crate) fn landing_of(key: &str) -> Landing {
+    match key {
+        "person" => Landing::Person,
+        _ => Landing::Core,
+    }
+}
+
 fn settings_group(name: &'static str, cx: &mut Context<BoardPane>) -> gpui_kit::Div {
     let t = Tokens::get(cx).clone();
     div()
@@ -742,16 +768,10 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
             )
         })
         .collect();
-    let finishes = vec![
-        Pick::new("merge", "Merge it").hint("Once CI, or the check command, passes"),
-        Pick::new("pr", "Stop at the pull request").hint("You review and merge it"),
-    ];
-    let (finish_key, finish_shown) = match settings.finish {
-        Finish::Pr => ("pr", "Stop at the pull request"),
-        Finish::Merge => ("merge", "Merge it"),
-    };
+    let landings = landing_picks();
+    let (landing_key, landing_shown) = landing_choice(settings.landing);
     let entity = || cx.entity();
-    let (on_slots, on_finish) = (entity(), entity());
+    let (on_slots, on_landing) = (entity(), entity());
     let reviewer = settings.reviewer.clone();
     let auto_on = settings.auto;
     let mut view = div()
@@ -813,20 +833,17 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                 cx,
             ))
             .child(fact(
-                "Then",
+                "Lands",
                 select(
-                    "board-finish",
-                    finish_shown,
-                    finishes,
-                    Some(finish_key.into()),
+                    "board-landing",
+                    landing_shown,
+                    landings,
+                    Some(landing_key.into()),
                     busy,
-                    move |finish, _, cx| {
-                        let finish = match finish.as_ref() {
-                            "pr" => Finish::Pr,
-                            _ => Finish::Merge,
-                        };
-                        on_finish.update(cx, |pane, cx| {
-                            pane.change_settings(|params| params.finish = Some(finish), cx)
+                    move |landing, _, cx| {
+                        let landing = landing_of(landing.as_ref());
+                        on_landing.update(cx, |pane, cx| {
+                            pane.change_settings(|params| params.landing = Some(landing), cx)
                         })
                     },
                     cx,

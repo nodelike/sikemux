@@ -44,7 +44,7 @@ mod workflows;
 pub(crate) use auto::Pull;
 use auto::Run;
 pub use auto::{
-    Finish, Hold, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams,
+    Hold, Landing, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams,
     Stage,
 };
 pub(crate) use finish::{ci_moved, waiting_on_ci};
@@ -189,7 +189,7 @@ struct Card {
 
 /// Bumped by a change to what a board file holds that an earlier file needs
 /// carried over to, which `migrate` does.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1202,10 +1202,10 @@ pub enum Column {
 
 /// The column a card shows in: done once done, else waiting on the person
 /// while anything on it does.
-fn column_of(core: &Core, card: &Card) -> Column {
+fn column_of(core: &Core, landing: Landing, card: &Card) -> Column {
     match card.status {
         Status::Done => Column::Done,
-        _ if waits(core, card).is_some() => Column::Needs,
+        _ if waits(core, landing, card).is_some() => Column::Needs,
         Status::Open => Column::Open,
         Status::Progress => Column::Progress,
     }
@@ -1267,7 +1267,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         result: card.result.clone(),
         ticket: card.ticket.clone(),
         ticket_above: ticket_above(board, card),
-        column: column_of(core, card),
+        column: column_of(core, board.settings.landing, card),
         auto: card.auto.as_ref().map(Run::view),
         recordings: card.recordings.clone(),
         slice: card.slice.as_ref().map(|slice| {
@@ -1277,6 +1277,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
                 board.held_up(card),
                 |agent| name_of(core, agent),
                 wait,
+                board.settings.landing,
             )
         }),
         next: slice::next_gates(core, board, card, now),
@@ -1366,10 +1367,9 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     let asked = card
         .owner_id()
         .is_some_and(|owner| core.harness.questions.blocks_on_person(owner));
-    let at_gate = card
-        .slice
-        .as_ref()
-        .is_some_and(|slice| card.status != Status::Done && slice.waits_on_person().is_some());
+    let at_gate = card.slice.as_ref().is_some_and(|slice| {
+        card.status != Status::Done && slice.waits_on_person(board.settings.landing).is_some()
+    });
     if asked || at_gate {
         fields.insert("waitingOnThePerson".into(), true.into());
     }
@@ -1642,6 +1642,7 @@ fn change_in(
         .get_mut(project)
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let before = board.card(id)?.clone();
+    let landing = board.settings.landing;
     if let By::Agent(agent) = by {
         if !may_change(core, agent, before.owner_id()) {
             let owner = name_of(core, before.owner_id().unwrap_or_default());
@@ -1699,7 +1700,7 @@ fn change_in(
     let mut later = slice::Later::default();
     if let (Some(Status::Done), By::Agent(agent), Some(slice)) = (status, by, card.slice.as_mut()) {
         later = slice::Later::look_again(project);
-        match slice.say_done(&label, seen.checking, confirmed) {
+        match slice.say_done(&label, seen.checking, confirmed, landing) {
             Ok(slice::Said::Pending { note, recheck }) => {
                 pending = Some(note);
                 if let Some(sha) = recheck {
@@ -1725,7 +1726,7 @@ fn change_in(
         card.slice
             .as_mut()
             .ok_or_else(|| format!("{label} has no gates to pass"))?
-            .pass_by_person(gate, &label)?;
+            .pass_by_person(gate, &label, landing)?;
     }
     if let Some(title) = changes.title {
         card.title = title;
@@ -1792,7 +1793,7 @@ fn change_in(
         .slice
         .as_ref()
         .is_some_and(|slice| slice.waiting().is_none());
-    let moved = slice::progress(project, card, passed);
+    let moved = slice::progress(project, card, passed, landing);
     if moved.done && card.status != Status::Done {
         mark_done(core, card, by, project, dropped, landed_before);
     }
@@ -1825,7 +1826,7 @@ fn change_in(
     };
     let by_owner = matches!(by, By::Agent(agent) if after.owner_id() == Some(agent.as_str()));
     let mut note = pending;
-    match slice::passed_notice(&after, &moved.passed) {
+    match slice::passed_notice(&after, &moved.passed, landing) {
         Some(passed) if by_owner => note = Some(passed.text),
         Some(passed) => notices.push(passed),
         None => {
@@ -2221,7 +2222,7 @@ pub(crate) enum Waits {
 
 /// What `card` waits on the person for, if anything: the one place every
 /// view of a card reads it from.
-fn waits(core: &Core, card: &Card) -> Option<Waits> {
+fn waits(core: &Core, landing: Landing, card: &Card) -> Option<Waits> {
     if card.status == Status::Done {
         return None;
     }
@@ -2236,7 +2237,7 @@ fn waits(core: &Core, card: &Card) -> Option<Waits> {
         .and_then(|run| run.pull.as_ref())
         .map(|pull| pull.url.clone());
     if let Some(slice) = &card.slice {
-        if let Some(gate) = slice.waits_on_person() {
+        if let Some(gate) = slice.waits_on_person(landing) {
             return Some(Waits::Gate {
                 gate,
                 promise: slice.promise.clone(),
@@ -2290,7 +2291,7 @@ impl Card {
             owner_name: self.owner_name(core),
             result: self.result.clone(),
             recordings: self.recorded(),
-            waits: waits(core, self),
+            waits: waits(core, board.settings.landing, self),
             updated_at: self.updated_at,
         }
     }
@@ -2338,9 +2339,9 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
         .boards
         .values()
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
-        .filter(|(_, card)| {
+        .filter(|(board, card)| {
             matches!(
-                waits(core, card),
+                waits(core, board.settings.landing, card),
                 Some(Waits::Review { .. } | Waits::Held { .. } | Waits::Gate { .. })
             ) || done_since
                 .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)

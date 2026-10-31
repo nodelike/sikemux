@@ -2539,7 +2539,7 @@ export interface BoardSettings {
     /** The connected provider its agents run on in place of their own accounts. */
     provider: string | null;
     model: string | null;
-    finish: Finish;
+    landing: Landing;
     /**
      * Who reviews each change before it merges; none for any signed-in
      * agent on another CLI than its builder's.
@@ -2547,8 +2547,11 @@ export interface BoardSettings {
     reviewer: ReviewerChoice | null;
 }
 
-/** Where a card's run ends when its checks pass. */
-export type Finish = "merge" | "pr";
+/**
+ * Who passes a slice's Landed gate in a project, and so whether anything
+ * lands before the person says.
+ */
+export type Landing = "core" | "person";
 
 /** The agent that reviews a card's change before Auto merges it. */
 export interface ReviewerChoice {
@@ -3554,7 +3557,7 @@ export interface BoardSettingsParams {
     provider?: string | null;
     model?: string | null;
     reviewer?: BoardReviewerParams | null;
-    finish?: Finish;
+    landing?: Landing;
 }
 
 /** The agent the person picks to review each change. */
