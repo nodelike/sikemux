@@ -102,10 +102,11 @@ pub use activity_log::{
 pub use agent_accounts::{AccountUsage, Resuming};
 pub use board::{
     AddParams as BoardAddParams, AddTicketParams as BoardAddTicketParams, BoardParams, BoardView,
-    CardParams as BoardCardParams, CardView, Column, Finish, PullView, ReviewerChoice,
-    ReviewerParams as BoardReviewerParams, RunView as CardRun, Settings as BoardSettings,
-    SettingsParams as BoardSettingsParams, Stage, Status as CardStatus, Ticket, TicketCard,
-    TicketParams as BoardTicketParams, Tracker, UpdateParams as BoardUpdateParams,
+    CardParams as BoardCardParams, CardView, Column, Finish, NoteParams as BoardNoteParams,
+    PassParams as BoardPassParams, PullView, ReviewerChoice, ReviewerParams as BoardReviewerParams,
+    RunView as CardRun, Settings as BoardSettings, SettingsParams as BoardSettingsParams, Stage,
+    Status as CardStatus, Ticket, TicketCard, TicketParams as BoardTicketParams, Tracker,
+    UpdateParams as BoardUpdateParams,
 };
 pub use calls::{
     call, AgentMessageRows, AgentMessagesParams, ClosedAgentsParams, NoParams, QueuedParams,
