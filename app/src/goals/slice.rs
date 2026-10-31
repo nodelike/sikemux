@@ -81,6 +81,7 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
         })
         .child(owner_line(card, cx))
         .child(ladder(card, slice, cx))
+        .children(goal.and_then(|goal| super::assertions::ticks(goal, slice, cx)))
         .when_some(shown, |view, shown| {
             view.child(div().pt(SPACE_4).child(evidence::large(shown, cx)))
         })
@@ -88,7 +89,9 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
             view.child(div().pt(SPACE_2H).flex().flex_wrap().gap(SPACE_2).children(
                 slice.evidence.iter().rev().map(|evidence| {
                     let chosen = shown.is_some_and(|shown| shown.id == evidence.id);
-                    evidence::thumb(evidence, chosen, cx)
+                    let serves = goal
+                        .and_then(|goal| super::assertions::numbers(goal, &evidence.assertions));
+                    evidence::thumb(evidence, chosen, serves, cx)
                 }),
             ))
         })

@@ -179,7 +179,13 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
 }
 
 /// A piece of evidence in the strip, lifted while it is the one in front.
-pub(super) fn thumb(evidence: &Evidence, chosen: bool, cx: &mut Context<GoalsPane>) -> AnyElement {
+/// `serves` names the assertions the evidence was collected for, by number.
+pub(super) fn thumb(
+    evidence: &Evidence,
+    chosen: bool,
+    serves: Option<String>,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = evidence.id;
     let face = div()
@@ -261,6 +267,7 @@ pub(super) fn thumb(evidence: &Evidence, chosen: bool, cx: &mut Context<GoalsPan
                 t.text_tertiary
             }),
         )
+        .children(serves.map(|serves| ui::meta(format!("for {serves}"), cx)))
         .into_any_element()
 }
 

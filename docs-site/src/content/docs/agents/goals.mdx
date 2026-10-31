@@ -19,6 +19,8 @@ When things finished or failed while you were away, the line under the title say
 
 The goal shows who leads it and which agents own its slices, a strip with one segment per slice, and **Next**: the gates its slices wait at, in the order they will be reached. **Needs you** lists the slices waiting at a gate only you pass. **Slices** lists every slice with what it waits on, its ticket and its owner.
 
+**Assertions** lists what must hold once the goal is done, each with the kind of evidence that shows it (the check passing, a recording or a screenshot) and how many of the slices that fulfil it have that evidence. Add one on the line under them, picking its kind, or retire one with **×**.
+
 **Rules** lists the rules the goal's agents follow: the goal's own, then those Sikemux keeps for the project and the folders above it ([what Sikemux remembers](/agents/memory/)). **Move to AGENTS.md** moves a rule kept for the project into its repository's `AGENTS.md`, where every agent reads it with the code, and Sikemux stops keeping it. The file is left uncommitted for you to review. The button shows only on a rule that can move: never a sensitive one, which never goes into the repository, nor one kept for a folder that isn't the top of a git checkout, or whose `AGENTS.md` links outside it.
 
 Every slice wears the same mark: solid green when done, a green ring while it moves, a dashed grey ring while it waits, amber when it needs you and red when its latest check failed.
@@ -36,7 +38,7 @@ A check's estimate comes from how long the project's last few checks took since 
 
 ## A slice
 
-Click a slice to open it. Under its promise and owner, the ladder shows each gate with who passed it and when, or who may pass it and what it still needs.
+Click a slice to open it. Under its promise and owner, the ladder shows each gate with who passed it and when, or who may pass it and what it still needs. Under the ladder, each of the goal's assertions the slice fulfils is ticked once its evidence held up, and each thumbnail of evidence says which assertions it was collected for, by number.
 
 The evidence for the gate waiting leads, large, a picture first when there is one; the rest sit as thumbnails under it, and clicking one brings it to the front. Clicking a picture or recording opens it in the viewer. The checks Sikemux ran fold into one line.
 

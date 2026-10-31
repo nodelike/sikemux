@@ -86,6 +86,7 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
                     .children(needs_you.iter().map(|(card, slice)| needs(card, slice, cx))),
             )
         })
+        .child(super::assertions::section_of(pane, goal, cx))
         .child(section("Slices", slices.len(), cx))
         .children(
             slices

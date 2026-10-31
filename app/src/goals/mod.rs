@@ -31,6 +31,7 @@ use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
 
+mod assertions;
 mod evidence;
 mod goal;
 mod home;
@@ -66,6 +67,8 @@ pub struct GoalsPane {
     busy: bool,
     /// The box that starts work, at the top of Home.
     start: start::Start,
+    /// The line on a goal that writes a new assertion.
+    asserting: Option<assertions::Asserting>,
     focus: FocusHandle,
     _reading: Task<()>,
 }
@@ -89,6 +92,7 @@ impl GoalsPane {
             note: None,
             busy: false,
             start: start::Start::default(),
+            asserting: None,
             focus: cx.focus_handle(),
             _reading: Task::ready(()),
         };
@@ -338,6 +342,7 @@ impl Focusable for GoalsPane {
 impl Render for GoalsPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.start_field(window, cx);
+        self.assert_field(window, cx);
         let body = match (self.board.is_some(), self.at) {
             (false, _) => empty(None, "reading the goals…", cx),
             (true, At::Home) => home::home(self, cx),
