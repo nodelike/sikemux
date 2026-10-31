@@ -48,6 +48,7 @@ mod lifecycle;
 mod load;
 mod local_peer;
 mod lsp;
+mod memory;
 mod messages;
 mod model_providers;
 mod move_agent;
@@ -346,6 +347,7 @@ pub(crate) struct Core {
     pub(crate) names: names::Names,
     pub(crate) boards: board::Boards,
     pub(crate) repo_events: repo_events::RepoEvents,
+    pub(crate) memory: memory::Memory,
     pub(crate) triggers: triggers::Triggers,
     pub(crate) changes: changed::Changes,
     pub(crate) ports: ports::Ports,
@@ -469,6 +471,7 @@ impl Core {
             names,
             boards: board::Boards::new(data_dir),
             repo_events: repo_events::RepoEvents::default(),
+            memory: memory::Memory::new(data_dir),
             triggers: triggers::Triggers::new(data_dir),
             changes: changed::Changes::default(),
             ports: ports::Ports::default(),
@@ -1113,6 +1116,11 @@ pub(crate) async fn run_core(
             board::settle,
         )),
         tokio::spawn(board::follow(core.clone())),
+        tokio::spawn(wake::serve(
+            core.clone(),
+            |core| &core.memory.wake,
+            memory::settle,
+        )),
         tokio::spawn(wake::serve(
             core.clone(),
             |core| &core.triggers.wake,

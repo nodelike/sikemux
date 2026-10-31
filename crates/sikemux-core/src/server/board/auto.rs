@@ -627,7 +627,7 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
     chat::until_started(core, chat)
         .await
         .map_err(|error| error.to_string())?;
-    messages::hand_task(core, agent, messages::auto_task(text)).await
+    messages::hand_task(core, agent, messages::auto_task(core, agent, text)).await
 }
 
 /// The turn of one of Auto's agents ended: its work ships, or its card goes

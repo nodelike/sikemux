@@ -1736,6 +1736,7 @@ export type CoreChangeTopic =
     | "files"
     | "update"
     | "stash"
+    | "memory"
     | "stopping";
 
 /**
@@ -2127,6 +2128,8 @@ export interface BoardCard {
      * reached: a slice that waits on another comes after it.
      */
     next: NextGate[];
+    /** For a goal, what it decided, oldest first, retired ones too. */
+    decisions: Decision[];
     at: number;
     updatedAt: number;
 }
@@ -2311,6 +2314,33 @@ export interface NextGate {
     card: number;
     gate: Gate;
     passer: Passer;
+}
+
+/** What a goal decided, kept on its card. */
+export interface Decision {
+    /** The same for as long as the goal keeps it. */
+    id: number;
+    text: string;
+    why: string | null;
+    learned: Learned;
+    /** What it said before it was last corrected. */
+    was: string | null;
+    /**
+     * Who retired it and when. A full goal drops its oldest retired
+     * decisions first.
+     */
+    retired: Learned | null;
+}
+
+/** Who said something, and in which chat turn. */
+export interface Learned {
+    /** The agent that said it; none for the person. */
+    agent: string | null;
+    /** What that agent was called then. */
+    name: string | null;
+    feed: string | null;
+    turn: number | null;
+    at: number;
 }
 
 /** How a project's board runs on its own. */
@@ -3336,6 +3366,185 @@ export interface BoardReviewerParams {
     model?: string;
 }
 
+export interface DecideParams {
+    project: string;
+    /** The goal's card. */
+    card: number;
+    /** The decision to correct or retire; none to record a new one. */
+    decision: number | null;
+    text: string | null;
+    why: string | null;
+    retire?: boolean;
+}
+
+export interface MemoryParams {
+    project: string;
+}
+
+/**
+ * What applies to a project: its own folder first, then each folder above
+ * it, nearest first.
+ */
+export interface MemoryView {
+    folders: FolderMemory[];
+}
+
+/**
+ * What one folder keeps: a project, or a folder above it whose entries every
+ * project under it shares.
+ */
+export interface FolderMemory {
+    folder: string;
+    rules: MemoryRule[];
+    knowledge: Knowledge[];
+    /** Sensitive entries left out, for a reader other than Sikemux's own window. */
+    hidden: number;
+}
+
+/** How agents must work here, such as "shadows, never glows". */
+export interface MemoryRule {
+    /** The same for as long as it is kept, and never given to another. */
+    id: number;
+    text: string;
+    /**
+     * The goal card of the project it is kept for, when only that goal's
+     * agents follow it.
+     */
+    goal: number | null;
+    /**
+     * It never goes into the repository. Agents read it; only Sikemux's own
+     * window shows it, and other readers get a count of what is hidden.
+     */
+    sensitive: boolean;
+    learned: Learned;
+    /** What it said before it was last corrected. */
+    was: string | null;
+}
+
+/** How things are, such as "the service is called ai-service now". */
+export interface Knowledge {
+    /** The same for as long as it is kept, and never given to another. */
+    id: number;
+    text: string;
+    /**
+     * The paths and services it is about, as whole words. It goes into an
+     * agent's brief when its task or card names one of them, or into every
+     * brief when there are none.
+     */
+    about: string[];
+    /**
+     * It never goes into the repository. Agents read it; only Sikemux's own
+     * window shows it, and other readers get a count of what is hidden.
+     */
+    sensitive: boolean;
+    check: MemoryCheck | null;
+    learned: Learned;
+    /** What it said before it was last corrected. */
+    was: string | null;
+    checked: LastCheck | null;
+    /** Why it is no longer known to hold; it stays out of briefs meanwhile. */
+    stale: Stale | null;
+}
+
+/** What the core can test about knowledge by itself. */
+export type MemoryCheck =
+    /**
+     * A file or folder exists; a relative path is read from the folder the
+     * knowledge is kept for.
+     */
+    | {
+          kind: "pathExists";
+          path: string;
+      }
+    /** Something accepts a connection on the port. */
+    | {
+          kind: "hostAnswers";
+          host: string;
+          port: number;
+      };
+
+/** The last time the core tested knowledge. */
+export interface LastCheck {
+    at: number;
+    passed: boolean;
+    /** Why it failed. */
+    why: string | null;
+}
+
+/** Why knowledge is no longer known to hold. */
+export type Stale =
+    /**
+     * The core's test failed, as `checked` says, and has kept failing since
+     * `since`. It holds again once the test passes.
+     */
+    | {
+          kind: "failed";
+          since: number;
+      }
+    /**
+     * Someone said it no longer holds without knowing what does. It holds
+     * again only once corrected.
+     */
+    | {
+          kind: "disputed";
+          why: string;
+          by: Learned;
+      };
+
+export interface MemoryAddParams {
+    project: string;
+    entry: NewMemory;
+}
+
+/** A rule or knowledge to keep, as the person writes it. */
+export type NewMemory =
+    | {
+          kind: "rule";
+          text: string;
+          /**
+           * The project's goal card it is kept for, when only that goal's
+           * agents follow it.
+           */
+          goal: number | null;
+          sensitive: boolean;
+          /** A folder above the project, to keep it for every project under it. */
+          folder: string | null;
+      }
+    | {
+          kind: "knowledge";
+          text: string;
+          about: string[];
+          sensitive: boolean;
+          check: MemoryCheck | null;
+          /** A folder above the project, to keep it for every project under it. */
+          folder: string | null;
+      };
+
+/**
+ * What changes about an entry. A rule is only corrected or retired;
+ * knowledge may also be said not to hold, and have what it is about and how
+ * it is tested changed.
+ */
+export interface MemoryUpdateParams {
+    project: string;
+    id: number;
+    /** What is so instead, correcting it. */
+    text: string | null;
+    /** Why knowledge no longer holds, when what does is not known. */
+    wrong: string | null;
+    retire?: boolean;
+    about: string[] | null;
+    /** How the core tests knowledge from now on. */
+    check: MemoryCheck | null;
+    /** The core stops testing knowledge. */
+    dropCheck?: boolean;
+}
+
+export interface MemoryEntryParams {
+    project: string;
+    id: number;
+}
+
 /** The person passes a gate of a slice. */
 export interface BoardPassParams {
     project: string;
@@ -3394,6 +3603,11 @@ export interface CoreCalls {
     boardUpdate: { params: BoardUpdateParams; answer: ProjectBoard };
     boardRemove: { params: BoardCardParams; answer: ProjectBoard };
     boardSettings: { params: BoardSettingsParams; answer: ProjectBoard };
+    boardDecide: { params: DecideParams; answer: ProjectBoard };
+    memory: { params: MemoryParams; answer: MemoryView };
+    memoryAdd: { params: MemoryAddParams; answer: MemoryView };
+    memoryUpdate: { params: MemoryUpdateParams; answer: MemoryView };
+    promoteRule: { params: MemoryEntryParams; answer: MemoryView };
     boardRetry: { params: BoardCardParams; answer: ProjectBoard };
     boardPass: { params: BoardPassParams; answer: ProjectBoard };
     boardNote: { params: BoardNoteParams; answer: ProjectBoard };

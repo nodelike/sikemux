@@ -53,9 +53,10 @@ const WINDOW_GONE: &str = "Sikemux's window closed before it answered";
 /// Tools that act as the agent calling them, or with a sign-in or a view
 /// the caller does not hold itself, so a call from outside every agent's
 /// processes is refused rather than answered for no one.
-const AGENT_METHODS: [&str; 8] = [
+const AGENT_METHODS: [&str; 9] = [
     "agent.",
     "board.",
+    "memory.",
     "git.",
     "review.",
     "browser.",
@@ -608,7 +609,11 @@ async fn dispatch(
         "board.list" => board::list(core, &request).await,
         "board.claim" => board::claim(core, &request).await,
         "board.update" => board::update(core, &request).await,
+        "board.decide" => board::decisions::tool(core, &request).await,
         "review.verdict" => board::verdict(core, &request).await,
+        "memory.add" => super::memory::tool_add(core, &request).await,
+        "memory.update" => super::memory::tool_update(core, &request).await,
+        "memory.list" => super::memory::tool_list(core, &request).await,
         "chat.react" => super::gestures::react(&request),
         "chat.gif" => super::gestures::gif(core, &request).await,
         "trigger.add" => super::triggers::add(core, &request).await,

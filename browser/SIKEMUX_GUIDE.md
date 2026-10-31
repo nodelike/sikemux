@@ -1347,6 +1347,43 @@ When the person, or the agent that started you, moves or changes a card you
 are working on, a message from the board says so. Notes from the board come
 as messages from `Board`.
 
+### What Sikemux remembers
+
+Sikemux keeps what the person should never have to say twice and hands it to
+agents started in the project. A task you are given may end with a
+`<sikemux-memory>` block: the project's rules, the knowledge your task names
+and, once you hold a card, the rules and decisions of the goal it sits under.
+Follow it as you would the person. `memory_list` shows all of it, with who
+said each and when.
+
+`memory_add` keeps one thing, by `kind`:
+
+- `rule`: how agents work here, such as "shadows, never glows". `goal: true`
+  keeps it for the agents of the goal your card sits under only.
+- `knowledge`: how something is, such as "the service is called ai-service
+  now". `about` names the paths and services it concerns, as whole words; it
+  goes only to agents whose task or card names one of them, or to every agent
+  when there are none. `check` lets Sikemux test it by itself: `pathExists`
+  with a `path`, or `hostAnswers` with a `host` and `port`.
+
+`sensitive: true` marks hosts, addresses and the like: agents still read it,
+but it never goes into the repository and only Sikemux's own window shows it.
+`folder`, a folder above the project, keeps a rule or knowledge for every
+project under it, for a product that spans several repositories.
+
+Keep what the person told you to keep, or found out and would want kept,
+never what the code or AGENTS.md already says. When something kept turns out
+wrong, mend it at once with `memory_update` and its `id`: `text` with what is
+so instead, or `retire: true` when it no longer applies. For knowledge you may
+also say `wrong`, why it no longer holds when you do not know what does, and
+change `about`, `check` or `dropCheck`. Knowledge marked wrong, or that fails
+Sikemux's own test, stays out of briefs and waits in the person's inbox.
+
+`board_decide` records what the goal your card sits under decided, with
+`text` and `why`. It stays on the goal's card for as long as the goal. Pass
+`decision` with its number to correct it with new `text` or `why`, or with
+`retire: true` when it no longer stands.
+
 ### Cards Auto runs
 
 When the person turns on Auto for a project, the board starts an agent of its

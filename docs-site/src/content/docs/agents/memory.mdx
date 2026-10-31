@@ -1,0 +1,41 @@
+---
+title: What Sikemux remembers
+description: "Rules, knowledge and decisions you say once, which the agents started in the project are handed."
+---
+
+Sikemux keeps what you would otherwise repeat in every chat, so you say it once and the agents started in the project are handed it. It keeps three kinds of thing, each at one level:
+
+| Kind          | Kept for                          | Example                                | Kept until                                 |
+| ------------- | --------------------------------- | -------------------------------------- | ------------------------------------------ |
+| **Rules**     | The project, or one goal          | "Shadows, never glows"                 | Someone corrects or retires it             |
+| **Knowledge** | The project, or a folder above it | "The service is called ai-service now" | It is proven wrong                         |
+| **Decisions** | A goal, on its card               | "One project is one concept"           | Someone retires it, or the goal is removed |
+
+Rules and knowledge kept for a folder above the project apply to every project under it, for a product that spans several repositories.
+
+Agents keep rules and knowledge with the `memory_add`, `memory_update` and `memory_list` tools, and a goal's decisions with `board_decide`, when you tell them to remember something or when they find it out. Each one says which agent learned it, in which chat and when, so you can check where it came from. A correction keeps what it said before. A goal's decisions show on its card on the board; a goal keeps 64, and past that drops its oldest retired decisions first.
+
+## What an agent is handed
+
+When another agent or Auto starts an agent in a project, its task ends with what Sikemux keeps:
+
+- every rule of the project and of the folders above it
+- only the knowledge its task names: knowledge that names paths or services goes to agents whose task or card names one of them as a whole word, and knowledge that names none goes to every agent
+- once the agent holds a card, the rules and decisions of the goal the card sits under. An agent started by another agent usually claims its card after it starts, so it reads those with `memory_list` then; Auto's agents hold their card from the start.
+
+A reviewer Auto starts to judge a change blind is handed only what you said yourself, never what an agent added.
+
+What Sikemux keeps stays out of the agent CLIs' own memory, so it is the same for every agent, account and CLI.
+
+## Sensitive entries
+
+A rule or knowledge marked sensitive, such as a host or an address, never goes into the repository. Agents in the project are still handed it, since that is what it is for. Only Sikemux's own window shows it; phones and other programs reading what Sikemux keeps see how many sensitive entries were left out, not what they say.
+
+## When knowledge no longer holds
+
+Knowledge can be proven wrong two ways.
+
+- **Someone says so.** You, or an agent that runs into the opposite, either corrects it with what is so instead, or says it no longer holds without knowing what does.
+- **Sikemux tests it.** Knowledge can say how to test it: a path exists, or a host answers on a port. Sikemux tests it every six hours, and soon after an agent was handed it on a test more than ten minutes old. An agent never waits for a test; it is handed what the last one found.
+
+Knowledge that failed its test, or that someone said no longer holds, is left out of what agents are handed and shows in the inbox as something to fix. Correct it or retire it. Knowledge that only failed its test holds again by itself once the test passes.

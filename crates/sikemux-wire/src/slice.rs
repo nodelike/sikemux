@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::memory::Learned;
+
 /// A step a slice passes on its way to done. A slice's ladder lists them in
 /// the order it passes them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -194,4 +196,20 @@ pub struct NextGate {
     pub card: u64,
     pub gate: Gate,
     pub passer: Passer,
+}
+
+/// What a goal decided, kept on its card.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Decision {
+    /// The same for as long as the goal keeps it.
+    pub id: u64,
+    pub text: String,
+    pub why: Option<String>,
+    pub learned: Learned,
+    /// What it said before it was last corrected.
+    pub was: Option<String>,
+    /// Who retired it and when. A full goal drops its oldest retired
+    /// decisions first.
+    pub retired: Option<Learned>,
 }

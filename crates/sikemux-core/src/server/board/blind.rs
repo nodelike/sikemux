@@ -281,7 +281,7 @@ async fn start(core: &Arc<Core>, step: &Step, agent: &str, head: &str) -> Result
     chat::until_started(core, chat)
         .await
         .map_err(|error| error.to_string())?;
-    messages::hand_task(core, agent, messages::auto_task(text)).await?;
+    messages::hand_task(core, agent, messages::auto_task(core, agent, text)).await?;
     Ok(true)
 }
 

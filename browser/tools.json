@@ -1922,6 +1922,190 @@
       ]
     },
     {
+      "name": "board_decide",
+      "row": {"verb": "decide", "kind": "edit", "icon": "issue", "target": ["decision #{decision}", "{text}"]},
+      "method": "board.decide",
+      "description": "Record, correct or retire a goal's decision.",
+      "properties": {
+        "decision": {
+          "description": "The decision to correct or retire; leave out to record one",
+          "type": "integer",
+          "minimum": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "retire": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "memory_add",
+      "row": {"verb": "remember", "kind": "edit", "icon": "square-plus", "target": ["{kind}: {text}"]},
+      "method": "memory.add",
+      "description": "Keep a rule or knowledge.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "rule",
+            "knowledge"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "about": {
+          "description": "Paths and services it is about; knowledge goes to agents whose task names one",
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "goal": {
+          "description": "A rule only the agents of your card's goal follow",
+          "type": "boolean"
+        },
+        "sensitive": {
+          "description": "Never goes into the repository",
+          "type": "boolean"
+        },
+        "check": {
+          "description": "How Sikemux tests knowledge still holds",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "pathExists",
+                "hostAnswers"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "host": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        "folder": {
+          "description": "A folder above the project, to share it with every project under it",
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ]
+    },
+    {
+      "name": "memory_update",
+      "row": {"verb": "update", "kind": "edit", "icon": "text", "target": ["memory #{id}"], "detail": ["{text}", "{wrong}"]},
+      "method": "memory.update",
+      "description": "Correct, dispute or retire a rule or knowledge.",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "What is so instead"
+        },
+        "wrong": {
+          "description": "Why it no longer holds, when you do not know what does",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "retire": {
+          "type": "boolean"
+        },
+        "about": {
+          "description": "Paths and services it is about; knowledge goes to agents whose task names one",
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "check": {
+          "description": "How Sikemux tests knowledge from now on",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "pathExists",
+                "hostAnswers"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "host": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        "dropCheck": {
+          "description": "Stop testing knowledge",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    {
+      "name": "memory_list",
+      "row": {"verb": "list", "kind": "read", "icon": "log-lines", "target": ["what Sikemux keeps"]},
+      "method": "memory.list",
+      "description": "List the rules, knowledge and decisions kept here.",
+      "properties": {},
+      "required": []
+    },
+    {
       "name": "trigger_add",
       "row": {"verb": "set", "kind": "edit", "icon": "clock", "target": ["trigger {title}"]},
       "method": "trigger.add",

@@ -33,6 +33,7 @@ const SOURCES = [
   `${WIRE}/notch.rs`,
   `${WIRE}/slice.rs`,
   `${WIRE}/inbox.rs`,
+  `${WIRE}/memory.rs`,
   `${WIRE}/share.rs`,
   `${WIRE}/pty/shell_protocol.rs`,
   `${WIRE}/pty/task.rs`,
@@ -62,6 +63,8 @@ const SOURCES = [
   `${CORE}/server/board.rs`,
   `${CORE}/server/board/auto.rs`,
   `${CORE}/server/board/slice.rs`,
+  `${CORE}/server/board/decisions.rs`,
+  `${CORE}/server/memory/mod.rs`,
   `${CORE}/server/workspace.rs`,
   `${CORE}/server/workspace/launchers.rs`,
   `${CORE}/server/workspace/policy.rs`,
@@ -90,6 +93,7 @@ const SOURCES = [
 const RENAMES = {
   [`${WIRE}/push.rs`]: { Notification: "NotificationCard" },
   [`${WIRE}/catalog.rs`]: { Driver: "ChatDriver" },
+  [`${WIRE}/memory.rs`]: { Rule: "MemoryRule" },
   [`${CORE}/server/chat/queue.rs`]: { Message: "QueuedMessageParams" },
   [`${CORE}/server/agent_accounts.rs`]: {
     Resuming: "ChatAccountsParams",

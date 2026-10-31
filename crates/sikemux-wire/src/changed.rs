@@ -45,6 +45,8 @@ pub enum Topic {
     Update,
     /// What the account keeps in its Stash.
     Stash,
+    /// What the core remembers for a project, or what a goal decided.
+    Memory,
     /// The core is stopping on purpose, so its clients do not start it again.
     Stopping,
     /// A topic from a newer core, which a client skips.

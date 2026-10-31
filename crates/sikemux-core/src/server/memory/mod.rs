@@ -1,0 +1,745 @@
+//! What the core remembers for a project, or a folder above it when one
+//! product spans several repositories: the rules agents follow there and
+//! knowledge of how things are. Kept in `memory/` in the data folder, one file
+//! per folder. Every entry says where it was learned. The core tests the
+//! knowledge it can; knowledge that no longer holds is marked stale, stays
+//! out of briefs and waits in the inbox until someone corrects or retires it.
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sikemux_process::sync::Locked;
+use sikemux_wire::memory::{
+    FolderMemory, Knowledge, Learned, MemoryCheck, MemoryView, Rule, Stale,
+};
+
+use super::access::Peer;
+use super::board::decisions::learned;
+use super::board::{self, project_at, GoalRef};
+use super::changed::Topic;
+use super::connection::blocking;
+use super::kept::{self, Kept};
+use super::wake::Wake;
+use super::Core;
+use crate::cli::protocol::HarnessRequest;
+use crate::text::to_keep;
+
+mod brief;
+mod check;
+mod promote;
+
+pub(crate) use brief::brief;
+pub(crate) use check::settle;
+pub(crate) use promote::promote;
+
+const FOLDER: &str = "memory";
+const MAX_FOLDERS: usize = 256;
+const MAX_ENTRIES: usize = 200;
+const MAX_TEXT_CHARS: usize = 1000;
+const MAX_ABOUT: usize = 12;
+const MAX_ABOUT_CHARS: usize = 200;
+const MAX_CHECK_CHARS: usize = 1000;
+
+/// What one folder keeps. Kept even once empty, so `next` never goes back.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Held {
+    folder: String,
+    next: u64,
+    rules: Vec<Rule>,
+    knowledge: Vec<Knowledge>,
+}
+
+impl Held {
+    fn len(&self) -> usize {
+        self.rules.len() + self.knowledge.len()
+    }
+
+    fn holds(&self, id: u64) -> bool {
+        self.rules.iter().any(|rule| rule.id == id)
+            || self.knowledge.iter().any(|known| known.id == id)
+    }
+}
+
+#[derive(Default)]
+struct State {
+    held: BTreeMap<String, Held>,
+    files: HashMap<String, Kept>,
+    /// Knowledge being tested now.
+    checking: HashSet<u64>,
+    /// Knowledge a brief carried on a test that was not fresh, to test soon.
+    wanted: HashSet<u64>,
+    /// Rules being written into AGENTS.md, which nothing else may change.
+    promoting: HashSet<u64>,
+}
+
+impl State {
+    /// The folders whose entries apply to `project`, nearest first.
+    fn applying<'a>(&'a self, project: &'a str) -> impl Iterator<Item = &'a Held> + 'a {
+        let mut held: Vec<&Held> = self
+            .held
+            .values()
+            .filter(|held| Path::new(project).starts_with(&held.folder))
+            .collect();
+        held.sort_by_key(|held| std::cmp::Reverse(held.folder.len()));
+        held.into_iter()
+    }
+
+    /// The folder applying to `project` that keeps entry `id`.
+    fn folder_of(&self, project: &str, id: u64) -> Result<String, String> {
+        self.applying(project)
+            .find(|held| held.holds(id))
+            .map(|held| held.folder.clone())
+            .ok_or_else(|| format!("Nothing Sikemux keeps for this project is #{id}"))
+    }
+
+    /// An id no entry has ever had.
+    fn next_id(&mut self, folder: &str) -> u64 {
+        let id = self.held.values().map(|held| held.next).max().unwrap_or(1);
+        if let Some(held) = self.held.get_mut(folder) {
+            held.next = id + 1;
+        }
+        id
+    }
+}
+
+pub(crate) struct Memory {
+    state: Mutex<State>,
+    folder: Option<PathBuf>,
+    /// Tests knowledge once it is due.
+    pub(crate) wake: Wake,
+}
+
+impl Memory {
+    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        let folder = data_dir.map(|dir| dir.join(FOLDER));
+        if let Some(folder) = &folder {
+            if let Err(error) = std::fs::create_dir_all(folder) {
+                eprintln!("sikemux core: what Sikemux keeps cannot be saved: {error}");
+            }
+        }
+        let held = kept::load_all::<Held>(folder.as_deref())
+            .into_iter()
+            .map(|held| (held.folder.clone(), held))
+            .collect();
+        Self {
+            state: Mutex::new(State {
+                held,
+                ..State::default()
+            }),
+            folder,
+            wake: Wake::default(),
+        }
+    }
+
+    /// Hands the folder's file to be written on a thread of its own.
+    fn save(&self, state: &mut State, folder: &str) {
+        self.wake.now();
+        let State { held, files, .. } = state;
+        let Some(held) = held.get(folder) else {
+            return;
+        };
+        files
+            .entry(folder.to_owned())
+            .or_insert_with(|| Kept::new(self.folder.as_deref(), &kept::file_for(folder)))
+            .save_soon(held);
+    }
+}
+
+/// Clients read what is kept again, and the inbox moves when knowledge went
+/// stale or holds again.
+fn tell_clients(core: &Core, stale_moved: bool) {
+    core.changes.changed(Topic::Memory, None, None);
+    if stale_moved {
+        core.view_changed();
+    }
+}
+
+fn abouts(about: Vec<String>) -> Result<Vec<String>, String> {
+    if about.len() > MAX_ABOUT {
+        return Err(format!("about names at most {MAX_ABOUT} paths or services"));
+    }
+    let mut kept: Vec<String> = Vec::new();
+    for item in about {
+        let item = item.trim();
+        if item.is_empty() || item.chars().count() > MAX_ABOUT_CHARS {
+            return Err(format!(
+                "each of about must be a path or a service's name, at most {MAX_ABOUT_CHARS} characters"
+            ));
+        }
+        if !kept.iter().any(|known| known.eq_ignore_ascii_case(item)) {
+            kept.push(item.to_owned());
+        }
+    }
+    Ok(kept)
+}
+
+fn checked_check(check: MemoryCheck) -> Result<MemoryCheck, String> {
+    let fits = |text: &str| !text.trim().is_empty() && text.chars().count() <= MAX_CHECK_CHARS;
+    let fine = match &check {
+        MemoryCheck::PathExists { path } => fits(path),
+        MemoryCheck::HostAnswers { host, port } => fits(host) && *port > 0,
+    };
+    if fine {
+        Ok(check)
+    } else {
+        Err(format!(
+            "check needs a path, or a host and a port, of at most {MAX_CHECK_CHARS} characters"
+        ))
+    }
+}
+
+/// The folder an entry is kept for: the project's own, or one above it.
+fn folder_for(project: &str, folder: Option<&str>) -> Result<String, String> {
+    let Some(folder) = folder else {
+        return Ok(project.to_owned());
+    };
+    let canonical = std::fs::canonicalize(folder)
+        .map_err(|error| format!("folder {folder} cannot be read: {error}"))?;
+    if canonical.parent().is_none() || !Path::new(project).starts_with(&canonical) {
+        return Err(format!(
+            "folder must be this project, {project}, or a folder above it other than /"
+        ));
+    }
+    Ok(canonical.to_string_lossy().into_owned())
+}
+
+/// A rule or knowledge to keep, as the person writes it.
+#[derive(Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum NewMemory {
+    Rule {
+        text: String,
+        /// The project's goal card it is kept for, when only that goal's
+        /// agents follow it.
+        goal: Option<u64>,
+        sensitive: bool,
+        /// A folder above the project, to keep it for every project under it.
+        folder: Option<String>,
+    },
+    Knowledge {
+        text: String,
+        about: Vec<String>,
+        sensitive: bool,
+        check: Option<MemoryCheck>,
+        /// A folder above the project, to keep it for every project under it.
+        folder: Option<String>,
+    },
+}
+
+fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {
+    let (text, folder) = match &new {
+        NewMemory::Rule { text, folder, .. } | NewMemory::Knowledge { text, folder, .. } => (
+            to_keep(text, "text", MAX_TEXT_CHARS)?,
+            folder_for(project, folder.as_deref())?,
+        ),
+    };
+    let mut state = core.memory.state.locked();
+    if !state.held.contains_key(&folder) && state.held.len() >= MAX_FOLDERS {
+        return Err(format!(
+            "Sikemux already keeps rules and knowledge for {MAX_FOLDERS} folders, as many as it can"
+        ));
+    }
+    let held = state.held.entry(folder.clone()).or_insert_with(|| Held {
+        folder: folder.clone(),
+        next: 1,
+        rules: Vec::new(),
+        knowledge: Vec::new(),
+    });
+    if held.len() >= MAX_ENTRIES {
+        return Err(format!(
+            "{folder} already keeps {MAX_ENTRIES} rules and knowledge; retire some first"
+        ));
+    }
+    let known = match &new {
+        NewMemory::Rule { .. } => (held.rules.iter())
+            .find(|rule| rule.text.eq_ignore_ascii_case(&text))
+            .map(|rule| rule.id),
+        NewMemory::Knowledge { .. } => (held.knowledge.iter())
+            .find(|known| known.text.eq_ignore_ascii_case(&text))
+            .map(|known| known.id),
+    };
+    if let Some(id) = known {
+        return Err(format!("Sikemux already keeps that, as #{id}"));
+    }
+    let id = state.next_id(&folder);
+    let held = state
+        .held
+        .get_mut(&folder)
+        .ok_or("the folder went while it was being written to")?;
+    match new {
+        NewMemory::Rule {
+            goal, sensitive, ..
+        } => {
+            if goal.is_some() && folder != project {
+                return Err("A goal's rule is kept for its project, not a folder above it".into());
+            }
+            held.rules.push(Rule {
+                id,
+                text,
+                goal,
+                sensitive,
+                learned,
+                was: None,
+            });
+        }
+        NewMemory::Knowledge {
+            about,
+            sensitive,
+            check,
+            ..
+        } => held.knowledge.push(Knowledge {
+            id,
+            text,
+            about: abouts(about)?,
+            sensitive,
+            check: check.map(checked_check).transpose()?,
+            learned,
+            was: None,
+            checked: None,
+            stale: None,
+        }),
+    }
+    core.memory.save(&mut state, &folder);
+    drop(state);
+    tell_clients(core, false);
+    Ok(id)
+}
+
+/// What changes about an entry. A rule is only corrected or retired;
+/// knowledge may also be said not to hold, and have what it is about and how
+/// it is tested changed.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryUpdateParams {
+    pub project: String,
+    pub id: u64,
+    /// What is so instead, correcting it.
+    pub text: Option<String>,
+    /// Why knowledge no longer holds, when what does is not known.
+    pub wrong: Option<String>,
+    #[serde(default)]
+    pub retire: bool,
+    pub about: Option<Vec<String>>,
+    /// How the core tests knowledge from now on.
+    pub check: Option<MemoryCheck>,
+    /// The core stops testing knowledge.
+    #[serde(default)]
+    pub drop_check: bool,
+}
+
+fn change(
+    core: &Core,
+    project: &str,
+    update: MemoryUpdateParams,
+    by: Learned,
+) -> Result<(), String> {
+    let saying = usize::from(update.text.is_some())
+        + usize::from(update.wrong.is_some())
+        + usize::from(update.retire);
+    if saying > 1 {
+        return Err("Say one of text, to correct it, wrong, when it no longer holds and you do not know what does, or retire".into());
+    }
+    if update.check.is_some() && update.drop_check {
+        return Err("Say check or dropCheck, not both".into());
+    }
+    let text = update
+        .text
+        .as_deref()
+        .map(|text| to_keep(text, "text", MAX_TEXT_CHARS))
+        .transpose()?;
+    let wrong = update
+        .wrong
+        .as_deref()
+        .map(|why| to_keep(why, "wrong", MAX_TEXT_CHARS))
+        .transpose()?;
+    let about = update.about.map(abouts).transpose()?;
+    let check = update.check.map(checked_check).transpose()?;
+    let id = update.id;
+    let mut state = core.memory.state.locked();
+    if state.promoting.contains(&id) {
+        return Err(format!("#{id} is being written into AGENTS.md"));
+    }
+    let folder = state.folder_of(project, id)?;
+    let held = state
+        .held
+        .get_mut(&folder)
+        .ok_or("the folder went while it was being changed")?;
+    let mut stale_moved = false;
+    if let Some(rule) = held.rules.iter_mut().find(|rule| rule.id == id) {
+        let rule_change =
+            wrong.is_none() && about.is_none() && check.is_none() && !update.drop_check;
+        if !rule_change || saying == 0 {
+            return Err(format!(
+                "#{id} is a rule: correct it with text, or retire it"
+            ));
+        }
+        if let Some(text) = text {
+            rule.was = Some(std::mem::replace(&mut rule.text, text));
+            rule.learned = by;
+        }
+        if update.retire {
+            held.rules.retain(|rule| rule.id != id);
+        }
+    } else if let Some(known) = held.knowledge.iter_mut().find(|known| known.id == id) {
+        if saying == 0 && about.is_none() && check.is_none() && !update.drop_check {
+            return Err("Say what changes: text, wrong, retire, about, check or dropCheck".into());
+        }
+        let was_stale = known.stale.is_some();
+        if let Some(text) = text {
+            known.was = Some(std::mem::replace(&mut known.text, text));
+            known.learned = by.clone();
+            known.stale = None;
+            known.checked = None;
+        }
+        if let Some(why) = wrong {
+            known.stale = Some(Stale::Disputed { why, by });
+        }
+        if let Some(about) = about {
+            known.about = about;
+        }
+        if check.is_some() || update.drop_check {
+            if matches!(known.stale, Some(Stale::Failed { .. })) {
+                known.stale = None;
+            }
+            known.check = check;
+            known.checked = None;
+        }
+        let is_stale = known.stale.is_some() && !update.retire;
+        stale_moved = was_stale != is_stale;
+        if update.retire {
+            held.knowledge.retain(|known| known.id != id);
+        }
+    }
+    if update.retire {
+        state.wanted.remove(&id);
+    }
+    core.memory.save(&mut state, &folder);
+    drop(state);
+    tell_clients(core, stale_moved);
+    Ok(())
+}
+
+/// What applies to `project`, with sensitive entries left out unless Sikemux's
+/// own window reads it.
+fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
+    let shows_sensitive = matches!(peer, Peer::App);
+    let state = core.memory.state.locked();
+    let folders = state
+        .applying(project)
+        .map(|held| {
+            let rules: Vec<Rule> = (held.rules.iter())
+                .filter(|rule| shows_sensitive || !rule.sensitive)
+                .cloned()
+                .collect();
+            let knowledge: Vec<Knowledge> = (held.knowledge.iter())
+                .filter(|known| shows_sensitive || !known.sensitive)
+                .cloned()
+                .collect();
+            FolderMemory {
+                folder: held.folder.clone(),
+                hidden: held.len() - rules.len() - knowledge.len(),
+                rules,
+                knowledge,
+            }
+        })
+        .collect();
+    MemoryView { folders }
+}
+
+/// Stale knowledge, for the inbox.
+pub(crate) struct StaleKnowledge {
+    pub folder: String,
+    pub id: u64,
+    /// None for sensitive knowledge, which the inbox does not show.
+    pub text: Option<String>,
+    pub why: String,
+    pub at: u64,
+    /// The agent that said it no longer holds.
+    pub agent: Option<String>,
+}
+
+pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
+    let state = core.memory.state.locked();
+    let mut listed = Vec::new();
+    for held in state.held.values() {
+        for known in &held.knowledge {
+            let (why, at, agent) = match &known.stale {
+                None => continue,
+                Some(Stale::Failed { since }) => (
+                    known
+                        .checked
+                        .as_ref()
+                        .and_then(|checked| checked.why.clone())
+                        .unwrap_or_default(),
+                    *since,
+                    None,
+                ),
+                Some(Stale::Disputed { why, by }) => (why.clone(), by.at, by.agent.clone()),
+            };
+            listed.push(StaleKnowledge {
+                folder: held.folder.clone(),
+                id: known.id,
+                text: (!known.sensitive).then(|| known.text.clone()),
+                why,
+                at,
+                agent,
+            });
+        }
+    }
+    listed
+}
+
+/// Whether a rule kept in `folder` for `goal` applies under `live`, the goal
+/// an agent's live card sits under.
+fn goal_applies(folder: &str, goal: Option<u64>, live: Option<&GoalRef>) -> bool {
+    goal.is_none_or(|card| live.is_some_and(|live| live.project == folder && live.card == card))
+}
+
+fn caller(request: &HarnessRequest, tool: &str) -> Result<String, String> {
+    request
+        .agent_id
+        .clone()
+        .ok_or_else(|| format!("{tool} needs the calling agent's id"))
+}
+
+fn params<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, String> {
+    serde_json::from_value(params).map_err(|error| error.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "lowercase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+enum ToolAdd {
+    Rule {
+        text: String,
+        #[serde(default)]
+        goal: bool,
+        #[serde(default)]
+        sensitive: bool,
+        folder: Option<String>,
+    },
+    Knowledge {
+        text: String,
+        #[serde(default)]
+        about: Vec<String>,
+        #[serde(default)]
+        sensitive: bool,
+        check: Option<MemoryCheck>,
+        folder: Option<String>,
+    },
+}
+
+/// `memory_add`: a rule or knowledge for the agent's project.
+pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
+    let agent = caller(request, "memory_add")?;
+    let adding: ToolAdd = params(request.params.clone())?;
+    let project = board::caller_project(core, request);
+    let core = core.clone();
+    run(move || {
+        let new = match adding {
+            ToolAdd::Rule {
+                text,
+                goal,
+                sensitive,
+                folder,
+            } => {
+                let goal = if goal {
+                    let goal = board::goal_of(&core, &agent)
+                        .ok_or("You work on no card under a goal of this project, so the rule has no goal to belong to")?;
+                    Some(goal.card)
+                } else {
+                    None
+                };
+                NewMemory::Rule {
+                    text,
+                    goal,
+                    sensitive,
+                    folder,
+                }
+            }
+            ToolAdd::Knowledge {
+                text,
+                about,
+                sensitive,
+                check,
+                folder,
+            } => NewMemory::Knowledge {
+                text,
+                about,
+                sensitive,
+                check,
+                folder,
+            },
+        };
+        let id = add(&core, &project, new, learned(&core, Some(&agent)))?;
+        Ok(json!({ "id": id }))
+    })
+    .await
+}
+
+/// `memory_update`: corrects, disputes or retires an entry, or changes what
+/// knowledge is about and how it is tested.
+pub(crate) async fn tool_update(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+) -> Result<Value, String> {
+    let agent = caller(request, "memory_update")?;
+    let project = board::caller_project(core, request);
+    let mut given = request.params.clone();
+    if let Some(given) = given.as_object_mut() {
+        given.insert("project".into(), project.clone().into());
+    }
+    let update: MemoryUpdateParams = params(given)?;
+    let id = update.id;
+    let core = core.clone();
+    run(move || {
+        change(&core, &project, update, learned(&core, Some(&agent)))?;
+        Ok(json!({ "id": id }))
+    })
+    .await
+}
+
+fn said_by(learned: &Learned) -> &str {
+    learned.name.as_deref().unwrap_or("the person")
+}
+
+/// `memory_list`: every rule and piece of knowledge kept for the agent's
+/// project, with the decisions of the goal its live card sits under.
+pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
+    let agent = caller(request, "memory_list")?;
+    let project = board::caller_project(core, request);
+    let goal = board::goal_of(core, &agent);
+    let decisions = goal
+        .as_ref()
+        .map(|goal| board::decisions::of_goal(core, goal))
+        .unwrap_or_default();
+    let state = core.memory.state.locked();
+    let (mut rules, mut knowledge) = (Vec::new(), Vec::new());
+    for held in state.applying(&project) {
+        let folder = (held.folder != project).then_some(held.folder.as_str());
+        for rule in &held.rules {
+            if !goal_applies(&held.folder, rule.goal, goal.as_ref()) {
+                continue;
+            }
+            rules.push(json!({
+                "id": rule.id,
+                "text": rule.text,
+                "from": said_by(&rule.learned),
+                "at": rule.learned.at,
+                "goal": rule.goal,
+                "folder": folder,
+                "sensitive": rule.sensitive,
+            }));
+        }
+        for known in &held.knowledge {
+            let stale = known.stale.as_ref().map(|stale| match stale {
+                Stale::Failed { .. } => known
+                    .checked
+                    .as_ref()
+                    .and_then(|checked| checked.why.clone())
+                    .unwrap_or_else(|| "its test failed".into()),
+                Stale::Disputed { why, by } => format!("{} said: {why}", said_by(by)),
+            });
+            knowledge.push(json!({
+                "id": known.id,
+                "text": known.text,
+                "about": known.about,
+                "from": said_by(&known.learned),
+                "at": known.learned.at,
+                "check": known.check,
+                "stale": stale,
+                "folder": folder,
+                "sensitive": known.sensitive,
+            }));
+        }
+    }
+    drop(state);
+    Ok(json!({
+        "rules": rules,
+        "knowledge": knowledge,
+        "goal": goal.map(|goal| json!({ "card": goal.card, "decisions": decisions })),
+    }))
+}
+
+async fn run<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    blocking(move || work().map_err(Into::into))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryParams {
+    pub project: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryAddParams {
+    pub project: String,
+    pub entry: NewMemory,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryEntryParams {
+    pub project: String,
+    pub id: u64,
+}
+
+pub(crate) fn person_view(
+    core: &Core,
+    peer: &Peer,
+    params: MemoryParams,
+) -> Result<MemoryView, String> {
+    let project = project_at(core, &params.project)?;
+    Ok(view(core, &project, peer))
+}
+
+pub(crate) async fn person_add(
+    core: &Arc<Core>,
+    peer: Peer,
+    params: MemoryAddParams,
+) -> Result<MemoryView, String> {
+    let project = project_at(core, &params.project)?;
+    if let NewMemory::Rule {
+        goal: Some(card), ..
+    } = &params.entry
+    {
+        board::card_exists(core, &project, *card)?;
+    }
+    let core = core.clone();
+    run(move || {
+        add(&core, &project, params.entry, learned(&core, None))?;
+        Ok(view(&core, &project, &peer))
+    })
+    .await
+}
+
+pub(crate) async fn person_update(
+    core: &Arc<Core>,
+    peer: Peer,
+    params: MemoryUpdateParams,
+) -> Result<MemoryView, String> {
+    let project = project_at(core, &params.project)?;
+    let core = core.clone();
+    run(move || {
+        change(&core, &project, params, learned(&core, None))?;
+        Ok(view(&core, &project, &peer))
+    })
+    .await
+}

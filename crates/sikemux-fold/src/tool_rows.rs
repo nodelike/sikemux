@@ -700,6 +700,50 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "board_decide",
+        Spec {
+            verb: "decide",
+            kind: "edit",
+            icon: "issue",
+            target: &["decision #{decision}", "{text}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
+        "memory_add",
+        Spec {
+            verb: "remember",
+            kind: "edit",
+            icon: "square-plus",
+            target: &["{kind}: {text}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
+        "memory_update",
+        Spec {
+            verb: "update",
+            kind: "edit",
+            icon: "text",
+            target: &["memory #{id}"],
+            detail: &["{text}", "{wrong}"],
+            plugin: None,
+        },
+    ),
+    (
+        "memory_list",
+        Spec {
+            verb: "list",
+            kind: "read",
+            icon: "log-lines",
+            target: &["what Sikemux keeps"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "trigger_add",
         Spec {
             verb: "set",

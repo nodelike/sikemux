@@ -8,6 +8,7 @@ pub mod changed;
 pub mod chat;
 pub mod grid;
 pub mod inbox;
+pub mod memory;
 pub mod notch;
 pub mod protocol;
 pub mod pty;

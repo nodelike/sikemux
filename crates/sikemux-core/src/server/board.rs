@@ -10,7 +10,6 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
@@ -19,15 +18,16 @@ use crate::cli::protocol::HarnessRequest;
 use crate::text::clipped;
 
 use super::connection::blocking;
-use super::kept::Kept;
+use super::kept::{self, Kept};
 use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_wire::inbox::InboxRecording;
-use sikemux_wire::slice::{Gate, NextGate, SliceView};
+use sikemux_wire::slice::{Decision, Gate, NextGate, SliceView};
 
 pub(crate) mod auto;
 mod blind;
+pub(crate) mod decisions;
 mod finish;
 pub(crate) mod git;
 mod review;
@@ -158,6 +158,9 @@ struct Card {
     /// What it promises and how far up its ladder it is, once it makes a promise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     slice: Option<slice::Slice>,
+    /// What it decided, for a goal, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    decisions: Vec<Decision>,
     at: u64,
     updated_at: u64,
     /// When its owner last claimed it, which nothing else changes: the
@@ -452,30 +455,13 @@ struct Notice {
     text: String,
 }
 
-fn file_name(project: &str) -> String {
-    let digest = hex::encode(Sha256::digest(project.as_bytes()));
-    format!("{}.json", digest.get(..16).unwrap_or(&digest))
-}
-
 impl Boards {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let folder = data_dir.map(|dir| dir.join(FOLDER));
         let mut state = State::default();
-        if let Some(entries) = folder
-            .as_deref()
-            .and_then(|dir| std::fs::read_dir(dir).ok())
-        {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-                    continue;
-                }
-                let kept = Kept::new(path.parent(), &entry.file_name().to_string_lossy());
-                if let Some(board) = kept.load::<Option<Board>>() {
-                    state.dirty.insert(board.project.clone());
-                    state.boards.insert(board.project.clone(), board);
-                }
-            }
+        for board in kept::load_all::<Board>(folder.as_deref()) {
+            state.dirty.insert(board.project.clone());
+            state.boards.insert(board.project.clone(), board);
         }
         if let Some(Err(error)) = folder.as_deref().map(std::fs::create_dir_all) {
             eprintln!("sikemux core: boards will not be saved: {error}");
@@ -496,7 +482,7 @@ impl Boards {
             return;
         };
         match serde_json::to_vec(board) {
-            Ok(bytes) => self.writer.hand(folder.join(file_name(project)), bytes),
+            Ok(bytes) => self.writer.hand(folder.join(kept::file_for(project)), bytes),
             Err(error) => eprintln!("sikemux core: the board was not saved: {error}"),
         }
     }
@@ -938,6 +924,8 @@ pub struct CardView {
     /// For a goal, the gates its slices wait at, in the order they will be
     /// reached: a slice that waits on another comes after it.
     pub next: Vec<NextGate>,
+    /// For a goal, what it decided, oldest first, retired ones too.
+    pub decisions: Vec<Decision>,
     pub at: u64,
     pub updated_at: u64,
 }
@@ -1026,6 +1014,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
             slice.view(card.owner_id(), held_up, |agent| name_of(core, agent))
         }),
         next: slice::next_gates(board, card),
+        decisions: card.decisions.clone(),
         at: card.at,
         updated_at: card.updated_at,
     }
@@ -1187,6 +1176,7 @@ fn add_card(
         slice: adding
             .promise
             .map(|promise| slice::Slice::new(promise, Vec::new(), None)),
+        decisions: Vec::new(),
         at: now,
         updated_at: now,
         acted_at: now,
@@ -1988,10 +1978,6 @@ pub(crate) fn attach_recording(core: &Core, agent_id: &str, recording: InboxReco
 }
 
 /// The goal a card sits under: the top card above it, or itself.
-#[expect(
-    dead_code,
-    reason = "project memory files what it learns under this goal"
-)]
 pub(crate) struct GoalRef {
     pub project: String,
     pub card: u64,
@@ -2001,10 +1987,6 @@ pub(crate) struct GoalRef {
 
 /// The goal the card `agent_id` works sits under, in its own project: its
 /// card not done, walked up to the top card above it, done or not.
-#[expect(
-    dead_code,
-    reason = "project memory files what it learns under this goal"
-)]
 pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
     let project = core.names.get(agent_id)?.project;
     let state = core.boards.state.locked();
@@ -2039,6 +2021,15 @@ pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
     })
 }
 
+/// Refuses card `id` when it is not on `project`'s board.
+pub(crate) fn card_exists(core: &Core, project: &str, id: u64) -> Result<(), String> {
+    let state = core.boards.state.locked();
+    match state.boards.get(project) {
+        Some(board) => board.card(id).map(|_| ()),
+        None => Err(format!("There is no card #{id} on this project's board")),
+    }
+}
+
 /// Every project's board, as the app draws them.
 pub(crate) fn boards(core: &Core) -> Vec<BoardView> {
     let state = core.boards.state.locked();
@@ -2057,7 +2048,7 @@ fn project_view(core: &Core, project: &str) -> BoardView {
     }
 }
 
-fn project_at(core: &Core, path: &str) -> Result<String, String> {
+pub(crate) fn project_at(core: &Core, path: &str) -> Result<String, String> {
     if Path::new(path).is_absolute() && path.len() <= 4096 {
         Ok(board_project(core, path))
     } else {

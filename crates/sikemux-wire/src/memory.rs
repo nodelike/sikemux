@@ -1,0 +1,121 @@
+//! What the core remembers so the person never says it twice: rules agents
+//! follow and knowledge of how things are, kept for a project or a folder
+//! above it. Each entry says where it was learned, so it can be checked, and
+//! knowledge visibly goes stale. A goal's decisions are the board's.
+
+use serde::{Deserialize, Serialize};
+
+/// Who said something, and in which chat turn.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Learned {
+    /// The agent that said it; none for the person.
+    pub agent: Option<String>,
+    /// What that agent was called then.
+    pub name: Option<String>,
+    pub feed: Option<String>,
+    pub turn: Option<u64>,
+    pub at: u64,
+}
+
+/// How agents must work here, such as "shadows, never glows".
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rule {
+    /// The same for as long as it is kept, and never given to another.
+    pub id: u64,
+    pub text: String,
+    /// The goal card of the project it is kept for, when only that goal's
+    /// agents follow it.
+    pub goal: Option<u64>,
+    /// It never goes into the repository. Agents read it; only Sikemux's own
+    /// window shows it, and other readers get a count of what is hidden.
+    pub sensitive: bool,
+    pub learned: Learned,
+    /// What it said before it was last corrected.
+    pub was: Option<String>,
+}
+
+/// How things are, such as "the service is called ai-service now".
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Knowledge {
+    /// The same for as long as it is kept, and never given to another.
+    pub id: u64,
+    pub text: String,
+    /// The paths and services it is about, as whole words. It goes into an
+    /// agent's brief when its task or card names one of them, or into every
+    /// brief when there are none.
+    pub about: Vec<String>,
+    /// It never goes into the repository. Agents read it; only Sikemux's own
+    /// window shows it, and other readers get a count of what is hidden.
+    pub sensitive: bool,
+    pub check: Option<MemoryCheck>,
+    pub learned: Learned,
+    /// What it said before it was last corrected.
+    pub was: Option<String>,
+    pub checked: Option<LastCheck>,
+    /// Why it is no longer known to hold; it stays out of briefs meanwhile.
+    pub stale: Option<Stale>,
+}
+
+/// What the core can test about knowledge by itself.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MemoryCheck {
+    /// A file or folder exists; a relative path is read from the folder the
+    /// knowledge is kept for.
+    PathExists { path: String },
+    /// Something accepts a connection on the port.
+    HostAnswers { host: String, port: u16 },
+}
+
+/// The last time the core tested knowledge.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastCheck {
+    pub at: u64,
+    pub passed: bool,
+    /// Why it failed.
+    pub why: Option<String>,
+}
+
+/// Why knowledge is no longer known to hold.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Stale {
+    /// The core's test failed, as `checked` says, and has kept failing since
+    /// `since`. It holds again once the test passes.
+    Failed { since: u64 },
+    /// Someone said it no longer holds without knowing what does. It holds
+    /// again only once corrected.
+    Disputed { why: String, by: Learned },
+}
+
+/// What one folder keeps: a project, or a folder above it whose entries every
+/// project under it shares.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderMemory {
+    pub folder: String,
+    pub rules: Vec<Rule>,
+    pub knowledge: Vec<Knowledge>,
+    /// Sensitive entries left out, for a reader other than Sikemux's own window.
+    pub hidden: usize,
+}
+
+/// What applies to a project: its own folder first, then each folder above
+/// it, nearest first.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryView {
+    pub folders: Vec<FolderMemory>,
+}

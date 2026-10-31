@@ -605,6 +605,28 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         ));
         items.push(item);
     }
+    for stale in super::memory::stale(core) {
+        let what = match &stale.text {
+            Some(text) => format!("No longer holds: {}", clipped_line(text, MAX_LINE_CHARS)),
+            None => "Sensitive knowledge Sikemux keeps no longer holds".to_owned(),
+        };
+        let mut item = item(
+            format!("memory:{}", stale.id),
+            InboxKind::Held,
+            what,
+            stale.at,
+        );
+        if let Some(agent) = &stale.agent {
+            item = item.by(agent, find(agent));
+        }
+        item.project = Some(stale.folder);
+        item.detail = Some(format!(
+            "{} Correct #{} or retire it.",
+            clipped_line(&stale.why, MAX_LINE_CHARS),
+            stale.id
+        ));
+        items.push(item);
+    }
     for failing in core.collisions.failing() {
         let names: Vec<String> = failing
             .agents

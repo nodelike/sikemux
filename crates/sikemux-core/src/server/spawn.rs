@@ -596,7 +596,9 @@ async fn hand_task(core: &Arc<Core>, started: Started, prompt: String) {
     }
     let failed = match chat::until_started(core, chat).await {
         Ok(_) => {
-            let task = messages::task(&lead_id, &lead_name, &lead_cli, reports, prompt);
+            let task = messages::task(
+                core, &agent_id, &lead_id, &lead_name, &lead_cli, reports, prompt,
+            );
             match messages::hand_task(core, &agent_id, task).await {
                 Ok(()) => return,
                 Err(error) => error,
@@ -750,6 +752,8 @@ async fn spawn_terminal(
         return Err(format!("{} did not start: {error}", opening.name));
     }
     let task = messages::task(
+        core,
+        &opening.agent_id,
         &opening.lead_id,
         &opening.lead_name,
         &opening.lead_cli,

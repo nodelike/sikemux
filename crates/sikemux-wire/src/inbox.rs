@@ -40,8 +40,9 @@ pub enum InboxKind {
     /// An agent in a terminal waits for the person to type.
     Input,
     /// Auto handed the card back, Sikemux holds the messages two agents
-    /// keep sending each other, two agents keep changing the same lines, or
-    /// the project's check keeps failing, for the reason in `detail`.
+    /// keep sending each other, two agents keep changing the same lines, the
+    /// project's check keeps failing, or a rule or knowledge Sikemux keeps no
+    /// longer holds, for the reason in `detail`.
     Held,
     /// The agent went on with an assumption the person may correct.
     Assumption,

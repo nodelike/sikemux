@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
 
 /// How long [`Kept::save_soon`] waits for more changes before writing.
@@ -170,6 +171,28 @@ impl Queue {
         pending.hurry = false;
         self.changed.notify_all();
     }
+}
+
+/// The file a record keyed by `key`, such as a project's path, is kept in
+/// among others of its kind in one folder.
+pub(crate) fn file_for(key: &str) -> String {
+    let digest = hex::encode(Sha256::digest(key.as_bytes()));
+    format!("{}.json", digest.get(..16).unwrap_or(&digest))
+}
+
+/// Every record kept in `folder`, one file each; a file that cannot be read
+/// is moved aside.
+pub(crate) fn load_all<T: DeserializeOwned>(folder: Option<&Path>) -> Vec<T> {
+    let Some(entries) = folder.and_then(|dir| std::fs::read_dir(dir).ok()) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .filter_map(|entry| {
+            Kept::new(folder, &entry.file_name().to_string_lossy()).load::<Option<T>>()
+        })
+        .collect()
 }
 
 fn write(path: &Path, bytes: &[u8]) -> bool {

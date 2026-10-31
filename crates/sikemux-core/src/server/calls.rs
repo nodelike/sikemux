@@ -16,12 +16,14 @@ use super::edits::{self, Edit, Filter, Owners};
 use super::names::{AgentName, ClosedAgent, NameTheme};
 use super::workspace;
 use super::{
-    agent_accounts, agent_sign_in, board, inbox, messages, model_providers, plugins, questions,
-    remote, saved, saved_sessions, share, skill_library, who_wrote, Core, CoreError, CoreResult,
+    agent_accounts, agent_sign_in, board, inbox, memory, messages, model_providers, plugins,
+    questions, remote, saved, saved_sessions, share, skill_library, who_wrote, Core, CoreError,
+    CoreResult,
 };
 use crate::protocol::{AgentBuddy, Preferences, RemoteStatus};
 use sikemux_wire::catalog::CatalogAgent;
 use sikemux_wire::chat::ToolDetail;
+use sikemux_wire::memory::MemoryView;
 use sikemux_wire::questions::AgentQuestion;
 
 /// Each method once: what a client must be allowed, `any_program` when any
@@ -583,6 +585,13 @@ calls! { core, client, params;
     "boardSettings" BoardSettings (board::SettingsParams) -> board::BoardView: Full => {
         board::person_settings(&core, params).await?
     },
+    "boardDecide" BoardDecide (board::decisions::DecideParams) -> board::BoardView: Full => {
+        board::decisions::person_decide(&core, params).await?
+    },
+    "memory" Memory (memory::MemoryParams) -> MemoryView: Watch, any_program => memory::person_view(&core, &client.peer, params)?,
+    "memoryAdd" MemoryAdd (memory::MemoryAddParams) -> MemoryView: Full => memory::person_add(&core, client.peer.clone(), params).await?,
+    "memoryUpdate" MemoryUpdate (memory::MemoryUpdateParams) -> MemoryView: Full => memory::person_update(&core, client.peer.clone(), params).await?,
+    "promoteRule" PromoteRule (memory::MemoryEntryParams) -> MemoryView: Person => memory::promote(&core, client.peer.clone(), params).await?,
     "boardRetry" BoardRetry (board::CardParams) -> board::BoardView: Full => board::person_retry(&core, params).await?,
     "boardPass" BoardPass (board::PassParams) -> board::BoardView: Full => board::person_pass(&core, params).await?,
     "boardNote" BoardNote (board::NoteParams) -> board::BoardView: Full => board::person_note(&core, params).await?,
