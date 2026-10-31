@@ -33,6 +33,9 @@ use crate::server::Core;
 
 /// The ladder a card takes once it makes a promise.
 const LADDER: [Gate; 3] = [Gate::Built, Gate::LooksRight, Gate::Landed];
+/// The ladder of a card Auto merges itself once its reviewer approves, which
+/// leaves the person nothing to pass.
+const AUTO_MERGES: [Gate; 2] = [Gate::Built, Gate::Landed];
 /// Evidence kept besides the pieces notes are pinned to; the oldest goes first.
 const MAX_EVIDENCE: usize = 24;
 const MAX_NOTES: usize = 32;
@@ -206,6 +209,19 @@ pub(super) struct HeardRun {
 /// The latest check runs of one project, newest last.
 #[derive(Default)]
 pub(super) struct HeardRuns(VecDeque<HeardRun>);
+
+impl HeardRun {
+    /// A check run on `head` alone.
+    pub(super) fn of(head: &str, command: &str, verdict: Verdict, output: &str) -> Self {
+        Self {
+            sha: Some(head.to_owned()),
+            covered: vec![head.to_owned()],
+            verdict: Some(verdict),
+            command: command.to_owned(),
+            output: output.to_owned(),
+        }
+    }
+}
 
 impl HeardRuns {
     fn keep(&mut self, run: HeardRun) {
@@ -493,6 +509,23 @@ impl Slice {
             passed.push(gate);
         }
         passed
+    }
+
+    /// Its pull request merged, so it landed: the gates left pass, the
+    /// person's and its owner's as the person's when they merged it
+    /// themselves, the rest as the core's.
+    pub(super) fn merged(&mut self, by_person: bool) {
+        while let Some(gate) = self.waiting() {
+            let by = match by_person && rule(gate).passer != Passer::Core {
+                true => PassedBy::Person,
+                false => PassedBy::Core,
+            };
+            self.passes.push(Pass {
+                gate,
+                by,
+                at: epoch_ms(),
+            });
+        }
     }
 
     /// It is back at work, so the gates it passed go.
@@ -1388,6 +1421,83 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         core.boards.save(&mut state, &project);
     }
     later.run(core);
+    send_notices(core, notices);
+}
+
+/// Auto takes the card: it becomes a slice, promising what its title says
+/// when it promised nothing, on the ladder for how Auto finishes it.
+pub(super) fn auto_slice(card: &mut Card, merges: bool) {
+    let ladder = if merges {
+        AUTO_MERGES.to_vec()
+    } else {
+        LADDER.to_vec()
+    };
+    let recordings = std::mem::take(&mut card.recordings);
+    let slice = card
+        .slice
+        .get_or_insert_with(|| Slice::new(card.title.clone(), recordings, None));
+    if slice.passes.is_empty() {
+        slice.ladder = ladder;
+    }
+}
+
+/// Auto's agent shipped `head`, made on `from`, which counts as its owner
+/// saying the slice is done.
+pub(super) fn auto_shipped(card: &mut Card, from: &str, head: &str) {
+    let owner = card.owner_id().map(str::to_owned);
+    if let Some(slice) = card.slice.as_mut() {
+        let head = Head {
+            from: from.to_owned(),
+            head: head.to_owned(),
+            on_branch: false,
+        };
+        slice.worked(&head, true, owner.as_deref(), None);
+        slice.done_said = true;
+    }
+}
+
+/// A check on the head Auto pushed for `agent` ended: its slice keeps the run
+/// as evidence, and moves on as far as it can. Auto's own agent is not told,
+/// since a message would start it on another turn.
+pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str, run: HeardRun) {
+    let (notices, later) = {
+        let mut state = core.boards.state.locked();
+        let Some(card) = state
+            .boards
+            .get_mut(project)
+            .and_then(|board| board.card_mut(id).ok())
+        else {
+            return;
+        };
+        let owner = card.owner_id().map(str::to_owned);
+        let checked = card
+            .slice
+            .as_mut()
+            .is_some_and(|slice| slice.checked(owner.as_deref(), &run));
+        if !checked {
+            return;
+        }
+        card.updated_at = epoch_ms();
+        let moved = change_in(
+            core,
+            &mut state,
+            project,
+            &By::Auto("Auto"),
+            id,
+            Changes::default(),
+            &Seen::unread(),
+        );
+        core.boards.save(&mut state, project);
+        match moved {
+            Ok((_, notices, later)) => (notices, later),
+            Err(_) => return,
+        }
+    };
+    later.run(core);
+    let notices = notices
+        .into_iter()
+        .filter(|notice| notice.to != agent)
+        .collect();
     send_notices(core, notices);
 }
 

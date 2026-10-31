@@ -11,7 +11,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::{
-    BoardCardParams, BoardReviewerParams, BoardUpdateParams, CardStatus, CardView, Finish,
+    BoardCardParams, BoardReviewerParams, BoardUpdateParams, CardRun, CardStatus, CardView, Finish,
     MessageKind, MessageOutcome, MessageRow, MessageTone, Stage,
 };
 
@@ -45,8 +45,14 @@ fn status_label(status: CardStatus) -> &'static str {
     status_named(status).1
 }
 
-fn stage_label(stage: Stage) -> &'static str {
-    match stage {
+fn run_label(run: &CardRun, status: CardStatus) -> &'static str {
+    if status == CardStatus::Done {
+        return "Done";
+    }
+    if run.held.is_some() {
+        return "Back with you";
+    }
+    match run.stage {
         Stage::Starting => "Starting",
         Stage::Working => "Working",
         Stage::Shipping => "Shipping",
@@ -54,10 +60,7 @@ fn stage_label(stage: Stage) -> &'static str {
         Stage::Reviewing => "Under review",
         Stage::Fixing => "Fixing",
         Stage::Merging => "Merging",
-        Stage::Review => "Waits for you",
-        Stage::Held => "Back with you",
-        Stage::Merged => "Merged",
-        Stage::Closed => "Closed",
+        Stage::Watching => "Waits for you",
     }
 }
 
@@ -447,7 +450,7 @@ fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> 
     }
     if let Some(run) = card.auto.clone() {
         let mut auto = section("Auto", cx).child(
-            ui::text(stage_label(run.stage), TEXT_XS_H, FontWeight::MEDIUM)
+            ui::text(run_label(&run, card.status), TEXT_XS_H, FontWeight::MEDIUM)
                 .text_color(t.text_primary),
         );
         if let Some(note) = run.note.clone() {
@@ -475,7 +478,7 @@ fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> 
                     ),
             );
         }
-        if waits_on_person(run.stage) {
+        if waits_on_person(&run) {
             let again = if run.worktree.is_empty() {
                 "Start it again"
             } else {

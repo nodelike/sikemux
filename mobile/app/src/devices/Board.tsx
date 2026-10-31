@@ -3,7 +3,7 @@ import { Text, View, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import type { ConnectionLike } from '@sikemux/native';
 
-import { cardQuestion, COLUMN_LABELS, RUN_WAITS_ON_PERSON, shortTitle, type BoardCard, type BoardColumn } from '@shared/agents/agentBoard';
+import { cardQuestion, COLUMN_LABELS, shortTitle, type BoardCard, type BoardColumn } from '@shared/agents/agentBoard';
 import type { ChatTrigger } from '@shared/wire.generated';
 import { kindLabel, outcomeLabel, rowKeys, whoLabel } from '@shared/agents/agentMessages';
 import { formatAge } from '@shared/lib/format';
@@ -219,7 +219,7 @@ function CardRow({
   const cli = chat?.provider ?? terminal?.agentType ?? card.ownerCli;
   const group = snapshot.inbox.agents.find((agent) => agent.agentId === card.owner)?.group;
   const question = column === 'needs' ? cardQuestion(card, questions) : undefined;
-  const handedBack = card.auto && RUN_WAITS_ON_PERSON.has(card.auto.stage) && card.status !== 'done' ? card.auto.note : null;
+  const handedBack = card.auto && (card.auto.held || card.auto.stage === 'watching') && card.status !== 'done' ? card.auto.note : null;
   const reviewing = card.auto?.stage === 'reviewing' ? card.auto.note : null;
   const acceptance = card.acceptance && card.status !== 'done' ? `Done when: ${card.acceptance}` : null;
   const under = cards.filter((other) => other.parent === card.id);

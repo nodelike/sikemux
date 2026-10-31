@@ -2174,13 +2174,20 @@ export interface CardRun {
     base: string;
     startSha: string;
     stage: RunStage;
+    /** Auto gave the card back to the person, who is needed for this. */
+    held: RunHold | null;
     note: string | null;
     pull: CardPull | null;
 }
 
-/** Where a card's run is. */
-export type RunStage =
-    "starting" | "working" | "shipping" | "checking" | "reviewing" | "fixing" | "merging" | "review" | "held" | "merged" | "closed";
+/**
+ * The step of Auto's own work a card's run is at. Its slice and `held` say
+ * what waits on the person and whether the work landed.
+ */
+export type RunStage = "starting" | "working" | "shipping" | "checking" | "reviewing" | "fixing" | "merging" | "watching";
+
+/** What the person is needed for once Auto gives a card back to them. */
+export type RunHold = "fix" | "unblock";
 
 /** A run's pull request as the app and devices read it. */
 export interface CardPull {

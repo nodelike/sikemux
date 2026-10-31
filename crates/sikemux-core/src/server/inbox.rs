@@ -17,7 +17,7 @@ use sikemux_wire::inbox::{
     InboxNeed, InboxRecording, InboxTier, RemoteAgent, TeamLink,
 };
 
-use super::board::{self, Summary, Waits};
+use super::board::{self, Hold, Summary, Waits};
 use super::display;
 use super::notify::provider_name;
 use super::Core;
@@ -558,17 +558,25 @@ fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
             item.url = url.clone();
             item
         }
-        Waits::Held { note } => {
+        Waits::Held { need, note } => {
             let mut item = item(
                 card_id,
                 Case::HandedBack,
                 "Its card came back to you".into(),
                 card.updated_at,
             );
+            item.need = Some(match need {
+                Hold::Fix => InboxNeed::Fix,
+                Hold::Unblock => InboxNeed::Unblock,
+            });
             item.detail = note.clone();
             item
         }
-        Waits::Gate { gate, promise } => gate_item(card, *gate, promise),
+        Waits::Gate { gate, promise, url } => {
+            let mut item = gate_item(card, *gate, promise);
+            item.url = url.clone();
+            item
+        }
         Waits::Answer => return None,
     };
     item = item.on_card(Some(card));

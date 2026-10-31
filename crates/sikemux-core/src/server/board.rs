@@ -38,7 +38,8 @@ mod wait;
 pub(crate) use auto::Pull;
 use auto::Run;
 pub use auto::{
-    Finish, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams, Stage,
+    Finish, Hold, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams,
+    Stage,
 };
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 pub(crate) use slice::{follow, gate_key, gate_words, person_note, person_pass};
@@ -819,6 +820,11 @@ struct Maker {
 }
 
 impl Card {
+    /// The run Auto has on it, while the card is not done.
+    fn run(&self) -> Option<&Run> {
+        self.auto.as_ref().filter(|_| self.status != Status::Done)
+    }
+
     fn owner_id(&self) -> Option<&str> {
         self.owner.as_ref().map(|owner| owner.id.as_str())
     }
@@ -1432,7 +1438,7 @@ fn change_in(
     let mut passed: Vec<Gate> = changes.pass.into_iter().collect();
     match status {
         Some(Status::Open) => {
-            if let Some(run) = card.auto.take().filter(|run| !run.stage.is_over()) {
+            if let Some(run) = card.auto.take().filter(|_| before.status != Status::Done) {
                 dropped.push(finish::Dropped {
                     project: project.to_owned(),
                     id,
@@ -1447,7 +1453,7 @@ fn change_in(
                 By::Person => slice::PassedBy::Person,
                 By::Auto(_) | By::Agent(_) => slice::PassedBy::Core,
             })),
-            None => mark_done(core, card, by, project, dropped),
+            None => mark_done(core, card, by, project, dropped, false),
         },
         Some(Status::Progress) => {
             if let (Status::Done, Some(slice)) = (card.status, &mut card.slice) {
@@ -1457,17 +1463,20 @@ fn change_in(
         }
         None => {}
     }
+    let landed_before = before
+        .slice
+        .as_ref()
+        .is_some_and(|slice| slice.waiting().is_none());
     let moved = slice::progress(project, card, passed);
     if moved.done && card.status != Status::Done {
-        mark_done(core, card, by, project, dropped);
+        mark_done(core, card, by, project, dropped, landed_before);
     }
     let later = later.and(moved.later);
     card.updated_at = epoch_ms();
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
-    let run_dropped = before.auto.as_ref().is_some_and(|run| !run.stage.is_over())
-        && after.status != before.status
-        && after.status != Status::Progress;
+    let run_dropped =
+        before.run().is_some() && after.status != before.status && after.status != Status::Progress;
     let mut notices = Vec::new();
     let changer = match by {
         By::Person => Some("The person".to_owned()),
@@ -1532,24 +1541,25 @@ fn to_open(card: &mut Card) {
     }
 }
 
-/// Marks a card done, closing the run Auto has on it.
+/// Marks a card done, dropping the run Auto has on it unless `landed`: its
+/// slice landed already, so Auto ends the run itself.
 fn mark_done(
     core: &Core,
     card: &mut Card,
     by: &By,
     project: &str,
     dropped: &mut Vec<finish::Dropped>,
+    landed: bool,
 ) {
-    card.status = Status::Done;
-    if let Some(run) = card.auto.as_mut().filter(|run| !run.stage.is_over()) {
+    if let Some(run) = card.run().filter(|_| !landed) {
         dropped.push(finish::Dropped {
             project: project.to_owned(),
             id: card.id,
             run: run.clone(),
             discard: false,
         });
-        run.stage = Stage::Closed;
     }
+    card.status = Status::Done;
     if let (None, By::Agent(agent)) = (&card.owner, by) {
         card.owner = Some(Owner::of(core, agent));
     }
@@ -1573,7 +1583,7 @@ fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, Strin
     }
     let mut notices = unblocked(board, &blocked_before, &By::Person);
     state.work.remove(&(project.to_owned(), id));
-    let run = removed.auto.clone().filter(|run| !run.stage.is_over());
+    let run = removed.run().cloned();
     let dropping = run.is_some();
     if let Some(run) = run {
         state.dropped.push(finish::Dropped {
@@ -1854,12 +1864,16 @@ pub(crate) fn ticket_of_agent(core: &Core, agent_id: &str) -> Option<String> {
 
 /// What a card not done waits on the person for.
 pub(crate) enum Waits {
-    /// Its pull request is ready for review.
+    /// Its pull request waits for them, with nothing on its slice for them to pass.
     Review { url: Option<String> },
-    /// Auto handed it back, for the reason in `note`.
-    Held { note: Option<String> },
-    /// Its slice waits at a gate only the person passes.
-    Gate { gate: Gate, promise: String },
+    /// Auto gave it back to them, for `need`, for the reason in `note`.
+    Held { need: Hold, note: Option<String> },
+    /// Its slice waits at a gate only the person passes, with its pull request.
+    Gate {
+        gate: Gate,
+        promise: String,
+        url: Option<String>,
+    },
     /// Its owner asked the person something it waits on.
     Answer,
 }
@@ -1870,29 +1884,33 @@ fn waits(core: &Core, card: &Card) -> Option<Waits> {
     if card.status == Status::Done {
         return None;
     }
-    let run = card.auto.as_ref().and_then(|run| match run.stage {
-        Stage::Review => Some(Waits::Review {
-            url: run.pull.as_ref().map(|pull| pull.url.clone()),
-        }),
-        Stage::Held => Some(Waits::Held {
+    let run = card.auto.as_ref();
+    if let Some((need, run)) = run.and_then(|run| Some((run.held?, run))) {
+        return Some(Waits::Held {
+            need,
             note: run.note.clone(),
-        }),
-        _ => None,
-    });
-    run.or_else(|| {
-        let slice = card.slice.as_ref()?;
-        Some(Waits::Gate {
-            gate: slice.waits_on_person()?,
-            promise: slice.promise.clone(),
-        })
-    })
-    .or_else(|| {
-        (card.status == Status::Progress
-            && card
-                .owner_id()
-                .is_some_and(|owner| core.harness.questions.blocks_on_person(owner)))
-        .then_some(Waits::Answer)
-    })
+        });
+    }
+    let url = run
+        .and_then(|run| run.pull.as_ref())
+        .map(|pull| pull.url.clone());
+    if let Some(slice) = &card.slice {
+        if let Some(gate) = slice.waits_on_person() {
+            return Some(Waits::Gate {
+                gate,
+                promise: slice.promise.clone(),
+                url,
+            });
+        }
+    }
+    if run.is_some_and(|run| run.stage == Stage::Watching) {
+        return Some(Waits::Review { url });
+    }
+    (card.status == Status::Progress
+        && card
+            .owner_id()
+            .is_some_and(|owner| core.harness.questions.blocks_on_person(owner)))
+    .then_some(Waits::Answer)
 }
 
 /// A card as the inbox lists it.

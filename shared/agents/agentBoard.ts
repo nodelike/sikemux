@@ -1,5 +1,5 @@
 import type { AgentQuestion } from "../wire.generated";
-import type { BoardCard, BoardColumn, RunStage } from "../wire.generated";
+import type { BoardCard, BoardColumn } from "../wire.generated";
 
 export type {
     BoardCard,
@@ -12,8 +12,6 @@ export type {
     ReviewerChoice,
     RunStage,
 } from "../wire.generated";
-
-export const RUN_WAITS_ON_PERSON: ReadonlySet<RunStage> = new Set(["review", "held"]);
 
 export const COLUMN_LABELS: Record<BoardColumn, string> = {
     open: "Open",

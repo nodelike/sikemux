@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
-use super::auto::Stage;
+use super::auto::{Hold, Stage};
 use super::finish::{self, change_run, Step};
 use super::review::MAX_ROUNDS;
 use super::{git, Card, State};
@@ -158,21 +158,22 @@ pub(super) async fn begin(core: &Arc<Core>, step: &Step, head: &str) {
             core,
             step,
             &agent,
-            Stage::Review,
+            None,
             "No signed-in agent on another CLI than its own can review it, so its pull request waits for you".to_owned(),
         ),
         Err(why) => unseat(
             core,
             step,
             &agent,
-            Stage::Held,
+            Some(Hold::Unblock),
             format!("Its reviewer did not start: {why}"),
         ),
     }
 }
 
-/// Takes the reviewer `agent` off the card's run, which moves to `stage`.
-fn unseat(core: &Arc<Core>, step: &Step, agent: &str, stage: Stage, note: String) {
+/// Takes the reviewer `agent` off the card's run, which goes back to the
+/// person for `held`, or else waits for them on its pull request.
+fn unseat(core: &Arc<Core>, step: &Step, agent: &str, held: Option<Hold>, note: String) {
     let mut gone = None;
     change_run(core, &step.project, step.id, step.agent(), |_, run| {
         if run
@@ -182,7 +183,10 @@ fn unseat(core: &Arc<Core>, step: &Step, agent: &str, stage: Stage, note: String
         {
             gone = run.reviewer.take();
         }
-        run.stage = stage;
+        if held.is_none() {
+            run.stage = Stage::Watching;
+        }
+        run.held = held;
         run.note = Some(note);
     });
     if let Some(reviewer) = gone {
@@ -335,6 +339,7 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
     if rounds >= MAX_ROUNDS {
         step.hold(
             core,
+            Hold::Unblock,
             format!(
                 "A reviewer still asked for changes after {} fixed {MAX_ROUNDS} rounds of them:\n{}",
                 step.name(core),
@@ -480,7 +485,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) -> b
             _ => format!("{name} stopped running before it gave a verdict"),
         },
     };
-    finish::hold(core, &project, id, &builder, why);
+    finish::hold(core, &project, id, &builder, Hold::Unblock, why);
     true
 }
 

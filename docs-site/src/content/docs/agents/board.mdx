@@ -19,6 +19,15 @@ An agent saying a slice is done passes nothing by itself. When it marks the card
 
 The check runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass. Work can land before you look at it; Landed passes as soon as you pass Looks right. A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see. Marking a slice done yourself passes every gate it has left, and moving it back to Open clears them.
 
+## Cards Auto runs
+
+When Auto takes a card, the card becomes a slice, promising what its title says unless it already makes a promise. Shipping its work counts as the agent saying it's done, and Built passes once the pull request's checks pass on the commit Auto pushed.
+
+- When Auto merges the work itself once its reviewer approves, the card has no Looks right gate: it passes Built, then Landed when it merges.
+- When Auto leaves pull requests for you to merge, the card waits for you at Looks right with its pull request. Merging it yourself passes Looks right as yours, and Landed follows.
+
+When Auto gives a card back, the inbox says what it needs from you: something to fix, such as checks that failed again after a fix or a merge that didn't go through, or something only you can unblock, such as an agent that stopped running. **Ship it again** on the card starts Auto on it again.
+
 ## Evidence
 
 Sikemux collects a slice's evidence itself:

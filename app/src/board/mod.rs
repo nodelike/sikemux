@@ -17,7 +17,7 @@ use serde_json::json;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::{
     AgentMessagesParams, BoardAddParams, BoardParams, BoardSettingsParams, BoardUpdateParams,
-    BoardView, CardStatus, CardView, Column, MessageRow, Stage,
+    BoardView, CardRun, CardStatus, CardView, Column, MessageRow, Stage,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -41,9 +41,9 @@ const COLUMNS: [(Column, &str); 4] = [
     (Column::Done, "Done"),
 ];
 
-/// A run stage that waits for the person.
-pub(crate) fn waits_on_person(stage: Stage) -> bool {
-    matches!(stage, Stage::Review | Stage::Held)
+/// A run Auto gave back to the person, or whose pull request waits for them.
+pub(crate) fn waits_on_person(run: &CardRun) -> bool {
+    run.held.is_some() || run.stage == Stage::Watching
 }
 
 /// The column a card moving to `status` shows in until the core answers.

@@ -197,7 +197,8 @@ impl Settings {
     }
 }
 
-/// Where a card's run is.
+/// The step of Auto's own work a card's run is at. Its slice and `held` say
+/// what waits on the person and whether the work landed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Stage {
@@ -214,20 +215,22 @@ pub enum Stage {
     /// Its agent was asked to fix what failed.
     Fixing,
     Merging,
-    /// Its pull request waits for the person.
-    Review,
-    /// Back with the person, for the reason in its note.
-    Held,
-    Merged,
-    /// The card was done another way.
-    Closed,
+    /// Its pull request is open, and Auto watches it for the person to merge
+    /// it or comment on it.
+    Watching,
+}
+
+/// What the person is needed for once Auto gives a card back to them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Hold {
+    /// Something failed that needs mending.
+    Fix,
+    /// Something only the person can do, such as starting its agent again.
+    Unblock,
 }
 
 impl Stage {
-    pub(super) fn is_over(self) -> bool {
-        matches!(self, Stage::Merged | Stage::Closed)
-    }
-
     /// Its agent is at work, so it takes one of Auto's places.
     fn busy(self) -> bool {
         matches!(self, Stage::Starting | Stage::Working | Stage::Fixing)
@@ -235,10 +238,7 @@ impl Stage {
 
     /// A turn of its agent ending sends its work on.
     fn ships_on_turn_end(self) -> bool {
-        matches!(
-            self,
-            Stage::Working | Stage::Fixing | Stage::Held | Stage::Review
-        )
+        matches!(self, Stage::Working | Stage::Fixing | Stage::Watching)
     }
 }
 
@@ -269,6 +269,9 @@ pub(super) struct Run {
     #[serde(default)]
     pub start_sha: String,
     pub stage: Stage,
+    /// Auto gave the card back to the person at `stage`, for the reason in `note`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<Hold>,
     /// What is happening, or why the card is back with the person.
     pub note: Option<String>,
     pub pull: Option<Pull>,
@@ -305,6 +308,7 @@ impl Run {
             base: String::new(),
             start_sha: String::new(),
             stage: Stage::Starting,
+            held: None,
             note: Some("Making its worktree".to_owned()),
             pull: None,
             head: None,
@@ -327,6 +331,7 @@ impl Run {
             base: self.base.clone(),
             start_sha: self.start_sha.clone(),
             stage: self.stage,
+            held: self.held,
             note: self.note.clone(),
             pull: self.pull.as_ref().map(|pull| PullView {
                 number: pull.number,
@@ -348,6 +353,8 @@ pub struct RunView {
     pub base: String,
     pub start_sha: String,
     pub stage: Stage,
+    /// Auto gave the card back to the person, who is needed for this.
+    pub held: Option<Hold>,
     pub note: Option<String>,
     pub pull: Option<PullView>,
 }
@@ -367,8 +374,10 @@ pub(super) fn running(core: &Core, board: &Board) -> usize {
         .cards
         .iter()
         .filter(|card| {
-            card.auto.as_ref().is_some_and(|run| {
-                run.stage.busy() && !core.harness.questions.blocks_on_person(&run.agent)
+            card.run().is_some_and(|run| {
+                run.held.is_none()
+                    && run.stage.busy()
+                    && !core.harness.questions.blocks_on_person(&run.agent)
             })
         })
         .count()
@@ -393,13 +402,10 @@ pub(crate) fn has_work(core: &Core) -> bool {
     let state = core.boards.state.locked();
     state.boards.values().any(|board| {
         board.settings.auto
-            && board.cards.iter().any(|card| {
-                takes(board, card)
-                    || card
-                        .auto
-                        .as_ref()
-                        .is_some_and(|run| !run.stage.is_over() && run.stage != Stage::Held)
-            })
+            && board
+                .cards
+                .iter()
+                .any(|card| takes(board, card) || card.run().is_some_and(|run| run.held.is_none()))
     })
 }
 
@@ -452,6 +458,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
             if picks.is_empty() {
                 continue;
             }
+            let merges = board.settings.finish == Finish::Merge;
             for id in picks {
                 let agent = format!("agent-{}", uuid::Uuid::new_v4().simple());
                 if let Ok(card) = board.card_mut(id) {
@@ -459,7 +466,9 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     card.team = None;
                     card.status = Status::Progress;
                     card.auto = Some(Run::starting(agent.clone()));
+                    super::slice::auto_slice(card, merges);
                     card.updated_at = now;
+                    card.acted_at = now;
                     starts.push((project.clone(), id, agent));
                     state_jobs.push((project.clone(), id));
                 }
@@ -486,6 +495,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     &project,
                     id,
                     &agent,
+                    Hold::Fix,
                     format!("Auto could not start it: {error}"),
                 );
             }
@@ -640,13 +650,13 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         let state = core.boards.state.locked();
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
-                let run = card.auto.as_ref()?;
-                (run.agent == agent_id && !run.stage.is_over() && run.stage != Stage::Starting)
-                    .then(|| (project.clone(), card.id, run.stage))
+                let run = card.run()?;
+                (run.agent == agent_id && run.stage != Stage::Starting)
+                    .then(|| (project.clone(), card.id, run.stage, run.held.is_some()))
             })
         })
     };
-    let Some((project, id, stage)) = found else {
+    let Some((project, id, stage, held_back)) = found else {
         worker_ended(core, agent_id);
         return;
     };
@@ -654,19 +664,19 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         .names
         .name(agent_id)
         .unwrap_or_else(|| "Its agent".to_owned());
-    let held = |note: String| finish::hold(core, &project, id, agent_id, note);
+    let held = |note: String| finish::hold(core, &project, id, agent_id, Hold::Unblock, note);
     match ending {
         Ending::Finished => {
             if core.harness.questions.waits_on_answer(agent_id)
                 || core.harness.mailbox.has_waiting(agent_id)
-                || !stage.ships_on_turn_end()
+                || !(held_back || stage.ships_on_turn_end())
                 || workers_busy(core, agent_id, agent_id)
             {
                 return;
             }
             finish::ship(core, project, id);
         }
-        _ if !stage.busy() => {}
+        _ if held_back || !stage.busy() => {}
         Ending::Stopped => held(format!("{name} was stopped before it finished")),
         Ending::Failed(reason) => held(format!("{name}'s turn failed: {reason}")),
         Ending::Gone { reason, .. } => held(match reason {
@@ -735,7 +745,5 @@ fn worker_ended(core: &Arc<Core>, agent_id: &str) {
 /// Whether the card is one of `agent`'s own runs, whose work ships when its
 /// turn ends rather than the card closing before it lands.
 pub(super) fn own_run(card: &Card, agent: &str) -> bool {
-    card.auto
-        .as_ref()
-        .is_some_and(|run| run.agent == agent && !run.stage.is_over())
+    card.run().is_some_and(|run| run.agent == agent)
 }
