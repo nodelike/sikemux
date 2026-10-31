@@ -1026,6 +1026,15 @@ impl Workspaces {
         project_of(cwd, &self.project_paths())
     }
 
+    /// The project the checkout at `top` belongs to, and whether it is that
+    /// project's own checkout, whose branch is the project's, rather than an
+    /// agent's checkout of its own.
+    pub(crate) fn project_checkout(&self, top: &Path) -> (String, bool) {
+        let project = self.project_of(top);
+        let own = Path::new(&project).starts_with(top);
+        (project, own)
+    }
+
     /// What the person or the agent named an agent, when it has a name beyond its CLI's.
     pub(crate) fn title(&self, agent_id: &str) -> Option<String> {
         self.agent(agent_id).as_ref().and_then(named)

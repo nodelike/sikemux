@@ -752,7 +752,7 @@ impl Collisions {
 
     /// `agent_id` committed `paths`, from the top of `top`, as `commit`: the
     /// copies it saw of them and its claims on them go, and the project's
-    /// check runs when the commit is on the project's own branch. Whether it is.
+    /// check runs when the commit is on the project's own branch.
     pub(crate) fn committed(
         &self,
         core: &Core,
@@ -761,9 +761,9 @@ impl Collisions {
         paths: &[String],
         commit: &str,
         message: &str,
-    ) -> bool {
+    ) {
         let now = epoch_ms();
-        let project = core.workspaces.project_of(top);
+        let (project, on_branch) = core.workspaces.project_checkout(top);
         let mut state = self.state.locked();
         for path in paths {
             let path = real(&top.join(path));
@@ -781,7 +781,6 @@ impl Collisions {
                 state.claims.remove(&path);
             }
         }
-        let on_branch = Path::new(&project).starts_with(top);
         if on_branch {
             let mut agents: Vec<String> = crate::trailers::agents(message)
                 .into_iter()
@@ -803,7 +802,22 @@ impl Collisions {
         state.publish = true;
         drop(state);
         self.wake.now();
-        on_branch
+    }
+
+    /// Has the project's check run on `sha` of `project` again, for `agent`,
+    /// unless a check that takes it in waits or runs already: for work whose
+    /// earlier check did not run or was not heard.
+    pub(crate) fn check_again(&self, project: &str, sha: &str, subject: String, agent: &str) {
+        self.state.locked().checks.wait_again(
+            project.to_owned(),
+            PathBuf::from(project),
+            checks::Commit {
+                sha: sha.to_owned(),
+                subject,
+                agents: vec![agent.to_owned()],
+            },
+        );
+        self.wake.now();
     }
 
     /// The pairs of agents that keep colliding.

@@ -15,6 +15,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::{tell, State};
+use crate::server::repo_events::RepoEvent;
 use crate::server::Core;
 
 /// Checks running at once, across projects.
@@ -34,7 +35,8 @@ pub(super) struct Commit {
 #[derive(Default)]
 pub(super) struct Checks {
     waiting: HashMap<String, (PathBuf, Vec<Commit>)>,
-    running: HashSet<String>,
+    /// The commits each running check takes in, by project.
+    running: HashMap<String, Vec<String>>,
     failing: HashMap<String, Failing>,
     /// The commits each project's check ran on or waits to, newest last.
     checked: HashMap<String, Vec<String>>,
@@ -73,6 +75,25 @@ impl Checks {
             .push(commit);
     }
 
+    /// Queues `commit` of `project` to be checked even when it was before,
+    /// unless a check that takes it in waits or runs already.
+    pub(super) fn wait_again(&mut self, project: String, dir: PathBuf, commit: Commit) {
+        let pending = self
+            .running
+            .get(&project)
+            .is_some_and(|shas| shas.contains(&commit.sha))
+            || self.waiting.get(&project).is_some_and(|(_, commits)| {
+                commits.iter().any(|waiting| waiting.sha == commit.sha)
+            });
+        if pending {
+            return;
+        }
+        if let Some(checked) = self.checked.get_mut(&project) {
+            checked.retain(|sha| *sha != commit.sha);
+        }
+        self.wait(project, dir, commit);
+    }
+
     /// The projects broken long enough that the person should hear of it.
     pub(super) fn failing(&self) -> impl Iterator<Item = &Failing> {
         let now = epoch_ms();
@@ -87,7 +108,7 @@ impl Checks {
         let ready: Vec<String> = self
             .waiting
             .keys()
-            .filter(|project| !self.running.contains(*project))
+            .filter(|project| !self.running.contains_key(*project))
             .cloned()
             .collect();
         for project in ready {
@@ -95,7 +116,8 @@ impl Checks {
                 break;
             }
             if let Some((dir, commits)) = self.waiting.remove(&project) {
-                self.running.insert(project.clone());
+                let shas = commits.iter().map(|commit| commit.sha.clone()).collect();
+                self.running.insert(project.clone(), shas);
                 started.push((project, dir, commits));
             }
         }
@@ -239,17 +261,14 @@ fn ended(
         }
     }
     drop(state);
-    let covered: Vec<String> = commits.iter().map(|commit| commit.sha.clone()).collect();
-    let agents: Vec<String> = agents.into_iter().cloned().collect();
-    crate::server::board::checked(
-        core,
-        command,
-        commits.last().map_or("", |commit| commit.sha.as_str()),
-        &covered,
-        &agents,
+    core.repo_events.tell(RepoEvent::Checked {
+        project: project.to_owned(),
+        command: command.to_owned(),
+        sha: commits.last().map(|commit| commit.sha.clone()),
+        covered: commits.iter().map(|commit| commit.sha.clone()).collect(),
         passed,
-        &output,
-    );
+        output,
+    });
     core.harness.note_repository(
         project,
         if passed {

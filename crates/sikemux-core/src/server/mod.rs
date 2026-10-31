@@ -66,6 +66,7 @@ mod prompt_draft;
 mod questions;
 mod remote;
 mod remote_image;
+mod repo_events;
 mod saved;
 mod saved_sessions;
 pub mod search;
@@ -344,6 +345,7 @@ pub(crate) struct Core {
     pub(crate) device_view: device_view::DeviceViews,
     pub(crate) names: names::Names,
     pub(crate) boards: board::Boards,
+    pub(crate) repo_events: repo_events::RepoEvents,
     pub(crate) triggers: triggers::Triggers,
     pub(crate) changes: changed::Changes,
     pub(crate) ports: ports::Ports,
@@ -466,6 +468,7 @@ impl Core {
             device_view: device_view::DeviceViews::default(),
             names,
             boards: board::Boards::new(data_dir),
+            repo_events: repo_events::RepoEvents::default(),
             triggers: triggers::Triggers::new(data_dir),
             changes: changed::Changes::default(),
             ports: ports::Ports::default(),
@@ -1109,6 +1112,7 @@ pub(crate) async fn run_core(
             |core| &core.boards.wake,
             board::settle,
         )),
+        tokio::spawn(board::follow(core.clone())),
         tokio::spawn(wake::serve(
             core.clone(),
             |core| &core.triggers.wake,

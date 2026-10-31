@@ -40,9 +40,7 @@ pub use auto::{
     Finish, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams, Stage,
 };
 pub(crate) use finish::{ci_moved, waiting_on_ci};
-pub(crate) use slice::{
-    checked, committed, gate_key, gate_words, landed, person_note, person_pass,
-};
+pub(crate) use slice::{follow, gate_key, gate_words, person_note, person_pass};
 pub use slice::{NoteParams, PassParams};
 
 const FOLDER: &str = "boards";
@@ -565,6 +563,8 @@ struct Changes {
     result: Option<String>,
     depends_on: Option<Vec<u64>>,
     parent: Option<Option<u64>>,
+    /// The gate of its slice the person passes.
+    pass: Option<Gate>,
 }
 
 impl Changes {
@@ -589,6 +589,7 @@ impl Changes {
                 Some(value) => Some(card_ids(value, "dependsOn")?),
             },
             parent: optional_id(params.get("parent"), "parent")?,
+            pass: None,
         })
     }
 
@@ -601,6 +602,7 @@ impl Changes {
             && self.result.is_none()
             && self.depends_on.is_none()
             && self.parent.is_none()
+            && self.pass.is_none()
     }
 }
 
@@ -861,25 +863,12 @@ pub enum Column {
     Done,
 }
 
-/// The column a card shows in: done once done, else waiting on the person while its run
-/// is back with them, its slice waits at their gate, or its owner asked them something it
-/// waits on.
+/// The column a card shows in: done once done, else waiting on the person
+/// while anything on it does.
 fn column_of(core: &Core, card: &Card) -> Column {
-    let waits_on_person = card
-        .auto
-        .as_ref()
-        .is_some_and(|run| matches!(run.stage, Stage::Review | Stage::Held))
-        || card
-            .slice
-            .as_ref()
-            .is_some_and(|slice| slice.waits_on_person().is_some())
-        || (card.status == Status::Progress
-            && card
-                .owner_id()
-                .is_some_and(|owner| core.harness.questions.blocks_on_person(owner)));
     match card.status {
         Status::Done => Column::Done,
-        _ if waits_on_person => Column::Needs,
+        _ if waits(core, card).is_some() => Column::Needs,
         Status::Open => Column::Open,
         Status::Progress => Column::Progress,
     }
@@ -1007,9 +996,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         }
     }
     if let Some(slice) = &card.slice {
-        if let Some(listed) = slice.listed().as_object() {
-            fields.extend(listed.clone());
-        }
+        slice.list_into(fields);
     }
     if let Some(ticket) = &card.ticket {
         let mut label = ticket.key.clone();
@@ -1021,10 +1008,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if let Some(result) = &card.result {
         fields.insert("result".into(), text(result).into());
     }
-    if card
-        .owner_id()
-        .is_some_and(|owner| core.harness.questions.blocks_on_person(owner))
-    {
+    if waits(core, card).is_some() {
         fields.insert("waitingOnThePerson".into(), true.into());
     }
     if full {
@@ -1104,7 +1088,9 @@ fn add_card(
         ticket: adding.ticket,
         auto: None,
         recordings: Vec::new(),
-        slice: adding.promise.map(slice::Slice::new),
+        slice: adding
+            .promise
+            .map(|promise| slice::Slice::new(promise, Vec::new(), None)),
         at: now,
         updated_at: now,
     };
@@ -1216,13 +1202,46 @@ fn change_card(
             "Say what changes: title, details, promise, status, result, dependsOn or parent".into(),
         );
     }
+    let has_check = matches!(by, By::Agent(_))
+        && changes.status == Some(Status::Done)
+        && check_command(core, project).is_some();
+    let (view, notices, later) = {
+        let mut state = core.boards.state.locked();
+        let changed = change_in(core, &mut state, project, by, id, changes, has_check)?;
+        core.boards.save(&mut state, project);
+        changed
+    };
+    later.run(core);
+    Ok((view, notices))
+}
+
+/// Changes a card on the boards held locked: the one way a card's status
+/// moves, so a slice is done only once its ladder is. `has_check`: the
+/// project names a check command. Says who should hear of it, and what is
+/// left to do once the lock is let go of.
+fn change_in(
+    core: &Core,
+    state: &mut State,
+    project: &str,
+    by: &By,
+    id: u64,
+    changes: Changes,
+    has_check: bool,
+) -> Result<(Value, Vec<Notice>, slice::Later), String> {
     if matches!(by, By::Agent(_)) && changes.acceptance.is_some() {
         return Err(ONLY_PERSON_ACCEPTS.into());
     }
-    let boards = &core.boards;
-    let mut state = boards.state.locked();
-    let board = state
-        .boards
+    if changes.pass.is_some() && !matches!(by, By::Person) {
+        return Err("Only the person passes a gate that way".into());
+    }
+    let State {
+        boards,
+        offered,
+        dropped,
+        woken,
+        ..
+    } = state;
+    let board = boards
         .get_mut(project)
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let before = board.card(id)?.clone();
@@ -1244,16 +1263,26 @@ fn change_card(
         board.check_parent(Some(id), parent)?;
     }
     let blocked_before = board.blocked();
-    let dropping = before
-        .auto
-        .clone()
-        .filter(|run| !run.stage.is_over())
-        .and_then(|run| match changes.status {
-            Some(Status::Open) => Some((run, true)),
-            Some(Status::Done) => Some((run, false)),
-            _ => None,
-        });
     let card = board.card_mut(id)?;
+    let label = card.label();
+    let mut status = changes.status;
+    let mut pending = None;
+    let mut later = slice::Later::default();
+    if let (Some(Status::Done), By::Agent(agent), Some(slice)) = (status, by, card.slice.as_mut()) {
+        if let slice::Said::Pending { note, recheck } = slice.say_done(&label, has_check)? {
+            pending = Some(note);
+            if let Some(sha) = recheck {
+                later = slice::Later::recheck(project, sha, agent);
+            }
+        }
+        status = None;
+    }
+    if let Some(gate) = changes.pass {
+        card.slice
+            .as_mut()
+            .ok_or_else(|| format!("{label} has no gates to pass"))?
+            .pass_by_person(gate, &label)?;
+    }
     if let Some(title) = changes.title {
         card.title = title;
     }
@@ -1266,7 +1295,10 @@ fn change_card(
     if let Some(promise) = changes.promise {
         match &mut card.slice {
             Some(slice) => slice.promise = promise,
-            None => card.slice = Some(slice::Slice::new(promise)),
+            None => {
+                let recordings = std::mem::take(&mut card.recordings);
+                card.slice = Some(slice::Slice::new(promise, recordings, card.owner_id()));
+            }
         }
     }
     if let Some(result) = changes.result {
@@ -1278,28 +1310,46 @@ fn change_card(
     if let Some(parent) = changes.parent {
         card.parent = parent;
     }
-    match changes.status {
+    match status {
         Some(Status::Open) => {
+            if let Some(run) = card.auto.take().filter(|run| !run.stage.is_over()) {
+                dropped.push(finish::Dropped {
+                    project: project.to_owned(),
+                    id,
+                    run,
+                    discard: true,
+                });
+            }
             card.status = Status::Open;
             card.owner = None;
             card.team = None;
-            card.auto = None;
-        }
-        Some(Status::Done) => {
-            card.status = Status::Done;
-            if let Some(run) = card.auto.as_mut().filter(|run| !run.stage.is_over()) {
-                run.stage = Stage::Closed;
-            }
-            if let (None, By::Agent(agent)) = (&card.owner, by) {
-                card.owner = Some(Owner::of(core, agent));
+            if let Some(slice) = &mut card.slice {
+                slice.reopen();
             }
         }
-        Some(Status::Progress) => card.status = Status::Progress,
+        Some(Status::Done) => match &mut card.slice {
+            Some(slice) => slice.close(),
+            None => mark_done(core, card, by, project, dropped),
+        },
+        Some(Status::Progress) => {
+            if let (Status::Done, Some(slice)) = (card.status, &mut card.slice) {
+                slice.restart();
+            }
+            card.status = Status::Progress;
+        }
         None => {}
     }
+    let moved = slice::progress(project, card, changes.pass.into_iter().collect());
+    if moved.done && card.status != Status::Done {
+        mark_done(core, card, by, project, dropped);
+    }
+    let later = later.and(moved.later);
     card.updated_at = epoch_ms();
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
+    let run_dropped = before.auto.as_ref().is_some_and(|run| !run.stage.is_over())
+        && after.status != before.status
+        && after.status != Status::Progress;
     let mut notices = Vec::new();
     let changer = match by {
         By::Person => Some("The person".to_owned()),
@@ -1307,51 +1357,70 @@ fn change_card(
         By::Agent(agent) if before.owner_id() != Some(agent.as_str()) => Some(name_of(core, agent)),
         By::Agent(_) => None,
     };
-    if let (Some(changer), Some(owner), Status::Progress, None) =
-        (changer, before.owner_id(), before.status, &dropping)
-    {
-        let text = if after.owner.is_none() {
-            format!(
-                "{changer} moved your card {} back to Open, so it is no longer yours. Stop working on it unless they tell you otherwise.",
-                before.label()
-            )
-        } else if after.status == Status::Done {
-            format!("{changer} marked your card {} done.", after.label())
-        } else {
-            format!(
-                "{changer} changed your card {}; board_list with card {id} shows it as it is now.",
-                after.label()
-            )
-        };
-        notices.push(Notice {
-            to: owner.to_owned(),
-            text,
-        });
+    let by_owner = matches!(by, By::Agent(agent) if after.owner_id() == Some(agent.as_str()));
+    let mut note = pending;
+    match slice::passed_notice(&after, &moved.passed) {
+        Some(passed) if by_owner => note = Some(passed.text),
+        Some(passed) => notices.push(passed),
+        None => {
+            if let (Some(changer), Some(owner), Status::Progress, false) =
+                (changer, before.owner_id(), before.status, run_dropped)
+            {
+                let text = if after.owner.is_none() {
+                    format!(
+                        "{changer} moved your card {} back to Open, so it is no longer yours. Stop working on it unless they tell you otherwise.",
+                        before.label()
+                    )
+                } else if after.status == Status::Done {
+                    format!("{changer} marked your card {} done.", after.label())
+                } else {
+                    format!(
+                        "{changer} changed your card {}; board_list with card {id} shows it as it is now.",
+                        after.label()
+                    )
+                };
+                notices.push(Notice {
+                    to: owner.to_owned(),
+                    text,
+                });
+            }
+        }
     }
     notices.extend(unblocked(board, &blocked_before, by));
     if after.status == Status::Open && before.status != Status::Open {
-        state
-            .offered
-            .retain(|(other, card, _)| !(other == project && *card == id));
+        offered.retain(|(other, card, _)| !(other == project && *card == id));
     }
-    if let Some((run, discard)) = dropping {
-        state.dropped.push(finish::Dropped {
-            project: project.to_owned(),
-            id,
-            run,
-            discard,
-        });
+    let mut view = agent_view(core, board, &after, true);
+    if let (Some(note), Some(fields)) = (note, view.as_object_mut()) {
+        fields.insert("note".into(), note.into());
     }
-    let board = state
-        .boards
-        .get(project)
-        .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
-    let view = agent_view(core, board, board.card(id)?, true);
     if let By::Agent(agent) = by {
-        state.woken.remove(agent);
+        woken.remove(agent);
     }
-    boards.save(&mut state, project);
-    Ok((view, notices))
+    Ok((view, notices, later))
+}
+
+/// Marks a card done, closing the run Auto has on it.
+fn mark_done(
+    core: &Core,
+    card: &mut Card,
+    by: &By,
+    project: &str,
+    dropped: &mut Vec<finish::Dropped>,
+) {
+    card.status = Status::Done;
+    if let Some(run) = card.auto.as_mut().filter(|run| !run.stage.is_over()) {
+        dropped.push(finish::Dropped {
+            project: project.to_owned(),
+            id: card.id,
+            run: run.clone(),
+            discard: false,
+        });
+        run.stage = Stage::Closed;
+    }
+    if let (None, By::Agent(agent)) = (&card.owner, by) {
+        card.owner = Some(Owner::of(core, agent));
+    }
 }
 
 fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, String> {
@@ -1498,29 +1567,14 @@ pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result
         let (core, request) = (core.clone(), request.clone());
         blocking(move || {
             let project = caller_project(&core, &request);
-            let (own_run, is_slice) = {
+            let own_run = {
                 let state = core.boards.state.locked();
-                let card = state.boards.get(&project).and_then(|board| board.card(id).ok());
-                (
-                    card.is_some_and(|card| auto::own_run(card, &agent)),
-                    card.is_some_and(|card| card.slice.is_some()),
-                )
+                state
+                    .boards
+                    .get(&project)
+                    .and_then(|board| board.card(id).ok())
+                    .is_some_and(|card| auto::own_run(card, &agent))
             };
-            if is_slice && changes.status == Some(Status::Done) {
-                changes.status = None;
-                let note = slice::said_done(&core, &project, &agent, id)?;
-                let (mut view, notices) = if changes.is_empty() {
-                    let state = core.boards.state.locked();
-                    let board = state.boards.get(&project).ok_or("the board is gone")?;
-                    (agent_view(&core, board, board.card(id)?, true), Vec::new())
-                } else {
-                    change_card(&core, &project, &By::Agent(agent), id, changes)?
-                };
-                if let Some(fields) = view.as_object_mut() {
-                    fields.insert("note".into(), note.into());
-                }
-                return Ok((view, notices, false));
-            }
             if own_run && changes.status == Some(Status::Open) {
                 return Err("Auto runs this card, so it does not go back to Open. If you cannot do it, say why with ask and blocked true, and the card waits for the person.".into());
             }
@@ -1666,14 +1720,47 @@ pub(crate) fn ticket_of_agent(core: &Core, agent_id: &str) -> Option<String> {
     })
 }
 
-/// What a card Auto handed back waits on the person for.
+/// What a card not done waits on the person for.
 pub(crate) enum Waits {
     /// Its pull request is ready for review.
     Review { url: Option<String> },
-    /// It came back, for the reason in `note`.
+    /// Auto handed it back, for the reason in `note`.
     Held { note: Option<String> },
     /// Its slice waits at a gate only the person passes.
     Gate { gate: Gate, promise: String },
+    /// Its owner asked the person something it waits on.
+    Answer,
+}
+
+/// What `card` waits on the person for, if anything: the one place every
+/// view of a card reads it from.
+fn waits(core: &Core, card: &Card) -> Option<Waits> {
+    if card.status == Status::Done {
+        return None;
+    }
+    let run = card.auto.as_ref().and_then(|run| match run.stage {
+        Stage::Review => Some(Waits::Review {
+            url: run.pull.as_ref().map(|pull| pull.url.clone()),
+        }),
+        Stage::Held => Some(Waits::Held {
+            note: run.note.clone(),
+        }),
+        _ => None,
+    });
+    run.or_else(|| {
+        let slice = card.slice.as_ref()?;
+        Some(Waits::Gate {
+            gate: slice.waits_on_person()?,
+            promise: slice.promise.clone(),
+        })
+    })
+    .or_else(|| {
+        (card.status == Status::Progress
+            && card
+                .owner_id()
+                .is_some_and(|owner| core.harness.questions.blocks_on_person(owner)))
+        .then_some(Waits::Answer)
+    })
 }
 
 /// A card as the inbox lists it.
@@ -1691,23 +1778,15 @@ pub(crate) struct Summary {
 }
 
 impl Card {
+    /// The browser recordings kept on it: its slice's pictures, else its own.
+    fn recorded(&self) -> Vec<InboxRecording> {
+        match &self.slice {
+            Some(slice) => slice.pictures(),
+            None => self.recordings.clone(),
+        }
+    }
+
     fn summary(&self, core: &Core, project: &str) -> Summary {
-        let waits = self.auto.as_ref().and_then(|run| match run.stage {
-            Stage::Review => Some(Waits::Review {
-                url: run.pull.as_ref().map(|pull| pull.url.clone()),
-            }),
-            Stage::Held => Some(Waits::Held {
-                note: run.note.clone(),
-            }),
-            _ => None,
-        });
-        let waits = waits.or_else(|| {
-            let slice = self.slice.as_ref()?;
-            Some(Waits::Gate {
-                gate: slice.waits_on_person()?,
-                promise: slice.promise.clone(),
-            })
-        });
         Summary {
             project: project.to_owned(),
             id: self.id,
@@ -1716,11 +1795,8 @@ impl Card {
             owner: self.owner_id().map(str::to_owned),
             owner_name: self.owner_name(core),
             result: self.result.clone(),
-            recordings: match &self.slice {
-                Some(slice) => slice.pictures(),
-                None => self.recordings.clone(),
-            },
-            waits,
+            recordings: self.recorded(),
+            waits: waits(core, self),
             updated_at: self.updated_at,
         }
     }
@@ -1746,26 +1822,21 @@ pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Resul
         .map_err(|error| error.to_string())
 }
 
-/// The cards Auto handed back to the person, the slices waiting at the
-/// person's gate, and the cards done since `done_since`.
+/// The cards that wait on the person for something besides an answer, which
+/// the inbox lists as its question, and the cards done since `done_since`.
 pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summary> {
     let state = core.boards.state.locked();
     state
         .boards
         .iter()
         .flat_map(|(project, board)| board.cards.iter().map(move |card| (project, card)))
-        .filter(|(_, card)| {
-            card.auto
-                .as_ref()
-                .is_some_and(|run| matches!(run.stage, Stage::Review | Stage::Held))
-                || card
-                    .slice
-                    .as_ref()
-                    .is_some_and(|slice| slice.waits_on_person().is_some())
-                || done_since
-                    .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)
-        })
         .map(|(project, card)| card.summary(core, project))
+        .filter(|card| {
+            card.waits
+                .as_ref()
+                .is_some_and(|waits| !matches!(waits, Waits::Answer))
+                || done_since.is_some_and(|since| card.done && card.updated_at >= since)
+        })
         .collect()
 }
 
@@ -1787,6 +1858,62 @@ pub(crate) fn attach_recording(core: &Core, agent_id: &str, recording: InboxReco
     card.recordings.push(recording);
     let project = project.clone();
     core.boards.save(&mut state, &project);
+}
+
+/// The goal a card sits under: the top card above it, or itself.
+#[expect(
+    dead_code,
+    reason = "project memory files what it learns under this goal"
+)]
+pub(crate) struct GoalRef {
+    pub project: String,
+    pub card: u64,
+    /// The title, details and promise of the agent's own card, the work it does now.
+    pub live: String,
+}
+
+/// The goal the card `agent_id` works sits under, in its own project: its
+/// card not done, walked up to the top card above it that is not done.
+#[expect(
+    dead_code,
+    reason = "project memory files what it learns under this goal"
+)]
+pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
+    let project = core.names.get(agent_id)?.project;
+    let state = core.boards.state.locked();
+    let board = state.boards.get(&project)?;
+    let live = board
+        .cards
+        .iter()
+        .filter(|card| card.owner_id() == Some(agent_id) && card.status != Status::Done)
+        .max_by_key(|card| (card.status == Status::Progress, card.updated_at))?;
+    let mut goal = live;
+    let mut above = live.parent;
+    for _ in 0..board.cards.len() {
+        let Some(parent) = above.and_then(|id| board.card(id).ok()) else {
+            break;
+        };
+        if parent.status != Status::Done {
+            goal = parent;
+        }
+        above = parent.parent;
+    }
+    let promise = live.slice.as_ref().map(|slice| slice.promise.as_str());
+    let text = [
+        Some(live.title.as_str()),
+        Some(live.details.as_str()),
+        promise,
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|text| !text.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n");
+    Some(GoalRef {
+        project,
+        card: goal.id,
+        live: text,
+    })
 }
 
 /// Every project's board, as the app draws them.
@@ -1941,6 +2068,7 @@ impl UpdateParams {
                 .map(|ids| distinct_cards(ids, "dependsOn"))
                 .transpose()?,
             parent: self.parent.map(|id| (id > 0).then_some(id)),
+            pass: None,
         })
     }
 }

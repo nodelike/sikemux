@@ -17,17 +17,17 @@ A card that makes a **promise**, one sentence saying what it changes, is a slice
 
 An agent saying a slice is done passes nothing by itself. When it marks the card done, Sikemux looks at the latest check run on the agent's latest commit. If that run failed, or the agent committed nothing, the card stays in progress and the agent is told why. If the check has not run on that commit yet, Built passes by itself once it does, and the agent hears. A project whose `sikemux.json` names no `check` can't pass Built.
 
-The check runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass. Work can land before you look at it; Landed passes as soon as you pass Looks right. A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see.
+The check runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass. Work can land before you look at it; Landed passes as soon as you pass Looks right. A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see. Marking a slice done yourself passes every gate it has left, and moving it back to Open clears them.
 
 ## Evidence
 
 Sikemux collects a slice's evidence itself:
 
 - each run of the project's check on the agent's commits, with its output, passed or failed
-- the change the slice's commits make, once Built passes
+- the change the agent's latest run of commits makes, once Built passes
 - the browser recordings the agent makes while it works the card
 
-A slice keeps its latest 24 pieces of evidence.
+A slice keeps its latest 24 pieces of evidence, and every piece you wrote a note on.
 
 ## When a slice needs you
 

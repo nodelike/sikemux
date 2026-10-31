@@ -18,6 +18,7 @@ use super::named;
 use super::owners::{git, run, traced, Diff, FileOwners, Hunk, Owners};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
+use crate::server::repo_events::RepoEvent;
 use crate::server::Core;
 use crate::trailers::Commit;
 
@@ -311,10 +312,15 @@ pub(crate) fn commit(
             Ok(_) => {
                 let note = share(&diff.top, &changes, &blobs).err();
                 let paths: Vec<String> = changes.iter().map(|change| change.path.clone()).collect();
-                let on_branch = core
-                    .collisions
+                let (project, on_branch) = core.workspaces.project_checkout(&diff.top);
+                core.repo_events.tell(RepoEvent::Committed {
+                    project,
+                    agent: agent_id.to_owned(),
+                    sha: commit.clone(),
+                    on_branch,
+                });
+                core.collisions
                     .committed(core, agent_id, &diff.top, &paths, &commit, &message);
-                crate::server::board::committed(core, agent_id, &commit, on_branch);
                 return Ok(Committed {
                     commit,
                     branch,

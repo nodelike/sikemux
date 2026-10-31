@@ -21,6 +21,7 @@ use super::board::{self, Summary, Waits};
 use super::display;
 use super::notify::provider_name;
 use super::Core;
+use sikemux_wire::slice::Gate;
 
 /// Agents whose latest turn is kept; the longest-finished go first.
 const MAX_TURNS: usize = 512;
@@ -444,43 +445,53 @@ impl About for InboxItem {
     }
 }
 
-fn card_item(card: &Summary, waits: &Waits) -> InboxItem {
-    let card_id = || format!("card:{}:{}", card.project, card.id);
-    let (id, kind, what, detail, url, gate) = match waits {
-        Waits::Review { url } => (
-            card_id(),
-            InboxKind::PullRequest,
-            "Its pull request is ready for review".to_owned(),
-            None,
-            url.clone(),
-            None,
-        ),
-        Waits::Held { note } => (
-            card_id(),
-            InboxKind::Held,
-            "Its card came back to you".to_owned(),
-            note.clone(),
-            None,
-            None,
-        ),
-        Waits::Gate { gate, promise } => (
-            format!(
-                "gate:{}:{}:{}",
-                card.project,
-                card.id,
-                board::gate_key(*gate)
-            ),
-            InboxKind::Gate,
-            format!("Waits for you at {}", board::gate_words(*gate)),
-            Some(promise.clone()),
-            None,
-            Some(*gate),
-        ),
+/// The item for a card that waits on the person, unless what it waits for is
+/// an answer, which its question's item asks for.
+fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
+    let card_id = format!("card:{}:{}", card.project, card.id);
+    let mut item = match waits {
+        Waits::Review { url } => {
+            let mut item = item(
+                card_id,
+                InboxKind::PullRequest,
+                "Its pull request is ready for review".into(),
+                card.updated_at,
+            );
+            item.url = url.clone();
+            item
+        }
+        Waits::Held { note } => {
+            let mut item = item(
+                card_id,
+                InboxKind::Held,
+                "Its card came back to you".into(),
+                card.updated_at,
+            );
+            item.detail = note.clone();
+            item
+        }
+        Waits::Gate { gate, promise } => gate_item(card, *gate, promise),
+        Waits::Answer => return None,
     };
-    let mut item = item(id, kind, what, card.updated_at).on_card(Some(card));
-    item.detail = detail;
-    item.url = url;
-    item.gate = gate;
+    item = item.on_card(Some(card));
+    Some(item)
+}
+
+/// A slice waiting for the person to pass `gate`: the one way a Gate item is made.
+fn gate_item(card: &Summary, gate: Gate, promise: &str) -> InboxItem {
+    let mut item = item(
+        format!(
+            "gate:{}:{}:{}",
+            card.project,
+            card.id,
+            board::gate_key(gate)
+        ),
+        InboxKind::Gate,
+        format!("Waits for you at {}", board::gate_words(gate)),
+        card.updated_at,
+    );
+    item.gate = Some(gate);
+    item.detail = Some(promise.to_owned());
     item
 }
 
@@ -869,8 +880,12 @@ fn shown(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agent
 fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
     let mut items = needs(core, agents, sessions);
     for card in board::cards_for_person(core, None) {
-        if let Some(waits) = &card.waits {
-            items.push(card_item(&card, waits));
+        if let Some(item) = card
+            .waits
+            .as_ref()
+            .and_then(|waits| card_item(&card, waits))
+        {
+            items.push(item);
         }
     }
     let listed: HashSet<String> = items

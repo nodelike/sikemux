@@ -7,12 +7,12 @@
 //! committed.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use serde::Serialize;
 
 use super::owners::{git, run};
 use super::push::{line, replay, Signing, Unpushed};
+use crate::server::repo_events::RepoEvent;
 use crate::server::worktree::AgentWorktree;
 use crate::server::Core;
 
@@ -29,9 +29,11 @@ pub(crate) struct Landed {
     /// The project's checkout, which a push after landing goes from.
     #[serde(skip)]
     pub(super) repo: PathBuf,
-    /// Each commit landed, paired with the one it was made again as.
+    /// The branch's commit the landed ones were made again on, and the last of them.
     #[serde(skip)]
-    moved: Vec<(String, String)>,
+    onto: String,
+    #[serde(skip)]
+    tip: String,
 }
 
 /// What landing does to one file of the project's checkout.
@@ -76,14 +78,19 @@ pub(super) fn apply(repo: &Path, steps: Steps, before: &str, after: &str) -> Vec
 }
 
 /// Lands `agent_id`'s commits from its own checkout onto its base branch.
-pub(super) fn land(core: &Arc<Core>, agent_id: &str) -> Result<Landed, String> {
+pub(super) fn land(core: &Core, agent_id: &str) -> Result<Landed, String> {
     let worktree = core
         .workspaces
         .agent(agent_id)
         .and_then(|agent| agent.worktree)
         .ok_or("You work in the project's own checkout, so your commits are on its branch already; there is nothing to land")?;
     let landed = land_from(&worktree, &Signing::of(core))?;
-    crate::server::board::landed(core, agent_id, &landed.moved);
+    core.repo_events.tell(RepoEvent::Landed {
+        project: core.workspaces.project_of(&worktree.repo),
+        agent: agent_id.to_owned(),
+        onto: landed.onto.clone(),
+        tip: landed.tip.clone(),
+    });
     Ok(landed)
 }
 
@@ -163,20 +170,6 @@ fn land_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Landed, Stri
         if let Err(error) = git(&worktree.path, &["reset", "--keep", "--quiet", &landed]) {
             eprintln!("sikemux core: the landed checkout stays where it was: {error}");
         }
-        let made = git(
-            &worktree.repo,
-            &["rev-list", "--reverse", &format!("{tip}..{landed}")],
-        )
-        .unwrap_or_default();
-        let made: Vec<&str> = made.lines().collect();
-        let moved = match made.len() == commits.len() {
-            true => commits
-                .iter()
-                .zip(made)
-                .map(|(old, new)| (old.id.clone(), new.to_owned()))
-                .collect(),
-            false => Vec::new(),
-        };
         return Ok(Landed {
             branch: base,
             landed: commits
@@ -191,7 +184,8 @@ fn land_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Landed, Stri
                 .collect(),
             merged,
             repo: worktree.repo.clone(),
-            moved,
+            onto: tip,
+            tip: landed,
         });
     }
     Err("the branch kept moving while landing; call this again".into())
