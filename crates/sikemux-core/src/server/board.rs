@@ -2583,8 +2583,8 @@ pub(crate) async fn person_add(core: &Arc<Core>, params: AddParams) -> Result<Bo
                 .names
                 .get(owner)
                 .is_some_and(|named| named.project == project);
-            if !here {
-                return Err(format!("There is no agent {owner} in this project").into());
+            if !here || !core.open_agents().contains(owner) {
+                return Err(format!("There is no open agent {owner} in this project").into());
             }
         }
         let adding = params.adding()?;

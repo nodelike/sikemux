@@ -135,7 +135,11 @@ impl GoalsPane {
         let (started, agent) = oneshot::channel();
         Target::here(&self.asks).start_chat(launcher, project, None, Some(started));
         let (title, details) = titled(&text);
-        let (mode, folder) = (self.start.mode, self.folder.clone());
+        let (mode, folder, asks) = (self.start.mode, self.folder.clone(), self.asks.clone());
+        // An agent whose card could not be added would sit in an empty tab.
+        let close = move |agent: &str| {
+            Target::here(&asks).call("closeAgents", serde_json::json!({ "agentIds": [agent] }));
+        };
         self.busy = true;
         cx.notify();
         cx.spawn_in(window, async move |pane, cx| {
@@ -160,6 +164,7 @@ impl GoalsPane {
                     owner: Some(agent.clone()),
                 })
             }) else {
+                close(&agent);
                 return;
             };
             let added = asked.await;
@@ -167,7 +172,10 @@ impl GoalsPane {
                 pane.busy = false;
                 let board = match added {
                     Ok(board) => board,
-                    Err(error) => return pane.said(&error, cx),
+                    Err(error) => {
+                        close(&agent);
+                        return pane.said(&error, cx);
+                    }
                 };
                 let card = (board.cards.iter())
                     .filter(|card| card.owner.as_deref() == Some(agent.as_str()))
