@@ -316,8 +316,12 @@ pub struct Assertion {
 }
 
 /// The evidence an assertion needs, which the core collects itself.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Collect {
     /// The project's check, passing on the slice's latest commit.
     Check,
@@ -325,6 +329,9 @@ pub enum Collect {
     Recording,
     /// A screenshot of a page taken on the slice's latest commit.
     Screenshot,
+    /// The CI workflow `name` passing on the pushed tip of the project's
+    /// branch that holds the slice's latest commit.
+    Workflow { name: String },
 }
 
 /// A rule only a goal's own agents follow, kept on its card.

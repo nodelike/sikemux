@@ -39,6 +39,7 @@ mod review;
 mod slice;
 mod tickets;
 mod wait;
+mod workflows;
 
 pub(crate) use auto::Pull;
 use auto::Run;
@@ -282,7 +283,7 @@ impl Board {
                 Some(assertion) => Ok(slice::Named {
                     goal,
                     id: *id,
-                    evidence: assertion.evidence,
+                    evidence: assertion.evidence.clone(),
                 }),
                 None => Err(format!("Goal #{goal} has no assertion #{id} that stands")),
             })
@@ -414,6 +415,8 @@ struct State {
     dismissed: Vec<blind::Reviewer>,
     /// The latest runs of each project's check, for commits heard of after them.
     runs: HashMap<String, slice::HeardRuns>,
+    /// Projects whose slices wait on a CI workflow's verdict.
+    workflows: workflows::Watches,
 }
 
 /// What the core keeps about a card only while it runs, never saved. It goes
@@ -3063,6 +3066,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     auto::start_free(core);
     next = sooner(next, finish::due(core));
     next = sooner(next, tickets::due(core));
+    next = sooner(next, workflows::due(core));
     next = sooner(next, wait::settle(core, &mut core.boards.state.locked()));
     if let Some(next) = next {
         core.boards.wake.at(next);

@@ -481,8 +481,9 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
     Ok(())
 }
 
-/// The pull request of each run waiting on its checks, as the code-host
-/// repository the core's CI check watches for it.
+/// The pull request of each run waiting on its checks, and the repository of
+/// each project whose slices wait on a workflow, as the code-host
+/// repositories the core's CI check watches for them.
 pub(crate) fn waiting_on_ci(core: &Core) -> Vec<ci::Shown> {
     let state = core.boards.state.locked();
     state
@@ -498,6 +499,7 @@ pub(crate) fn waiting_on_ci(core: &Core) -> Vec<ci::Shown> {
                 host: None,
             })
         })
+        .chain(super::workflows::waiting_on_ci(&state))
         .collect()
 }
 
@@ -523,8 +525,9 @@ pub(crate) fn ci_moved(core: &Core, repo: &ci::Shown) {
     for (project, id) in &waiting {
         state.change_work(project, *id, |work| work.looked = None);
     }
+    let workflows = super::workflows::ci_moved(&mut state, repo);
     drop(state);
-    if !waiting.is_empty() {
+    if !waiting.is_empty() || workflows {
         core.boards.wake.now();
     }
 }

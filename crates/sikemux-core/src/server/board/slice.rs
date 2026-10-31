@@ -194,7 +194,7 @@ pub(super) struct Slice {
 }
 
 /// An assertion of its goal a slice fulfils.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Named {
     /// The goal card whose assertion it is, so it binds no slice under another.
@@ -357,7 +357,7 @@ impl Slice {
                 .as_ref()
                 .is_some_and(|check| check.verdict == Some(Verdict::Passed)),
             Need::OnBranch => work.on_branch,
-            Need::Assertions => self.asserts.iter().all(|named| self.asserted(*named)),
+            Need::Assertions => self.asserts.iter().all(|named| self.asserted(named)),
         }
     }
 
@@ -375,33 +375,85 @@ impl Slice {
     }
 
     /// The latest evidence of its kind collected for the assertion.
-    fn latest_for(&self, named: Named) -> Option<&Evidence> {
+    fn latest_for(&self, named: &Named) -> Option<&Evidence> {
         (self.evidence.iter().rev()).find(|evidence| {
             evidence.assertions.contains(&named.id)
-                && match (&evidence.proof, named.evidence) {
+                && match (&evidence.proof, &named.evidence) {
                     (Proof::Picture { seconds, .. }, Collect::Recording) => seconds.is_some(),
                     (Proof::Picture { seconds, .. }, Collect::Screenshot) => seconds.is_none(),
+                    (Proof::Run { .. }, Collect::Workflow { .. }) => true,
                     _ => false,
                 }
         })
     }
 
     /// The assertion holds on its latest commit: the check's verdict on it
-    /// passed, for one the check shows; else a recording or screenshot was
-    /// collected for it there, which the person judges at Looks right.
-    fn asserted(&self, named: Named) -> bool {
+    /// passed, for one the check shows; its workflow's run passed there, for
+    /// one a workflow shows; else a recording or screenshot was collected for
+    /// it there, which the person judges at Looks right.
+    fn asserted(&self, named: &Named) -> bool {
+        let on_head = self
+            .latest_for(named)
+            .filter(|evidence| evidence.commit.as_deref() == self.head());
         match named.evidence {
             Collect::Check => self.met(Need::PassingCheck),
-            Collect::Recording | Collect::Screenshot => self
-                .latest_for(named)
-                .is_some_and(|evidence| evidence.commit.as_deref() == self.head()),
+            Collect::Workflow { .. } => {
+                on_head.is_some_and(|evidence| evidence.verdict == Some(Verdict::Passed))
+            }
+            Collect::Recording | Collect::Screenshot => on_head.is_some(),
         }
+    }
+
+    /// The workflows its assertions need a verdict of on its latest commit,
+    /// which none has given yet: each assertion's id and workflow.
+    pub(super) fn awaiting_workflows(&self) -> Vec<(u64, String)> {
+        (self.asserts.iter())
+            .filter_map(|named| match &named.evidence {
+                Collect::Workflow { name } => Some((named, name)),
+                _ => None,
+            })
+            .filter(|(named, _)| {
+                self.latest_for(named)
+                    .is_none_or(|evidence| evidence.commit.as_deref() != self.head())
+            })
+            .map(|(named, name)| (named.id, name.clone()))
+            .collect()
+    }
+
+    /// Workflow `name` ruled on its latest commit, held by the pushed `tip`:
+    /// the run is the evidence of each of its assertions that workflow shows,
+    /// with no verdict when it gave none.
+    pub(super) fn workflow_ran(
+        &mut self,
+        name: &str,
+        tip: &str,
+        verdict: Option<Verdict>,
+        output: String,
+    ) {
+        let Some(gate) = self.waiting() else {
+            return;
+        };
+        let assertions = self.asserting(Collect::Workflow {
+            name: name.to_owned(),
+        });
+        self.add_evidence(
+            gate,
+            epoch_ms(),
+            None,
+            verdict,
+            Proof::Run {
+                command: name.to_owned(),
+                sha: Some(tip.to_owned()),
+                output,
+            },
+            &assertions,
+        );
     }
 
     /// The assertions still without what they need on its latest commit.
     fn missing(&self) -> Vec<String> {
         (self.asserts.iter())
-            .filter(|named| !self.asserted(**named))
+            .filter(|named| !self.asserted(named))
             .map(|named| format!("#{}", named.id))
             .collect()
     }
@@ -458,7 +510,7 @@ impl Slice {
         assertions: &[u64],
     ) {
         let latest: Vec<u64> = (self.asserts.iter())
-            .filter_map(|named| self.latest_for(*named).map(|evidence| evidence.id))
+            .filter_map(|named| self.latest_for(named).map(|evidence| evidence.id))
             .collect();
         let notes = &self.notes;
         let pinned = |evidence: &Evidence| {
@@ -971,7 +1023,7 @@ impl Slice {
             asserts: (self.asserts.iter())
                 .map(|named| Asserted {
                     assertion: named.id,
-                    met: self.asserted(*named),
+                    met: self.asserted(named),
                 })
                 .collect(),
             detached: self.detached.iter().map(|named| named.id).collect(),
@@ -992,7 +1044,7 @@ impl Slice {
         if !self.asserts.is_empty() {
             let asserts: Vec<Value> = (self.asserts.iter())
                 .map(|named| {
-                    serde_json::json!({ "assertion": named.id, "evidence": named.evidence, "met": self.asserted(*named) })
+                    serde_json::json!({ "assertion": named.id, "evidence": named.evidence, "met": self.asserted(named) })
                 })
                 .collect();
             fields.insert("asserts".into(), asserts.into());
@@ -1450,7 +1502,7 @@ pub(super) fn rebind(board: &mut Board) -> Vec<u64> {
             .map(|goal| {
                 (goal.goal.assertions().iter())
                     .filter(|assertion| assertion.retired.is_none())
-                    .map(|assertion| (assertion.id, assertion.evidence))
+                    .map(|assertion| (assertion.id, assertion.evidence.clone()))
                     .collect()
             })
             .unwrap_or_default();
@@ -1460,7 +1512,7 @@ pub(super) fn rebind(board: &mut Board) -> Vec<u64> {
         let freed = slice.bind(goal, |id| {
             (standing.iter())
                 .find(|(kept, _)| *kept == id)
-                .map(|(_, evidence)| *evidence)
+                .map(|(_, evidence)| evidence.clone())
         });
         if freed {
             moved.push(id);

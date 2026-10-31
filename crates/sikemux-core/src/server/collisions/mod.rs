@@ -24,7 +24,7 @@ use sikemux_process::sync::Locked;
 use super::edits::{self, authors, before, changed, line_count, replaced, Change, Changes, Edit};
 use super::wake::{sooner, Wake};
 use super::Core;
-pub(crate) use checks::Failing;
+pub(crate) use checks::{look, Failing};
 
 /// Files bigger than this are not kept.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;

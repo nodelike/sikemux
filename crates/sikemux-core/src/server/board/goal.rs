@@ -24,6 +24,7 @@ use crate::text::to_keep;
 
 const MAX_EACH: usize = 64;
 const MAX_TEXT_CHARS: usize = 1000;
+const MAX_WORKFLOW_CHARS: usize = 200;
 
 /// Who says something now, and in which chat turn; none for the person.
 pub(crate) fn learned(core: &Core, agent: Option<&str>) -> Learned {
@@ -233,7 +234,9 @@ impl Change {
         retire: bool,
     ) -> Result<Self, String> {
         if id.is_none() && evidence.is_none() && !retire {
-            return Err("Say what evidence shows it: check, recording or screenshot".into());
+            return Err(
+                "Say what evidence shows it: check, recording, screenshot or workflow".into(),
+            );
         }
         Self::read(id, text, None, evidence, retire)
     }
@@ -381,8 +384,8 @@ pub(crate) fn change(
             format!("Rule #{id} is kept on goal #{goal}.{dropped}")
         }
         (List::Assertions, Change::New { text, evidence, .. }) => {
-            let evidence =
-                evidence.ok_or("Say what evidence shows it: check, recording or screenshot")?;
+            let evidence = evidence
+                .ok_or("Say what evidence shows it: check, recording, screenshot or workflow")?;
             let dropped = make_room(&mut kept.assertions, goal, &bound)?;
             kept.last += 1;
             let id = kept.last;
@@ -400,7 +403,9 @@ pub(crate) fn change(
         (List::Rules, change) => apply(&mut kept.rules, goal, change, by)?,
         (List::Assertions, change) => {
             let evidence = match &change {
-                Change::Correct { id, evidence, .. } => evidence.map(|evidence| (*id, evidence)),
+                Change::Correct { id, evidence, .. } => {
+                    evidence.clone().map(|evidence| (*id, evidence))
+                }
                 _ => None,
             };
             let said = apply(&mut kept.assertions, goal, change, by)?;
@@ -534,9 +539,31 @@ struct ToolAssert {
     goal: Option<u64>,
     assertion: Option<u64>,
     text: Option<String>,
-    evidence: Option<Collect>,
+    evidence: Option<String>,
+    workflow: Option<String>,
     #[serde(default)]
     retire: bool,
+}
+
+/// The evidence the tool names: a kind, and the workflow's name for one a
+/// workflow shows.
+fn evidence_of(kind: Option<&str>, workflow: Option<String>) -> Result<Option<Collect>, String> {
+    let workflow = (workflow.as_deref().map(str::trim))
+        .filter(|name| !name.is_empty())
+        .map(|name| to_keep(name, "workflow", MAX_WORKFLOW_CHARS))
+        .transpose()?;
+    match (kind, workflow) {
+        (None, None) => Ok(None),
+        (Some("check"), None) => Ok(Some(Collect::Check)),
+        (Some("recording"), None) => Ok(Some(Collect::Recording)),
+        (Some("screenshot"), None) => Ok(Some(Collect::Screenshot)),
+        (Some("workflow") | None, Some(name)) => Ok(Some(Collect::Workflow { name })),
+        (Some("workflow"), None) => Err("Name the workflow, as its CI calls it".into()),
+        (Some(_), Some(_)) => Err("Only a workflow's evidence names a workflow".into()),
+        (Some(kind), None) => Err(format!(
+            "evidence is check, recording, screenshot or workflow, not {kind}"
+        )),
+    }
 }
 
 /// `board_assert`: writes, corrects or retires an assertion of a goal the agent
@@ -553,7 +580,7 @@ pub(crate) async fn tool_assert(
         let asserting = Change::of_assertion(
             given.assertion,
             given.text.as_deref(),
-            given.evidence,
+            evidence_of(given.evidence.as_deref(), given.workflow)?,
             given.retire,
         )?;
         let project = caller_project(&core, &request);

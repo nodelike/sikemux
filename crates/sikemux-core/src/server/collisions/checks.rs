@@ -293,12 +293,12 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
 
 /// What git says of the commits a CI check waits on.
 #[derive(Default)]
-struct Looked {
+pub(crate) struct Looked {
     /// The tip of the remote branch the project's branch pushes to, when it
     /// holds some of them, with those it holds.
-    tip: Option<(String, Vec<String>)>,
+    pub tip: Option<(String, Vec<String>)>,
     /// Those no branch holds.
-    gone: Vec<String>,
+    pub gone: Vec<String>,
 }
 
 /// Waiting commits a CI check ruled on: under `tip`, or with none when no
@@ -311,7 +311,7 @@ struct Ruled {
 
 /// Reads which of `waiting` the project's pushed branch holds, and which no
 /// branch does. Other remote branches, such as work in progress, decide nothing.
-fn look(dir: &Path, waiting: &[String]) -> Looked {
+pub(crate) fn look(dir: &Path, waiting: &[String]) -> Looked {
     let upstream = crate::git::upstream(dir);
     let tip = upstream
         .as_deref()

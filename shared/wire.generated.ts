@@ -2492,7 +2492,27 @@ export interface Assertion {
 }
 
 /** The evidence an assertion needs, which the core collects itself. */
-export type Collect = "check" | "recording" | "screenshot";
+export type Collect =
+    /** The project's check, passing on the slice's latest commit. */
+    | {
+          kind: "check";
+      }
+    /** A browser recording made on the slice's latest commit. */
+    | {
+          kind: "recording";
+      }
+    /** A screenshot of a page taken on the slice's latest commit. */
+    | {
+          kind: "screenshot";
+      }
+    /**
+     * The CI workflow `name` passing on the pushed tip of the project's
+     * branch that holds the slice's latest commit.
+     */
+    | {
+          kind: "workflow";
+          name: string;
+      };
 
 /** How a project's board runs on its own. */
 export interface BoardSettings {

@@ -32,17 +32,18 @@ pub(super) struct Asserting {
     _typing: Subscription,
 }
 
-fn kind_words(kind: Collect) -> &'static str {
+fn kind_words(kind: &Collect) -> &'static str {
     match kind {
         Collect::Check => "the check passes",
         Collect::Recording => "a recording",
         Collect::Screenshot => "a screenshot",
+        Collect::Workflow { .. } => "a CI workflow passes",
     }
 }
 
-fn kind_icon(kind: Collect) -> Icon {
+fn kind_icon(kind: &Collect) -> Icon {
     match kind {
-        Collect::Check => Icon::Check,
+        Collect::Check | Collect::Workflow { .. } => Icon::Check,
         Collect::Recording => Icon::Record,
         Collect::Screenshot => Icon::Image,
     }
@@ -108,7 +109,7 @@ impl GoalsPane {
             card,
             assertion: None,
             text: Some(text),
-            evidence: Some(asserting.kind),
+            evidence: Some(asserting.kind.clone()),
             retire: false,
         };
         let asked = Target::here(&self.asks).request_typed::<call::BoardAssert>(params);
@@ -210,10 +211,10 @@ pub(super) fn section_of(
                         .items_center()
                         .gap(px(4.))
                         .child(
-                            ui::icon(kind_icon(assertion.evidence), 11.)
+                            ui::icon(kind_icon(&assertion.evidence), 11.)
                                 .text_color(t.text_tertiary),
                         )
-                        .child(ui::meta(kind_words(assertion.evidence), cx)),
+                        .child(ui::meta(kind_words(&assertion.evidence), cx)),
                 )
                 .when(!fulfilling.is_empty(), |row| {
                     row.child(ui::meta(
@@ -250,7 +251,7 @@ pub(super) fn section_of(
                     Segmented::words("assertion-kind", words, chosen).on_select(cx.listener(
                         |pane, chosen: &usize, _, cx| {
                             if let Some((kind, _)) = KINDS.get(*chosen) {
-                                pane.assert_kind(*kind, cx);
+                                pane.assert_kind(kind.clone(), cx);
                             }
                         },
                     )),
@@ -326,7 +327,7 @@ pub(super) fn ticks(
                                 })
                                 .child(assertion.text.clone()),
                         )
-                        .child(ui::meta(kind_words(assertion.evidence), cx)),
+                        .child(ui::meta(kind_words(&assertion.evidence), cx)),
                 )
             }))
             .children(slice.detached.iter().map(|id| {

@@ -1994,8 +1994,15 @@
           "enum": [
             "check",
             "recording",
-            "screenshot"
+            "screenshot",
+            "workflow"
           ]
+        },
+        "workflow": {
+          "description": "The CI workflow whose run shows it, as the CI names it, for workflow evidence",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
         },
         "retire": {
           "type": "boolean"
