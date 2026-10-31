@@ -507,6 +507,7 @@ impl BoardPane {
             parent: (fields.parent != 0).then_some(fields.parent),
             depends_on: fields.depends_on.clone(),
             ticket: None,
+            owner: None,
         };
         self.ask::<call::BoardAdd>(
             params,

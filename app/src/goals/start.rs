@@ -116,8 +116,8 @@ impl GoalsPane {
         cx.notify();
     }
 
-    /// Adds the card that tracks the work, then starts the agent that takes it with a first
-    /// message saying which card is theirs and what to do with it.
+    /// Starts the agent that takes the work, adds the card that tracks it, held by that agent,
+    /// then sends the agent a first message saying which card is theirs and what to do.
     fn start_work(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.typed_text(cx);
         if text.is_empty() || self.busy {
@@ -132,22 +132,36 @@ impl GoalsPane {
             );
             return;
         };
+        let (started, agent) = oneshot::channel();
+        Target::here(&self.asks).start_chat(launcher, project, None, Some(started));
         let (title, details) = titled(&text);
-        let asked = Target::here(&self.asks).request_typed::<call::BoardAdd>(BoardAddParams {
-            project: self.folder.clone(),
-            title,
-            details,
-            acceptance: None,
-            promise: None,
-            asserts: Vec::new(),
-            parent: None,
-            depends_on: Vec::new(),
-            ticket: None,
-        });
-        let mode = self.start.mode;
+        let (mode, folder) = (self.start.mode, self.folder.clone());
         self.busy = true;
         cx.notify();
         cx.spawn_in(window, async move |pane, cx| {
+            let Ok(agent) = agent.await else {
+                let _ = pane.update(cx, |pane, cx| {
+                    pane.busy = false;
+                    pane.said("The agent did not start", cx);
+                });
+                return;
+            };
+            let Ok(asked) = pane.update(cx, |pane, _| {
+                Target::here(&pane.asks).request_typed::<call::BoardAdd>(BoardAddParams {
+                    project: folder,
+                    title,
+                    details,
+                    acceptance: None,
+                    promise: None,
+                    asserts: Vec::new(),
+                    parent: None,
+                    depends_on: Vec::new(),
+                    ticket: None,
+                    owner: Some(agent.clone()),
+                })
+            }) else {
+                return;
+            };
             let added = asked.await;
             let _ = pane.update_in(cx, |pane, window, cx| {
                 pane.busy = false;
@@ -155,7 +169,10 @@ impl GoalsPane {
                     Ok(board) => board,
                     Err(error) => return pane.said(&error, cx),
                 };
-                let card = board.cards.iter().map(|card| card.id).max();
+                let card = (board.cards.iter())
+                    .filter(|card| card.owner.as_deref() == Some(agent.as_str()))
+                    .map(|card| card.id)
+                    .max();
                 pane.take(board);
                 let Some(card) = card else {
                     return;
@@ -168,17 +185,9 @@ impl GoalsPane {
                     ..Start::default()
                 };
                 let first = first_message(mode, card, &text);
-                let (started, agent) = oneshot::channel();
-                Target::here(&pane.asks).start_chat(launcher, project, None, Some(started));
-                let bench = pane.bench.clone();
-                cx.spawn_in(window, async move |_, cx| {
-                    if let Ok(agent) = agent.await {
-                        let _ = bench.update_in(cx, |bench, window, cx| {
-                            bench.deliver(&agent, first, window, cx)
-                        });
-                    }
-                })
-                .detach();
+                let _ = pane
+                    .bench
+                    .update(cx, |bench, cx| bench.deliver(&agent, first, window, cx));
                 cx.notify();
             });
         })
@@ -199,20 +208,19 @@ fn titled(text: &str) -> (String, Option<String>) {
 fn first_message(mode: StartMode, card: u64, text: &str) -> String {
     match mode {
         StartMode::DoIt => format!(
-            "{text}\n\nThis is card #{card} on the project's board, and it is yours: claim it \
-             with board_claim, do it, and mark it done with board_update once the project's \
-             checks pass."
+            "{text}\n\nThis is card #{card} on the project's board, and you hold it: do it, \
+             and mark it done with board_update once the project's checks pass."
         ),
         StartMode::PlanFirst => format!(
-            "{text}\n\nYou lead goal card #{card} on the project's board; claim it with \
-             board_claim. Before anything is built, talk it through with me: ask what you need \
-             to know, one question at a time, and record what I decide with board_decide. Then \
-             propose the slices as cards under #{card} with board_add, each with a promise, \
-             and wait for me to approve them before any work starts."
+            "{text}\n\nYou lead goal card #{card} on the project's board, which you hold. \
+             Before anything is built, talk it through with me: ask what you need to know, one \
+             question at a time, and record what I decide with board_decide. Then propose the \
+             slices as cards under #{card} with board_add, each with a promise, and wait for me \
+             to approve them before any work starts."
         ),
         StartMode::WithMe => format!(
-            "{text}\n\nSikemux tracks this as goal card #{card} on the project's board; claim \
-             it with board_claim."
+            "{text}\n\nSikemux tracks this as goal card #{card} on the project's board, which \
+             you hold."
         ),
     }
 }

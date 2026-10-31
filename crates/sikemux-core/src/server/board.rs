@@ -1388,7 +1388,7 @@ fn add_card(
     project: &str,
     by: &By,
     adding: Adding,
-    claim: bool,
+    holder: Option<&str>,
 ) -> Result<Value, String> {
     let boards = &core.boards;
     let mut state = boards.state.locked();
@@ -1434,7 +1434,7 @@ fn add_card(
         slice.name(named);
     }
     let mut note = None;
-    if let (true, By::Agent(agent)) = (claim, by) {
+    if let Some(agent) = holder {
         if board.waits_on(&card).is_empty() {
             take(core, &mut card, agent);
         } else {
@@ -1476,7 +1476,7 @@ pub(crate) fn add_for_trigger(
         ticket: None,
         trigger: Some(trigger),
     };
-    add_card(core, project, &By::Auto("Trigger"), adding, false)?;
+    add_card(core, project, &By::Auto("Trigger"), adding, None)?;
     tell_clients(core);
     Ok(())
 }
@@ -1979,7 +1979,8 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let (core, request) = (core.clone(), request.clone());
     blocking(move || {
         let project = caller_project(&core, &request);
-        add_card(&core, &project, &By::Agent(agent), adding, claim).map_err(Into::into)
+        let holder = claim.then_some(agent.as_str());
+        add_card(&core, &project, &By::Agent(agent.clone()), adding, holder).map_err(Into::into)
     })
     .await
     .map_err(|error| error.to_string())
@@ -2438,6 +2439,10 @@ pub struct AddParams {
     pub depends_on: Vec<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ticket: Option<TicketParams>,
+    /// The agent in this project that holds it at once, such as the one
+    /// started to do it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 impl AddParams {
@@ -2572,8 +2577,18 @@ pub(crate) async fn person_add(core: &Arc<Core>, params: AddParams) -> Result<Bo
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
+        let owner = params.owner.clone();
+        if let Some(owner) = &owner {
+            let here = core
+                .names
+                .get(owner)
+                .is_some_and(|named| named.project == project);
+            if !here {
+                return Err(format!("There is no agent {owner} in this project").into());
+            }
+        }
         let adding = params.adding()?;
-        add_card(&core, &project, &By::Person, adding, false)?;
+        add_card(&core, &project, &By::Person, adding, owner.as_deref())?;
         Ok(project_view(&core, &project))
     })
     .await
@@ -2656,7 +2671,7 @@ pub(crate) async fn person_add_ticket(
                 &project,
                 &By::Person,
                 ticket_card(&params.title, &params.details, Some(params.ticket))?,
-                false,
+                None,
             )?;
             let made = card_of_ticket(&core, &project, &key).ok_or("The ticket's card is gone")?;
             let (made, waited) = (made.id, made.depends_on);
@@ -2677,8 +2692,7 @@ pub(crate) async fn person_add_ticket(
                     None => note(
                         ticket_card(&sub.title, &sub.details, sub.ticket).and_then(|mut adding| {
                             adding.parent = Some(made);
-                            add_card(&core, &project, &By::Person, adding, false)
-                                .map(|_| Vec::new())
+                            add_card(&core, &project, &By::Person, adding, None).map(|_| Vec::new())
                         }),
                         format!("put {sub_key} under it"),
                     ),

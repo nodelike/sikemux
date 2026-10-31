@@ -3441,6 +3441,11 @@ export interface BoardAddParams {
     /** The cards it waits on. */
     dependsOn?: number[];
     ticket?: BoardTicketParams;
+    /**
+     * The agent in this project that holds it at once, such as the one
+     * started to do it.
+     */
+    owner?: string;
 }
 
 /** The Jira or Linear ticket a card is put on the board for. */
