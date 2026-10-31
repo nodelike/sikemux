@@ -421,15 +421,15 @@ fn relative(inside: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// Cuts a checkout of the lead's code for the worker called `name`, from the
-/// project here or a copy of its own, with `bundle` when the lead sent one.
+/// Cuts a checkout of the lead's code on the branch `branch`, from the project
+/// here or a copy of its own, with `bundle` when the lead sent one.
 pub(crate) fn checkout(
     core: &Core,
     host: &str,
     agent_id: &str,
     code: &Code,
     bundle: Option<&Path>,
-    name: &str,
+    branch: &str,
 ) -> Result<Checked, String> {
     if !is_commit_id(&code.commit) {
         return Err("the lead's commit is not a commit id".into());
@@ -468,7 +468,7 @@ pub(crate) fn checkout(
             return Err("the lead's bundle did not hold its commit".into());
         }
     }
-    let added = worktree::cut(&repo, name, &code.commit);
+    let added = worktree::cut(&repo, branch, &code.commit);
     let _ = Git::quick(&repo).trimmed(&["update-ref", "-d", &incoming]);
     let (branch, path) = added?;
     if let Some(patch) = &code.patch {

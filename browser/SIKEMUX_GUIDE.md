@@ -1039,9 +1039,12 @@ and `agentId` at once; it gets the prompt, from you, once it is ready.
 
 With `checkout: "own"` it works in a checkout of its own, a git worktree on a
 branch of its own cut from yours, with the project's setup run in it, so it
-builds and tests apart from every other agent's work in progress. Give each
-teammate of a team its own checkout; a quick helper can share yours, the
-default. A teammate with its own checkout lands its commits on your branch
+builds and tests apart from every other agent's work in progress. Name its
+branch with `branch`, in the project's way, such as `feat/markdown-preview-find`
+or `fix/jira-board-drag`: short and saying what it holds. Left out, it is named
+from the prompt's first sentence about the work, which reads worse. A name
+already taken gets `-2`. Give each teammate of a team its own checkout; a quick
+helper can share yours, the default. A teammate with its own checkout lands its commits on your branch
 with `git_commit`'s `land: true` once its piece builds.
 
 It runs in Sikemux's chat unless you pass `mode: "terminal"`, which starts the

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sikemux_process::vars;
 
-use super::{copy_included, cut, inside, warm, worktrees_folder, AgentWorktree};
+use super::{branch_for, copy_included, cut, inside, warm, worktrees_folder, AgentWorktree};
 use crate::git::{main_checkout, Git};
 use crate::server::connection::blocking;
 use crate::server::custom_command::{self, CommandParams};
@@ -36,12 +36,12 @@ pub struct ForAgent {
 }
 
 /// A worktree of the repository `checkout` is in, cut from where it is now on
-/// a branch named for `name`, with what it needs copied in, and the folder in
-/// it that stands where `cwd` stood.
+/// the branch `branch`, with what it needs copied in, and the folder in it
+/// that stands where `cwd` stood.
 pub(crate) fn cut_for(
     checkout: &Path,
     cwd: &Path,
-    name: &str,
+    branch: &str,
 ) -> Result<(AgentWorktree, PathBuf), String> {
     let repo = PathBuf::from(
         Git::quick(checkout)
@@ -55,7 +55,7 @@ pub(crate) fn cut_for(
     let base = Git::quick(&repo)
         .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
         .ok();
-    let (branch, path) = cut(&repo, name, &start_sha)?;
+    let (branch, path) = cut(&repo, branch, &start_sha)?;
     copy_included(&main, &path);
     warm::seed_in_background(&main, &path);
     let inside = if cwd.starts_with(&repo) {
@@ -140,8 +140,8 @@ pub(crate) async fn for_agent(core: &Arc<Core>, params: ForAgentParams) -> CoreR
     }
     let cwd = agent.cwd.clone();
     let checkout = params.repo.unwrap_or_else(|| cwd.clone());
-    let message = params.message;
-    let (worktree, tree_cwd) = blocking(move || Ok(cut_for(&checkout, &cwd, &message)?)).await?;
+    let branch = branch_for(&params.message);
+    let (worktree, tree_cwd) = blocking(move || Ok(cut_for(&checkout, &cwd, &branch)?)).await?;
     let project = core
         .workspaces
         .view()

@@ -16,7 +16,6 @@ mod warm;
 
 pub(crate) use warm::seed_in_background;
 
-const BRANCH_PREFIX: &str = "sikemux/";
 const NAME_TRIES: usize = 50;
 
 /// Without a `.worktreeinclude`, the files a project usually keeps out of git
@@ -31,20 +30,93 @@ const DEFAULT_INCLUDE: [&str; 6] = [
 ];
 const MAX_INCLUDED: usize = 50;
 const SLUG_MAX: usize = 40;
+const BRANCH_WORDS: usize = 5;
+/// Words that only say what kind of change the work is, left out of its branch.
+const KIND_WORDS: [&str; 9] = [
+    "fix",
+    "fixes",
+    "fixing",
+    "add",
+    "adds",
+    "adding",
+    "implement",
+    "feat",
+    "feature",
+];
+/// Words that say the work mends something, which puts its branch under `fix/`.
+const MENDING_WORDS: [&str; 11] = [
+    "fix",
+    "fixes",
+    "fixing",
+    "bug",
+    "bugs",
+    "broken",
+    "crash",
+    "crashes",
+    "regression",
+    "fails",
+    "failing",
+];
+/// Words that say nothing about the work.
+const FILLER_WORDS: [&str; 29] = [
+    "an", "the", "and", "or", "of", "to", "for", "in", "on", "at", "by", "with", "from", "into",
+    "how", "that", "this", "it", "its", "is", "are", "be", "so", "as", "please", "we", "our",
+    "you", "your",
+];
 
-/// Cuts a worktree of `repo` at `start` on a new branch named for `name`.
-/// The branch and the folder it is in.
-pub(crate) fn cut(repo: &Path, name: &str, start: &str) -> Result<(String, PathBuf), String> {
+/// The branch for the work `work` describes, in the repository's way of
+/// naming them: `fix/` when it mends something, else `feat/`, then a few words
+/// of its first sentence that says what it is, past one that only says who the
+/// agent is, such as "You are the core teammate".
+pub(crate) fn branch_for(work: &str) -> String {
+    let mut mends = false;
+    let mut chosen: Vec<String> = Vec::new();
+    for sentence in work.split(['.', ':', '!', '?', '\n']) {
+        let lower = sentence.to_lowercase();
+        let words: Vec<&str> = lower
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .filter(|word| word.len() > 1 || word.starts_with(|c: char| c.is_ascii_digit()))
+            .collect();
+        if matches!(words.as_slice(), ["you", "are" | "re", ..]) {
+            continue;
+        }
+        mends |= words.iter().any(|word| MENDING_WORDS.contains(word));
+        let told: Vec<String> = words
+            .into_iter()
+            .filter(|word| !FILLER_WORDS.contains(word) && !KIND_WORDS.contains(word))
+            .map(str::to_owned)
+            .collect();
+        if told.len() >= 2 || chosen.is_empty() {
+            chosen = told;
+        }
+        if chosen.len() >= 2 {
+            break;
+        }
+    }
+    chosen.truncate(BRANCH_WORDS);
+    let kind = if mends { "fix" } else { "feat" };
+    match chosen.is_empty() {
+        true => format!("{kind}/work"),
+        false => format!("{kind}/{}", slug(&chosen.join(" "))),
+    }
+}
+
+/// Cuts a worktree of `repo` at `start` on a new branch called `branch`, or
+/// `branch` and a number when that is taken. The branch and the folder it is in.
+pub(crate) fn cut(repo: &Path, branch: &str, start: &str) -> Result<(String, PathBuf), String> {
     let folder = worktrees_folder(repo);
-    let base = slug(name);
+    let base = Git::quick(repo)
+        .trimmed(&["check-ref-format", "--branch", branch])
+        .map_err(|_| format!("{branch} is not a name git takes for a branch"))?;
     let (branch, path) = (1..=NAME_TRIES)
         .map(|index| {
-            let slug = if index == 1 {
+            let branch = if index == 1 {
                 base.clone()
             } else {
                 format!("{base}-{index}")
             };
-            (format!("{BRANCH_PREFIX}{slug}"), folder.join(&slug))
+            let path = folder.join(branch.replace('/', "-"));
+            (branch, path)
         })
         .find(|(branch, path)| !path.exists() && !branch_exists(repo, branch))
         .ok_or_else(|| format!("every worktree name for {base} is taken"))?;
@@ -255,7 +327,7 @@ pub(crate) fn worktrees_folder(repo: &Path) -> PathBuf {
 
 /// Cuts a worktree for a card beside the project's checkout, on a branch of
 /// its own from the latest of the base branch.
-pub(crate) fn cut_for_card(project: &Path, slug: &str) -> Result<Tree, String> {
+pub(crate) fn cut_for_card(project: &Path, branch: &str) -> Result<Tree, String> {
     let repo = PathBuf::from(
         Git::quick(project).trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"],
         )
@@ -277,7 +349,7 @@ pub(crate) fn cut_for_card(project: &Path, slug: &str) -> Result<Tree, String> {
         base.clone()
     };
     let start_sha = Git::quick(&repo).trimmed(&["rev-parse", &start])?;
-    let (branch, path) = cut(&repo, slug, &start_sha)?;
+    let (branch, path) = cut(&repo, branch, &start_sha)?;
     copy_included(&repo, &path);
     warm::seed_in_background(&repo, &path);
     Ok(Tree {
@@ -400,16 +472,41 @@ mod tests {
                 "-m",
                 "base",
             ],
-            &["branch", "sikemux/fix-the-flaky-pty-test"],
+            &["branch", "fix/flaky-pty-test"],
         ] {
             Git::quick(&repo).trimmed(args).unwrap();
         }
-        let (branch, path) = cut(&repo, "Fix the flaky PTY test", "HEAD").unwrap();
-        assert_eq!(branch, "sikemux/fix-the-flaky-pty-test-2");
+        let (branch, path) = cut(&repo, "fix/flaky-pty-test", "HEAD").unwrap();
+        assert_eq!(branch, "fix/flaky-pty-test-2");
         assert_eq!(
             path,
-            parent.path().join("app.worktrees/fix-the-flaky-pty-test-2")
+            parent.path().join("app.worktrees/fix-flaky-pty-test-2")
         );
         assert!(path.join(".git").exists());
+        assert!(cut(&repo, "fix/flaky test", "HEAD").is_err());
+    }
+
+    #[test]
+    fn a_branch_is_named_for_the_work_and_not_for_who_the_agent_is() {
+        assert_eq!(
+            branch_for(
+                "You are the core teammate for the goals feature. Add a goal store to the core."
+            ),
+            "feat/goal-store-core"
+        );
+        assert_eq!(
+            branch_for(
+                "You're the sixth and last app teammate.\nThe rail's tab rows crash on resize"
+            ),
+            "fix/rail-tab-rows-crash-resize"
+        );
+        assert_eq!(
+            branch_for("Fix how Sikemux names the git branches of agent worktrees."),
+            "fix/sikemux-names-git-branches-agent"
+        );
+        assert_eq!(
+            branch_for("ABC-123 Markdown preview find"),
+            "feat/abc-123-markdown-preview-find"
+        );
     }
 }

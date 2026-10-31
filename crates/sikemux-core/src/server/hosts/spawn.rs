@@ -129,6 +129,7 @@ pub(crate) async fn spawn(
         "model": model,
         "reports": reports,
         "prompt": prompt,
+        "branch": text(params, "branch"),
         "code": packed.code,
     });
     let started = match ask(core, &link.id, "spawn", task.clone(), None, SPAWN_WAIT).await {
@@ -225,6 +226,8 @@ struct SpawnParams {
     model: Option<String>,
     reports: bool,
     prompt: String,
+    #[serde(default)]
+    branch: Option<String>,
     code: Code,
 }
 
@@ -251,12 +254,15 @@ pub(super) async fn start_here(
     }
     let host_name = name_of(core, host);
     let checked = {
-        let (core, host, agent_id, code, name) = (
+        let branch = params
+            .branch
+            .clone()
+            .unwrap_or_else(|| worktree::branch_for(&params.prompt));
+        let (core, host, agent_id, code) = (
             core.clone(),
             host.to_owned(),
             params.agent_id.clone(),
             params.code.clone(),
-            params.name.clone(),
         );
         blocking(move || {
             code::checkout(
@@ -265,7 +271,7 @@ pub(super) async fn start_here(
                 &agent_id,
                 &code,
                 body.as_ref().map(Received::path),
-                &name,
+                &branch,
             )
             .map_err(Into::into)
         })
