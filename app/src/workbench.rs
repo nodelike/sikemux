@@ -465,6 +465,7 @@ impl Workbench {
         let _ = asks.send(Ask::Follow(Topic::Files));
         let _ = asks.send(Ask::Follow(Topic::Lsp));
         let _ = asks.send(Ask::Follow(Topic::Boards));
+        let _ = asks.send(Ask::Follow(Topic::Memory));
         let _ = asks.send(Ask::Follow(Topic::AgentSignIn));
         let _ = asks.send(Ask::Follow(Topic::AgentStatus));
         let _ = asks.send(Ask::Follow(Topic::AgentAccounts));
@@ -1138,6 +1139,8 @@ impl Workbench {
                     if let Some(board) = &self.board {
                         board.update(cx, |board, cx| board.changed(cx));
                     }
+                }
+                if matches!(topic, Topic::Boards | Topic::Memory) {
                     if let Some(goals) = &self.goals {
                         goals.update(cx, |goals, cx| goals.changed(cx));
                     }

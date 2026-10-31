@@ -134,6 +134,7 @@ pub(super) fn goal(
                 .iter()
                 .map(|(card, slice)| slice_row(card, slice, cx)),
         )
+        .children(super::rules::rules(pane, goal, cx))
         .into_any_element()
 }
 
@@ -373,7 +374,7 @@ fn row(id: SharedString, cx: &Context<GoalsPane>) -> gpui_kit::Stateful<gpui_kit
         .hover(move |style| style.bg(t.surface_hover))
 }
 
-fn section(title: &'static str, count: usize, cx: &Context<GoalsPane>) -> AnyElement {
+pub(super) fn section(title: &'static str, count: usize, cx: &Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx);
     div()
         .pt(SPACE_5)

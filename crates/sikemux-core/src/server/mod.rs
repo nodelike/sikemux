@@ -121,6 +121,7 @@ pub use drafts::Draft;
 pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
 pub use hosts::{HostFound, HostReach, HostRow, LinkView as HostLink, SetUpWork, SetupRow};
+pub use memory::{MemoryEntryParams, MemoryParams};
 pub use messages::log::{Outcome as MessageOutcome, Row as MessageRow, Tone as MessageTone};
 pub use messages::Kind as MessageKind;
 pub use names::ClosedAgent;

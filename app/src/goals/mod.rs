@@ -1,7 +1,8 @@
 //! A project's goals: each goal a card with slices under it, the slices on their ladders of
 //! gates, and the evidence the core collected for each. The person reads what a goal waits on,
-//! looks at a slice's evidence and passes its gate or pins a note to what needs work. The core
-//! keeps the board and says where each slice stands; the pane only draws and asks.
+//! looks at a slice's evidence and passes its gate or pins a note to what needs work, and moves a
+//! project's rule into AGENTS.md. The core keeps the board and the rules and says where each
+//! slice stands; the pane only draws and asks.
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
@@ -12,7 +13,11 @@ use gpui_kit::{
 };
 use serde::Serialize;
 use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::{BoardNoteParams, BoardParams, BoardPassParams, BoardView, CardView};
+use sikemux_core::server::{
+    BoardNoteParams, BoardParams, BoardPassParams, BoardView, CardView, MemoryEntryParams,
+    MemoryParams,
+};
+use sikemux_wire::memory::MemoryView;
 use sikemux_wire::slice::{Gate, GateState, GateView, Need, Passer, SliceState, SliceView};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -24,6 +29,7 @@ use crate::workbench::Workbench;
 
 mod evidence;
 mod goal;
+mod rules;
 mod slice;
 
 /// Where in the goals the pane is.
@@ -40,6 +46,8 @@ pub struct GoalsPane {
     pub folder: String,
     bench: WeakEntity<Workbench>,
     board: Option<BoardView>,
+    /// The rules and knowledge kept for the project and the folders above it.
+    memory: Option<MemoryView>,
     at: At,
     /// The evidence of the open slice the person picked, in place of the one the gate leads with.
     picked: Option<u64>,
@@ -62,6 +70,7 @@ impl GoalsPane {
             folder,
             bench,
             board: None,
+            memory: None,
             at: At::Goals,
             picked: None,
             note: None,
@@ -73,17 +82,24 @@ impl GoalsPane {
         pane
     }
 
-    /// Reads the board again, as after the core says it changed.
+    /// Reads the board and the project's rules again, as after the core says either changed.
     pub fn changed(&mut self, cx: &mut Context<Self>) {
-        let read = core::Target::here(&self.asks).request_typed::<call::Board>(BoardParams {
-            project: self.folder.clone(),
+        let here = core::Target::here(&self.asks);
+        let project = self.folder.clone();
+        let board = here.request_typed::<call::Board>(BoardParams {
+            project: project.clone(),
         });
+        let memory = here.request_typed::<call::Memory>(MemoryParams { project });
         self._reading = cx.spawn(async move |pane, cx| {
-            let board = read.await;
+            let (board, memory) = (board.await, memory.await);
             let _ = pane.update(cx, |pane, cx| {
                 match board {
                     Ok(board) => pane.take(board),
                     Err(error) => pane.said(&format!("Couldn't read the goals: {error}"), cx),
+                }
+                match memory {
+                    Ok(memory) => pane.memory = Some(memory),
+                    Err(error) => pane.said(&format!("Couldn't read the rules: {error}"), cx),
                 }
                 cx.notify();
             });
@@ -220,6 +236,32 @@ impl GoalsPane {
             evidence,
         };
         self.ask::<call::BoardNote>(params, |pane| pane.note = None, cx);
+    }
+
+    /// Moves rule `id` into the AGENTS.md of the repository it is kept for, as the person.
+    fn promote(&mut self, id: u64, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        let params = MemoryEntryParams {
+            project: self.folder.clone(),
+            id,
+        };
+        let asked = core::Target::here(&self.asks).request_typed::<call::PromoteRule>(params);
+        self.busy = true;
+        cx.notify();
+        cx.spawn(async move |pane, cx| {
+            let answer = asked.await;
+            let _ = pane.update(cx, |pane, cx| {
+                pane.busy = false;
+                match answer {
+                    Ok(memory) => pane.memory = Some(memory),
+                    Err(error) => pane.said(&error, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn open_file(&self, path: &str, cx: &mut Context<Self>) {
