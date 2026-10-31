@@ -3,6 +3,9 @@ use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use sikemux_process::vars;
+use sikemux_pty::launch::OPTIONAL_PTY_ENV;
+
 use crate::frozen::{UpgradeInfo, UPGRADE_INFO_ARG};
 use crate::protocol::{BuildIdentity, SessionId};
 
@@ -98,9 +101,11 @@ pub fn main(
     build: BuildIdentity,
     plugins: Option<super::plugins::Provided>,
 ) -> i32 {
+    // Nothing else runs yet, so the process environment is safe to change.
+    #[cfg(unix)]
+    forget_starting_terminal();
     #[cfg(unix)]
     if let Some(path) = with_system_path(&std::env::var("PATH").unwrap_or_default()) {
-        // Nothing else runs yet, so the process environment is safe to change.
         std::env::set_var("PATH", path);
     }
     #[cfg(unix)]
@@ -177,6 +182,22 @@ pub fn main(
     }));
     sikemux_process::jobs::leave();
     exit
+}
+
+/// Forgets what Sikemux gave the terminal or agent this core was started
+/// from, as when an agent runs `sikemux restart`: that agent's identity, its
+/// zsh startup folder and its git shim, which every terminal and agent this
+/// core starts would otherwise inherit.
+#[cfg(unix)]
+fn forget_starting_terminal() {
+    for name in OPTIONAL_PTY_ENV.iter().chain(&vars::LAUNCHING_SESSION) {
+        std::env::remove_var(name);
+    }
+    crate::agent_shell::leave();
+    let path = std::env::var("PATH").unwrap_or_default();
+    if let Some(path) = crate::git_guard::shim::path_without_shim(&path) {
+        std::env::set_var("PATH", path);
+    }
 }
 
 /// `path` with the system folders added when it lacks them. A core keeps

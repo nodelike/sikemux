@@ -55,6 +55,22 @@ fn startup(name: &str, options: Option<&str>) -> String {
     text
 }
 
+/// Gives a process started from an agent's zsh the person's own `ZDOTDIR`
+/// back. Kept, it would make every agent's zsh read these files as the
+/// person's own, and source them over and over. Safe only before other
+/// threads run.
+pub(crate) fn leave() {
+    let Some(user) = std::env::var_os(vars::USER_ZDOTDIR) else {
+        return;
+    };
+    if std::env::var_os("HOME").is_some_and(|home| home == user) {
+        std::env::remove_var("ZDOTDIR");
+    } else {
+        std::env::set_var("ZDOTDIR", user);
+    }
+    std::env::remove_var(vars::USER_ZDOTDIR);
+}
+
 /// What an agent runs with for its zsh to read these files. Nothing when the
 /// person's shell is not zsh, or before [`install`].
 pub(crate) fn environment() -> Vec<(String, String)> {

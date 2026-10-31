@@ -19,6 +19,8 @@ use sikemux_process::vars;
 
 use super::footer;
 
+/// The folder of a core's data folder agents find this shim in first.
+const AGENT_BIN: &str = "agent-bin";
 /// The name the hook is linked under, outside the agents' PATH.
 const HOOK: &str = "sikemux-git-hook";
 /// macOS has no `timeout`, which agents reach for out of habit.
@@ -35,7 +37,7 @@ static HOOK_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 /// from, and as what puts the footer on their commits, which asks the core at
 /// `endpoint`.
 pub(crate) fn install(data_dir: &Path, endpoint: Option<&Path>) {
-    let folder = data_dir.join("agent-bin");
+    let folder = data_dir.join(AGENT_BIN);
     if folder.to_string_lossy().contains(':') {
         return;
     }
@@ -178,6 +180,22 @@ pub(crate) fn sign_commit(command: &mut Command, dir: &Path) {
     if let Some(endpoint) = ENDPOINT.get() {
         command.env(vars::CLI_ENDPOINT, endpoint);
     }
+}
+
+/// `path` without the folder agents find the shim in, which a process started
+/// from an agent's shell inherits. None when it has none.
+pub(crate) fn path_without_shim(path: &str) -> Option<String> {
+    let parts: Vec<&str> = path.split(':').collect();
+    let kept: Vec<&str> = parts
+        .iter()
+        .copied()
+        .filter(|part| !is_shim_folder(Path::new(part)))
+        .collect();
+    (kept.len() != parts.len()).then(|| kept.join(":"))
+}
+
+fn is_shim_folder(folder: &Path) -> bool {
+    folder.file_name().is_some_and(|name| name == AGENT_BIN) && folder.join("git").is_symlink()
 }
 
 /// The shim's folder, for a shell to put first on PATH again after its
