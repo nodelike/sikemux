@@ -467,25 +467,25 @@ fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[TestFail
         )
     }));
     lines.push(format!(
-        "Find the cause and fix it. Then run the task {} with task_start and check testResults in workspace_inspect.",
+        "Find the cause and fix it. Then run the process {} with process_start and check testResults in workspace_inspect.",
         finished.task.id
     ));
     lines.join("\n")
 }
 
-/// What an agent is asked when a task stopped with an error: it starts the task itself to read why.
+/// What an agent is asked when a process stopped with an error: it starts the process itself to read why.
 fn failure_fix_request(bench: &Workbench, finished: &Finished) -> String {
     let task = finished.task;
     [
         format!(
-            "The task \"{}\" in {} stopped: {}.",
+            "The process \"{}\" in {} stopped: {}.",
             task.label,
             file_name(Path::new(&project_path(bench))),
             finished.stopped().unwrap_or_default()
         ),
         format!("It runs `{}` in {}.", task.command, task.cwd),
         format!(
-            "Start it with task_start (taskId {}) and read its output with task_read to see the error, then find the cause and fix it.",
+            "Start it with process_start (processId {}) and read its output with process_read to see the error, then find the cause and fix it.",
             task.id
         ),
         "Start it again afterwards and check that it keeps running.".to_owned(),

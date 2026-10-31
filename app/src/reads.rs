@@ -228,7 +228,7 @@ impl Reads {
     pub fn keep_tasks(&mut self, key: &str, value: Value) -> bool {
         match key {
             "tasks" => keep_decoded(&mut self.tasks, value, "tasks"),
-            "runs" => keep_decoded(&mut self.runs, value, "task runs"),
+            "runs" => keep_decoded(&mut self.runs, value, "process runs"),
             "trust" => keep_decoded(&mut self.trust, value, "trust questions"),
             _ => keep_decoded(&mut self.host_trust, value, "trust questions"),
         }

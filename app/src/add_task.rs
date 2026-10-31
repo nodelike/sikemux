@@ -147,12 +147,16 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         ))
         .child(dialog::button(
             "task-add",
-            if editing { "Save" } else { "Add task" }.into(),
+            if editing { "Save" } else { "Add process" }.into(),
             Some(t.accent),
             save.clone(),
             cx,
         ));
-    let title = if editing { "Edit task" } else { "Add a task" };
+    let title = if editing {
+        "Edit process"
+    } else {
+        "Add a process"
+    };
     let tile = if editing { Icon::Pencil } else { Icon::Plus };
     Some(dialog::marked_sheet(tile, title.into(), body, foot, save, close, cx).into_any_element())
 }
@@ -193,7 +197,7 @@ fn save_task(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
                 window.push_notification(toast::success(saved), cx);
             }
             Err(error) => window.push_notification(
-                toast::error(format!("Could not save the task: {error}")),
+                toast::error(format!("Could not save the process: {error}")),
                 cx,
             ),
         });

@@ -45,7 +45,7 @@ curl -fsSL https://sikemux.com/install | sh -s -- --host
 - **Projects** with a code editor, terminals, Git, and search, all in one working directory
 - **Coding agents**: Claude, Codex, Hermes, Pi and OpenCode, several at once, each with its own browser tabs, and one list of every agent and recent chat across your open projects
 - **Chats that know your work**: `@` attaches project files, `#` hands over GitHub, GitLab or Bitbucket issues and pull requests, and an optional worktree gives a chat its own branch. Terminal selections, problems, logs and pull request lines can be sent to any agent
-- **Nothing stops when you quit**: terminals, agents and tasks keep running in the background and come back where they were. Quit and Stop Everything (`⌥⌘Q`) ends them
+- **Nothing stops when you quit**: terminals, agents and processes keep running in the background and come back where they were. Quit and Stop Everything (`⌥⌘Q`) ends them
 - **Panels** for AWS, GitHub, GitLab, Bitbucket, Jira, Rundeck, SigNoz and Bruno, and a database client for PostgreSQL, MySQL and SQLite that your agents can query too
 - **Hosts**: this host, every host on your account and the SSH hosts you have open, in one list. Chats and terminals run on whichever you pick, with no SSH, and **Install Sikemux here** turns an SSH host into one of them in a click
 - Twelve themes of its own, over 450 from Ghostty, and an editor for your own
@@ -54,7 +54,7 @@ The [website](https://sikemux.com) has the full tour.
 
 ## Project config
 
-Check a `sikemux.json` into a project to add actions, tasks, and a preview to the command deck (`⌘⇧P`). Sikemux shows each command and asks before running it.
+Check a `sikemux.json` into a project to add actions, processes, and a preview to the command deck (`⌘⇧P`). Sikemux shows each command and asks before running it.
 
 ```json
 {
@@ -73,7 +73,7 @@ Check a `sikemux.json` into a project to add actions, tasks, and a preview to th
 }
 ```
 
-Agents can start, read, and stop these tasks through Sikemux's MCP tools or the `sikemux tool` CLI. Tasks and their runs live in Sikemux's background process, so agents can read and stop them, and wait on their events, while the window is closed. [`browser/SIKEMUX_GUIDE.md`](browser/SIKEMUX_GUIDE.md) describes the protocol.
+Processes go in its `tasks` list. Agents can start, read, and stop them through Sikemux's MCP tools or the `sikemux tool` CLI. Processes and their runs live in the background, so agents can read and stop them, and wait on their events, while the window is closed. [`browser/SIKEMUX_GUIDE.md`](browser/SIKEMUX_GUIDE.md) describes the protocol.
 
 ## CLI
 

@@ -2230,7 +2230,7 @@ impl Workbench {
         }
     }
 
-    /// Opens the Add a task dialog for the project whose tasks the Run menu lists.
+    /// Opens the Add a process dialog for the project whose processes the Run menu lists.
     pub fn add_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(project) = self.watched_project.clone() {
             self.overlays.adding_task = Some(crate::add_task::AddTask::new(project, window, cx));

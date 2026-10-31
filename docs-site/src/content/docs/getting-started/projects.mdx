@@ -1,6 +1,6 @@
 ---
 title: Open a project
-description: "Projects, and the sikemux.json that adds actions and tasks to one."
+description: "Projects, and the sikemux.json that adds actions and processes to one."
 ---
 
 A project is a folder: its editor, terminals, Git and search all work in that directory. Open one with `⌘O`, or from a terminal with the `sikemux` CLI:
@@ -37,7 +37,7 @@ A terminal shows the folder its shell is in and how its last command went (runni
 Right-click a project in the side rail and pick **Project settings**, or run **Project settings** from the command palette, to open them in a tab of their own. Its pages:
 
 - **General**: whether new chats start in a worktree, whether the project may start language servers, and the Space it sits under.
-- **Tasks**: the tasks you added, each of which can be run, edited or removed, and **Add a task**, the same form as the run button's menu. Under them, the tasks found in the build files, by folder, with a filter.
+- **Processes**: the processes you added, each of which can be run, edited or removed, and **Add a process**, the same form as the run button's menu. Under them, the processes found in the build files, by folder, with a filter.
 - **Git**: the repository the project's Git views use, when its folder holds several.
 - **sikemux.json**: whether the project has one, whether you trust it, and any mistakes in it. **Open** shows the file in the editor.
 
@@ -51,7 +51,7 @@ When the project's repository is on GitHub and you are signed in to it, the top 
 
 ## Project config
 
-Check a `sikemux.json` into a project to add actions, tasks and a preview to the command deck (`⌘⇧P`). Sikemux shows each command and asks before running it.
+Check a `sikemux.json` into a project to add actions, processes and a preview to the command deck (`⌘⇧P`). Sikemux shows each command and asks before running it.
 
 ```json
 {
@@ -70,10 +70,10 @@ Check a `sikemux.json` into a project to add actions, tasks and a preview to the
 }
 ```
 
-Agents can start, read and stop these tasks too. Tasks keep running in Sikemux's background process while the window is closed.
+Processes go in its `tasks` list. Agents can start, read and stop them too. They keep running in the background while the window is closed.
 
 ## Quitting
 
-Terminals, agents and tasks keep running when you quit, and come back where they were. **Quit and Stop Everything** (`⌥⌘Q`) ends them, and Sikemux stays stopped: its window says so, with **Start Sikemux**, and nothing starts it again until you press that or start it another way. If Sikemux ever stops answering, its window says so, with **Restart Sikemux**: that ends it and starts it again. Terminals end; chats pick up where they were.
+Terminals, agents and processes keep running when you quit, and come back where they were. **Quit and Stop Everything** (`⌥⌘Q`) ends them, and Sikemux stays stopped: its window says so, with **Start Sikemux**, and nothing starts it again until you press that or start it another way. If Sikemux ever stops answering, its window says so, with **Restart Sikemux**: that ends it and starts it again. Terminals end; chats pick up where they were.
 
 On a Mac, the window's close button hides Sikemux as `⌘H` does. Click it in the Dock, follow a `sikemux://` link or run `sikemux open` to bring the window back as you left it.

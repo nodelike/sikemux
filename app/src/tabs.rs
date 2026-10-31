@@ -686,8 +686,8 @@ impl RunMenu {
             popup = popup.item(other.running_item(&self.bench));
         }
         let bench = self.bench.clone();
-        let popup = popup.separator().label("Your own tasks").item(
-            PopupMenuItem::new("Add a task…")
+        let popup = popup.separator().label("Your own processes").item(
+            PopupMenuItem::new("Add a process…")
                 .icon(Icon::Plus)
                 .on_click(move |_, window, cx| {
                     let bench = bench.clone();
@@ -705,7 +705,7 @@ impl RunMenu {
             self.project_name.clone(),
         );
         popup.submenu(
-            "Find tasks with an agent…",
+            "Find processes with an agent…",
             window,
             cx,
             ui::menu(move |menu, _, _| {

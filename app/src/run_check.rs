@@ -16,11 +16,11 @@ use crate::toast;
 use crate::ui::{self, Variant};
 use crate::workbench::Workbench;
 
-/// What an agent asked to find the project's tasks is told, after the line naming the project.
+/// What an agent asked to find the project's processes is told, after the line naming the project.
 const FIND_TASKS: &str = "Read the README, AGENTS.md, Makefile, package.json and any scripts in folders like tool/, bin/ or scripts/.
-Then add a task for each command people really use (starting the app, running the tests, building) to sikemux.json at the project root:
-each task has an \"id\", a \"label\", a \"command\" and, when it runs in a subfolder, a \"cwd\". Keep everything already in sikemux.json.
-Call guide with the config topic first for the format. Do not start long-running commands; tell me which tasks you added and why.";
+Then add a process for each command people really use (starting the app, running the tests, building) to sikemux.json's \"tasks\" list at the project root:
+each process has an \"id\", a \"label\", a \"command\" and, when it runs in a subfolder, a \"cwd\". Keep everything already in sikemux.json.
+Call guide with the config topic first for the format. Do not start long-running commands; tell me which processes you added and why.";
 
 /// A task held back by its checks, waiting on the person.
 pub struct RunCheck {
@@ -99,14 +99,14 @@ impl Workbench {
                                 bench.runs_to_show.insert(execution.to_owned());
                                 bench.show_started_runs();
                             }
-                            bench.notify(toast::success(format!("Started task: {label}")), cx);
+                            bench.notify(toast::success(format!("Started process: {label}")), cx);
                         }
                     },
                     Err(error) => {
                         if let Some(check) = bench.overlays.run_check.as_mut() {
                             check.fixing = false;
                         }
-                        bench.notify(toast::error(format!("Start task {label}: {error}")), cx);
+                        bench.notify(toast::error(format!("Start process {label}: {error}")), cx);
                     }
                 }
                 cx.notify();
@@ -160,7 +160,7 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         let text = format!(
-            "Find how {name} is run, tested and built, and save those as Sikemux tasks.\n{FIND_TASKS}"
+            "Find how {name} is run, tested and built, and save those as Sikemux processes.\n{FIND_TASKS}"
         );
         crate::send_to::send(self, to, async move { Some(text) }, window, cx);
     }

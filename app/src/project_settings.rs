@@ -1,4 +1,4 @@
-//! A project's own settings in a tab of its own: what Sikemux keeps for it, its tasks and
+//! A project's own settings in a tab of its own: what Sikemux keeps for it, its processes and
 //! check command, the repository its Git views use, and its sikemux.json.
 
 use std::collections::{BTreeMap, HashSet};
@@ -30,14 +30,14 @@ use crate::workbench::Workbench;
 enum Page {
     #[default]
     General,
-    Tasks,
+    Processes,
     Git,
     Config,
 }
 
 const PAGES: [(Page, &str, Icon); 4] = [
     (Page::General, "General", Icon::Settings),
-    (Page::Tasks, "Tasks", Icon::Run),
+    (Page::Processes, "Processes", Icon::Run),
     (Page::Git, "Git", Icon::Git),
     (Page::Config, "sikemux.json", Icon::Code),
 ];
@@ -197,7 +197,7 @@ impl Workbench {
 
 fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Context<Workbench>) {
     let check = cx.new(|cx| InputState::new(window, cx).placeholder("pnpm check"));
-    let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tasks"));
+    let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter processes"));
     let saving = {
         let folder = folder.clone();
         cx.subscribe(&check, move |bench, _, event: &InputEvent, cx| {
@@ -430,7 +430,7 @@ pub fn pane(
         );
     let body: Vec<AnyElement> = match settings.page {
         Page::General => vec![general(bench, settings, folder, &this, cx)],
-        Page::Tasks => tasks(bench, settings, folder, &this, cx),
+        Page::Processes => tasks(bench, settings, folder, &this, cx),
         Page::Git => vec![git(bench, settings, folder, &this, cx)],
         Page::Config => vec![config(settings, folder, &this, cx)],
     };
@@ -637,16 +637,16 @@ fn tasks(
             .into_any_element()
     });
     let mine_body: AnyElement = match (&listed, mine.is_empty()) {
-        (None, _) => rows::note("Reading the project's tasks…", cx),
-        (Some(_), true) => rows::note("No tasks of your own yet.", cx),
+        (None, _) => rows::note("Reading the project's processes…", cx),
+        (Some(_), true) => rows::note("No processes of your own yet.", cx),
         (Some(_), false) => div().children(mine_rows).into_any_element(),
     };
     let adding = this.clone();
-    let add = Button::new("project-add-task", "Add a task", Variant::Outline)
+    let add = Button::new("project-add-task", "Add a process", Variant::Outline)
         .icon(Icon::Plus)
         .on_click(move |_, window, cx| adding.update(cx, |bench, cx| bench.add_task(window, cx)));
     let mut sections = vec![rows::section_with(
-        "Your tasks",
+        "Your processes",
         None,
         Some(add.into_any_element()),
         Some("Commands the run button and agents start. For the team goes in sikemux.json, which you commit; Only me stays in .sikemux/, which Git ignores.".into()),
@@ -773,11 +773,11 @@ fn tasks(
             )
             .children(groups)
             .when(shown.is_empty(), |body| {
-                body.child(rows::note("No task matches.", cx))
+                body.child(rows::note("No process matches.", cx))
             });
         sections.push(rows::section(
             "Found in the build files",
-            Some(format!("{} tasks", shown.len()).into()),
+            Some(format!("{} processes", shown.len()).into()),
             Some("Read from package.json, Cargo, Maven, Gradle and the rest; change those files to change these.".into()),
             false,
             body,
@@ -961,7 +961,7 @@ fn config(
     let (label, about) = match (status, trusted) {
         ("absent", _) => (
             "Not made yet",
-            "Adding a task for the team makes it.".to_owned(),
+            "Adding a process for the team makes it.".to_owned(),
         ),
         ("invalid", _) => (
             "Has mistakes",
@@ -1025,7 +1025,7 @@ fn config(
     rows::section(
         "sikemux.json",
         None,
-        Some("The project's actions, tasks and preview, checked into the repository for everyone who opens it.".into()),
+        Some("The project's actions, processes and preview, checked into the repository for everyone who opens it.".into()),
         false,
         div()
             .child(rows::row_with(None, label, Some(about.into()), controls, cx))

@@ -191,7 +191,7 @@ impl Workbench {
                     json!({ "project": project, "kind": "git", "target": request.project, "behind": !focus })
                 } else {
                     let Some(session) = params["session"].as_u64() else {
-                        return answer(Err("Task terminal is no longer open".into()));
+                        return answer(Err("The process's terminal is no longer open".into()));
                     };
                     json!({ "project": project, "kind": "terminal", "target": session.to_string(), "title": params["title"], "behind": !focus })
                 };

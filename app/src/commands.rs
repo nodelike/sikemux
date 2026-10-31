@@ -187,9 +187,9 @@ impl Workbench {
         let tasks = &read.tasks;
         rows.extend(tasks.iter().map(|task| {
             Row::new(format!("{RUN_TASK}{}", task.id), task.label.clone())
-                .meta("Tasks")
-                .also(&format!("Run task from {}", task.cwd))
-                .also("Tasks")
+                .meta("Processes")
+                .also(&format!("Run process from {}", task.cwd))
+                .also("Processes")
         }));
         let Some(running) = self.person_runs().0 else {
             return rows;
@@ -197,18 +197,20 @@ impl Workbench {
         let task = &running.run.task_id;
         if tasks.iter().any(|listed| listed.id == *task) {
             rows.push(
-                Row::new(format!("{RESTART_TASK}{task}"), "Restart active task")
-                    .meta("Tasks")
-                    .also("Stop the current project task and start its current trusted definition"),
+                Row::new(format!("{RESTART_TASK}{task}"), "Restart active process")
+                    .meta("Processes")
+                    .also(
+                        "Stop the current project process and start its current trusted definition",
+                    ),
             );
         }
         rows.push(
             Row::new(
                 format!("{STOP_TASK}{}", running.run.execution_id),
-                "Stop active task",
+                "Stop active process",
             )
-            .meta("Tasks")
-            .also("Stop only the exact terminal owned by the current project task"),
+            .meta("Processes")
+            .also("Stop only the exact terminal owned by the current project process"),
         );
         rows
     }
@@ -408,7 +410,7 @@ impl Workbench {
             commands.push((
                 "project.settings",
                 "Project settings",
-                "Tasks, the default git repository, worktrees and language servers",
+                "Processes, the default git repository, worktrees and language servers",
                 "Project",
             ));
             commands.push(match crate::editor::language_servers_allowed(self, &path) {
@@ -458,7 +460,7 @@ impl Workbench {
             (
                 "app.quit-and-stop-everything",
                 "Quit and Stop Everything",
-                "Stop every terminal, terminal agent and task, then quit. Plain Quit leaves them running.",
+                "Stop every terminal, terminal agent and process, then quit. Plain Quit leaves them running.",
                 "Application",
             ),
             (

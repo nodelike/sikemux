@@ -65,7 +65,7 @@ pub struct Overlays {
     pub palette: Option<crate::palette::Palette>,
     pub finder: Option<crate::finder::Finder>,
     pub switcher: Option<crate::switcher::Switcher>,
-    /// The task the person is writing in the Add a task dialog, while it is open.
+    /// The process the person is writing in the Add a process dialog, while it is open.
     pub adding_task: Option<crate::add_task::AddTask>,
     pub adding_provider: Option<crate::add_provider::AddProvider>,
     pub buddy_picker: Option<crate::buddy_picker::BuddyPicker>,
