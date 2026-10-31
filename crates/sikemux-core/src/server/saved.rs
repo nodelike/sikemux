@@ -18,7 +18,7 @@ use crate::sessions::recent::RecentProvider;
 use crate::sessions::search::{self, Scope, SearchRequest, SearchResult, SessionMatch, MAX_LIMIT};
 
 use super::connection::blocking;
-use super::messages::{self, Reach};
+use super::messages;
 use super::workspace::project_of;
 use super::{Core, CoreResult};
 
@@ -58,11 +58,11 @@ fn providers(core: &Core) -> Vec<RecentProvider> {
     providers
 }
 
-/// The agent now running each saved session, by CLI and session id.
+/// The agent open on each saved session, by CLI and session id, whether or
+/// not it runs now.
 fn open_sessions(core: &Core) -> HashMap<(String, String), (String, Option<String>)> {
     messages::listed(core)
         .into_iter()
-        .filter(|agent| agent.reach != Reach::Stopped)
         .filter_map(|agent| {
             let session = core.names.session_of(&agent.agent_id)?;
             Some(((agent.cli, session), (agent.agent_id, agent.name)))
