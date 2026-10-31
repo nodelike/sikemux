@@ -121,7 +121,9 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
         return Some(wait(on, since, estimate, now));
     }
     let owner = card.owner_id().filter(|owner| mid_turn(core, owner))?;
-    let since = core.seen.started_at(owner).unwrap_or(now);
+    let since = (core.seen.started_at(owner))
+        .or_else(|| core.seen.active_at(owner))
+        .unwrap_or_else(|| slice.waiting_since());
     Some(wait(
         WaitOn::Agent {
             agent: owner.to_owned(),
@@ -150,10 +152,23 @@ pub(super) fn settle(core: &Core, state: &mut State) -> Option<u64> {
                 next = Some(next.map_or(due, |next| next.min(due)));
             }
         }
-        if waits != board.told_waits {
+        if moved(&board.told_waits, &waits) {
             board.told_waits = waits;
             dirty.insert(board.project.clone());
         }
     }
     next
+}
+
+/// Whether a wait began or ended, or what one is on, its estimate or whether
+/// it is overdue changed; when one started alone never tells clients again.
+fn moved(told: &HashMap<u64, Wait>, now: &HashMap<u64, Wait>) -> bool {
+    told.len() != now.len()
+        || now.iter().any(|(card, wait)| {
+            told.get(card).is_none_or(|told| {
+                told.on != wait.on
+                    || told.estimate_ms != wait.estimate_ms
+                    || told.overdue != wait.overdue
+            })
+        })
 }
