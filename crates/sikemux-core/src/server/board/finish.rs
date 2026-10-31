@@ -355,12 +355,24 @@ fn pull_body(core: &Core, step: &Step) -> String {
             None => body.push_str(&format!("Ticket: {}\n\n", ticket.key)),
         }
     }
+    if let Some(evidence) = current_evidence(core, step) {
+        body.push_str(&evidence);
+        body.push('\n');
+    }
     body.push_str(&format!(
         "Done by {} for card #{} of the board, opened by Sikemux's Auto.",
         step.name(core),
         card.id
     ));
     body
+}
+
+/// The evidence the card's slice holds now, as its pull request's description lists it.
+fn current_evidence(core: &Core, step: &Step) -> Option<String> {
+    let host = core.notify.host_name();
+    let state = core.boards.state.locked();
+    let card = state.boards.get(&step.project)?.card(step.id).ok()?;
+    card.slice.as_ref()?.pull_evidence(&host)
 }
 
 fn current_result(core: &Core, step: &Step) -> Option<String> {

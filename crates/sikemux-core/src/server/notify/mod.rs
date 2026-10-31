@@ -162,7 +162,8 @@ impl Notifier {
         (state.left_at, state.away)
     }
 
-    fn host_name(&self) -> String {
+    /// What the person calls this host.
+    pub(crate) fn host_name(&self) -> String {
         self.host_name
             .get()
             .cloned()
