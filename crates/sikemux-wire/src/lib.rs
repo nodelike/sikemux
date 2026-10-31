@@ -14,4 +14,5 @@ pub mod pty;
 pub mod push;
 pub mod questions;
 pub mod share;
+pub mod slice;
 pub mod theme;

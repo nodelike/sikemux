@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::{AgentFace, AgentGroup, AgentStatus, PermissionChoices, SessionId};
+use crate::slice::Gate;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +16,18 @@ pub enum InboxTier {
     Review,
     Finished,
     Progress,
+}
+
+/// What the person is needed for, for an item that waits on them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InboxNeed {
+    /// A gate to pass, a question to answer or a permission to give.
+    Decide,
+    /// Something only the person can do before work goes on, such as typing in a terminal.
+    Unblock,
+    /// A failed check or something held that needs mending.
+    Fix,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +45,8 @@ pub enum InboxKind {
     Held,
     /// The agent went on with an assumption the person may correct.
     Assumption,
+    /// The slice on `card` waits for the person to pass `gate`.
+    Gate,
     /// The card's pull request at `url` is ready for review.
     PullRequest,
     /// A turn or card that changed files.
@@ -82,6 +97,9 @@ pub struct InboxItem {
     pub id: String,
     pub tier: InboxTier,
     pub kind: InboxKind,
+    /// What the person is needed for; none while nothing waits on them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub need: Option<InboxNeed>,
     pub agent_id: Option<String>,
     pub name: Option<String>,
     pub cli: Option<String>,
@@ -97,6 +115,9 @@ pub struct InboxItem {
     pub feed: Option<String>,
     pub turn: Option<u64>,
     pub card: Option<InboxCard>,
+    /// The gate the slice on `card` waits at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<Gate>,
     pub request_id: Option<String>,
     /// The options a permission is answered with.
     pub choices: Option<PermissionChoices>,
