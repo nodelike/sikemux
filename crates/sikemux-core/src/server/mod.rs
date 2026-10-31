@@ -123,7 +123,6 @@ pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
 pub use hosts::{HostFound, HostReach, HostRow, LinkView as HostLink, SetUpWork, SetupRow};
 pub use memory::{MemoryEntryParams, MemoryParams};
-pub use triage::TriageParams;
 pub use messages::log::{Outcome as MessageOutcome, Row as MessageRow, Tone as MessageTone};
 pub use messages::Kind as MessageKind;
 pub use names::ClosedAgent;
@@ -139,6 +138,7 @@ pub use stash::{
     Stashed,
 };
 pub use tasks::{ConfigStatus, JavaView, RunView, Source, TaskList, TaskView, TrustQuestion};
+pub use triage::TriageParams;
 pub use updates::{UpdateCheck, UpdateRelease, UpdateState, UpdateStatus};
 pub use worktree::agent::{ForAgent, ForAgentParams};
 
