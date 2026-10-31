@@ -9,7 +9,9 @@ use gpui_kit::{
 use sikemux_core::server::CardView;
 use sikemux_wire::slice::{Gate, NextGate, Passer, SliceState, SliceView};
 
-use super::{gate_name, state_count, state_mark, waiting, waiting_words, At, GoalsPane};
+use super::{
+    gate_name, state_count, state_mark, wait_words, waiting, waiting_words, At, GoalsPane,
+};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_5, TEXT_2XS,
     TEXT_SM, TEXT_XL, TEXT_XS_H,
@@ -230,7 +232,13 @@ fn step(pane: &GoalsPane, next: &NextGate) -> Option<String> {
             None => return Some(format!("{} waits for an owner", card.title)),
         },
     };
-    Some(format!("{who} {verb} {}", card.title))
+    let step = format!("{who} {verb} {}", card.title);
+    Some(
+        match next.wait.as_ref().and_then(|wait| wait_words(wait, card)) {
+            Some(wait) => format!("{step} ({wait})"),
+            None => step,
+        },
+    )
 }
 
 /// A slice waiting on the person: its title, what it promises, and how long it has waited.

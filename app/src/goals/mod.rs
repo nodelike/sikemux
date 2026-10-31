@@ -20,7 +20,9 @@ use sikemux_core::server::{
 };
 use sikemux_wire::inbox::{InboxDigest, InboxItem};
 use sikemux_wire::memory::MemoryView;
-use sikemux_wire::slice::{Gate, GateState, GateView, Need, Passer, SliceState, SliceView};
+use sikemux_wire::slice::{
+    CheckRun, Gate, GateState, GateView, Need, Passer, SliceState, SliceView, Wait, WaitOn,
+};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::core::{self, Ask};
@@ -415,9 +417,13 @@ fn waiting(slice: &SliceView) -> Option<&GateView> {
         .find(|gate| gate.state == GateState::Waiting)
 }
 
-/// What a slice waits on, in a few words: its gate's unmet needs, or who passes it.
+/// What a slice waits on, in a few words: what is under way and roughly how long it takes,
+/// else its gate's unmet needs, or who passes it.
 fn waiting_words(card: &CardView, slice: &SliceView) -> Option<String> {
     let gate = waiting(slice)?;
+    if let Some(wait) = slice.wait.as_ref().and_then(|wait| wait_words(wait, card)) {
+        return Some(format!("{} · {wait}", gate_name(gate.gate)));
+    }
     Some(match gate.needs.as_slice() {
         [] if gate.passer == Passer::Person => {
             format!("{} · waiting for you", gate_name(gate.gate))
@@ -432,6 +438,39 @@ fn waiting_words(card: &CardView, slice: &SliceView) -> Option<String> {
                 .collect::<Vec<_>>()
                 .join(" and ")
         ),
+    })
+}
+
+/// What is under way that a slice waits on, such as "check · ~3 min" or "waits for #4"; none
+/// for the person, whom the gate already names.
+fn wait_words(wait: &Wait, card: &CardView) -> Option<String> {
+    let what = match &wait.on {
+        WaitOn::Person { .. } => return None,
+        WaitOn::Card { card } => return Some(format!("waits for #{card}")),
+        WaitOn::Agent { .. } => {
+            return Some(format!(
+                "{} at work",
+                card.owner_name.as_deref().unwrap_or("its owner")
+            ))
+        }
+        WaitOn::Check {
+            run: CheckRun::Queued,
+            ..
+        } => "check queued".to_owned(),
+        WaitOn::Check {
+            run: CheckRun::Local,
+            ..
+        } => "check".to_owned(),
+        WaitOn::Check {
+            run: CheckRun::Ci { workflow, .. },
+            ..
+        } => format!("CI {workflow}"),
+    };
+    let minutes = |ms: u64| ms.div_ceil(60_000);
+    Some(match (wait.estimate_ms, wait.overdue) {
+        (Some(ms), false) => format!("{what} · ~{} min", minutes(ms)),
+        (Some(ms), true) => format!("{what} · over {} min", minutes(ms)),
+        (None, _) => what,
     })
 }
 
