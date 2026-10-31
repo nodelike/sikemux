@@ -1,5 +1,6 @@
-//! A project's goals: each goal a card with slices under it, the slices on their ladders of
-//! gates, and the evidence the core collected for each. The person reads what a goal waits on,
+//! A project's goals: first what needs the person and what is moving, then each goal, a card
+//! with slices under it, the slices on their ladders of gates, and the evidence the core
+//! collected for each. The person reads what a goal waits on,
 //! looks at a slice's evidence and passes its gate or pins a note to what needs work, and moves a
 //! project's rule into AGENTS.md. The core keeps the board and the rules and says where each
 //! slice stands; the pane only draws and asks.
@@ -17,6 +18,7 @@ use sikemux_core::server::{
     BoardNoteParams, BoardParams, BoardPassParams, BoardView, CardView, MemoryEntryParams,
     MemoryParams,
 };
+use sikemux_wire::inbox::{InboxDigest, InboxItem};
 use sikemux_wire::memory::MemoryView;
 use sikemux_wire::slice::{Gate, GateState, GateView, Need, Passer, SliceState, SliceView};
 use tokio::sync::mpsc::UnboundedSender;
@@ -29,13 +31,16 @@ use crate::workbench::Workbench;
 
 mod evidence;
 mod goal;
+mod home;
 mod rules;
 mod slice;
 
 /// Where in the goals the pane is.
 #[derive(Clone, Copy, PartialEq)]
 enum At {
-    Goals,
+    Home,
+    /// What happened while the person was away.
+    Overnight,
     Goal(u64),
     Slice(u64),
 }
@@ -48,6 +53,8 @@ pub struct GoalsPane {
     board: Option<BoardView>,
     /// The rules and knowledge kept for the project and the folders above it.
     memory: Option<MemoryView>,
+    /// What finished, failed and waits since the person last left.
+    digest: Option<InboxDigest>,
     at: At,
     /// The evidence of the open slice the person picked, in place of the one the gate leads with.
     picked: Option<u64>,
@@ -71,7 +78,8 @@ impl GoalsPane {
             bench,
             board: None,
             memory: None,
-            at: At::Goals,
+            digest: None,
+            at: At::Home,
             picked: None,
             note: None,
             busy: false,
@@ -90,8 +98,9 @@ impl GoalsPane {
             project: project.clone(),
         });
         let memory = here.request_typed::<call::Memory>(MemoryParams { project });
+        let digest = here.request("digest", serde_json::json!({}));
         self._reading = cx.spawn(async move |pane, cx| {
-            let (board, memory) = (board.await, memory.await);
+            let (board, memory, digest) = (board.await, memory.await, digest.await);
             let _ = pane.update(cx, |pane, cx| {
                 match board {
                     Ok(board) => pane.take(board),
@@ -101,6 +110,12 @@ impl GoalsPane {
                     Ok(memory) => pane.memory = Some(memory),
                     Err(error) => pane.said(&format!("Couldn't read the rules: {error}"), cx),
                 }
+                match digest.and_then(|digest| {
+                    serde_json::from_value(digest).map_err(|error| error.to_string())
+                }) {
+                    Ok(digest) => pane.digest = Some(digest),
+                    Err(error) => pane.said(&format!("Couldn't read what happened: {error}"), cx),
+                }
                 cx.notify();
             });
         });
@@ -109,11 +124,11 @@ impl GoalsPane {
     fn take(&mut self, board: BoardView) {
         self.board = Some(board);
         let gone = match self.at {
-            At::Goals => false,
+            At::Home | At::Overnight => false,
             At::Goal(id) | At::Slice(id) => self.card(id).is_none(),
         };
         if gone {
-            self.at = At::Goals;
+            self.at = At::Home;
             self.picked = None;
             self.note = None;
         }
@@ -178,6 +193,46 @@ impl GoalsPane {
             .iter()
             .filter(|card| card.parent.is_none() && !self.slices(card.id).is_empty())
             .collect()
+    }
+
+    /// Shows the first screen, as opening the pane from the rail does.
+    pub fn home(&mut self, cx: &mut Context<Self>) {
+        self.go(At::Home, cx);
+    }
+
+    /// The project's id, as the core names it in the inbox.
+    fn project(&self) -> Option<&str> {
+        Some(self.board.as_ref()?.project.as_str())
+    }
+
+    /// The goal a card is, or is a slice of.
+    fn goal_of(&self, card: u64) -> Option<&CardView> {
+        let card = self.card(card)?;
+        match card.parent {
+            None => Some(card),
+            Some(parent) => self.card(parent),
+        }
+        .filter(|goal| goal.parent.is_none() && !self.slices(goal.id).is_empty())
+    }
+
+    /// Opens what an inbox item is about: its slice or goal here, else its agent's chat.
+    fn open(&mut self, item: &InboxItem, cx: &mut Context<Self>) {
+        let on_board = item
+            .card
+            .as_ref()
+            .filter(|card| Some(card.project.as_str()) == self.project())
+            .and_then(|card| self.card(card.id));
+        match on_board {
+            Some(card) if card.slice.is_some() => self.go(At::Slice(card.id), cx),
+            Some(card) if self.goal_of(card.id).is_some_and(|goal| goal.id == card.id) => {
+                self.go(At::Goal(card.id), cx)
+            }
+            _ => {
+                if let Some(agent) = item.agent_id.clone() {
+                    let _ = self.bench.update(cx, |bench, _| bench.open_agent(&agent));
+                }
+            }
+        }
     }
 
     fn go(&mut self, at: At, cx: &mut Context<Self>) {
@@ -280,21 +335,12 @@ impl Focusable for GoalsPane {
 
 impl Render for GoalsPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let goals = self.goals();
-        let shown = match (self.at, goals.as_slice()) {
-            (At::Goals, [only]) => At::Goal(only.id),
-            (at, _) => at,
-        };
-        let body = match (self.board.is_some(), goals.is_empty(), shown) {
-            (false, ..) => empty(None, "reading the goals…", cx),
-            (true, true, _) => empty(
-                Some("No goals yet"),
-                "A goal is a card with slices under it, each with gates to pass.",
-                cx,
-            ),
-            (true, false, At::Goals) => goal::list(self, cx),
-            (true, false, At::Goal(id)) => goal::goal(self, id, goals.len() > 1, cx),
-            (true, false, At::Slice(id)) => slice::slice(self, id, cx),
+        let body = match (self.board.is_some(), self.at) {
+            (false, _) => empty(None, "reading the goals…", cx),
+            (true, At::Home) => home::home(self, cx),
+            (true, At::Overnight) => home::overnight(self, cx),
+            (true, At::Goal(id)) => goal::goal(self, id, cx),
+            (true, At::Slice(id)) => slice::slice(self, id, cx),
         };
         div()
             .id("goals")
@@ -314,7 +360,11 @@ impl Render for GoalsPane {
     }
 }
 
-fn empty(title: Option<&'static str>, message: &'static str, cx: &gpui_kit::App) -> AnyElement {
+pub(super) fn empty(
+    title: Option<&'static str>,
+    message: &'static str,
+    cx: &gpui_kit::App,
+) -> AnyElement {
     let t = Tokens::get(cx);
     div()
         .pt(px(120.))

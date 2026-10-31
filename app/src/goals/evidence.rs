@@ -216,7 +216,18 @@ pub(super) fn thumb(evidence: &Evidence, chosen: bool, cx: &mut Context<GoalsPan
         Proof::Numbers { measures } => face.children(measures.first().map(|measure| {
             ui::mono(measure.after.clone(), TEXT_2XS, cx).text_color(t.text_primary)
         })),
-        Proof::Run { .. } => face.child(ui::icon(Icon::Terminal, 14.).text_color(t.text_tertiary)),
+        Proof::Run { command, .. } => face.child(
+            ui::mono(
+                command
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned(),
+                TEXT_2XS,
+                cx,
+            )
+            .text_color(t.text_secondary),
+        ),
         Proof::Timeline { moments } => face
             .child(ui::icon(Icon::LogLines, 14.).text_color(t.text_tertiary))
             .child(ui::mono(moments.len().to_string(), TEXT_2XS, cx)),
@@ -298,10 +309,19 @@ fn length(seconds: f64) -> String {
     ui::time::elapsed(seconds.round() as u64)
 }
 
-/// A moment as the clock read then, here.
+/// A moment as the clock read then, here, to the second.
 fn clock(at: u64) -> String {
+    local(at, "%H:%M:%S")
+}
+
+/// A moment as the clock read then, here, to the minute.
+pub(super) fn minute(at: u64) -> String {
+    local(at, "%H:%M")
+}
+
+fn local(at: u64, format: &str) -> String {
     chrono::Local
         .timestamp_millis_opt(at as i64)
         .single()
-        .map_or_else(String::new, |at| at.format("%H:%M:%S").to_string())
+        .map_or_else(String::new, |at| at.format(format).to_string())
 }

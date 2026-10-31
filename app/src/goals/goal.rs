@@ -1,5 +1,5 @@
-//! The goals of a project as a list, and one goal: who leads it, how far its slices are, what
-//! comes next, what needs the person and a line for each slice.
+//! One goal: who leads it, how far its slices are, what comes next, what needs the person, a
+//! line for each slice and the rules its agents follow.
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -24,51 +24,9 @@ const STATES: [SliceState; 5] = [
     SliceState::Waiting,
 ];
 
-/// Every goal, a line each, for when the project has more than one.
-pub(super) fn list(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let rows = pane.goals().into_iter().map(|goal| {
-        let id = goal.id;
-        let slices = pane.slices(id);
-        let done = count(&slices, SliceState::Done);
-        let needs = count(&slices, SliceState::NeedsYou);
-        row(SharedString::from(format!("goal-{id}")), cx)
-            .on_click(cx.listener(move |pane, _, _, cx| pane.go(At::Goal(id), cx)))
-            .child(
-                ui::text(goal.title.clone(), TEXT_SM, FontWeight::MEDIUM)
-                    .text_color(t.text_primary),
-            )
-            .child(ui::meta(format!("{done} of {} done", slices.len()), cx))
-            .child(div().flex_1())
-            .when(needs > 0, |row| {
-                row.child(
-                    ui::text(
-                        state_count(needs, SliceState::NeedsYou),
-                        TEXT_2XS,
-                        FontWeight::MEDIUM,
-                    )
-                    .text_color(t.warn),
-                )
-            })
-            .child(strip(&slices, px(96.), cx))
-            .into_any_element()
-    });
-    div()
-        .flex()
-        .flex_col()
-        .child(section("Goals", pane.goals().len(), cx))
-        .children(rows)
-        .into_any_element()
-}
-
 /// Goal `id`: its title and team, a strip of its slices, what comes next, what needs the
 /// person and every slice.
-pub(super) fn goal(
-    pane: &GoalsPane,
-    id: u64,
-    among_others: bool,
-    cx: &mut Context<GoalsPane>,
-) -> AnyElement {
+pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let Some(goal) = pane.card(id) else {
         return div().into_any_element();
@@ -88,12 +46,10 @@ pub(super) fn goal(
     div()
         .flex()
         .flex_col()
-        .when(among_others, |view| {
-            view.child(
-                crumb("goals-back", "Goals", cx)
-                    .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Goals, cx))),
-            )
-        })
+        .child(
+            crumb("goals-back", "Goals", cx)
+                .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Home, cx))),
+        )
         .child(
             div()
                 .flex()
@@ -138,7 +94,7 @@ pub(super) fn goal(
         .into_any_element()
 }
 
-fn count(slices: &[(&CardView, &SliceView)], state: SliceState) -> usize {
+pub(super) fn count(slices: &[(&CardView, &SliceView)], state: SliceState) -> usize {
     slices
         .iter()
         .filter(|(_, slice)| slice.state == state)
@@ -192,7 +148,7 @@ fn team(
 }
 
 /// One segment per slice, in the colour of its state.
-fn strip(
+pub(super) fn strip(
     slices: &[(&CardView, &SliceView)],
     width: impl Into<gpui_kit::Length>,
     cx: &Context<GoalsPane>,
@@ -359,7 +315,7 @@ fn slice_row(card: &CardView, slice: &SliceView, cx: &mut Context<GoalsPane>) ->
 }
 
 /// A line of a list that opens what it names.
-fn row(id: SharedString, cx: &Context<GoalsPane>) -> gpui_kit::Stateful<gpui_kit::Div> {
+pub(super) fn row(id: SharedString, cx: &Context<GoalsPane>) -> gpui_kit::Stateful<gpui_kit::Div> {
     let t = Tokens::get(cx).clone();
     div()
         .id(id)

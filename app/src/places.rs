@@ -198,6 +198,9 @@ impl Workbench {
                 json!({ "project": project.id, "kind": "goals", "target": project.path.to_string_lossy() }),
             );
         }
+        if let Some(goals) = &self.goals {
+            goals.update(cx, |goals, cx| goals.home(cx));
+        }
     }
 
     /// Closes the view in front: a desk's page, the focused view of a split tab, else the tab.
