@@ -830,11 +830,11 @@ impl Core {
         }
     }
 
-    /// Stops every chat and session. Only reaping a killed process can hang, so each session is
-    /// reaped on a thread of its own within `STOP_STEP_LIMIT`, and one still unreaped then is
-    /// reported gone without its status, so every exit is still recorded.
+    /// Puts every chat to sleep and stops every session. Only reaping a killed process can
+    /// hang, so each session is reaped on a thread of its own within `STOP_STEP_LIMIT`, and one
+    /// still unreaped then is reported gone without its status, so every exit is still recorded.
     fn drain(self: &Arc<Self>) {
-        self.chats.stop_all();
+        lifecycle::sleep_all(self);
         let sessions: Vec<Arc<Session>> = self
             .sessions
             .locked()
@@ -882,7 +882,7 @@ impl Core {
         self.shutdown.send_replace(true);
     }
 
-    /// Stops every chat and session, off the async threads.
+    /// Puts every chat to sleep and stops every session, off the async threads.
     async fn stop_everything(self: &Arc<Self>) {
         let draining = self.clone();
         let _ = connection::blocking(move || {

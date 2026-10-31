@@ -1510,10 +1510,16 @@ impl Chats {
             .is_some_and(|chat| chat.state_now().busy() || chat.feed.running_tasks() > 0)
     }
 
-    pub(crate) fn stop_all(&self) {
-        for chat in self.take_all() {
-            Self::halt(&chat);
+    /// Ends every chat's agent, a turn at work ending as stopped, and answers
+    /// the chats it ended.
+    pub(crate) fn stop_all(&self) -> Vec<Arc<Chat>> {
+        let chats = self.take_all();
+        for chat in &chats {
+            chat.feed.agent_gone();
+            chat.end_cut_turn();
+            Self::halt(chat);
         }
+        chats
     }
 
     /// Lets go of every chat's agent for a core that replaces this one, and
@@ -1904,18 +1910,20 @@ pub(crate) fn restart_notice(title: &str, description: &str) -> Value {
 const RESTARTED: &str = "Sikemux restarted while this agent was working";
 
 /// Takes up again every chat an earlier core was running when it stopped,
-/// but for those this core already runs. Each is listed at once, and starts
-/// on its saved session in the background.
+/// but for those this core already runs and those put to sleep as it
+/// stopped. Each is listed at once, and starts on its saved session in the
+/// background.
 pub(crate) fn restore(core: &Arc<Core>) {
     let Some(dir) = core.chats.kept.clone() else {
         return;
     };
     for kept in kept::read(&dir) {
         let agent_id = kept.launch.agent_id.clone();
+        let asleep = (core.workspaces.agent(&agent_id)).is_some_and(|agent| agent.asleep);
         match core.chats.get(&agent_id) {
             Some(chat) if chat.feed.id() == kept.feed => {}
             Some(_) => kept::forget(&dir, &kept.feed),
-            None if !kept.begun() => {
+            None if !kept.begun() || asleep => {
                 if let Some(agent) = kept.agent {
                     agent.stop();
                 }
