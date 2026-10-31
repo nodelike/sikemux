@@ -63,6 +63,8 @@ enum Case {
     Colliding,
     /// The project's check keeps failing after agents' commits.
     CheckFailing,
+    /// Something Sikemux keeps for the project's agents no longer holds.
+    StaleMemory,
     /// The turn ran into a problem, of this kind when the agent's driver knew it.
     Failed(Option<Fault>),
     Changes,
@@ -94,7 +96,7 @@ impl Case {
             Case::Input => (InboxKind::Input, Wants::Person(Unblock)),
             Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
             Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
-            Case::HandedBack | Case::Looping | Case::CheckFailing => {
+            Case::HandedBack | Case::Looping | Case::CheckFailing | Case::StaleMemory => {
                 (InboxKind::Held, Wants::Person(Fix))
             }
             Case::Colliding => (InboxKind::Held, Wants::Person(Decide)),
@@ -718,7 +720,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         };
         let mut item = item(
             format!("memory:{}", stale.id),
-            InboxKind::Held,
+            Case::StaleMemory,
             what,
             stale.at,
         );
