@@ -15,7 +15,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Transformation, WeakEntity, Window, WindowControlArea,
 };
 use sikemux_core::server::{PortOwner, RunView, Source, TaskView};
-use sikemux_wire::protocol::{Pane, PaneKind, Tab as LayoutTab};
+use sikemux_wire::protocol::{Pane, PaneKind, Tab as LayoutTab, WindowView};
 use sikemux_wire::pty::shell_protocol::SshLink;
 
 use crate::agents::menu::AgentMenu;
@@ -44,9 +44,30 @@ pub fn top_height(bench: &Workbench) -> f32 {
         }
 }
 
-/// The strip in front while it holds a tab: a place with none shows no row at all.
+/// Switches the window between the workbench and the goals, lit while the goals show.
+fn goals_toggle(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
+    let goals = bench.window_view == WindowView::Goals;
+    let label = match goals {
+        true => "Back to the workbench",
+        false => "Goals",
+    };
+    let tip = match crate::keymap::hint("window.goals", cx) {
+        Some(keys) => format!("{label} — {keys}"),
+        None => label.to_owned(),
+    };
+    IconButton::new("goals-view", Icon::Steps, tip)
+        .width(30.)
+        .pressed(goals)
+        .on_click(cx.listener(|bench, _, _, cx| bench.toggle_goals_view(cx)))
+}
+
+/// The strip in front while it holds a tab: a place with none shows no row at all, and nor
+/// does the goals view.
 fn strip_with_tabs(bench: &Workbench) -> Option<Strip> {
-    bench.strip().filter(|strip| !bench.tabs(strip).is_empty())
+    (bench.window_view == WindowView::Workbench)
+        .then(|| bench.strip())
+        .flatten()
+        .filter(|strip| !bench.tabs(strip).is_empty())
 }
 
 /// The bar, holding the window buttons, where the window is and the chips, then the
@@ -92,6 +113,8 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                         .into_iter()
                         .flatten(),
                 )
+                .child(goals_toggle(bench, cx))
+                .child(separator(cx))
                 .children(battery_chip(bench, cx))
                 .child(clock(cx))
                 .child(

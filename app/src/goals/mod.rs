@@ -1,9 +1,10 @@
-//! A project's goals: first what needs the person and what is moving, then each goal, a card
-//! with slices under it, the slices on their ladders of gates, and the evidence the core
-//! collected for each. The person reads what a goal waits on,
-//! looks at a slice's evidence and passes its gate or pins a note to what needs work, and moves a
-//! project's rule into AGENTS.md. The core keeps the board and the rules and says where each
-//! slice stands; the pane only draws and asks.
+//! The goals view, which takes the whole window: a rail of its own with Home, Overnight and
+//! every project's goals, beside one column showing what needs the person and what is moving,
+//! a goal, a card with slices under it, or a slice on its ladder of gates with the evidence the
+//! core collected for it. The person reads what a goal waits on, looks at a slice's evidence and
+//! passes its gate or pins a note to what needs work, and moves a project's rule into AGENTS.md.
+//! The core keeps the boards and the rules and says where each slice stands; the view only draws
+//! and asks.
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
@@ -15,8 +16,8 @@ use gpui_kit::{
 use serde::Serialize;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::{
-    BoardNoteParams, BoardParams, BoardPassParams, BoardView, CardView, MemoryEntryParams,
-    MemoryParams,
+    BoardNoteParams, BoardPassParams, BoardView, CardView, MemoryEntryParams, MemoryParams,
+    NoParams,
 };
 use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem};
 use sikemux_wire::memory::MemoryView;
@@ -35,6 +36,7 @@ mod assertions;
 mod evidence;
 mod goal;
 mod home;
+mod rail;
 mod rules;
 mod slice;
 mod start;
@@ -51,11 +53,13 @@ enum At {
 
 pub struct GoalsPane {
     asks: UnboundedSender<Ask>,
-    /// The project's folder, which the core's board calls take.
-    pub folder: String,
     bench: WeakEntity<Workbench>,
-    board: Option<BoardView>,
-    /// The rules and knowledge kept for the project and the folders above it.
+    /// Every project's board, once read.
+    boards: Option<Vec<BoardView>>,
+    /// The project of the goal or slice open, as its board names it: its folder, which the core's
+    /// board calls take.
+    here: Option<String>,
+    /// The rules and knowledge kept for the project open and the folders above it.
     memory: Option<MemoryView>,
     /// What finished, failed and waits since the person last left.
     digest: Option<InboxDigest>,
@@ -76,15 +80,14 @@ pub struct GoalsPane {
 impl GoalsPane {
     pub fn new(
         asks: UnboundedSender<Ask>,
-        folder: String,
         bench: WeakEntity<Workbench>,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut pane = Self {
             asks,
-            folder,
             bench,
-            board: None,
+            boards: None,
+            here: None,
             memory: None,
             digest: None,
             at: At::Home,
@@ -100,25 +103,31 @@ impl GoalsPane {
         pane
     }
 
-    /// Reads the board and the project's rules again, as after the core says either changed.
+    /// Reads every board, what happened while the person was away and the open project's rules
+    /// again, as after the core says one changed.
     pub fn changed(&mut self, cx: &mut Context<Self>) {
         let here = core::Target::here(&self.asks);
-        let project = self.folder.clone();
-        let board = here.request_typed::<call::Board>(BoardParams {
-            project: project.clone(),
-        });
-        let digest = here.request("digest", serde_json::json!({ "project": project }));
-        let memory = here.request_typed::<call::Memory>(MemoryParams { project });
+        let boards = here.request_typed::<call::Boards>(NoParams {});
+        let digest = here.request("digest", serde_json::json!({}));
+        let memory = self
+            .here
+            .clone()
+            .map(|project| here.request_typed::<call::Memory>(MemoryParams { project }));
         self._reading = cx.spawn(async move |pane, cx| {
-            let (board, memory, digest) = (board.await, memory.await, digest.await);
+            let (boards, digest) = (boards.await, digest.await);
+            let memory = match memory {
+                Some(memory) => Some(memory.await),
+                None => None,
+            };
             let _ = pane.update(cx, |pane, cx| {
-                match board {
-                    Ok(board) => pane.take(board),
+                match boards {
+                    Ok(boards) => pane.take(boards),
                     Err(error) => pane.said(&format!("Couldn't read the goals: {error}"), cx),
                 }
                 match memory {
-                    Ok(memory) => pane.memory = Some(memory),
-                    Err(error) => pane.said(&format!("Couldn't read the rules: {error}"), cx),
+                    Some(Ok(memory)) => pane.memory = Some(memory),
+                    Some(Err(error)) => pane.said(&format!("Couldn't read the rules: {error}"), cx),
+                    None => pane.memory = None,
                 }
                 match digest.and_then(|digest| {
                     serde_json::from_value(digest).map_err(|error| error.to_string())
@@ -131,17 +140,28 @@ impl GoalsPane {
         });
     }
 
-    fn take(&mut self, board: BoardView) {
-        self.board = Some(board);
+    fn take(&mut self, boards: Vec<BoardView>) {
+        self.boards = Some(boards);
         let gone = match self.at {
             At::Home | At::Overnight => false,
             At::Goal(id) | At::Slice(id) => self.card(id).is_none(),
         };
         if gone {
             self.at = At::Home;
+            self.here = None;
             self.picked = None;
             self.note = None;
         }
+    }
+
+    /// Takes one project's board as the core answered a change to it.
+    fn take_one(&mut self, board: BoardView) {
+        let mut boards = self.boards.take().unwrap_or_default();
+        match boards.iter_mut().find(|kept| kept.project == board.project) {
+            Some(kept) => *kept = board,
+            None => boards.push(board),
+        }
+        self.take(boards);
     }
 
     fn said(&self, error: &str, cx: &mut Context<Self>) {
@@ -167,7 +187,7 @@ impl GoalsPane {
                 pane.busy = false;
                 match answer {
                     Ok(board) => {
-                        pane.take(board);
+                        pane.take_one(board);
                         then(pane);
                     }
                     Err(error) => pane.said(&error, cx),
@@ -178,9 +198,20 @@ impl GoalsPane {
         .detach();
     }
 
+    /// Every project's board, as read last.
+    fn boards(&self) -> &[BoardView] {
+        self.boards.as_deref().unwrap_or_default()
+    }
+
+    fn board_of(&self, project: &str) -> Option<&BoardView> {
+        self.boards().iter().find(|board| board.project == project)
+    }
+
+    /// The cards of the project open.
     fn cards(&self) -> &[CardView] {
-        self.board
-            .as_ref()
+        self.here
+            .as_deref()
+            .and_then(|project| self.board_of(project))
             .map_or(&[], |board| board.cards.as_slice())
     }
 
@@ -188,52 +219,45 @@ impl GoalsPane {
         self.cards().iter().find(|card| card.id == id)
     }
 
-    /// The slices under card `goal`, in the board's order.
+    /// The slices under card `goal` of the project open, in the board's order.
     fn slices(&self, goal: u64) -> Vec<(&CardView, &SliceView)> {
-        self.cards()
-            .iter()
-            .filter(|card| card.parent == Some(goal))
-            .filter_map(|card| Some((card, card.slice.as_ref()?)))
-            .collect()
+        slices_of(self.cards(), goal)
     }
 
-    /// The cards on top of the board with slices under them.
-    fn goals(&self) -> Vec<&CardView> {
-        self.cards()
-            .iter()
-            .filter(|card| card.parent.is_none() && !self.slices(card.id).is_empty())
-            .collect()
-    }
-
-    /// Shows the first screen, as opening the pane from the rail does.
+    /// Shows the first screen, as switching the window to the goals does.
     pub fn home(&mut self, cx: &mut Context<Self>) {
         self.go(At::Home, cx);
     }
 
-    /// The project's id, as the core names it in the inbox.
-    fn project(&self) -> Option<&str> {
-        Some(self.board.as_ref()?.project.as_str())
-    }
-
-    /// The goal an inbox item's card belongs to, as the core says, when it is a goal here.
+    /// The goal an inbox item's card belongs to, as the core says, when it is a goal.
     fn goal_of(&self, card: &InboxCard) -> Option<&CardView> {
         let goal = card.goal.unwrap_or(card.id);
-        self.goals().into_iter().find(|known| known.id == goal)
+        let board = self.board_of(&card.project)?;
+        goals_of(&board.cards)
+            .into_iter()
+            .find(|known| known.id == goal)
     }
 
-    /// Opens what an inbox item is about: its slice or goal here, else its agent's chat.
+    /// Opens what an inbox item is about: its slice or goal, else its agent's chat.
     fn open(&mut self, item: &InboxItem, cx: &mut Context<Self>) {
-        let on_board = item
-            .card
-            .as_ref()
-            .filter(|card| Some(card.project.as_str()) == self.project())
-            .and_then(|card| Some((self.card(card.id)?, card)));
-        match on_board {
-            Some((card, _)) if card.slice.is_some() => self.go(At::Slice(card.id), cx),
-            Some((card, inbox)) if self.goal_of(inbox).is_some_and(|goal| goal.id == card.id) => {
-                self.go(At::Goal(card.id), cx)
-            }
-            _ => {
+        let opens = item.card.as_ref().and_then(|inbox| {
+            let card = self
+                .board_of(&inbox.project)?
+                .cards
+                .iter()
+                .find(|card| card.id == inbox.id)?;
+            let at = match card.slice {
+                Some(_) => At::Slice(card.id),
+                None if self.goal_of(inbox).is_some_and(|goal| goal.id == card.id) => {
+                    At::Goal(card.id)
+                }
+                None => return None,
+            };
+            Some((inbox.project.clone(), at))
+        });
+        match opens {
+            Some((project, at)) => self.go_to(project, at, cx),
+            None => {
                 if let Some(agent) = item.agent_id.clone() {
                     let _ = self.bench.update(cx, |bench, _| bench.open_agent(&agent));
                 }
@@ -250,13 +274,27 @@ impl GoalsPane {
         cx.notify();
     }
 
+    /// Opens a goal or slice of `project`, reading that project's rules when it is another.
+    fn go_to(&mut self, project: String, at: At, cx: &mut Context<Self>) {
+        let other = self.here.as_deref() != Some(project.as_str());
+        self.here = Some(project);
+        self.go(at, cx);
+        if other {
+            self.memory = None;
+            self.changed(cx);
+        }
+    }
+
     /// Passes the gate slice `card` waits at, as the person.
     fn pass(&mut self, card: u64, gate: Gate, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
+        let Some(project) = self.here.clone() else {
+            return;
+        };
         let params = BoardPassParams {
-            project: self.folder.clone(),
+            project,
             card,
             gate,
         };
@@ -290,8 +328,11 @@ impl GoalsPane {
             .and_then(|card| card.slice.as_ref())
             .and_then(|slice| self.shown_evidence(slice))
             .map(|evidence| evidence.id);
+        let Some(project) = self.here.clone() else {
+            return;
+        };
         let params = BoardNoteParams {
-            project: self.folder.clone(),
+            project,
             card,
             text,
             evidence,
@@ -304,10 +345,10 @@ impl GoalsPane {
         if self.busy {
             return;
         }
-        let params = MemoryEntryParams {
-            project: self.folder.clone(),
-            id,
+        let Some(project) = self.here.clone() else {
+            return;
         };
+        let params = MemoryEntryParams { project, id };
         let asked = core::Target::here(&self.asks).request_typed::<call::PromoteRule>(params);
         self.busy = true;
         cx.notify();
@@ -343,7 +384,7 @@ impl Render for GoalsPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.start_field(window, cx);
         self.assert_field(window, cx);
-        let body = match (self.board.is_some(), self.at) {
+        let body = match (self.boards.is_some(), self.at) {
             (false, _) => empty(None, "reading the goals…", cx),
             (true, At::Home) => home::home(self, cx),
             (true, At::Overnight) => home::overnight(self, cx),
@@ -355,17 +396,44 @@ impl Render for GoalsPane {
             .key_context("Goals")
             .track_focus(&self.focus)
             .size_full()
-            .overflow_y_scroll()
+            .flex()
+            .gap(crate::theme::SPACE_2H)
+            .child(rail::rail(self, cx))
             .child(
-                div()
-                    .w_full()
-                    .max_w(px(680.))
-                    .mx_auto()
-                    .px(crate::theme::SPACE_6)
-                    .py(crate::theme::SPACE_5)
-                    .child(body),
+                ui::pane(cx).flex_1().min_w_0().child(
+                    div()
+                        .id("goals-column")
+                        .size_full()
+                        .overflow_y_scroll()
+                        .child(
+                            div()
+                                .w_full()
+                                .max_w(px(680.))
+                                .mx_auto()
+                                .px(crate::theme::SPACE_6)
+                                .py(crate::theme::SPACE_5)
+                                .child(body),
+                        ),
+                ),
             )
     }
+}
+
+/// The slices under card `goal` among `cards`, in the board's order.
+fn slices_of(cards: &[CardView], goal: u64) -> Vec<(&CardView, &SliceView)> {
+    cards
+        .iter()
+        .filter(|card| card.parent == Some(goal))
+        .filter_map(|card| Some((card, card.slice.as_ref()?)))
+        .collect()
+}
+
+/// The cards on top of a board with slices under them.
+fn goals_of(cards: &[CardView]) -> Vec<&CardView> {
+    cards
+        .iter()
+        .filter(|card| card.parent.is_none() && !slices_of(cards, card.id).is_empty())
+        .collect()
 }
 
 pub(super) fn empty(

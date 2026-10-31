@@ -91,8 +91,6 @@ pub enum PaneKind {
     Git,
     Search,
     Board,
-    /// A project's goals, each with the slices under it; `target` is its folder.
-    Goals,
     Browser,
     /// An agent's pages, files, task terminals and simulator; `target` is the agent.
     Desk,

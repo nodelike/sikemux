@@ -155,8 +155,21 @@ pub struct Preferences {
     pub tab_rail_scope: TabRailScope,
     /// The tab rail lists every agent's chats rather than one agent's.
     pub tab_rail_all_agents: bool,
+    /// What the window shows: the workbench, or the goals.
+    pub window_view: WindowView,
     /// The commands the person ran from the command deck, the last first.
     pub recent_command_keys: Vec<String>,
+}
+
+/// What the window shows in place of the other.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WindowView {
+    /// Projects, their tabs and the rails beside them.
+    #[default]
+    Workbench,
+    /// What needs the person and the goals of every project, on a rail of their own.
+    Goals,
 }
 
 /// The page the tab rail shows.
@@ -282,6 +295,7 @@ impl Default for Preferences {
             tab_rail_page: TabRailPage::default(),
             tab_rail_scope: TabRailScope::default(),
             tab_rail_all_agents: false,
+            window_view: WindowView::default(),
             recent_command_keys: Vec::new(),
         }
     }

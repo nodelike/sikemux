@@ -49,7 +49,7 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
         .flex()
         .flex_col()
         .child(
-            crumb("goals-back", "Goals", cx)
+            crumb("goals-back", "Home", cx)
                 .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Home, cx))),
         )
         .child(
@@ -185,7 +185,7 @@ fn next(pane: &GoalsPane, goal: &CardView, cx: &Context<GoalsPane>) -> Option<An
         .next
         .iter()
         .take(3)
-        .filter_map(|next| step(pane, next))
+        .filter_map(|next| step(pane.cards(), next))
         .collect();
     if steps.is_empty() {
         return None;
@@ -214,8 +214,8 @@ fn next(pane: &GoalsPane, goal: &CardView, cx: &Context<GoalsPane>) -> Option<An
 }
 
 /// A gate a slice waits at, as a short sentence: who does what to which slice.
-pub(super) fn step(pane: &GoalsPane, next: &NextGate) -> Option<String> {
-    let card = pane.card(next.card)?;
+pub(super) fn step(cards: &[CardView], next: &NextGate) -> Option<String> {
+    let card = cards.iter().find(|card| card.id == next.card)?;
     let you = next.passer == Passer::Person;
     let verb = match (next.gate, you) {
         (Gate::Built, true) => "build",

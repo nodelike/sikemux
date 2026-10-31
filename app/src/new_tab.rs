@@ -22,7 +22,7 @@ struct Choice {
     in_project: bool,
 }
 
-const CHOICES: [Choice; 9] = [
+const CHOICES: [Choice; 8] = [
     Choice {
         command: "terminal.new",
         label: "Terminal",
@@ -77,13 +77,6 @@ const CHOICES: [Choice; 9] = [
         label: "Agent board",
         detail: "What the project's agents are doing",
         icon: Icon::Board,
-        in_project: true,
-    },
-    Choice {
-        command: "window.goals",
-        label: "Goals",
-        detail: "The project's goals, and what each needs from you",
-        icon: Icon::Steps,
         in_project: true,
     },
 ];

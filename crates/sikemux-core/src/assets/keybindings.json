@@ -449,8 +449,8 @@
     },
     {
         "id": "window.goals",
-        "label": "Focus goals",
-        "detail": "Jump to the project's goals and what each needs from you",
+        "label": "Switch to goals",
+        "detail": "Switch the window between the workbench and the goals, and back",
         "category": "Navigation",
         "mac": "Meta+Alt+Digit7",
         "other": "Ctrl+Alt+Digit7"

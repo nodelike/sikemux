@@ -7,20 +7,20 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::CardView;
+use sikemux_core::server::{BoardView, CardView};
 use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
 use sikemux_wire::slice::SliceState;
 
 use super::evidence::minute;
 use super::goal::{count, crumb, row, section, strip};
-use super::{empty, state_count, At, GoalsPane};
+use super::{empty, goals_of, slices_of, state_count, At, GoalsPane};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL};
 use crate::ui;
 
 /// Something that finished or failed while the person was away.
 #[derive(Clone, Copy)]
-struct Happened<'a> {
+pub(super) struct Happened<'a> {
     done: bool,
     item: &'a InboxItem,
 }
@@ -32,26 +32,31 @@ const NEEDS: [(InboxNeed, &str); 3] = [
 ];
 
 impl GoalsPane {
-    /// The inbox items about this project, in the core's order.
-    fn inbox_here(&self, cx: &gpui_kit::App) -> (Vec<InboxItem>, usize) {
-        let (Some(project), Some(bench)) = (self.project(), self.bench.upgrade()) else {
-            return (Vec::new(), 0);
+    /// What waits on the person, in the core's order.
+    fn needs(&self, cx: &gpui_kit::App) -> Vec<InboxItem> {
+        let Some(bench) = self.bench.upgrade() else {
+            return Vec::new();
         };
         let bench = bench.read(cx);
-        let Some(inbox) = bench.shown().map(|view| &view.inbox) else {
-            return (Vec::new(), 0);
-        };
-        let items = inbox
-            .items
-            .iter()
-            .filter(|item| item.need.is_some() && item.project.as_deref() == Some(project))
-            .cloned()
-            .collect();
-        (items, inbox.needs.get(project).copied().unwrap_or(0))
+        bench.shown().map_or(Vec::new(), |view| {
+            (view.inbox.items.iter())
+                .filter(|item| item.need.is_some())
+                .cloned()
+                .collect()
+        })
     }
 
-    /// What finished or failed in this project while the person was away, in time order.
-    fn happened_here(&self) -> Vec<Happened<'_>> {
+    /// How many things wait on the person, as the core counts them.
+    pub(super) fn needed(&self, cx: &gpui_kit::App) -> usize {
+        let Some(bench) = self.bench.upgrade() else {
+            return 0;
+        };
+        let bench = bench.read(cx);
+        bench.shown().map_or(0, |view| view.inbox.needed)
+    }
+
+    /// What finished or failed while the person was away, in time order.
+    pub(super) fn happened(&self) -> Vec<Happened<'_>> {
         let Some(digest) = self.digest.as_ref() else {
             return Vec::new();
         };
@@ -76,13 +81,21 @@ impl GoalsPane {
 
 pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (needs, needed) = pane.inbox_here(cx);
-    let goals = pane.goals();
-    let (moving, finished): (Vec<&CardView>, Vec<&CardView>) = goals.iter().partition(|goal| {
-        let slices = pane.slices(goal.id);
+    let (needs, needed) = (pane.needs(cx), pane.needed(cx));
+    let goals: Vec<(&BoardView, &CardView)> = pane
+        .boards()
+        .iter()
+        .flat_map(|board| {
+            goals_of(&board.cards)
+                .into_iter()
+                .map(move |goal| (board, goal))
+        })
+        .collect();
+    let (moving, finished): (Vec<_>, Vec<_>) = goals.iter().partition(|(board, goal)| {
+        let slices = slices_of(&board.cards, goal.id);
         count(&slices, SliceState::Done) < slices.len()
     });
-    let happened = pane.happened_here().len();
+    let happened = pane.happened().len();
     let nothing = goals.is_empty() && needs.is_empty();
     let summary = [
         (needed > 0).then(|| state_count(needed, SliceState::NeedsYou)),
@@ -95,7 +108,7 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
     div()
         .flex()
         .flex_col()
-        .child(ui::text("Goals", TEXT_XL, FontWeight::SEMIBOLD).text_color(t.text_primary))
+        .child(ui::text("Home", TEXT_XL, FontWeight::SEMIBOLD).text_color(t.text_primary))
         .child(
             div()
                 .pt(SPACE_1H)
@@ -145,11 +158,14 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
         })
         .when(!moving.is_empty(), |view| {
             view.child(section("Moving", moving.len(), cx))
-                .children(moving.iter().map(|goal| goal_row(pane, goal, cx)))
+                .children(moving.iter().map(|(board, goal)| goal_row(board, goal, cx)))
         })
         .when(!finished.is_empty(), |view| {
-            view.child(section("Done", finished.len(), cx))
-                .children(finished.iter().map(|goal| goal_row(pane, goal, cx)))
+            view.child(section("Done", finished.len(), cx)).children(
+                finished
+                    .iter()
+                    .map(|(board, goal)| goal_row(board, goal, cx)),
+            )
         })
         .into_any_element()
 }
@@ -192,36 +208,43 @@ fn needs_row(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) ->
         .into_any_element()
 }
 
-/// A goal on one line: its title, how many slices are done, what comes next and what that
-/// waits on, and its strip.
-fn goal_row(pane: &GoalsPane, goal: &CardView, cx: &mut Context<GoalsPane>) -> AnyElement {
+/// A goal on one line: its title and project, how many slices are done, what comes next and
+/// what that waits on, and its strip.
+fn goal_row(board: &BoardView, goal: &CardView, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let id = goal.id;
-    let slices = pane.slices(id);
+    let (project, id) = (board.project.clone(), goal.id);
+    let slices = slices_of(&board.cards, id);
     let done = count(&slices, SliceState::Done);
-    row(SharedString::from(format!("goal-{id}")), cx)
-        .on_click(cx.listener(move |pane, _, _, cx| pane.go(At::Goal(id), cx)))
-        .child(
-            ui::text(goal.title.clone(), TEXT_SM, FontWeight::MEDIUM)
-                .flex_shrink_1()
-                .min_w_0()
-                .truncate()
-                .text_color(t.text_primary),
-        )
-        .child(ui::meta(format!("{done} of {} done", slices.len()), cx))
-        .children(
-            (goal.next.first())
-                .and_then(|next| super::goal::step(pane, next))
-                .map(|next| ui::meta(next, cx).flex_shrink_1().min_w_0().truncate()),
-        )
-        .child(div().flex_1())
-        .child(strip(&slices, px(120.), cx))
-        .into_any_element()
+    row(
+        SharedString::from(format!("goal-{}-{id}", board.project)),
+        cx,
+    )
+    .on_click(cx.listener(move |pane, _, _, cx| pane.go_to(project.clone(), At::Goal(id), cx)))
+    .child(
+        ui::text(goal.title.clone(), TEXT_SM, FontWeight::MEDIUM)
+            .flex_shrink_1()
+            .min_w_0()
+            .truncate()
+            .text_color(t.text_primary),
+    )
+    .child(ui::meta(
+        super::rail::project_name(&board.project).to_owned(),
+        cx,
+    ))
+    .child(ui::meta(format!("{done} of {} done", slices.len()), cx))
+    .children(
+        (goal.next.first())
+            .and_then(|next| super::goal::step(&board.cards, next))
+            .map(|next| ui::meta(next, cx).flex_shrink_1().min_w_0().truncate()),
+    )
+    .child(div().flex_1())
+    .child(strip(&slices, px(120.), cx))
+    .into_any_element()
 }
 
 pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let back = crumb("overnight-back", "Goals", cx)
+    let back = crumb("overnight-back", "Home", cx)
         .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Home, cx)));
     let Some(since) = pane.digest.as_ref().and_then(|digest| digest.since) else {
         return div()
@@ -235,10 +258,10 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
             ))
             .into_any_element();
     };
-    let happened = pane.happened_here();
+    let happened = pane.happened();
     let finished = happened.iter().filter(|happened| happened.done).count();
     let failed = happened.len() - finished;
-    let waiting = pane.inbox_here(cx).1;
+    let waiting = pane.needed(cx);
     let mut groups: Vec<(Option<String>, Vec<Happened>)> = Vec::new();
     for happened in &happened {
         let goal = pane.goal_title(happened.item);
@@ -314,11 +337,11 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
 fn event_row(pane: &GoalsPane, happened: Happened, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let Happened { done, item } = happened;
-    let on_slice = item
-        .card
-        .as_ref()
-        .and_then(|card| pane.card(card.id))
-        .is_some_and(|card| card.slice.is_some());
+    let on_slice = item.card.as_ref().is_some_and(|inbox| {
+        pane.board_of(&inbox.project)
+            .and_then(|board| board.cards.iter().find(|card| card.id == inbox.id))
+            .is_some_and(|card| card.slice.is_some())
+    });
     let opens = match (on_slice, item.agent_id.is_some()) {
         (true, _) => Some("slice"),
         (false, true) => Some("chat"),

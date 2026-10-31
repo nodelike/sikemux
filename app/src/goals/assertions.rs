@@ -138,8 +138,11 @@ impl GoalsPane {
                 Collect::Workflow { name }
             }
         };
+        let Some(project) = self.here.clone() else {
+            return;
+        };
         let params = BoardAssertParams {
-            project: self.folder.clone(),
+            project,
             card,
             assertion: None,
             text: Some(text),
@@ -155,7 +158,7 @@ impl GoalsPane {
                 pane.busy = false;
                 match answer {
                     Ok(board) => {
-                        pane.take(board);
+                        pane.take_one(board);
                         if let Some(asserting) = &pane.asserting {
                             for input in [&asserting.input, &asserting.workflow] {
                                 input.update(cx, |input, cx| input.set_value("", window, cx));
@@ -174,8 +177,11 @@ impl GoalsPane {
         if self.busy {
             return;
         }
+        let Some(project) = self.here.clone() else {
+            return;
+        };
         let params = BoardAssertParams {
-            project: self.folder.clone(),
+            project,
             card,
             assertion: Some(assertion),
             text: None,

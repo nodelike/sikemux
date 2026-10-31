@@ -1,6 +1,7 @@
 //! Shortcuts that move between places and the surfaces of the one in front: closing
 //! a project or host, going back to the last one, jumping between projects and hosts,
-//! and bringing forward a project's files, agents, terminals, board or goals.
+//! bringing forward a project's files, agents, terminals or board, and switching the window to
+//! the goals and back.
 
 use gpui_kit::{App, Context, Window};
 use serde_json::json;
@@ -32,7 +33,8 @@ commands! {
     FocusFiles = "window.files",
     FocusAgents = "window.agents",
     FocusBoard = "window.board",
-    FocusGoals = "window.goals",
+    /// Switches the window between the workbench and the goals.
+    ToggleGoals = "window.goals",
 }
 
 impl Workbench {
@@ -187,19 +189,6 @@ impl Workbench {
                 "openTab",
                 json!({ "project": project.id, "kind": "board", "target": project.path.to_string_lossy() }),
             );
-        }
-    }
-
-    pub fn focus_goals(&self, cx: &mut App) {
-        if let Some(project) = self.project() {
-            self.take_keys_when_shown(crate::workbench::TakesKeys::Goals, cx);
-            self.call_in_front(
-                "openTab",
-                json!({ "project": project.id, "kind": "goals", "target": project.path.to_string_lossy() }),
-            );
-        }
-        if let Some(goals) = &self.goals {
-            goals.update(cx, |goals, cx| goals.home(cx));
         }
     }
 

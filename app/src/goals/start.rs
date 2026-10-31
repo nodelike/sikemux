@@ -11,6 +11,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::{BoardAddParams, TriageParams};
+use sikemux_wire::protocol::ProjectInfo;
 use sikemux_wire::start::{Because, HardFact, StartMode};
 use tokio::sync::oneshot;
 
@@ -77,6 +78,13 @@ impl GoalsPane {
             })
     }
 
+    /// The project work starts in: the one in front of the workbench.
+    fn start_project(&self, cx: &gpui_kit::App) -> Option<ProjectInfo> {
+        let bench = self.bench.upgrade()?;
+        let project = bench.read(cx).project().cloned();
+        project
+    }
+
     /// Asks the core to pre-pick a way once typing settles.
     fn typed(&mut self, cx: &mut Context<Self>) {
         let text = self.typed_text(cx);
@@ -88,8 +96,11 @@ impl GoalsPane {
             cx.notify();
             return;
         }
+        let Some(project) = self.start_project(cx) else {
+            return;
+        };
         let params = TriageParams {
-            project: self.folder.clone(),
+            project: project.path.to_string_lossy().into_owned(),
             text,
         };
         let asks = self.asks.clone();
@@ -125,7 +136,7 @@ impl GoalsPane {
         }
         let launcher =
             (self.bench.upgrade()).and_then(|bench| Some(bench.read(cx).launcher()?.id.clone()));
-        let (Some(launcher), Some(project)) = (launcher, self.project().map(str::to_owned)) else {
+        let (Some(launcher), Some(project)) = (launcher, self.start_project(cx)) else {
             self.said(
                 "No agent is set up to start; set one up from the agents rail",
                 cx,
@@ -133,9 +144,10 @@ impl GoalsPane {
             return;
         };
         let (started, agent) = oneshot::channel();
-        Target::here(&self.asks).start_chat(launcher, project, None, Some(started));
+        let folder = project.path.to_string_lossy().into_owned();
+        Target::here(&self.asks).start_chat(launcher, project.id, None, Some(started));
         let (title, details) = titled(&text);
-        let (mode, folder, asks) = (self.start.mode, self.folder.clone(), self.asks.clone());
+        let (mode, asks) = (self.start.mode, self.asks.clone());
         // An agent whose card could not be added would sit in an empty tab.
         let close = move |agent: &str| {
             Target::here(&asks).call("closeAgents", serde_json::json!({ "agentIds": [agent] }));
@@ -181,7 +193,7 @@ impl GoalsPane {
                     .filter(|card| card.owner.as_deref() == Some(agent.as_str()))
                     .map(|card| card.id)
                     .max();
-                pane.take(board);
+                pane.take_one(board);
                 let Some(card) = card else {
                     return;
                 };
@@ -251,11 +263,8 @@ pub(super) fn start_box(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
         return div().into_any_element();
     };
     let project = pane
-        .folder
-        .rsplit('/')
-        .find(|part| !part.is_empty())
-        .unwrap_or(&pane.folder)
-        .to_owned();
+        .start_project(cx)
+        .map_or_else(|| "no project open".to_owned(), |project| project.name);
     let chosen = MODES
         .iter()
         .position(|(mode, _)| *mode == pane.start.mode)

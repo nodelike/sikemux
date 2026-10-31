@@ -73,13 +73,6 @@ pub fn of(kind: PaneKind) -> Kind {
             None,
             Never,
         ),
-        PaneKind::Goals => kind_of(
-            Icon::Steps,
-            "Goals",
-            Some(("Goals", "window.goals")),
-            None,
-            Never,
-        ),
         PaneKind::Browser => kind_of(Icon::Globe, "Browser", None, None, Never),
         PaneKind::Desk => kind_of(Icon::PanelRight, "Desk", None, None, Never),
         PaneKind::ProjectSettings => kind_of(Icon::Settings, "Project settings", None, None, Never),

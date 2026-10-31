@@ -856,7 +856,7 @@ export type Pane =
       };
 
 export type PaneKind =
-    "agent" | "terminal" | "files" | "git" | "search" | "board" | "goals" | "browser" | "desk" | "projectSettings" | "installSikemux" | "stash";
+    "agent" | "terminal" | "files" | "git" | "search" | "board" | "browser" | "desk" | "projectSettings" | "installSikemux" | "stash";
 
 export type SplitDir = "row" | "column" | "stack";
 
@@ -1849,6 +1849,8 @@ export interface Preferences {
     tabRailScope: TabRailScope;
     /** The tab rail lists every agent's chats rather than one agent's. */
     tabRailAllAgents: boolean;
+    /** What the window shows: the workbench, or the goals. */
+    windowView: WindowView;
     /** The commands the person ran from the command deck, the last first. */
     recentCommandKeys: string[];
 }
@@ -1997,6 +1999,9 @@ export type TabRailPage = "agents" | "terminals" | "files";
 
 /** Whose agents the tab rail lists: the project in front's, or every project's. */
 export type TabRailScope = "project" | "all";
+
+/** What the window shows in place of the other. */
+export type WindowView = "workbench" | "goals";
 
 /** The picked theme with the colours every app draws with, worked out from it. */
 export interface Palette {
@@ -3911,6 +3916,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     tabRailPage: "agents",
     tabRailScope: "project",
     tabRailAllAgents: false,
+    windowView: "workbench",
     recentCommandKeys: [],
 };
 

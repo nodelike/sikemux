@@ -24,6 +24,8 @@ use crate::theme::{
     TEXT_3XS, TEXT_XL, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Toggle, Variant};
+use sikemux_wire::protocol::WindowView;
+
 use crate::workbench::{AgentRow, Workbench};
 use crate::{chat, terminal};
 
@@ -96,6 +98,9 @@ impl Metric {
 pub fn stage(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
     if bench.settings.read(cx).is_open() {
         return crate::settings::view(bench, window, cx);
+    }
+    if let (WindowView::Goals, Some(goals)) = (bench.window_view, &bench.goals) {
+        return goals.clone().into_any_element();
     }
     if bench
         .strip()

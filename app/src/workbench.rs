@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use sikemux_wire::protocol::{
     AgentFace, AgentGroup, AgentStatus, DeviceView, LauncherInfo, MidTurnSend, PaneKind,
     PermissionMode, Preferences, ProjectCodeHost, ProjectInfo, ProjectLayout, RecentInfo,
-    RemoteStatus, SessionId, SessionInfo, SpaceInfo, Tab, TabRailPage, TabRailScope,
+    RemoteStatus, SessionId, SessionInfo, SpaceInfo, Tab, TabRailPage, TabRailScope, WindowView,
 };
 use tokio::sync::mpsc;
 
@@ -170,7 +170,10 @@ pub struct Workbench {
     /// The Search pane of the project whose Search tab was last in front.
     pub search: Option<Entity<SearchPane>>,
     pub board: Option<Entity<crate::board::BoardPane>>,
+    /// The goals, made the first time the window shows them.
     pub goals: Option<Entity<crate::goals::GoalsPane>>,
+    /// What the window shows, as the person last left it.
+    pub window_view: WindowView,
     /// Settings, while they take the stage's place.
     pub settings: Entity<crate::settings::Settings>,
     pub hosts: crate::hosts::Hosts,
@@ -632,6 +635,7 @@ impl Workbench {
             search: None,
             board: None,
             goals: None,
+            window_view: WindowView::default(),
             settings: cx.new(|_| crate::settings::Settings::default()),
             window: window.window_handle(),
             parts: Parts::new(cx),
@@ -2948,6 +2952,7 @@ impl Workbench {
     /// Takes the rails as the person last left them, from the core's preferences.
     fn follow_rails(&mut self, preferences: &Preferences) {
         self.rails.follow(preferences);
+        self.window_view = preferences.window_view;
         self.recent_commands = preferences
             .recent_command_keys
             .iter()
@@ -2997,6 +3002,7 @@ impl Workbench {
             ("tabRailPage", json!(page)),
             ("tabRailScope", json!(scope)),
             ("tabRailAllAgents", json!(self.rails.all_harnesses)),
+            ("windowView", json!(self.window_view)),
             ("recentCommandKeys", json!(recent)),
         ];
         let kept = self
@@ -3008,6 +3014,30 @@ impl Workbench {
                 crate::settings::set(self, key, value);
             }
         }
+    }
+
+    /// Switches the window between the workbench and the goals, which open on Home.
+    pub fn toggle_goals_view(&mut self, cx: &mut Context<Self>) {
+        self.window_view = match self.window_view {
+            WindowView::Workbench => WindowView::Goals,
+            WindowView::Goals => WindowView::Workbench,
+        };
+        if let Some(goals) = &self.goals {
+            goals.update(cx, |goals, cx| goals.home(cx));
+        }
+        self.keep_rails(cx);
+        cx.notify();
+    }
+
+    /// The goals view, made the first time it shows.
+    fn goals_view(&mut self, cx: &mut Context<Self>) -> Entity<crate::goals::GoalsPane> {
+        if let Some(goals) = &self.goals {
+            return goals.clone();
+        }
+        let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
+        let goals = cx.new(|cx| crate::goals::GoalsPane::new(asks, bench, cx));
+        self.goals = Some(goals.clone());
+        goals
     }
 
     /// Opens both rails when either is closed, else closes both.
@@ -3392,7 +3422,6 @@ impl Workbench {
             Some(PaneKind::Git) => self.git_pane(window, cx),
             Some(PaneKind::Search) => self.search_pane(cx),
             Some(PaneKind::Board) => self.board_pane(cx),
-            Some(PaneKind::Goals) => self.goals_pane(cx),
             _ => {}
         }
     }
@@ -3478,23 +3507,6 @@ impl Workbench {
         }
         let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
         self.board = Some(cx.new(|cx| crate::board::BoardPane::new(asks, folder, bench, cx)));
-    }
-
-    /// Makes the goals pane when the project's Goals tab comes to the front.
-    fn goals_pane(&mut self, cx: &mut Context<Self>) {
-        let Some(project) = self.project() else {
-            return;
-        };
-        let folder = project.path.to_string_lossy().into_owned();
-        if self
-            .goals
-            .as_ref()
-            .is_some_and(|pane| pane.read(cx).folder == folder)
-        {
-            return;
-        }
-        let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
-        self.goals = Some(cx.new(|cx| crate::goals::GoalsPane::new(asks, folder, bench, cx)));
     }
 
     /// Brings the project's Search tab to the front with the keyboard in its find field,
@@ -4090,7 +4102,6 @@ pub enum TakesKeys {
     Git,
     File(PathBuf),
     Board,
-    Goals,
 }
 
 impl TakesKeys {
@@ -4100,7 +4111,6 @@ impl TakesKeys {
             Self::Git => PaneKind::Git,
             Self::File(_) => PaneKind::Files,
             Self::Board => PaneKind::Board,
-            Self::Goals => PaneKind::Goals,
         }
     }
 }
@@ -4356,6 +4366,10 @@ impl Render for Workbench {
             let (ease, shortest) = (motion::RAIL_DRAWER, motion::RAIL_DRAWER_SHORTEST);
             motion::follow_share(id, tucked, ease, shortest, window, cx)
         });
+        let goals = self.window_view == WindowView::Goals;
+        if goals {
+            self.goals_view(cx);
+        }
         let t = Tokens::get(cx);
         window.set_ground(Some(crate::see_through::ground(t.surface_sunken, cx)));
         let parts = &self.parts;
@@ -4404,9 +4418,9 @@ impl Render for Workbench {
             .on_action(
                 cx.listener(|bench, _: &crate::places::FocusBoard, _, cx| bench.focus_board(cx)),
             )
-            .on_action(
-                cx.listener(|bench, _: &crate::places::FocusGoals, _, cx| bench.focus_goals(cx)),
-            )
+            .on_action(cx.listener(|bench, _: &crate::places::ToggleGoals, _, cx| {
+                bench.toggle_goals_view(cx)
+            }))
             .on_action(
                 cx.listener(|bench, _: &crate::switcher::NextPlace, window, cx| {
                     bench.step_place(1, window, cx);
@@ -4609,7 +4623,7 @@ impl Render for Workbench {
                             bench.resize_rail(edge, f32::from(width) - 15., window, cx);
                         },
                     ))
-                    .when(side_tuck < 1., |row| {
+                    .when(side_tuck < 1. && !goals, |row| {
                         row.child(self.docked_rail(Edge::Start, side_tuck, cx))
                     })
                     .child(
@@ -4618,7 +4632,7 @@ impl Render for Workbench {
                             .clone()
                             .cached(StyleRefinement::default().flex_1().min_w_0().h_full()),
                     )
-                    .when(tab_tuck < 1., |row| {
+                    .when(tab_tuck < 1. && !goals, |row| {
                         row.child(self.docked_rail(Edge::End, tab_tuck, cx))
                     }),
             )
@@ -4627,10 +4641,10 @@ impl Render for Workbench {
                 div()
                     .absolute()
                     .inset_0()
-                    .when(!self.rails.side_open, |above| {
+                    .when(!self.rails.side_open && !goals, |above| {
                         above.child(self.rail_edge(Edge::Start, window, cx))
                     })
-                    .when(!self.rails.tab_open, |above| {
+                    .when(!self.rails.tab_open && !goals, |above| {
                         above.child(self.rail_edge(Edge::End, window, cx))
                     })
                     .children(asked)
