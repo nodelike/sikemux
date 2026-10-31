@@ -610,6 +610,7 @@ async fn dispatch(
         "board.claim" => board::claim(core, &request).await,
         "board.update" => board::update(core, &request).await,
         "board.decide" => board::goal::tool(core, &request).await,
+        "board.assert" => board::goal::tool_assert(core, &request).await,
         "review.verdict" => board::verdict(core, &request).await,
         "memory.add" => super::memory::tool_add(core, &request).await,
         "memory.update" => super::memory::tool_update(core, &request).await,
@@ -622,6 +623,17 @@ async fn dispatch(
         "git.commit" => super::edits::commit::call(core, &request).await,
         COMMIT_FOOTER_METHOD => super::edits::footer::call(core, &request, grant).await,
         GIT_GUARD_METHOD => super::edits::guard::call(core, &request).await,
+        "browser.screenshot" => {
+            let agent_id = request.agent_id.clone();
+            let answer = forward(core, request).await?;
+            if let Some(agent_id) = agent_id {
+                let (core, kept) = (core.clone(), answer.clone());
+                tokio::task::spawn_blocking(move || {
+                    board::screenshot_taken(&core, &agent_id, &kept);
+                });
+            }
+            Ok(answer)
+        }
         "browser.record" => {
             let agent_id = request.agent_id.clone();
             let answer = forward(core, request).await?;

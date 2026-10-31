@@ -4,7 +4,7 @@
 //! core already keeps; only how each agent's latest turn went is kept here.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
@@ -310,7 +310,7 @@ impl Turns {
 }
 
 /// Notes a browser recording an agent finished, on its turn and its card.
-pub(crate) fn recorded(core: &Core, agent_id: &str, answer: &Value) {
+pub(crate) fn recorded(core: &Arc<Core>, agent_id: &str, answer: &Value) {
     let (Some(path), Some(seconds)) = (
         answer.get("path").and_then(Value::as_str),
         answer.get("seconds").and_then(Value::as_f64),

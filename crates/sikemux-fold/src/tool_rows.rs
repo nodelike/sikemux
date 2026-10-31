@@ -711,6 +711,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "board_assert",
+        Spec {
+            verb: "assert",
+            kind: "edit",
+            icon: "issue",
+            target: &["assertion #{assertion}", "{text}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "memory_add",
         Spec {
             verb: "remember",

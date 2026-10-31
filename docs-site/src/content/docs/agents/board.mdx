@@ -21,6 +21,14 @@ An agent saying a slice is done passes nothing by itself. When it marks the card
 
 A check command runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass; so does CI, once the project's branch is pushed. Work can land before you look at it; Landed passes as soon as you pass Looks right. A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see. Marking a slice done yourself passes every gate it has left, and moving it back to Open clears them.
 
+## Assertions
+
+A goal can say, before its slices are cut, what must hold once they're done, so the checks aren't shaped by the work. Each assertion is one sentence and the evidence that shows it, which Sikemux collects itself: the project's check passing, a browser recording, or a screenshot of a page. You or the agent leading the goal writes them, with `board_assert`; once a slice that fulfils one has started, only you can change it.
+
+A slice names the assertions it fulfils. Built then also needs evidence of each one's kind on the slice's latest commit: the project's check passing on it, or a recording or screenshot the agent took while the slice was its card. You judge recordings and screenshots at Looks right.
+
+When Built is refused because the project's check failed, Sikemux files the fix as a card under the slice, held by the same agent, and the slice waits on it. A later failure goes to the same card while it's open. Once the fix card is done, the agent marks the slice done again.
+
 ## Cards Auto runs
 
 When Auto takes a card, the card becomes a slice, promising what its title says unless it already makes a promise. Shipping its work counts as the agent saying it's done, and Built passes once the pull request's checks pass on the commit Auto pushed.

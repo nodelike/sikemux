@@ -1,9 +1,11 @@
 //! What a goal keeps on its card, so it goes when the goal goes: what it
-//! decided, and rules only its own agents follow. A goal is a card at the top
-//! of the board, and one that keeps anything stays there. Its decisions and
-//! rules share ids that are never given twice. Each is corrected, keeping
+//! decided, rules only its own agents follow, and assertions, what must hold
+//! once its slices are done, agreed before they are cut. A goal is a card at
+//! the top of the board, and one that keeps anything stays there. What it
+//! keeps shares ids that are never given twice. Each is corrected, keeping
 //! what it said before, or retired; a goal full of one kind drops its oldest
-//! retired first, then its oldest.
+//! retired first, then its oldest. The person or the goal's lead writes its
+//! assertions, and once a slice fulfilling one has started, only the person.
 
 use std::sync::Arc;
 
@@ -12,9 +14,11 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_wire::memory::Learned;
-use sikemux_wire::slice::{Decision, GoalRule};
+use sikemux_wire::slice::{Assertion, Collect, Decision, GoalRule};
 
-use super::{caller, goal_of, project_at, project_view, BoardView, GoalRef};
+use super::{
+    caller, caller_project, goal_of, project_at, project_view, Board, BoardView, GoalRef, Status,
+};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::Core;
@@ -44,6 +48,8 @@ pub(super) struct Goal {
     decisions: Vec<Decision>,
     #[serde(default)]
     rules: Vec<GoalRule>,
+    #[serde(default)]
+    assertions: Vec<Assertion>,
 }
 
 impl Goal {
@@ -58,6 +64,15 @@ impl Goal {
 
     pub(super) fn rules(&self) -> Vec<GoalRule> {
         self.rules.clone()
+    }
+
+    pub(super) fn assertions(&self) -> &[Assertion] {
+        &self.assertions
+    }
+
+    /// The assertion `id`, while it stands.
+    pub(super) fn assertion(&self, id: u64) -> Option<&Assertion> {
+        (self.assertions.iter()).find(|assertion| assertion.id == id && assertion.retired.is_none())
     }
 }
 
@@ -124,6 +139,29 @@ impl Kept for Decision {
     }
 }
 
+impl Kept for Assertion {
+    const WORD: &'static str = "assertion";
+
+    fn id(&self) -> u64 {
+        self.id
+    }
+
+    fn retired(&self) -> bool {
+        self.retired.is_some()
+    }
+
+    fn correct(&mut self, text: Option<String>, _why: Option<String>, by: Learned) {
+        if let Some(text) = text {
+            self.was = Some(std::mem::replace(&mut self.text, text));
+        }
+        self.learned = by;
+    }
+
+    fn retire(&mut self, by: Learned) {
+        self.retired = Some(by);
+    }
+}
+
 impl Kept for GoalRule {
     const WORD: &'static str = "rule";
 
@@ -152,17 +190,21 @@ impl Kept for GoalRule {
 pub(crate) enum List {
     Decisions,
     Rules,
+    Assertions,
 }
 
 pub(crate) enum Change {
     New {
         text: String,
         why: Option<String>,
+        /// What an assertion's evidence is.
+        evidence: Option<Collect>,
     },
     Correct {
         id: u64,
         text: Option<String>,
         why: Option<String>,
+        evidence: Option<Collect>,
     },
     Retire {
         id: u64,
@@ -170,7 +212,8 @@ pub(crate) enum Change {
 }
 
 impl Change {
-    /// Reads what is asked of a goal's `list`; only a decision has a `why`.
+    /// Reads what is asked of a goal's decisions or rules; only a decision
+    /// has a `why`.
     pub(crate) fn of(
         list: List,
         id: Option<u64>,
@@ -178,23 +221,57 @@ impl Change {
         why: Option<&str>,
         retire: bool,
     ) -> Result<Self, String> {
-        if matches!(list, List::Rules) && why.is_some() {
-            return Err("A rule says what to do; only a decision has a why".into());
+        if !matches!(list, List::Decisions) && why.is_some() {
+            return Err("Only a decision has a why".into());
         }
+        Self::read(id, text, why, None, retire)
+    }
+
+    /// Reads what is asked of a goal's assertions; a new one names its evidence.
+    pub(crate) fn of_assertion(
+        id: Option<u64>,
+        text: Option<&str>,
+        evidence: Option<Collect>,
+        retire: bool,
+    ) -> Result<Self, String> {
+        if id.is_none() && evidence.is_none() && !retire {
+            return Err("Say what evidence shows it: check, recording or screenshot".into());
+        }
+        Self::read(id, text, None, evidence, retire)
+    }
+
+    fn read(
+        id: Option<u64>,
+        text: Option<&str>,
+        why: Option<&str>,
+        evidence: Option<Collect>,
+        retire: bool,
+    ) -> Result<Self, String> {
         let text = text
             .map(|text| to_keep(text, "text", MAX_TEXT_CHARS))
             .transpose()?;
         let why = why
             .map(|why| to_keep(why, "why", MAX_TEXT_CHARS))
             .transpose()?;
-        match (id, text, why, retire) {
-            (None, _, _, true) => Err("Say which one to retire".into()),
-            (None, Some(text), why, false) => Ok(Change::New { text, why }),
-            (None, None, _, false) => Err("Say it, as text".into()),
-            (Some(id), None, None, true) => Ok(Change::Retire { id }),
-            (Some(_), _, _, true) => Err("Retire it, or correct it, not both".into()),
-            (Some(_), None, None, false) => Err("Say what changes: text, why or retire".into()),
-            (Some(id), text, why, false) => Ok(Change::Correct { id, text, why }),
+        match (id, text, why, evidence, retire) {
+            (None, _, _, _, true) => Err("Say which one to retire".into()),
+            (None, Some(text), why, evidence, false) => Ok(Change::New {
+                text,
+                why,
+                evidence,
+            }),
+            (None, None, _, _, false) => Err("Say it, as text".into()),
+            (Some(id), None, None, None, true) => Ok(Change::Retire { id }),
+            (Some(_), _, _, _, true) => Err("Retire it, or correct it, not both".into()),
+            (Some(_), None, None, None, false) => {
+                Err("Say what changes: its text, evidence or retire".into())
+            }
+            (Some(id), text, why, evidence, false) => Ok(Change::Correct {
+                id,
+                text,
+                why,
+                evidence,
+            }),
         }
     }
 }
@@ -257,11 +334,14 @@ pub(crate) fn change(
     by: Learned,
 ) -> Result<String, String> {
     let mut state = core.boards.state.locked();
-    let card = state
+    let board = state
         .boards
         .get_mut(project)
-        .ok_or_else(|| format!("There is no card #{goal} on this project's board"))?
-        .card_mut(goal)?;
+        .ok_or_else(|| format!("There is no card #{goal} on this project's board"))?;
+    if let (List::Assertions, Some(agent)) = (list, by.agent.as_deref()) {
+        may_assert(board, goal, agent, &change)?;
+    }
+    let card = board.card_mut(goal)?;
     if card.parent.is_some() {
         return Err(format!(
             "Card #{goal} sits under another card; a goal is a card at the top"
@@ -269,7 +349,7 @@ pub(crate) fn change(
     }
     let kept = &mut card.goal;
     let said = match (list, change) {
-        (List::Decisions, Change::New { text, why }) => {
+        (List::Decisions, Change::New { text, why, .. }) => {
             let dropped = make_room(&mut kept.decisions, goal);
             kept.last += 1;
             let id = kept.last;
@@ -296,12 +376,67 @@ pub(crate) fn change(
             });
             format!("Rule #{id} is kept on goal #{goal}.{dropped}")
         }
+        (List::Assertions, Change::New { text, evidence, .. }) => {
+            let evidence =
+                evidence.ok_or("Say what evidence shows it: check, recording or screenshot")?;
+            let dropped = make_room(&mut kept.assertions, goal);
+            kept.last += 1;
+            let id = kept.last;
+            kept.assertions.push(Assertion {
+                id,
+                text,
+                evidence,
+                learned: by,
+                was: None,
+                retired: None,
+            });
+            format!("Assertion #{id} is kept on goal #{goal}.{dropped}")
+        }
         (List::Decisions, change) => apply(&mut kept.decisions, goal, change, by)?,
         (List::Rules, change) => apply(&mut kept.rules, goal, change, by)?,
+        (List::Assertions, change) => {
+            let evidence = match &change {
+                Change::Correct { id, evidence, .. } => evidence.map(|evidence| (*id, evidence)),
+                _ => None,
+            };
+            let said = apply(&mut kept.assertions, goal, change, by)?;
+            if let Some((id, evidence)) = evidence {
+                if let Some(kept) = kept.assertions.iter_mut().find(|kept| kept.id == id) {
+                    kept.evidence = evidence;
+                }
+            }
+            said
+        }
     };
     card.updated_at = epoch_ms();
     core.boards.save(&mut state, project);
     Ok(said)
+}
+
+/// Whether `agent` may make `change` to goal `goal`'s assertions: it leads the
+/// goal, and no slice fulfilling the assertion it changes has started.
+fn may_assert(board: &Board, goal: u64, agent: &str, change: &Change) -> Result<(), String> {
+    let card = board.card(goal)?;
+    if card.owner_id() != Some(agent) && card.maker_id() != Some(agent) {
+        return Err(format!(
+            "Only the person or goal #{goal}'s lead writes its assertions; ask your lead with ask"
+        ));
+    }
+    let (Change::Correct { id, .. } | Change::Retire { id }) = change else {
+        return Ok(());
+    };
+    let started = board.cards.iter().find(|slice| {
+        slice.status != Status::Open
+            && board.goal_card(slice) == goal
+            && (slice.slice.as_ref()).is_some_and(|slice| slice.asserts.contains(id))
+    });
+    match started {
+        Some(slice) => Err(format!(
+            "Slice #{} fulfils assertion #{id} and has started, so only the person changes it",
+            slice.id
+        )),
+        None => Ok(()),
+    }
 }
 
 #[derive(Deserialize)]
@@ -371,6 +506,94 @@ pub(crate) async fn person_decide(
         )?;
         let by = learned(&core, None);
         change(&core, &project, params.card, List::Decisions, deciding, by)?;
+        Ok(project_view(&core, &project))
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ToolAssert {
+    goal: Option<u64>,
+    assertion: Option<u64>,
+    text: Option<String>,
+    evidence: Option<Collect>,
+    #[serde(default)]
+    retire: bool,
+}
+
+/// `board_assert`: writes, corrects or retires an assertion of a goal the agent
+/// leads, the one its live card sits under unless it names one.
+pub(crate) async fn tool_assert(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+) -> Result<Value, String> {
+    let agent = caller(request, "board_assert")?;
+    let given: ToolAssert =
+        serde_json::from_value(request.params.clone()).map_err(|error| error.to_string())?;
+    let (core, request) = (core.clone(), request.clone());
+    blocking(move || {
+        let asserting = Change::of_assertion(
+            given.assertion,
+            given.text.as_deref(),
+            given.evidence,
+            given.retire,
+        )?;
+        let project = caller_project(&core, &request);
+        let goal = match given.goal {
+            Some(goal) => goal,
+            None => {
+                goal_of(&core, &agent)
+                    .ok_or("Name the goal's card with goal; you work on no card that is not done")?
+                    .card
+            }
+        };
+        let by = learned(&core, Some(&agent));
+        let said = change(&core, &project, goal, List::Assertions, asserting, by)?;
+        Ok(json!({ "goal": goal, "note": said }))
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssertParams {
+    pub project: String,
+    /// The goal's card.
+    pub card: u64,
+    /// The assertion to correct or retire; none to write a new one.
+    pub assertion: Option<u64>,
+    pub text: Option<String>,
+    pub evidence: Option<Collect>,
+    #[serde(default)]
+    pub retire: bool,
+}
+
+/// The person writes, corrects or retires a goal's assertion; answers with the board.
+pub(crate) async fn person_assert(
+    core: &Arc<Core>,
+    params: AssertParams,
+) -> Result<BoardView, String> {
+    let core = core.clone();
+    blocking(move || {
+        let project = project_at(&core, &params.project)?;
+        let asserting = Change::of_assertion(
+            params.assertion,
+            params.text.as_deref(),
+            params.evidence,
+            params.retire,
+        )?;
+        let by = learned(&core, None);
+        change(
+            &core,
+            &project,
+            params.card,
+            List::Assertions,
+            asserting,
+            by,
+        )?;
         Ok(project_view(&core, &project))
     })
     .await

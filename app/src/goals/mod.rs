@@ -394,6 +394,7 @@ fn need_words(need: Need) -> &'static str {
     match need {
         Need::PassingCheck => "a passing check",
         Need::OnBranch => "its commits on the goal's branch",
+        Need::Assertions => "evidence for its assertions",
     }
 }
 

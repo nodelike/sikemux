@@ -585,6 +585,9 @@ calls! { core, client, params;
     "boardSettings" BoardSettings (board::SettingsParams) -> board::BoardView: Full => {
         board::person_settings(&core, params).await?
     },
+    "boardAssert" BoardAssert (board::goal::AssertParams) -> board::BoardView: Full => {
+        board::goal::person_assert(&core, params).await?
+    },
     "boardDecide" BoardDecide (board::goal::DecideParams) -> board::BoardView: Full => {
         board::goal::person_decide(&core, params).await?
     },

@@ -139,6 +139,7 @@ impl GoalsPane {
             details,
             acceptance: None,
             promise: None,
+            asserts: Vec::new(),
             parent: None,
             depends_on: Vec::new(),
             ticket: None,

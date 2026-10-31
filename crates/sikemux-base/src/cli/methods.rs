@@ -69,6 +69,7 @@ pub const HARNESS_METHODS: &[&str] = &[
     "board.claim",
     "board.update",
     "board.decide",
+    "board.assert",
     "memory.add",
     "memory.update",
     "memory.list",

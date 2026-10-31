@@ -67,6 +67,9 @@ pub enum Need {
     PassingCheck,
     /// The slice's commits to be on the project's branch.
     OnBranch,
+    /// Every assertion the slice fulfils to have evidence of its kind, which
+    /// held up, collected on the slice's latest commit.
+    Assertions,
 }
 
 /// Whether evidence held up when the core checked it.
@@ -90,6 +93,12 @@ pub struct Evidence {
     pub agent: Option<String>,
     pub verdict: Option<Verdict>,
     pub proof: Proof,
+    /// The commit the slice's work was at when it was collected.
+    #[serde(default)]
+    pub commit: Option<String>,
+    /// The goal's assertions it was collected for.
+    #[serde(default)]
+    pub assertions: Vec<u64>,
 }
 
 /// The five kinds of evidence, each drawn one way.
@@ -171,6 +180,9 @@ pub struct SliceView {
     /// What the core collected itself to show its work, oldest first.
     pub evidence: Vec<Evidence>,
     pub notes: Vec<Note>,
+    /// The goal's assertions it fulfils, each with whether its evidence is in.
+    #[serde(default)]
+    pub asserts: Vec<Asserted>,
     /// What the gate it waits at waits on now; none when it is done, or
     /// nothing is under way.
     #[serde(default)]
@@ -272,6 +284,44 @@ pub struct Decision {
     /// Who retired it and when. A full goal drops its oldest retired
     /// decisions first.
     pub retired: Option<Learned>,
+}
+
+/// One of a goal's assertions a slice fulfils.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Asserted {
+    pub assertion: u64,
+    /// Its evidence held up on the slice's latest commit.
+    pub met: bool,
+}
+
+/// What must hold once a goal's slices are done, agreed before they are cut,
+/// with the kind of evidence that shows it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Assertion {
+    /// The same for as long as the goal keeps it, never given to a decision,
+    /// rule or assertion of the goal again.
+    pub id: u64,
+    pub text: String,
+    pub evidence: Collect,
+    pub learned: Learned,
+    /// What it said before it was last corrected.
+    pub was: Option<String>,
+    /// Who retired it and when.
+    pub retired: Option<Learned>,
+}
+
+/// The evidence an assertion needs, which the core collects itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Collect {
+    /// The project's check, passing on the slice's latest commit.
+    Check,
+    /// A browser recording made on the slice's latest commit.
+    Recording,
+    /// A screenshot of a page taken on the slice's latest commit.
+    Screenshot,
 }
 
 /// A rule only a goal's own agents follow, kept on its card.

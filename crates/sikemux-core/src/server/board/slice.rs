@@ -17,8 +17,8 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_wire::inbox::InboxRecording;
 use sikemux_wire::slice::{
-    Evidence, Gate, GateState, GateView, Need, NextGate, Note, Passer, Proof, SliceState,
-    SliceView, Verdict, Wait,
+    Asserted, Collect, Evidence, Gate, GateState, GateView, Need, NextGate, Note, Passer, Proof,
+    SliceState, SliceView, Verdict, Wait,
 };
 
 use super::{
@@ -51,6 +51,8 @@ const MAX_HEARD_RUNS: usize = 32;
 const MAX_PANICS: u32 = 3;
 /// Commits read back from the branch's tip for an agent's latest one.
 const OWNER_COMMITS_READ: usize = 500;
+/// The folder in the data folder that keeps evidence the core collected as files.
+const EVIDENCE: &str = "evidence";
 /// Commits whose footer is kept as read, past which the board reads afresh.
 const MAX_FOOTERS: usize = 4096;
 
@@ -67,7 +69,7 @@ pub(super) fn rule(gate: Gate) -> Rule {
     match gate {
         Gate::Built => Rule {
             passer: Passer::Owner,
-            needs: &[Need::PassingCheck],
+            needs: &[Need::PassingCheck, Need::Assertions],
             words: "Built",
             key: "built",
         },
@@ -98,6 +100,7 @@ fn need_words(need: Need) -> &'static str {
     match need {
         Need::PassingCheck => "the project's check to pass on its latest commit",
         Need::OnBranch => "its commits on the project's branch",
+        Need::Assertions => "evidence on its latest commit for each assertion it fulfils",
     }
 }
 
@@ -178,6 +181,25 @@ pub(super) struct Slice {
     /// passes as soon as what it needs is so.
     #[serde(default)]
     done_said: bool,
+    /// The goal's assertions it fulfils.
+    #[serde(default)]
+    pub asserts: Vec<u64>,
+    /// The card under it where a failed check is being fixed, while it is open.
+    #[serde(default)]
+    pub fix: Option<u64>,
+}
+
+/// Why the owner's gate did not pass when the owner said the slice is done.
+pub(super) struct Refused {
+    pub text: String,
+    /// The project's check failed on its latest commit, which a fix card mends.
+    pub failed: Option<String>,
+}
+
+impl From<String> for Refused {
+    fn from(text: String) -> Self {
+        Self { text, failed: None }
+    }
 }
 
 /// The owner's latest commit as git has it, made on `from`.
@@ -257,9 +279,11 @@ impl Slice {
             notes: Vec::new(),
             work: None,
             done_said: false,
+            asserts: Vec::new(),
+            fix: None,
         };
         for recording in &recordings {
-            slice.picture(owner, recording);
+            slice.picture(owner, recording, &[]);
         }
         slice
     }
@@ -317,7 +341,25 @@ impl Slice {
                 .as_ref()
                 .is_some_and(|check| check.verdict == Some(Verdict::Passed)),
             Need::OnBranch => work.on_branch,
+            Need::Assertions => self.asserts.iter().all(|id| self.asserted(*id)),
         }
+    }
+
+    /// The latest evidence collected for assertion `id`.
+    fn latest_for(&self, id: u64) -> Option<&Evidence> {
+        (self.evidence.iter().rev()).find(|evidence| evidence.assertions.contains(&id))
+    }
+
+    /// Assertion `id` has evidence on its latest commit that held up: a run
+    /// that passed, or a picture, which the person judges at Looks right.
+    fn asserted(&self, id: u64) -> bool {
+        self.latest_for(id).is_some_and(|evidence| {
+            evidence.commit.as_deref() == self.head()
+                && match evidence.proof {
+                    Proof::Picture { .. } => true,
+                    _ => evidence.verdict == Some(Verdict::Passed),
+                }
+        })
     }
 
     fn unmet(&self, gate: Gate) -> Vec<Need> {
@@ -329,7 +371,9 @@ impl Slice {
             .collect()
     }
 
-    /// Keeps a piece of evidence, letting the oldest go that no note is pinned to.
+    /// Keeps a piece of evidence on its latest commit, collected for
+    /// `assertions`, letting the oldest go that no note is pinned to and is
+    /// not an assertion's latest.
     fn add_evidence(
         &mut self,
         gate: Gate,
@@ -337,10 +381,16 @@ impl Slice {
         agent: Option<String>,
         verdict: Option<Verdict>,
         proof: Proof,
+        assertions: &[u64],
     ) {
+        let latest: Vec<u64> = (self.asserts.iter())
+            .filter_map(|id| self.latest_for(*id).map(|evidence| evidence.id))
+            .collect();
         let notes = &self.notes;
-        let pinned =
-            |evidence: &Evidence| notes.iter().any(|note| note.evidence == Some(evidence.id));
+        let pinned = |evidence: &Evidence| {
+            latest.contains(&evidence.id)
+                || notes.iter().any(|note| note.evidence == Some(evidence.id))
+        };
         let loose: Vec<usize> = (0..self.evidence.len())
             .filter(|at| !pinned(&self.evidence[*at]))
             .collect();
@@ -356,12 +406,20 @@ impl Slice {
             agent,
             verdict,
             proof,
+            commit: self.head().map(str::to_owned),
+            assertions: assertions.to_vec(),
         });
     }
 
-    /// Keeps a recording toward the gate it waits at. False when it waits at
-    /// none, being done, so the recording is not kept.
-    fn picture(&mut self, agent: Option<&str>, recording: &InboxRecording) -> bool {
+    /// Keeps a recording toward the gate it waits at, for the recording
+    /// `assertions`. False when it waits at none, being done, so the
+    /// recording is not kept.
+    fn picture(
+        &mut self,
+        agent: Option<&str>,
+        recording: &InboxRecording,
+        assertions: &[u64],
+    ) -> bool {
         let Some(gate) = self.waiting() else {
             return false;
         };
@@ -376,15 +434,48 @@ impl Slice {
                 feed: recording.feed.clone(),
                 turn: recording.turn,
             },
+            assertions,
         );
         true
+    }
+
+    /// Keeps the screenshot at `path` for the screenshot `assertions`, in
+    /// place of the one they had, which the same file held.
+    fn screenshot(&mut self, agent: &str, path: &str, assertions: &[u64]) {
+        let Some(gate) = self.waiting() else {
+            return;
+        };
+        let notes = &self.notes;
+        self.evidence.retain(|evidence| {
+            let replaced = matches!(&evidence.proof, Proof::Picture { path: kept, seconds: None, .. } if kept == path);
+            !replaced || notes.iter().any(|note| note.evidence == Some(evidence.id))
+        });
+        self.add_evidence(
+            gate,
+            epoch_ms(),
+            Some(agent.to_owned()),
+            None,
+            Proof::Picture {
+                path: path.to_owned(),
+                seconds: None,
+                feed: None,
+                turn: None,
+            },
+            assertions,
+        );
     }
 
     /// The owner's work now ends at `head`, made on `from`, and takes the
     /// verdict of a check run heard before it. New work undoes every gate
     /// from the first that needs the check on it; work made again elsewhere,
     /// as landing does, keeps the gates it passed.
-    fn worked(&mut self, at: &Head, new_work: bool, owner: Option<&str>, runs: Option<&HeardRuns>) {
+    fn worked(
+        &mut self,
+        at: &Head,
+        new_work: bool,
+        owner: Option<&str>,
+        runs: Option<(&HeardRuns, &[u64])>,
+    ) {
         if let Some(work) = self.work.as_mut().filter(|work| work.head == at.head) {
             work.on_branch |= at.on_branch;
             return;
@@ -413,14 +504,17 @@ impl Slice {
                 self.passes.retain(|pass| !undone.contains(&pass.gate));
             }
         }
-        if let Some(run) = runs.and_then(|runs| runs.of(&at.head)) {
-            self.checked(owner, run);
+        if let Some((run, checks)) =
+            runs.and_then(|(runs, checks)| Some((runs.of(&at.head)?, checks)))
+        {
+            self.checked(owner, run, checks);
         }
     }
 
     /// A run of the project's check ended. Whether it took in this slice's
-    /// work, which then holds the run as evidence and its verdict.
-    fn checked(&mut self, owner: Option<&str>, run: &HeardRun) -> bool {
+    /// work, which then holds the run as evidence and its verdict, collected
+    /// for its check `assertions`.
+    fn checked(&mut self, owner: Option<&str>, run: &HeardRun, assertions: &[u64]) -> bool {
         let (Some(gate), Some(head)) = (self.waiting(), self.head()) else {
             return false;
         };
@@ -437,6 +531,7 @@ impl Slice {
                 sha: run.sha.clone(),
                 output: run.output.clone(),
             },
+            assertions,
         );
         if let Some(work) = &mut self.work {
             work.check = Some(Check {
@@ -449,30 +544,33 @@ impl Slice {
     }
 
     /// The owner said it is done and the check did not pass: what it is told,
-    /// which ends that it said so.
-    fn refused(&mut self, label: &str) -> Option<String> {
+    /// which ends that it said so, and the commit it failed on.
+    fn refused(&mut self, label: &str) -> Option<Refused> {
         if !self.done_said {
             return None;
         }
         let gate = self.waiting()?;
         let work = self.work.as_ref()?;
         let check = work.check.as_ref()?;
-        let text = match check.verdict {
+        let refused = match check.verdict {
             Some(Verdict::Passed) => return None,
-            Some(Verdict::Failed) => format!(
-                "Your card {label} did not pass {}: the project's check failed on {}. Mend it with a commit, then mark it done again.",
-                gate_words(gate),
-                short(&work.head)
-            ),
-            None => format!(
+            Some(Verdict::Failed) => Refused {
+                text: format!(
+                    "Your card {label} did not pass {}: the project's check failed on {}.",
+                    gate_words(gate),
+                    short(&work.head)
+                ),
+                failed: Some(work.head.clone()),
+            },
+            None => Refused::from(format!(
                 "Your card {label} did not pass {}: the project's check did not run on {} ({}). Mark it done again to have it checked.",
                 gate_words(gate),
                 short(&work.head),
                 check.output
-            ),
+            )),
         };
         self.done_said = false;
-        Some(text)
+        Some(refused)
     }
 
     /// Passes each gate in turn whose passer may pass it now and whose needs
@@ -576,37 +674,43 @@ impl Slice {
         label: &str,
         checking: Checking,
         confirmed: Result<(), &str>,
-    ) -> Result<Said, String> {
+    ) -> Result<Said, Refused> {
         let Some(gate) = self.waiting() else {
-            return Err(format!("{label} is done already"));
+            return Err(format!("{label} is done already").into());
         };
         if rule(gate).passer != Passer::Owner {
             return Err(format!(
                 "{label} waits at {}, which is not yours to pass. If it needs more work, commit it and mark the card done again",
                 gate_words(gate)
-            ));
+            )
+            .into());
         }
         let words = gate_words(gate);
         let Some(work) = &self.work else {
             return Err(format!(
                 "Not {words}: you have committed nothing for {label}. Commit its work with git_commit, then mark it done once the project's check passes on it"
-            ));
+            )
+            .into());
         };
         if let Err(why) = confirmed {
-            return Err(format!("Not {words}: {why}"));
+            return Err(format!("Not {words}: {why}").into());
         }
         let said = match (&work.check, self.unmet(gate).contains(&Need::PassingCheck)) {
             (_, false) => Said::Ready,
             (Some(Check { verdict: Some(Verdict::Failed), output, .. }), true) => {
-                return Err(format!(
-                    "Not {words}: the project's check failed on {}, your latest commit. Mend it with a commit, then mark it done again.\n\n{output}",
-                    short(&work.head)
-                ));
+                return Err(Refused {
+                    text: format!(
+                        "Not {words}: the project's check failed on {}, your latest commit.\n\n{output}",
+                        short(&work.head)
+                    ),
+                    failed: Some(work.head.clone()),
+                });
             }
             (_, true) if checking == Checking::Nothing => {
                 return Err(format!(
                     "Not {words}: this project names no check in sikemux.json, neither a command nor CI, so nothing can show the work sound. Ask your lead or the person how it is to be checked"
-                ))
+                )
+                .into())
             }
             (_, true) if checking == (Checking::Ci { pushed: false }) => Said::Pending {
                 note: format!(
@@ -636,6 +740,21 @@ impl Slice {
                 ),
                 recheck: None,
             },
+        };
+        let missing: Vec<String> = (self.asserts.iter())
+            .filter(|id| !self.asserted(**id))
+            .map(|id| format!("#{id}"))
+            .collect();
+        let said = match said {
+            Said::Ready if !missing.is_empty() => Said::Pending {
+                note: format!(
+                    "Not {words} yet: assertion {} has no evidence on {}, your latest commit. Make what it asks for, a browser recording or a screenshot of the page, while this card is yours; {words} passes by itself once each has it, and you will hear. board_list with the goal's card shows what each asks.",
+                    missing.join(", "),
+                    short(&work.head)
+                ),
+                recheck: None,
+            },
+            said => said,
         };
         self.done_said = true;
         Ok(said)
@@ -765,6 +884,12 @@ impl Slice {
             gates,
             evidence: self.evidence.clone(),
             notes: self.notes.clone(),
+            asserts: (self.asserts.iter())
+                .map(|id| Asserted {
+                    assertion: *id,
+                    met: self.asserted(*id),
+                })
+                .collect(),
             wait,
         }
     }
@@ -778,6 +903,12 @@ impl Slice {
             if !needs.is_empty() {
                 fields.insert("needs".into(), needs.into());
             }
+        }
+        if !self.asserts.is_empty() {
+            let asserts: Vec<Value> = (self.asserts.iter())
+                .map(|id| serde_json::json!({ "assertion": id, "met": self.asserted(*id) }))
+                .collect();
+            fields.insert("asserts".into(), asserts.into());
         }
     }
 }
@@ -1017,7 +1148,7 @@ fn collect_diff(core: &Core, diff: DiffWork) {
     else {
         return;
     };
-    slice.add_evidence(diff.gate, epoch_ms(), owner, None, proof);
+    slice.add_evidence(diff.gate, epoch_ms(), owner, None, proof, &[]);
     core.boards.save(&mut state, &diff.project);
 }
 
@@ -1180,12 +1311,105 @@ fn current_card(board: &Board, agent: &str) -> Option<u64> {
 }
 
 /// The card `agent` works now on `board`, when that is a slice in progress.
-fn working_slice<'a>(board: &'a mut Board, agent: &str) -> Option<&'a mut Card> {
+fn working_slice(board: &Board, agent: &str) -> Option<u64> {
     let id = current_card(board, agent)?;
-    board
-        .card_mut(id)
-        .ok()
-        .filter(|card| card.status == Status::Progress && card.slice.is_some())
+    let card = board.card(id).ok()?;
+    let slice = match &card.slice {
+        Some(_) => card,
+        None => (board.cards.iter())
+            .find(|slice| (slice.slice.as_ref()).is_some_and(|slice| slice.fix == Some(id)))?,
+    };
+    (slice.status == Status::Progress).then_some(slice.id)
+}
+
+/// The owner's work on the slice it works now moved on to `head`. The slice's id.
+fn move_work(
+    board: &mut Board,
+    runs: Option<&HeardRuns>,
+    agent: &str,
+    head: &Head,
+    new_work: bool,
+    behind: impl Fn(&Card) -> bool,
+) -> Option<u64> {
+    let id = working_slice(board, agent)?;
+    let checks = asserted_by(board, board.card(id).ok()?, Collect::Check);
+    let card = board.card_mut(id).ok().filter(|card| !behind(card))?;
+    card.slice.as_mut()?.worked(
+        head,
+        new_work,
+        Some(agent),
+        runs.map(|runs| (runs, checks.as_slice())),
+    );
+    card.updated_at = epoch_ms();
+    Some(id)
+}
+
+/// The assertions of `card`'s goal it fulfils whose evidence is of `kind`.
+pub(super) fn asserted_by(board: &Board, card: &Card, kind: Collect) -> Vec<u64> {
+    let (Some(slice), Ok(goal)) = (&card.slice, board.card(board.goal_card(card))) else {
+        return Vec::new();
+    };
+    (slice.asserts.iter().copied())
+        .filter(|id| {
+            goal.goal
+                .assertion(*id)
+                .is_some_and(|assertion| assertion.evidence == kind)
+        })
+        .collect()
+}
+
+/// The project's check failed on `sha`, the latest commit of the slice on
+/// `id`: the fix goes on a card under it, held by its owner, which the slice
+/// waits on. A slice keeps one open fix card, which a later failure goes to.
+/// What the owner is told of it.
+pub(super) fn file_fix(core: &Core, board: &mut Board, id: u64, sha: &str) -> Option<String> {
+    let slice = board.card(id).ok()?;
+    let (owner, label) = (slice.owner_id()?.to_owned(), slice.label());
+    let open = (slice.slice.as_ref()?.fix)
+        .and_then(|fix| board.card(fix).ok())
+        .filter(|fix| fix.status != Status::Done)
+        .map(|fix| fix.id);
+    let failed = format!(
+        "The project's check failed on {}, the latest commit of {label}.",
+        short(sha)
+    );
+    if let Some(fix) = open {
+        let card = board.card_mut(fix).ok()?;
+        card.details = format!("{failed} Mend it here; {label} waits on this card, and once it is done, mark {label} done again.");
+        card.updated_at = epoch_ms();
+        return Some(format!("Its fix goes on #{fix}, which is open already."));
+    }
+    if board.cards.len() >= super::MAX_CARDS {
+        return None;
+    }
+    let fix = board.next.max(1);
+    board.next = fix + 1;
+    let mut card = super::new_card(
+        core,
+        fix,
+        super::Adding {
+            title: format!("Fix: the project's check failed on {}", short(sha)),
+            details: format!("{failed} Mend it here; {label} waits on this card, and once it is done, mark {label} done again."),
+            acceptance: String::new(),
+            promise: None,
+            asserts: Vec::new(),
+            parent: Some(id),
+            depends_on: Vec::new(),
+            ticket: None,
+            trigger: None,
+        },
+        None,
+    );
+    super::take(core, &mut card, &owner);
+    board.cards.push(card);
+    let slice = board.card_mut(id).ok()?;
+    let kept = slice.slice.as_mut()?;
+    let done_fix = kept.fix.replace(fix);
+    slice.depends_on.retain(|other| Some(*other) != done_fix);
+    slice.depends_on.push(fix);
+    Some(format!(
+        "Sikemux put the fix on #{fix}, a card of yours under it, which {label} waits on: mend it there, mark #{fix} done, then mark {label} done again."
+    ))
 }
 
 /// Follows the projects' commits, landings and checks for as long as the
@@ -1320,23 +1544,18 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                 sha,
                 on_branch,
             } => {
-                let Some(card) = boards
-                    .get_mut(&project)
-                    .and_then(|board| working_slice(board, &agent))
-                    .filter(|card| !behind(card))
-                else {
-                    return;
-                };
                 let head = Head {
                     from,
                     head: sha,
                     on_branch,
                 };
-                if let Some(slice) = card.slice.as_mut() {
-                    slice.worked(&head, true, Some(&agent), runs.get(&project));
-                }
-                card.updated_at = epoch_ms();
-                let id = card.id;
+                let runs = runs.get(&project);
+                let Some(id) = boards
+                    .get_mut(&project)
+                    .and_then(|board| move_work(board, runs, &agent, &head, true, behind))
+                else {
+                    return;
+                };
                 (project, vec![id])
             }
             RepoEvent::Landed {
@@ -1345,23 +1564,18 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                 tip,
                 ..
             } => {
-                let Some(card) = boards
-                    .get_mut(&project)
-                    .and_then(|board| working_slice(board, &agent))
-                    .filter(|card| !behind(card))
-                else {
-                    return;
-                };
                 let head = Head {
                     from,
                     head: tip,
                     on_branch: true,
                 };
-                if let Some(slice) = card.slice.as_mut() {
-                    slice.worked(&head, false, Some(&agent), runs.get(&project));
-                }
-                card.updated_at = epoch_ms();
-                let id = card.id;
+                let runs = runs.get(&project);
+                let Some(id) = boards
+                    .get_mut(&project)
+                    .and_then(|board| move_work(board, runs, &agent, &head, false, behind))
+                else {
+                    return;
+                };
                 (project, vec![id])
             }
             RepoEvent::CheckStarted {
@@ -1396,26 +1610,38 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                 };
                 let mut touched = Vec::new();
                 if let Some(board) = boards.get_mut(&project) {
-                    for card in board
-                        .cards
-                        .iter_mut()
-                        .filter(|card| card.status == Status::Progress)
-                    {
+                    let checking: Vec<(u64, Vec<u64>)> = (board.cards.iter())
+                        .filter(|card| card.status == Status::Progress && card.slice.is_some())
+                        .map(|card| (card.id, asserted_by(board, card, Collect::Check)))
+                        .collect();
+                    let mut refusals = Vec::new();
+                    for (id, checks) in checking {
+                        let Ok(card) = board.card_mut(id) else {
+                            continue;
+                        };
                         let owner = card.owner_id().map(str::to_owned);
                         let label = card.label();
                         let Some(slice) = card.slice.as_mut() else {
                             continue;
                         };
-                        if slice.checked(owner.as_deref(), &run) {
-                            if let (Some(text), Some(owner)) = (slice.refused(&label), &owner) {
-                                notices.push(Notice {
-                                    to: owner.clone(),
-                                    text,
-                                });
+                        if slice.checked(owner.as_deref(), &run, &checks) {
+                            if let (Some(refused), Some(owner)) = (slice.refused(&label), owner) {
+                                refusals.push((id, owner, refused));
                             }
                             card.updated_at = epoch_ms();
-                            touched.push(card.id);
+                            touched.push(id);
                         }
+                    }
+                    for (id, owner, refused) in refusals {
+                        let fixed = (refused.failed.as_deref())
+                            .and_then(|sha| file_fix(core, board, id, sha))
+                            .unwrap_or_else(|| {
+                                "Mend it with a commit, then mark it done again.".to_owned()
+                            });
+                        notices.push(Notice {
+                            to: owner,
+                            text: format!("{} {fixed}", refused.text),
+                        });
                     }
                 }
                 runs.entry(project.clone()).or_default().keep(run);
@@ -1495,18 +1721,24 @@ pub(super) fn auto_shipped(card: &mut Card, from: &str, head: &str) {
 pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str, run: HeardRun) {
     let (notices, later) = {
         let mut state = core.boards.state.locked();
-        let Some(card) = state
-            .boards
-            .get_mut(project)
-            .and_then(|board| board.card_mut(id).ok())
+        let Some(board) = state.boards.get_mut(project) else {
+            return;
+        };
+        let Some(checks) = board
+            .card(id)
+            .ok()
+            .map(|card| asserted_by(board, card, Collect::Check))
         else {
+            return;
+        };
+        let Ok(card) = board.card_mut(id) else {
             return;
         };
         let owner = card.owner_id().map(str::to_owned);
         let checked = card
             .slice
             .as_mut()
-            .is_some_and(|slice| slice.checked(owner.as_deref(), &run));
+            .is_some_and(|slice| slice.checked(owner.as_deref(), &run, &checks));
         if !checked {
             return;
         }
@@ -1538,8 +1770,96 @@ pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str
 /// Keeps a picture the agent made on its slice, toward the gate it waits
 /// at. None when the card is not a slice, so the picture is kept as the
 /// card's recording; false when the slice is done and keeps none.
-pub(super) fn picture(card: &mut Card, agent: &str, recording: &InboxRecording) -> Option<bool> {
-    Some(card.slice.as_mut()?.picture(Some(agent), recording))
+pub(super) fn picture(
+    card: &mut Card,
+    agent: &str,
+    recording: &InboxRecording,
+    assertions: &[u64],
+) -> Option<bool> {
+    Some(
+        card.slice
+            .as_mut()?
+            .picture(Some(agent), recording, assertions),
+    )
+}
+
+/// The agent took a screenshot: when the card it works is a slice with
+/// assertions a screenshot shows, the core keeps it, one file per slice in
+/// place of the one before, as their evidence, and moves the slice on.
+pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, answer: &Value) {
+    use base64::Engine;
+    let Some(data) = answer.get("data").and_then(Value::as_str) else {
+        return;
+    };
+    let target = {
+        let state = core.boards.state.locked();
+        let folder = core.boards.folder.as_deref().and_then(Path::parent);
+        state.boards.iter().find_map(|(project, board)| {
+            let id = working_slice(board, agent)?;
+            let ids = asserted_by(board, board.card(id).ok()?, Collect::Screenshot);
+            let stem = crate::server::kept::file_for(project).replace(".json", "");
+            let path = folder?.join(EVIDENCE).join(format!("{stem}-{id}.jpg"));
+            (!ids.is_empty()).then(|| (project.clone(), id, ids, path))
+        })
+    };
+    let Some((project, id, ids, path)) = target else {
+        return;
+    };
+    let written = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| {
+            path.parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .map_err(|error| error.to_string())?;
+            sikemux_process::files::write_atomic(&path, &bytes, true)
+                .map_err(|error| error.to_string())
+        });
+    if let Err(error) = written {
+        eprintln!("sikemux core: the screenshot was not kept as evidence: {error}");
+        return;
+    }
+    let path = path.to_string_lossy().into_owned();
+    moved_by_evidence(core, &project, id, |slice| {
+        slice.screenshot(agent, &path, &ids)
+    });
+}
+
+/// Evidence came for the slice on `id`, which `collect` keeps; the slice
+/// moves on as far as it can, and its owner hears of the gates it passed.
+pub(super) fn moved_by_evidence(
+    core: &Arc<Core>,
+    project: &str,
+    id: u64,
+    collect: impl FnOnce(&mut Slice),
+) {
+    let (notices, later) = {
+        let mut state = core.boards.state.locked();
+        let Some(slice) = (state.boards.get_mut(project))
+            .and_then(|board| board.card_mut(id).ok())
+            .and_then(|card| card.slice.as_mut())
+        else {
+            return;
+        };
+        collect(slice);
+        let moved = change_in(
+            core,
+            &mut state,
+            project,
+            &By::Auto("Board"),
+            id,
+            Changes::default(),
+            &Seen::unread(),
+        );
+        core.boards.save(&mut state, project);
+        match moved {
+            Ok((_, notices, later)) => (notices, later),
+            Err(_) => return,
+        }
+    };
+    send_notices(core, notices);
+    let core = core.clone();
+    tokio::task::spawn_blocking(move || later.run(&core));
 }
 
 /// The person passes a gate of a slice.

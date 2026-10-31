@@ -1815,6 +1815,15 @@
           "minLength": 1,
           "maxLength": 200
         },
+        "asserts": {
+          "description": "The goal's assertions it fulfils, as a slice",
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
         "parent": {
           "description": "Card it goes under",
           "type": "integer",
@@ -1892,6 +1901,15 @@
           "minLength": 1,
           "maxLength": 200
         },
+        "asserts": {
+          "description": "The goal's assertions it fulfils, as a slice",
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
         "status": {
           "type": "string",
           "enum": [
@@ -1941,6 +1959,43 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 1000
+        },
+        "retire": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "board_assert",
+      "row": {"verb": "assert", "kind": "edit", "icon": "issue", "target": ["assertion #{assertion}", "{text}"]},
+      "method": "board.assert",
+      "description": "Write, correct or retire a goal's assertion.",
+      "properties": {
+        "goal": {
+          "description": "The goal's card; leave out for the goal your card sits under",
+          "type": "integer",
+          "minimum": 1
+        },
+        "assertion": {
+          "description": "The assertion to correct or retire; leave out to write one",
+          "type": "integer",
+          "minimum": 1
+        },
+        "text": {
+          "description": "What must hold once the goal's slices are done",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "evidence": {
+          "description": "What shows it, which Sikemux collects on each slice's latest commit",
+          "type": "string",
+          "enum": [
+            "check",
+            "recording",
+            "screenshot"
+          ]
         },
         "retire": {
           "type": "boolean"

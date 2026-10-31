@@ -2141,6 +2141,11 @@ export interface BoardCard {
     rules: GoalRule[];
     /** Its ticket or trigger arriving again while it was open, oldest first. */
     arrivals: Arrival[];
+    /**
+     * For a goal, what must hold once its slices are done, oldest first,
+     * retired ones too.
+     */
+    assertions: Assertion[];
     at: number;
     updatedAt: number;
 }
@@ -2210,6 +2215,8 @@ export interface SliceView {
     /** What the core collected itself to show its work, oldest first. */
     evidence: Evidence[];
     notes: Note[];
+    /** The goal's assertions it fulfils, each with whether its evidence is in. */
+    asserts?: Asserted[];
     /**
      * What the gate it waits at waits on now; none when it is done, or
      * nothing is under way.
@@ -2244,7 +2251,7 @@ export type Passer = "owner" | "person" | "core";
 export type GateState = "passed" | "waiting" | "ahead";
 
 /** What a gate needs before it can pass, besides the gates before it. */
-export type Need = "passingCheck" | "onBranch";
+export type Need = "passingCheck" | "onBranch" | "assertions";
 
 /**
  * Something the core collected itself to show a slice's work, toward the
@@ -2259,6 +2266,10 @@ export interface Evidence {
     agent: string | null;
     verdict: Verdict | null;
     proof: Proof;
+    /** The commit the slice's work was at when it was collected. */
+    commit?: string | null;
+    /** The goal's assertions it was collected for. */
+    assertions?: number[];
 }
 
 /** Whether evidence held up when the core checked it. */
@@ -2329,6 +2340,13 @@ export interface Note {
     by: string | null;
     evidence: number | null;
     at: number;
+}
+
+/** One of a goal's assertions a slice fulfils. */
+export interface Asserted {
+    assertion: number;
+    /** Its evidence held up on the slice's latest commit. */
+    met: boolean;
 }
 
 /** What a slice waits on now, since when, and roughly how long it takes. */
@@ -2451,6 +2469,28 @@ export interface Arrival {
     details: string;
     at: number;
 }
+
+/**
+ * What must hold once a goal's slices are done, agreed before they are cut,
+ * with the kind of evidence that shows it.
+ */
+export interface Assertion {
+    /**
+     * The same for as long as the goal keeps it, never given to a decision,
+     * rule or assertion of the goal again.
+     */
+    id: number;
+    text: string;
+    evidence: Collect;
+    learned: Learned;
+    /** What it said before it was last corrected. */
+    was: string | null;
+    /** Who retired it and when. */
+    retired: Learned | null;
+}
+
+/** The evidence an assertion needs, which the core collects itself. */
+export type Collect = "check" | "recording" | "screenshot";
 
 /** How a project's board runs on its own. */
 export interface BoardSettings {
@@ -3392,6 +3432,8 @@ export interface BoardAddParams {
     acceptance?: string;
     /** One sentence saying what it changes, which makes it a slice. */
     promise?: string;
+    /** The goal's assertions it fulfils, as a slice. */
+    asserts?: number[];
     /** The card it goes under. */
     parent?: number;
     /** The cards it waits on. */
@@ -3439,6 +3481,11 @@ export interface BoardUpdateParams {
     acceptance?: string;
     /** One sentence saying what it changes, which makes it a slice. */
     promise?: string;
+    /**
+     * The goal's assertions it fulfils, as a slice; the person alone takes
+     * one off a slice that has started.
+     */
+    asserts?: number[];
     status?: CardStatus;
     result?: string;
     /** The cards it waits on, none to wait on nothing. */
@@ -3473,6 +3520,17 @@ export interface BoardReviewerParams {
     launcher?: string;
     provider?: string;
     model?: string;
+}
+
+export interface AssertParams {
+    project: string;
+    /** The goal's card. */
+    card: number;
+    /** The assertion to correct or retire; none to write a new one. */
+    assertion: number | null;
+    text: string | null;
+    evidence: Collect | null;
+    retire?: boolean;
 }
 
 export interface DecideParams {
@@ -3739,6 +3797,7 @@ export interface CoreCalls {
     boardUpdate: { params: BoardUpdateParams; answer: ProjectBoard };
     boardRemove: { params: BoardCardParams; answer: ProjectBoard };
     boardSettings: { params: BoardSettingsParams; answer: ProjectBoard };
+    boardAssert: { params: AssertParams; answer: ProjectBoard };
     boardDecide: { params: DecideParams; answer: ProjectBoard };
     triage: { params: TriageParams; answer: Triage };
     memory: { params: MemoryParams; answer: MemoryView };

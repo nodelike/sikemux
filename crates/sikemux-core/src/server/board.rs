@@ -24,7 +24,9 @@ use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_wire::inbox::InboxRecording;
-use sikemux_wire::slice::{Decision, Gate, GoalRule, NextGate, SliceView, Wait};
+use sikemux_wire::slice::{
+    Assertion, Collect, Decision, Gate, GoalRule, NextGate, SliceView, Wait,
+};
 
 mod arrival;
 pub(crate) mod auto;
@@ -45,7 +47,8 @@ pub use auto::{
     Stage,
 };
 pub(crate) use finish::{ci_moved, waiting_on_ci};
-pub(crate) use slice::{follow, gate_key, gate_words, person_note, person_pass};
+pub use goal::AssertParams;
+pub(crate) use slice::{follow, gate_key, gate_words, person_note, person_pass, screenshot_taken};
 pub use slice::{NoteParams, PassParams};
 
 const FOLDER: &str = "boards";
@@ -241,6 +244,33 @@ impl Board {
             .filter(|card| !self.waits_on(card).is_empty())
             .map(|card| card.id)
             .collect()
+    }
+
+    /// Checks that `asserts` stand on the goal of a card under `parent`.
+    fn check_asserts(&self, parent: Option<u64>, asserts: &[u64]) -> Result<(), String> {
+        if asserts.is_empty() {
+            return Ok(());
+        }
+        let parent =
+            parent.ok_or("A slice fulfils its goal's assertions, so it sits under the goal")?;
+        let goal = self.goal_card(self.card(parent)?);
+        let kept = &self.card(goal)?.goal;
+        match asserts.iter().find(|id| kept.assertion(**id).is_none()) {
+            Some(id) => Err(format!("Goal #{goal} has no assertion #{id} that stands")),
+            None => Ok(()),
+        }
+    }
+
+    /// The goal `card` sits under: the card at the top above it, or itself.
+    fn goal_card(&self, card: &Card) -> u64 {
+        let mut top = card;
+        for _ in 0..self.cards.len() {
+            match top.parent.and_then(|parent| self.card(parent).ok()) {
+                Some(parent) => top = parent,
+                None => break,
+            }
+        }
+        top.id
     }
 
     fn card_mut(&mut self, id: u64) -> Result<&mut Card, String> {
@@ -644,6 +674,8 @@ struct Adding {
     details: String,
     acceptance: String,
     promise: Option<String>,
+    /// The goal's assertions it fulfils, as a slice.
+    asserts: Vec<u64>,
     parent: Option<u64>,
     depends_on: Vec<u64>,
     ticket: Option<Ticket>,
@@ -662,6 +694,7 @@ impl Adding {
             details: optional_text(params, "details")?.unwrap_or_default(),
             acceptance: optional_text(params, "acceptance")?.unwrap_or_default(),
             promise: promise_param(params)?,
+            asserts: assertion_ids(params)?.unwrap_or_default(),
             parent: optional_id(params.get("parent"), "parent")?.flatten(),
             depends_on: match params.get("dependsOn") {
                 None | Some(Value::Null) => Vec::new(),
@@ -671,6 +704,36 @@ impl Adding {
             trigger: None,
         })
     }
+}
+
+/// The goal's assertions a slice fulfils, as `asserts` names them.
+fn assertion_ids(params: &Value) -> Result<Option<Vec<u64>>, String> {
+    let wrong = || "asserts must be a list of the goal's assertion numbers".to_owned();
+    match params.get("asserts") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(ids)) => {
+            let ids: Vec<u64> = ids
+                .iter()
+                .map(|id| id.as_u64().filter(|id| *id > 0).ok_or_else(wrong))
+                .collect::<Result<_, _>>()?;
+            distinct_ids(ids).map(Some)
+        }
+        Some(_) => Err(wrong()),
+    }
+}
+
+/// Each of `ids` once, in their order, at most as many as a card waits on.
+fn distinct_ids(ids: Vec<u64>) -> Result<Vec<u64>, String> {
+    let mut kept = Vec::new();
+    for id in ids {
+        if !kept.contains(&id) {
+            kept.push(id);
+        }
+    }
+    if kept.len() > MAX_DEPENDS {
+        return Err(format!("A slice fulfils at most {MAX_DEPENDS} assertions"));
+    }
+    Ok(kept)
 }
 
 fn promise_param(params: &Value) -> Result<Option<String>, String> {
@@ -688,6 +751,7 @@ struct Changes {
     details: Option<String>,
     acceptance: Option<String>,
     promise: Option<String>,
+    asserts: Option<Vec<u64>>,
     status: Option<Status>,
     result: Option<String>,
     depends_on: Option<Vec<u64>>,
@@ -707,6 +771,7 @@ impl Changes {
             details: optional_text(params, "details")?,
             acceptance: optional_text(params, "acceptance")?,
             promise: promise_param(params)?,
+            asserts: assertion_ids(params)?,
             status: match params.get("status") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(status)) => Some(Status::parse(status)?),
@@ -727,6 +792,7 @@ impl Changes {
             && self.details.is_none()
             && self.acceptance.is_none()
             && self.promise.is_none()
+            && self.asserts.is_none()
             && self.status.is_none()
             && self.result.is_none()
             && self.depends_on.is_none()
@@ -995,6 +1061,9 @@ pub struct CardView {
     pub rules: Vec<GoalRule>,
     /// Its ticket or trigger arriving again while it was open, oldest first.
     pub arrivals: Vec<arrival::Arrival>,
+    /// For a goal, what must hold once its slices are done, oldest first,
+    /// retired ones too.
+    pub assertions: Vec<Assertion>,
     pub at: u64,
     pub updated_at: u64,
 }
@@ -1088,6 +1157,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         decisions: card.goal.decisions(),
         rules: card.goal.rules(),
         arrivals: card.arrivals.clone(),
+        assertions: card.goal.assertions().to_vec(),
         at: card.at,
         updated_at: card.updated_at,
     }
@@ -1149,6 +1219,13 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if let Some(slice) = &card.slice {
         slice.list_into(fields);
     }
+    let assertions: Vec<Value> = (card.goal.assertions().iter())
+        .filter(|assertion| assertion.retired.is_none())
+        .map(|assertion| json!({ "assertion": assertion.id, "text": text(&assertion.text), "evidence": assertion.evidence }))
+        .collect();
+    if !assertions.is_empty() {
+        fields.insert("assertions".into(), assertions.into());
+    }
     if let Some(ticket) = &card.ticket {
         let mut label = ticket.key.clone();
         if let Some(source) = &ticket.source {
@@ -1188,6 +1265,42 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     view
 }
 
+/// A card added as `adding` asks, by `maker`, or the person or Sikemux when none.
+fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card {
+    let now = epoch_ms();
+    let slice = adding.promise.map(|promise| {
+        let mut slice = slice::Slice::new(promise, Vec::new(), None);
+        slice.asserts = adding.asserts;
+        slice
+    });
+    Card {
+        id,
+        title: adding.title,
+        details: adding.details,
+        acceptance: adding.acceptance,
+        status: Status::Open,
+        owner: None,
+        parent: adding.parent,
+        depends_on: adding.depends_on,
+        created_by: maker.map(|agent| Maker {
+            name: Some(name_of(core, &agent)),
+            id: agent,
+        }),
+        team: None,
+        result: None,
+        ticket: adding.ticket,
+        trigger: adding.trigger,
+        arrivals: Vec::new(),
+        auto: None,
+        recordings: Vec::new(),
+        slice,
+        goal: goal::Goal::default(),
+        at: now,
+        updated_at: now,
+        acted_at: now,
+    }
+}
+
 fn add_card(
     core: &Arc<Core>,
     project: &str,
@@ -1224,41 +1337,17 @@ fn add_card(
     }
     board.check_parent(None, adding.parent)?;
     board.check_depends(None, &adding.depends_on)?;
-    let now = epoch_ms();
+    if !adding.asserts.is_empty() && adding.promise.is_none() {
+        return Err("A slice fulfils assertions; give the card a promise too".into());
+    }
+    board.check_asserts(adding.parent, &adding.asserts)?;
     let id = board.next.max(1);
     board.next = id + 1;
     let maker = match by {
         By::Person | By::Auto(_) => None,
         By::Agent(agent) => Some(agent.clone()),
     };
-    let mut card = Card {
-        id,
-        title: adding.title,
-        details: adding.details,
-        acceptance: adding.acceptance,
-        status: Status::Open,
-        owner: None,
-        parent: adding.parent,
-        depends_on: adding.depends_on,
-        created_by: maker.map(|agent| Maker {
-            name: Some(name_of(core, &agent)),
-            id: agent,
-        }),
-        team: None,
-        result: None,
-        ticket: adding.ticket,
-        trigger: adding.trigger,
-        arrivals: Vec::new(),
-        auto: None,
-        recordings: Vec::new(),
-        slice: adding
-            .promise
-            .map(|promise| slice::Slice::new(promise, Vec::new(), None)),
-        goal: goal::Goal::default(),
-        at: now,
-        updated_at: now,
-        acted_at: now,
-    };
+    let mut card = new_card(core, id, adding, maker);
     let mut note = None;
     if let (true, By::Agent(agent)) = (claim, by) {
         if board.waits_on(&card).is_empty() {
@@ -1296,6 +1385,7 @@ pub(crate) fn add_for_trigger(
         details: details.to_owned(),
         acceptance: String::new(),
         promise: None,
+        asserts: Vec::new(),
         parent: None,
         depends_on: Vec::new(),
         ticket: None,
@@ -1382,9 +1472,9 @@ fn change_card(
     };
     let (view, notices, later) = {
         let mut state = core.boards.state.locked();
-        let changed = change_in(core, &mut state, project, by, id, changes, &seen)?;
+        let changed = change_in(core, &mut state, project, by, id, changes, &seen);
         core.boards.save(&mut state, project);
-        changed
+        changed?
     };
     later.run(core);
     Ok((view, notices))
@@ -1435,6 +1525,19 @@ fn change_in(
     if let Some(depends_on) = &changes.depends_on {
         board.check_depends(Some(id), depends_on)?;
     }
+    if let Some(asserts) = &changes.asserts {
+        if before.slice.is_none() && changes.promise.is_none() {
+            return Err("A slice fulfils assertions; give the card a promise too".into());
+        }
+        board.check_asserts(changes.parent.unwrap_or(before.parent), asserts)?;
+        let dropped = (before.slice.as_ref())
+            .is_some_and(|slice| slice.asserts.iter().any(|id| !asserts.contains(id)));
+        if matches!(by, By::Agent(_)) && before.status != Status::Open && dropped {
+            return Err(format!(
+                "#{id} has started, so only the person takes an assertion off it"
+            ));
+        }
+    }
     if let Some(parent) = changes.parent {
         board.check_parent(Some(id), parent)?;
         if parent.is_some() && !before.goal.is_none() {
@@ -1451,12 +1554,24 @@ fn change_in(
     let mut pending = None;
     let mut later = slice::Later::default();
     if let (Some(Status::Done), By::Agent(agent), Some(slice)) = (status, by, card.slice.as_mut()) {
-        if let slice::Said::Pending { note, recheck } =
-            slice.say_done(&label, seen.checking, confirmed)?
-        {
-            pending = Some(note);
-            if let Some(sha) = recheck {
-                later = slice::Later::recheck(project, sha, agent);
+        match slice.say_done(&label, seen.checking, confirmed) {
+            Ok(slice::Said::Pending { note, recheck }) => {
+                pending = Some(note);
+                if let Some(sha) = recheck {
+                    later = slice::Later::recheck(project, sha, agent);
+                }
+            }
+            Ok(slice::Said::Ready) => {}
+            Err(refused) => {
+                let fixed = (refused.failed.as_deref())
+                    .and_then(|sha| slice::file_fix(core, board, id, sha))
+                    .unwrap_or_else(|| {
+                        "Mend it with a commit, then mark it done again.".to_owned()
+                    });
+                return Err(match refused.failed {
+                    Some(_) => format!("{}\n\n{fixed}", refused.text),
+                    None => refused.text,
+                });
             }
         }
         status = None;
@@ -1484,6 +1599,9 @@ fn change_in(
                 card.slice = Some(slice::Slice::new(promise, recordings, card.owner_id()));
             }
         }
+    }
+    if let (Some(asserts), Some(slice)) = (changes.asserts, &mut card.slice) {
+        slice.asserts = asserts;
     }
     if let Some(result) = changes.result {
         card.result = (!result.is_empty()).then_some(result);
@@ -2077,26 +2195,42 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
 
 /// Keeps a browser recording on the card the agent works: as evidence on a
 /// slice, else among the card's recordings.
-pub(crate) fn attach_recording(core: &Core, agent_id: &str, recording: InboxRecording) {
-    let mut state = core.boards.state.locked();
-    let Some((project, card)) = held_card(&mut state, agent_id) else {
-        return;
-    };
-    match slice::picture(card, agent_id, &recording) {
-        Some(true) => {
-            let project = project.clone();
-            core.boards.save(&mut state, &project);
+pub(crate) fn attach_recording(core: &Arc<Core>, agent_id: &str, recording: InboxRecording) {
+    let found = {
+        let mut state = core.boards.state.locked();
+        let Some((project, id)) =
+            held_card(&mut state, agent_id).map(|(project, card)| (project.clone(), card.id))
+        else {
             return;
+        };
+        let Some(board) = state.boards.get_mut(&project) else {
+            return;
+        };
+        let Some(ids) = board
+            .card(id)
+            .ok()
+            .map(|card| slice::asserted_by(board, card, Collect::Recording))
+        else {
+            return;
+        };
+        let Ok(card) = board.card_mut(id) else {
+            return;
+        };
+        let kept = slice::picture(card, agent_id, &recording, &ids);
+        if kept.is_none() {
+            if card.recordings.len() >= MAX_RECORDINGS {
+                card.recordings.remove(0);
+            }
+            card.recordings.push(recording);
         }
-        Some(false) => return,
-        None => {}
+        if kept != Some(false) {
+            core.boards.save(&mut state, &project);
+        }
+        (kept == Some(true) && !ids.is_empty()).then_some((project, id))
+    };
+    if let Some((project, id)) = found {
+        slice::moved_by_evidence(core, &project, id, |_| {});
     }
-    if card.recordings.len() >= MAX_RECORDINGS {
-        card.recordings.remove(0);
-    }
-    card.recordings.push(recording);
-    let project = project.clone();
-    core.boards.save(&mut state, &project);
 }
 
 /// The goal a card sits under: the top card above it, or itself.
@@ -2182,6 +2316,9 @@ pub struct AddParams {
     /// One sentence saying what it changes, which makes it a slice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promise: Option<String>,
+    /// The goal's assertions it fulfils, as a slice.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asserts: Vec<u64>,
     /// The card it goes under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<u64>,
@@ -2199,6 +2336,7 @@ impl AddParams {
             details: given_text("details", self.details)?.unwrap_or_default(),
             acceptance: given_text("acceptance", self.acceptance)?.unwrap_or_default(),
             promise: self.promise.as_deref().map(slice::promise_of).transpose()?,
+            asserts: distinct_ids(self.asserts)?,
             parent: self.parent.filter(|id| *id > 0),
             depends_on: distinct_cards(self.depends_on, "dependsOn")?,
             ticket: self.ticket.map(TicketParams::ticket).transpose()?,
@@ -2264,6 +2402,10 @@ pub struct UpdateParams {
     /// One sentence saying what it changes, which makes it a slice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub promise: Option<String>,
+    /// The goal's assertions it fulfils, as a slice; the person alone takes
+    /// one off a slice that has started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asserts: Option<Vec<u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<Status>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2283,6 +2425,7 @@ impl UpdateParams {
             details: given_text("details", self.details)?,
             acceptance: given_text("acceptance", self.acceptance)?,
             promise: self.promise.as_deref().map(slice::promise_of).transpose()?,
+            asserts: self.asserts.map(distinct_ids).transpose()?,
             status: self.status,
             result: given_text("result", self.result)?,
             depends_on: self
@@ -2343,6 +2486,7 @@ fn ticket_card(title: &str, details: &str, ticket: Option<TicketParams>) -> Resu
         details: long_text("details", &details)?,
         acceptance: String::new(),
         promise: None,
+        asserts: Vec::new(),
         parent: None,
         depends_on: Vec::new(),
         ticket: ticket.map(TicketParams::ticket).transpose()?,
