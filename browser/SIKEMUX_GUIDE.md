@@ -1126,7 +1126,8 @@ an account that keeps its sessions apart from that one is refused, and the
 person must open it from Recent. Leave out `cli` and `model` unless you mean them; `cli`
 must then be the session's. When an agent already has the session open,
 nothing is reopened: your prompt goes to that agent as a message, as
-`agent_send` sends one, and the answer says `alreadyOpen`.
+`agent_send` sends one, and the answer says `alreadyOpen`. One that has
+stopped starts again on the session first, with its name, team and tab.
 
 ### Who broke this
 

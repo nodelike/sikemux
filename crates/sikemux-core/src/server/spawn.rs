@@ -21,6 +21,7 @@ use super::chat;
 use super::connection::blocking;
 use super::follow::{self, TerminalAnswer};
 use super::hosts::spawn::{self as elsewhere, Hired};
+use super::launching;
 use super::messages;
 use super::names::{Adopted, AgentName, Worker};
 use super::saved::{self, Saved};
@@ -513,7 +514,8 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
 }
 
 /// Hands the prompt to the agent that already has the session open, as
-/// `agent_send` would, rather than opening a second copy of it.
+/// `agent_send` would, rather than opening a second copy of it. One that has
+/// stopped starts again on the session first, keeping its name, team and tab.
 async fn send_to_open(
     core: &Arc<Core>,
     request: &HarnessRequest,
@@ -522,17 +524,44 @@ async fn send_to_open(
     name: Option<&str>,
     prompt: String,
 ) -> Result<Value, String> {
+    let name = name.unwrap_or(agent_id);
+    let stopped = {
+        let (core, agent_id) = (core.clone(), agent_id.to_owned());
+        blocking(move || {
+            Ok(messages::listed(&core)
+                .iter()
+                .any(|agent| agent.agent_id == agent_id && agent.reach == messages::Reach::Stopped))
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    };
+    if stopped {
+        launching::wake(core, agent_id.to_owned())
+            .await
+            .map_err(|error| {
+                format!(
+                    "{name} has \"{}\" open but did not start again: {error}",
+                    saved.title
+                )
+            })?;
+    }
     let mut message = request.clone();
     message.params = json!({ "to": agent_id, "text": prompt });
     let sent = messages::send(core, &message).await?;
-    let name = name.unwrap_or(agent_id);
+    let title = &saved.title;
+    let opened = match stopped {
+        true => {
+            format!("had \"{title}\" open and had stopped, so Sikemux started it again there and")
+        }
+        false => format!("already has \"{title}\" open, so"),
+    };
     Ok(json!({
         "name": name,
         "agentId": agent_id,
         "cli": saved.cli,
         "alreadyOpen": true,
         "sent": sent,
-        "note": format!("{name} already has \"{}\" open, so your prompt went to it as a message, as agent_send sends one.", saved.title),
+        "note": format!("{name} {opened} your prompt went to it as a message, as agent_send sends one."),
     }))
 }
 
