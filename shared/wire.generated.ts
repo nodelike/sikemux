@@ -685,7 +685,10 @@ export interface InboxCard {
     title: string;
 }
 
-/** A step a slice passes on its way to done, in the order a ladder lists them. */
+/**
+ * A step a slice passes on its way to done. A slice's ladder lists them in
+ * the order it passes them.
+ */
 export type Gate = "built" | "looksRight" | "landed";
 
 /** What an agent left when its turn ended, for whoever picks it up. */
@@ -2246,7 +2249,10 @@ export type Proof =
           feed: string | null;
           turn: number | null;
       }
-    /** A change between two commits. */
+    /**
+     * The change from `base` to `head`, which are the ends of a run of the
+     * slice's own commits with nobody else's between them.
+     */
     | {
           kind: "diff";
           base: string;

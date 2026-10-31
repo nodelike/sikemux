@@ -5,15 +5,16 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A step a slice passes on its way to done, in the order a ladder lists them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// A step a slice passes on its way to done. A slice's ladder lists them in
+/// the order it passes them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Gate {
     /// Its owner says it is done, and the project's check passed on its latest commit.
     Built,
     /// The person looked at its evidence and it looks right.
     LooksRight,
-    /// Its commits are on the goal's branch.
+    /// Its commits are on the project's branch.
     Landed,
 }
 
@@ -62,7 +63,7 @@ pub struct GateView {
 pub enum Need {
     /// The project's check to pass on the slice's latest commit.
     PassingCheck,
-    /// The slice's commits to be on the goal's branch.
+    /// The slice's commits to be on the project's branch.
     OnBranch,
 }
 
@@ -105,7 +106,8 @@ pub enum Proof {
         feed: Option<String>,
         turn: Option<u64>,
     },
-    /// A change between two commits.
+    /// The change from `base` to `head`, which are the ends of a run of the
+    /// slice's own commits with nobody else's between them.
     Diff {
         base: String,
         head: String,
