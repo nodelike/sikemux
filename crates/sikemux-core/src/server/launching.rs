@@ -191,6 +191,7 @@ async fn launch_terminal(
         agent.terminal = true;
         agent.asleep = false;
     })?;
+    core.workspaces.woke(agent_id);
     Ok(id)
 }
 

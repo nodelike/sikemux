@@ -113,6 +113,10 @@ pub(crate) struct Kept {
     /// which it wakes with again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<PathBuf>,
+    /// It was put to sleep as the person stopped everything, so only the
+    /// person opening or messaging it wakes it, never mail waiting for it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub held: bool,
 }
 
 /// What survives a restart of the core.
@@ -662,6 +666,7 @@ impl Workspaces {
                     account: None,
                     fallbacks: Vec::new(),
                     program: None,
+                    held: false,
                 }),
             }
             Ok(agent)
@@ -729,6 +734,34 @@ impl Workspaces {
             Ok(true)
         })
         .unwrap_or(false)
+    }
+
+    /// Holds every agent asleep until the person opens or messages it, as
+    /// the person stops everything.
+    pub(crate) fn hold_all(&self) {
+        let _ = self.change(|saved| {
+            for kept in &mut saved.agents {
+                kept.held = true;
+            }
+            Ok(())
+        });
+    }
+
+    /// Whether the agent waits for the person to open or message it.
+    pub(crate) fn held(&self, agent_id: &str) -> bool {
+        (self.published.locked().saved.kept(agent_id)).is_some_and(|kept| kept.held)
+    }
+
+    /// The agent started, so mail waiting for it wakes it again when it sleeps.
+    pub(crate) fn woke(&self, agent_id: &str) {
+        if self.held(agent_id) {
+            let _ = self.change(|saved| {
+                if let Some(kept) = saved.kept_mut(agent_id) {
+                    kept.held = false;
+                }
+                Ok(())
+            });
+        }
     }
 
     pub(crate) fn set_asleep(&self, agent_id: &str, asleep: bool) {
@@ -818,6 +851,7 @@ impl Workspaces {
                     Ok(())
                 });
             }
+            self.woke(&known.id);
             return self.note_program(chat);
         }
         let lead = chat
