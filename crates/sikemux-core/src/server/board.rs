@@ -2273,11 +2273,7 @@ pub(crate) fn run_by_auto(core: &Core, agent_id: &str) -> bool {
             .boards
             .values()
             .flat_map(|board| &board.cards)
-            .any(|card| {
-                card.auto
-                    .as_ref()
-                    .is_some_and(|run| run.agent == agent_id)
-            })
+            .any(|card| card.auto.as_ref().is_some_and(|run| run.agent == agent_id))
 }
 
 /// A reviewer Auto started gives its verdict on the change it reviews.
