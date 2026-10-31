@@ -820,6 +820,17 @@ impl Collisions {
         self.wake.now();
     }
 
+    /// The code-host repositories whose CI a project's check waits on, which the
+    /// CI watch keeps checking.
+    pub(crate) fn waiting_on_ci(&self) -> Vec<crate::server::codehost::ci::Shown> {
+        self.state.locked().checks.ci_repos()
+    }
+
+    /// The runs on `repo` moved, so the checks waiting on its CI look again now.
+    pub(crate) fn ci_moved(&self, repo: &crate::server::codehost::ci::Shown) {
+        self.state.locked().checks.ci_moved(repo);
+    }
+
     /// The pairs of agents that keep colliding.
     pub(crate) fn pairs(&self) -> Vec<Pair> {
         let state = self.state.locked();
@@ -879,7 +890,7 @@ impl Collisions {
             if before.is_some_and(|before| before != at) {
                 core.harness.note_repository(&project, "git.moved");
             }
-            if crate::server::board::check_command(&core, &project).is_none() {
+            if crate::server::board::project_check(&core, &project).is_none() {
                 return;
             }
             let Ok(head) = edits::git(&dir, &["log", "-1", "--format=%H%x00%s"]) else {

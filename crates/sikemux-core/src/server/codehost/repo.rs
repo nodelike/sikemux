@@ -381,8 +381,8 @@ pub(crate) async fn branch_pull(repo: &Repo, branch: &str) -> Result<Option<Proj
     };
     let pull = pull_of(repo, found)?;
     let checks = match text(found, "headSha") {
-        Some(sha) => match checks_on(repo, branch, &sha).await? {
-            Checks::None => None,
+        Some(sha) => match commit_checks(repo, Some(branch), &sha, &[]).await? {
+            Checks::None | Checks::Stopped(_) => None,
             Checks::Running => Some(PullChecks::Pending),
             Checks::Passed => Some(PullChecks::Passing),
             Checks::Failed(_) => Some(PullChecks::Failing),
@@ -461,6 +461,10 @@ pub(crate) async fn open(
         .unwrap_or_else(|| Err(error.into()))
 }
 
+/// How long a pushed commit may go without any CI run before it counts as
+/// never checked.
+pub(crate) const CI_START_WAIT_MS: u64 = 3 * 60 * 1000;
+
 pub(crate) enum Checks {
     /// Nothing has run on the commit yet.
     None,
@@ -468,58 +472,81 @@ pub(crate) enum Checks {
     Passed,
     /// What failed, a line each.
     Failed(String),
+    /// A run was cancelled or ended in a way that says nothing of the change,
+    /// a line each.
+    Stopped(String),
 }
 
-/// How the CI runs on `sha` went.
+/// How the CI runs on `sha` of `pull`'s repository went.
 pub(crate) async fn checks(
     core: &Core,
     pull: &Pull,
     branch: &str,
     sha: &str,
 ) -> Result<Checks, String> {
-    checks_on(&pull.repo(core)?, branch, sha).await
+    commit_checks(&pull.repo(core)?, Some(branch), sha, &[]).await
 }
 
-async fn checks_on(repo: &Repo, branch: &str, sha: &str) -> Result<Checks, String> {
+/// How the CI runs on `sha` went, the one way a code host's checks on a commit
+/// are read: only the `workflows` named count when any are, and until each of
+/// those has run, nothing has.
+pub(crate) async fn commit_checks(
+    repo: &Repo,
+    branch: Option<&str>,
+    sha: &str,
+    workflows: &[String],
+) -> Result<Checks, String> {
     let page = repo
         .call(
             "runs",
             json!({ "headSha": sha, "branch": branch, "perPage": 50 }),
         )
         .await?;
+    let named = |run: &&Value| {
+        workflows.is_empty() || text(run, "name").is_some_and(|name| workflows.contains(&name))
+    };
     let runs: Vec<&Value> = page["runs"]
         .as_array()
         .into_iter()
         .flatten()
         .filter(|run| run["sha"].as_str() == Some(sha))
+        .filter(named)
         .collect();
-    if runs.is_empty() {
-        return Ok(Checks::None);
-    }
     if runs
         .iter()
         .any(|run| run["status"].as_str() != Some("completed"))
     {
         return Ok(Checks::Running);
     }
-    let failed: Vec<String> = runs
-        .iter()
-        .filter(|run| run["conclusion"].as_str().map(Conclusion::of) != Some(Conclusion::Passed))
-        .map(|run| {
-            format!(
-                "{}: {} {}",
-                text(run, "name").unwrap_or_else(|| "a check".to_owned()),
-                text(run, "conclusion").unwrap_or_else(|| "failed".to_owned()),
-                text(run, "url").unwrap_or_default()
-            )
-            .trim_end()
-            .to_owned()
-        })
-        .collect();
-    Ok(if failed.is_empty() {
-        Checks::Passed
-    } else {
+    let all_ran = workflows.iter().all(|workflow| {
+        runs.iter()
+            .any(|run| text(run, "name").as_ref() == Some(workflow))
+    });
+    if runs.is_empty() || !all_ran {
+        return Ok(Checks::None);
+    }
+    let ended = |wanted: Conclusion| -> Vec<String> {
+        runs.iter()
+            .filter(|run| run["conclusion"].as_str().map(Conclusion::of) == Some(wanted))
+            .map(|run| {
+                format!(
+                    "{}: {} {}",
+                    text(run, "name").unwrap_or_else(|| "a check".to_owned()),
+                    text(run, "conclusion").unwrap_or_else(|| "failed".to_owned()),
+                    text(run, "url").unwrap_or_default()
+                )
+                .trim_end()
+                .to_owned()
+            })
+            .collect()
+    };
+    let (failed, stopped) = (ended(Conclusion::Failed), ended(Conclusion::Stopped));
+    Ok(if !failed.is_empty() {
         Checks::Failed(failed.join("\n"))
+    } else if !stopped.is_empty() {
+        Checks::Stopped(stopped.join("\n"))
+    } else {
+        Checks::Passed
     })
 }
 

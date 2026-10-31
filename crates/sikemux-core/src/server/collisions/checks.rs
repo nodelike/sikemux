@@ -2,9 +2,10 @@
 //! integration checkout, apart from the work in progress in everyone's own
 //! trees, once the files it generates are brought up to date. A failure goes to the agents whose commits it failed after, at
 //! once, and to the person once the project has stayed broken a while. It is
-//! the board's check command; a project without one is not checked. Commits
-//! that land while a check runs are checked together, at the newest, once it
-//! ends.
+//! the board's check; a project without one is not checked. Commits that land
+//! while a check runs are checked together, at the newest, once it ends. A
+//! project whose check is its CI is not built here: the code host's runs on the
+//! commit, once pushed, give the verdict.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -14,10 +15,15 @@ use serde::Serialize;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
+use tokio::sync::Notify;
+
 use super::{tell, State};
 use crate::git::Git;
+use crate::server::codehost::ci::Shown;
+use crate::server::codehost::repo::{self as codehost, Checks as CiChecks, CI_START_WAIT_MS};
 use crate::server::repo_events::RepoEvent;
 use crate::server::Core;
+use crate::tasks::config::ProjectCheck;
 use sikemux_wire::slice::{CheckRun, Verdict};
 
 /// Checks running at once, across projects.
@@ -27,6 +33,8 @@ const MAX_RUNNING: usize = 2;
 pub(super) const PERSON_AFTER_MS: u64 = 15 * 60_000;
 /// Commits kept as checked per project, so the same one is not run twice.
 const MAX_CHECKED: usize = 64;
+/// How often a commit waiting on CI is looked at when nothing says its runs moved.
+const CI_LOOK: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Clone)]
 pub(super) struct Commit {
@@ -45,6 +53,9 @@ pub(super) struct Checks {
     checked: HashMap<String, Vec<String>>,
     /// The broken projects the person was told of.
     shown: HashSet<String>,
+    /// The code-host repository each project's CI check waits on, and what
+    /// wakes that wait when its runs move.
+    ci: HashMap<String, (Shown, Arc<Notify>)>,
 }
 
 /// A project whose check has failed after its latest commits.
@@ -99,6 +110,20 @@ impl Checks {
         }
     }
 
+    /// The code-host repositories CI checks wait on.
+    pub(super) fn ci_repos(&self) -> Vec<Shown> {
+        self.ci.values().map(|(repo, _)| repo.clone()).collect()
+    }
+
+    /// The runs on `repo` moved, so the CI checks waiting on it look again.
+    pub(super) fn ci_moved(&self, repo: &Shown) {
+        for (watched, wake) in self.ci.values() {
+            if watched == repo {
+                wake.notify_one();
+            }
+        }
+    }
+
     /// The projects broken long enough that the person should hear of it.
     pub(super) fn failing(&self) -> impl Iterator<Item = &Failing> {
         let now = epoch_ms();
@@ -117,7 +142,7 @@ impl Checks {
             .cloned()
             .collect();
         for project in ready {
-            if self.running.len() >= MAX_RUNNING {
+            if self.running.len().saturating_sub(self.ci.len()) >= MAX_RUNNING {
                 break;
             }
             if let Some((dir, commits)) = self.waiting.remove(&project) {
@@ -144,9 +169,16 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
         state.publish = true;
     }
     for (project, dir, commits) in state.checks.startable() {
-        let Some(command) = crate::server::board::check_command(core, &project) else {
-            state.checks.running.remove(&project);
-            continue;
+        let command = match crate::server::board::project_check(core, &project) {
+            Some(ProjectCheck::Command(command)) => command,
+            Some(ProjectCheck::Ci { ci }) => {
+                tokio::spawn(wait_for_ci(core.clone(), project, dir, commits, ci));
+                continue;
+            }
+            None => {
+                state.checks.running.remove(&project);
+                continue;
+            }
         };
         let core = core.clone();
         tokio::spawn(async move {
@@ -223,6 +255,111 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
             };
             ended(&core, &project, &command, &commits, outcome);
         });
+    }
+}
+
+/// Waits for the code host's CI to rule on the newest of `commits`, taking in
+/// the project's commits that come meanwhile: once that commit is pushed,
+/// every workflow named must pass. A commit nobody pushes waits for it; one no
+/// run starts on, or whose runs were cancelled, ends with no verdict.
+async fn wait_for_ci(
+    core: Arc<Core>,
+    project: String,
+    dir: PathBuf,
+    mut commits: Vec<Commit>,
+    workflows: Vec<String>,
+) {
+    let label = ProjectCheck::Ci {
+        ci: workflows.clone(),
+    }
+    .label();
+    let repo = match codehost::of_project(&core, &project).await {
+        Ok(repo) => repo,
+        Err(error) => {
+            let why = format!("its CI can't be read: {}", String::from(error));
+            ended(&core, &project, &label, &commits, Err(why));
+            return;
+        }
+    };
+    let wake = Arc::new(Notify::new());
+    core.collisions
+        .state
+        .locked()
+        .checks
+        .ci
+        .insert(project.clone(), (repo.watched(), wake.clone()));
+    crate::server::codehost::ci::start(&core);
+    let mut pushed_since: Option<(String, u64)> = None;
+    let (held, later, outcome) = loop {
+        {
+            let mut state = core.collisions.state.locked();
+            if let Some((_, more)) = state.checks.waiting.remove(&project) {
+                commits.extend(more);
+            }
+            let over = commits.len().saturating_sub(MAX_CHECKED);
+            commits.drain(..over);
+            let shas = commits.iter().map(|commit| commit.sha.clone()).collect();
+            state.checks.running.insert(project.clone(), shas);
+        }
+        let (ordering, all) = (dir.clone(), commits.clone());
+        let (held, later) = tokio::task::spawn_blocking(move || newest_with(&ordering, all))
+            .await
+            .unwrap_or_default();
+        let Some(newest) = held.last().map(|commit| commit.sha.clone()) else {
+            break (held, later, None);
+        };
+        let (at, sha) = (dir.clone(), newest.clone());
+        let pushed = tokio::task::spawn_blocking(move || crate::git::pushed(&at, &sha))
+            .await
+            .unwrap_or(false);
+        if pushed {
+            let since = match &pushed_since {
+                Some((sha, since)) if *sha == newest => *since,
+                _ => {
+                    pushed_since = Some((newest.clone(), epoch_ms()));
+                    epoch_ms()
+                }
+            };
+            let ruled = match codehost::commit_checks(&repo, None, &newest, &workflows).await {
+                Ok(CiChecks::Passed) => Some(Ok((true, format!("{label} passed on {newest}")))),
+                Ok(CiChecks::Failed(what)) => Some(Ok((false, what))),
+                Ok(CiChecks::Stopped(why)) => Some(Err(format!(
+                    "its CI runs were cancelled or ended without a verdict:\n{why}"
+                ))),
+                Ok(CiChecks::None) if epoch_ms().saturating_sub(since) >= CI_START_WAIT_MS => Some(
+                    Err(format!("no run of {} started on it", workflows.join(", "))),
+                ),
+                Ok(CiChecks::None | CiChecks::Running) | Err(_) => None,
+            };
+            if let Some(outcome) = ruled {
+                break (held, later, Some(outcome));
+            }
+        }
+        tokio::select! {
+            () = wake.notified() => {}
+            () = tokio::time::sleep(CI_LOOK) => {}
+        }
+    };
+    core.collisions.state.locked().checks.ci.remove(&project);
+    match outcome {
+        Some(outcome) => ended(&core, &project, &label, &held, outcome),
+        None => {
+            core.collisions
+                .state
+                .locked()
+                .checks
+                .running
+                .remove(&project);
+            core.collisions.wake.now();
+        }
+    }
+    if !later.is_empty() {
+        core.collisions
+            .state
+            .locked()
+            .checks
+            .wait_again(project, dir, later);
+        core.collisions.wake.now();
     }
 }
 
@@ -322,7 +459,7 @@ fn ended(
                 &mut state,
                 agent,
                 format!(
-                    "The project's check (`{command}`) failed on {}, built as committed, after your commit {}. Only committed code was built, so the failure is in what the branch holds now: mend it with a commit.\n\n{output}",
+                    "The project's check, {command}, failed on {} after your commit {}. It checked only what was committed, so the failure is in what the branch holds now: mend it with a commit.\n\n{output}",
                     newest.get(..7).unwrap_or(newest),
                     yours.join(", ")
                 ),

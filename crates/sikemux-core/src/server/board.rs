@@ -15,6 +15,7 @@ use sikemux_process::sync::Locked;
 
 use super::changed::Topic;
 use crate::cli::protocol::HarnessRequest;
+use crate::tasks::config::ProjectCheck;
 use crate::text::clipped;
 
 use super::connection::blocking;
@@ -1362,7 +1363,7 @@ fn change_card(
     }
     let seen = match (by, changes.status) {
         (By::Agent(_), Some(Status::Done)) => {
-            slice::seen(core, project, id, check_command(core, project).is_some())
+            slice::seen(core, project, id, project_check(core, project).as_ref())
         }
         _ => slice::Seen::unread(),
     };
@@ -1438,7 +1439,7 @@ fn change_in(
     let mut later = slice::Later::default();
     if let (Some(Status::Done), By::Agent(agent), Some(slice)) = (status, by, card.slice.as_mut()) {
         if let slice::Said::Pending { note, recheck } =
-            slice.say_done(&label, seen.has_check, confirmed)?
+            slice.say_done(&label, seen.checking, confirmed)?
         {
             pending = Some(note);
             if let Some(sha) = recheck {
@@ -2525,17 +2526,17 @@ pub(crate) async fn person_settings(
     .map_err(|error| error.to_string())
 }
 
-/// The command that proves a change sound in `project`: the `check` its
-/// `sikemux.json` names, once the person trusts that file.
-pub(crate) fn check_command(core: &Core, project: &str) -> Option<String> {
+/// What proves a change sound in `project`: the `check` its `sikemux.json`
+/// names, once the person trusts that file.
+pub(crate) fn project_check(core: &Core, project: &str) -> Option<ProjectCheck> {
     let load = crate::tasks::config::load(Path::new(project));
     let crate::tasks::config::ConfigLoad::Valid { config, .. } = &load else {
         return None;
     };
-    let command = config.check.clone()?;
+    let check = config.check.clone()?;
     crate::server::tasks::config_needs(core, &load)
         .is_none()
-        .then_some(command)
+        .then_some(check)
 }
 
 /// Runs the project's check command in `dir`: whether it passed, and the end

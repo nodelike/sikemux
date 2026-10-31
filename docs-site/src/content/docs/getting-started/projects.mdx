@@ -70,6 +70,22 @@ Processes go in its `tasks` list. Agents can start, read and stop them too. They
 
 `planFirst` lists paths, such as `"planFirst": ["server/**", "db/schema.sql"]`, whose change Sikemux suggests planning before it starts, when what you type names one. Migrations folders, `.proto` and OpenAPI files, a top-level `server/` or `api/`, and UI folders such as `components/` count in every project without it.
 
+### The project's check
+
+`check` says what proves the project's work sound, which a board slice needs before it passes **Built**. Give it a command, which Sikemux runs on each commit on the project's branch, as committed:
+
+```json
+{ "version": 1, "check": "pnpm check" }
+```
+
+Or name the CI workflows that count, when the project's CI is its check:
+
+```json
+{ "version": 1, "check": { "ci": ["CI"] } }
+```
+
+Sikemux then reads the code host's runs on the agent's commit instead of building it, so the commit has to be pushed: an agent whose commit isn't is told to push it, and the slice waits until it does. Every workflow named has to pass on that commit. A run that is cancelled, or that doesn't start within a few minutes of the push, counts as no verdict, so the agent marks the card done again to have it checked.
+
 ## Quitting
 
 Terminals, agents and processes keep running when you quit, and come back where they were. **Quit and Stop Everything** (`⌥⌘Q`) ends them, and Sikemux stays stopped. Chats stay open asleep, each on its saved conversation with its name and tab, and start again only when you open or write to one: messages from agents and triggers wait for it until then. A turn they were in shows as stopped. Sikemux's window says it is stopped, with **Start Sikemux**, and nothing starts it again until you press that or start it another way. If Sikemux ever stops answering, its window says so, with **Restart Sikemux**: that ends it and starts it again. Terminals end; chats pick up where they were.

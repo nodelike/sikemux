@@ -270,6 +270,13 @@ pub fn origin(repo: &std::path::Path) -> Option<String> {
         .filter(|url| !url.is_empty())
 }
 
+/// Whether a branch on a remote holds `sha`, as `repo` last heard.
+pub fn pushed(repo: &std::path::Path, sha: &str) -> bool {
+    Git::quick(repo)
+        .trimmed(&["branch", "--remotes", "--contains", sha])
+        .is_ok_and(|branches| !branches.is_empty())
+}
+
 fn run_git(repo: &str, args: &[&str]) -> Result<(bool, String, String), String> {
     let out = Git::at(repo).output(args)?;
     Ok((

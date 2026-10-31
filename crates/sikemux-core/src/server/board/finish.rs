@@ -14,16 +14,14 @@ use super::auto::{Finish, Hold, Pull, Run, Settings, Stage};
 use super::review::{self, MAX_ROUNDS};
 use super::{blind, change_card, git, send_notices, By, Card, Changes, Status};
 use crate::server::codehost::ci;
-use crate::server::codehost::repo::{self as codehost, Checks, Feedback};
+use crate::server::codehost::repo::{self as codehost, Checks, Feedback, CI_START_WAIT_MS};
 use crate::server::connection::blocking;
 use crate::server::wake::sooner;
 use crate::server::worktree;
 use crate::server::{messages, Core};
+use crate::tasks::config::ProjectCheck;
 use sikemux_wire::slice::Verdict;
 
-/// How long a pushed commit may go without a CI run before Auto takes it
-/// that the project has none.
-const CI_START_WAIT_MS: u64 = 3 * 60 * 1000;
 /// How long a run whose checks could not be read waits before it reads them again.
 const CHECKS_RETRY_MS: u64 = 60_000;
 const REVIEW_EVERY_MS: u64 = 60_000;
@@ -697,14 +695,19 @@ async fn checking(core: &Arc<Core>, step: Step) {
             step.checked(core, PULL_CHECKS, Verdict::Failed, &what);
             failed(core, &step, &what).await
         }
+        Checks::Stopped(why) => step.hold(
+            core,
+            Hold::Unblock,
+            format!("Its checks were cancelled or never started:\n{why}"),
+        ),
         Checks::None if waited < CI_START_WAIT_MS => {
             step.note(core, Stage::Checking, "Waiting for its checks to start");
         }
         Checks::None => {
             let (owner, project) = (core.clone(), step.project.clone());
-            let command = blocking(move || Ok(super::check_command(&owner, &project))).await;
-            match command {
-            Ok(Some(command)) => {
+            let check = blocking(move || Ok(super::project_check(&owner, &project))).await;
+            match check {
+            Ok(Some(ProjectCheck::Command(command))) => {
                 step.note(core, Stage::Checking, &format!("Running {command}"));
                 let (cwd, running) = (step.tree(), command.clone());
                 let checked = blocking(move || git::check(&cwd, &running).map_err(Into::into)).await;
@@ -720,7 +723,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
                     Err(error) => step.hold(core, Hold::Fix, format!("The check command did not run: {error}")),
                 }
             }
-            Ok(None) => step.note(
+            Ok(_) => step.note(
                 core,
                 Stage::Watching,
                 "No CI ran on its pull request and this project has no check command, so it waits for you",

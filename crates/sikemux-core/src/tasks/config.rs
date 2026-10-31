@@ -42,6 +42,8 @@ const HOOK_FIELDS: &[&str] = &["id", "label", "command"];
 const GENERATE_FIELDS: &[&str] = &["command", "outputs"];
 const MAX_OUTPUTS: usize = 50;
 const MAX_PLAN_FIRST: usize = 50;
+const CHECK_FIELDS: &[&str] = &["ci"];
+const MAX_WORKFLOWS: usize = 20;
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
 const MAX_ACTIONS: usize = 100;
 const MAX_TASKS: usize = 100;
@@ -183,6 +185,26 @@ pub struct GenerateConfig {
     pub outputs: Vec<String>,
 }
 
+/// What proves the project sound.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum ProjectCheck {
+    /// A command run on each commit on the project's branch, as committed.
+    Command(String),
+    /// The code host's CI on each pushed commit: every workflow named must pass.
+    Ci { ci: Vec<String> },
+}
+
+impl ProjectCheck {
+    /// The check as an agent or the person is told of it.
+    pub fn label(&self) -> String {
+        match self {
+            ProjectCheck::Command(command) => format!("`{command}`"),
+            ProjectCheck::Ci { ci } => format!("CI ({})", ci.join(", ")),
+        }
+    }
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
@@ -201,10 +223,10 @@ pub struct ProjectConfig {
     pub worktree: Option<WorktreeConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate: Option<Box<GenerateConfig>>,
-    /// What proves the project sound: run on each commit, and on a card's
-    /// change when its pull request has no CI.
+    /// What proves the project sound: on each commit, and on a card's change
+    /// when its pull request has no CI.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub check: Option<String>,
+    pub check: Option<ProjectCheck>,
     /// Paths whose change is planned before it starts, beside the ones every
     /// project has, such as migrations.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -395,9 +417,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let preview = parse_preview(root.get("preview"), &mut errors);
     let worktree = parse_worktree(root.get("worktree"), &mut errors);
     let generate = parse_generate(root.get("generate"), &mut errors);
-    let check = root
-        .get("check")
-        .and_then(|value| parse_command(Some(value), "$.check", &mut errors));
+    let check = parse_check(root.get("check"), &mut errors);
     let plan_first = parse_plan_first(root.get("planFirst"), &mut errors);
     if !errors.is_empty() {
         return Err(errors);
@@ -450,7 +470,7 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
     if generates > 0 {
         reasons.push("a command that regenerates committed files".to_owned());
     }
-    let checks = usize::from(config.check.is_some());
+    let checks = usize::from(matches!(config.check, Some(ProjectCheck::Command(_))));
     if checks > 0 {
         reasons.push("a check command".to_owned());
     }
@@ -1073,6 +1093,54 @@ fn parse_worktree(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Optio
         }
     }
     Some(WorktreeConfig { on_create: hooks })
+}
+
+fn parse_check(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<ProjectCheck> {
+    let record = match value? {
+        Value::String(_) => {
+            return parse_command(value, "$.check", errors).map(ProjectCheck::Command)
+        }
+        Value::Object(record) => record,
+        _ => {
+            errors.push(issue(
+                "$.check",
+                ConfigErrorCode::InvalidType,
+                "Check must be a command, or an object naming the CI workflows that count.",
+            ));
+            return None;
+        }
+    };
+    reject_unknown_fields(record, CHECK_FIELDS, "$.check", errors);
+    let Some(listed) = record.get("ci").and_then(Value::as_array) else {
+        errors.push(issue(
+            "$.check.ci",
+            ConfigErrorCode::MissingField,
+            "ci must list the CI workflows that have to pass.",
+        ));
+        return None;
+    };
+    if listed.is_empty() || listed.len() > MAX_WORKFLOWS {
+        errors.push(issue(
+            "$.check.ci",
+            ConfigErrorCode::LimitExceeded,
+            format!("ci must list between 1 and {MAX_WORKFLOWS} workflows."),
+        ));
+        return None;
+    }
+    let ci: Vec<String> = listed
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| {
+            bounded_required(
+                Some(name),
+                &format!("$.check.ci[{index}]"),
+                "Workflow",
+                200,
+                errors,
+            )
+        })
+        .collect();
+    (ci.len() == listed.len()).then_some(ProjectCheck::Ci { ci })
 }
 
 fn parse_generate(

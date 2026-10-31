@@ -1,5 +1,6 @@
-//! Checks the CI of every code-host repository an Auto card or a pushed branch
-//! waits on, once however many wait, and tells them all when its runs move.
+//! Checks the CI of every code-host repository an Auto card, a project's check
+//! or a pushed branch waits on, once however many wait, and tells them all when
+//! its runs move.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
@@ -61,6 +62,7 @@ async fn serve(core: Arc<Core>) {
             let shown: HashSet<Shown> = crate::server::board::waiting_on_ci(&core)
                 .into_iter()
                 .chain(crate::server::git::pending_pulls(&core))
+                .chain(core.collisions.waiting_on_ci())
                 .collect();
             let mut state = core.ci.0.locked();
             if shown.is_empty() {
@@ -122,5 +124,6 @@ async fn check(core: &Arc<Core>, repo: Shown) {
     if moved {
         crate::server::board::ci_moved(core, &repo);
         crate::server::git::ci_moved(core, &repo);
+        core.collisions.ci_moved(&repo);
     }
 }

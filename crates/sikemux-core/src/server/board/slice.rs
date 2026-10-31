@@ -30,6 +30,7 @@ use crate::server::connection::blocking;
 use crate::server::edits::footer;
 use crate::server::repo_events::{RepoEvent, Told};
 use crate::server::Core;
+use crate::tasks::config::ProjectCheck;
 
 /// The ladder a card takes once it makes a promise.
 const LADDER: [Gate; 3] = [Gate::Built, Gate::LooksRight, Gate::Landed];
@@ -573,7 +574,7 @@ impl Slice {
     pub(super) fn say_done(
         &mut self,
         label: &str,
-        has_check: bool,
+        checking: Checking,
         confirmed: Result<(), &str>,
     ) -> Result<Said, String> {
         let Some(gate) = self.waiting() else {
@@ -602,11 +603,25 @@ impl Slice {
                     short(&work.head)
                 ));
             }
-            (_, true) if !has_check => {
+            (_, true) if checking == Checking::Nothing => {
                 return Err(format!(
-                    "Not {words}: this project names no check command in sikemux.json, so nothing can show the work sound. Ask your lead or the person how it is to be checked"
+                    "Not {words}: this project names no check in sikemux.json, neither a command nor CI, so nothing can show the work sound. Ask your lead or the person how it is to be checked"
                 ))
             }
+            (_, true) if checking == (Checking::Ci { pushed: false }) => Said::Pending {
+                note: format!(
+                    "Not {words} yet: this project's check is its CI, which checks only pushed commits, and {} isn't pushed. Push it; {words} passes by itself once CI passes on it, and you will hear.",
+                    short(&work.head)
+                ),
+                recheck: Some(work.head.clone()),
+            },
+            (_, true) if checking == (Checking::Ci { pushed: true }) => Said::Pending {
+                note: format!(
+                    "Not {words} yet: CI has not passed on {}, your latest commit. {words} passes by itself once it does, and you will hear.",
+                    short(&work.head)
+                ),
+                recheck: Some(work.head.clone()),
+            },
             (_, true) if work.on_branch => Said::Pending {
                 note: format!(
                     "Not {words} yet: the project's check has not passed on {}, your latest commit. {words} passes by itself once it does, and you will hear.",
@@ -823,10 +838,20 @@ pub(super) fn next_gates(core: &Core, board: &Board, goal: &Card, now: u64) -> V
     next
 }
 
+/// How the project checks a slice's work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Checking {
+    /// It names no check.
+    Nothing,
+    /// Its check command runs on each commit on the project's branch.
+    Command,
+    /// Its CI runs on pushed commits; `pushed` says whether the slice's head is.
+    Ci { pushed: bool },
+}
+
 /// What git and the project's files say of a slice, read before the board is locked.
 pub(super) struct Seen {
-    /// The project names a check command.
-    pub has_check: bool,
+    pub checking: Checking,
     /// Whether git confirms the slice's head is its owner's latest commit, or why not.
     confirmed: Result<(), String>,
     /// The card's `updated_at` when it was read; what was read holds only
@@ -837,7 +862,7 @@ pub(super) struct Seen {
 impl Seen {
     pub(super) fn unread() -> Self {
         Self {
-            has_check: false,
+            checking: Checking::Nothing,
             confirmed: Err("Sikemux did not read it from git".into()),
             read: None,
         }
@@ -1047,7 +1072,7 @@ impl Footers {
 /// What git says of the slice on `id`'s head, read without the board's lock:
 /// for the card its owner works now, that no newer commit of the owner's is in
 /// the card's range; for any other, that git still holds it.
-pub(super) fn seen(core: &Core, project: &str, id: u64, has_check: bool) -> Seen {
+pub(super) fn seen(core: &Core, project: &str, id: u64, check: Option<&ProjectCheck>) -> Seen {
     let read = {
         let state = core.boards.state.locked();
         state.boards.get(project).and_then(|board| {
@@ -1058,9 +1083,16 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, has_check: bool) -> Seen
             Some((owner, work, current, card.updated_at))
         })
     };
+    let checking = |head: Option<&str>| match check {
+        None => Checking::Nothing,
+        Some(ProjectCheck::Command(_)) => Checking::Command,
+        Some(ProjectCheck::Ci { .. }) => Checking::Ci {
+            pushed: head.is_some_and(|head| crate::git::pushed(Path::new(project), head)),
+        },
+    };
     let Some((owner, work, current, at)) = read else {
         return Seen {
-            has_check,
+            checking: checking(None),
             ..Seen::unread()
         };
     };
@@ -1079,7 +1111,7 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, has_check: bool) -> Seen
             .map_err(|_| format!("{} is not in git any more", short(&work.head))),
     };
     Seen {
-        has_check,
+        checking: checking(Some(&work.head)),
         confirmed,
         read: Some(at),
     }
@@ -1396,7 +1428,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
     }
     let seen: Vec<(u64, Seen)> = touched
         .into_iter()
-        .map(|id| (id, seen(core, &project, id, false)))
+        .map(|id| (id, seen(core, &project, id, None)))
         .collect();
     let mut later = Later::default();
     {
