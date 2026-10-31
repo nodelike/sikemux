@@ -676,7 +676,7 @@ export interface InboxItem {
 export type InboxTier = "needs" | "review" | "finished" | "progress";
 
 export type InboxKind =
-    "permission" | "question" | "input" | "held" | "assumption" | "gate" | "pullRequest" | "changes" | "failed" | "finished" | "working";
+    "permission" | "question" | "input" | "held" | "assumption" | "proposal" | "gate" | "pullRequest" | "changes" | "failed" | "finished" | "working";
 
 /** What the person is needed for, for an item that waits on them. */
 export type InboxNeed = "decide" | "unblock" | "fix";

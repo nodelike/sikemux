@@ -195,9 +195,60 @@ struct Answered {
     answer: Option<String>,
 }
 
+/// What an agent proposed to the person, or asked them to choose, in the last words of its
+/// turn rather than with a tool. Nothing waits on it, and the agent's next turn takes it back.
+#[derive(Clone)]
+pub(crate) struct Proposal {
+    pub id: String,
+    pub agent_id: String,
+    name: String,
+    cli: String,
+    project: String,
+    pub text: String,
+    at: u64,
+}
+
+impl Proposal {
+    fn view(&self) -> AgentQuestion {
+        AgentQuestion {
+            id: self.id.clone(),
+            agent_id: self.agent_id.clone(),
+            name: self.name.clone(),
+            cli: self.cli.clone(),
+            project: self.project.clone(),
+            asked: self.text.clone(),
+            text: self.text.clone(),
+            header: None,
+            choices: Vec::new(),
+            multi: false,
+            blocked: false,
+            assumption: None,
+            secret: false,
+            at: self.at,
+            state: QuestionState::Open,
+            via_note: None,
+            secret_note: None,
+            answer: None,
+            ticket: None,
+        }
+    }
+
+    fn answered(&self) -> messages::Answered {
+        messages::Answered {
+            question: self.text.clone(),
+            asker: self.name.clone(),
+            asker_id: self.agent_id.clone(),
+            cli: self.cli.clone(),
+            secret: false,
+        }
+    }
+}
+
 #[derive(Default)]
 struct State {
     open: Vec<Question>,
+    /// One at most for each agent.
+    proposals: Vec<Proposal>,
     /// Oldest first.
     answered: Vec<Answered>,
     /// Something changed that the window has not been sent yet.
@@ -312,7 +363,6 @@ impl Questions {
 
     /// The open questions changed: the window is told, and they are kept.
     fn changed(&self, state: &mut State) {
-        state.dirty = true;
         self.kept.save(&QuestionsRecord {
             open: state.open.clone(),
         });
@@ -321,6 +371,12 @@ impl Questions {
             .iter()
             .filter_map(|question| Some((question.id.as_str(), question.approval.as_ref()?)));
         state.keeper.keep(waiting);
+        self.shown_changed(state);
+    }
+
+    /// What the window and devices show changed, though nothing kept did.
+    fn shown_changed(&self, state: &mut State) {
+        state.dirty = true;
         self.wake.now();
     }
 
@@ -367,6 +423,33 @@ impl Questions {
                 at: question.at,
             })
             .collect()
+    }
+
+    /// The agents with a proposal waiting on the person.
+    pub(crate) fn proposers(&self) -> Vec<String> {
+        (self.state.locked().proposals.iter())
+            .map(|proposal| proposal.agent_id.clone())
+            .collect()
+    }
+
+    /// What the agent proposed to the person, or asked them to choose, as its last turn ended.
+    pub(crate) fn proposal_of(&self, agent_id: &str) -> Option<Proposal> {
+        (self.state.locked().proposals.iter())
+            .find(|proposal| proposal.agent_id == agent_id)
+            .cloned()
+    }
+
+    /// The agent began another turn, so what it proposed at the end of its last one no
+    /// longer waits on the person.
+    pub(crate) fn turn_started(&self, agent_id: &str) {
+        let mut state = self.state.locked();
+        let before = state.proposals.len();
+        state
+            .proposals
+            .retain(|proposal| proposal.agent_id != agent_id);
+        if state.proposals.len() != before {
+            self.shown_changed(&mut state);
+        }
     }
 
     /// The boards changed, which may change the ticket a question names.
@@ -981,28 +1064,139 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
     )
 }
 
+/// How the last sentence of a reply opens when it asks the person whether to go on, or which
+/// way: it counts only when it ends in a question mark.
+const ASKS: [&str; 12] = [
+    "shall i ",
+    "should i ",
+    "want me to ",
+    "do you want ",
+    "would you like ",
+    "would you prefer ",
+    "shall we ",
+    "should we ",
+    "can i ",
+    "may i ",
+    "which ",
+    "or should ",
+];
+
+/// How it opens when it proposes more and leaves the person to say, whatever it ends in.
+const PROPOSALS: [&str; 2] = ["if you want, i can", "if you'd like, i can"];
+
+/// The last paragraph of an agent's reply, when its last sentence proposes more work to the
+/// person or asks them to choose.
+fn proposal(reply: &str) -> Option<&str> {
+    let paragraph = reply
+        .trim()
+        .rsplit("\n\n")
+        .map(str::trim)
+        .find(|paragraph| !paragraph.is_empty())?;
+    let plain: String = paragraph
+        .chars()
+        .filter(|c| !matches!(c, '*' | '_' | '`'))
+        .collect::<String>()
+        .to_lowercase();
+    let plain = plain.trim_end();
+    let body = plain.trim_end_matches(['?', '.', '!']);
+    let start = body
+        .char_indices()
+        .zip(body.chars().skip(1))
+        .filter(|((_, c), next)| {
+            *c == '\n' || (matches!(c, '.' | '?' | '!' | ':') && next.is_whitespace())
+        })
+        .map(|((at, c), _)| at + c.len_utf8())
+        .last()
+        .unwrap_or(0);
+    let last =
+        plain[start..].trim_start_matches(|c: char| c.is_whitespace() || c == '-' || c == '>');
+    let asks = plain.ends_with('?') && ASKS.iter().any(|opening| last.starts_with(opening));
+    let proposes = PROPOSALS.iter().any(|opening| last.starts_with(opening));
+    (asks || proposes).then_some(paragraph)
+}
+
+/// The chat's turn ended by itself, so when its reply ends proposing more to the person or
+/// asking them to choose, that waits on them as a proposal. An agent with a lead, here or on a
+/// linked host, or that Auto runs, answers to them instead, and one with a question, an answer
+/// or a message still on its way is not done.
+pub(crate) fn proposed(core: &Core, agent_id: &str) {
+    let Some(chat) = core.chats.get(agent_id) else {
+        return;
+    };
+    let named = core.names.get(agent_id);
+    if named.as_ref().is_some_and(|named| named.parent.is_some())
+        || super::board::run_by_auto(core, agent_id)
+        || core.harness.mailbox.has_waiting(agent_id)
+        || chat.feed.has_queued()
+    {
+        return;
+    }
+    let Some(reply) = chat.feed.last_answer() else {
+        return;
+    };
+    let Some(text) = proposal(&reply) else {
+        return;
+    };
+    let proposal = Proposal {
+        id: format!("proposal-{}", uuid::Uuid::new_v4().simple()),
+        agent_id: agent_id.to_owned(),
+        name: named
+            .as_ref()
+            .map_or_else(|| agent_id.to_owned(), |named| named.name.clone()),
+        cli: chat.provider().to_owned(),
+        project: named
+            .map(|named| named.project)
+            .unwrap_or_else(|| core.workspaces.project_of(&chat.launch.cwd)),
+        text: clipped(text, MAX_QUESTION_BYTES),
+        at: epoch_ms(),
+    };
+    let questions = &core.harness.questions;
+    let mut state = questions.state.locked();
+    let asking = (state.open.iter())
+        .chain(state.answered.iter().map(|answered| &answered.question))
+        .any(|question| question.agent_id == agent_id);
+    if asking {
+        return;
+    }
+    state
+        .proposals
+        .retain(|proposal| proposal.agent_id != agent_id);
+    state.proposals.push(proposal);
+    questions.shown_changed(&mut state);
+}
+
 /// The open questions and the answers their askers have not read, for the
 /// app, the notch and phones.
 pub(crate) fn views(core: &Core) -> Vec<AgentQuestion> {
-    let (open, answered) = {
+    let (open, answered, proposals) = {
         let state = core.harness.questions.state.locked();
-        (state.open.clone(), state.answered.clone())
+        (
+            state.open.clone(),
+            state.answered.clone(),
+            state.proposals.clone(),
+        )
     };
-    views_of(core, open, answered)
+    views_of(core, open, answered, proposals)
 }
 
-/// Each question's view, with the ticket of the card its asker holds.
-fn views_of(core: &Core, open: Vec<Question>, answered: Vec<Answered>) -> Vec<AgentQuestion> {
-    let open = open.iter().map(|question| (question.view(), question));
+/// Each question's view, then each proposal's, with the ticket of the card its asker holds.
+fn views_of(
+    core: &Core,
+    open: Vec<Question>,
+    answered: Vec<Answered>,
+    proposals: Vec<Proposal>,
+) -> Vec<AgentQuestion> {
+    let open = open.iter().map(Question::view);
     let answered = answered.iter().map(|answered| {
         let mut view = answered.question.view();
         view.state = QuestionState::Answered;
         view.answer = answered.answer.clone();
-        (view, &answered.question)
+        view
     });
     open.chain(answered)
-        .map(|(mut view, question)| {
-            view.ticket = super::board::ticket_of_agent(core, &question.agent_id);
+        .chain(proposals.iter().map(Proposal::view))
+        .map(|mut view| {
+            view.ticket = super::board::ticket_of_agent(core, &view.agent_id);
             view
         })
         .collect()
@@ -1045,6 +1239,22 @@ pub struct AnswersParams {
 /// its answers in one message, so the first does not start a turn before the
 /// rest arrive.
 pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Result<(), String> {
+    let (proposals, answers): (Vec<AnswerParams>, Vec<AnswerParams>) = {
+        let state = core.harness.questions.state.locked();
+        (params.answers.into_iter()).partition(|given| {
+            state
+                .proposals
+                .iter()
+                .any(|proposal| proposal.id == given.id)
+        })
+    };
+    for given in proposals {
+        answer_proposal(core, given).await?;
+    }
+    if answers.is_empty() {
+        return Ok(());
+    }
+    let params = AnswersParams { answers };
     let taken = {
         let mut state = core.harness.questions.state.locked();
         let mut taken = Vec::with_capacity(params.answers.len());
@@ -1165,6 +1375,38 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
     }
 }
 
+/// The person's reply to what an agent proposed, which reaches it as their answer.
+async fn answer_proposal(core: &Arc<Core>, given: AnswerParams) -> Result<(), String> {
+    let text = reply_text(&given)?;
+    let questions = &core.harness.questions;
+    let proposal = {
+        let mut state = questions.state.locked();
+        let at = (state.proposals.iter())
+            .position(|proposal| proposal.id == given.id)
+            .ok_or("That has been answered already")?;
+        let proposal = state.proposals.remove(at);
+        questions.shown_changed(&mut state);
+        proposal
+    };
+    let note =
+        "The person answered what you proposed or asked as your last turn ended; go on with it."
+            .to_owned();
+    let sent = vec![(proposal.answered(), text, note)];
+    if let Err(error) = messages::answer(core, proposal.agent_id.clone(), sent).await {
+        let mut state = questions.state.locked();
+        if state
+            .proposals
+            .iter()
+            .all(|kept| kept.agent_id != proposal.agent_id)
+        {
+            state.proposals.push(proposal);
+            questions.shown_changed(&mut state);
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// The person's answer, copied to the lead a question went to first.
 async fn copy_to_lead(core: &Arc<Core>, question: &Question, text: &str) {
     if let (
@@ -1241,10 +1483,13 @@ fn answer_text(question: &Question, params: &AnswerParams) -> Result<Option<Stri
             .map(|choice| Some(choice.label.clone()))
             .ok_or_else(|| "That choice is not one of the question's".into());
     }
+    reply_text(params).map(Some)
+}
+
+/// The words the person wrote as their answer.
+fn reply_text(params: &AnswerParams) -> Result<String, String> {
     match params.answer.as_deref().map(str::trim) {
-        Some(text) if !text.is_empty() && text.len() <= MAX_ANSWER_BYTES => {
-            Ok(Some(text.to_owned()))
-        }
+        Some(text) if !text.is_empty() && text.len() <= MAX_ANSWER_BYTES => Ok(text.to_owned()),
         Some(text) if !text.is_empty() => Err(format!(
             "An answer holds at most {} KB",
             MAX_ANSWER_BYTES / 1024
@@ -1264,6 +1509,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         }
         if state.open.is_empty()
             && state.answered.is_empty()
+            && state.proposals.is_empty()
             && state.told_phones.is_empty()
             && state.shown_devices.is_empty()
             && !state.dirty
@@ -1278,6 +1524,12 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 .iter()
                 .chain(state.answered.iter().map(|answered| &answered.question))
                 .map(|question| question.agent_id.clone())
+                .chain(
+                    state
+                        .proposals
+                        .iter()
+                        .map(|proposal| proposal.agent_id.clone()),
+                )
                 .collect(),
             state
                 .open
@@ -1328,6 +1580,13 @@ pub(crate) fn settle(core: &Arc<Core>) {
         state
             .answered
             .retain(|answered| !gone.contains(&answered.question.agent_id));
+        let proposals = state.proposals.len();
+        state
+            .proposals
+            .retain(|proposal| !gone.contains(&proposal.agent_id));
+        if state.proposals.len() != proposals {
+            core.harness.questions.shown_changed(&mut state);
+        }
         let mut changed = state.open.len() != before || state.answered.len() != answered;
         for question in &mut state.open {
             let Stage::Lead {
@@ -1515,6 +1774,10 @@ fn tell_phones(core: &Core) {
             .iter()
             .filter(|question| question.asks_person())
             .map(|question| (question.id.clone(), question.agent_id.clone()))
+            .chain(
+                (state.proposals.iter())
+                    .map(|proposal| (proposal.id.clone(), proposal.agent_id.clone())),
+            )
             .collect();
         let changed: HashSet<String> = shown
             .iter()
@@ -1573,7 +1836,7 @@ fn tell_phones(core: &Core) {
 /// opened that has not had them.
 fn tell_window(core: &Arc<Core>) {
     let window = core.window.client_id();
-    let (open, answered) = {
+    let (open, answered, proposals) = {
         let mut state = core.harness.questions.state.locked();
         if !state.dirty && state.told_window == window {
             return;
@@ -1587,9 +1850,13 @@ fn tell_window(core: &Arc<Core>) {
         if window.is_none() {
             return;
         }
-        (state.open.clone(), state.answered.clone())
+        (
+            state.open.clone(),
+            state.answered.clone(),
+            state.proposals.clone(),
+        )
     };
-    let views = views_of(core, open, answered);
+    let views = views_of(core, open, answered, proposals);
     let request = json!({
         "id": "agent-questions",
         "project": "/",

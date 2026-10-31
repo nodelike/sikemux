@@ -2030,6 +2030,22 @@ pub(crate) fn agent_card(core: &Core, agent_id: &str) -> Option<Summary> {
     Some(board.card(id).ok()?.summary(core, board))
 }
 
+/// Whether Auto runs the agent, building a card or reviewing one, so the ends of its turns
+/// move the card on rather than wait on the person.
+pub(crate) fn run_by_auto(core: &Core, agent_id: &str) -> bool {
+    let state = core.boards.state.locked();
+    blind::reviewed_card(&state, agent_id).is_some()
+        || state
+            .boards
+            .values()
+            .flat_map(|board| &board.cards)
+            .any(|card| {
+                card.auto
+                    .as_ref()
+                    .is_some_and(|run| run.agent == agent_id && run.held.is_none())
+            })
+}
+
 /// A reviewer Auto started gives its verdict on the change it reviews.
 pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = caller(request, "review_verdict")?;

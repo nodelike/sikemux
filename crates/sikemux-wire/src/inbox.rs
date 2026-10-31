@@ -49,11 +49,15 @@ pub enum InboxKind {
     Held,
     /// The agent went on with an assumption the person may correct.
     Assumption,
+    /// The agent's turn ended proposing more or asking the person to choose,
+    /// as `detail` says. Answer with `answerQuestion`, naming `questionId`.
+    Proposal,
     /// The slice on `card` waits for the person to pass `gate`.
     Gate,
     /// The card's pull request at `url` is ready for review.
     PullRequest,
-    /// A turn or card that changed files.
+    /// A turn or card that changed files. With `questionId` when the turn
+    /// ended proposing more, which `answerQuestion` answers, as for a Proposal.
     Changes,
     Failed,
     Finished,

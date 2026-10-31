@@ -477,6 +477,11 @@ impl Feed {
         true
     }
 
+    /// Whether messages wait to go to the agent once its turn settles.
+    pub(crate) fn has_queued(&self) -> bool {
+        !self.inner.locked().queued.is_empty()
+    }
+
     /// Takes the waiting messages `ids`, or with none the next that go out together.
     pub(crate) fn take_queued(&self, ids: Option<&[String]>) -> Vec<Queued> {
         let mut inner = self.inner.locked();

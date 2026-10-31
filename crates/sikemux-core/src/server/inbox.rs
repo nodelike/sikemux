@@ -51,6 +51,12 @@ enum Case {
         secret: bool,
     },
     Assumption,
+    /// The agent ended a turn that changed nothing proposing more or asking the
+    /// person to choose; once `seen`, the person has looked at the chat since, so
+    /// it no longer calls for them.
+    Proposal {
+        seen: bool,
+    },
     Input,
     /// The slice waits for the person to pass this gate.
     Gate(Gate),
@@ -67,7 +73,11 @@ enum Case {
     StaleMemory,
     /// The turn ran into a problem, of this kind when the agent's driver knew it.
     Failed(Option<Fault>),
-    Changes,
+    /// A turn that changed files; `asking` while it ended proposing more that the
+    /// person has not seen yet.
+    Changes {
+        asking: bool,
+    },
     Finished,
     Working,
 }
@@ -93,6 +103,8 @@ impl Case {
             Case::Question { secret: false } => (InboxKind::Question, Wants::Person(Decide)),
             Case::Question { secret: true } => (InboxKind::Question, Wants::Person(Unblock)),
             Case::Assumption => (InboxKind::Assumption, Wants::Person(Decide)),
+            Case::Proposal { seen: false } => (InboxKind::Proposal, Wants::Person(Decide)),
+            Case::Proposal { seen: true } => (InboxKind::Proposal, Wants::Nobody(Quiet::Finished)),
             Case::Input => (InboxKind::Input, Wants::Person(Unblock)),
             Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
             Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
@@ -107,19 +119,23 @@ impl Case {
             Case::Failed(Some(Fault::Retrying) | None) => {
                 (InboxKind::Failed, Wants::Nobody(Quiet::Finished))
             }
-            Case::Changes => (InboxKind::Changes, Wants::Nobody(Quiet::Review)),
+            Case::Changes { asking: true } => (InboxKind::Changes, Wants::Person(Decide)),
+            Case::Changes { asking: false } => (InboxKind::Changes, Wants::Nobody(Quiet::Review)),
             Case::Finished => (InboxKind::Finished, Wants::Nobody(Quiet::Finished)),
             Case::Working => (InboxKind::Working, Wants::Nobody(Quiet::Progress)),
         }
     }
 }
 
-/// Stops an agent until the person acts, so it goes before the older items that need them.
-fn pressing(kind: InboxKind) -> bool {
-    matches!(
-        kind,
-        InboxKind::Permission | InboxKind::Question | InboxKind::Input
-    )
+/// How soon an item comes among those of its tier: what stops an agent until the
+/// person acts first, and a proposal on a turn's item, which stops nothing, last.
+/// Only a proposal is answered with `answerQuestion` on an item that is not a question.
+fn urgency(item: &InboxItem) -> u8 {
+    match item.kind {
+        InboxKind::Permission | InboxKind::Question | InboxKind::Input => 0,
+        _ if item.question_id.is_some() => 2,
+        _ => 1,
+    }
 }
 
 fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus) -> AgentShown {
@@ -433,7 +449,7 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
     agents
 }
 
-/// An agent no longer open, as the names remember it.
+/// An agent not running now, as one asleep or closed, as the names remember it.
 fn gone_agent(core: &Core, agent_id: &str) -> Agent {
     let named = core.names.get(agent_id);
     Agent {
@@ -488,14 +504,14 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
     }
 }
 
-fn rank(item: &InboxItem) -> (InboxTier, bool, i128, &str) {
+fn rank(item: &InboxItem) -> (InboxTier, u8, i128, &str) {
     let at = i128::from(item.at);
     let at = if item.tier == InboxTier::Needs {
         at
     } else {
         -at
     };
-    (item.tier, !pressing(item.kind), at, &item.id)
+    (item.tier, urgency(item), at, &item.id)
 }
 
 /// Fills in who an item is about.
@@ -613,12 +629,19 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
     } else {
         let mut handoff = handoff(core, &agent.id);
         handoff.result = card.as_ref().and_then(|card| card.result.clone());
-        let (case, what) = match &problem {
-            Some(problem) => (Case::Failed(problem.fault), "Ran into a problem"),
-            None if handoff.edited > 0 || card.as_ref().is_some_and(|card| card.done) => {
-                (Case::Changes, "Finished, with changes to review")
-            }
-            None => (Case::Finished, "Finished"),
+        let proposal = core.harness.questions.proposal_of(&agent.id);
+        let unseen = proposal.is_some() && core.seen.unread(&agent.id);
+        let (case, what) = match (&problem, &proposal) {
+            (Some(problem), _) => (Case::Failed(problem.fault), "Ran into a problem"),
+            _ if handoff.edited > 0 || card.as_ref().is_some_and(|card| card.done) => (
+                Case::Changes { asking: unseen },
+                "Finished, with changes to review",
+            ),
+            (None, Some(_)) => (
+                Case::Proposal { seen: !unseen },
+                "Asks you, as its turn ended",
+            ),
+            (None, None) => (Case::Finished, "Finished"),
         };
         let mut item = item(
             format!("agent:{}", agent.id),
@@ -626,7 +649,12 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
             what.into(),
             ended_at.unwrap_or(agent.at),
         );
-        item.detail = problem.map(|problem| clipped_line(&problem.said, MAX_LINE_CHARS));
+        item.detail = match (problem, &proposal) {
+            (Some(problem), _) => Some(clipped_line(&problem.said, MAX_LINE_CHARS)),
+            (None, Some(proposal)) => Some(clipped_line(&proposal.text, MAX_LINE_CHARS)),
+            (None, None) => None,
+        };
+        item.question_id = proposal.map(|proposal| proposal.id);
         item.handoff = Some(handoff);
         item
     };
@@ -1021,6 +1049,14 @@ fn waiting(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<Inbox
             items.push(item);
         }
     }
+    for agent_id in core.harness.questions.proposers() {
+        let agent = agents
+            .iter()
+            .find(|agent| agent.id == agent_id)
+            .cloned()
+            .unwrap_or_else(|| gone_agent(core, &agent_id));
+        items.push(agent_item(core, &agent, false));
+    }
     items
 }
 
@@ -1064,7 +1100,12 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
     let (mut finished, mut failed) = (Vec::new(), Vec::new());
     if let Some(since) = since {
         let mut listed = HashSet::new();
+        let proposers = core.harness.questions.proposers();
         for agent_id in core.inbox.ended_since(since) {
+            if proposers.contains(&agent_id) {
+                listed.insert(agent_id);
+                continue;
+            }
             let agent = agents
                 .iter()
                 .find(|agent| agent.id == agent_id)
