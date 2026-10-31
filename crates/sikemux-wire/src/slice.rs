@@ -183,6 +183,9 @@ pub struct SliceView {
     /// The goal's assertions it fulfils, each with whether its evidence is in.
     #[serde(default)]
     pub asserts: Vec<Asserted>,
+    /// Assertions it named that no longer stand on its goal, so no longer bind it.
+    #[serde(default)]
+    pub detached: Vec<u64>,
     /// What the gate it waits at waits on now; none when it is done, or
     /// nothing is under way.
     #[serde(default)]

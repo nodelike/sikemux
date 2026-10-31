@@ -51,8 +51,6 @@ const MAX_HEARD_RUNS: usize = 32;
 const MAX_PANICS: u32 = 3;
 /// Commits read back from the branch's tip for an agent's latest one.
 const OWNER_COMMITS_READ: usize = 500;
-/// The folder in the data folder that keeps evidence the core collected as files.
-const EVIDENCE: &str = "evidence";
 /// Commits whose footer is kept as read, past which the board reads afresh.
 const MAX_FOOTERS: usize = 4096;
 
@@ -181,12 +179,26 @@ pub(super) struct Slice {
     /// passes as soon as what it needs is so.
     #[serde(default)]
     done_said: bool,
-    /// The goal's assertions it fulfils.
+    /// The goal's standing assertions it fulfils, with the evidence each needs.
     #[serde(default)]
-    pub asserts: Vec<u64>,
+    asserts: Vec<Named>,
+    /// Assertions it named that no longer stand on its goal, so no longer bind it.
+    #[serde(default)]
+    detached: Vec<u64>,
+    /// Someone claimed it once: from then on only the person frees it of an assertion.
+    #[serde(default)]
+    pub started: bool,
     /// The card under it where a failed check is being fixed, while it is open.
     #[serde(default)]
     pub fix: Option<u64>,
+}
+
+/// An assertion of its goal a slice fulfils.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Named {
+    pub id: u64,
+    pub evidence: Collect,
 }
 
 /// Why the owner's gate did not pass when the owner said the slice is done.
@@ -280,10 +292,12 @@ impl Slice {
             work: None,
             done_said: false,
             asserts: Vec::new(),
+            detached: Vec::new(),
+            started: false,
             fix: None,
         };
         for recording in &recordings {
-            slice.picture(owner, recording, &[]);
+            slice.picture(owner, recording);
         }
         slice
     }
@@ -341,8 +355,21 @@ impl Slice {
                 .as_ref()
                 .is_some_and(|check| check.verdict == Some(Verdict::Passed)),
             Need::OnBranch => work.on_branch,
-            Need::Assertions => self.asserts.iter().all(|id| self.asserted(*id)),
+            Need::Assertions => self.asserts.iter().all(|named| self.asserted(*named)),
         }
+    }
+
+    /// The ids of the assertions it fulfils.
+    pub(super) fn asserts(&self) -> impl Iterator<Item = u64> + '_ {
+        self.asserts.iter().map(|named| named.id)
+    }
+
+    /// The assertions it fulfils whose evidence is of `kind`.
+    pub(super) fn asserting(&self, kind: Collect) -> Vec<u64> {
+        (self.asserts.iter())
+            .filter(|named| named.evidence == kind)
+            .map(|named| named.id)
+            .collect()
     }
 
     /// The latest evidence collected for assertion `id`.
@@ -350,16 +377,54 @@ impl Slice {
         (self.evidence.iter().rev()).find(|evidence| evidence.assertions.contains(&id))
     }
 
-    /// Assertion `id` has evidence on its latest commit that held up: a run
-    /// that passed, or a picture, which the person judges at Looks right.
-    fn asserted(&self, id: u64) -> bool {
-        self.latest_for(id).is_some_and(|evidence| {
-            evidence.commit.as_deref() == self.head()
-                && match evidence.proof {
-                    Proof::Picture { .. } => true,
-                    _ => evidence.verdict == Some(Verdict::Passed),
-                }
-        })
+    /// The assertion holds on its latest commit: the check's verdict on it
+    /// passed, for one the check shows; else a recording or screenshot was
+    /// collected for it there, which the person judges at Looks right.
+    fn asserted(&self, named: Named) -> bool {
+        match named.evidence {
+            Collect::Check => self.met(Need::PassingCheck),
+            Collect::Recording | Collect::Screenshot => self
+                .latest_for(named.id)
+                .is_some_and(|evidence| evidence.commit.as_deref() == self.head()),
+        }
+    }
+
+    /// The assertions still without what they need on its latest commit.
+    fn missing(&self) -> Vec<String> {
+        (self.asserts.iter())
+            .filter(|named| !self.asserted(**named))
+            .map(|named| format!("#{}", named.id))
+            .collect()
+    }
+
+    /// Names the goal's assertions it fulfils, which stand on its goal.
+    pub(super) fn name(&mut self, named: Vec<Named>) {
+        self.detached
+            .retain(|id| !named.iter().any(|named| named.id == *id));
+        self.asserts = named;
+    }
+
+    /// Keeps it bound to the assertions it names that still stand, with the
+    /// evidence `standing` says each needs now; the others it is freed of.
+    pub(super) fn bind(&mut self, standing: impl Fn(u64) -> Option<Collect>) {
+        let mut kept = Vec::new();
+        for named in std::mem::take(&mut self.asserts) {
+            match standing(named.id) {
+                Some(evidence) => kept.push(Named {
+                    id: named.id,
+                    evidence,
+                }),
+                None if !self.detached.contains(&named.id) => self.detached.push(named.id),
+                None => {}
+            }
+        }
+        self.asserts = kept;
+    }
+
+    /// It moved to another goal, whose assertions it names none of yet.
+    pub(super) fn unbind(&mut self) {
+        self.asserts.clear();
+        self.detached.clear();
     }
 
     fn unmet(&self, gate: Gate) -> Vec<Need> {
@@ -384,7 +449,7 @@ impl Slice {
         assertions: &[u64],
     ) {
         let latest: Vec<u64> = (self.asserts.iter())
-            .filter_map(|id| self.latest_for(*id).map(|evidence| evidence.id))
+            .filter_map(|named| self.latest_for(named.id).map(|evidence| evidence.id))
             .collect();
         let notes = &self.notes;
         let pinned = |evidence: &Evidence| {
@@ -411,18 +476,14 @@ impl Slice {
         });
     }
 
-    /// Keeps a recording toward the gate it waits at, for the recording
-    /// `assertions`. False when it waits at none, being done, so the
+    /// Keeps a recording toward the gate it waits at, for the assertions a
+    /// recording shows. False when it waits at none, being done, so the
     /// recording is not kept.
-    fn picture(
-        &mut self,
-        agent: Option<&str>,
-        recording: &InboxRecording,
-        assertions: &[u64],
-    ) -> bool {
+    fn picture(&mut self, agent: Option<&str>, recording: &InboxRecording) -> bool {
         let Some(gate) = self.waiting() else {
             return false;
         };
+        let assertions = self.asserting(Collect::Recording);
         self.add_evidence(
             gate,
             recording.at,
@@ -434,20 +495,22 @@ impl Slice {
                 feed: recording.feed.clone(),
                 turn: recording.turn,
             },
-            assertions,
+            &assertions,
         );
         true
     }
 
-    /// Keeps the screenshot at `path` for the screenshot `assertions`, in
-    /// place of the one they had, which the same file held.
-    fn screenshot(&mut self, agent: &str, path: &str, assertions: &[u64]) {
+    /// Keeps the screenshot at `path` for the assertions a screenshot shows,
+    /// in place of the one they had, unless a note is pinned to it.
+    fn screenshot(&mut self, agent: &str, path: &str) {
         let Some(gate) = self.waiting() else {
             return;
         };
+        let assertions = self.asserting(Collect::Screenshot);
         let notes = &self.notes;
         self.evidence.retain(|evidence| {
-            let replaced = matches!(&evidence.proof, Proof::Picture { path: kept, seconds: None, .. } if kept == path);
+            let replaced = matches!(evidence.proof, Proof::Picture { seconds: None, .. })
+                && evidence.assertions.iter().any(|id| assertions.contains(id));
             !replaced || notes.iter().any(|note| note.evidence == Some(evidence.id))
         });
         self.add_evidence(
@@ -461,7 +524,7 @@ impl Slice {
                 feed: None,
                 turn: None,
             },
-            assertions,
+            &assertions,
         );
     }
 
@@ -469,13 +532,7 @@ impl Slice {
     /// verdict of a check run heard before it. New work undoes every gate
     /// from the first that needs the check on it; work made again elsewhere,
     /// as landing does, keeps the gates it passed.
-    fn worked(
-        &mut self,
-        at: &Head,
-        new_work: bool,
-        owner: Option<&str>,
-        runs: Option<(&HeardRuns, &[u64])>,
-    ) {
+    fn worked(&mut self, at: &Head, new_work: bool, owner: Option<&str>, runs: Option<&HeardRuns>) {
         if let Some(work) = self.work.as_mut().filter(|work| work.head == at.head) {
             work.on_branch |= at.on_branch;
             return;
@@ -504,17 +561,14 @@ impl Slice {
                 self.passes.retain(|pass| !undone.contains(&pass.gate));
             }
         }
-        if let Some((run, checks)) =
-            runs.and_then(|(runs, checks)| Some((runs.of(&at.head)?, checks)))
-        {
-            self.checked(owner, run, checks);
+        if let Some(run) = runs.and_then(|runs| runs.of(&at.head)) {
+            self.checked(owner, run);
         }
     }
 
     /// A run of the project's check ended. Whether it took in this slice's
-    /// work, which then holds the run as evidence and its verdict, collected
-    /// for its check `assertions`.
-    fn checked(&mut self, owner: Option<&str>, run: &HeardRun, assertions: &[u64]) -> bool {
+    /// work, which then holds the run as evidence and its verdict.
+    fn checked(&mut self, owner: Option<&str>, run: &HeardRun) -> bool {
         let (Some(gate), Some(head)) = (self.waiting(), self.head()) else {
             return false;
         };
@@ -531,7 +585,7 @@ impl Slice {
                 sha: run.sha.clone(),
                 output: run.output.clone(),
             },
-            assertions,
+            &[],
         );
         if let Some(work) = &mut self.work {
             work.check = Some(Check {
@@ -741,23 +795,30 @@ impl Slice {
                 recheck: None,
             },
         };
-        let missing: Vec<String> = (self.asserts.iter())
-            .filter(|id| !self.asserted(**id))
-            .map(|id| format!("#{id}"))
-            .collect();
-        let said = match said {
-            Said::Ready if !missing.is_empty() => Said::Pending {
-                note: format!(
-                    "Not {words} yet: assertion {} has no evidence on {}, your latest commit. Make what it asks for, a browser recording or a screenshot of the page, while this card is yours; {words} passes by itself once each has it, and you will hear. board_list with the goal's card shows what each asks.",
-                    missing.join(", "),
-                    short(&work.head)
-                ),
+        let said = match (said, self.awaits_evidence(label)) {
+            (Said::Ready, Some(note)) => Said::Pending {
+                note,
                 recheck: None,
             },
-            said => said,
+            (said, _) => said,
         };
         self.done_said = true;
         Ok(said)
+    }
+
+    /// What its owner is told when the check vouches for its latest commit
+    /// but some of its assertions still have no evidence there.
+    fn awaits_evidence(&self, label: &str) -> Option<String> {
+        let missing = self.missing();
+        let head = self.head()?;
+        (self.met(Need::PassingCheck) && !missing.is_empty()).then(|| format!(
+            "{label} is not Built yet: the check passed on {}, but {} no evidence there. Make what it asks for, a browser recording or a screenshot of the page, while this card is yours; Built passes by itself once each has it, and you will hear. board_list with the goal's card shows what each asks.",
+            short(head),
+            match missing.as_slice() {
+                [one] => format!("assertion {one} has"),
+                many => format!("assertions {} have", many.join(", ")),
+            }
+        ))
     }
 
     /// The person writes on it, on a piece of its evidence when given. The
@@ -796,6 +857,20 @@ impl Slice {
             },
         };
         Ok((on.and_then(|on| on.agent), about))
+    }
+
+    /// The files of the screenshots the core keeps as its evidence.
+    pub(super) fn screenshot_files(&self) -> impl Iterator<Item = &str> {
+        self.evidence
+            .iter()
+            .filter_map(|evidence| match &evidence.proof {
+                Proof::Picture {
+                    path,
+                    seconds: None,
+                    ..
+                } => Some(path.as_str()),
+                _ => None,
+            })
     }
 
     pub(super) fn pictures(&self) -> Vec<InboxRecording> {
@@ -885,11 +960,12 @@ impl Slice {
             evidence: self.evidence.clone(),
             notes: self.notes.clone(),
             asserts: (self.asserts.iter())
-                .map(|id| Asserted {
-                    assertion: *id,
-                    met: self.asserted(*id),
+                .map(|named| Asserted {
+                    assertion: named.id,
+                    met: self.asserted(*named),
                 })
                 .collect(),
+            detached: self.detached.clone(),
             wait,
         }
     }
@@ -906,7 +982,9 @@ impl Slice {
         }
         if !self.asserts.is_empty() {
             let asserts: Vec<Value> = (self.asserts.iter())
-                .map(|id| serde_json::json!({ "assertion": id, "met": self.asserted(*id) }))
+                .map(|named| {
+                    serde_json::json!({ "assertion": named.id, "evidence": named.evidence, "met": self.asserted(*named) })
+                })
                 .collect();
             fields.insert("asserts".into(), asserts.into());
         }
@@ -1311,7 +1389,7 @@ fn current_card(board: &Board, agent: &str) -> Option<u64> {
 }
 
 /// The card `agent` works now on `board`, when that is a slice in progress.
-fn working_slice(board: &Board, agent: &str) -> Option<u64> {
+pub(super) fn working_slice(board: &Board, agent: &str) -> Option<u64> {
     let id = current_card(board, agent)?;
     let card = board.card(id).ok()?;
     let slice = match &card.slice {
@@ -1319,7 +1397,7 @@ fn working_slice(board: &Board, agent: &str) -> Option<u64> {
         None => (board.cards.iter())
             .find(|slice| (slice.slice.as_ref()).is_some_and(|slice| slice.fix == Some(id)))?,
     };
-    (slice.status == Status::Progress).then_some(slice.id)
+    (slice.status == Status::Progress && slice.owner_id() == Some(agent)).then_some(slice.id)
 }
 
 /// The owner's work on the slice it works now moved on to `head`. The slice's id.
@@ -1332,30 +1410,40 @@ fn move_work(
     behind: impl Fn(&Card) -> bool,
 ) -> Option<u64> {
     let id = working_slice(board, agent)?;
-    let checks = asserted_by(board, board.card(id).ok()?, Collect::Check);
     let card = board.card_mut(id).ok().filter(|card| !behind(card))?;
-    card.slice.as_mut()?.worked(
-        head,
-        new_work,
-        Some(agent),
-        runs.map(|runs| (runs, checks.as_slice())),
-    );
+    card.slice
+        .as_mut()?
+        .worked(head, new_work, Some(agent), runs);
     card.updated_at = epoch_ms();
     Some(id)
 }
 
-/// The assertions of `card`'s goal it fulfils whose evidence is of `kind`.
-pub(super) fn asserted_by(board: &Board, card: &Card, kind: Collect) -> Vec<u64> {
-    let (Some(slice), Ok(goal)) = (&card.slice, board.card(board.goal_card(card))) else {
-        return Vec::new();
-    };
-    (slice.asserts.iter().copied())
-        .filter(|id| {
-            goal.goal
-                .assertion(*id)
-                .is_some_and(|assertion| assertion.evidence == kind)
-        })
-        .collect()
+/// Keeps every slice on `board` bound to the standing assertions of its goal
+/// it names, with the evidence each needs now: the one place what a slice
+/// must meet is settled, after its goal's assertions change or a card goes.
+pub(super) fn rebind(board: &mut Board) {
+    let goals: Vec<(u64, u64)> = (board.cards.iter())
+        .filter(|card| card.slice.is_some())
+        .map(|card| (card.id, board.goal_card(card)))
+        .collect();
+    for (id, goal) in goals {
+        let standing: Vec<(u64, Collect)> = (board.card(goal).ok())
+            .map(|goal| {
+                (goal.goal.assertions().iter())
+                    .filter(|assertion| assertion.retired.is_none())
+                    .map(|assertion| (assertion.id, assertion.evidence))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(slice) = board.card_mut(id).ok().and_then(|card| card.slice.as_mut()) {
+            slice.bind(|id| {
+                standing
+                    .iter()
+                    .find(|(kept, _)| *kept == id)
+                    .map(|(_, evidence)| *evidence)
+            });
+        }
+    }
 }
 
 /// The project's check failed on `sha`, the latest commit of the slice on
@@ -1610,12 +1698,12 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                 };
                 let mut touched = Vec::new();
                 if let Some(board) = boards.get_mut(&project) {
-                    let checking: Vec<(u64, Vec<u64>)> = (board.cards.iter())
+                    let checking: Vec<u64> = (board.cards.iter())
                         .filter(|card| card.status == Status::Progress && card.slice.is_some())
-                        .map(|card| (card.id, asserted_by(board, card, Collect::Check)))
+                        .map(|card| card.id)
                         .collect();
                     let mut refusals = Vec::new();
-                    for (id, checks) in checking {
+                    for id in checking {
                         let Ok(card) = board.card_mut(id) else {
                             continue;
                         };
@@ -1624,9 +1712,18 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                         let Some(slice) = card.slice.as_mut() else {
                             continue;
                         };
-                        if slice.checked(owner.as_deref(), &run, &checks) {
-                            if let (Some(refused), Some(owner)) = (slice.refused(&label), owner) {
-                                refusals.push((id, owner, refused));
+                        if slice.checked(owner.as_deref(), &run) {
+                            let waits = (slice.done_said)
+                                .then(|| slice.awaits_evidence(&label))
+                                .flatten();
+                            match (slice.refused(&label), waits, owner) {
+                                (Some(refused), _, Some(owner)) => {
+                                    refusals.push((id, owner, refused))
+                                }
+                                (None, Some(text), Some(owner)) => {
+                                    notices.push(Notice { to: owner, text })
+                                }
+                                _ => {}
                             }
                             card.updated_at = epoch_ms();
                             touched.push(id);
@@ -1698,6 +1795,7 @@ pub(super) fn auto_slice(card: &mut Card, merges: bool) {
     if slice.passes.is_empty() {
         slice.ladder = ladder;
     }
+    slice.started = true;
 }
 
 /// Auto's agent shipped `head`, made on `from`, which counts as its owner
@@ -1724,13 +1822,6 @@ pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str
         let Some(board) = state.boards.get_mut(project) else {
             return;
         };
-        let Some(checks) = board
-            .card(id)
-            .ok()
-            .map(|card| asserted_by(board, card, Collect::Check))
-        else {
-            return;
-        };
         let Ok(card) = board.card_mut(id) else {
             return;
         };
@@ -1738,7 +1829,7 @@ pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str
         let checked = card
             .slice
             .as_mut()
-            .is_some_and(|slice| slice.checked(owner.as_deref(), &run, &checks));
+            .is_some_and(|slice| slice.checked(owner.as_deref(), &run));
         if !checked {
             return;
         }
@@ -1770,59 +1861,45 @@ pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str
 /// Keeps a picture the agent made on its slice, toward the gate it waits
 /// at. None when the card is not a slice, so the picture is kept as the
 /// card's recording; false when the slice is done and keeps none.
-pub(super) fn picture(
-    card: &mut Card,
-    agent: &str,
-    recording: &InboxRecording,
-    assertions: &[u64],
-) -> Option<bool> {
-    Some(
-        card.slice
-            .as_mut()?
-            .picture(Some(agent), recording, assertions),
-    )
+pub(super) fn picture(card: &mut Card, agent: &str, recording: &InboxRecording) -> Option<bool> {
+    Some(card.slice.as_mut()?.picture(Some(agent), recording))
 }
 
 /// The agent took a screenshot: when the card it works is a slice with
-/// assertions a screenshot shows, the core keeps it, one file per slice in
-/// place of the one before, as their evidence, and moves the slice on.
+/// assertions a screenshot shows, the core keeps it as their evidence, each
+/// in a file of its own, and moves the slice on. The board's writer removes
+/// a file once no evidence names it.
 pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, answer: &Value) {
     use base64::Engine;
-    let Some(data) = answer.get("data").and_then(Value::as_str) else {
+    let Some(bytes) = (answer.get("data").and_then(Value::as_str))
+        .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
+    else {
         return;
     };
     let target = {
         let state = core.boards.state.locked();
-        let folder = core.boards.folder.as_deref().and_then(Path::parent);
         state.boards.iter().find_map(|(project, board)| {
             let id = working_slice(board, agent)?;
-            let ids = asserted_by(board, board.card(id).ok()?, Collect::Screenshot);
-            let stem = crate::server::kept::file_for(project).replace(".json", "");
-            let path = folder?.join(EVIDENCE).join(format!("{stem}-{id}.jpg"));
-            (!ids.is_empty()).then(|| (project.clone(), id, ids, path))
+            let slice = board.card(id).ok()?.slice.as_ref()?;
+            let path = core.boards.evidence_file(project, id)?;
+            (!slice.asserting(Collect::Screenshot).is_empty()).then(|| (project.clone(), id, path))
         })
     };
-    let Some((project, id, ids, path)) = target else {
+    let Some((project, id, path)) = target else {
         return;
     };
-    let written = base64::engine::general_purpose::STANDARD
-        .decode(data)
+    let named = path.to_string_lossy().into_owned();
+    moved_by_evidence(core, &project, id, |slice| slice.screenshot(agent, &named));
+    let written = (path.parent())
+        .map_or(Ok(()), std::fs::create_dir_all)
         .map_err(|error| error.to_string())
-        .and_then(|bytes| {
-            path.parent()
-                .map_or(Ok(()), std::fs::create_dir_all)
-                .map_err(|error| error.to_string())?;
+        .and_then(|()| {
             sikemux_process::files::write_atomic(&path, &bytes, true)
                 .map_err(|error| error.to_string())
         });
     if let Err(error) = written {
         eprintln!("sikemux core: the screenshot was not kept as evidence: {error}");
-        return;
     }
-    let path = path.to_string_lossy().into_owned();
-    moved_by_evidence(core, &project, id, |slice| {
-        slice.screenshot(agent, &path, &ids)
-    });
 }
 
 /// Evidence came for the slice on `id`, which `collect` keeps; the slice

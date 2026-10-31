@@ -16,9 +16,7 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::memory::Learned;
 use sikemux_wire::slice::{Assertion, Collect, Decision, GoalRule};
 
-use super::{
-    caller, caller_project, goal_of, project_at, project_view, Board, BoardView, GoalRef, Status,
-};
+use super::{caller, caller_project, goal_of, project_at, project_view, Board, BoardView, GoalRef};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::Core;
@@ -309,18 +307,23 @@ fn apply<T: Kept>(
 }
 
 /// Makes room for one more in `list`, dropping its oldest retired, else its
-/// oldest; answers what was dropped, in words.
-fn make_room<T: Kept>(list: &mut Vec<T>, goal: u64) -> String {
+/// oldest that no started slice is `bound` to; answers what was dropped, in
+/// words. Refuses when every one binds a started slice.
+fn make_room<T: Kept>(list: &mut Vec<T>, goal: u64, bound: &[u64]) -> Result<String, String> {
     if list.len() < MAX_EACH {
-        return String::new();
+        return Ok(String::new());
     }
-    let oldest = list.iter().position(Kept::retired).unwrap_or(0);
+    let word = T::WORD;
+    let oldest = (list.iter().position(Kept::retired))
+        .or_else(|| list.iter().position(|kept| !bound.contains(&kept.id())))
+        .ok_or_else(|| {
+            format!("Goal #{goal} keeps {MAX_EACH} of each, and every {word} binds a slice that has started; retire one first")
+        })?;
     let dropped = list.remove(oldest);
-    format!(
-        " Goal #{goal} keeps {MAX_EACH} of each, so {} #{} was dropped.",
-        T::WORD,
+    Ok(format!(
+        " Goal #{goal} keeps {MAX_EACH} of each, so {word} #{} was dropped.",
         dropped.id()
-    )
+    ))
 }
 
 /// Changes what goal card `goal` of `project` keeps; answers what happened,
@@ -341,6 +344,7 @@ pub(crate) fn change(
     if let (List::Assertions, Some(agent)) = (list, by.agent.as_deref()) {
         may_assert(board, goal, agent, &change)?;
     }
+    let bound = bound(board, goal);
     let card = board.card_mut(goal)?;
     if card.parent.is_some() {
         return Err(format!(
@@ -350,7 +354,7 @@ pub(crate) fn change(
     let kept = &mut card.goal;
     let said = match (list, change) {
         (List::Decisions, Change::New { text, why, .. }) => {
-            let dropped = make_room(&mut kept.decisions, goal);
+            let dropped = make_room(&mut kept.decisions, goal, &[])?;
             kept.last += 1;
             let id = kept.last;
             kept.decisions.push(Decision {
@@ -364,7 +368,7 @@ pub(crate) fn change(
             format!("Decision #{id} is kept on goal #{goal}.{dropped}")
         }
         (List::Rules, Change::New { text, .. }) => {
-            let dropped = make_room(&mut kept.rules, goal);
+            let dropped = make_room(&mut kept.rules, goal, &[])?;
             kept.last += 1;
             let id = kept.last;
             kept.rules.push(GoalRule {
@@ -379,7 +383,7 @@ pub(crate) fn change(
         (List::Assertions, Change::New { text, evidence, .. }) => {
             let evidence =
                 evidence.ok_or("Say what evidence shows it: check, recording or screenshot")?;
-            let dropped = make_room(&mut kept.assertions, goal);
+            let dropped = make_room(&mut kept.assertions, goal, &bound)?;
             kept.last += 1;
             let id = kept.last;
             kept.assertions.push(Assertion {
@@ -409,8 +413,20 @@ pub(crate) fn change(
         }
     };
     card.updated_at = epoch_ms();
+    if matches!(list, List::Assertions) {
+        super::slice::rebind(board);
+    }
     core.boards.save(&mut state, project);
     Ok(said)
+}
+
+/// The assertions of goal `goal` that a slice under it that has started fulfils.
+fn bound(board: &Board, goal: u64) -> Vec<u64> {
+    (board.cards.iter())
+        .filter(|card| board.goal_card(card) == goal)
+        .filter_map(|card| card.slice.as_ref().filter(|slice| slice.started))
+        .flat_map(|slice| slice.asserts())
+        .collect()
 }
 
 /// Whether `agent` may make `change` to goal `goal`'s assertions: it leads the
@@ -426,9 +442,9 @@ fn may_assert(board: &Board, goal: u64, agent: &str, change: &Change) -> Result<
         return Ok(());
     };
     let started = board.cards.iter().find(|slice| {
-        slice.status != Status::Open
-            && board.goal_card(slice) == goal
-            && (slice.slice.as_ref()).is_some_and(|slice| slice.asserts.contains(id))
+        board.goal_card(slice) == goal
+            && (slice.slice.as_ref())
+                .is_some_and(|slice| slice.started && slice.asserts().any(|named| named == *id))
     });
     match started {
         Some(slice) => Err(format!(

@@ -2217,6 +2217,8 @@ export interface SliceView {
     notes: Note[];
     /** The goal's assertions it fulfils, each with whether its evidence is in. */
     asserts?: Asserted[];
+    /** Assertions it named that no longer stand on its goal, so no longer bind it. */
+    detached?: number[];
     /**
      * What the gate it waits at waits on now; none when it is done, or
      * nothing is under way.

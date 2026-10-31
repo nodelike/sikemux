@@ -247,18 +247,29 @@ impl Board {
     }
 
     /// Checks that `asserts` stand on the goal of a card under `parent`.
-    fn check_asserts(&self, parent: Option<u64>, asserts: &[u64]) -> Result<(), String> {
+    /// The assertions `asserts` names on the goal of a card under `parent`,
+    /// each with the evidence it needs, when every one stands there.
+    fn check_asserts(
+        &self,
+        parent: Option<u64>,
+        asserts: &[u64],
+    ) -> Result<Vec<slice::Named>, String> {
         if asserts.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let parent =
             parent.ok_or("A slice fulfils its goal's assertions, so it sits under the goal")?;
         let goal = self.goal_card(self.card(parent)?);
         let kept = &self.card(goal)?.goal;
-        match asserts.iter().find(|id| kept.assertion(**id).is_none()) {
-            Some(id) => Err(format!("Goal #{goal} has no assertion #{id} that stands")),
-            None => Ok(()),
-        }
+        (asserts.iter())
+            .map(|id| match kept.assertion(*id) {
+                Some(assertion) => Ok(slice::Named {
+                    id: *id,
+                    evidence: assertion.evidence,
+                }),
+                None => Err(format!("Goal #{goal} has no assertion #{id} that stands")),
+            })
+            .collect()
     }
 
     /// The goal `card` sits under: the card at the top above it, or itself.
@@ -437,6 +448,42 @@ pub(crate) struct Boards {
     pub(crate) wake: Wake,
 }
 
+/// The folder in the data folder that holds the screenshots kept as evidence.
+const EVIDENCE: &str = "evidence";
+
+/// How the files of the screenshots a project's board keeps begin.
+fn evidence_prefix(project: &str) -> String {
+    format!("{}-", kept::file_for(project).trim_end_matches(".json"))
+}
+
+/// A board's screenshot files to keep once it is written; the others it
+/// kept before go.
+struct Prune {
+    folder: PathBuf,
+    prefix: String,
+    keep: Vec<PathBuf>,
+}
+
+impl Prune {
+    fn run(&self) {
+        let Ok(entries) = std::fs::read_dir(&self.folder) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ours = entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&self.prefix);
+            if ours && !self.keep.contains(&path) {
+                if let Err(error) = std::fs::remove_file(&path) {
+                    eprintln!("sikemux core: {} was not removed: {error}", path.display());
+                }
+            }
+        }
+    }
+}
+
 /// Writes board files in the order they are handed over, at once, on a
 /// thread of its own, so nobody holding a board's lock waits on the disk.
 #[derive(Default)]
@@ -448,20 +495,20 @@ struct Writer {
 #[derive(Default)]
 struct Writes {
     /// One write per file: a newer one takes the place of the one waiting.
-    waiting: VecDeque<(PathBuf, Vec<u8>)>,
+    waiting: VecDeque<(PathBuf, Vec<u8>, Option<Prune>)>,
     writing: bool,
 }
 
 impl Writer {
-    fn hand(self: &Arc<Self>, path: PathBuf, bytes: Vec<u8>) {
+    fn hand(self: &Arc<Self>, path: PathBuf, bytes: Vec<u8>, prune: Option<Prune>) {
         let mut writes = self.writes.locked();
         match writes
             .waiting
             .iter_mut()
-            .find(|(waiting, _)| *waiting == path)
+            .find(|(waiting, _, _)| *waiting == path)
         {
-            Some((_, waiting)) => *waiting = bytes,
-            None => writes.waiting.push_back((path, bytes)),
+            Some((_, waiting, pruning)) => (*waiting, *pruning) = (bytes, prune),
+            None => writes.waiting.push_back((path, bytes, prune)),
         }
         if writes.writing {
             return;
@@ -488,11 +535,12 @@ impl Writer {
                 }
                 next
             };
-            let Some((path, bytes)) = next else {
+            let Some((path, bytes, prune)) = next else {
                 return;
             };
-            if let Err(error) = sikemux_process::files::write_atomic(&path, &bytes, true) {
-                eprintln!("sikemux core: {} was not saved: {error}", path.display());
+            match sikemux_process::files::write_atomic(&path, &bytes, true) {
+                Ok(_) => prune.iter().for_each(Prune::run),
+                Err(error) => eprintln!("sikemux core: {} was not saved: {error}", path.display()),
             }
         }
     }
@@ -560,12 +608,28 @@ impl Boards {
         let (Some(folder), Some(board)) = (&self.folder, state.boards.get(project)) else {
             return;
         };
+        let prune = folder.parent().map(|data| Prune {
+            folder: data.join(EVIDENCE),
+            prefix: evidence_prefix(project),
+            keep: (board.cards.iter())
+                .filter_map(|card| card.slice.as_ref())
+                .flat_map(|slice| slice.screenshot_files())
+                .map(PathBuf::from)
+                .collect(),
+        });
         match serde_json::to_vec(board) {
             Ok(bytes) => self
                 .writer
-                .hand(folder.join(kept::file_for(project)), bytes),
+                .hand(folder.join(kept::file_for(project)), bytes, prune),
             Err(error) => eprintln!("sikemux core: the board was not saved: {error}"),
         }
+    }
+
+    /// A new file for a screenshot kept as evidence on card `id` of `project`.
+    pub(super) fn evidence_file(&self, project: &str, id: u64) -> Option<PathBuf> {
+        let data = self.folder.as_deref()?.parent()?;
+        let name = format!("{}{id}-{}.jpg", evidence_prefix(project), epoch_ms());
+        Some(data.join(EVIDENCE).join(name))
     }
 
     /// Waits until every board saved so far is on disk, for a core about to
@@ -1268,11 +1332,9 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
 /// A card added as `adding` asks, by `maker`, or the person or Sikemux when none.
 fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card {
     let now = epoch_ms();
-    let slice = adding.promise.map(|promise| {
-        let mut slice = slice::Slice::new(promise, Vec::new(), None);
-        slice.asserts = adding.asserts;
-        slice
-    });
+    let slice = adding
+        .promise
+        .map(|promise| slice::Slice::new(promise, Vec::new(), None));
     Card {
         id,
         title: adding.title,
@@ -1340,7 +1402,7 @@ fn add_card(
     if !adding.asserts.is_empty() && adding.promise.is_none() {
         return Err("A slice fulfils assertions; give the card a promise too".into());
     }
-    board.check_asserts(adding.parent, &adding.asserts)?;
+    let named = board.check_asserts(adding.parent, &adding.asserts)?;
     let id = board.next.max(1);
     board.next = id + 1;
     let maker = match by {
@@ -1348,6 +1410,9 @@ fn add_card(
         By::Agent(agent) => Some(agent.clone()),
     };
     let mut card = new_card(core, id, adding, maker);
+    if let Some(slice) = &mut card.slice {
+        slice.name(named);
+    }
     let mut note = None;
     if let (true, By::Agent(agent)) = (claim, by) {
         if board.waits_on(&card).is_empty() {
@@ -1406,6 +1471,9 @@ fn take(core: &Core, card: &mut Card, agent: &str) {
     card.status = Status::Progress;
     card.updated_at = epoch_ms();
     card.acted_at = card.updated_at;
+    if let Some(slice) = &mut card.slice {
+        slice.started = true;
+    }
 }
 
 fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value, String> {
@@ -1525,19 +1593,31 @@ fn change_in(
     if let Some(depends_on) = &changes.depends_on {
         board.check_depends(Some(id), depends_on)?;
     }
-    if let Some(asserts) = &changes.asserts {
-        if before.slice.is_none() && changes.promise.is_none() {
-            return Err("A slice fulfils assertions; give the card a promise too".into());
+    let named = match &changes.asserts {
+        Some(asserts) => {
+            if before.slice.is_none() && changes.promise.is_none() {
+                return Err("A slice fulfils assertions; give the card a promise too".into());
+            }
+            let named = board.check_asserts(changes.parent.unwrap_or(before.parent), asserts)?;
+            let dropped = (before.slice.as_ref())
+                .is_some_and(|slice| slice.asserts().any(|id| !asserts.contains(&id)));
+            let started = before.slice.as_ref().is_some_and(|slice| slice.started);
+            if matches!(by, By::Agent(_)) && started && dropped {
+                return Err(format!(
+                    "#{id} has started, so only the person takes an assertion off it"
+                ));
+            }
+            Some(named)
         }
-        board.check_asserts(changes.parent.unwrap_or(before.parent), asserts)?;
-        let dropped = (before.slice.as_ref())
-            .is_some_and(|slice| slice.asserts.iter().any(|id| !asserts.contains(id)));
-        if matches!(by, By::Agent(_)) && before.status != Status::Open && dropped {
-            return Err(format!(
-                "#{id} has started, so only the person takes an assertion off it"
-            ));
-        }
-    }
+        None => None,
+    };
+    let regoaled = changes.parent.is_some_and(|parent| {
+        let after = match parent {
+            Some(parent) => board.card(parent).map(|parent| board.goal_card(parent)),
+            None => Ok(id),
+        };
+        after.is_ok_and(|after| after != board.goal_card(&before))
+    });
     if let Some(parent) = changes.parent {
         board.check_parent(Some(id), parent)?;
         if parent.is_some() && !before.goal.is_none() {
@@ -1600,8 +1680,12 @@ fn change_in(
             }
         }
     }
-    if let (Some(asserts), Some(slice)) = (changes.asserts, &mut card.slice) {
-        slice.asserts = asserts;
+    if let Some(slice) = &mut card.slice {
+        match named {
+            Some(named) => slice.name(named),
+            None if regoaled => slice.unbind(),
+            None => {}
+        }
     }
     if let Some(result) = changes.result {
         card.result = (!result.is_empty()).then_some(result);
@@ -1762,6 +1846,7 @@ fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, Strin
             card.parent = removed.parent;
         }
     }
+    slice::rebind(board);
     let mut notices = unblocked(board, &blocked_before, &By::Person);
     state.work.remove(&(project.to_owned(), id));
     let run = removed.kept_run().cloned();
@@ -2198,35 +2283,31 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
 pub(crate) fn attach_recording(core: &Arc<Core>, agent_id: &str, recording: InboxRecording) {
     let found = {
         let mut state = core.boards.state.locked();
-        let Some((project, id)) =
+        let working = state.boards.iter().find_map(|(project, board)| {
+            Some((project.clone(), slice::working_slice(board, agent_id)?))
+        });
+        let Some((project, id)) = working.or_else(|| {
             held_card(&mut state, agent_id).map(|(project, card)| (project.clone(), card.id))
+        }) else {
+            return;
+        };
+        let Some(card) = (state.boards.get_mut(&project)).and_then(|board| board.card_mut(id).ok())
         else {
             return;
         };
-        let Some(board) = state.boards.get_mut(&project) else {
-            return;
-        };
-        let Some(ids) = board
-            .card(id)
-            .ok()
-            .map(|card| slice::asserted_by(board, card, Collect::Recording))
-        else {
-            return;
-        };
-        let Ok(card) = board.card_mut(id) else {
-            return;
-        };
-        let kept = slice::picture(card, agent_id, &recording, &ids);
+        let kept = slice::picture(card, agent_id, &recording);
         if kept.is_none() {
             if card.recordings.len() >= MAX_RECORDINGS {
                 card.recordings.remove(0);
             }
             card.recordings.push(recording);
         }
+        let asserting = (card.slice.as_ref())
+            .is_some_and(|slice| !slice.asserting(Collect::Recording).is_empty());
         if kept != Some(false) {
             core.boards.save(&mut state, &project);
         }
-        (kept == Some(true) && !ids.is_empty()).then_some((project, id))
+        (kept == Some(true) && asserting).then_some((project, id))
     };
     if let Some((project, id)) = found {
         slice::moved_by_evidence(core, &project, id, |_| {});
