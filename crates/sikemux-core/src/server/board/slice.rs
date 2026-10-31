@@ -1493,12 +1493,13 @@ pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str
             Err(_) => return,
         }
     };
-    later.run(core);
     let notices = notices
         .into_iter()
         .filter(|notice| notice.to != agent)
         .collect();
     send_notices(core, notices);
+    let core = core.clone();
+    tokio::task::spawn_blocking(move || later.run(&core));
 }
 
 /// Keeps a picture the agent made on its slice, toward the gate it waits

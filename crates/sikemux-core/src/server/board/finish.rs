@@ -37,7 +37,8 @@ const MAX_TITLE_CHARS: usize = 120;
 /// What a check run on a pull request's code host is called on its slice.
 const PULL_CHECKS: &str = "its pull request's checks";
 
-/// Changes the card's run, if it is still `agent`'s. False when it is not.
+/// Changes the card's run, if it is still `agent`'s and Auto may move it on.
+/// False when it is not.
 pub(super) fn change_run(
     core: &Core,
     project: &str,
@@ -53,10 +54,10 @@ pub(super) fn change_run(
     else {
         return false;
     };
-    if card.status == Status::Done {
+    if card.run().is_none_or(|run| run.agent != agent) {
         return false;
     }
-    let Some(mut run) = card.auto.take().filter(|run| run.agent == agent) else {
+    let Some(mut run) = card.auto.take() else {
         return false;
     };
     change(card, &mut run);
@@ -239,7 +240,8 @@ where
         let Ok(card) = board.card_mut(id) else {
             return;
         };
-        if card.status == Status::Done {
+        let restarts = stage.is_some() && card.kept_run().is_some();
+        if !restarts && card.run().is_none() {
             return;
         }
         let Some(run) = card.auto.as_mut() else {
@@ -490,10 +492,7 @@ pub(crate) fn waiting_on_ci(core: &Core) -> Vec<ci::Shown> {
         .values()
         .flat_map(|board| &board.cards)
         .filter_map(|card| {
-            let run = card
-                .auto
-                .as_ref()
-                .filter(|run| run.stage == Stage::Checking)?;
+            let run = card.run().filter(|run| run.stage == Stage::Checking)?;
             let pull = run.pull.as_ref()?;
             Some(ci::Shown {
                 id: pull.repo_id(),
@@ -513,7 +512,7 @@ pub(crate) fn ci_moved(core: &Core, repo: &ci::Shown) {
         .iter()
         .flat_map(|(project, board)| board.cards.iter().map(move |card| (project, card)))
         .filter(|(_, card)| {
-            card.auto.as_ref().is_some_and(|run| {
+            card.run().is_some_and(|run| {
                 run.stage == Stage::Checking
                     && run
                         .pull
@@ -575,7 +574,6 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                         }
                         continue;
                     }
-                    _ if run.held.is_some() => continue,
                     Stage::Watching => {
                         let quiet = work.map_or(0, |work| work.quiet);
                         REVIEW_EVERY_MS << quiet.min(MAX_QUIET_DOUBLINGS)

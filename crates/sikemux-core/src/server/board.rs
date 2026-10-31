@@ -840,9 +840,14 @@ struct Maker {
 }
 
 impl Card {
-    /// The run Auto has on it, while the card is not done.
-    fn run(&self) -> Option<&Run> {
+    /// The run Auto has on it while the card is not done, handed back or not.
+    fn kept_run(&self) -> Option<&Run> {
         self.auto.as_ref().filter(|_| self.status != Status::Done)
+    }
+
+    /// The run Auto may move on: kept, and not handed back to the person.
+    fn run(&self) -> Option<&Run> {
+        self.kept_run().filter(|run| run.held.is_none())
     }
 
     fn owner_id(&self) -> Option<&str> {
@@ -1476,8 +1481,11 @@ fn change_in(
             None => mark_done(core, card, by, project, dropped, false),
         },
         Some(Status::Progress) => {
-            if let (Status::Done, Some(slice)) = (card.status, &mut card.slice) {
-                slice.restart();
+            if card.status == Status::Done {
+                card.auto = None;
+                if let Some(slice) = &mut card.slice {
+                    slice.restart();
+                }
             }
             card.status = Status::Progress;
         }
@@ -1495,8 +1503,9 @@ fn change_in(
     card.updated_at = epoch_ms();
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
-    let run_dropped =
-        before.run().is_some() && after.status != before.status && after.status != Status::Progress;
+    let run_dropped = before.kept_run().is_some()
+        && after.status != before.status
+        && after.status != Status::Progress;
     let mut notices = Vec::new();
     let changer = match by {
         By::Person => Some("The person".to_owned()),
@@ -1571,7 +1580,7 @@ fn mark_done(
     dropped: &mut Vec<finish::Dropped>,
     landed: bool,
 ) {
-    if let Some(run) = card.run().filter(|_| !landed) {
+    if let Some(run) = card.kept_run().filter(|_| !landed) {
         dropped.push(finish::Dropped {
             project: project.to_owned(),
             id: card.id,
@@ -1603,7 +1612,7 @@ fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, Strin
     }
     let mut notices = unblocked(board, &blocked_before, &By::Person);
     state.work.remove(&(project.to_owned(), id));
-    let run = removed.run().cloned();
+    let run = removed.kept_run().cloned();
     let dropping = run.is_some();
     if let Some(run) = run {
         state.dropped.push(finish::Dropped {

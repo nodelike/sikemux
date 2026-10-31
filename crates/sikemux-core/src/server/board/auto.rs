@@ -405,7 +405,7 @@ pub(crate) fn has_work(core: &Core) -> bool {
             && board
                 .cards
                 .iter()
-                .any(|card| takes(board, card) || card.run().is_some_and(|run| run.held.is_none()))
+                .any(|card| takes(board, card) || card.run().is_some())
     })
 }
 
@@ -650,7 +650,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         let state = core.boards.state.locked();
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
-                let run = card.run()?;
+                let run = card.kept_run()?;
                 (run.agent == agent_id && run.stage != Stage::Starting)
                     .then(|| (project.clone(), card.id, run.stage, run.held.is_some()))
             })
@@ -723,7 +723,7 @@ fn worker_ended(core: &Arc<Core>, agent_id: &str) {
         let state = core.boards.state.locked();
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
-                let run = card.auto.as_ref()?;
+                let run = card.run()?;
                 (run.agent == lead && matches!(run.stage, Stage::Working | Stage::Fixing))
                     .then(|| (project.clone(), card.id))
             })
@@ -745,5 +745,5 @@ fn worker_ended(core: &Arc<Core>, agent_id: &str) {
 /// Whether the card is one of `agent`'s own runs, whose work ships when its
 /// turn ends rather than the card closing before it lands.
 pub(super) fn own_run(card: &Card, agent: &str) -> bool {
-    card.run().is_some_and(|run| run.agent == agent)
+    card.kept_run().is_some_and(|run| run.agent == agent)
 }

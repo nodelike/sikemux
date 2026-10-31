@@ -87,7 +87,7 @@ pub(super) fn reviewed_card<'a>(
 }
 
 fn reviews(card: &Card, agent_id: &str) -> bool {
-    card.auto.as_ref().is_some_and(|run| {
+    card.run().is_some_and(|run| {
         run.stage == Stage::Reviewing
             && run
                 .reviewer
