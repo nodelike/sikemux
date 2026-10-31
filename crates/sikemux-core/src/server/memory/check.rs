@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::memory::{LastCheck, MemoryCheck, Stale};
+use sikemux_wire::memory::{CheckOutcome, LastCheck, MemoryCheck, Stale};
 
 use super::{tell_clients, Core};
 use crate::server::wake::sooner;
@@ -82,31 +82,47 @@ pub(crate) fn settle(core: &Arc<Core>) {
 }
 
 async fn run(folder: &Path, check: &MemoryCheck) -> LastCheck {
-    let failed = match check {
+    let (outcome, why) = match check {
         MemoryCheck::PathExists { path } => {
             let path = folder.join(path);
             match tokio::fs::try_exists(&path).await {
-                Ok(true) => None,
-                Ok(false) => Some(format!("{} does not exist", path.display())),
-                Err(error) => Some(format!("{} cannot be read: {error}", path.display())),
+                Ok(true) => (CheckOutcome::Passed, None),
+                Ok(false) => (
+                    CheckOutcome::Failed,
+                    Some(format!("{} does not exist", path.display())),
+                ),
+                Err(error) => (
+                    CheckOutcome::Failed,
+                    Some(format!("{} cannot be read: {error}", path.display())),
+                ),
             }
         }
         MemoryCheck::HostAnswers { host, port } => {
             let connect = tokio::net::TcpStream::connect((host.as_str(), *port));
             match tokio::time::timeout(CONNECT_TIMEOUT, connect).await {
-                Ok(Ok(_)) => None,
-                Ok(Err(error)) => Some(format!("{host}:{port} does not answer: {error}")),
-                Err(_) => Some(format!(
-                    "{host}:{port} did not answer within {} seconds",
-                    CONNECT_TIMEOUT.as_secs()
-                )),
+                Ok(Ok(_)) => (CheckOutcome::Passed, None),
+                Ok(Err(error)) if error.kind() == std::io::ErrorKind::ConnectionRefused => (
+                    CheckOutcome::Failed,
+                    Some(format!("{host}:{port} refused the connection")),
+                ),
+                Ok(Err(error)) => (
+                    CheckOutcome::Unreached,
+                    Some(format!("{host}:{port} could not be reached: {error}")),
+                ),
+                Err(_) => (
+                    CheckOutcome::Unreached,
+                    Some(format!(
+                        "{host}:{port} did not answer within {} seconds",
+                        CONNECT_TIMEOUT.as_secs()
+                    )),
+                ),
             }
         }
     };
     LastCheck {
         at: epoch_ms(),
-        passed: failed.is_none(),
-        why: failed,
+        outcome,
+        why,
     }
 }
 
@@ -126,9 +142,14 @@ fn record(core: &Core, due: &Due, result: LastCheck) {
         return;
     }
     let was_stale = known.stale.is_some();
-    match (&known.stale, result.passed) {
-        (None, false) => known.stale = Some(Stale::Failed { since: result.at }),
-        (Some(Stale::Failed { .. }), true) => known.stale = None,
+    match (&known.stale, result.outcome) {
+        (None, CheckOutcome::Failed) => {
+            known.stale = Some(Stale::Failed {
+                since: result.at,
+                why: result.why.clone().unwrap_or_default(),
+            });
+        }
+        (Some(Stale::Failed { .. }), CheckOutcome::Passed) => known.stale = None,
         _ => {}
     }
     let stale_moved = was_stale != known.stale.is_some();

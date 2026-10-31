@@ -1366,7 +1366,8 @@ said each and when.
   now". `about` names the paths and services it concerns, as whole words; it
   goes only to agents whose task or card names one of them, or to every agent
   when there are none. `check` lets Sikemux test it by itself: `pathExists`
-  with a `path`, or `hostAnswers` with a `host` and `port`.
+  with a `path`, or `hostAnswers` with a `host` and `port`, which only a
+  refused connection fails, never a network that cannot be reached.
 
 `sensitive: true` marks hosts, addresses and the like: agents still read it,
 but it never goes into the repository and only Sikemux's own window shows it.

@@ -3487,20 +3487,23 @@ export type MemoryCheck =
 /** The last time the core tested knowledge. */
 export interface LastCheck {
     at: number;
-    passed: boolean;
-    /** Why it failed. */
+    outcome: CheckOutcome;
+    /** Why it failed, or why it learned nothing. */
     why: string | null;
 }
+
+export type CheckOutcome = "passed" | "failed" | "unreached";
 
 /** Why knowledge is no longer known to hold. */
 export type Stale =
     /**
-     * The core's test failed, as `checked` says, and has kept failing since
-     * `since`. It holds again once the test passes.
+     * The core's test failed for `why`, first at `since`. It holds again
+     * once the test passes.
      */
     | {
           kind: "failed";
           since: number;
+          why: string;
       }
     /**
      * Someone said it no longer holds without knowing what does. It holds

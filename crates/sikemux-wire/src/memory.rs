@@ -77,9 +77,21 @@ pub enum MemoryCheck {
 #[serde(rename_all = "camelCase")]
 pub struct LastCheck {
     pub at: u64,
-    pub passed: bool,
-    /// Why it failed.
+    pub outcome: CheckOutcome,
+    /// Why it failed, or why it learned nothing.
     pub why: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CheckOutcome {
+    Passed,
+    /// The answer says it no longer holds, such as a missing path or a host
+    /// that refused the connection.
+    Failed,
+    /// Nothing answered either way, such as a host whose network is out of
+    /// reach while the VPN is off. The knowledge stays as it was.
+    Unreached,
 }
 
 /// Why knowledge is no longer known to hold.
@@ -90,9 +102,9 @@ pub struct LastCheck {
     rename_all_fields = "camelCase"
 )]
 pub enum Stale {
-    /// The core's test failed, as `checked` says, and has kept failing since
-    /// `since`. It holds again once the test passes.
-    Failed { since: u64 },
+    /// The core's test failed for `why`, first at `since`. It holds again
+    /// once the test passes.
+    Failed { since: u64, why: String },
     /// Someone said it no longer holds without knowing what does. It holds
     /// again only once corrected.
     Disputed { why: String, by: Learned },

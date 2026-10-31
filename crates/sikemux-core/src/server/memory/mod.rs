@@ -547,15 +547,7 @@ pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
         for known in &held.knowledge {
             let (why, at, agent) = match &known.stale {
                 None => continue,
-                Some(Stale::Failed { since }) => (
-                    known
-                        .checked
-                        .as_ref()
-                        .and_then(|checked| checked.why.clone())
-                        .unwrap_or_default(),
-                    *since,
-                    None,
-                ),
+                Some(Stale::Failed { since, why }) => (why.clone(), *since, None),
                 Some(Stale::Disputed { why, by }) => (why.clone(), by.at, by.agent.clone()),
             };
             listed.push(StaleKnowledge {
@@ -731,11 +723,7 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
         }
         for known in &held.knowledge {
             let stale = known.stale.as_ref().map(|stale| match stale {
-                Stale::Failed { .. } => known
-                    .checked
-                    .as_ref()
-                    .and_then(|checked| checked.why.clone())
-                    .unwrap_or_else(|| "its test failed".into()),
+                Stale::Failed { why, .. } => why.clone(),
                 Stale::Disputed { why, by } => format!("{} said: {why}", said_by(by)),
             });
             knowledge.push(json!({

@@ -36,6 +36,6 @@ A rule or knowledge marked sensitive, such as a host or an address, never goes i
 Knowledge can be proven wrong two ways.
 
 - **Someone says so.** You, or an agent that runs into the opposite, either corrects it with what is so instead, or says it no longer holds without knowing what does.
-- **Sikemux tests it.** Knowledge can say how to test it: a path exists, or a host answers on a port. Sikemux tests it every six hours, and soon after an agent was handed it on a test more than ten minutes old. An agent never waits for a test; it is handed what the last one found.
+- **Sikemux tests it.** Knowledge can say how to test it: a path exists, or a host answers on a port. Sikemux tests it every six hours, and soon after an agent was handed it on a test more than ten minutes old. An agent never waits for a test; it is handed what the last one found. A host that can't be reached at all, such as an internal one while the VPN is off, proves nothing, so the knowledge stays as it was; only a host that refuses the connection counts against it.
 
 Knowledge that failed its test, or that someone said no longer holds, is left out of what agents are handed and shows in the inbox as something to fix. Correct it or retire it. Knowledge that only failed its test holds again by itself once the test passes.
