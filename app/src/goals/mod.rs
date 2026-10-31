@@ -18,7 +18,7 @@ use sikemux_core::server::{
     BoardNoteParams, BoardParams, BoardPassParams, BoardView, CardView, MemoryEntryParams,
     MemoryParams,
 };
-use sikemux_wire::inbox::{InboxDigest, InboxItem};
+use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem};
 use sikemux_wire::memory::MemoryView;
 use sikemux_wire::slice::{
     CheckRun, Gate, GateState, GateView, Need, Passer, SliceState, SliceView, Wait, WaitOn,
@@ -99,8 +99,8 @@ impl GoalsPane {
         let board = here.request_typed::<call::Board>(BoardParams {
             project: project.clone(),
         });
+        let digest = here.request("digest", serde_json::json!({ "project": project }));
         let memory = here.request_typed::<call::Memory>(MemoryParams { project });
-        let digest = here.request("digest", serde_json::json!({}));
         self._reading = cx.spawn(async move |pane, cx| {
             let (board, memory, digest) = (board.await, memory.await, digest.await);
             let _ = pane.update(cx, |pane, cx| {
@@ -207,14 +207,10 @@ impl GoalsPane {
         Some(self.board.as_ref()?.project.as_str())
     }
 
-    /// The goal a card is, or is a slice of.
-    fn goal_of(&self, card: u64) -> Option<&CardView> {
-        let card = self.card(card)?;
-        match card.parent {
-            None => Some(card),
-            Some(parent) => self.card(parent),
-        }
-        .filter(|goal| goal.parent.is_none() && !self.slices(goal.id).is_empty())
+    /// The goal an inbox item's card belongs to, as the core says, when it is a goal here.
+    fn goal_of(&self, card: &InboxCard) -> Option<&CardView> {
+        let goal = card.goal.unwrap_or(card.id);
+        self.goals().into_iter().find(|known| known.id == goal)
     }
 
     /// Opens what an inbox item is about: its slice or goal here, else its agent's chat.
@@ -223,10 +219,10 @@ impl GoalsPane {
             .card
             .as_ref()
             .filter(|card| Some(card.project.as_str()) == self.project())
-            .and_then(|card| self.card(card.id));
+            .and_then(|card| Some((self.card(card.id)?, card)));
         match on_board {
-            Some(card) if card.slice.is_some() => self.go(At::Slice(card.id), cx),
-            Some(card) if self.goal_of(card.id).is_some_and(|goal| goal.id == card.id) => {
+            Some((card, _)) if card.slice.is_some() => self.go(At::Slice(card.id), cx),
+            Some((card, inbox)) if self.goal_of(inbox).is_some_and(|goal| goal.id == card.id) => {
                 self.go(At::Goal(card.id), cx)
             }
             _ => {

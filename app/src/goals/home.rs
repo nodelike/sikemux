@@ -52,7 +52,7 @@ impl GoalsPane {
 
     /// What finished or failed in this project while the person was away, in time order.
     fn happened_here(&self) -> Vec<Happened<'_>> {
-        let (Some(project), Some(digest)) = (self.project(), self.digest.as_ref()) else {
+        let Some(digest) = self.digest.as_ref() else {
             return Vec::new();
         };
         let finished = digest
@@ -63,18 +63,14 @@ impl GoalsPane {
             .failed
             .iter()
             .map(|item| Happened { done: false, item });
-        let mut happened: Vec<Happened> = finished
-            .chain(failed)
-            .filter(|happened| happened.item.project.as_deref() == Some(project))
-            .collect();
+        let mut happened: Vec<Happened> = finished.chain(failed).collect();
         happened.sort_by_key(|happened| happened.item.at);
         happened
     }
 
     /// The title of the goal an item is on, when it is on one here.
     fn goal_title(&self, item: &InboxItem) -> Option<String> {
-        let card = item.card.as_ref()?;
-        Some(self.goal_of(card.id)?.title.clone())
+        Some(self.goal_of(item.card.as_ref()?)?.title.clone())
     }
 }
 
