@@ -183,8 +183,15 @@ function otherCore() {
 }
 
 // Kept from the caller: SIKEMUX_LAUNCH_BEHIND opens the window behind the app in use, and
-// SIKEMUX_AGENT_SEARCH=path keeps a sandboxed run's core to the agent CLIs on its PATH.
-const CALLER_OPTIONS = ["SIKEMUX_LAUNCH_BEHIND", "SIKEMUX_AGENT_SEARCH"];
+// SIKEMUX_AGENT_SEARCH=path keeps a sandboxed run's core to the agent CLIs on its PATH, and
+// SIKEMUX_GPUI_DRIVE* let a window built with the drive feature be driven over a socket.
+const CALLER_OPTIONS = [
+  "SIKEMUX_LAUNCH_BEHIND",
+  "SIKEMUX_AGENT_SEARCH",
+  "SIKEMUX_GPUI_DRIVE",
+  "SIKEMUX_GPUI_DRIVE_BEHIND",
+  "SIKEMUX_GPUI_DRIVE_MOTION",
+];
 
 function appEnvironment() {
   const env = withoutTerminalSession(process.env);
