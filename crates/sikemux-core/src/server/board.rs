@@ -25,7 +25,7 @@ use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_wire::inbox::InboxRecording;
 use sikemux_wire::slice::{
-    Assertion, Collect, Decision, Gate, GoalRule, NextGate, SliceView, Wait,
+    Assertion, Collect, Decision, Gate, GoalRule, NextGate, SliceState, SliceView, Wait,
 };
 
 mod arrival;
@@ -246,6 +246,11 @@ impl Board {
             goal = parent;
         }
         goal
+    }
+
+    /// Whether `card` waits on another card, or nobody holds it.
+    fn held_up(&self, card: &Card) -> bool {
+        card.owner.is_none() || !self.waits_on(card).is_empty()
     }
 
     fn card(&self, id: u64) -> Result<&Card, String> {
@@ -1157,6 +1162,10 @@ pub struct CardView {
     /// For a goal, the gates its slices wait at, in the order they will be
     /// reached: a slice that waits on another comes after it.
     pub next: Vec<NextGate>,
+    /// For a goal, how its slices stand together; none for a card with no
+    /// slices under it.
+    #[serde(default)]
+    pub goal_state: Option<SliceState>,
     /// For a goal, what it decided, oldest first, retired ones too.
     pub decisions: Vec<Decision>,
     /// For a goal, rules only its own agents follow, oldest first, retired
@@ -1252,11 +1261,16 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         auto: card.auto.as_ref().map(Run::view),
         recordings: card.recordings.clone(),
         slice: card.slice.as_ref().map(|slice| {
-            let held_up = card.owner.is_none() || !board.waits_on(card).is_empty();
             let wait = wait::of(core, board, card, now);
-            slice.view(card.owner_id(), held_up, |agent| name_of(core, agent), wait)
+            slice.view(
+                card.owner_id(),
+                board.held_up(card),
+                |agent| name_of(core, agent),
+                wait,
+            )
         }),
         next: slice::next_gates(core, board, card, now),
+        goal_state: slice::goal_state(board, card),
         decisions: card.goal.decisions(),
         rules: card.goal.rules(),
         arrivals: card.arrivals.clone(),

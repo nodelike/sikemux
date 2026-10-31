@@ -7,31 +7,14 @@ use gpui_kit::{
     div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::CardView;
-use sikemux_wire::slice::{SliceState, SliceView};
+use sikemux_wire::slice::SliceState;
 
-use super::{goals_of, slices_of, state_mark, At, GoalsPane};
+use super::{goals_of, state_mark, At, GoalsPane};
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1, SPACE_2H, SPACE_4};
 use crate::ui::{self, Group, Row, Tone};
 
 const WIDTH: f32 = 240.;
-
-/// How a goal shows on the rail, from its slices: failed when one failed, needing the person
-/// when one does, moving when one moves, done when all are, else waiting.
-fn goal_state(slices: &[(&CardView, &SliceView)]) -> SliceState {
-    let any = |state: SliceState| slices.iter().any(|(_, slice)| slice.state == state);
-    let all_done = slices
-        .iter()
-        .all(|(_, slice)| slice.state == SliceState::Done);
-    match () {
-        _ if any(SliceState::Failed) => SliceState::Failed,
-        _ if any(SliceState::NeedsYou) => SliceState::NeedsYou,
-        _ if any(SliceState::Moving) => SliceState::Moving,
-        _ if all_done => SliceState::Done,
-        _ => SliceState::Waiting,
-    }
-}
 
 /// A project's name, as the last part of its folder.
 pub(super) fn project_name(folder: &str) -> &str {
@@ -69,7 +52,7 @@ pub(super) fn rail(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
                     )
                     .mark(
                         16.,
-                        state_mark(goal_state(&slices_of(&board.cards, id)), cx),
+                        state_mark(goal.goal_state.unwrap_or(SliceState::Waiting), cx),
                     )
                     .chosen(open)
                     .on_click(cx.listener(move |pane, _, _, cx| {

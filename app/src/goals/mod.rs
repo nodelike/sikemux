@@ -428,11 +428,11 @@ fn slices_of(cards: &[CardView], goal: u64) -> Vec<(&CardView, &SliceView)> {
         .collect()
 }
 
-/// The cards on top of a board with slices under them.
+/// The cards on top of a board with slices under them, which the core gives a goal's state.
 fn goals_of(cards: &[CardView]) -> Vec<&CardView> {
     cards
         .iter()
-        .filter(|card| card.parent.is_none() && !slices_of(cards, card.id).is_empty())
+        .filter(|card| card.parent.is_none() && card.goal_state.is_some())
         .collect()
 }
 

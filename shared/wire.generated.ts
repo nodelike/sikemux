@@ -2137,6 +2137,11 @@ export interface BoardCard {
      * reached: a slice that waits on another comes after it.
      */
     next: NextGate[];
+    /**
+     * For a goal, how its slices stand together; none for a card with no
+     * slices under it.
+     */
+    goalState?: SliceState | null;
     /** For a goal, what it decided, oldest first, retired ones too. */
     decisions: Decision[];
     /**

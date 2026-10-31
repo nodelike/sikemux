@@ -1074,6 +1074,25 @@ fn proof_words(proof: &Proof) -> &'static str {
     }
 }
 
+/// How a goal's slices stand together, marked as one: failed when one
+/// failed, needing the person when one does, moving when one moves, done when
+/// every one is, else waiting. None for a card with no slices under it.
+pub(super) fn goal_state(board: &Board, goal: &Card) -> Option<SliceState> {
+    let states: Vec<SliceState> = (board.cards.iter())
+        .filter(|card| card.parent == Some(goal.id))
+        .filter_map(|card| Some(card.slice.as_ref()?.state(board.held_up(card))))
+        .collect();
+    let any = |state: SliceState| states.contains(&state);
+    Some(match () {
+        _ if states.is_empty() => return None,
+        _ if any(SliceState::Failed) => SliceState::Failed,
+        _ if any(SliceState::NeedsYou) => SliceState::NeedsYou,
+        _ if any(SliceState::Moving) => SliceState::Moving,
+        _ if states.iter().all(|state| *state == SliceState::Done) => SliceState::Done,
+        _ => SliceState::Waiting,
+    })
+}
+
 /// The gates a goal's slices wait at, in the order they will be reached: a
 /// slice that waits on another comes after it. Each says what it waits on now.
 pub(super) fn next_gates(core: &Core, board: &Board, goal: &Card, now: u64) -> Vec<NextGate> {
