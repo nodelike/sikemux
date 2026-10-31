@@ -127,6 +127,16 @@ impl Case {
     }
 }
 
+/// Kinds whose own signal tells the person as they happen, with what answers them: a
+/// permission, a question, a terminal waiting for input, a turn's problem. The inbox tells
+/// of every other item when it first needs the person.
+fn signalled(kind: InboxKind) -> bool {
+    matches!(
+        kind,
+        InboxKind::Permission | InboxKind::Question | InboxKind::Input | InboxKind::Failed
+    )
+}
+
 /// How soon an item comes among those of its tier: what stops an agent until the
 /// person acts first, and a proposal on a turn's item, which stops nothing, last.
 fn urgency(item: &InboxItem) -> u8 {
@@ -1034,6 +1044,17 @@ fn shown(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agent
     }));
     ranked.sort_by(|a, b| (a.0, &a.1.agent_id).cmp(&(b.0, &b.1.agent_id)));
     ranked.into_iter().map(|(_, shown)| shown).collect()
+}
+
+/// The items the inbox tells the person of: those that need them, which no signal of
+/// their own tells.
+pub(crate) fn told(core: &Core) -> Vec<InboxItem> {
+    let (chats, sessions) = core.ranked_infos();
+    let agents = agents(core, &chats, &sessions);
+    waiting(core, &agents, &sessions)
+        .into_iter()
+        .filter(|item| item.need.is_some() && !signalled(item.kind))
+        .collect()
 }
 
 /// Everything that waits on the person besides how agents' turns went.

@@ -1,6 +1,7 @@
 //! Tells the app's window, and paired phones through the account's push
-//! service, when an agent needs the person, finishes a long turn, runs into a
-//! problem, or when a device asks to pair. Each phone chose what it hears about and gave this
+//! service, when an agent or anything else in the inbox needs the person,
+//! an agent finishes a long turn or runs into a problem, or when a device asks
+//! to pair. Each phone chose what it hears about and gave this
 //! host a key to seal it with (see [`crate::push`]); the host decides
 //! everything else, since it knows most.
 
@@ -15,13 +16,14 @@ use std::time::Duration;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
 
 use crate::accounts::live::Push;
 use crate::accounts::protocol::PushKind;
 use crate::protocol::{AgentState, Attention, Event, NotifyPrefs, NotifyWhen, PendingDevice};
 use crate::push::{self, Notification, NotificationCategory, NotificationKind, MAX_PLAINTEXT};
 use crate::text::clipped_line;
+use sikemux_wire::inbox::InboxItem;
 
 pub(crate) use presence::{Presence, SystemPresence};
 
@@ -32,6 +34,9 @@ use super::Core;
 /// How often the host looks whether the person left, to send what waited
 /// for that.
 const TICK: Duration = Duration::from_secs(15);
+/// How long the inbox may keep moving before the host looks at what it needs
+/// the person for, so a burst of changes is looked at once.
+const INBOX_GATHER: Duration = Duration::from_secs(1);
 const FINISHED_AFTER_MS: u64 = 30_000;
 const FINISHED_GAP_MS: u64 = 5 * 60_000;
 const PROBLEM_GAP_MS: u64 = 60_000;
@@ -98,6 +103,8 @@ struct Asked {
 #[derive(Default)]
 pub(crate) struct Notifier {
     signals: Mutex<Option<mpsc::UnboundedSender<Signal>>>,
+    /// Something the inbox is made from may have changed.
+    inbox_moved: Notify,
     state: Mutex<State>,
     presence: Mutex<Option<Arc<dyn Presence>>>,
     host_name: OnceLock<String>,
@@ -118,6 +125,9 @@ struct State {
     pending: HashMap<(String, String), Attention>,
     /// Agents' questions still waiting on the person, by agent and question.
     questions: HashMap<(String, String), Asked>,
+    /// What each inbox item that needs the person told them, by item; none
+    /// until the inbox was first looked at, which tells of nothing.
+    inbox: Option<HashMap<String, Draft>>,
 }
 
 impl Notifier {
@@ -133,6 +143,12 @@ impl Notifier {
         presence
             .get_or_insert_with(|| Arc::new(SystemPresence))
             .clone()
+    }
+
+    /// Something the inbox is made from may have changed, so what it needs the
+    /// person for is looked at again soon.
+    pub(crate) fn inbox_moved(&self) {
+        self.inbox_moved.notify_one();
     }
 
     #[cfg(test)]
@@ -164,7 +180,14 @@ pub(crate) async fn run(core: Arc<Core>) {
     }
     let mut ticker = tokio::time::interval(TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut inbox_due: Option<tokio::time::Instant> = None;
     loop {
+        let looked_at = async {
+            match inbox_due {
+                Some(at) => tokio::time::sleep_until(at).await,
+                None => std::future::pending().await,
+            }
+        };
         tokio::select! {
             signal = received.recv() => match signal {
                 Some(signal) => {
@@ -174,6 +197,13 @@ pub(crate) async fn run(core: Arc<Core>) {
                 None => return,
             },
             _ = ticker.tick() => noted(&core, away_now(&core).await, epoch_ms()),
+            () = core.notify.inbox_moved.notified(), if inbox_due.is_none() => {
+                inbox_due = Some(tokio::time::Instant::now() + INBOX_GATHER);
+            }
+            () = looked_at => {
+                inbox_due = None;
+                inbox(&core, epoch_ms());
+            }
         }
     }
 }
@@ -247,6 +277,62 @@ fn noted(core: &Core, away: bool, now: u64) {
         if let Some(draft) = needs_input(core, &agent_id, now) {
             alert_all(core, &draft, now);
         }
+    }
+    let told: Vec<Draft> = core
+        .notify
+        .state
+        .locked()
+        .inbox
+        .iter()
+        .flat_map(HashMap::values)
+        .cloned()
+        .collect();
+    for draft in told {
+        alert_all(core, &draft, now);
+    }
+}
+
+/// Tells of each inbox item that needs the person and was not there at the last
+/// look, once, and takes each that no longer does off where it was told.
+/// Nothing is looked at while nobody could be told.
+fn inbox(core: &Core, now: u64) {
+    if !core.window.is_open() && core.remote.notify_targets().is_none() {
+        return;
+    }
+    let items = super::inbox::told(core);
+    let (fresh, gone) = {
+        let mut state = core.notify.state.locked();
+        let first = state.inbox.is_none();
+        let before = state.inbox.take().unwrap_or_default();
+        let mut kept = HashMap::new();
+        let mut fresh = Vec::new();
+        for item in &items {
+            match before.get(&item.id) {
+                Some(draft) => {
+                    kept.insert(item.id.clone(), draft.clone());
+                }
+                None => {
+                    let draft = needed(core, item, now);
+                    if !first {
+                        fresh.push(draft.clone());
+                    }
+                    kept.insert(item.id.clone(), draft);
+                }
+            }
+        }
+        let gone: Vec<Draft> = before
+            .into_iter()
+            .filter(|(id, _)| !kept.contains_key(id))
+            .map(|(_, draft)| draft)
+            .collect();
+        state.inbox = Some(kept);
+        (fresh, gone)
+    };
+    for draft in fresh {
+        alert_all(core, &draft, now);
+    }
+    for draft in gone {
+        clear_all(core, &draft.agent_id, &draft.card, None, now);
     }
 }
 
@@ -368,6 +454,10 @@ fn question_card(agent_id: &str, id: &str) -> String {
 
 fn input_card(agent_id: &str) -> String {
     format!("input|{agent_id}")
+}
+
+fn inbox_card(id: &str) -> String {
+    format!("inbox|{id}")
 }
 
 fn pairing_card(id: &str) -> String {
@@ -565,6 +655,64 @@ fn question(core: &Core, agent_id: &str, id: &str, asked: &Asked) -> Option<Draf
         MAX_DETAIL_CHARS,
     ));
     Some(draft)
+}
+
+/// What the person is told of an inbox item that needs them, in the inbox's words:
+/// who, what is needed, and the detail or where.
+fn needed(core: &Core, item: &InboxItem, now: u64) -> Draft {
+    let agent_id = item.agent_id.clone().unwrap_or_default();
+    let named = name(core, &agent_id);
+    let who = (item.name.clone())
+        .or_else(|| named.as_ref().map(|named| named.agent.clone()))
+        .or_else(|| item.card.as_ref().map(|card| card.title.clone()))
+        .unwrap_or_else(|| "Sikemux".to_owned());
+    let mut draft = match &named {
+        Some(named) => named.draft(
+            NotificationKind::Input,
+            inbox_card(&item.id),
+            &agent_id,
+            now,
+            PERMISSION_LIFE_MS,
+        ),
+        None => Draft {
+            kind: NotificationKind::Input,
+            card: inbox_card(&item.id),
+            agent_id,
+            chat: false,
+            provider: String::new(),
+            chat_title: None,
+            title: String::new(),
+            body: String::new(),
+            detail: None,
+            request_id: None,
+            allow_option_id: None,
+            reject_option_id: None,
+            at: now,
+            expires_at: now + PERMISSION_LIFE_MS,
+        },
+    };
+    draft.title = clipped_line(&format!("{who}: {}", item.what), MAX_TITLE_CHARS);
+    let place = match &named {
+        Some(named) => named.whereabouts(core, true),
+        None => item.project.as_deref().map_or_else(
+            || format!("On {}", core.notify.host_name()),
+            |project| {
+                format!(
+                    "{} on {}",
+                    project_name(core, project),
+                    core.notify.host_name()
+                )
+            },
+        ),
+    };
+    match &item.detail {
+        Some(detail) => {
+            draft.body = clipped_line(detail, MAX_BODY_CHARS);
+            draft.detail = Some(clipped_line(&place, MAX_DETAIL_CHARS));
+        }
+        None => draft.body = clipped_line(&place, MAX_BODY_CHARS),
+    }
+    draft
 }
 
 fn needs_input(core: &Core, agent_id: &str, now: u64) -> Option<Draft> {

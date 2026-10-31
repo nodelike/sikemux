@@ -45,6 +45,7 @@ impl Core {
     /// out again shortly, once with any changes that follow it.
     pub(crate) fn view_changed(&self) {
         self.device_view.stale.notify_one();
+        self.notify.inbox_moved();
     }
 
     /// Something the person did changed the view, such as the tab in front, so it goes out
