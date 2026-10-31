@@ -55,8 +55,8 @@ enum Case {
     /// The slice waits for the person to pass this gate.
     Gate(Gate),
     PullRequest,
-    /// Auto handed the card back.
-    HandedBack,
+    /// Auto handed the card back, for the person to fix something or unblock it.
+    HandedBack(Hold),
     /// Two agents keep messaging each other and nothing else.
     Looping,
     /// Two agents keep changing the same lines.
@@ -96,9 +96,11 @@ impl Case {
             Case::Input => (InboxKind::Input, Wants::Person(Unblock)),
             Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
             Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
-            Case::HandedBack | Case::Looping | Case::CheckFailing | Case::StaleMemory => {
-                (InboxKind::Held, Wants::Person(Fix))
-            }
+            Case::HandedBack(Hold::Unblock) => (InboxKind::Held, Wants::Person(Unblock)),
+            Case::HandedBack(Hold::Fix)
+            | Case::Looping
+            | Case::CheckFailing
+            | Case::StaleMemory => (InboxKind::Held, Wants::Person(Fix)),
             Case::Colliding => (InboxKind::Held, Wants::Person(Decide)),
             Case::Failed(Some(Fault::Account)) => (InboxKind::Failed, Wants::Person(Unblock)),
             Case::Failed(Some(Fault::Broke)) => (InboxKind::Failed, Wants::Person(Fix)),
@@ -561,14 +563,10 @@ fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
         Waits::Held { need, note } => {
             let mut item = item(
                 card_id,
-                Case::HandedBack,
+                Case::HandedBack(*need),
                 "Its card came back to you".into(),
                 card.updated_at,
             );
-            item.need = Some(match need {
-                Hold::Fix => InboxNeed::Fix,
-                Hold::Unblock => InboxNeed::Unblock,
-            });
             item.detail = note.clone();
             item
         }
