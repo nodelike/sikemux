@@ -117,6 +117,9 @@ async fn saved(core: &Core) -> Option<Saved> {
 }
 
 async fn keep_saved(core: &Core, saved: Option<Saved>) -> CoreResult<()> {
+    if saved.is_none() {
+        eprintln!("sikemux core: deleting the saved sign-in from the keychain");
+    }
     let text = saved.as_ref().map(encode_saved).transpose()?;
     tokio::task::spawn_blocking(move || match text {
         Some(text) => sikemux_keychain::write(KEY_SERVICE, key_account(), &text),
@@ -158,25 +161,31 @@ pub(crate) async fn show(core: &Core) {
         .as_ref()
         .is_some_and(|saved| released(owner.as_deref(), has_key, &saved.user_id))
     {
+        eprintln!(
+            "sikemux core: the account no longer owns this host, so its saved sign-in is forgotten"
+        );
         if let Err(error) = forget(core).await {
             eprintln!("sikemux core: could not forget the account: {error}");
         }
         saved = None;
     }
-    let shown = match (owner, saved, folder(core)) {
-        (None, ..) => None,
-        (Some(_), Some(saved), Some(folder)) => {
+    let shown = match (owner, folder(core)) {
+        (None, _) => None,
+        (Some(owner), Some(folder)) => {
             let profile = profile::read(&folder)
                 .await
-                .filter(|profile| profile.user_id == saved.user_id);
+                .filter(|profile| profile.user_id == owner);
             let picture_hash = profile
                 .as_ref()
                 .and_then(|profile| profile.picture.as_deref())
                 .filter(|url| profile::picture_path(&folder, url).is_file())
                 .map(profile::cache_key);
+            let saved_email = saved
+                .filter(|saved| saved.user_id == owner)
+                .and_then(|saved| saved.email);
             let (name, email) = match profile {
-                Some(profile) => (profile.name, profile.email.or(saved.email)),
-                None => (None, saved.email),
+                Some(profile) => (profile.name, profile.email.or(saved_email)),
+                None => (None, saved_email),
             };
             Some(AccountInfo {
                 name,
@@ -184,7 +193,7 @@ pub(crate) async fn show(core: &Core) {
                 picture_hash,
             })
         }
-        (Some(_), ..) => Some(AccountInfo {
+        (Some(_), None) => Some(AccountInfo {
             name: None,
             email: None,
             picture_hash: None,
@@ -219,13 +228,13 @@ pub(crate) fn start(core: &Arc<Core>) {
 }
 
 async fn refresh_profile(core: &Core) {
-    let (Some(saved), Some(folder)) = (saved(core).await, folder(core)) else {
+    let (Some(owner), Some(folder)) = (core.remote.owner(), folder(core)) else {
         show(core).await;
         return;
     };
     let stale = profile::read(&folder)
         .await
-        .filter(|profile| profile.user_id == saved.user_id)
+        .filter(|profile| profile.user_id == owner)
         .is_none_or(|profile| profile.is_stale(profile::now()));
     let tried_lately = core
         .account
@@ -237,7 +246,7 @@ async fn refresh_profile(core: &Core) {
         if let Ok(account) =
             as_host::<AccountProfile>(core, Method::GET, "/v1/account/profile", None).await
         {
-            let fresh = profile::from_account(account, saved.user_id, profile::now());
+            let fresh = profile::from_account(account, owner, profile::now());
             let _ = profile::save(&folder, &fresh).await;
         }
     }

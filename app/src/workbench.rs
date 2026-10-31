@@ -763,7 +763,12 @@ impl Workbench {
             }
             Update::View(view) => {
                 crate::ui::moving_face::set_on(view.face_style.motion, cx);
+                let account_moved =
+                    self.view.as_ref().map(|shown| &shown.account) != Some(&view.account);
                 self.view = Some(*view);
+                if account_moved {
+                    self.parts.redraw(&self.parts.rail, cx);
+                }
                 self.forget_departed(cx);
                 self.settle_closing();
                 // The core finds its agents a moment after it starts, so the plan limits are
