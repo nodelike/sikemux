@@ -274,7 +274,8 @@ async fn fire(core: Arc<Core>, firing: Firing) {
             Some(request) => format!("{}\n\n{}", trigger.prompt, fired::request_text(request)),
             None => trigger.prompt.clone(),
         };
-        if let Err(error) = super::board::add_for_trigger(&core, project, &trigger.title, &details)
+        if let Err(error) =
+            super::board::add_for_trigger(&core, project, trigger.id, &trigger.title, &details)
         {
             eprintln!(
                 "sikemux core: trigger {} added no card to {project}'s board: {error}",

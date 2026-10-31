@@ -25,6 +25,7 @@ use super::Core;
 use sikemux_wire::inbox::InboxRecording;
 use sikemux_wire::slice::{Decision, Gate, GoalRule, NextGate, SliceView, Wait};
 
+mod arrival;
 pub(crate) mod auto;
 mod blind;
 mod finish;
@@ -151,6 +152,9 @@ struct Card {
     team: Option<Team>,
     result: Option<String>,
     ticket: Option<Ticket>,
+    /// The trigger whose firing added it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    trigger: Option<u64>,
     /// The run Auto gave the card, in a worktree of its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     auto: Option<Run>,
@@ -626,6 +630,8 @@ struct Adding {
     parent: Option<u64>,
     depends_on: Vec<u64>,
     ticket: Option<Ticket>,
+    /// The trigger whose firing it is.
+    trigger: Option<u64>,
 }
 
 impl Adding {
@@ -645,6 +651,7 @@ impl Adding {
                 Some(value) => card_ids(value, "dependsOn")?,
             },
             ticket: None,
+            trigger: None,
         })
     }
 }
@@ -1159,7 +1166,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
 }
 
 fn add_card(
-    core: &Core,
+    core: &Arc<Core>,
     project: &str,
     by: &By,
     adding: Adding,
@@ -1176,18 +1183,20 @@ fn add_card(
             "This project's board already holds {MAX_CARDS} cards, the most it may; ask the person to clear the done ones"
         ));
     }
-    if let Some(ticket) = &adding.ticket {
-        if let Some(card) = board.cards.iter().find(|card| {
-            card.ticket
-                .as_ref()
-                .is_some_and(|other| other.key.eq_ignore_ascii_case(&ticket.key))
-        }) {
-            return Err(format!(
-                "{} is on the board already, as {}",
-                ticket.key,
-                card.label()
-            ));
+    if let Some(id) = arrival::Key::of(&adding).and_then(|key| arrival::holder(board, &key)) {
+        let card = board.card_mut(id)?;
+        card.updated_at = epoch_ms();
+        let notice = arrival::arrived_again(card, &adding);
+        let mut view = agent_view(core, board, board.card(id)?, true);
+        boards.save(&mut state, project);
+        send_notices(core, notice.into_iter().collect());
+        if let Some(fields) = view.as_object_mut() {
+            fields.insert(
+                "note".into(),
+                "It was on the board already, so it went to the card that holds it.".into(),
+            );
         }
+        return Ok(view);
     }
     if matches!(by, By::Agent(_)) && !adding.acceptance.is_empty() {
         return Err(ONLY_PERSON_ACCEPTS.into());
@@ -1217,6 +1226,7 @@ fn add_card(
         team: None,
         result: None,
         ticket: adding.ticket,
+        trigger: adding.trigger,
         auto: None,
         recordings: Vec::new(),
         slice: adding
@@ -1250,11 +1260,12 @@ fn add_card(
     Ok(view)
 }
 
-/// Adds a card for a trigger that came due, as the person's own, so Auto carries it when it is
-/// on.
+/// Adds a card for trigger `trigger` that came due, as the person's own, so Auto carries it
+/// when it is on; to the card it added before instead, while that is still open.
 pub(crate) fn add_for_trigger(
-    core: &Core,
+    core: &Arc<Core>,
     project: &str,
+    trigger: u64,
     title: &str,
     details: &str,
 ) -> Result<(), String> {
@@ -1266,6 +1277,7 @@ pub(crate) fn add_for_trigger(
         parent: None,
         depends_on: Vec::new(),
         ticket: None,
+        trigger: Some(trigger),
     };
     add_card(core, project, &By::Auto("Trigger"), adding, false)?;
     tell_clients(core);
@@ -2153,6 +2165,7 @@ impl AddParams {
             parent: self.parent.filter(|id| *id > 0),
             depends_on: distinct_cards(self.depends_on, "dependsOn")?,
             ticket: self.ticket.map(TicketParams::ticket).transpose()?,
+            trigger: None,
         })
     }
 }
@@ -2296,18 +2309,21 @@ fn ticket_card(title: &str, details: &str, ticket: Option<TicketParams>) -> Resu
         parent: None,
         depends_on: Vec::new(),
         ticket: ticket.map(TicketParams::ticket).transpose()?,
+        trigger: None,
     })
 }
 
-/// The card on `project`'s board for ticket `key`: its id, parent and what
-/// it waits on.
+/// The card on `project`'s board for ticket `key`, an open one before a done
+/// one: its id, parent and what it waits on.
 fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<(u64, Option<u64>, Vec<u64>)> {
     let state = core.boards.state.locked();
-    let card = state.boards.get(project)?.cards.iter().find(|card| {
-        card.ticket
-            .as_ref()
-            .is_some_and(|ticket| ticket.key.eq_ignore_ascii_case(key))
-    })?;
+    let card = (state.boards.get(project)?.cards.iter())
+        .filter(|card| {
+            card.ticket
+                .as_ref()
+                .is_some_and(|ticket| ticket.key.eq_ignore_ascii_case(key))
+        })
+        .min_by_key(|card| card.status == Status::Done)?;
     Some((card.id, card.parent, card.depends_on.clone()))
 }
 

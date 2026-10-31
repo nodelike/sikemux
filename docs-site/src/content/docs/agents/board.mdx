@@ -5,6 +5,8 @@ description: "Cards your agents work from, and slices that only pass on evidence
 
 Each project has a board of cards, open with `⌘⌥6`. You and your agents add cards, an agent claims one and works it, and a card can sit under another or wait on others. Agents use the `board_add`, `board_claim`, `board_update` and `board_list` tools.
 
+The same work never gets two cards. A Jira or Linear ticket you put on the board again, while its card is still open, goes to that card, and so does a board trigger that fires again; the agent working the card, or its team's lead, is told.
+
 ## Slices
 
 A card that makes a **promise**, one sentence saying what it changes, is a slice. A slice goes up three gates before it is done:
