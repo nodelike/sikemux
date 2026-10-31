@@ -2265,7 +2265,7 @@ pub(crate) fn agent_card(core: &Core, agent_id: &str) -> Option<Summary> {
 }
 
 /// Whether Auto runs the agent, building a card or reviewing one, so the ends of its turns
-/// move the card on rather than wait on the person.
+/// move the card on rather than wait on the person, even while the card is handed back.
 pub(crate) fn run_by_auto(core: &Core, agent_id: &str) -> bool {
     let state = core.boards.state.locked();
     blind::reviewed_card(&state, agent_id).is_some()
@@ -2276,7 +2276,7 @@ pub(crate) fn run_by_auto(core: &Core, agent_id: &str) -> bool {
             .any(|card| {
                 card.auto
                     .as_ref()
-                    .is_some_and(|run| run.agent == agent_id && run.held.is_none())
+                    .is_some_and(|run| run.agent == agent_id)
             })
 }
 
