@@ -21,7 +21,7 @@ When things finished or failed while you were away, the line under the title say
 
 The goal shows who leads it and which agents own its slices, a strip with one segment per slice, and **Next**: the gates its slices wait at, in the order they will be reached. **Needs you** lists the slices waiting at a gate only you pass. **Slices** lists every slice with what it waits on, its ticket and its owner.
 
-**Assertions** lists what must hold once the goal is done, each with the kind of evidence that shows it (the check passing, a recording or a screenshot) and how many of the slices that fulfil it have that evidence. Add one on the line under them, picking its kind, or retire one with **×**.
+**Assertions** lists what must hold once the goal is done, each with the kind of evidence that shows it (the check passing, a recording, a screenshot, or a CI workflow passing, named on the line as "CI Build passes") and how many of the slices that fulfil it have that evidence. Add one on the line under them, picking its kind; **CI workflow** asks for the workflow's name. Retire one with **×**.
 
 **Rules** lists the rules the goal's agents follow: the goal's own, then those Sikemux keeps for the project and the folders above it ([what Sikemux remembers](/agents/memory/)). **Move to AGENTS.md** moves a rule kept for the project into its repository's `AGENTS.md`, where every agent reads it with the code, and Sikemux stops keeping it. The file is left uncommitted for you to review. The button shows only on a rule that can move: never a sensitive one, which never goes into the repository, nor one kept for a folder that isn't the top of a git checkout, or whose `AGENTS.md` links outside it.
 

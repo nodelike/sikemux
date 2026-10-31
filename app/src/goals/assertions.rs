@@ -19,25 +19,37 @@ use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_XS_H};
 use crate::ui::{self, Button, Field, IconButton, Segmented, Variant};
 
-const KINDS: [(Collect, &str); 3] = [
-    (Collect::Check, "Check"),
-    (Collect::Recording, "Recording"),
-    (Collect::Screenshot, "Screenshot"),
+/// The kinds of evidence the person picks from; a workflow also needs its name.
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    Check,
+    Recording,
+    Screenshot,
+    Workflow,
+}
+
+const KINDS: [(Kind, &str); 4] = [
+    (Kind::Check, "Check"),
+    (Kind::Recording, "Recording"),
+    (Kind::Screenshot, "Screenshot"),
+    (Kind::Workflow, "CI workflow"),
 ];
 
 /// The line that writes a new assertion.
 pub(super) struct Asserting {
     input: Entity<InputState>,
-    kind: Collect,
-    _typing: Subscription,
+    /// The CI workflow's name, while the kind picked is a workflow.
+    workflow: Entity<InputState>,
+    kind: Kind,
+    _typing: [Subscription; 2],
 }
 
-fn kind_words(kind: &Collect) -> &'static str {
+fn kind_words(kind: &Collect) -> String {
     match kind {
-        Collect::Check => "the check passes",
-        Collect::Recording => "a recording",
-        Collect::Screenshot => "a screenshot",
-        Collect::Workflow { .. } => "a CI workflow passes",
+        Collect::Check => "the check passes".into(),
+        Collect::Recording => "a recording".into(),
+        Collect::Screenshot => "a screenshot".into(),
+        Collect::Workflow { name } => format!("CI {name} passes"),
     }
 }
 
@@ -76,19 +88,29 @@ impl GoalsPane {
         let input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("What must hold once this goal is done")
         });
-        let typing = cx.subscribe_in(&input, window, |pane, _, event, window, cx| {
+        let workflow = cx.new(|cx| InputState::new(window, cx).placeholder("Workflow name"));
+        let entered = |pane: &mut Self,
+                       _: &Entity<InputState>,
+                       event: &InputEvent,
+                       window: &mut Window,
+                       cx: &mut Context<Self>| {
             if let InputEvent::PressEnter { .. } = event {
                 pane.assert_new(window, cx);
             }
-        });
+        };
+        let typing = [
+            cx.subscribe_in(&input, window, entered),
+            cx.subscribe_in(&workflow, window, entered),
+        ];
         self.asserting = Some(Asserting {
             input,
-            kind: Collect::Check,
+            workflow,
+            kind: Kind::Check,
             _typing: typing,
         });
     }
 
-    fn assert_kind(&mut self, kind: Collect, cx: &mut Context<Self>) {
+    fn assert_kind(&mut self, kind: Kind, cx: &mut Context<Self>) {
         if let Some(asserting) = &mut self.asserting {
             asserting.kind = kind;
             cx.notify();
@@ -104,12 +126,24 @@ impl GoalsPane {
         if text.is_empty() || self.busy {
             return;
         }
+        let evidence = match asserting.kind {
+            Kind::Check => Collect::Check,
+            Kind::Recording => Collect::Recording,
+            Kind::Screenshot => Collect::Screenshot,
+            Kind::Workflow => {
+                let name = asserting.workflow.read(cx).value().trim().to_owned();
+                if name.is_empty() {
+                    return self.said("Name the CI workflow whose pass shows it", cx);
+                }
+                Collect::Workflow { name }
+            }
+        };
         let params = BoardAssertParams {
             project: self.folder.clone(),
             card,
             assertion: None,
             text: Some(text),
-            evidence: Some(asserting.kind.clone()),
+            evidence: Some(evidence),
             retire: false,
         };
         let asked = Target::here(&self.asks).request_typed::<call::BoardAssert>(params);
@@ -123,9 +157,9 @@ impl GoalsPane {
                     Ok(board) => {
                         pane.take(board);
                         if let Some(asserting) = &pane.asserting {
-                            asserting
-                                .input
-                                .update(cx, |input, cx| input.set_value("", window, cx));
+                            for input in [&asserting.input, &asserting.workflow] {
+                                input.update(cx, |input, cx| input.set_value("", window, cx));
+                            }
                         }
                     }
                     Err(error) => pane.said(&error, cx),
@@ -244,22 +278,32 @@ pub(super) fn section_of(
             div()
                 .pt(SPACE_1H)
                 .flex()
-                .items_center()
-                .gap(SPACE_2)
-                .child(div().flex_1().min_w_0().child(Field::new(&asserting.input)))
+                .flex_col()
+                .gap(SPACE_1H)
+                .child(Field::new(&asserting.input))
                 .child(
-                    Segmented::words("assertion-kind", words, chosen).on_select(cx.listener(
-                        |pane, chosen: &usize, _, cx| {
-                            if let Some((kind, _)) = KINDS.get(*chosen) {
-                                pane.assert_kind(kind.clone(), cx);
-                            }
-                        },
-                    )),
-                )
-                .child(
-                    Button::new("assertion-add", "Add", Variant::Outline)
-                        .disabled(pane.busy)
-                        .on_click(cx.listener(|pane, _, window, cx| pane.assert_new(window, cx))),
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(SPACE_2)
+                        .child(Segmented::words("assertion-kind", words, chosen).on_select(
+                            cx.listener(|pane, chosen: &usize, _, cx| {
+                                if let Some((kind, _)) = KINDS.get(*chosen) {
+                                    pane.assert_kind(*kind, cx);
+                                }
+                            }),
+                        ))
+                        .when(asserting.kind == Kind::Workflow, |line| {
+                            line.child(div().w(px(180.)).child(Field::new(&asserting.workflow)))
+                        })
+                        .child(div().flex_1())
+                        .child(
+                            Button::new("assertion-add", "Add", Variant::Outline)
+                                .disabled(pane.busy)
+                                .on_click(
+                                    cx.listener(|pane, _, window, cx| pane.assert_new(window, cx)),
+                                ),
+                        ),
                 )
         }))
         .into_any_element()
