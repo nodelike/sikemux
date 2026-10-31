@@ -10,7 +10,7 @@ use gpui::{App, Bounds, FocusHandle, Pixels, Subscription, WeakFocusHandle, Wind
 use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyClass, AnyObject};
 use objc2::{define_class, DefinedClass, MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSEvent, NSEventMask, NSView, NSWindow, NSWindowOrderingMode};
+use objc2_app_kit::{NSEvent, NSEventMask, NSEventType, NSView, NSWindow, NSWindowOrderingMode};
 use objc2_foundation::{
     ns_string, NSDictionary, NSKeyValueChangeKey, NSKeyValueObservingOptions, NSObject,
     NSObjectNSKeyValueObserverRegistration, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
@@ -109,9 +109,10 @@ pub fn window_view(window: &Window) -> Option<Retained<NSView>> {
     unsafe { Retained::retain(appkit.ns_view.as_ptr().cast::<NSView>()) }
 }
 
-/// Gives GPUI the keyboard back whenever the person clicks something GPUI draws.
-/// AppKit hands it to a clicked native view, but never back on a click elsewhere,
-/// so after clicking into a page every key would go to the page.
+/// Gives GPUI the keyboard back when the person clicks something GPUI draws, or
+/// types while no view they can see holds it. AppKit hands the keyboard to a
+/// clicked native view and, once that view is hidden or removed, to the window
+/// itself, and never back to GPUI, so every key after that would beep.
 pub(crate) fn reclaim_keyboard_on_click() {
     if CLICK_MONITOR.with(|monitor| monitor.borrow().is_some()) {
         return;
@@ -121,7 +122,7 @@ pub(crate) fn reclaim_keyboard_on_click() {
         reclaim_keyboard(unsafe { event.as_ref() });
         event.as_ptr()
     });
-    let mask = NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown;
+    let mask = NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::KeyDown;
     // SAFETY: main thread, as every element's prepaint is. AppKit copies the block, and
     // the monitor it returns is kept in CLICK_MONITOR so it stays installed.
     let monitor = unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &block) };
@@ -132,13 +133,20 @@ fn reclaim_keyboard(event: &NSEvent) {
     let Some(window) = MainThreadMarker::new().and_then(|mtm| event.window(mtm)) else {
         return;
     };
-    let Some(clicked) = window
-        .contentView()
-        .and_then(|content| content.hitTest(event.locationInWindow()))
-    else {
+    let Some(content) = window.contentView() else {
         return;
     };
-    let Some(gpui_view) = drawn_by_gpui(clicked) else {
+    let gpui_view = if event.r#type() == NSEventType::KeyDown {
+        if keyboard_is_seen(&window) {
+            return;
+        }
+        gpui_view_in(content)
+    } else {
+        content
+            .hitTest(event.locationInWindow())
+            .and_then(drawn_by_gpui)
+    };
+    let Some(gpui_view) = gpui_view else {
         return;
     };
     let holds_keyboard = window
@@ -147,6 +155,25 @@ fn reclaim_keyboard(event: &NSEvent) {
     if !holds_keyboard {
         window.makeFirstResponder(Some(&gpui_view));
     }
+}
+
+/// Whether the window's keyboard is with a view of this window that is on show.
+fn keyboard_is_seen(window: &NSWindow) -> bool {
+    first_responder_view(window).is_some_and(|view| {
+        view.window().as_deref() == Some(window) && !view.isHiddenOrHasHiddenAncestor()
+    })
+}
+
+fn first_responder_view(window: &NSWindow) -> Option<Retained<NSView>> {
+    window.firstResponder()?.downcast::<NSView>().ok()
+}
+
+fn gpui_view_in(content: Retained<NSView>) -> Option<Retained<NSView>> {
+    let class = AnyClass::get(c"GPUIView")?;
+    let inside = content.subviews();
+    std::iter::once(content)
+        .chain(inside.to_vec())
+        .find(|view| view.isKindOfClass(class))
 }
 
 /// The GPUI view `view` belongs to, when it is that view or the overlay GPUI
