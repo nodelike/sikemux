@@ -30,6 +30,7 @@ use super::Core;
 
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
 const MAX_MODEL_CHARS: usize = 200;
+const MAX_BRANCH_BYTES: usize = 200;
 const MAX_SESSION_ID_CHARS: usize = 4_096;
 /// How much of a worker's final answer its lead is sent.
 const MAX_REPORT_BYTES: usize = 6 * 1024;
@@ -278,6 +279,12 @@ fn start(
     if own && resume.is_some() {
         return Err("resume reopens a session where it ran; leave checkout out".into());
     }
+    let branch = text_param(params, "branch", MAX_BRANCH_BYTES)?.map(str::trim);
+    if branch.is_some() && !own {
+        return Err(
+            "branch names the branch of an own checkout; pass checkout: \"own\" too".into(),
+        );
+    }
     let _one_at_a_time = core.harness.spawning.one_at_a_time();
     if let Some((agent_id, name)) =
         resume.and_then(|saved| saved::open_now(core, &saved.cli, &saved.session_id))
@@ -287,9 +294,13 @@ fn start(
     let (lead, lead_cwd) = lead_of(core, &lead_id, &request.project)?;
     let cwd = resume.map_or(lead_cwd, |saved| saved.project.clone());
     let (mut checkout, cwd) = if own {
-        let name = text_param(params, "prompt", MAX_PROMPT_BYTES)?.unwrap_or("teammate");
-        let name: String = name.chars().take(48).collect();
-        let (checkout, tree_cwd) = worktree::agent::cut_for(&cwd, &cwd, &name)?;
+        let branch = match branch {
+            Some(branch) => branch.to_owned(),
+            None => worktree::branch_for(
+                text_param(params, "prompt", MAX_PROMPT_BYTES)?.unwrap_or_default(),
+            ),
+        };
+        let (checkout, tree_cwd) = worktree::agent::cut_for(&cwd, &cwd, &branch)?;
         (Unclaimed(Some(checkout)), tree_cwd)
     } else {
         (Unclaimed(None), cwd)

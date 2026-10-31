@@ -539,7 +539,7 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
         });
         (card, board.settings.clone(), ticket)
     };
-    let slug = worktree::slug(&match &card.ticket {
+    let branch = worktree::branch_for(&match &card.ticket {
         Some(ticket) => format!("{} {}", ticket.key, card.title),
         None => format!("card {} {}", card.id, card.title),
     });
@@ -551,7 +551,7 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
             settings.clone(),
         );
         blocking(move || {
-            let tree = worktree::cut_for_card(Path::new(&project), &slug)?;
+            let tree = worktree::cut_for_card(Path::new(&project), &branch)?;
             let started = core.workspaces.auto_launch(
                 settings.launcher.as_deref(),
                 &tree.cwd,

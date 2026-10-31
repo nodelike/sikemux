@@ -1543,6 +1543,12 @@
             "shared"
           ]
         },
+        "branch": {
+          "description": "Branch for an own checkout, e.g. fix/jira-board-drag; named for the task when left out",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
         "resume": {
           "description": "sessionId to reopen",
           "type": "string",
