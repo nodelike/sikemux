@@ -18,7 +18,7 @@ use crate::cli::protocol::HarnessRequest;
 use crate::text::clipped;
 
 use super::connection::blocking;
-use super::kept::{self, Kept};
+use super::kept;
 use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
@@ -482,7 +482,9 @@ impl Boards {
             return;
         };
         match serde_json::to_vec(board) {
-            Ok(bytes) => self.writer.hand(folder.join(kept::file_for(project)), bytes),
+            Ok(bytes) => self
+                .writer
+                .hand(folder.join(kept::file_for(project)), bytes),
             Err(error) => eprintln!("sikemux core: the board was not saved: {error}"),
         }
     }
