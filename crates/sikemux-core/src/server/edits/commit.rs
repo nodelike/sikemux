@@ -311,8 +311,10 @@ pub(crate) fn commit(
             Ok(_) => {
                 let note = share(&diff.top, &changes, &blobs).err();
                 let paths: Vec<String> = changes.iter().map(|change| change.path.clone()).collect();
-                core.collisions
+                let on_branch = core
+                    .collisions
                     .committed(core, agent_id, &diff.top, &paths, &commit, &message);
+                crate::server::board::committed(core, agent_id, &commit, on_branch);
                 return Ok(Committed {
                     commit,
                     branch,

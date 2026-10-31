@@ -24,13 +24,14 @@ use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_wire::inbox::InboxRecording;
-use sikemux_wire::slice::{Evidence, GateView, NextGate, Note};
+use sikemux_wire::slice::{Gate, NextGate, SliceView};
 
 pub(crate) mod auto;
 mod blind;
 mod finish;
 pub(crate) mod git;
 mod review;
+mod slice;
 mod tickets;
 
 pub(crate) use auto::Pull;
@@ -39,6 +40,10 @@ pub use auto::{
     Finish, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams, Stage,
 };
 pub(crate) use finish::{ci_moved, waiting_on_ci};
+pub(crate) use slice::{
+    checked, committed, gate_key, gate_words, landed, person_note, person_pass,
+};
+pub use slice::{NoteParams, PassParams};
 
 const FOLDER: &str = "boards";
 const MAX_CARDS: usize = 1000;
@@ -148,9 +153,13 @@ struct Card {
     /// The run Auto gave the card, in a worktree of its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     auto: Option<Run>,
-    /// Browser recordings its owner made while on it, oldest first.
+    /// Browser recordings its owner made while on it, oldest first, for a
+    /// card that is not a slice; a slice keeps them as its evidence.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     recordings: Vec<InboxRecording>,
+    /// What it promises and how far up its ladder it is, once it makes a promise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    slice: Option<slice::Slice>,
     at: u64,
     updated_at: u64,
 }
@@ -510,6 +519,7 @@ struct Adding {
     title: String,
     details: String,
     acceptance: String,
+    promise: Option<String>,
     parent: Option<u64>,
     depends_on: Vec<u64>,
     ticket: Option<Ticket>,
@@ -525,6 +535,7 @@ impl Adding {
             title,
             details: optional_text(params, "details")?.unwrap_or_default(),
             acceptance: optional_text(params, "acceptance")?.unwrap_or_default(),
+            promise: promise_param(params)?,
             parent: optional_id(params.get("parent"), "parent")?.flatten(),
             depends_on: match params.get("dependsOn") {
                 None | Some(Value::Null) => Vec::new(),
@@ -535,12 +546,21 @@ impl Adding {
     }
 }
 
+fn promise_param(params: &Value) -> Result<Option<String>, String> {
+    match params.get("promise") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) => slice::promise_of(text).map(Some),
+        Some(_) => Err("promise must be text".into()),
+    }
+}
+
 /// What a change to a card asks for.
 #[derive(Default)]
 struct Changes {
     title: Option<String>,
     details: Option<String>,
     acceptance: Option<String>,
+    promise: Option<String>,
     status: Option<Status>,
     result: Option<String>,
     depends_on: Option<Vec<u64>>,
@@ -557,6 +577,7 @@ impl Changes {
             },
             details: optional_text(params, "details")?,
             acceptance: optional_text(params, "acceptance")?,
+            promise: promise_param(params)?,
             status: match params.get("status") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(status)) => Some(Status::parse(status)?),
@@ -575,6 +596,7 @@ impl Changes {
         self.title.is_none()
             && self.details.is_none()
             && self.acceptance.is_none()
+            && self.promise.is_none()
             && self.status.is_none()
             && self.result.is_none()
             && self.depends_on.is_none()
@@ -818,14 +840,10 @@ pub struct CardView {
     pub ticket_above: Option<String>,
     pub column: Column,
     pub auto: Option<RunView>,
+    /// Browser recordings, for a card that is not a slice; a slice's are in its evidence.
     pub recordings: Vec<InboxRecording>,
-    /// One sentence saying what it changes, for a slice of a goal.
-    pub claim: String,
-    /// The gates it passes on its way to done, in order; none for a card without a ladder.
-    pub gates: Vec<GateView>,
-    /// What the core collected itself to show its work, oldest first.
-    pub evidence: Vec<Evidence>,
-    pub notes: Vec<Note>,
+    /// For a slice of a goal: its promise, gates, evidence and notes.
+    pub slice: Option<SliceView>,
     /// For a goal, the gates its slices wait at, in the order they will be
     /// reached: a slice that waits on another comes after it.
     pub next: Vec<NextGate>,
@@ -844,12 +862,17 @@ pub enum Column {
 }
 
 /// The column a card shows in: done once done, else waiting on the person while its run
-/// is back with them or its owner asked them something it waits on.
+/// is back with them, its slice waits at their gate, or its owner asked them something it
+/// waits on.
 fn column_of(core: &Core, card: &Card) -> Column {
     let waits_on_person = card
         .auto
         .as_ref()
         .is_some_and(|run| matches!(run.stage, Stage::Review | Stage::Held))
+        || card
+            .slice
+            .as_ref()
+            .is_some_and(|slice| slice.waits_on_person().is_some())
         || (card.status == Status::Progress
             && card
                 .owner_id()
@@ -920,11 +943,11 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         column: column_of(core, card),
         auto: card.auto.as_ref().map(Run::view),
         recordings: card.recordings.clone(),
-        claim: String::new(),
-        gates: Vec::new(),
-        evidence: Vec::new(),
-        notes: Vec::new(),
-        next: Vec::new(),
+        slice: card.slice.as_ref().map(|slice| {
+            let held_up = card.owner.is_none() || !board.waits_on(card).is_empty();
+            slice.view(card.owner_id(), held_up, |agent| name_of(core, agent))
+        }),
+        next: slice::next_gates(board, card),
         at: card.at,
         updated_at: card.updated_at,
     }
@@ -981,6 +1004,11 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         let waits = board.waits_on(card);
         if !waits.is_empty() {
             fields.insert("waitsOn".into(), json!(waits));
+        }
+    }
+    if let Some(slice) = &card.slice {
+        if let Some(listed) = slice.listed().as_object() {
+            fields.extend(listed.clone());
         }
     }
     if let Some(ticket) = &card.ticket {
@@ -1076,6 +1104,7 @@ fn add_card(
         ticket: adding.ticket,
         auto: None,
         recordings: Vec::new(),
+        slice: adding.promise.map(slice::Slice::new),
         at: now,
         updated_at: now,
     };
@@ -1114,6 +1143,7 @@ pub(crate) fn add_for_trigger(
         title: title.to_owned(),
         details: details.to_owned(),
         acceptance: String::new(),
+        promise: None,
         parent: None,
         depends_on: Vec::new(),
         ticket: None,
@@ -1182,7 +1212,9 @@ fn change_card(
     changes: Changes,
 ) -> Result<(Value, Vec<Notice>), String> {
     if changes.is_empty() {
-        return Err("Say what changes: title, details, status, result, dependsOn or parent".into());
+        return Err(
+            "Say what changes: title, details, promise, status, result, dependsOn or parent".into(),
+        );
     }
     if matches!(by, By::Agent(_)) && changes.acceptance.is_some() {
         return Err(ONLY_PERSON_ACCEPTS.into());
@@ -1230,6 +1262,12 @@ fn change_card(
     }
     if let Some(acceptance) = changes.acceptance {
         card.acceptance = acceptance;
+    }
+    if let Some(promise) = changes.promise {
+        match &mut card.slice {
+            Some(slice) => slice.promise = promise,
+            None => card.slice = Some(slice::Slice::new(promise)),
+        }
     }
     if let Some(result) = changes.result {
         card.result = (!result.is_empty()).then_some(result);
@@ -1460,14 +1498,29 @@ pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result
         let (core, request) = (core.clone(), request.clone());
         blocking(move || {
             let project = caller_project(&core, &request);
-            let own_run = {
+            let (own_run, is_slice) = {
                 let state = core.boards.state.locked();
-                state
-                    .boards
-                    .get(&project)
-                    .and_then(|board| board.card(id).ok())
-                    .is_some_and(|card| auto::own_run(card, &agent))
+                let card = state.boards.get(&project).and_then(|board| board.card(id).ok());
+                (
+                    card.is_some_and(|card| auto::own_run(card, &agent)),
+                    card.is_some_and(|card| card.slice.is_some()),
+                )
             };
+            if is_slice && changes.status == Some(Status::Done) {
+                changes.status = None;
+                let note = slice::said_done(&core, &project, &agent, id)?;
+                let (mut view, notices) = if changes.is_empty() {
+                    let state = core.boards.state.locked();
+                    let board = state.boards.get(&project).ok_or("the board is gone")?;
+                    (agent_view(&core, board, board.card(id)?, true), Vec::new())
+                } else {
+                    change_card(&core, &project, &By::Agent(agent), id, changes)?
+                };
+                if let Some(fields) = view.as_object_mut() {
+                    fields.insert("note".into(), note.into());
+                }
+                return Ok((view, notices, false));
+            }
             if own_run && changes.status == Some(Status::Open) {
                 return Err("Auto runs this card, so it does not go back to Open. If you cannot do it, say why with ask and blocked true, and the card waits for the person.".into());
             }
@@ -1619,6 +1672,8 @@ pub(crate) enum Waits {
     Review { url: Option<String> },
     /// It came back, for the reason in `note`.
     Held { note: Option<String> },
+    /// Its slice waits at a gate only the person passes.
+    Gate { gate: Gate, promise: String },
 }
 
 /// A card as the inbox lists it.
@@ -1646,6 +1701,13 @@ impl Card {
             }),
             _ => None,
         });
+        let waits = waits.or_else(|| {
+            let slice = self.slice.as_ref()?;
+            Some(Waits::Gate {
+                gate: slice.waits_on_person()?,
+                promise: slice.promise.clone(),
+            })
+        });
         Summary {
             project: project.to_owned(),
             id: self.id,
@@ -1654,7 +1716,10 @@ impl Card {
             owner: self.owner_id().map(str::to_owned),
             owner_name: self.owner_name(core),
             result: self.result.clone(),
-            recordings: self.recordings.clone(),
+            recordings: match &self.slice {
+                Some(slice) => slice.pictures(),
+                None => self.recordings.clone(),
+            },
             waits,
             updated_at: self.updated_at,
         }
@@ -1681,8 +1746,8 @@ pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Resul
         .map_err(|error| error.to_string())
 }
 
-/// The cards Auto handed back to the person, and those done since
-/// `done_since`.
+/// The cards Auto handed back to the person, the slices waiting at the
+/// person's gate, and the cards done since `done_since`.
 pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summary> {
     let state = core.boards.state.locked();
     state
@@ -1693,6 +1758,10 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
             card.auto
                 .as_ref()
                 .is_some_and(|run| matches!(run.stage, Stage::Review | Stage::Held))
+                || card
+                    .slice
+                    .as_ref()
+                    .is_some_and(|slice| slice.waits_on_person().is_some())
                 || done_since
                     .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)
         })
@@ -1700,12 +1769,18 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
         .collect()
 }
 
-/// Keeps a browser recording on the card the agent works.
+/// Keeps a browser recording on the card the agent works: as evidence on a
+/// slice, else among the card's recordings.
 pub(crate) fn attach_recording(core: &Core, agent_id: &str, recording: InboxRecording) {
     let mut state = core.boards.state.locked();
     let Some((project, card)) = held_card(&mut state, agent_id) else {
         return;
     };
+    if slice::picture(card, agent_id, &recording) {
+        let project = project.clone();
+        core.boards.save(&mut state, &project);
+        return;
+    }
     if card.recordings.len() >= MAX_RECORDINGS {
         card.recordings.remove(0);
     }
@@ -1756,6 +1831,9 @@ pub struct AddParams {
     pub details: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acceptance: Option<String>,
+    /// One sentence saying what it changes, which makes it a slice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promise: Option<String>,
     /// The card it goes under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<u64>,
@@ -1772,6 +1850,7 @@ impl AddParams {
             title: title_of(&self.title)?,
             details: given_text("details", self.details)?.unwrap_or_default(),
             acceptance: given_text("acceptance", self.acceptance)?.unwrap_or_default(),
+            promise: self.promise.as_deref().map(slice::promise_of).transpose()?,
             parent: self.parent.filter(|id| *id > 0),
             depends_on: distinct_cards(self.depends_on, "dependsOn")?,
             ticket: self.ticket.map(TicketParams::ticket).transpose()?,
@@ -1833,6 +1912,9 @@ pub struct UpdateParams {
     pub details: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acceptance: Option<String>,
+    /// One sentence saying what it changes, which makes it a slice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promise: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<Status>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1851,6 +1933,7 @@ impl UpdateParams {
             title: self.title.as_deref().map(title_of).transpose()?,
             details: given_text("details", self.details)?,
             acceptance: given_text("acceptance", self.acceptance)?,
+            promise: self.promise.as_deref().map(slice::promise_of).transpose()?,
             status: self.status,
             result: given_text("result", self.result)?,
             depends_on: self
@@ -1909,6 +1992,7 @@ fn ticket_card(title: &str, details: &str, ticket: Option<TicketParams>) -> Resu
         title: title_of(&clipped(&title, MAX_TITLE_CHARS))?,
         details: long_text("details", &details)?,
         acceptance: String::new(),
+        promise: None,
         parent: None,
         depends_on: Vec::new(),
         ticket: ticket.map(TicketParams::ticket).transpose()?,

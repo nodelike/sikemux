@@ -2115,14 +2115,10 @@ export interface BoardCard {
     ticketAbove: string | null;
     column: BoardColumn;
     auto: CardRun | null;
+    /** Browser recordings, for a card that is not a slice; a slice's are in its evidence. */
     recordings: InboxRecording[];
-    /** One sentence saying what it changes, for a slice of a goal. */
-    claim: string;
-    /** The gates it passes on its way to done, in order; none for a card without a ladder. */
-    gates: GateView[];
-    /** What the core collected itself to show its work, oldest first. */
-    evidence: Evidence[];
-    notes: Note[];
+    /** For a slice of a goal: its promise, gates, evidence and notes. */
+    slice: SliceView | null;
     /**
      * For a goal, the gates its slices wait at, in the order they will be
      * reached: a slice that waits on another comes after it.
@@ -2179,6 +2175,21 @@ export interface CardPull {
     url: string;
     host: string;
 }
+
+/** A slice as clients draw it. */
+export interface SliceView {
+    /** One sentence saying what it changes. */
+    promise: string;
+    state: SliceState;
+    /** The gates it passes on its way to done, in order. */
+    gates: GateView[];
+    /** What the core collected itself to show its work, oldest first. */
+    evidence: Evidence[];
+    notes: Note[];
+}
+
+/** Where a slice stands as a whole, so clients mark it without working it out. */
+export type SliceState = "done" | "failed" | "needsYou" | "waiting" | "moving";
 
 /** A gate of a slice's ladder as clients draw it. */
 export interface GateView {
@@ -3234,6 +3245,8 @@ export interface BoardAddParams {
     title: string;
     details?: string;
     acceptance?: string;
+    /** One sentence saying what it changes, which makes it a slice. */
+    promise?: string;
     /** The card it goes under. */
     parent?: number;
     /** The cards it waits on. */
@@ -3279,6 +3292,8 @@ export interface BoardUpdateParams {
     title?: string;
     details?: string;
     acceptance?: string;
+    /** One sentence saying what it changes, which makes it a slice. */
+    promise?: string;
     status?: CardStatus;
     result?: string;
     /** The cards it waits on, none to wait on nothing. */
@@ -3313,6 +3328,21 @@ export interface BoardReviewerParams {
     launcher?: string;
     provider?: string;
     model?: string;
+}
+
+/** The person passes a gate of a slice. */
+export interface BoardPassParams {
+    project: string;
+    card: number;
+    gate: Gate;
+}
+
+/** What the person writes on a slice, on a piece of its evidence when given. */
+export interface BoardNoteParams {
+    project: string;
+    card: number;
+    text: string;
+    evidence?: number;
 }
 
 /** The core's calls that name what they take and answer, by method. */
@@ -3359,6 +3389,8 @@ export interface CoreCalls {
     boardRemove: { params: BoardCardParams; answer: ProjectBoard };
     boardSettings: { params: BoardSettingsParams; answer: ProjectBoard };
     boardRetry: { params: BoardCardParams; answer: ProjectBoard };
+    boardPass: { params: BoardPassParams; answer: ProjectBoard };
+    boardNote: { params: BoardNoteParams; answer: ProjectBoard };
 }
 
 /** What the core's `Preferences::default()` serializes to. */

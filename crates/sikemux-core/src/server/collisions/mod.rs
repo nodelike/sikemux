@@ -752,7 +752,7 @@ impl Collisions {
 
     /// `agent_id` committed `paths`, from the top of `top`, as `commit`: the
     /// copies it saw of them and its claims on them go, and the project's
-    /// check runs.
+    /// check runs when the commit is on the project's own branch. Whether it is.
     pub(crate) fn committed(
         &self,
         core: &Core,
@@ -761,7 +761,7 @@ impl Collisions {
         paths: &[String],
         commit: &str,
         message: &str,
-    ) {
+    ) -> bool {
         let now = epoch_ms();
         let project = core.workspaces.project_of(top);
         let mut state = self.state.locked();
@@ -781,7 +781,8 @@ impl Collisions {
                 state.claims.remove(&path);
             }
         }
-        if Path::new(&project).starts_with(top) {
+        let on_branch = Path::new(&project).starts_with(top);
+        if on_branch {
             let mut agents: Vec<String> = crate::trailers::agents(message)
                 .into_iter()
                 .map(|agent| agent.chat)
@@ -802,6 +803,7 @@ impl Collisions {
         state.publish = true;
         drop(state);
         self.wake.now();
+        on_branch
     }
 
     /// The pairs of agents that keep colliding.

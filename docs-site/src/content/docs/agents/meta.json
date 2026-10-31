@@ -4,6 +4,7 @@
   "pages": [
     "supported",
     "chats",
+    "board",
     "permissions",
     "accounts",
     "connectors",

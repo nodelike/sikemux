@@ -445,29 +445,42 @@ impl About for InboxItem {
 }
 
 fn card_item(card: &Summary, waits: &Waits) -> InboxItem {
-    let (kind, what, detail, url) = match waits {
+    let card_id = || format!("card:{}:{}", card.project, card.id);
+    let (id, kind, what, detail, url, gate) = match waits {
         Waits::Review { url } => (
+            card_id(),
             InboxKind::PullRequest,
-            "Its pull request is ready for review",
+            "Its pull request is ready for review".to_owned(),
             None,
             url.clone(),
-        ),
-        Waits::Held { note } => (
-            InboxKind::Held,
-            "Its card came back to you",
-            note.clone(),
             None,
         ),
+        Waits::Held { note } => (
+            card_id(),
+            InboxKind::Held,
+            "Its card came back to you".to_owned(),
+            note.clone(),
+            None,
+            None,
+        ),
+        Waits::Gate { gate, promise } => (
+            format!(
+                "gate:{}:{}:{}",
+                card.project,
+                card.id,
+                board::gate_key(*gate)
+            ),
+            InboxKind::Gate,
+            format!("Waits for you at {}", board::gate_words(*gate)),
+            Some(promise.clone()),
+            None,
+            Some(*gate),
+        ),
     };
-    let mut item = item(
-        format!("card:{}:{}", card.project, card.id),
-        kind,
-        what.into(),
-        card.updated_at,
-    )
-    .on_card(Some(card));
+    let mut item = item(id, kind, what, card.updated_at).on_card(Some(card));
     item.detail = detail;
     item.url = url;
+    item.gate = gate;
     item
 }
 

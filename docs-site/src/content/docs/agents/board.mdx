@@ -1,0 +1,34 @@
+---
+title: The agent board
+description: "Cards your agents work from, and slices that only pass on evidence Sikemux collected itself."
+---
+
+Each project has a board of cards, open with `⌘⌥6`. You and your agents add cards, an agent claims one and works it, and a card can sit under another or wait on others. Agents use the `board_add`, `board_claim`, `board_update` and `board_list` tools.
+
+## Slices
+
+A card that makes a **promise**, one sentence saying what it changes, is a slice. A slice goes up three gates before it is done:
+
+| Gate | Who passes it | What it needs first |
+| --- | --- | --- |
+| **Built** | The agent that holds the card | The project's check passed on the agent's latest commit |
+| **Looks right** | You | Built |
+| **Landed** | Sikemux | Looks right, and the slice's commits on the branch |
+
+An agent saying a slice is done passes nothing by itself. When it marks the card done, Sikemux looks at the latest check run on the agent's latest commit. If that run failed, or the agent committed nothing, the card stays in progress and the agent is told why. If the check has not run on that commit yet, Built passes by itself once it does, and the agent hears. A project whose `sikemux.json` names no `check` can't pass Built.
+
+The check runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass. Work can land before you look at it; Landed passes as soon as you pass Looks right. A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see.
+
+## Evidence
+
+Sikemux collects a slice's evidence itself:
+
+- each run of the project's check on the agent's commits, with its output, passed or failed
+- the change the slice's commits make, once Built passes
+- the browser recordings the agent makes while it works the card
+
+A slice keeps its latest 24 pieces of evidence.
+
+## When a slice needs you
+
+A slice waiting at **Looks right** shows in the inbox as something to decide, with its promise and recordings, and in the board's **Needs you** column. Pass it once it looks right. If it needs more work, write a note on the slice, or on one piece of its evidence: the note goes to the agent whose work that piece shows, else to the agent that holds the card, as a message from you, and the slice waits at Looks right until the agent sends new work.

@@ -1,4 +1,4 @@
-//! A slice of a goal as the core judges it: one claim, the gates it passes
+//! A slice of a goal as the core judges it: one promise, the gates it passes
 //! on its way to done, and the evidence the core collected itself on the way.
 //! A slice is a board card under its goal's card; what kind of work it is is
 //! never kept, only what is attached to it.
@@ -153,6 +153,35 @@ pub struct Note {
     pub by: Option<String>,
     pub evidence: Option<u64>,
     pub at: u64,
+}
+
+/// A slice as clients draw it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SliceView {
+    /// One sentence saying what it changes.
+    pub promise: String,
+    pub state: SliceState,
+    /// The gates it passes on its way to done, in order.
+    pub gates: Vec<GateView>,
+    /// What the core collected itself to show its work, oldest first.
+    pub evidence: Vec<Evidence>,
+    pub notes: Vec<Note>,
+}
+
+/// Where a slice stands as a whole, so clients mark it without working it out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SliceState {
+    /// Every gate of its ladder passed.
+    Done,
+    /// The latest check toward the gate it waits at failed.
+    Failed,
+    /// The gate it waits at is the person's, and nothing it needs is missing.
+    NeedsYou,
+    /// It waits on another card, or nobody holds it.
+    Waiting,
+    Moving,
 }
 
 /// A gate one of a goal's slices waits at, as the goal lists what comes next.

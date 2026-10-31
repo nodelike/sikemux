@@ -584,6 +584,8 @@ calls! { core, client, params;
         board::person_settings(&core, params).await?
     },
     "boardRetry" BoardRetry (board::CardParams) -> board::BoardView: Full => board::person_retry(&core, params).await?,
+    "boardPass" BoardPass (board::PassParams) -> board::BoardView: Full => board::person_pass(&core, params).await?,
+    "boardNote" BoardNote (board::NoteParams) -> board::BoardView: Full => board::person_note(&core, params).await?,
     "edits": Watch, any_program => answer(edits(&core, parse(params)?).await?),
     "changeOwners": Watch, any_program => answer(change_owners(&core, parse(params)?).await?),
     "commitStaged": Person => answer(commit_staged(&core, parse(params)?).await?),

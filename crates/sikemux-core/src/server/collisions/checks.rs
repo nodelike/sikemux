@@ -239,6 +239,17 @@ fn ended(
         }
     }
     drop(state);
+    let covered: Vec<String> = commits.iter().map(|commit| commit.sha.clone()).collect();
+    let agents: Vec<String> = agents.into_iter().cloned().collect();
+    crate::server::board::checked(
+        core,
+        command,
+        commits.last().map_or("", |commit| commit.sha.as_str()),
+        &covered,
+        &agents,
+        passed,
+        &output,
+    );
     core.harness.note_repository(
         project,
         if passed {

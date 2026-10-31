@@ -61,6 +61,7 @@ const SOURCES = [
   `${WIRE}/changed.rs`,
   `${CORE}/server/board.rs`,
   `${CORE}/server/board/auto.rs`,
+  `${CORE}/server/board/slice.rs`,
   `${CORE}/server/workspace.rs`,
   `${CORE}/server/workspace/launchers.rs`,
   `${CORE}/server/workspace/policy.rs`,
@@ -143,6 +144,10 @@ const RENAMES = {
     TicketCard: "BoardTicketCard",
     UpdateParams: "BoardUpdateParams",
     CardParams: "BoardCardParams",
+  },
+  [`${CORE}/server/board/slice.rs`]: {
+    PassParams: "BoardPassParams",
+    NoteParams: "BoardNoteParams",
   },
   [`${CORE}/server/board/auto.rs`]: {
     Stage: "RunStage",
