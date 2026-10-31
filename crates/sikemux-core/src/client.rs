@@ -65,18 +65,66 @@ pub fn frozen_request(
     request: &FrozenRequest,
     timeout: Duration,
 ) -> Result<FrozenReply, ClientError> {
+    send_frozen(socket, request, timeout).map(|(reply, _)| reply)
+}
+
+/// [`frozen_request`], keeping the connection open for what the core says after.
+fn send_frozen(
+    socket: &Path,
+    request: &FrozenRequest,
+    timeout: Duration,
+) -> Result<(FrozenReply, StdUnixStream), ClientError> {
     let mut stream = StdUnixStream::connect(socket)?;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
     stream.write_all(&encode_frozen(request)?)?;
-    let frame = read_frame_sync(&mut stream)?
+    let reply = read_frozen(&mut stream)?
         .ok_or_else(|| ClientError::Handshake("the core closed without answering".into()))?;
+    Ok((reply, stream))
+}
+
+fn read_frozen(stream: &mut StdUnixStream) -> Result<Option<FrozenReply>, ClientError> {
+    let Some(frame) = read_frame_sync(stream)? else {
+        return Ok(None);
+    };
     if frame.kind != FrameKind::Frozen {
         return Err(ClientError::Handshake(
             "the core answered with another kind of frame".into(),
         ));
     }
-    Ok(serde_json::from_slice(&frame.payload)?)
+    Ok(Some(serde_json::from_slice(&frame.payload)?))
+}
+
+/// How a restart the core agreed to went.
+pub enum Restart {
+    /// The core at `pid` runs again from its own binary, with every session and chat.
+    Done { pid: u32 },
+    /// The core restarts once its chats can carry their agents over.
+    Deferred,
+}
+
+/// Asks the core at `socket` to restart from its own binary in the same process,
+/// keeping every session and chat, and waits up to `timeout` for each step.
+pub fn restart(socket: &Path, timeout: Duration) -> Result<Restart, ClientError> {
+    let (reply, mut stream) = send_frozen(socket, &FrozenRequest::Restart, timeout)?;
+    match reply {
+        FrozenReply::Accepted => {}
+        FrozenReply::Deferred { .. } => return Ok(Restart::Deferred),
+        FrozenReply::Refused { message } => return Err(ClientError::Core(message)),
+        FrozenReply::UpdateBlockers { .. } => {
+            return Err(ClientError::Handshake(
+                "the core answered another request".into(),
+            ))
+        }
+    }
+    // Once the new binary runs, the connection closes without a word; the
+    // core speaks again only to say the restart failed.
+    if let Ok(Some(FrozenReply::Refused { message })) = read_frozen(&mut stream) {
+        return Err(ClientError::Core(format!(
+            "the core carried on as it was: {message}"
+        )));
+    }
+    wait_for_core(socket, timeout).map(|hello| Restart::Done { pid: hello.pid })
 }
 
 /// Waits for the core at `socket`, which accepted an upgrade while it was

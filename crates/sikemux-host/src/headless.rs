@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sikemux_core::client::{
-    probe, wait_for_core, ClientError, ClientEvent, CoreClient, ProbeError,
+    self, probe, wait_for_core, ClientError, ClientEvent, CoreClient, ProbeError,
 };
 use sikemux_core::protocol::{AccountLinkState, Event, RemoteStatus, Request, Response};
 use sikemux_core::waiting;
@@ -23,6 +23,9 @@ const SETTLE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long `stop` waits for the core to stop its terminals and agents and answer, before it
 /// counts the core as stuck and ends it by signal.
 const SHUT_DOWN_ANSWER: Duration = Duration::from_secs(20);
+/// How long a restart may take to answer and then to come back: the core first checks its
+/// binary starts, then lets its terminals' output and its chats settle.
+const RESTART_TIMEOUT: Duration = Duration::from_secs(20);
 /// What `status` exits with while the core is not running, as `systemctl status` does.
 const NOT_RUNNING: i32 = 3;
 
@@ -176,10 +179,23 @@ fn terminate(pid: u32, socket: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// What an update needs: the new binary only takes over once the core restarts.
+/// Restarts the core from its binary in the same process, as an update does,
+/// so its terminals and agents run on through it. Starts it when none runs.
 fn restart() -> Result<(), String> {
-    stop()?;
-    start().map(|_| ())
+    let socket = launch()?.socket;
+    if let Err(ProbeError::NotRunning(_)) = probe(&socket, PROBE_TIMEOUT) {
+        return start().map(drop);
+    }
+    match client::restart(&socket, RESTART_TIMEOUT).map_err(|error| error.to_string())? {
+        client::Restart::Done { pid } => style::done(
+            "Restarted the core",
+            &format!("pid {pid}, with its terminals and agents still running"),
+        ),
+        client::Restart::Deferred => style::note(
+            "The core restarts once its chats can hand their agents over; they run on until then.",
+        ),
+    }
+    Ok(())
 }
 
 fn enable() -> Result<(), String> {
@@ -193,7 +209,7 @@ fn enable() -> Result<(), String> {
         }
         Some(pid) if starts_by_service(pid) => {}
         Some(pid) => style::note(&format!(
-            "The core running now, pid {pid}, was started another way; `sikemux restart` hands it to the service."
+            "The core running now, pid {pid}, was started another way; `sikemux stop` and `sikemux start` hand it to the service."
         )),
     }
     Ok(())

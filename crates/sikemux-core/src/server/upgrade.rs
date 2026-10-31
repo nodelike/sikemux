@@ -1,5 +1,6 @@
 //! Answers the requests in [`crate::frozen`]: replacing this core
-//! with a newer binary in the same process, and stopping everything.
+//! with a newer binary in the same process, restarting it from its own, and
+//! stopping everything.
 
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
@@ -139,6 +140,7 @@ fn refused(message: impl Into<String>) -> FrozenReply {
 
 /// Answers one frozen request on a connection that sent it instead of a hello.
 /// Only the app replaces the core: the binary it names takes over everything.
+/// Any program here may restart it, which runs only the binary already running.
 pub(crate) async fn answer(
     core: &Arc<Core>,
     peer: &Peer,
@@ -150,6 +152,7 @@ pub(crate) async fn answer(
             reply(writer, &refused(APP_ONLY)).await;
         }
         Ok(FrozenRequest::Upgrade { binary, force }) => upgrade(core, binary, force, writer).await,
+        Ok(FrozenRequest::Restart) => restart(core, writer).await,
         Ok(FrozenRequest::UpdateBlockers) => {
             let chats = core
                 .chats
@@ -173,16 +176,61 @@ pub(crate) async fn answer(
     }
 }
 
+/// What a hand-over replaces the core with.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Replacement {
+    /// Another build, as an update puts in place.
+    Update,
+    /// The build already running, which a restart starts afresh.
+    Restart,
+}
+
 async fn upgrade(core: &Arc<Core>, binary: PathBuf, force: bool, writer: &mut FrameWriter) {
-    if let Err(error) = begin(core, &binary).await {
+    if let Err(error) = begin(core, &binary, Replacement::Update).await {
         reply(writer, &refused(error)).await;
         return;
     }
+    let later = "the core updates once its chats can hand their agents over";
+    hand_over_when_ready(core, binary, force, later, writer).await;
+}
+
+/// Restarts this core from its own binary, keeping its terminals and chats,
+/// and tells the client, which hears nothing more when it worked.
+async fn restart(core: &Arc<Core>, writer: &mut FrameWriter) {
+    let binary = match std::env::current_exe() {
+        Ok(binary) => binary,
+        Err(error) => {
+            reply(
+                writer,
+                &refused(format!("the core cannot find its own binary: {error}")),
+            )
+            .await;
+            return;
+        }
+    };
+    if let Err(error) = begin(core, &binary, Replacement::Restart).await {
+        reply(writer, &refused(error)).await;
+        return;
+    }
+    let later = "the core restarts once its chats can hand their agents over";
+    let error = hand_over_when_ready(core, binary, false, later, writer).await;
+    reply(writer, &refused(error)).await;
+}
+
+/// Hands the core over to `binary` now, or once every chat can hand its agent
+/// over, and tells the client which. Returns only if the hand-over failed.
+async fn hand_over_when_ready(
+    core: &Arc<Core>,
+    binary: PathBuf,
+    force: bool,
+    later: &str,
+    writer: &mut FrameWriter,
+) -> String {
     if !core.chats.all_handable() {
         reply(
             writer,
             &FrozenReply::Deferred {
-                message: "the core updates once its chats can hand their agents over".into(),
+                message: later.into(),
             },
         )
         .await;
@@ -195,13 +243,13 @@ async fn upgrade(core: &Arc<Core>, binary: PathBuf, force: bool, writer: &mut Fr
         core.updating.frozen.send_replace(true);
         reply(writer, &FrozenReply::Accepted).await;
     }
-    finish(core, binary).await;
+    finish(core, binary).await
 }
 
 /// Replaces this core with `binary` once every chat can hand its agent over,
 /// as an update the app asks for does. Returns only if that failed.
 pub(crate) async fn replace_with(core: &Arc<Core>, binary: PathBuf) -> String {
-    if let Err(error) = begin(core, &binary).await {
+    if let Err(error) = begin(core, &binary, Replacement::Update).await {
         return error;
     }
     settle_chats(core, false).await;
@@ -209,7 +257,7 @@ pub(crate) async fn replace_with(core: &Arc<Core>, binary: PathBuf) -> String {
     finish(core, binary).await
 }
 
-async fn begin(core: &Arc<Core>, binary: &Path) -> Result<(), String> {
+async fn begin(core: &Arc<Core>, binary: &Path, replacement: Replacement) -> Result<(), String> {
     if core
         .updating
         .started
@@ -220,7 +268,8 @@ async fn begin(core: &Arc<Core>, binary: &Path) -> Result<(), String> {
     }
     let own = core.build.clone();
     let checked = binary.to_owned();
-    let preflight = blocking(move || check_binary(&checked, &own).map_err(Into::into)).await;
+    let preflight =
+        blocking(move || check_binary(&checked, &own, replacement).map_err(Into::into)).await;
     if let Err(error) = preflight {
         core.updating.started.store(false, Ordering::Release);
         return Err(error.to_string());
@@ -237,7 +286,7 @@ async fn settle_chats(core: &Arc<Core>, force: bool) {
 
 async fn finish(core: &Arc<Core>, binary: PathBuf) -> String {
     let error = hand_over(core, binary).await;
-    eprintln!("sikemux core: UPDATE FAILED, carrying on as before: {error}");
+    eprintln!("sikemux core: HAND-OVER FAILED, carrying on as before: {error}");
     thaw(core);
     error
 }
@@ -249,8 +298,12 @@ async fn drop_writer(writer: &mut FrameWriter) {
 }
 
 /// Refuses a binary that is not an executable file, that does not read this
-/// core's hand-over, or that is the build already running.
-fn check_binary(binary: &Path, own: &crate::protocol::BuildIdentity) -> Result<(), String> {
+/// core's hand-over, or, for an update, that is the build already running.
+fn check_binary(
+    binary: &Path,
+    own: &crate::protocol::BuildIdentity,
+    replacement: Replacement,
+) -> Result<(), String> {
     if !binary.is_absolute() {
         return Err(format!("{} is not an absolute path", binary.display()));
     }
@@ -266,7 +319,7 @@ fn check_binary(binary: &Path, own: &crate::protocol::BuildIdentity) -> Result<(
             binary.display(),
         ));
     }
-    if info.build().same_build(own) {
+    if replacement == Replacement::Update && info.build().same_build(own) {
         return Err(format!(
             "{} is the build this core already runs",
             binary.display()

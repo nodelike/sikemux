@@ -38,6 +38,12 @@ pub enum FrozenRequest {
     },
     /// Stop every session and exit.
     StopEverything,
+    /// Replace this core with its own binary in the same process, keeping
+    /// every session and chat as [`Self::Upgrade`] does, and waiting however
+    /// long its chats take to be able to carry their agents over. Answered
+    /// before the core restarts, and once more, with `Refused`, only if the
+    /// restart failed and the core carried on as it was.
+    Restart,
     /// Which chats an update now would stop rather than carry over while
     /// their agents work. Answered with [`FrozenReply::UpdateBlockers`].
     UpdateBlockers,

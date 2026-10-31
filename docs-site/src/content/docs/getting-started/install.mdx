@@ -41,6 +41,7 @@ Later:
 - `sikemux login` signs the host in, if you skipped it, and `sikemux logout` takes it off your account.
 - Once signed in, a host stays with that account: after `sikemux logout` it signs back in only to the same one. To move it to another account, remove it from its account on any of your devices while it is still signed in, or run `sudo sikemux login`.
 - The server keeps its core up to date by itself, as [Updates](/getting-started/updates/#on-a-server) describes; `sikemux update` updates it now.
+- `sikemux restart` restarts the core in place, the way an update does, so its terminals and agents keep running through it; a chat in the middle of a request holds it until it can hand its agent over. `sikemux stop` ends the core and everything it runs.
 - `sikemux help` lists every command.
 
 ## Download

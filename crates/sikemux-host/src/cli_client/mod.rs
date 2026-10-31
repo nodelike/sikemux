@@ -91,7 +91,7 @@ This host
   plugins      Sign this host in to a plugin's service       [login PLUGIN]
   start        Start the core
   stop         Stop the core and everything it runs
-  restart      Restart the core, as an update needs
+  restart      Restart the core, keeping what it runs
   enable       Start the core at boot
   disable      Stop starting the core at boot
   update       Update the core to the newest release       [--on|--off]
@@ -123,7 +123,7 @@ fn command_help(command: &str) -> Option<&'static str> {
         "plugins" => "Usage: sikemux plugins login PLUGIN\n\nSigns this host in to a plugin's service, such as linear, jira, bitbucket or vercel,\nso its agents can use it. It prints a link to open in a browser on any machine. A\nbrowser on another machine then lands on a page that does not load; paste that\npage's address back here to finish.\n",
         "start" => "Usage: sikemux start\n\nStarts the core, through the service that starts it at boot when there is one.\n",
         "stop" => "Usage: sikemux stop\n\nStops the core and the terminals and agents it runs. A core set to start at boot\nstays stopped until `sikemux start` or the next boot.\n",
-        "restart" => "Usage: sikemux restart\n\nStops the core and starts it again, so an updated sikemux takes over. Its terminals\nend; chats pick up where they were.\n",
+        "restart" => "Usage: sikemux restart\n\nRestarts the core from its binary, so an updated sikemux takes over, the way an\nupdate does: its terminals and agents keep running through it. A chat in the\nmiddle of a request holds the restart until it can hand its agent over. To end\neverything instead, use `sikemux stop`.\n",
         "enable" => "Usage: sikemux enable\n\nStarts the core at boot and again if it crashes: a systemd user service on Linux,\na LaunchAgent on macOS. On Linux, `loginctl enable-linger` keeps it running\nafter you log out.\n",
         "disable" => "Usage: sikemux disable\n\nStops starting the core at boot. The core keeps running until `sikemux stop`.\n",
         "update" => "Usage: sikemux update [--on | --off]\n\nOn a Linux host, installs the newest signed release on its channel, stable or\nnightly, and restarts the core into it, keeping its terminals and chats. The\nhost also does this by itself once no chat is in a turn. Only you can turn that\noff or back on, so agents cannot: from the host's ⋯ in Sikemux, or with\n`sudo sikemux update --off` or `--on`. While updates are off, nothing installs,\nnot even with `sikemux update`.\n",
