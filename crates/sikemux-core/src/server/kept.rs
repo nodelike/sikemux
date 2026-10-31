@@ -33,6 +33,8 @@ struct Pending {
     next: Option<Vec<u8>>,
     writing: bool,
     hurry: bool,
+    /// Why the latest change handed to be saved did not reach the disk.
+    unsaved: Option<String>,
 }
 
 impl Kept {
@@ -89,7 +91,7 @@ impl Kept {
         };
         match serde_json::to_vec(value) {
             Ok(bytes) => {
-                write(path, &bytes);
+                let _ = write(path, &bytes);
             }
             Err(error) => eprintln!("sikemux core: {} was not saved: {error}", path.display()),
         }
@@ -146,6 +148,12 @@ impl Kept {
                 .unwrap_or_else(PoisonError::into_inner),
         );
     }
+
+    /// Why the latest change handed to [`Kept::save_soon`] is not on disk,
+    /// once its writes, tries again included, are over.
+    pub(crate) fn unsaved(&self) -> Option<String> {
+        self.queue.state.locked().unsaved.clone()
+    }
 }
 
 impl Queue {
@@ -165,14 +173,23 @@ impl Queue {
             };
             drop(pending);
             let written = write(path, &bytes);
+            if written.is_err() && failed < RETRIES {
+                std::thread::sleep(SETTLE);
+            }
             pending = self.state.locked();
-            if written {
-                failed = 0;
-            } else if pending.next.is_none() && failed < RETRIES {
-                failed += 1;
-                pending.next = Some(bytes);
-            } else {
-                pending.last.clear();
+            match written {
+                Ok(()) => {
+                    failed = 0;
+                    pending.unsaved = None;
+                }
+                Err(_) if pending.next.is_none() && failed < RETRIES => {
+                    failed += 1;
+                    pending.next = Some(bytes);
+                }
+                Err(error) => {
+                    pending.last.clear();
+                    pending.unsaved = Some(error);
+                }
             }
         }
         pending.writing = false;
@@ -203,10 +220,10 @@ pub(crate) fn load_all<T: DeserializeOwned>(folder: Option<&Path>) -> Vec<T> {
         .collect()
 }
 
-fn write(path: &Path, bytes: &[u8]) -> bool {
-    let written = sikemux_process::files::write_atomic(path, bytes, true);
-    if let Err(error) = &written {
-        eprintln!("sikemux core: {} was not saved: {error}", path.display());
-    }
-    written.is_ok()
+fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    sikemux_process::files::write_atomic(path, bytes, true).map_err(|error| {
+        let error = format!("{} was not saved: {error}", path.display());
+        eprintln!("sikemux core: {error}");
+        error
+    })
 }

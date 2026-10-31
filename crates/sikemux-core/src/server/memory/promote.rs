@@ -3,7 +3,7 @@
 //! versioned with it. The core then forgets it, so it lives in one place. The
 //! file is left uncommitted for the person to review.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sikemux_process::sync::Locked;
@@ -74,65 +74,103 @@ pub(crate) async fn promote(
     let id = params.id;
     let core = core.clone();
     run(move || {
+        let _one_at_a_time = core.memory.promotes.locked();
         let folder = core.memory.state.locked().folder_of(&project, id)?;
-        if !Path::new(&folder).join(".git").exists() {
-            return Err(format!(
-                "{folder} is not the top of a git checkout, so an {FILE} there would not be versioned"
-            ));
-        }
-        let (rule, file) = {
+        let path = agents_file(&folder)?;
+        let (text, file) = {
             let mut state = core.memory.state.locked();
-            let held = state
-                .held
-                .get_mut(&folder)
-                .ok_or_else(|| format!("#{id} is no longer kept"))?;
-            let at = (held.rules.iter())
-                .position(|rule| rule.id == id)
+            let rule = (state.held.get(&folder))
+                .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
                 .ok_or_else(|| format!("#{id} is not a rule, and only rules go into {FILE}"))?;
-            if held.rules[at].goal.is_some() {
+            if rule.goal.is_some() {
                 return Err(format!("#{id} is a goal's rule, which stays with the goal"));
             }
-            if held.rules[at].sensitive {
+            if rule.sensitive {
                 return Err(format!(
                     "#{id} is sensitive, so it never goes into the repository"
                 ));
             }
-            let rule = held.rules.remove(at);
-            (rule, core.memory.save(&mut state, &folder))
+            let text = rule.text.clone();
+            state.promoting = Some(id);
+            (text, core.memory.save(&mut state, &folder))
         };
-        if let Some(file) = file {
-            file.flush();
-        }
-        if let Err(error) = write(&folder, &rule.text) {
-            let mut state = core.memory.state.locked();
-            if let Some(held) = state.held.get_mut(&folder) {
-                held.rules.push(rule);
+        let gone_on_disk = match file {
+            Some(file) => {
+                file.flush();
+                file.unsaved()
+                    .map_or(Ok(()), |error| Err(format!("Sikemux could not save that #{id} moved, so {FILE} was left alone: {error}")))
             }
-            core.memory.save(&mut state, &folder);
-            return Err(error);
+            None => Ok(()),
+        };
+        let written = gone_on_disk.and_then(|()| write(&path, &text));
+        let mut state = core.memory.state.locked();
+        state.promoting = None;
+        if written.is_ok() {
+            if let Some(held) = state.held.get_mut(&folder) {
+                held.rules.retain(|rule| rule.id != id);
+            }
         }
+        core.memory.save(&mut state, &folder);
+        drop(state);
+        written?;
         tell_clients(&core, false);
         Ok(view(&core, &project, &peer))
     })
     .await
 }
 
-/// Adds the rule to the folder's AGENTS.md, or to the file it links to,
-/// keeping the file's permissions.
-fn write(folder: &str, rule: &str) -> Result<(), String> {
-    let path = Path::new(folder).join(FILE);
-    let path = std::fs::canonicalize(&path).unwrap_or(path);
-    let file = match std::fs::read_to_string(&path) {
+/// The AGENTS.md of the checkout at `folder`, or the file it links to inside
+/// the checkout.
+fn agents_file(folder: &str) -> Result<PathBuf, String> {
+    let folder = Path::new(folder);
+    if !folder.join(".git").exists() {
+        return Err(format!(
+            "{} is not the top of a git checkout, so an {FILE} there would not be versioned",
+            folder.display()
+        ));
+    }
+    let path = folder.join(FILE);
+    let Ok(meta) = std::fs::symlink_metadata(&path) else {
+        return Ok(path);
+    };
+    if !meta.file_type().is_symlink() {
+        return Ok(path);
+    }
+    let target = std::fs::canonicalize(&path).map_err(|error| {
+        format!(
+            "{} links to nothing that can be read: {error}",
+            path.display()
+        )
+    })?;
+    if !target.starts_with(folder) {
+        return Err(format!(
+            "{} links outside the checkout, to {}, which the repository does not version",
+            path.display(),
+            target.display()
+        ));
+    }
+    Ok(target)
+}
+
+/// Adds the rule to the file, keeping its permissions. Once the new file is
+/// in place the rule is in the repository, so a permission that cannot be
+/// put back is only reported.
+fn write(path: &Path, rule: &str) -> Result<(), String> {
+    let file = match std::fs::read_to_string(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(format!("{} cannot be read: {error}", path.display())),
     };
-    let permissions = std::fs::metadata(&path).ok().map(|meta| meta.permissions());
-    let cannot = |error: std::io::Error| format!("{} cannot be written: {error}", path.display());
-    sikemux_process::files::write_atomic(&path, with_rule(&file, rule).as_bytes(), false)
-        .map_err(cannot)?;
-    if let Some(permissions) = permissions {
-        std::fs::set_permissions(&path, permissions).map_err(cannot)?;
+    let permissions = std::fs::metadata(path).ok().map(|meta| meta.permissions());
+    sikemux_process::files::write_atomic(path, with_rule(&file, rule).as_bytes(), false)
+        .map_err(|error| format!("{} cannot be written: {error}", path.display()))?;
+    if let Some(Err(error)) =
+        permissions.map(|permissions| std::fs::set_permissions(path, permissions))
+    {
+        eprintln!(
+            "sikemux core: {} kept its new permissions: {error}",
+            path.display()
+        );
     }
     Ok(())
 }

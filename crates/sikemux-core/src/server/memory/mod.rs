@@ -44,7 +44,7 @@ const MAX_ABOUT_CHARS: usize = 200;
 const MAX_CHECK_CHARS: usize = 1000;
 
 /// What one folder keeps. Kept even once empty, so `next` never goes back.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Held {
     folder: String,
@@ -72,6 +72,9 @@ struct State {
     checking: HashSet<u64>,
     /// Knowledge a brief carried on a test that was not fresh, to test soon.
     wanted: HashSet<u64>,
+    /// The rule being written into AGENTS.md. It stays listed but is saved as
+    /// gone, so a core that stops halfway never brings it back.
+    promoting: Option<u64>,
 }
 
 impl State {
@@ -107,6 +110,9 @@ impl State {
 pub(crate) struct Memory {
     state: Mutex<State>,
     folder: Option<PathBuf>,
+    /// Held while a rule is promoted, one at a time, so two never write
+    /// AGENTS.md over each other.
+    promotes: Mutex<()>,
     /// Tests knowledge once it is due.
     pub(crate) wake: Wake,
 }
@@ -129,6 +135,7 @@ impl Memory {
                 ..State::default()
             }),
             folder,
+            promotes: Mutex::new(()),
             wake: Wake::default(),
         }
     }
@@ -137,12 +144,26 @@ impl Memory {
     /// answers it, to wait for with [`Kept::flush`].
     fn save(&self, state: &mut State, folder: &str) -> Option<Arc<Kept>> {
         self.wake.now();
-        let State { held, files, .. } = state;
+        let State {
+            held,
+            files,
+            promoting,
+            ..
+        } = state;
         let held = held.get(folder)?;
         let file = files.entry(folder.to_owned()).or_insert_with(|| {
             Arc::new(Kept::new(self.folder.as_deref(), &kept::file_for(folder)))
         });
-        file.save_soon(held);
+        match promoting.filter(|id| held.holds(*id)) {
+            Some(id) => {
+                let mut saved = held.clone();
+                saved.rules.retain(|rule| rule.id != id);
+                file.save_soon(&saved);
+            }
+            None => {
+                file.save_soon(held);
+            }
+        }
         Some(file.clone())
     }
 
@@ -242,7 +263,6 @@ pub enum NewMemory {
 }
 
 fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {
-    forget_gone_goals(core);
     let (text, folder) = match &new {
         NewMemory::Rule { text, folder, .. } | NewMemory::Knowledge { text, folder, .. } => (
             to_keep(text, "text", MAX_TEXT_CHARS)?,
@@ -372,6 +392,9 @@ fn change(
     let check = update.check.map(checked_check).transpose()?;
     let id = update.id;
     let mut state = core.memory.state.locked();
+    if state.promoting == Some(id) {
+        return Err(format!("#{id} is being written into AGENTS.md"));
+    }
     let folder = state.folder_of(project, id)?;
     let held = state
         .held
@@ -432,37 +455,29 @@ fn change(
     Ok(())
 }
 
-/// Forgets goal rules whose goal card is no longer on its board.
-fn forget_gone_goals(core: &Core) {
-    let goal_rules: Vec<(String, u64, u64)> = {
-        let state = core.memory.state.locked();
-        state
-            .held
-            .values()
-            .flat_map(|held| {
-                held.rules
-                    .iter()
-                    .filter_map(|rule| Some((held.folder.clone(), rule.id, rule.goal?)))
-            })
-            .collect()
+/// Forgets the rules of goal card `card`, which the board removed.
+pub(crate) fn goal_removed(core: &Core, project: &str, card: u64) {
+    let mut state = core.memory.state.locked();
+    let Some(held) = state.held.get_mut(project) else {
+        return;
     };
-    let gone: Vec<(String, u64)> = goal_rules
-        .into_iter()
-        .filter(|(folder, _, card)| board::card_exists(core, folder, *card).is_err())
-        .map(|(folder, id, _)| (folder, id))
-        .collect();
-    if gone.is_empty() {
+    let before = held.rules.len();
+    held.rules.retain(|rule| rule.goal != Some(card));
+    if held.rules.len() == before {
         return;
     }
-    let mut state = core.memory.state.locked();
-    for (folder, id) in &gone {
-        if let Some(held) = state.held.get_mut(folder) {
-            held.rules.retain(|rule| rule.id != *id);
-        }
-        core.memory.save(&mut state, folder);
-    }
+    core.memory.save(&mut state, project);
     drop(state);
     tell_clients(core, false);
+}
+
+/// Whether goal card `card` of `project` has rules of its own.
+pub(crate) fn has_goal_rules(core: &Core, project: &str, card: u64) -> bool {
+    let state = core.memory.state.locked();
+    state
+        .held
+        .get(project)
+        .is_some_and(|held| held.rules.iter().any(|rule| rule.goal == Some(card)))
 }
 
 /// What applies to `project`, with sensitive entries left out unless Sikemux's
@@ -757,7 +772,7 @@ pub(crate) async fn person_add(
         goal: Some(card), ..
     } = &params.entry
     {
-        board::card_exists(core, &project, *card)?;
+        board::check_goal(core, &project, *card)?;
     }
     let core = core.clone();
     run(move || {

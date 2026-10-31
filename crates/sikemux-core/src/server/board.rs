@@ -19,6 +19,7 @@ use crate::text::clipped;
 
 use super::connection::blocking;
 use super::kept::{self, Kept};
+use super::memory;
 use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
@@ -1357,6 +1358,12 @@ fn change_in(
     }
     if let Some(parent) = changes.parent {
         board.check_parent(Some(id), parent)?;
+        let holds_goal = !before.decisions.is_none() || memory::has_goal_rules(core, project, id);
+        if parent.is_some() && holds_goal {
+            return Err(format!(
+                "#{id} is a goal with decisions or rules of its own, so it stays at the top"
+            ));
+        }
     }
     let blocked_before = board.blocked();
     let card = board.card_mut(id)?;
@@ -2021,13 +2028,17 @@ pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
     })
 }
 
-/// Refuses card `id` when it is not on `project`'s board.
-pub(crate) fn card_exists(core: &Core, project: &str, id: u64) -> Result<(), String> {
+/// Refuses card `id` unless it is a goal of `project`'s board, a card at the top.
+pub(crate) fn check_goal(core: &Core, project: &str, id: u64) -> Result<(), String> {
     let state = core.boards.state.locked();
-    match state.boards.get(project) {
-        Some(board) => board.card(id).map(|_| ()),
-        None => Err(format!("There is no card #{id} on this project's board")),
+    let board = (state.boards.get(project))
+        .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
+    if board.card(id)?.parent.is_some() {
+        return Err(format!(
+            "Card #{id} sits under another card; a goal is a card at the top"
+        ));
     }
+    Ok(())
 }
 
 /// Every project's board, as the app draws them.
@@ -2467,6 +2478,7 @@ pub(crate) async fn person_remove(
             let project = project_at(&core, &params.project)?;
             let id = card_number(Some(params.id), "id")?;
             let notices = remove_card(&core, &project, id)?;
+            memory::goal_removed(&core, &project, id);
             Ok((project_view(&core, &project), notices))
         })
         .await
