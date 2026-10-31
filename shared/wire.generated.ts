@@ -2137,6 +2137,8 @@ export interface BoardCard {
      * ones too.
      */
     rules: GoalRule[];
+    /** Its ticket or trigger arriving again while it was open, oldest first. */
+    arrivals: Arrival[];
     at: number;
     updatedAt: number;
 }
@@ -2437,6 +2439,15 @@ export interface GoalRule {
      * first.
      */
     retired: Learned | null;
+}
+
+/** Work that arrived again for a card that already held it. */
+export interface Arrival {
+    /** The ticket's or trigger's title. */
+    title: string;
+    /** What came with it, such as a webhook's request, cut to what a card keeps. */
+    details: string;
+    at: number;
 }
 
 /** How a project's board runs on its own. */

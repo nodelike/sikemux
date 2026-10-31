@@ -155,6 +155,9 @@ struct Card {
     /// The trigger whose firing added it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trigger: Option<u64>,
+    /// Its ticket or trigger arriving again while it was open, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    arrivals: Vec<arrival::Arrival>,
     /// The run Auto gave the card, in a worktree of its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     auto: Option<Run>,
@@ -976,6 +979,8 @@ pub struct CardView {
     /// For a goal, rules only its own agents follow, oldest first, retired
     /// ones too.
     pub rules: Vec<GoalRule>,
+    /// Its ticket or trigger arriving again while it was open, oldest first.
+    pub arrivals: Vec<arrival::Arrival>,
     pub at: u64,
     pub updated_at: u64,
 }
@@ -1068,6 +1073,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         next: slice::next_gates(core, board, card, now),
         decisions: card.goal.decisions(),
         rules: card.goal.rules(),
+        arrivals: card.arrivals.clone(),
         at: card.at,
         updated_at: card.updated_at,
     }
@@ -1161,6 +1167,9 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         if !under.is_empty() {
             fields.insert("cards".into(), under.into());
         }
+        if !card.arrivals.is_empty() {
+            fields.insert("arrivals".into(), json!(card.arrivals));
+        }
     }
     view
 }
@@ -1184,9 +1193,7 @@ fn add_card(
         ));
     }
     if let Some(id) = arrival::Key::of(&adding).and_then(|key| arrival::holder(board, &key)) {
-        let card = board.card_mut(id)?;
-        card.updated_at = epoch_ms();
-        let notice = arrival::arrived_again(card, &adding);
+        let notice = arrival::arrived_again(board.card_mut(id)?, &adding);
         let mut view = agent_view(core, board, board.card(id)?, true);
         boards.save(&mut state, project);
         send_notices(core, notice.into_iter().collect());
@@ -1227,6 +1234,7 @@ fn add_card(
         result: None,
         ticket: adding.ticket,
         trigger: adding.trigger,
+        arrivals: Vec::new(),
         auto: None,
         recordings: Vec::new(),
         slice: adding
@@ -2314,8 +2322,8 @@ fn ticket_card(title: &str, details: &str, ticket: Option<TicketParams>) -> Resu
 }
 
 /// The card on `project`'s board for ticket `key`, an open one before a done
-/// one: its id, parent and what it waits on.
-fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<(u64, Option<u64>, Vec<u64>)> {
+/// one.
+fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<TicketHeld> {
     let state = core.boards.state.locked();
     let card = (state.boards.get(project)?.cards.iter())
         .filter(|card| {
@@ -2324,7 +2332,26 @@ fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<(u64, Option<
                 .is_some_and(|ticket| ticket.key.eq_ignore_ascii_case(key))
         })
         .min_by_key(|card| card.status == Status::Done)?;
-    Some((card.id, card.parent, card.depends_on.clone()))
+    let parent_done = card
+        .parent
+        .and_then(|parent| state.boards.get(project)?.card(parent).ok())
+        .is_some_and(|parent| parent.status == Status::Done);
+    Some(TicketHeld {
+        id: card.id,
+        parent: card.parent,
+        parent_done,
+        depends_on: card.depends_on.clone(),
+        done: card.status == Status::Done,
+    })
+}
+
+/// A ticket's card as putting a ticket on the board reads it.
+struct TicketHeld {
+    id: u64,
+    parent: Option<u64>,
+    parent_done: bool,
+    depends_on: Vec<u64>,
+    done: bool,
 }
 
 /// The person puts a ticket on the board: its subtasks go under it, it waits
@@ -2347,8 +2374,8 @@ pub(crate) async fn person_add_ticket(
                 ticket_card(&params.title, &params.details, Some(params.ticket))?,
                 false,
             )?;
-            let (made, _, _) =
-                card_of_ticket(&core, &project, &key).ok_or("The ticket's card is gone")?;
+            let made = card_of_ticket(&core, &project, &key).ok_or("The ticket's card is gone")?;
+            let (made, waited) = (made.id, made.depends_on);
             let mut notices = Vec::new();
             let mut problems = Vec::new();
             let change = |id: u64, changes: Changes| {
@@ -2371,9 +2398,9 @@ pub(crate) async fn person_add_ticket(
                         }),
                         format!("put {sub_key} under it"),
                     ),
-                    Some((id, None, _)) => note(
+                    Some(sub) if !sub.done && (sub.parent.is_none() || sub.parent_done) => note(
                         change(
-                            id,
+                            sub.id,
                             Changes {
                                 parent: Some(Some(made)),
                                 ..Changes::default()
@@ -2384,12 +2411,14 @@ pub(crate) async fn person_add_ticket(
                     Some(_) => {}
                 }
             }
-            let waits: Vec<u64> = params
+            let blockers: Vec<u64> = params
                 .blocked_by
                 .iter()
-                .filter_map(|blocker| card_of_ticket(&core, &project, blocker).map(|(id, _, _)| id))
+                .filter_map(|blocker| card_of_ticket(&core, &project, blocker).map(|held| held.id))
+                .filter(|id| !waited.contains(id))
                 .collect();
-            if !waits.is_empty() {
+            if !blockers.is_empty() {
+                let waits = waited.into_iter().chain(blockers).collect();
                 note(
                     distinct_cards(waits, "dependsOn").and_then(|waits| {
                         change(
@@ -2404,12 +2433,13 @@ pub(crate) async fn person_add_ticket(
                 );
             }
             for blocked in params.blocks {
-                if let Some((id, _, mut depends)) = card_of_ticket(&core, &project, &blocked) {
+                if let Some(held) = card_of_ticket(&core, &project, &blocked) {
+                    let mut depends = held.depends_on;
                     if !depends.contains(&made) {
                         depends.push(made);
                         note(
                             change(
-                                id,
+                                held.id,
                                 Changes {
                                     depends_on: Some(depends),
                                     ..Changes::default()

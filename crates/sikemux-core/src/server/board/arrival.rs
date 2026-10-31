@@ -1,13 +1,29 @@
 //! What identifies work arriving on the board, so the same work never
 //! starts twice: a ticket by its key, a trigger by its id. The person's or an
 //! agent's own words carry none. Work that arrives with a key an open card
-//! already holds goes to that card instead, and whoever answers for it hears.
+//! already holds is kept on that card instead, the newest few times, and
+//! whoever answers for the card hears.
+
+use serde::{Deserialize, Serialize};
+use sikemux_process::clock::epoch_ms;
 
 use super::{Adding, Board, Card, Notice, Status};
 use crate::text::clipped;
 
-/// How much of what arrived again its card's owner is told.
-const TOLD_CHARS: usize = 600;
+/// Arrivals a card keeps; the oldest go first.
+const MAX_ARRIVALS: usize = 8;
+const MAX_DETAILS_CHARS: usize = 4000;
+
+/// Work that arrived again for a card that already held it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Arrival {
+    /// The ticket's or trigger's title.
+    pub title: String,
+    /// What came with it, such as a webhook's request, cut to what a card keeps.
+    pub details: String,
+    pub at: u64,
+}
 
 pub(super) enum Key<'a> {
     Ticket(&'a str),
@@ -43,9 +59,20 @@ pub(super) fn holder(board: &Board, key: &Key) -> Option<u64> {
         .map(|card| card.id)
 }
 
-/// What the agent answering for `card` is told when `adding` arrived again
-/// and went to it: its owner, else the lead of the team it was last in.
-pub(super) fn arrived_again(card: &Card, adding: &Adding) -> Option<Notice> {
+/// Keeps `adding` on `card`, which held its key already, and answers what the
+/// agent answering for the card is told: its owner, else the lead of the
+/// team it was last in.
+pub(super) fn arrived_again(card: &mut Card, adding: &Adding) -> Option<Notice> {
+    if card.arrivals.len() >= MAX_ARRIVALS {
+        card.arrivals.remove(0);
+    }
+    let at = epoch_ms();
+    card.arrivals.push(Arrival {
+        title: adding.title.clone(),
+        details: clipped(&adding.details, MAX_DETAILS_CHARS),
+        at,
+    });
+    card.updated_at = at;
     let to = card
         .owner_id()
         .map(str::to_owned)
@@ -54,17 +81,12 @@ pub(super) fn arrived_again(card: &Card, adding: &Adding) -> Option<Notice> {
         Key::Ticket(key) => format!("Ticket {key} was put on the board again"),
         Key::Trigger(_) => format!("The trigger \"{}\" fired again", adding.title),
     };
-    let details = clipped(&adding.details, TOLD_CHARS);
     Some(Notice {
         to,
         text: format!(
-            "{what}, and it went to {}, which already holds it, rather than a new card.{}",
+            "{what}, and it went to {}, which already holds it, rather than a new card. board_list with card {} shows what arrived, under arrivals.",
             card.label(),
-            if details.is_empty() {
-                String::new()
-            } else {
-                format!("\n\n{details}")
-            }
+            card.id
         ),
     })
 }
