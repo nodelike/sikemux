@@ -110,13 +110,38 @@ pub enum Stale {
     Disputed { why: String, by: Learned },
 }
 
+/// A rule as the memory view lists it, with whether it can move into its
+/// folder's AGENTS.md.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedRule {
+    pub rule: Rule,
+    /// Why it cannot move into AGENTS.md; none when it can.
+    #[serde(default)]
+    pub stays: Option<Stays>,
+}
+
+/// Why a rule cannot move into its folder's AGENTS.md.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Stays {
+    /// It is sensitive, so it never goes into the repository.
+    Sensitive,
+    /// Its folder is not the top of a git checkout, so an AGENTS.md there
+    /// would not be versioned.
+    NoCheckout,
+    /// The folder's AGENTS.md links to nothing that can be read, or to a
+    /// file outside the checkout.
+    LinkedAway,
+}
+
 /// What one folder keeps: a project, or a folder above it whose entries every
 /// project under it shares.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderMemory {
     pub folder: String,
-    pub rules: Vec<Rule>,
+    pub rules: Vec<ListedRule>,
     pub knowledge: Vec<Knowledge>,
     /// Sensitive entries left out, for a reader other than Sikemux's own window.
     pub hidden: usize,

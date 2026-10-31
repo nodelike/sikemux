@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use sikemux_wire::memory::{
-    FolderMemory, Knowledge, Learned, MemoryCheck, MemoryView, Rule, Stale,
+    FolderMemory, Knowledge, Learned, ListedRule, MemoryCheck, MemoryView, Rule, Stale,
 };
 
 use super::access::Peer;
@@ -505,13 +505,29 @@ fn change(
 /// own window reads it.
 fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
     let shows_sensitive = matches!(peer, Peer::App);
+    let folders: Vec<String> = (core.memory.state.locked().applying(project))
+        .map(|held| held.folder.clone())
+        .collect();
+    let files: HashMap<String, _> = folders
+        .into_iter()
+        .map(|folder| {
+            let file = promote::agents_file(&folder);
+            (folder, file)
+        })
+        .collect();
     let state = core.memory.state.locked();
     let folders = state
         .applying(project)
         .map(|held| {
-            let rules: Vec<Rule> = (held.rules.iter())
+            // A folder that came since its file was read is not offered to move yet.
+            let file = (files.get(&held.folder).cloned())
+                .unwrap_or(Err(sikemux_wire::memory::Stays::NoCheckout));
+            let rules: Vec<ListedRule> = (held.rules.iter())
                 .filter(|rule| shows_sensitive || !rule.sensitive)
-                .cloned()
+                .map(|rule| ListedRule {
+                    stays: promote::stays(rule, &file),
+                    rule: rule.clone(),
+                })
                 .collect();
             let knowledge: Vec<Knowledge> = (held.knowledge.iter())
                 .filter(|known| shows_sensitive || !known.sensitive)
@@ -779,13 +795,14 @@ pub struct MemoryEntryParams {
     pub id: u64,
 }
 
-pub(crate) fn person_view(
-    core: &Core,
-    peer: &Peer,
+pub(crate) async fn person_view(
+    core: &Arc<Core>,
+    peer: Peer,
     params: MemoryParams,
 ) -> Result<MemoryView, String> {
     let project = project_at(core, &params.project)?;
-    Ok(view(core, &project, peer))
+    let core = core.clone();
+    run(move || Ok(view(&core, &project, &peer))).await
 }
 
 pub(crate) async fn person_add(

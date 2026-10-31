@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sikemux_process::sync::Locked;
-use sikemux_wire::memory::MemoryView;
+use sikemux_wire::memory::{MemoryView, Rule, Stays};
 
 use super::{project_at, run, tell_clients, view, Core, MemoryEntryParams};
 use crate::server::access::Peer;
@@ -76,16 +76,14 @@ pub(crate) async fn promote(
     run(move || {
         let _one_at_a_time = core.memory.promotes.locked();
         let folder = core.memory.state.locked().folder_of(&project, id)?;
-        let path = agents_file(&folder)?;
+        let path = agents_file(&folder);
         let (text, file) = {
             let mut state = core.memory.state.locked();
             let rule = (state.held.get(&folder))
                 .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
                 .ok_or_else(|| format!("#{id} is not a rule, and only rules go into {FILE}"))?;
-            if rule.sensitive {
-                return Err(format!(
-                    "#{id} is sensitive, so it never goes into the repository"
-                ));
+            if let Some(stays) = stays(rule, &path) {
+                return Err(refusal(id, &folder, stays));
             }
             let text = rule.text.clone();
             state.promoting = Some(id);
@@ -99,7 +97,10 @@ pub(crate) async fn promote(
             }
             None => Ok(()),
         };
-        let written = gone_on_disk.and_then(|()| write(&path, &text));
+        let written = gone_on_disk.and_then(|()| match &path {
+            Ok(path) => write(path, &text),
+            Err(stays) => Err(refusal(id, &folder, *stays)),
+        });
         let mut state = core.memory.state.locked();
         state.promoting = None;
         if written.is_ok() {
@@ -118,13 +119,10 @@ pub(crate) async fn promote(
 
 /// The AGENTS.md of the checkout at `folder`, or the file it links to inside
 /// the checkout.
-fn agents_file(folder: &str) -> Result<PathBuf, String> {
+pub(super) fn agents_file(folder: &str) -> Result<PathBuf, Stays> {
     let folder = Path::new(folder);
     if !folder.join(".git").exists() {
-        return Err(format!(
-            "{} is not the top of a git checkout, so an {FILE} there would not be versioned",
-            folder.display()
-        ));
+        return Err(Stays::NoCheckout);
     }
     let path = folder.join(FILE);
     let Ok(meta) = std::fs::symlink_metadata(&path) else {
@@ -133,20 +131,30 @@ fn agents_file(folder: &str) -> Result<PathBuf, String> {
     if !meta.file_type().is_symlink() {
         return Ok(path);
     }
-    let target = std::fs::canonicalize(&path).map_err(|error| {
-        format!(
-            "{} links to nothing that can be read: {error}",
-            path.display()
-        )
-    })?;
-    if !target.starts_with(folder) {
-        return Err(format!(
-            "{} links outside the checkout, to {}, which the repository does not version",
-            path.display(),
-            target.display()
-        ));
+    std::fs::canonicalize(&path)
+        .ok()
+        .filter(|target| target.starts_with(folder))
+        .ok_or(Stays::LinkedAway)
+}
+
+/// Why `rule`, kept for a folder whose AGENTS.md is `file`, cannot move there.
+pub(super) fn stays(rule: &Rule, file: &Result<PathBuf, Stays>) -> Option<Stays> {
+    if rule.sensitive {
+        return Some(Stays::Sensitive);
     }
-    Ok(target)
+    file.as_ref().err().copied()
+}
+
+fn refusal(id: u64, folder: &str, stays: Stays) -> String {
+    match stays {
+        Stays::Sensitive => format!("#{id} is sensitive, so it never goes into the repository"),
+        Stays::NoCheckout => format!(
+            "{folder} is not the top of a git checkout, so an {FILE} there would not be versioned"
+        ),
+        Stays::LinkedAway => format!(
+            "{folder}'s {FILE} links to nothing that can be read, or outside the checkout, which the repository does not version"
+        ),
+    }
 }
 
 /// Adds the rule to the file, keeping its permissions. Once the new file is

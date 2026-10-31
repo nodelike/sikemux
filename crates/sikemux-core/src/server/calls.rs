@@ -594,7 +594,7 @@ calls! { core, client, params;
     "triage" Triage (super::triage::TriageParams) -> sikemux_wire::start::Triage: Full => {
         super::triage::triage(&core, params).await?
     },
-    "memory" Memory (memory::MemoryParams) -> MemoryView: Watch, any_program => memory::person_view(&core, &client.peer, params)?,
+    "memory" Memory (memory::MemoryParams) -> MemoryView: Watch, any_program => memory::person_view(&core, client.peer.clone(), params).await?,
     "memoryAdd" MemoryAdd (memory::MemoryAddParams) -> MemoryView: Full => memory::person_add(&core, client.peer.clone(), params).await?,
     "memoryUpdate" MemoryUpdate (memory::MemoryUpdateParams) -> MemoryView: Full => memory::person_update(&core, client.peer.clone(), params).await?,
     "promoteRule" PromoteRule (memory::MemoryEntryParams) -> MemoryView: Person => memory::promote(&core, client.peer.clone(), params).await?,

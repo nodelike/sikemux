@@ -47,13 +47,13 @@ pub(super) fn rules(
                     .unwrap_or(&folder.folder)
             ),
         };
-        folder.rules.iter().map(move |rule| Listed {
-            text: rule.text.clone(),
-            kept: match rule.sensitive {
+        folder.rules.iter().map(move |listed| Listed {
+            text: listed.rule.text.clone(),
+            kept: match listed.rule.sensitive {
                 true => format!("{place} · sensitive"),
                 false => place.clone(),
             },
-            movable: (!rule.sensitive).then_some(rule.id),
+            movable: listed.stays.is_none().then_some(listed.rule.id),
         })
     });
     let listed: Vec<Listed> = own.chain(kept).collect();

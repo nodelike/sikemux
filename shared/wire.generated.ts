@@ -3596,10 +3596,20 @@ export interface MemoryView {
  */
 export interface FolderMemory {
     folder: string;
-    rules: MemoryRule[];
+    rules: ListedRule[];
     knowledge: Knowledge[];
     /** Sensitive entries left out, for a reader other than Sikemux's own window. */
     hidden: number;
+}
+
+/**
+ * A rule as the memory view lists it, with whether it can move into its
+ * folder's AGENTS.md.
+ */
+export interface ListedRule {
+    rule: MemoryRule;
+    /** Why it cannot move into AGENTS.md; none when it can. */
+    stays?: Stays | null;
 }
 
 /** How agents must work here, such as "shadows, never glows". */
@@ -3616,6 +3626,9 @@ export interface MemoryRule {
     /** What it said before it was last corrected. */
     was: string | null;
 }
+
+/** Why a rule cannot move into its folder's AGENTS.md. */
+export type Stays = "sensitive" | "noCheckout" | "linkedAway";
 
 /** How things are, such as "the service is called ai-service now". */
 export interface Knowledge {
