@@ -456,6 +456,14 @@
         "other": "Ctrl+Shift+KeyB"
     },
     {
+        "id": "browser.tabReopen",
+        "label": "Reopen closed browser tab",
+        "detail": "Open the tab closed last on the desk in front again, including ones Sikemux closed after an agent's turn",
+        "category": "Browser",
+        "mac": "Meta+Alt+KeyT",
+        "other": "Ctrl+Alt+Shift+KeyT"
+    },
+    {
         "id": "browser.address",
         "label": "Open browser address",
         "detail": "Type an address or a search over the page on the desk in front",

@@ -29,6 +29,9 @@ struct SavedTab {
     viewport: Option<SavedViewport>,
     /// A file shown over a loopback address that dies with the app, shared again under a new one.
     local_file: Option<PathBuf>,
+    /// The person's tab, which tidying up after the agent leaves open.
+    #[serde(default)]
+    yours: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,6 +88,7 @@ impl BrowserManager {
                                 preset: fixed.preset.map(str::to_owned),
                             }),
                             local_file: self.local_files.path_of(&page.url),
+                            yours: agent.strip.yours(id),
                         })
                     })
                     .collect(),
@@ -128,6 +132,9 @@ impl BrowserManager {
                         ..TabPage::default()
                     },
                 );
+                if tab.yours {
+                    agent.strip.kept.insert(tab.id.clone());
+                }
                 agent.strip.unloaded.insert(tab.id);
             }
             if agent.strip.order.is_empty() {

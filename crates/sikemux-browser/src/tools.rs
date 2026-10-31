@@ -179,10 +179,23 @@ async fn run(
                 .ok()
                 .and_then(|(tab_id, _)| manager.page(agent_id, &tab_id))
                 .map(|page| page.url);
-            let new_tab = params.get("newTab").and_then(Value::as_bool) == Some(true);
+            let mut new_tab = params.get("newTab").and_then(Value::as_bool) == Some(true);
             let started = Instant::now();
             let mut note = None;
+            let mut current = current;
+            if new_tab {
+                if let Some(tab_id) = manager.same_site_tab(agent_id, &url) {
+                    manager
+                        .switch_tab(agent_id, &tab_id)
+                        .map_err(|error| error.to_string())?;
+                    current = manager.page(agent_id, &tab_id).map(|page| page.url);
+                    new_tab = false;
+                    note = Some("your tab on this site was used rather than opening another; close tabs you are done with");
+                }
+            }
+            let mut closed = None;
             let tab_id = if new_tab || current.is_none() {
+                closed = manager.make_room(agent_id);
                 manager
                     .open_tab(agent_id, Some(&url))
                     .await
@@ -190,6 +203,9 @@ async fn run(
             } else {
                 if let Ok((tab_id, _)) = manager.active_view(agent_id) {
                     crate::person::leave_be(&tab_id)?;
+                    if !same_site(current.as_deref().unwrap_or_default(), &wanted) {
+                        manager.hand_back(agent_id, &tab_id);
+                    }
                 }
                 let current = current.unwrap_or_default();
                 if current == wanted {
@@ -217,6 +233,12 @@ async fn run(
             let mut result = arrived(manager, agent_id, &tab_id, params, started).await?;
             if let Some(note) = note {
                 result["note"] = json!(note);
+            }
+            if let Some(closed) = closed {
+                result["closedTab"] = json!(format!(
+                    "you had {} tabs of your own, so the one unused longest, {closed}, was closed",
+                    crate::manager::AGENT_TAB_LIMIT
+                ));
             }
             Ok(result)
         }
@@ -917,6 +939,13 @@ fn script_failure(error: &str, limit: Duration) -> String {
         "the page navigated or reloaded while the script ran, so its result was lost; to reload, use browser_navigate with go reload".into()
     } else {
         error.to_owned()
+    }
+}
+
+fn same_site(current: &str, wanted: &str) -> bool {
+    match (url::Url::parse(current), url::Url::parse(wanted)) {
+        (Ok(current), Ok(wanted)) => current.origin() == wanted.origin(),
+        _ => false,
     }
 }
 

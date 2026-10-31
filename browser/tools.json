@@ -19,7 +19,7 @@
           "maxLength": 8192
         },
         "newTab": {
-          "description": "Open in a new tab",
+          "description": "Open in a new tab; a tab of yours already on that site is used instead",
           "type": "boolean"
         },
         "go": {

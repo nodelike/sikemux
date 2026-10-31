@@ -17,6 +17,10 @@ When you ask an agent to open, show or preview a page, it opens the page on its 
 
 A link in an agent's reply opens on its desk too; `⌘`-click opens it in your own browser instead. A link to a pull request on GitHub, Bitbucket or GitLab opens as the pull request itself, drawn as the Git tab draws one, among the Browser tabs: its files, commits, checks, conversation and diffs, with review, merge and, for the project's own repository, Check out. When no account is signed in to that host, or it can't read the pull request, the link opens as its web page. Links to an issue on those hosts, or to a run of GitHub Actions, open the same way, as the issue or the run with its jobs and logs. A link to a Jira issue on a site you're signed in to opens the same way, as the issue itself.
 
+## Tabs agents leave behind
+
+An agent goes back to its own tab on a site rather than opening another. When its turn ends, the tab in front stays open for you and Sikemux closes the rest of the agent's tabs. Tabs you opened, clicked or typed in are yours: the agent can still use them, but they stay open until you close them or the agent takes one to another site. An agent holding six tabs of its own closes the one it used least recently before opening another. `⌘⌥T` opens the tab closed last on the desk in front again.
+
 ## What tabs open
 
 - `http` and `https` pages.

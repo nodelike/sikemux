@@ -480,6 +480,9 @@ pub fn note_person(event: &NSEvent) {
         NSEventType::LeftMouseDown | NSEventType::RightMouseDown | NSEventType::OtherMouseDown => {
             note(|last| last.person_pointer = Some(now));
             let clicked = clicked_view(event);
+            if let Some(tab_id) = clicked.as_deref().and_then(crate::macos::tab_id_holding) {
+                crate::person::touched(&tab_id);
+            }
             PERSON_CLICKED.with(|slot| *slot.borrow_mut() = clicked.as_deref().map(Weak::from));
         }
         _ => note(|last| last.person_pointer = Some(now)),

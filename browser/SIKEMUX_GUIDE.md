@@ -513,6 +513,15 @@ refused, so open the page in a new tab instead. When the load failed, as when no
 says so in `loadError`, and a page that loaded without any text or controls
 yet comes with a note to wait for it.
 
+Keep to a few tabs. `newTab: true` on a site you already have a tab on goes
+to that tab instead of opening another, and close a tab with
+`browser_close_tab` once you are done with it. When your turn ends, the tab
+in front stays open for the person and Sikemux closes the rest of yours. Tabs
+the person opened, clicked or typed in are theirs: you can still use them,
+but tidying up never closes them, until you take one to another site. Past
+six tabs of your own, opening another closes the one unused longest, and the
+result names it in `closedTab`. The person can open closed tabs again.
+
 Tabs only open `http` and `https` pages. To show a local HTML file, image or
 folder, pass its absolute path, a `~/` path or a `file://` url to
 `browser_navigate`: Sikemux serves its folder to the tab from a private

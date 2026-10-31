@@ -27,7 +27,7 @@ use sikemux_browser::{
 use sikemux_core::cli::protocol::{is_browser_method, is_sim_method, HarnessRequest};
 use sikemux_core::harness::runs::RunStatus;
 use sikemux_process::sync::Locked;
-use sikemux_wire::protocol::{CallId, Pane, PaneKind, WindowAnswer, WindowCall};
+use sikemux_wire::protocol::{AgentStatus, CallId, Pane, PaneKind, WindowAnswer, WindowCall};
 use tokio::sync::mpsc;
 
 use crate::codehost::HostArea;
@@ -47,6 +47,10 @@ pub struct ToggleDesk;
 #[derive(Clone, Default, PartialEq, gpui::Action)]
 #[action(name = "browser.tabNew")]
 pub struct NewPage;
+
+#[derive(Clone, Default, PartialEq, gpui::Action)]
+#[action(name = "browser.tabReopen")]
+pub struct ReopenPage;
 
 #[derive(Clone, Default, PartialEq, gpui::Action)]
 #[action(name = "simulator.new")]
@@ -79,6 +83,8 @@ pub struct Desks {
     kinds: HashMap<String, DeskKind>,
     /// The agents in the view as last heard, so those that leave it are let go.
     present: HashSet<String>,
+    /// The agents in a turn as last heard, so the engine tidies each one's tabs as its turn ends.
+    working: HashSet<String>,
     page_files: Arc<PageFiles>,
     /// The files and task terminals on each agent's desk, beside its pages, in the order they came.
     items: HashMap<String, Vec<DeskItem>>,
@@ -275,6 +281,7 @@ impl Desks {
             known: HashMap::new(),
             kinds: HashMap::new(),
             present: HashSet::new(),
+            working: HashSet::new(),
             page_files,
             items: HashMap::new(),
             front: HashMap::new(),
@@ -637,8 +644,20 @@ impl Workbench {
             .filter(|agent| agent.asleep && self.sims.read(cx).attached_by(&agent.id))
             .map(|agent| agent.id.clone())
             .collect();
+        let working: HashSet<String> = (view.inbox.agents.iter())
+            .filter(|row| matches!(row.status, AgentStatus::Working | AgentStatus::Blocked))
+            .map(|row| row.agent_id.clone())
+            .collect();
         let departed = self.desks.update(cx, |desks, cx| {
             let departed: Vec<String> = desks.present.difference(&present).cloned().collect();
+            if let Some(engine) = &desks.engine {
+                for agent in desks.working.difference(&working) {
+                    if present.contains(agent) {
+                        engine.end_turn(agent);
+                    }
+                }
+            }
+            desks.working = working;
             desks.present = present;
             for agent in &departed {
                 if let Some(engine) = &desks.engine {
@@ -1239,8 +1258,9 @@ impl Workbench {
         }
         let agent = agent.to_owned();
         runtime().spawn(async move {
-            if let Err(error) = engine.open_tab(&agent, None).await {
-                eprintln!("sikemux: the desk could not open a page: {error}");
+            match engine.open_tab(&agent, None).await {
+                Ok(tab_id) => engine.keep(&agent, &tab_id),
+                Err(error) => eprintln!("sikemux: the desk could not open a page: {error}"),
             }
         });
     }
@@ -1461,8 +1481,24 @@ impl Workbench {
             cx.notify();
         });
         runtime().spawn(async move {
-            if let Err(error) = engine.open_tab(&agent, None).await {
-                eprintln!("sikemux: the desk could not open a page: {error}");
+            match engine.open_tab(&agent, None).await {
+                Ok(tab_id) => engine.keep(&agent, &tab_id),
+                Err(error) => eprintln!("sikemux: the desk could not open a page: {error}"),
+            }
+        });
+    }
+
+    /// Opens the latest tab closed on the desk in front again.
+    pub fn reopen_front_page(&self, cx: &App) {
+        let Some((_, _, agent)) = self.front_agent() else {
+            return;
+        };
+        let Some(engine) = self.desks.read(cx).engine.clone() else {
+            return;
+        };
+        runtime().spawn(async move {
+            if let Err(error) = engine.reopen_closed(&agent).await {
+                eprintln!("sikemux: the desk could not open a closed page again: {error}");
             }
         });
     }

@@ -40,6 +40,11 @@ const PARKED_SIZE: (f64, f64) = (1200.0, 800.0);
 /// The longest a new tab waits for the app to bring its agent's desk on screen.
 const DESK_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
 
+/// How many of its own tabs an agent keeps before opening one closes its longest unused.
+pub(crate) const AGENT_TAB_LIMIT: usize = 6;
+/// How many closed tabs each desk remembers to open again.
+const CLOSED_MEMORY: usize = 20;
+
 const ACTING_LINGER: Duration = Duration::from_secs(3);
 /// A hidden page runs no animation frames, and React reveals streamed content
 /// on one, so a parked tab stays shown this long after it finishes loading.
@@ -78,6 +83,9 @@ pub struct TabStrip {
     pub revealing: HashMap<String, u64>,
     /// Since when each tab has been out of sight and idle.
     pub hidden_since: HashMap<String, Instant>,
+    /// The person's tabs besides those they clicked or typed in: ones they opened, and the
+    /// one in front when the agent's turn ended. Tidying up leaves these open.
+    pub kept: HashSet<String>,
 }
 
 impl TabStrip {
@@ -100,6 +108,7 @@ impl TabStrip {
         self.unloaded.remove(id);
         self.revealing.remove(id);
         self.hidden_since.remove(id);
+        self.kept.remove(id);
         if self.active.as_deref() == Some(id) {
             self.active = self
                 .order
@@ -150,6 +159,48 @@ impl TabStrip {
         }
         self.revealing.remove(tab);
         true
+    }
+
+    pub fn yours(&self, id: &str) -> bool {
+        self.kept.contains(id) || crate::person::has_touched(id)
+    }
+
+    /// The tabs tidying up may close: the agent's own, other than the one in front.
+    fn agents_spare(&self) -> impl Iterator<Item = &String> {
+        self.order
+            .iter()
+            .filter(|id| !self.yours(id) && self.active.as_ref() != Some(*id))
+    }
+
+    /// The agent's own tab on the same site as `url`, which it goes to rather than opening
+    /// another.
+    pub fn same_site(&self, url: &Url) -> Option<String> {
+        let site = url.origin();
+        let open_on_it = |id: &&String| {
+            self.pages
+                .get(*id)
+                .and_then(|page| Url::parse(&page.url).ok())
+                .is_some_and(|open| open.origin() == site)
+        };
+        let theirs = |id: &&String| !crate::person::has_touched(id);
+        self.active
+            .iter()
+            .chain(self.order.iter().rev())
+            .find(|id| open_on_it(id) && theirs(id))
+            .cloned()
+    }
+
+    /// The agent's tab that has gone unused longest, once it holds `AGENT_TAB_LIMIT`.
+    pub fn over_limit(&self) -> Option<String> {
+        if self.order.iter().filter(|id| !self.yours(id)).count() < AGENT_TAB_LIMIT {
+            return None;
+        }
+        self.agents_spare()
+            .filter_map(|id| Some((self.hidden_since.get(id)?, id)))
+            .min()
+            .map(|(_, id)| id)
+            .or_else(|| self.agents_spare().next())
+            .cloned()
     }
 
     /// Whether the tab must keep drawing frames while it is out of sight.
@@ -246,6 +297,8 @@ pub struct BrowserManager {
     pub(crate) stalls: Mutex<HashMap<String, TabStall>>,
     pub(crate) local_files: local_files::LocalFiles,
     pub(crate) recordings: Mutex<HashMap<String, recording::Session>>,
+    /// The addresses of each agent's closed tabs, latest last.
+    pub(crate) closed: Mutex<HashMap<String, Vec<String>>>,
     pub(crate) relieving: AtomicBool,
     /// Rung whenever the app says where an agent's desk shows, or that it does not.
     pub(crate) desk_answers: tokio::sync::Notify,
@@ -748,8 +801,18 @@ impl BrowserManager {
             let agent = agents
                 .get_mut(agent_id)
                 .ok_or(Error::BadArg("unknown browser tab"))?;
+            let url = agent.strip.pages.get(tab_id).map(|page| page.url.clone());
             if !agent.strip.remove(tab_id) {
                 return Err(Error::BadArg("unknown browser tab"));
+            }
+            crate::person::untouched(tab_id);
+            if let Some(url) = url.filter(|url| url != BLANK_URL) {
+                let mut closed = self.closed.locked();
+                let closed = closed.entry(agent_id.to_owned()).or_default();
+                closed.push(url);
+                if closed.len() > CLOSED_MEMORY {
+                    closed.remove(0);
+                }
             }
             let view = agent.views.remove(tab_id);
             agent.viewports.remove(tab_id);
@@ -772,6 +835,7 @@ impl BrowserManager {
     pub fn close_agent(&self, agent_id: &str) -> BrowserResult<()> {
         validate_agent_id(agent_id)?;
         self.recordings.locked().remove(agent_id);
+        self.closed.locked().remove(agent_id);
         let views = self
             .agents
             .locked()
@@ -783,6 +847,7 @@ impl BrowserManager {
             views
                 .into_iter()
                 .map(|(tab_id, view)| {
+                    crate::person::untouched(&tab_id);
                     documents.remove(&tab_id);
                     self.stalls.locked().remove(&tab_id);
                     view
@@ -800,6 +865,73 @@ impl BrowserManager {
         }
         self.release_unused_files();
         self.announce();
+        Ok(())
+    }
+
+    /// Tidies up after the agent's turn: the tab in front becomes the person's, and the
+    /// agent's other tabs close.
+    pub fn end_turn(&self, agent_id: &str) {
+        let spare: Vec<String> = {
+            let mut agents = self.agents.locked();
+            let Some(agent) = agents.get_mut(agent_id) else {
+                return;
+            };
+            if let Some(front) = agent.strip.active.clone() {
+                agent.strip.kept.insert(front);
+            }
+            agent.strip.agents_spare().cloned().collect()
+        };
+        for tab_id in spare {
+            let _ = self.close_tab(agent_id, &tab_id);
+        }
+    }
+
+    /// Makes room for the agent's next tab, and says which address it closed for it.
+    pub fn make_room(&self, agent_id: &str) -> Option<String> {
+        let (tab_id, url) = {
+            let agents = self.agents.locked();
+            let strip = &agents.get(agent_id)?.strip;
+            let tab_id = strip.over_limit()?;
+            let url = strip.pages.get(&tab_id)?.url.clone();
+            (tab_id, url)
+        };
+        self.close_tab(agent_id, &tab_id).ok().map(|()| url)
+    }
+
+    /// The agent's own tab on the same site as `url`, if it has one.
+    pub fn same_site_tab(&self, agent_id: &str, url: &str) -> Option<String> {
+        let url = Url::parse(url).ok()?;
+        self.agents.locked().get(agent_id)?.strip.same_site(&url)
+    }
+
+    /// Makes the tab the person's, so tidying up leaves it open.
+    pub fn keep(&self, agent_id: &str, tab_id: &str) {
+        if let Some(agent) = self.agents.locked().get_mut(agent_id) {
+            if agent.strip.pages.contains_key(tab_id) {
+                agent.strip.kept.insert(tab_id.to_owned());
+            }
+        }
+    }
+
+    /// Gives the person's tab back to the agent, once the agent takes it to another site.
+    pub fn hand_back(&self, agent_id: &str, tab_id: &str) {
+        if let Some(agent) = self.agents.locked().get_mut(agent_id) {
+            agent.strip.kept.remove(tab_id);
+        }
+        crate::person::untouched(tab_id);
+    }
+
+    /// Opens the desk's latest closed tab again, as the person's.
+    pub async fn reopen_closed(&self, agent_id: &str) -> BrowserResult<()> {
+        validate_agent_id(agent_id)?;
+        let url = self
+            .closed
+            .locked()
+            .get_mut(agent_id)
+            .and_then(Vec::pop)
+            .ok_or(Error::BadArg("no closed tab to open again"))?;
+        let tab_id = self.open_tab(agent_id, Some(&url)).await?;
+        self.keep(agent_id, &tab_id);
         Ok(())
     }
 
@@ -874,18 +1006,24 @@ impl BrowserManager {
     /// Opens what the person typed in the address bar, and remembers it as typed.
     pub fn navigate_typed(&self, agent_id: &str, input: &str) -> BrowserResult<()> {
         let opened = self.navigate(agent_id, input)?;
+        if let Ok((tab_id, _)) = self.active_view(agent_id) {
+            self.keep(agent_id, &tab_id);
+        }
         self.note_typed(input, &opened);
         Ok(())
     }
 
     /// Opens what the person typed in a new tab, for a desk with no tab to go to.
     pub async fn open_typed(&self, agent_id: &str, input: &str) -> BrowserResult<()> {
-        if input.is_empty() {
-            return self.open_tab(agent_id, None).await.map(drop);
-        }
-        let opened = self.page_url(input)?;
-        self.open_tab(agent_id, Some(input)).await?;
-        self.note_typed(input, &opened);
+        let tab_id = if input.is_empty() {
+            self.open_tab(agent_id, None).await?
+        } else {
+            let opened = self.page_url(input)?;
+            let tab_id = self.open_tab(agent_id, Some(input)).await?;
+            self.note_typed(input, &opened);
+            tab_id
+        };
+        self.keep(agent_id, &tab_id);
         Ok(())
     }
 
