@@ -171,10 +171,16 @@ with a `note` when it is still running; keep waiting with `events_wait`, or
 
 `task_restart` takes a `taskId`, stops that task's latest execution, starts a
 new one, and returns it. Use it instead of a stop followed by a start with a
-new key.
+new key. Starting a command under a label you used before replaces that
+earlier run, even with a changed command: it stops if it still runs, and the
+new terminal takes its place on your desk. When a run fails because its port
+is taken, the message names the task or agent holding it; use that server or
+stop it rather than picking another port.
 
 A task you start opens its terminal as a tab on your desk, without taking the
-person's focus. To bring the person to it, call `ui_open` with
+person's focus. When your turn ends, the terminals of your runs that finished
+leave the desk, but the one in front; their output stays readable for a while.
+Stop servers once nobody needs them. Closing you stops every task you started. To bring the person to it, call `ui_open` with
 `kind: "terminal"`, the `executionId`, and `focus: true`.
 
 `task_stop` takes an `executionId` and stops that exact execution and

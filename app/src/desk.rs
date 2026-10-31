@@ -83,8 +83,10 @@ pub struct Desks {
     kinds: HashMap<String, DeskKind>,
     /// The agents in the view as last heard, so those that leave it are let go.
     present: HashSet<String>,
-    /// The agents in a turn as last heard, so the engine tidies each one's tabs as its turn ends.
+    /// The agents in a turn as last heard, so each one's desk is tidied as its turn ends.
     working: HashSet<String>,
+    /// The terminals of runs that finished, which leave their desk once its agent's turn ends.
+    finished_runs: HashSet<u64>,
     page_files: Arc<PageFiles>,
     /// The files and task terminals on each agent's desk, beside its pages, in the order they came.
     items: HashMap<String, Vec<DeskItem>>,
@@ -282,6 +284,7 @@ impl Desks {
             kinds: HashMap::new(),
             present: HashSet::new(),
             working: HashSet::new(),
+            finished_runs: HashSet::new(),
             page_files,
             items: HashMap::new(),
             front: HashMap::new(),
@@ -383,6 +386,21 @@ impl Desks {
     }
 
     /// Takes an item off the agent's desk; the last one left comes to the front, else its pages.
+    /// Takes the terminals of the agent's finished runs off its desk, but the one in front.
+    fn clear_finished_runs(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let front = self.front.get(agent);
+        let done: Vec<DeskItem> = (self.items.get(agent).into_iter().flatten())
+            .filter(|item| {
+                matches!(item, DeskItem::Terminal { session, .. } if self.finished_runs.contains(session))
+                    && front.is_none_or(|front| !front.same(item))
+            })
+            .cloned()
+            .collect();
+        for item in &done {
+            self.take_off(agent, item, cx);
+        }
+    }
+
     fn take_off(&mut self, agent: &str, item: &DeskItem, cx: &mut Context<Self>) {
         let Some(items) = self.items.get_mut(agent) else {
             return;
@@ -650,12 +668,15 @@ impl Workbench {
             .collect();
         let departed = self.desks.update(cx, |desks, cx| {
             let departed: Vec<String> = desks.present.difference(&present).cloned().collect();
-            if let Some(engine) = &desks.engine {
-                for agent in desks.working.difference(&working) {
-                    if present.contains(agent) {
-                        engine.end_turn(agent);
-                    }
+            let ended: Vec<String> = (desks.working.difference(&working))
+                .filter(|agent| present.contains(*agent))
+                .cloned()
+                .collect();
+            for agent in &ended {
+                if let Some(engine) = &desks.engine {
+                    engine.end_turn(agent);
                 }
+                desks.clear_finished_runs(agent, cx);
             }
             desks.working = working;
             desks.present = present;
@@ -880,8 +901,9 @@ impl Workbench {
     }
 
     /// Puts the terminal of each task an agent starts on that agent's desk, as its run opens one,
-    /// in place of the terminal of the task's earlier run, and takes it off once the run is stopped.
-    /// Runs going when the window first reads them join their desks behind.
+    /// in place of the terminal of the task's earlier run or of its earlier run under the same
+    /// label, and takes it off once the run is stopped. Runs going when the window first reads
+    /// them join their desks behind.
     pub(crate) fn place_agent_runs(&mut self, cx: &mut Context<Self>) {
         struct AgentRun {
             execution: String,
@@ -904,6 +926,12 @@ impl Workbench {
                 })
             })
             .collect();
+        let finished = (self.reads.runs.iter())
+            .filter(|listed| matches!(listed.run.status, RunStatus::Completed | RunStatus::Failed))
+            .filter_map(|listed| listed.run.pty_id)
+            .collect();
+        self.desks
+            .update(cx, |desks, _| desks.finished_runs = finished);
         let terminal = |session| DeskItem::Terminal {
             session,
             title: String::new(),
@@ -933,7 +961,9 @@ impl Workbench {
                 continue;
             }
             let earlier = runs.iter().filter(|other| {
-                other.session != run.session && other.agent == run.agent && other.task == run.task
+                other.session != run.session
+                    && other.agent == run.agent
+                    && (other.task == run.task || other.title == run.title)
             });
             for other in earlier {
                 let item = terminal(other.session);

@@ -1372,13 +1372,26 @@ pub(crate) fn close_gone(core: &Core, agent_ids: &[String]) {
 }
 
 /// What follows agents leaving the workspace, however they left: their chats
-/// stop, and their names are free again.
+/// and the tasks they started stop, and their names are free again.
 fn agents_closed(core: &Core, before: HashSet<String>) {
     let kept = core.workspaces.agent_ids();
     let gone: Vec<&String> = before.difference(&kept).collect();
     for agent_id in &gone {
         core.chats.stop(agent_id);
         core.chats.forget_rest(agent_id);
+    }
+    if let (Some(core), Ok(runtime), false) = (
+        core.arc(),
+        tokio::runtime::Handle::try_current(),
+        gone.is_empty(),
+    ) {
+        let gone: Vec<String> = gone.iter().map(|agent_id| (*agent_id).clone()).collect();
+        runtime.spawn(async move {
+            for agent_id in gone {
+                super::harness::stop_runs(&core, super::harness::RunSelector::of_agent(&agent_id))
+                    .await;
+            }
+        });
     }
     let forgotten = core.drafts.forget(
         gone.iter()

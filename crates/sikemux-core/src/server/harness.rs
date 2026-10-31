@@ -249,6 +249,8 @@ impl Harness {
                 .flatten()
                 .map(|agent_id| FailedRun {
                     agent_id,
+                    project: run.project.clone(),
+                    pty_id: id,
                     execution_id: run.execution_id.clone(),
                     label: run.label.clone().unwrap_or_else(|| run.task_id.clone()),
                     reason: match &signal {
@@ -1063,6 +1065,16 @@ pub(crate) struct RunSelector {
     agent_id: Option<String>,
 }
 
+impl RunSelector {
+    pub(crate) fn of_agent(agent_id: &str) -> Self {
+        Self {
+            execution_id: None,
+            project: None,
+            agent_id: Some(agent_id.to_owned()),
+        }
+    }
+}
+
 /// Stops the active runs that match, such as the ones a closed project or
 /// agent leaves behind.
 pub(crate) async fn stop_runs(core: &Arc<Core>, selector: RunSelector) {
@@ -1184,10 +1196,16 @@ fn begin_start(
                 return Ok(Begun::Existing(execution_id));
             }
         }
-        let previous = restart
-            .then(|| state.runs.latest(project, &task_id))
-            .flatten()
-            .map(|run| run.execution_id.clone());
+        let previous = if restart {
+            state.runs.latest(project, &task_id)
+        } else {
+            spec.as_ref().zip(agent_id).and_then(|(spec, agent_id)| {
+                state
+                    .runs
+                    .same_label(project, agent_id, &spec.label, &task_id)
+            })
+        }
+        .map(|run| run.execution_id.clone());
         let execution_id = uuid::Uuid::new_v4().to_string();
         let mut run = Run::new(execution_id.clone(), task_id.clone(), project.to_owned());
         run.agent_id = agent_id.map(str::to_owned);
@@ -1469,6 +1487,8 @@ fn add_tool_call(path: &Path, tool: &str, succeeded: bool) -> std::io::Result<()
 /// A run an agent started that ended with an error nobody asked for.
 pub(crate) struct FailedRun {
     agent_id: String,
+    project: String,
+    pty_id: SessionId,
     execution_id: String,
     label: String,
     reason: String,
@@ -1480,13 +1500,59 @@ pub(crate) fn tell_agent_run_failed(core: &Core, run: FailedRun) {
     let (Some(core), Ok(runtime)) = (core.arc(), tokio::runtime::Handle::try_current()) else {
         return;
     };
-    let text = format!(
-        "Your task \"{}\" (executionId {}) stopped: {}. Read its output with task_read, fix the cause, and start it again with task_start.",
-        run.label, run.execution_id, run.reason
-    );
     runtime.spawn(async move {
+        let mut text = format!(
+            "Your task \"{}\" (executionId {}) stopped: {}. Read its output with task_read, fix the cause, and start it again with task_start under the same label.",
+            run.label, run.execution_id, run.reason
+        );
+        if let Some(held) = port_holders(&core, &run).await {
+            text.push(' ');
+            text.push_str(&held);
+        }
         let _ = super::messages::from_sikemux(&core, run.agent_id, text).await;
     });
+}
+
+/// When a run died because its port was taken, says what in the project listens on which
+/// port, so the agent uses that server or stops it rather than guessing another port.
+async fn port_holders(core: &Arc<Core>, run: &FailedRun) -> Option<String> {
+    let query = OutputQuery {
+        cursor: 0,
+        limit: 8192,
+        tail: Some(40),
+        search: None,
+        context: 0,
+        plain: true,
+    };
+    let tail = read_output(core, run.pty_id, query).await.ok()?;
+    let tail = String::from_utf8_lossy(&tail.bytes).to_lowercase();
+    if !tail.contains("address already in use") && !tail.contains("eaddrinuse") {
+        return None;
+    }
+    let listening = {
+        let core = core.clone();
+        blocking(move || Ok(super::ports::listening_now(&core)))
+            .await
+            .ok()?
+    };
+    let held: Vec<String> = super::ports::for_project(listening, Path::new(&run.project))
+        .into_iter()
+        .filter_map(|port| {
+            let holder = match &port.listening.owner {
+                super::ports::PortOwner::Task { label, .. } => format!("task \"{label}\""),
+                super::ports::PortOwner::Agent { label, .. } => format!("agent {label}"),
+                super::ports::PortOwner::Terminal { .. } => return None,
+            };
+            Some(format!("{} is held by {holder}", port.listening.port))
+        })
+        .collect();
+    Some(match held.as_slice() {
+        [] => "Its port is taken by a program outside this project's tasks and agents; workspace_inspect lists the ports in use.".to_owned(),
+        _ => format!(
+            "Its port was taken. In this project, {}. Use that server, or stop it with task_stop, rather than picking another port.",
+            held.join(", ")
+        ),
+    })
 }
 
 #[cfg(test)]

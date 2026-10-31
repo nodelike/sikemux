@@ -264,6 +264,23 @@ impl Runs {
             .find(|run| run.project == project && run.task_id == task_id)
     }
 
+    /// The agent's latest run of another command under `label`, which starting this one
+    /// replaces.
+    pub fn same_label(
+        &self,
+        project: &str,
+        agent_id: &str,
+        label: &str,
+        task_id: &str,
+    ) -> Option<&Run> {
+        self.runs.iter().rev().find(|run| {
+            run.project == project
+                && run.task_id != task_id
+                && run.agent_id.as_deref() == Some(agent_id)
+                && run.label.as_deref() == Some(label)
+        })
+    }
+
     /// The command the task ran last, for a task started from a `command`.
     pub fn launch_spec(&self, project: &str, task_id: &str) -> Option<&CommandLaunch> {
         self.runs

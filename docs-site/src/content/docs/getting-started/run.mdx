@@ -30,7 +30,7 @@ When a project starts with its own script, such as `bash tool/run.sh`, add it fr
 
 Before a task starts, Sikemux checks that its build tool is installed, that a new enough Java exists, that a Node.js project's dependencies are installed, and that the port a Spring Boot, Next.js, FastAPI, Flask or Django app listens on is free, whichever program holds it. If something is missing, a card opens under the run button with what it found; **Install and run** installs the missing pieces, with Homebrew or the project's package manager, and starts the task, **Fix and run** moves the app to the next free port when its own is taken, and **Run anyway** skips the check.
 
-Agents get the same tasks and the same check: `workspace_inspect` lists the tasks found in the build files, and `task_start` runs them, or says what is missing. When a task an agent started stops with an error, such as a dev server crashing, Sikemux tells that agent so it can look at the output.
+Agents get the same tasks and the same check: `workspace_inspect` lists the tasks found in the build files, and `task_start` runs them, or says what is missing. When a task an agent started stops with an error, such as a dev server crashing, Sikemux tells that agent so it can look at the output, and when the error is a port already in use, which task or agent holds it. An agent starting a task under a name it used before replaces its earlier run, so its desk keeps one terminal per task. When the agent's turn ends, the terminals of its tasks that finished leave its desk, but the one in front, and closing the agent stops every task it started.
 
 ## The right Java for each project
 
