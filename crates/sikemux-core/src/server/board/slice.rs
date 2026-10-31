@@ -184,7 +184,7 @@ pub(super) struct Slice {
     asserts: Vec<Named>,
     /// Assertions it named that no longer stand on its goal, so no longer bind it.
     #[serde(default)]
-    detached: Vec<u64>,
+    detached: Vec<Named>,
     /// Someone claimed it once: from then on only the person frees it of an assertion.
     #[serde(default)]
     pub started: bool,
@@ -197,6 +197,8 @@ pub(super) struct Slice {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Named {
+    /// The goal card whose assertion it is, so it binds no slice under another.
+    pub goal: u64,
     pub id: u64,
     pub evidence: Collect,
 }
@@ -372,9 +374,16 @@ impl Slice {
             .collect()
     }
 
-    /// The latest evidence collected for assertion `id`.
-    fn latest_for(&self, id: u64) -> Option<&Evidence> {
-        (self.evidence.iter().rev()).find(|evidence| evidence.assertions.contains(&id))
+    /// The latest evidence of its kind collected for the assertion.
+    fn latest_for(&self, named: Named) -> Option<&Evidence> {
+        (self.evidence.iter().rev()).find(|evidence| {
+            evidence.assertions.contains(&named.id)
+                && match (&evidence.proof, named.evidence) {
+                    (Proof::Picture { seconds, .. }, Collect::Recording) => seconds.is_some(),
+                    (Proof::Picture { seconds, .. }, Collect::Screenshot) => seconds.is_none(),
+                    _ => false,
+                }
+        })
     }
 
     /// The assertion holds on its latest commit: the check's verdict on it
@@ -384,7 +393,7 @@ impl Slice {
         match named.evidence {
             Collect::Check => self.met(Need::PassingCheck),
             Collect::Recording | Collect::Screenshot => self
-                .latest_for(named.id)
+                .latest_for(named)
                 .is_some_and(|evidence| evidence.commit.as_deref() == self.head()),
         }
     }
@@ -399,32 +408,32 @@ impl Slice {
 
     /// Names the goal's assertions it fulfils, which stand on its goal.
     pub(super) fn name(&mut self, named: Vec<Named>) {
-        self.detached
-            .retain(|id| !named.iter().any(|named| named.id == *id));
+        (self.detached).retain(|kept| !named.iter().any(|named| named.id == kept.id));
         self.asserts = named;
     }
 
-    /// Keeps it bound to the assertions it names that still stand, with the
-    /// evidence `standing` says each needs now; the others it is freed of.
-    pub(super) fn bind(&mut self, standing: impl Fn(u64) -> Option<Collect>) {
-        let mut kept = Vec::new();
+    /// Whether it is bound to an assertion.
+    pub(super) fn bound(&self) -> bool {
+        !self.asserts.is_empty()
+    }
+
+    /// Keeps it bound to the assertions of goal `goal` it names that still
+    /// stand there, with the evidence `standing` says each needs now; one that
+    /// no longer stands is detached. Those of another goal, which it moved
+    /// from, it is freed of. Whether it was.
+    pub(super) fn bind(&mut self, goal: u64, standing: impl Fn(u64) -> Option<Collect>) -> bool {
+        let moved = self.asserts.iter().any(|named| named.goal != goal);
+        self.detached.retain(|named| named.goal == goal);
         for named in std::mem::take(&mut self.asserts) {
-            match standing(named.id) {
-                Some(evidence) => kept.push(Named {
-                    id: named.id,
-                    evidence,
-                }),
-                None if !self.detached.contains(&named.id) => self.detached.push(named.id),
+            match (named.goal == goal).then(|| standing(named.id)).flatten() {
+                Some(evidence) => self.asserts.push(Named { evidence, ..named }),
+                None if named.goal == goal && !self.detached.contains(&named) => {
+                    self.detached.push(named)
+                }
                 None => {}
             }
         }
-        self.asserts = kept;
-    }
-
-    /// It moved to another goal, whose assertions it names none of yet.
-    pub(super) fn unbind(&mut self) {
-        self.asserts.clear();
-        self.detached.clear();
+        moved
     }
 
     fn unmet(&self, gate: Gate) -> Vec<Need> {
@@ -449,7 +458,7 @@ impl Slice {
         assertions: &[u64],
     ) {
         let latest: Vec<u64> = (self.asserts.iter())
-            .filter_map(|named| self.latest_for(named.id).map(|evidence| evidence.id))
+            .filter_map(|named| self.latest_for(*named).map(|evidence| evidence.id))
             .collect();
         let notes = &self.notes;
         let pinned = |evidence: &Evidence| {
@@ -965,7 +974,7 @@ impl Slice {
                     met: self.asserted(*named),
                 })
                 .collect(),
-            detached: self.detached.clone(),
+            detached: self.detached.iter().map(|named| named.id).collect(),
             wait,
         }
     }
@@ -1420,12 +1429,14 @@ fn move_work(
 
 /// Keeps every slice on `board` bound to the standing assertions of its goal
 /// it names, with the evidence each needs now: the one place what a slice
-/// must meet is settled, after its goal's assertions change or a card goes.
-pub(super) fn rebind(board: &mut Board) {
+/// must meet is settled, after its goal's assertions change, a card goes or
+/// moves. The slices freed of assertions because they moved to another goal.
+pub(super) fn rebind(board: &mut Board) -> Vec<u64> {
     let goals: Vec<(u64, u64)> = (board.cards.iter())
         .filter(|card| card.slice.is_some())
         .map(|card| (card.id, board.goal_card(card)))
         .collect();
+    let mut moved = Vec::new();
     for (id, goal) in goals {
         let standing: Vec<(u64, Collect)> = (board.card(goal).ok())
             .map(|goal| {
@@ -1435,15 +1446,19 @@ pub(super) fn rebind(board: &mut Board) {
                     .collect()
             })
             .unwrap_or_default();
-        if let Some(slice) = board.card_mut(id).ok().and_then(|card| card.slice.as_mut()) {
-            slice.bind(|id| {
-                standing
-                    .iter()
-                    .find(|(kept, _)| *kept == id)
-                    .map(|(_, evidence)| *evidence)
-            });
+        let Some(slice) = board.card_mut(id).ok().and_then(|card| card.slice.as_mut()) else {
+            continue;
+        };
+        let freed = slice.bind(goal, |id| {
+            (standing.iter())
+                .find(|(kept, _)| *kept == id)
+                .map(|(_, evidence)| *evidence)
+        });
+        if freed {
+            moved.push(id);
         }
     }
+    moved
 }
 
 /// The project's check failed on `sha`, the latest commit of the slice on
@@ -1877,19 +1892,23 @@ pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, answer: &Value) {
         return;
     };
     let target = {
-        let state = core.boards.state.locked();
-        state.boards.iter().find_map(|(project, board)| {
+        let mut state = core.boards.state.locked();
+        let found = state.boards.iter().find_map(|(project, board)| {
             let id = working_slice(board, agent)?;
             let slice = board.card(id).ok()?.slice.as_ref()?;
             let path = core.boards.evidence_file(project, id)?;
             (!slice.asserting(Collect::Screenshot).is_empty()).then(|| (project.clone(), id, path))
-        })
+        });
+        if let Some((project, _, path)) = &found {
+            if let Some(board) = state.boards.get_mut(project) {
+                board.writing.push(path.clone());
+            }
+        }
+        found
     };
     let Some((project, id, path)) = target else {
         return;
     };
-    let named = path.to_string_lossy().into_owned();
-    moved_by_evidence(core, &project, id, |slice| slice.screenshot(agent, &named));
     let written = (path.parent())
         .map_or(Ok(()), std::fs::create_dir_all)
         .map_err(|error| error.to_string())
@@ -1897,8 +1916,15 @@ pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, answer: &Value) {
             sikemux_process::files::write_atomic(&path, &bytes, true)
                 .map_err(|error| error.to_string())
         });
-    if let Err(error) = written {
-        eprintln!("sikemux core: the screenshot was not kept as evidence: {error}");
+    match written {
+        Ok(_) => {
+            let named = path.to_string_lossy().into_owned();
+            moved_by_evidence(core, &project, id, |slice| slice.screenshot(agent, &named));
+        }
+        Err(error) => eprintln!("sikemux core: the screenshot was not kept as evidence: {error}"),
+    }
+    if let Some(board) = core.boards.state.locked().boards.get_mut(&project) {
+        board.writing.retain(|writing| *writing != path);
     }
 }
 

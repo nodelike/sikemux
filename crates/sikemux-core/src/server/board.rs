@@ -200,6 +200,9 @@ struct Board {
     /// Why Auto cannot start anything here now.
     #[serde(skip)]
     auto_note: Option<String>,
+    /// Screenshot files being written, which no evidence names yet.
+    #[serde(skip)]
+    writing: Vec<PathBuf>,
     /// The project's check as the board heard of it while the core runs.
     #[serde(skip)]
     checking: wait::Checking,
@@ -264,12 +267,23 @@ impl Board {
         (asserts.iter())
             .map(|id| match kept.assertion(*id) {
                 Some(assertion) => Ok(slice::Named {
+                    goal,
                     id: *id,
                     evidence: assertion.evidence,
                 }),
                 None => Err(format!("Goal #{goal} has no assertion #{id} that stands")),
             })
             .collect()
+    }
+
+    /// A started slice bound to assertions that is `id` or sits under it.
+    fn bound_under(&self, id: u64) -> Option<u64> {
+        (self.cards.iter())
+            .filter(|card| {
+                (card.slice.as_ref()).is_some_and(|slice| slice.started && slice.bound())
+            })
+            .find(|card| self.reaches(card.id, id, |card| card.parent.into_iter().collect()))
+            .map(|card| card.id)
     }
 
     /// The goal `card` sits under: the card at the top above it, or itself.
@@ -457,11 +471,13 @@ fn evidence_prefix(project: &str) -> String {
 }
 
 /// A board's screenshot files to keep once it is written; the others it
-/// kept before go.
+/// kept before the board was handed over go.
 struct Prune {
     folder: PathBuf,
     prefix: String,
     keep: Vec<PathBuf>,
+    /// When the board was handed over; a file written since is left alone.
+    before: std::time::SystemTime,
 }
 
 impl Prune {
@@ -475,7 +491,9 @@ impl Prune {
                 .file_name()
                 .to_string_lossy()
                 .starts_with(&self.prefix);
-            if ours && !self.keep.contains(&path) {
+            let older = (entry.metadata().and_then(|meta| meta.modified()))
+                .is_ok_and(|modified| modified < self.before);
+            if ours && older && !self.keep.contains(&path) {
                 if let Err(error) = std::fs::remove_file(&path) {
                     eprintln!("sikemux core: {} was not removed: {error}", path.display());
                 }
@@ -615,7 +633,9 @@ impl Boards {
                 .filter_map(|card| card.slice.as_ref())
                 .flat_map(|slice| slice.screenshot_files())
                 .map(PathBuf::from)
+                .chain(board.writing.iter().cloned())
                 .collect(),
+            before: std::time::SystemTime::now(),
         });
         match serde_json::to_vec(board) {
             Ok(bytes) => self
@@ -1611,13 +1631,14 @@ fn change_in(
         }
         None => None,
     };
-    let regoaled = changes.parent.is_some_and(|parent| {
-        let after = match parent {
-            Some(parent) => board.card(parent).map(|parent| board.goal_card(parent)),
-            None => Ok(id),
-        };
-        after.is_ok_and(|after| after != board.goal_card(&before))
-    });
+    let moves = changes.parent.is_some_and(|parent| parent != before.parent);
+    if let (true, By::Agent(_)) = (moves, by) {
+        if let Some(bound) = board.bound_under(id) {
+            return Err(format!(
+                "#{bound} has started and is bound to its goal's assertions, so only the person moves it, or a card above it"
+            ));
+        }
+    }
     if let Some(parent) = changes.parent {
         board.check_parent(Some(id), parent)?;
         if parent.is_some() && !before.goal.is_none() {
@@ -1680,12 +1701,8 @@ fn change_in(
             }
         }
     }
-    if let Some(slice) = &mut card.slice {
-        match named {
-            Some(named) => slice.name(named),
-            None if regoaled => slice.unbind(),
-            None => {}
-        }
+    if let (Some(slice), Some(named)) = (&mut card.slice, named) {
+        slice.name(named);
     }
     if let Some(result) = changes.result {
         card.result = (!result.is_empty()).then_some(result);
@@ -1743,6 +1760,19 @@ fn change_in(
         && after.status != before.status
         && after.status != Status::Progress;
     let mut notices = Vec::new();
+    if moves {
+        for freed in slice::rebind(board) {
+            let Some((owner, label)) = (board.card(freed).ok())
+                .and_then(|card| Some((card.owner_id()?.to_owned(), card.label())))
+            else {
+                continue;
+            };
+            notices.push(Notice {
+                to: owner,
+                text: format!("{label} moved to another goal, so it fulfils none of its assertions until the person names them again."),
+            });
+        }
+    }
     let changer = match by {
         By::Person => Some("The person".to_owned()),
         By::Auto(who) => Some((*who).to_owned()),
