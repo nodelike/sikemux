@@ -1059,6 +1059,34 @@ impl BrowserManager {
         tab_id: &str,
         fixed: Option<viewport::Viewport>,
     ) -> BrowserResult<()> {
+        let view = self.lay_out_at(agent_id, tab_id, fixed)?;
+        let agent = fixed
+            .and_then(|fixed| fixed.user_agent())
+            .unwrap_or(USER_AGENT);
+        view.run(move |webview| page::introduce_as(webview, agent));
+        self.relayout(agent_id);
+        Ok(())
+    }
+
+    /// Lays the tab out at `fixed`, keeping the agent string its page was loaded with, so
+    /// nothing reloads: the page as it is, at another size.
+    pub fn resize_viewport(
+        &self,
+        agent_id: &str,
+        tab_id: &str,
+        fixed: viewport::Viewport,
+    ) -> BrowserResult<()> {
+        self.lay_out_at(agent_id, tab_id, Some(fixed))?;
+        self.relayout(agent_id);
+        Ok(())
+    }
+
+    fn lay_out_at(
+        &self,
+        agent_id: &str,
+        tab_id: &str,
+        fixed: Option<viewport::Viewport>,
+    ) -> BrowserResult<Tab> {
         let view = {
             let mut agents = self.agents.locked();
             let agent = agents
@@ -1076,12 +1104,7 @@ impl BrowserManager {
             view
         };
         view.set_zoom(1.0);
-        let agent = fixed
-            .and_then(|fixed| fixed.user_agent())
-            .unwrap_or(USER_AGENT);
-        view.run(move |webview| page::introduce_as(webview, agent));
-        self.relayout(agent_id);
-        Ok(())
+        Ok(view)
     }
 
     pub fn viewport(&self, agent_id: &str, tab_id: &str) -> Option<viewport::Viewport> {

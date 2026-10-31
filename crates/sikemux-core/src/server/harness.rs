@@ -491,8 +491,9 @@ pub(crate) async fn answer_of(
 
 /// The agent's screenshot, and when its slice keeps screenshots as evidence, the same
 /// page taken beside it at each of [`board::SCREENSHOT_WIDTHS`], before the agent's call
-/// returns so nothing the agent does next meets its tab at another width. The browser
-/// puts the tab back as it was after each.
+/// returns so nothing the agent does next meets its tab at another width. Each is only a
+/// resize, so the page does not reload; the tab is put back as it was held after both,
+/// whatever became of them.
 async fn slice_screenshots(
     core: &Core,
     request: &HarnessRequest,
@@ -503,24 +504,41 @@ async fn slice_screenshots(
     if !board::wants_screenshot(core, agent_id) {
         return shots;
     }
+    let asked = |method: &str, params: Value, step: &str| HarnessRequest {
+        id: format!("{}-{step}", request.id),
+        project: request.project.clone(),
+        agent_id: Some(agent_id.to_owned()),
+        method: method.to_owned(),
+        params,
+    };
+    let held = match forward(core, asked("browser.viewport", json!({}), "held")).await {
+        Ok(size) => size.get("held").cloned().unwrap_or(Value::Null),
+        Err(error) => {
+            eprintln!("sikemux core: the page was not taken at other widths: {error}");
+            return shots;
+        }
+    };
     for preset in board::SCREENSHOT_WIDTHS {
         let mut params = json!({ "viewport": preset });
         if request.params.get("fullPage") == Some(&Value::Bool(true)) {
             params["fullPage"] = Value::Bool(true);
         }
-        let asked = HarnessRequest {
-            id: format!("{}-{preset}", request.id),
-            project: request.project.clone(),
-            agent_id: Some(agent_id.to_owned()),
-            method: request.method.clone(),
-            params,
-        };
-        match forward(core, asked).await {
+        match forward(core, asked(&request.method, params, preset)).await {
             Ok(shot) => shots.push(shot),
             Err(error) => {
                 eprintln!("sikemux core: the page was not taken at the {preset} width: {error}")
             }
         }
+    }
+    let back = match &held {
+        Value::Null => json!({ "preset": "fit" }),
+        held => match held.get("preset") {
+            Some(preset) => json!({ "preset": preset }),
+            None => json!({ "width": held["width"], "height": held["height"] }),
+        },
+    };
+    if let Err(error) = forward(core, asked("browser.viewport", back, "back")).await {
+        eprintln!("sikemux core: the tab was not put back at its own width: {error}");
     }
     shots
 }
