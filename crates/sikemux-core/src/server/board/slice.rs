@@ -2,9 +2,12 @@
 //! gates, and the evidence the core collected toward them. One table says who
 //! passes each gate and what it needs first; views, passing and the inbox all
 //! read it. An agent saying its slice is done passes nothing by itself; only
-//! what the core collected can. The board follows the project's commits,
-//! landings and checks as repository events, never by being called from git.
+//! what the core collected can, checked against git as it is then. The board
+//! follows the project's commits, landings and checks as repository events,
+//! never by being called from git, and when it may have missed one it holds
+//! back rather than pass.
 
+use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -20,11 +23,12 @@ use sikemux_wire::slice::{
 
 use super::{
     change_card, change_in, messages, project_at, project_view, send_notices, Board, BoardView, By,
-    Card, Changes, Notice, Status,
+    Card, Changes, Notice, State, Status,
 };
 use crate::git::Git;
 use crate::server::connection::blocking;
-use crate::server::repo_events::RepoEvent;
+use crate::server::edits::footer;
+use crate::server::repo_events::{RepoEvent, Told};
 use crate::server::Core;
 
 /// The ladder a card takes once it makes a promise.
@@ -32,16 +36,21 @@ const LADDER: [Gate; 3] = [Gate::Built, Gate::LooksRight, Gate::Landed];
 /// Evidence kept besides the pieces notes are pinned to; the oldest goes first.
 const MAX_EVIDENCE: usize = 24;
 const MAX_NOTES: usize = 32;
-const MAX_PROMISE_CHARS: usize = 200;
+/// What the board_add and board_update tools allow, which their check reads.
+pub(super) const MAX_PROMISE_CHARS: usize = 200;
 const MAX_NOTE_CHARS: usize = 4000;
 const DIFF_FILES: usize = 8;
+/// Check runs kept per project for commits the board hears of after them.
+const MAX_HEARD_RUNS: usize = 32;
+/// How far back the project's branch is read for an agent's latest commit.
+const OWNER_COMMITS_READ: &str = "100";
 
 /// Who passes a gate, what must be so before it can, and what it is called.
 pub(super) struct Rule {
     pub passer: Passer,
     pub needs: &'static [Need],
     pub words: &'static str,
-    /// What ids name it by.
+    /// What ids and agents name it by.
     pub key: &'static str,
 }
 
@@ -93,11 +102,13 @@ pub(super) fn promise_of(text: &str) -> Result<String, String> {
     Ok(promise.to_owned())
 }
 
+/// Who passed a gate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-enum PassedBy {
+pub(super) enum PassedBy {
     Agent(String),
     Person,
+    /// The core, on what it collected, or Auto or a ticket's tracker for the person.
     Core,
 }
 
@@ -118,7 +129,7 @@ struct Work {
     base: String,
     head: String,
     /// On the project's branch, rather than only in the owner's own checkout,
-    /// as the commit or the landing that made `head` said.
+    /// as the commit, the landing or git said when `head` was last set.
     on_branch: bool,
     /// What the project's check said of `head`.
     check: Option<Check>,
@@ -129,7 +140,10 @@ struct Work {
 struct Check {
     /// The gate the slice waited at when it ran.
     gate: Gate,
-    verdict: Verdict,
+    /// None when the check did not run.
+    verdict: Option<Verdict>,
+    /// The end of what it printed, or why it did not run.
+    output: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -154,6 +168,14 @@ pub(super) struct Slice {
     done_said: bool,
 }
 
+/// The owner's latest commit as git has it, made on `from`.
+#[derive(Clone)]
+pub(super) struct Head {
+    pub from: String,
+    pub head: String,
+    pub on_branch: bool,
+}
+
 /// How the owner saying its slice is done went, when it was not refused.
 pub(super) enum Said {
     Ready,
@@ -162,6 +184,35 @@ pub(super) enum Said {
         note: String,
         recheck: Option<String>,
     },
+}
+
+/// A run of the project's check, kept for a commit heard of after it.
+pub(super) struct HeardRun {
+    sha: Option<String>,
+    covered: Vec<String>,
+    verdict: Option<Verdict>,
+    command: String,
+    output: String,
+}
+
+/// The latest check runs of one project, newest last.
+#[derive(Default)]
+pub(super) struct HeardRuns(VecDeque<HeardRun>);
+
+impl HeardRuns {
+    fn keep(&mut self, run: HeardRun) {
+        if self.0.len() >= MAX_HEARD_RUNS {
+            self.0.pop_front();
+        }
+        self.0.push_back(run);
+    }
+
+    fn of(&self, sha: &str) -> Option<&HeardRun> {
+        self.0
+            .iter()
+            .rev()
+            .find(|run| run.covered.iter().any(|covered| covered == sha))
+    }
 }
 
 impl Slice {
@@ -206,6 +257,10 @@ impl Slice {
             .filter(|gate| rule(*gate).passer == Passer::Person && self.unmet(*gate).is_empty())
     }
 
+    pub(super) fn head(&self) -> Option<&str> {
+        self.work.as_ref().map(|work| work.head.as_str())
+    }
+
     fn evidence(&self, id: u64) -> Option<&Evidence> {
         self.evidence.iter().find(|evidence| evidence.id == id)
     }
@@ -218,7 +273,7 @@ impl Slice {
             Need::PassingCheck => work
                 .check
                 .as_ref()
-                .is_some_and(|check| check.verdict == Verdict::Passed),
+                .is_some_and(|check| check.verdict == Some(Verdict::Passed)),
             Need::OnBranch => work.on_branch,
         }
     }
@@ -236,10 +291,11 @@ impl Slice {
     fn add_evidence(
         &mut self,
         gate: Gate,
+        at: u64,
         agent: Option<String>,
         verdict: Option<Verdict>,
         proof: Proof,
-    ) -> u64 {
+    ) {
         let notes = &self.notes;
         let pinned =
             |evidence: &Evidence| notes.iter().any(|note| note.evidence == Some(evidence.id));
@@ -254,20 +310,22 @@ impl Slice {
         self.evidence.push(Evidence {
             id,
             gate,
-            at: epoch_ms(),
+            at,
             agent,
             verdict,
             proof,
         });
-        id
     }
 
-    fn picture(&mut self, agent: Option<&str>, recording: &InboxRecording) {
+    /// Keeps a recording toward the gate it waits at. False when it waits at
+    /// none, being done, so the recording is not kept.
+    fn picture(&mut self, agent: Option<&str>, recording: &InboxRecording) -> bool {
         let Some(gate) = self.waiting() else {
-            return;
+            return false;
         };
         self.add_evidence(
             gate,
+            recording.at,
             agent.map(str::to_owned),
             None,
             Proof::Picture {
@@ -277,62 +335,103 @@ impl Slice {
                 turn: recording.turn,
             },
         );
+        true
     }
 
-    /// The owner's work now ends at `head`, made on `from`. New work undoes
-    /// every gate from the first that needs the check on it; work made again
-    /// elsewhere, as landing does, keeps the gates it passed.
-    fn worked(&mut self, from: &str, head: &str, on_branch: bool, new_work: bool) {
+    /// The owner's work now ends at `head`, made on `from`, and takes the
+    /// verdict of a check run heard before it. New work undoes every gate
+    /// from the first that needs the check on it; work made again elsewhere,
+    /// as landing does, keeps the gates it passed.
+    fn worked(&mut self, at: &Head, new_work: bool, owner: Option<&str>, runs: Option<&HeardRuns>) {
         let base = match &self.work {
-            Some(work) if work.head == from && work.on_branch == on_branch => work.base.clone(),
-            _ => from.to_owned(),
+            Some(work) if work.head == at.from && work.on_branch == at.on_branch => {
+                work.base.clone()
+            }
+            _ => at.from.clone(),
         };
         self.work = Some(Work {
             base,
-            head: head.to_owned(),
-            on_branch,
+            head: at.head.clone(),
+            on_branch: at.on_branch,
             check: None,
         });
-        if !new_work {
-            return;
+        if new_work {
+            self.done_said = false;
+            if let Some(from) = self
+                .ladder
+                .iter()
+                .position(|gate| rule(*gate).needs.contains(&Need::PassingCheck))
+            {
+                let undone = &self.ladder[from..];
+                self.passes.retain(|pass| !undone.contains(&pass.gate));
+            }
         }
-        self.done_said = false;
-        if let Some(from) = self
-            .ladder
-            .iter()
-            .position(|gate| rule(*gate).needs.contains(&Need::PassingCheck))
-        {
-            let undone = &self.ladder[from..];
-            self.passes.retain(|pass| !undone.contains(&pass.gate));
+        if let Some(run) = runs.and_then(|runs| runs.of(&at.head)) {
+            self.checked(owner, run);
         }
     }
 
-    /// The project's check ran, taking in `covered`. Whether it took in this
-    /// slice's work, which then holds the run as evidence.
-    fn checked(
-        &mut self,
-        owner: Option<&str>,
-        covered: &[String],
-        verdict: Verdict,
-        run: Proof,
-    ) -> bool {
-        let (Some(gate), Some(head)) = (self.waiting(), self.work.as_ref().map(|work| &work.head))
-        else {
+    /// A run of the project's check ended. Whether it took in this slice's
+    /// work, which then holds the run as evidence and its verdict.
+    fn checked(&mut self, owner: Option<&str>, run: &HeardRun) -> bool {
+        let (Some(gate), Some(head)) = (self.waiting(), self.head()) else {
             return false;
         };
-        if !covered.contains(head) {
+        if !run.covered.iter().any(|covered| covered == head) {
             return false;
         }
-        self.add_evidence(gate, owner.map(str::to_owned), Some(verdict), run);
+        self.add_evidence(
+            gate,
+            epoch_ms(),
+            owner.map(str::to_owned),
+            run.verdict,
+            Proof::Run {
+                command: run.command.clone(),
+                sha: run.sha.clone(),
+                output: run.output.clone(),
+            },
+        );
         if let Some(work) = &mut self.work {
-            work.check = Some(Check { gate, verdict });
+            work.check = Some(Check {
+                gate,
+                verdict: run.verdict,
+                output: run.output.clone(),
+            });
         }
         true
     }
 
+    /// The owner said it is done and the check did not pass: what it is told,
+    /// which ends that it said so.
+    fn refused(&mut self, label: &str) -> Option<String> {
+        if !self.done_said {
+            return None;
+        }
+        let gate = self.waiting()?;
+        let work = self.work.as_ref()?;
+        let check = work.check.as_ref()?;
+        let text = match check.verdict {
+            Some(Verdict::Passed) => return None,
+            Some(Verdict::Failed) => format!(
+                "Your card {label} did not pass {}: the project's check failed on {}. Mend it with a commit, then mark it done again.",
+                gate_words(gate),
+                short(&work.head)
+            ),
+            None => format!(
+                "Your card {label} did not pass {}: the project's check did not run on {} ({}). Mark it done again to have it checked.",
+                gate_words(gate),
+                short(&work.head),
+                check.output
+            ),
+        };
+        self.done_said = false;
+        Some(text)
+    }
+
     /// Passes each gate in turn whose passer may pass it now and whose needs
-    /// are met. The gates passed.
-    fn advance(&mut self, owner: Option<&str>) -> Vec<Gate> {
+    /// are met. The owner's gate passes only on its latest commit as git has
+    /// it, `verified`. The gates passed.
+    fn advance(&mut self, owner: Option<&str>, verified: Option<&str>) -> Vec<Gate> {
         let mut passed = Vec::new();
         while let Some(gate) = self.waiting() {
             if !self.unmet(gate).is_empty() {
@@ -340,7 +439,11 @@ impl Slice {
             }
             let by = match (rule(gate).passer, owner) {
                 (Passer::Core, _) => PassedBy::Core,
-                (Passer::Owner, Some(owner)) if self.done_said => PassedBy::Agent(owner.to_owned()),
+                (Passer::Owner, Some(owner))
+                    if self.done_said && verified.is_some() && verified == self.head() =>
+                {
+                    PassedBy::Agent(owner.to_owned())
+                }
                 _ => break,
             };
             self.passes.push(Pass {
@@ -353,16 +456,18 @@ impl Slice {
         passed
     }
 
-    /// The person, or someone acting for them, closes the slice: every gate
-    /// left passes as theirs.
-    pub(super) fn close(&mut self) {
+    /// Someone closes the slice: every gate left passes as `by`'s. The gates passed.
+    pub(super) fn close(&mut self, by: PassedBy) -> Vec<Gate> {
+        let mut passed = Vec::new();
         while let Some(gate) = self.waiting() {
             self.passes.push(Pass {
                 gate,
-                by: PassedBy::Person,
+                by: by.clone(),
                 at: epoch_ms(),
             });
+            passed.push(gate);
         }
+        passed
     }
 
     /// It is back at work, so the gates it passed go.
@@ -405,8 +510,14 @@ impl Slice {
     }
 
     /// The owner says the slice is done. Refuses, changing nothing, when
-    /// nothing the core collected can show the work sound.
-    pub(super) fn say_done(&mut self, label: &str, has_check: bool) -> Result<Said, String> {
+    /// nothing the core collected can show its latest commit sound, as git
+    /// has it: `verified`.
+    pub(super) fn say_done(
+        &mut self,
+        label: &str,
+        has_check: bool,
+        verified: Option<&str>,
+    ) -> Result<Said, String> {
         let Some(gate) = self.waiting() else {
             return Err(format!("{label} is done already"));
         };
@@ -417,51 +528,40 @@ impl Slice {
             ));
         }
         let words = gate_words(gate);
-        let said = match (&self.work, self.unmet(gate).contains(&Need::PassingCheck)) {
+        let Some(work) = &self.work else {
+            return Err(format!(
+                "Not {words}: you have committed nothing for {label}. Commit its work with git_commit, then mark it done once the project's check passes on it"
+            ));
+        };
+        if verified != Some(work.head.as_str()) {
+            return Err(format!(
+                "Not {words}: Sikemux could not read your latest commit from git, so nothing can show it sound. Commit with git_commit, then mark it done again"
+            ));
+        }
+        let said = match (&work.check, self.unmet(gate).contains(&Need::PassingCheck)) {
             (_, false) => Said::Ready,
-            (None, true) => {
-                return Err(format!(
-                    "Not {words}: you have committed nothing for {label}. Commit its work with git_commit, then mark it done once the project's check passes on it"
-                ))
-            }
-            (
-                Some(Work {
-                    head,
-                    check: Some(Check { verdict: Verdict::Failed, .. }),
-                    ..
-                }),
-                true,
-            ) => {
-                let output = self
-                    .evidence
-                    .iter()
-                    .rev()
-                    .find_map(|evidence| match &evidence.proof {
-                        Proof::Run { sha: Some(sha), output, .. } if sha == head => Some(output.as_str()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
+            (Some(Check { verdict: Some(Verdict::Failed), output, .. }), true) => {
                 return Err(format!(
                     "Not {words}: the project's check failed on {}, your latest commit. Mend it with a commit, then mark it done again.\n\n{output}",
-                    short(head)
+                    short(&work.head)
                 ));
             }
-            (Some(_), true) if !has_check => {
+            (_, true) if !has_check => {
                 return Err(format!(
                     "Not {words}: this project names no check command in sikemux.json, so nothing can show the work sound. Ask your lead or the person how it is to be checked"
                 ))
             }
-            (Some(Work { head, on_branch: true, .. }), true) => Said::Pending {
+            (_, true) if work.on_branch => Said::Pending {
                 note: format!(
                     "Not {words} yet: the project's check has not passed on {}, your latest commit. {words} passes by itself once it does, and you will hear.",
-                    short(head)
+                    short(&work.head)
                 ),
-                recheck: Some(head.clone()),
+                recheck: Some(work.head.clone()),
             },
-            (Some(Work { head, .. }), true) => Said::Pending {
+            (_, true) => Said::Pending {
                 note: format!(
                     "Not {words} yet: the project's check runs on the project's branch, and {} is only in your checkout. Land it with git_commit land true; {words} passes by itself once the check passes on it, and you will hear.",
-                    short(head)
+                    short(&work.head)
                 ),
                 recheck: None,
             },
@@ -538,7 +638,7 @@ impl Slice {
             .work
             .as_ref()
             .and_then(|work| work.check.as_ref())
-            .is_some_and(|check| check.gate == gate && check.verdict == Verdict::Failed);
+            .is_some_and(|check| check.gate == gate && check.verdict == Some(Verdict::Failed));
         if failed {
             SliceState::Failed
         } else if self.waits_on_person().is_some() {
@@ -600,7 +700,7 @@ impl Slice {
     pub(super) fn list_into(&self, fields: &mut Map<String, Value>) {
         fields.insert("promise".into(), self.promise.clone().into());
         if let Some(gate) = self.waiting() {
-            fields.insert("waitsAt".into(), gate_words(gate).into());
+            fields.insert("waitsAt".into(), gate_key(gate).into());
             let needs: Vec<&str> = self.unmet(gate).into_iter().map(need_words).collect();
             if !needs.is_empty() {
                 fields.insert("needs".into(), needs.into());
@@ -664,42 +764,58 @@ pub(super) fn next_gates(board: &Board, goal: &Card) -> Vec<NextGate> {
     next
 }
 
+/// What git and the project's files say, read before the board is locked.
+#[derive(Default)]
+pub(super) struct Seen {
+    /// The project names a check command.
+    pub has_check: bool,
+    /// The card's owner's latest commit; none when git could not tell or it
+    /// was not read.
+    pub head: Option<Head>,
+}
+
+/// A slice's change from `base` to `head`, to collect toward `gate`.
+struct DiffWork {
+    project: String,
+    card: u64,
+    gate: Gate,
+    base: String,
+    head: String,
+}
+
 /// What is left to do once the board's lock is let go of: git work and
 /// the checker, which never run under it.
 #[derive(Default)]
 pub(super) struct Later {
-    /// A slice's work whose change becomes evidence toward the gate that just
-    /// passed: project, card, gate, base and head.
-    diff: Option<(String, u64, Gate, String, String)>,
-    /// A slice's latest commit the project's check is to run on again: project,
-    /// commit and the agent whose it is.
-    recheck: Option<(String, String, String)>,
+    diffs: Vec<DiffWork>,
+    /// Commits the project's check is to run on again: project, commit and
+    /// the agent whose it is.
+    rechecks: Vec<(String, String, String)>,
 }
 
 impl Later {
     pub(super) fn recheck(project: &str, sha: String, agent: &str) -> Self {
         Self {
-            diff: None,
-            recheck: Some((project.to_owned(), sha, agent.to_owned())),
+            diffs: Vec::new(),
+            rechecks: vec![(project.to_owned(), sha, agent.to_owned())],
         }
     }
 
-    pub(super) fn and(self, other: Later) -> Self {
-        Self {
-            diff: self.diff.or(other.diff),
-            recheck: self.recheck.or(other.recheck),
-        }
+    pub(super) fn and(mut self, other: Later) -> Self {
+        self.diffs.extend(other.diffs);
+        self.rechecks.extend(other.rechecks);
+        self
     }
 
     pub(super) fn run(self, core: &Core) {
-        if let Some((project, sha, agent)) = self.recheck {
+        for (project, sha, agent) in self.rechecks {
             let subject = Git::quick(Path::new(&project))
                 .trimmed(&["log", "-1", "--format=%s", &sha])
                 .unwrap_or_default();
             core.collisions.check_again(&project, &sha, subject, &agent);
         }
-        if let Some((project, id, gate, base, head)) = self.diff {
-            collect_diff(core, &project, id, gate, &base, &head);
+        for diff in self.diffs {
+            collect_diff(core, diff);
         }
     }
 }
@@ -713,8 +829,14 @@ pub(super) struct Moved {
 }
 
 /// Moves the slice on `card` up its ladder as far as it goes now, after the
-/// gates `passed` already. Marking the card done is the caller's.
-pub(super) fn progress(project: &str, card: &mut Card, mut passed: Vec<Gate>) -> Moved {
+/// gates `passed` already; `verified` is its owner's latest commit as git has
+/// it. Marking the card done is the caller's.
+pub(super) fn progress(
+    project: &str,
+    card: &mut Card,
+    mut passed: Vec<Gate>,
+    verified: Option<&str>,
+) -> Moved {
     let owner = card.owner_id().map(str::to_owned);
     let Some(slice) = card.slice.as_mut() else {
         return Moved {
@@ -723,7 +845,7 @@ pub(super) fn progress(project: &str, card: &mut Card, mut passed: Vec<Gate>) ->
             later: Later::default(),
         };
     };
-    passed.extend(slice.advance(owner.as_deref()));
+    passed.extend(slice.advance(owner.as_deref(), verified));
     let mut later = Later::default();
     if let (Some(gate), Some(work)) = (
         passed
@@ -732,18 +854,32 @@ pub(super) fn progress(project: &str, card: &mut Card, mut passed: Vec<Gate>) ->
             .find(|gate| rule(*gate).needs.contains(&Need::PassingCheck)),
         &slice.work,
     ) {
-        later.diff = Some((
-            project.to_owned(),
-            card.id,
+        later.diffs.push(DiffWork {
+            project: project.to_owned(),
+            card: card.id,
             gate,
-            work.base.clone(),
-            work.head.clone(),
-        ));
+            base: work.base.clone(),
+            head: work.head.clone(),
+        });
     }
     Moved {
         done: slice.waiting().is_none(),
         passed,
         later,
+    }
+}
+
+/// The slice's work now ends at the owner's latest commit as git has it,
+/// when that is not what the board last heard. A slice with no work yet
+/// takes none this way, since the commit may be for another card.
+pub(super) fn follow_head(
+    slice: &mut Slice,
+    head: &Head,
+    owner: Option<&str>,
+    runs: Option<&HeardRuns>,
+) {
+    if slice.head().is_some_and(|known| known != head.head) {
+        slice.worked(head, true, owner, runs);
     }
 }
 
@@ -771,10 +907,9 @@ pub(super) fn passed_notice(card: &Card, passed: &[Gate]) -> Option<Notice> {
     })
 }
 
-/// Collects the change from `base` to `head` as Diff evidence toward `gate`,
-/// unless the slice's work moved on meanwhile.
-fn collect_diff(core: &Core, project: &str, id: u64, gate: Gate, base: &str, head: &str) {
-    let proof = match diff_of(Path::new(project), base, head) {
+/// Collects a slice's change as Diff evidence, unless its work moved on meanwhile.
+fn collect_diff(core: &Core, diff: DiffWork) {
+    let proof = match diff_of(Path::new(&diff.project), &diff.base, &diff.head) {
         Ok(proof) => proof,
         Err(error) => {
             eprintln!("sikemux core: the slice's change was not collected: {error}");
@@ -784,8 +919,8 @@ fn collect_diff(core: &Core, project: &str, id: u64, gate: Gate, base: &str, hea
     let mut state = core.boards.state.locked();
     let Some(card) = state
         .boards
-        .get_mut(project)
-        .and_then(|board| board.card_mut(id).ok())
+        .get_mut(&diff.project)
+        .and_then(|board| board.card_mut(diff.card).ok())
     else {
         return;
     };
@@ -793,12 +928,12 @@ fn collect_diff(core: &Core, project: &str, id: u64, gate: Gate, base: &str, hea
     let Some(slice) = card
         .slice
         .as_mut()
-        .filter(|slice| slice.work.as_ref().is_some_and(|work| work.head == head))
+        .filter(|slice| slice.head() == Some(diff.head.as_str()))
     else {
         return;
     };
-    slice.add_evidence(gate, owner, None, proof);
-    core.boards.save(&mut state, project);
+    slice.add_evidence(diff.gate, epoch_ms(), owner, None, proof);
+    core.boards.save(&mut state, &diff.project);
 }
 
 fn diff_of(repo: &Path, base: &str, head: &str) -> Result<Proof, String> {
@@ -825,35 +960,158 @@ fn diff_of(repo: &Path, base: &str, head: &str) -> Result<Proof, String> {
     })
 }
 
-/// The slice `agent` works on `board`.
-fn held_slice<'a>(board: &'a mut Board, agent: &str) -> Option<&'a mut Card> {
+/// The owner's latest commit as git has it now. In a checkout of its own:
+/// that checkout's head, made on where it leaves the project's branch, or on
+/// its parent once on it. In the project's own: the newest commit on the
+/// branch whose Sikemux footer names it. None when git cannot tell.
+pub(super) fn owner_head(core: &Core, project: &str, agent: &str) -> Option<Head> {
+    if let Some(worktree) = core
+        .workspaces
+        .agent(agent)
+        .and_then(|agent| agent.worktree)
+    {
+        let head = Git::quick(&worktree.path)
+            .trimmed(&["rev-parse", "HEAD"])
+            .ok()?;
+        if head == worktree.start_sha {
+            return None;
+        }
+        let branch = format!("refs/heads/{}", worktree.base.as_deref()?);
+        let repo = Git::quick(&worktree.repo);
+        let on_branch = repo
+            .trimmed(&["merge-base", "--is-ancestor", &head, &branch])
+            .is_ok();
+        let from = match on_branch {
+            true => Git::quick(&worktree.repo).trimmed(&["rev-parse", &format!("{head}^")]),
+            false => Git::quick(&worktree.repo).trimmed(&["merge-base", &head, &branch]),
+        }
+        .ok()?;
+        return Some(Head {
+            from,
+            head,
+            on_branch,
+        });
+    }
+    let dir = Path::new(project);
+    let log = Git::quick(dir)
+        .trimmed(&["log", "-n", OWNER_COMMITS_READ, "--format=%H"])
+        .ok()?;
+    let head = log.lines().find(|sha| {
+        footer::verified(core, dir, sha)
+            .is_ok_and(|agents| agents.iter().any(|named| named.chat == agent))
+    })?;
+    let from = Git::quick(dir)
+        .trimmed(&["rev-parse", &format!("{head}^")])
+        .unwrap_or_else(|_| head.to_owned());
+    Some(Head {
+        from,
+        head: head.to_owned(),
+        on_branch: true,
+    })
+}
+
+/// The card `agent` works now on `board`, when that is a slice in progress.
+fn working_slice<'a>(board: &'a mut Board, agent: &str) -> Option<&'a mut Card> {
     board
         .cards
         .iter_mut()
-        .filter(|card| {
-            card.owner_id() == Some(agent)
-                && card.status == Status::Progress
-                && card.slice.is_some()
-        })
-        .max_by_key(|card| card.updated_at)
+        .filter(|card| card.owner_id() == Some(agent))
+        .max_by_key(|card| (card.status == Status::Progress, card.updated_at))
+        .filter(|card| card.status == Status::Progress && card.slice.is_some())
 }
 
 /// Follows the projects' commits, landings and checks for as long as the
-/// core runs, each in the order it happened.
+/// core runs, each in the order it happened. What an earlier core left
+/// unread is treated as lost.
 pub(crate) async fn follow(core: Arc<Core>) {
+    let every = core
+        .boards
+        .state
+        .locked()
+        .boards
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    core.repo_events.lost(every);
     loop {
-        let events = core.repo_events.next().await;
-        let core = core.clone();
-        let heard = tokio::task::spawn_blocking(move || {
-            for event in events {
-                heard(&core, event);
-            }
-        })
-        .await;
+        let told = core.repo_events.next().await;
+        let projects: BTreeSet<String> = told
+            .events
+            .iter()
+            .map(|event| match event {
+                RepoEvent::Committed { project, .. }
+                | RepoEvent::Landed { project, .. }
+                | RepoEvent::Checked { project, .. } => project.clone(),
+            })
+            .chain(told.lost.iter().cloned())
+            .collect();
+        let following = core.clone();
+        let heard = tokio::task::spawn_blocking(move || heard_all(&following, told)).await;
         if let Err(error) = heard {
             eprintln!("sikemux core: the board did not follow the repository: {error}");
+            core.repo_events.lost(projects);
         }
     }
+}
+
+fn heard_all(core: &Arc<Core>, told: Told) {
+    for project in &told.lost {
+        lost(core, project);
+    }
+    for event in told.events {
+        heard(core, event);
+    }
+}
+
+/// Some of `project`'s events went unread, so no slice there passes on what
+/// the board heard before: each holds what git says now, and is checked again.
+fn lost(core: &Arc<Core>, project: &str) {
+    let owners: Vec<(u64, String)> = {
+        let state = core.boards.state.locked();
+        let Some(board) = state.boards.get(project) else {
+            return;
+        };
+        board
+            .cards
+            .iter()
+            .filter(|card| card.status == Status::Progress && card.slice.is_some())
+            .filter_map(|card| Some((card.id, card.owner_id()?.to_owned())))
+            .collect()
+    };
+    let heads: Vec<(u64, String, Option<Head>)> = owners
+        .into_iter()
+        .map(|(id, owner)| {
+            let head = owner_head(core, project, &owner);
+            (id, owner, head)
+        })
+        .collect();
+    let mut later = Later::default();
+    {
+        let mut state = core.boards.state.locked();
+        let State { boards, runs, .. } = &mut *state;
+        let Some(board) = boards.get_mut(project) else {
+            return;
+        };
+        for (id, owner, head) in heads {
+            let Some(slice) = board.card_mut(id).ok().and_then(|card| card.slice.as_mut()) else {
+                continue;
+            };
+            if let Some(head) = &head {
+                follow_head(slice, head, Some(&owner), runs.get(project));
+            }
+            if let Some(work) = slice.work.as_mut().filter(|work| work.on_branch) {
+                if work
+                    .check
+                    .as_ref()
+                    .is_none_or(|check| check.verdict.is_none())
+                {
+                    later = later.and(Later::recheck(project, work.head.clone(), &owner));
+                }
+            }
+        }
+        core.boards.save(&mut state, project);
+    }
+    later.run(core);
 }
 
 /// Moves the slices `event` is about, and the cards they finish.
@@ -865,124 +1123,165 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         RepoEvent::Landed { onto, .. } => onto.clone(),
         RepoEvent::Checked { .. } => String::new(),
     };
-    let mut state = core.boards.state.locked();
-    let (project, touched) = match event {
-        RepoEvent::Committed {
-            project,
-            agent,
-            sha,
-            on_branch,
-        } => {
-            let Some(card) = state
-                .boards
-                .get_mut(&project)
-                .and_then(|board| held_slice(board, &agent))
-            else {
-                return;
-            };
-            if let Some(slice) = card.slice.as_mut() {
-                slice.worked(&from, &sha, on_branch, true);
-            }
-            card.updated_at = epoch_ms();
-            let id = card.id;
-            (project, vec![id])
-        }
-        RepoEvent::Landed {
-            project,
-            agent,
-            tip,
-            ..
-        } => {
-            let Some(card) = state
-                .boards
-                .get_mut(&project)
-                .and_then(|board| held_slice(board, &agent))
-            else {
-                return;
-            };
-            if let Some(slice) = card.slice.as_mut() {
-                slice.worked(&from, &tip, true, false);
-            }
-            card.updated_at = epoch_ms();
-            let id = card.id;
-            (project, vec![id])
-        }
-        RepoEvent::Checked {
-            project,
-            command,
-            sha,
-            covered,
-            passed,
-            output,
-        } => {
-            let Some(board) = state.boards.get_mut(&project) else {
-                return;
-            };
-            let verdict = if passed {
-                Verdict::Passed
-            } else {
-                Verdict::Failed
-            };
-            let mut touched = Vec::new();
-            for card in board
-                .cards
-                .iter_mut()
-                .filter(|card| card.status == Status::Progress)
-            {
-                let owner = card.owner_id().map(str::to_owned);
-                let Some(slice) = card.slice.as_mut() else {
-                    continue;
+    let mut notices = Vec::new();
+    let (project, touched) = {
+        let mut state = core.boards.state.locked();
+        let State { boards, runs, .. } = &mut *state;
+        match event {
+            RepoEvent::Committed {
+                project,
+                agent,
+                sha,
+                on_branch,
+            } => {
+                let Some(card) = boards
+                    .get_mut(&project)
+                    .and_then(|board| working_slice(board, &agent))
+                else {
+                    return;
                 };
-                let run = Proof::Run {
-                    command: command.clone(),
-                    sha: sha.clone(),
-                    output: output.clone(),
+                let head = Head {
+                    from,
+                    head: sha,
+                    on_branch,
                 };
-                if slice.checked(owner.as_deref(), &covered, verdict, run) {
-                    card.updated_at = epoch_ms();
-                    touched.push(card.id);
+                if let Some(slice) = card.slice.as_mut() {
+                    slice.worked(&head, true, Some(&agent), runs.get(&project));
                 }
+                card.updated_at = epoch_ms();
+                let id = card.id;
+                (project, vec![id])
             }
-            if touched.is_empty() {
-                return;
+            RepoEvent::Landed {
+                project,
+                agent,
+                tip,
+                ..
+            } => {
+                let Some(card) = boards
+                    .get_mut(&project)
+                    .and_then(|board| working_slice(board, &agent))
+                else {
+                    return;
+                };
+                let head = Head {
+                    from,
+                    head: tip,
+                    on_branch: true,
+                };
+                if let Some(slice) = card.slice.as_mut() {
+                    slice.worked(&head, false, Some(&agent), runs.get(&project));
+                }
+                card.updated_at = epoch_ms();
+                let id = card.id;
+                (project, vec![id])
             }
-            (project, touched)
+            RepoEvent::Checked {
+                project,
+                command,
+                sha,
+                covered,
+                verdict,
+                output,
+            } => {
+                let run = HeardRun {
+                    sha,
+                    covered,
+                    verdict,
+                    command,
+                    output,
+                };
+                let mut touched = Vec::new();
+                if let Some(board) = boards.get_mut(&project) {
+                    for card in board
+                        .cards
+                        .iter_mut()
+                        .filter(|card| card.status == Status::Progress)
+                    {
+                        let owner = card.owner_id().map(str::to_owned);
+                        let label = card.label();
+                        let Some(slice) = card.slice.as_mut() else {
+                            continue;
+                        };
+                        if slice.checked(owner.as_deref(), &run) {
+                            if let (Some(text), Some(owner)) = (slice.refused(&label), &owner) {
+                                notices.push(Notice {
+                                    to: owner.clone(),
+                                    text,
+                                });
+                            }
+                            card.updated_at = epoch_ms();
+                            touched.push(card.id);
+                        }
+                    }
+                }
+                runs.entry(project.clone()).or_default().keep(run);
+                (project, touched)
+            }
         }
     };
-    let mut notices = Vec::new();
-    let mut later = Later::default();
-    for id in touched {
-        match change_in(
-            core,
-            &mut state,
-            &project,
-            &By::Auto("Board"),
-            id,
-            Changes::default(),
-            false,
-        ) {
-            Ok((_, sent, more)) => {
-                notices.extend(sent);
-                later = later.and(more);
-            }
-            Err(error) => eprintln!("sikemux core: the board did not follow #{id}: {error}"),
-        }
+    if touched.is_empty() {
+        send_notices(core, notices);
+        return;
     }
-    core.boards.save(&mut state, &project);
-    drop(state);
+    let owners: Vec<(u64, Option<String>)> = {
+        let state = core.boards.state.locked();
+        let board = state.boards.get(&project);
+        touched
+            .iter()
+            .map(|id| {
+                let owner = board
+                    .and_then(|board| board.card(*id).ok())
+                    .filter(|card| card.slice.as_ref().is_some_and(|slice| slice.done_said))
+                    .and_then(|card| card.owner_id().map(str::to_owned));
+                (*id, owner)
+            })
+            .collect()
+    };
+    let seen: Vec<(u64, Seen)> = owners
+        .into_iter()
+        .map(|(id, owner)| {
+            let head = owner.and_then(|owner| owner_head(core, &project, &owner));
+            (
+                id,
+                Seen {
+                    has_check: false,
+                    head,
+                },
+            )
+        })
+        .collect();
+    let mut later = Later::default();
+    {
+        let mut state = core.boards.state.locked();
+        for (id, seen) in seen {
+            match change_in(
+                core,
+                &mut state,
+                &project,
+                &By::Auto("Board"),
+                id,
+                Changes::default(),
+                &seen,
+            ) {
+                Ok((_, sent, more)) => {
+                    notices.extend(sent);
+                    later = later.and(more);
+                }
+                Err(error) => eprintln!("sikemux core: the board did not follow #{id}: {error}"),
+            }
+        }
+        core.boards.save(&mut state, &project);
+    }
     later.run(core);
     send_notices(core, notices);
 }
 
-/// Keeps a picture the agent made on its slice, toward the gate it waits at.
-/// False when the card is not a slice, so the picture is kept as the card's
-/// recording.
-pub(super) fn picture(card: &mut Card, agent: &str, recording: &InboxRecording) -> bool {
-    let Some(slice) = card.slice.as_mut() else {
-        return false;
-    };
-    slice.picture(Some(agent), recording);
-    true
+/// Keeps a picture the agent made on its slice, toward the gate it waits
+/// at. None when the card is not a slice, so the picture is kept as the
+/// card's recording; false when the slice is done and keeps none.
+pub(super) fn picture(card: &mut Card, agent: &str, recording: &InboxRecording) -> Option<bool> {
+    Some(card.slice.as_mut()?.picture(Some(agent), recording))
 }
 
 /// The person passes a gate of a slice.

@@ -1,10 +1,11 @@
 //! What happens to a project's commits, told once by the code that commits,
 //! lands and checks them, for the board to follow in the order it happened.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::Mutex;
 
 use sikemux_process::sync::Locked;
+use sikemux_wire::slice::Verdict;
 use tokio::sync::Notify;
 
 /// Told events the board has not read yet, past which the oldest go.
@@ -27,40 +28,82 @@ pub(crate) enum RepoEvent {
         onto: String,
         tip: String,
     },
-    /// The project's check ran at `sha`, taking in the `covered` commits.
+    /// The project's check ended at `sha`, taking in the `covered` commits:
+    /// with no verdict when it did not run, for the reason in `output`.
     Checked {
         project: String,
         command: String,
         sha: Option<String>,
         covered: Vec<String>,
-        passed: bool,
+        verdict: Option<Verdict>,
         output: String,
     },
 }
 
+impl RepoEvent {
+    fn project(&self) -> &str {
+        match self {
+            RepoEvent::Committed { project, .. }
+            | RepoEvent::Landed { project, .. }
+            | RepoEvent::Checked { project, .. } => project,
+        }
+    }
+}
+
+/// What the board reads at once: the events told, oldest first, and the
+/// projects some of whose events were let go of unread.
+pub(crate) struct Told {
+    pub events: Vec<RepoEvent>,
+    pub lost: BTreeSet<String>,
+}
+
+#[derive(Default)]
+struct Waiting {
+    events: VecDeque<RepoEvent>,
+    lost: BTreeSet<String>,
+}
+
 #[derive(Default)]
 pub(crate) struct RepoEvents {
-    waiting: Mutex<VecDeque<RepoEvent>>,
+    waiting: Mutex<Waiting>,
     told: Notify,
 }
 
 impl RepoEvents {
     pub(crate) fn tell(&self, event: RepoEvent) {
         let mut waiting = self.waiting.locked();
-        if waiting.len() >= MAX_WAITING {
-            waiting.pop_front();
+        if waiting.events.len() >= MAX_WAITING {
+            if let Some(oldest) = waiting.events.pop_front() {
+                eprintln!(
+                    "sikemux core: the board fell behind and let go of an event in {}",
+                    oldest.project()
+                );
+                waiting.lost.insert(oldest.project().to_owned());
+            }
         }
-        waiting.push_back(event);
+        waiting.events.push_back(event);
         drop(waiting);
         self.told.notify_one();
     }
 
-    /// Every event told since the last read, oldest first, once one is.
-    pub(crate) async fn next(&self) -> Vec<RepoEvent> {
+    /// The events of `projects` were not followed through, so the board
+    /// treats them as lost.
+    pub(crate) fn lost(&self, projects: impl IntoIterator<Item = String>) {
+        self.waiting.locked().lost.extend(projects);
+        self.told.notify_one();
+    }
+
+    /// What was told since the last read, once anything was.
+    pub(crate) async fn next(&self) -> Told {
         loop {
-            let events: Vec<RepoEvent> = self.waiting.locked().drain(..).collect();
-            if !events.is_empty() {
-                return events;
+            {
+                let mut waiting = self.waiting.locked();
+                if !waiting.events.is_empty() || !waiting.lost.is_empty() {
+                    return Told {
+                        events: waiting.events.drain(..).collect(),
+                        lost: std::mem::take(&mut waiting.lost),
+                    };
+                }
             }
             self.told.notified().await;
         }

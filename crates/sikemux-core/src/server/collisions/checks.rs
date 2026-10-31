@@ -17,6 +17,7 @@ use sikemux_process::sync::Locked;
 use super::{tell, State};
 use crate::server::repo_events::RepoEvent;
 use crate::server::Core;
+use sikemux_wire::slice::Verdict;
 
 /// Checks running at once, across projects.
 const MAX_RUNNING: usize = 2;
@@ -26,6 +27,7 @@ pub(super) const PERSON_AFTER_MS: u64 = 15 * 60_000;
 /// Commits kept as checked per project, so the same one is not run twice.
 const MAX_CHECKED: usize = 64;
 
+#[derive(Clone)]
 pub(super) struct Commit {
     pub sha: String,
     pub subject: String,
@@ -75,23 +77,25 @@ impl Checks {
             .push(commit);
     }
 
-    /// Queues `commit` of `project` to be checked even when it was before,
-    /// unless a check that takes it in waits or runs already.
-    pub(super) fn wait_again(&mut self, project: String, dir: PathBuf, commit: Commit) {
-        let pending = self
-            .running
-            .get(&project)
-            .is_some_and(|shas| shas.contains(&commit.sha))
-            || self.waiting.get(&project).is_some_and(|(_, commits)| {
-                commits.iter().any(|waiting| waiting.sha == commit.sha)
-            });
-        if pending {
-            return;
+    /// Queues `commits` of `project` to be checked together, in their order,
+    /// even those checked before, unless a running check takes one in.
+    pub(super) fn wait_again(&mut self, project: String, dir: PathBuf, commits: Vec<Commit>) {
+        for commit in commits {
+            let running = self
+                .running
+                .get(&project)
+                .is_some_and(|shas| shas.contains(&commit.sha));
+            if running {
+                continue;
+            }
+            if let Some((_, waiting)) = self.waiting.get_mut(&project) {
+                waiting.retain(|waiting| waiting.sha != commit.sha);
+            }
+            if let Some(checked) = self.checked.get_mut(&project) {
+                checked.retain(|sha| *sha != commit.sha);
+            }
+            self.wait(project.clone(), dir.clone(), commit);
         }
-        if let Some(checked) = self.checked.get_mut(&project) {
-            checked.retain(|sha| *sha != commit.sha);
-        }
-        self.wait(project, dir, commit);
     }
 
     /// The projects broken long enough that the person should hear of it.
@@ -156,14 +160,15 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
                 match crate::server::worktree::agent::integration(&core, &dir, &newest).await {
                     Ok(checkout) => {
                         let (owner, command) = (core.clone(), command.clone());
+                        let (dir, agents) = (dir.clone(), agents.clone());
                         tokio::task::spawn_blocking(move || {
                             use crate::server::edits::generate::regenerate;
                             match regenerate(&owner, &dir, &checkout, &newest, &agents) {
-                                Ok(Some(_)) => Ok(None),
+                                Ok(Some(generated)) => Ok(Err(generated)),
                                 Ok(None) => {
-                                    crate::server::board::git::check(&checkout, &command).map(Some)
+                                    crate::server::board::git::check(&checkout, &command).map(Ok)
                                 }
-                                Err(error) => Ok(Some((false, error))),
+                                Err(error) => Ok(Ok((false, error))),
                             }
                         })
                         .await
@@ -172,14 +177,18 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
                     Err(error) => Err(format!("the integration checkout is not ready: {error}")),
                 };
             let outcome = match outcome {
-                Ok(Some(outcome)) => Ok(outcome),
-                Ok(None) => {
-                    core.collisions
-                        .state
-                        .locked()
-                        .checks
-                        .running
-                        .remove(&project);
+                Ok(Ok(outcome)) => Ok(outcome),
+                Ok(Err(generated)) => {
+                    let mut state = core.collisions.state.locked();
+                    state.checks.running.remove(&project);
+                    let mut again = commits;
+                    again.push(Commit {
+                        sha: generated,
+                        subject: "the files the project generates".to_owned(),
+                        agents,
+                    });
+                    state.checks.wait_again(project, dir, again);
+                    drop(state);
                     core.collisions.wake.now();
                     return;
                 }
@@ -201,11 +210,20 @@ fn ended(
     let agents: BTreeSet<&String> = commits.iter().flat_map(|commit| &commit.agents).collect();
     let mut state = collisions.state.locked();
     state.checks.running.remove(project);
+    let checked = |verdict, output| RepoEvent::Checked {
+        project: project.to_owned(),
+        command: command.to_owned(),
+        sha: commits.last().map(|commit| commit.sha.clone()),
+        covered: commits.iter().map(|commit| commit.sha.clone()).collect(),
+        verdict,
+        output,
+    };
     let (passed, output) = match outcome {
         Ok(outcome) => outcome,
         Err(error) => {
             eprintln!("sikemux core: the check after a commit did not run: {error}");
             drop(state);
+            core.repo_events.tell(checked(None, error));
             collisions.wake.now();
             return;
         }
@@ -261,14 +279,12 @@ fn ended(
         }
     }
     drop(state);
-    core.repo_events.tell(RepoEvent::Checked {
-        project: project.to_owned(),
-        command: command.to_owned(),
-        sha: commits.last().map(|commit| commit.sha.clone()),
-        covered: commits.iter().map(|commit| commit.sha.clone()).collect(),
-        passed,
-        output,
-    });
+    let verdict = if passed {
+        Verdict::Passed
+    } else {
+        Verdict::Failed
+    };
+    core.repo_events.tell(checked(Some(verdict), output));
     core.harness.note_repository(
         project,
         if passed {

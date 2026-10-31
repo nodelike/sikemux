@@ -300,6 +300,8 @@ struct State {
     dropped: Vec<finish::Dropped>,
     /// Reviewers whose review ended, whose agents and checkouts are to go.
     dismissed: Vec<blind::Reviewer>,
+    /// The latest runs of each project's check, for commits heard of after them.
+    runs: HashMap<String, slice::HeardRuns>,
 }
 
 /// What the core keeps about a card only while it runs, never saved. It goes
@@ -354,6 +356,8 @@ impl State {
 pub(crate) struct Boards {
     state: Mutex<State>,
     folder: Option<PathBuf>,
+    /// Each project's board file, written off the board's lock.
+    files: Mutex<HashMap<String, Kept>>,
     /// Offers cards, runs Auto and keeps tickets and the window up to date.
     pub(crate) wake: Wake,
 }
@@ -398,9 +402,13 @@ impl Boards {
                 }
             }
         }
+        if let Some(Err(error)) = folder.as_deref().map(std::fs::create_dir_all) {
+            eprintln!("sikemux core: boards will not be saved: {error}");
+        }
         Self {
             state: Mutex::new(state),
             folder,
+            files: Mutex::default(),
             wake: Wake::default(),
         }
     }
@@ -411,11 +419,19 @@ impl Boards {
         let (Some(folder), Some(board)) = (&self.folder, state.boards.get(project)) else {
             return;
         };
-        if let Err(error) = std::fs::create_dir_all(folder) {
-            eprintln!("sikemux core: the board was not saved: {error}");
-            return;
+        self.files
+            .locked()
+            .entry(project.to_owned())
+            .or_insert_with(|| Kept::new(Some(folder), &file_name(project)))
+            .save_soon(board);
+    }
+
+    /// Waits until every board saved so far is on disk, for a core about to
+    /// stop or hand over to another.
+    pub(crate) fn flush(&self) {
+        for file in self.files.locked().values() {
+            file.flush();
         }
-        Kept::new(Some(folder), &file_name(project)).save(board);
     }
 
     /// A step Auto took on the card is over.
@@ -1008,7 +1024,14 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if let Some(result) = &card.result {
         fields.insert("result".into(), text(result).into());
     }
-    if waits(core, card).is_some() {
+    let asked = card
+        .owner_id()
+        .is_some_and(|owner| core.harness.questions.blocks_on_person(owner));
+    let at_gate = card
+        .slice
+        .as_ref()
+        .is_some_and(|slice| card.status != Status::Done && slice.waits_on_person().is_some());
+    if asked || at_gate {
         fields.insert("waitingOnThePerson".into(), true.into());
     }
     if full {
@@ -1202,12 +1225,25 @@ fn change_card(
             "Say what changes: title, details, promise, status, result, dependsOn or parent".into(),
         );
     }
-    let has_check = matches!(by, By::Agent(_))
-        && changes.status == Some(Status::Done)
-        && check_command(core, project).is_some();
+    let mut seen = slice::Seen::default();
+    if let (By::Agent(_), Some(Status::Done)) = (by, changes.status) {
+        let owner = {
+            let state = core.boards.state.locked();
+            state
+                .boards
+                .get(project)
+                .and_then(|board| board.card(id).ok())
+                .filter(|card| card.slice.is_some())
+                .and_then(|card| card.owner_id().map(str::to_owned))
+        };
+        if let Some(owner) = owner {
+            seen.has_check = check_command(core, project).is_some();
+            seen.head = slice::owner_head(core, project, &owner);
+        }
+    }
     let (view, notices, later) = {
         let mut state = core.boards.state.locked();
-        let changed = change_in(core, &mut state, project, by, id, changes, has_check)?;
+        let changed = change_in(core, &mut state, project, by, id, changes, &seen)?;
         core.boards.save(&mut state, project);
         changed
     };
@@ -1216,9 +1252,9 @@ fn change_card(
 }
 
 /// Changes a card on the boards held locked: the one way a card's status
-/// moves, so a slice is done only once its ladder is. `has_check`: the
-/// project names a check command. Says who should hear of it, and what is
-/// left to do once the lock is let go of.
+/// moves, so a slice is done only once its ladder is. `seen` is what git and
+/// the project's files said just before. Says who should hear of it, and
+/// what is left to do once the lock is let go of.
 fn change_in(
     core: &Core,
     state: &mut State,
@@ -1226,7 +1262,7 @@ fn change_in(
     by: &By,
     id: u64,
     changes: Changes,
-    has_check: bool,
+    seen: &slice::Seen,
 ) -> Result<(Value, Vec<Notice>, slice::Later), String> {
     if matches!(by, By::Agent(_)) && changes.acceptance.is_some() {
         return Err(ONLY_PERSON_ACCEPTS.into());
@@ -1234,11 +1270,13 @@ fn change_in(
     if changes.pass.is_some() && !matches!(by, By::Person) {
         return Err("Only the person passes a gate that way".into());
     }
+    let asked = !changes.is_empty();
     let State {
         boards,
         offered,
         dropped,
         woken,
+        runs,
         ..
     } = state;
     let board = boards
@@ -1265,11 +1303,18 @@ fn change_in(
     let blocked_before = board.blocked();
     let card = board.card_mut(id)?;
     let label = card.label();
+    let owner = card.owner_id().map(str::to_owned);
+    let verified = seen.head.as_ref().map(|head| head.head.as_str());
+    if let (Some(slice), Some(head)) = (card.slice.as_mut(), &seen.head) {
+        slice::follow_head(slice, head, owner.as_deref(), runs.get(project));
+    }
     let mut status = changes.status;
     let mut pending = None;
     let mut later = slice::Later::default();
     if let (Some(Status::Done), By::Agent(agent), Some(slice)) = (status, by, card.slice.as_mut()) {
-        if let slice::Said::Pending { note, recheck } = slice.say_done(&label, has_check)? {
+        if let slice::Said::Pending { note, recheck } =
+            slice.say_done(&label, seen.has_check, verified)?
+        {
             pending = Some(note);
             if let Some(sha) = recheck {
                 later = slice::Later::recheck(project, sha, agent);
@@ -1310,6 +1355,7 @@ fn change_in(
     if let Some(parent) = changes.parent {
         card.parent = parent;
     }
+    let mut passed: Vec<Gate> = changes.pass.into_iter().collect();
     match status {
         Some(Status::Open) => {
             if let Some(run) = card.auto.take().filter(|run| !run.stage.is_over()) {
@@ -1320,15 +1366,13 @@ fn change_in(
                     discard: true,
                 });
             }
-            card.status = Status::Open;
-            card.owner = None;
-            card.team = None;
-            if let Some(slice) = &mut card.slice {
-                slice.reopen();
-            }
+            to_open(card);
         }
         Some(Status::Done) => match &mut card.slice {
-            Some(slice) => slice.close(),
+            Some(slice) => passed.extend(slice.close(match by {
+                By::Person => slice::PassedBy::Person,
+                By::Auto(_) | By::Agent(_) => slice::PassedBy::Core,
+            })),
             None => mark_done(core, card, by, project, dropped),
         },
         Some(Status::Progress) => {
@@ -1339,7 +1383,7 @@ fn change_in(
         }
         None => {}
     }
-    let moved = slice::progress(project, card, changes.pass.into_iter().collect());
+    let moved = slice::progress(project, card, passed, verified);
     if moved.done && card.status != Status::Done {
         mark_done(core, card, by, project, dropped);
     }
@@ -1363,9 +1407,13 @@ fn change_in(
         Some(passed) if by_owner => note = Some(passed.text),
         Some(passed) => notices.push(passed),
         None => {
-            if let (Some(changer), Some(owner), Status::Progress, false) =
-                (changer, before.owner_id(), before.status, run_dropped)
-            {
+            if let (true, Some(changer), Some(owner), Status::Progress, false) = (
+                asked,
+                changer,
+                before.owner_id(),
+                before.status,
+                run_dropped,
+            ) {
                 let text = if after.owner.is_none() {
                     format!(
                         "{changer} moved your card {} back to Open, so it is no longer yours. Stop working on it unless they tell you otherwise.",
@@ -1398,6 +1446,16 @@ fn change_in(
         woken.remove(agent);
     }
     Ok((view, notices, later))
+}
+
+/// Moves a card back to Open and nobody's, with its slice's work and gates.
+fn to_open(card: &mut Card) {
+    card.status = Status::Open;
+    card.owner = None;
+    card.team = None;
+    if let Some(slice) = &mut card.slice {
+        slice.reopen();
+    }
 }
 
 /// Marks a card done, closing the run Auto has on it.
@@ -1822,21 +1880,22 @@ pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Resul
         .map_err(|error| error.to_string())
 }
 
-/// The cards that wait on the person for something besides an answer, which
-/// the inbox lists as its question, and the cards done since `done_since`.
+/// The cards Auto handed back to the person, the slices waiting at the
+/// person's gate, and the cards done since `done_since`.
 pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summary> {
     let state = core.boards.state.locked();
     state
         .boards
         .iter()
         .flat_map(|(project, board)| board.cards.iter().map(move |card| (project, card)))
-        .map(|(project, card)| card.summary(core, project))
-        .filter(|card| {
-            card.waits
-                .as_ref()
-                .is_some_and(|waits| !matches!(waits, Waits::Answer))
-                || done_since.is_some_and(|since| card.done && card.updated_at >= since)
+        .filter(|(_, card)| {
+            matches!(
+                waits(core, card),
+                Some(Waits::Review { .. } | Waits::Held { .. } | Waits::Gate { .. })
+            ) || done_since
+                .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)
         })
+        .map(|(project, card)| card.summary(core, project))
         .collect()
 }
 
@@ -1847,10 +1906,14 @@ pub(crate) fn attach_recording(core: &Core, agent_id: &str, recording: InboxReco
     let Some((project, card)) = held_card(&mut state, agent_id) else {
         return;
     };
-    if slice::picture(card, agent_id, &recording) {
-        let project = project.clone();
-        core.boards.save(&mut state, &project);
-        return;
+    match slice::picture(card, agent_id, &recording) {
+        Some(true) => {
+            let project = project.clone();
+            core.boards.save(&mut state, &project);
+            return;
+        }
+        Some(false) => return,
+        None => {}
     }
     if card.recordings.len() >= MAX_RECORDINGS {
         card.recordings.remove(0);
@@ -1873,7 +1936,7 @@ pub(crate) struct GoalRef {
 }
 
 /// The goal the card `agent_id` works sits under, in its own project: its
-/// card not done, walked up to the top card above it that is not done.
+/// card not done, walked up to the top card above it, done or not.
 #[expect(
     dead_code,
     reason = "project memory files what it learns under this goal"
@@ -1888,15 +1951,11 @@ pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
         .filter(|card| card.owner_id() == Some(agent_id) && card.status != Status::Done)
         .max_by_key(|card| (card.status == Status::Progress, card.updated_at))?;
     let mut goal = live;
-    let mut above = live.parent;
     for _ in 0..board.cards.len() {
-        let Some(parent) = above.and_then(|id| board.card(id).ok()) else {
+        let Some(parent) = goal.parent.and_then(|id| board.card(id).ok()) else {
             break;
         };
-        if parent.status != Status::Done {
-            goal = parent;
-        }
-        above = parent.parent;
+        goal = parent;
     }
     let promise = live.slice.as_ref().map(|slice| slice.promise.as_str());
     let text = [

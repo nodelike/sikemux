@@ -79,9 +79,7 @@ pub(crate) fn hold(core: &Core, project: &str, id: u64, agent: &str, why: String
         reviewer = run.reviewer.take();
         run.verdict = None;
         if run.worktree.is_empty() {
-            card.owner = None;
-            card.team = None;
-            card.status = Status::Open;
+            super::to_open(card);
         }
         run.stage = Stage::Held;
         run.note = Some(why);

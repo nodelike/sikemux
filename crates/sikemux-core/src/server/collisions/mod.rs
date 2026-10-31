@@ -805,17 +805,17 @@ impl Collisions {
     }
 
     /// Has the project's check run on `sha` of `project` again, for `agent`,
-    /// unless a check that takes it in waits or runs already: for work whose
-    /// earlier check did not run or was not heard.
+    /// unless a running check takes it in: for work whose earlier check did
+    /// not run or was not heard.
     pub(crate) fn check_again(&self, project: &str, sha: &str, subject: String, agent: &str) {
         self.state.locked().checks.wait_again(
             project.to_owned(),
             PathBuf::from(project),
-            checks::Commit {
+            vec![checks::Commit {
                 sha: sha.to_owned(),
                 subject,
                 agents: vec![agent.to_owned()],
-            },
+            }],
         );
         self.wake.now();
     }
