@@ -1,21 +1,28 @@
-# Sikemux v0.6.0-nightly.11
+# Sikemux v0.6.0
 
-The eleventh nightly of the new Sikemux app. Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
+Sikemux 0.6 is a new app. It is drawn natively on the GPU instead of in a web page, so it starts faster, stays light with many agents at work and long chats, and keeps everything you had: your projects, agents, chats, accounts, settings and plugins carry over.
 
-Your phone needs the nightly phone app, 0.2.0-nightly.3 or later, from TestFlight on iPhone or the Google Play testing track on Android, and nightly hosts link only with other nightly hosts.
+## Before you update
 
-## New since nightly.10
+- **Your phone needs the new phone app, 0.2.0 or later.** Install it from TestFlight on iPhone or the Google Play testing track on Android. The older phone app, 0.1.0, can't connect to hosts on 0.6.
+- **Hosts link only with hosts on 0.6.** Update every computer you link, or they can't reach each other until they do.
+- **There is no going back to 0.5.** This release moves saved chats to a new format that 0.5 can't read.
 
-- **A Stash that reads your links.** The Stash tray lists items as rows, newest first, and the server reads the first pages a stashed prompt or text links to, with each site's icon; pull requests and issues show in their state's colour.
-- **DBML diagrams remember.** Where you moved a diagram's tables, and its pan and zoom, survive restarts and updates, and references over several columns meet their tables cleanly.
-- **Agents manage their teams.** An agent can close the agents it started, keep 16 teammates open at once, up from 6, and a project can hold 64 agent-started agents.
-- **Tabs say what's going on.** An agent's tab shows its shells, subagents and next timer, as its rail row does.
-- **Jira cards drag.** Drag a card to another column of its lane on the Jira board, as on the agents' board. Thanks to @ankit-ml12.
-- **Faster, typed talk with the core.** The window reads the core's answers as typed values, so chats and lists update with less work.
-- Links to pull requests and issues read as GitHub writes them, and other hosts' folders show under ~ from that host's own home.
-- Tab and Shift-Tab reach a terminal's program again, and a close button's click no longer also opens what it closes.
-- A task an agent runs again replaces its earlier terminal on the desk, and showing local files no longer runs out after 16.
-- The top bar's CI chip settles when a run finishes, and an agent's header shows its worktree's pull request again.
-- The Sikemux mark sits centred in every icon.
+## What's new
 
-For the complete patch history, compare [`v0.6.0-nightly.10...v0.6.0-nightly.11`](https://github.com/nodelike/sikemux/compare/v0.6.0-nightly.10...v0.6.0-nightly.11).
+- **Native and fast.** The whole app is drawn on the GPU, with typed, lighter talk between the window and the core, and tabs out of sight cost nothing.
+- **Chats that keep their place.** Agents start only when you write, chats open with their history, pick up exactly where they left off after a reconnect, and resume on the model they last ran.
+- **Your own model providers.** Add any provider with its base URL and key, kept in the Keychain, and run OMP and OpenCode chats on its models.
+- **Stash.** Share links, text, photos and files to Sikemux from your phone's share menu, and add them to any chat from the composer's Stash button.
+- **Triggers.** Agents can prompt their own chats later, on a schedule, from the board, or from a webhook that reaches your computer wherever it is.
+- **Teams of agents.** An agent can start, message and close the agents it works with, and its tab shows what each one has going.
+- **Pull requests and CI in the app.** Pull requests read like GitHub's, links to pull requests, issues, runs and Jira issues open on the agent's desk, and the top bar's CI chip stands for your branch's newest commit.
+- **Databases and diagrams.** Connect PostgreSQL, MySQL or SQLite, browse tables and run SQL, and see `.dbml` files and replies as diagrams you can move around.
+- **Plugin panels.** Jira, Linear, Slack, databases and more open as panes, with Jira cards you can drag between columns.
+- **On Linux too.** The app ships for x86_64 as a .deb, an .rpm and an AppImage, and a Linux host updates itself.
+- **Crash reports.** A crash or a window that stops answering leaves a report that `sikemux doctor` shows.
+- **Settings regrouped** into six groups, menus that work with the keyboard, find in markdown, HTML previews, and videos that play in Quick Look.
+
+Thanks to @ankit-ml12 for pasted pictures, find in markdown, parked browser tabs and Jira drag and drop.
+
+For the complete patch history, compare [`v0.5.3...v0.6.0`](https://github.com/nodelike/sikemux/compare/v0.5.3...v0.6.0).
