@@ -9,13 +9,6 @@
       }
     ]
   },
-  "planFirst": [
-    "crates/sikemux-wire/**",
-    "server/**",
-    "app/**",
-    "mobile/**",
-    "helpers/notch/**"
-  ],
   "generate": {
     "command": "pnpm -s wire:generate",
     "outputs": [
