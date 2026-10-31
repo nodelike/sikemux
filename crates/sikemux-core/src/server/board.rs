@@ -221,6 +221,19 @@ impl Board {
         }
     }
 
+    /// What is saved of it, copied, which is quicker than writing it out as
+    /// JSON while its lock is held.
+    fn saved(&self) -> Self {
+        Self {
+            version: self.version,
+            project: self.project.clone(),
+            next: self.next,
+            cards: self.cards.clone(),
+            settings: self.settings.clone(),
+            ..Self::default()
+        }
+    }
+
     /// The goal `card` belongs to: the card at the top above it, or itself
     /// when nothing is above it.
     fn goal_above<'a>(&'a self, card: &'a Card) -> &'a Card {
@@ -502,8 +515,8 @@ impl Prune {
     }
 }
 
-/// Writes board files in the order they are handed over, at once, on a
-/// thread of its own, so nobody holding a board's lock waits on the disk.
+/// Writes boards out in the order they are handed over, at once, on a thread
+/// of its own, so nobody holding a board's lock waits on JSON or the disk.
 #[derive(Default)]
 struct Writer {
     writes: Mutex<Writes>,
@@ -513,20 +526,20 @@ struct Writer {
 #[derive(Default)]
 struct Writes {
     /// One write per file: a newer one takes the place of the one waiting.
-    waiting: VecDeque<(PathBuf, Vec<u8>, Option<Prune>)>,
+    waiting: VecDeque<(PathBuf, Board, Option<Prune>)>,
     writing: bool,
 }
 
 impl Writer {
-    fn hand(self: &Arc<Self>, path: PathBuf, bytes: Vec<u8>, prune: Option<Prune>) {
+    fn hand(self: &Arc<Self>, path: PathBuf, board: Board, prune: Option<Prune>) {
         let mut writes = self.writes.locked();
         match writes
             .waiting
             .iter_mut()
             .find(|(waiting, _, _)| *waiting == path)
         {
-            Some((_, waiting, pruning)) => (*waiting, *pruning) = (bytes, prune),
-            None => writes.waiting.push_back((path, bytes, prune)),
+            Some((_, waiting, pruning)) => (*waiting, *pruning) = (board, prune),
+            None => writes.waiting.push_back((path, board, prune)),
         }
         if writes.writing {
             return;
@@ -553,8 +566,15 @@ impl Writer {
                 }
                 next
             };
-            let Some((path, bytes, prune)) = next else {
+            let Some((path, board, prune)) = next else {
                 return;
+            };
+            let bytes = match serde_json::to_vec(&board) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    eprintln!("sikemux core: the board was not saved: {error}");
+                    continue;
+                }
             };
             match sikemux_process::files::write_atomic(&path, &bytes, true) {
                 Ok(_) => prune.iter().for_each(Prune::run),
@@ -637,12 +657,8 @@ impl Boards {
                 .collect(),
             before: std::time::SystemTime::now(),
         });
-        match serde_json::to_vec(board) {
-            Ok(bytes) => self
-                .writer
-                .hand(folder.join(kept::file_for(project)), bytes, prune),
-            Err(error) => eprintln!("sikemux core: the board was not saved: {error}"),
-        }
+        self.writer
+            .hand(folder.join(kept::file_for(project)), board.saved(), prune);
     }
 
     /// A new file for a screenshot kept as evidence on card `id` of `project`.
