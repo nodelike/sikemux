@@ -1290,7 +1290,10 @@ impl Footers {
 
 /// What git says of the slice on `id`'s head, read without the board's lock:
 /// for the card its owner works now, that no newer commit of the owner's is in
-/// the card's range; for any other, that git still holds it.
+/// the card's range; for any other, that git still holds it. In a shared
+/// checkout whose commits carry no Sikemux footer, git can't tell whose a
+/// commit is, so the head the board heard of the owner's own git_commit
+/// stands once git still holds it.
 pub(super) fn seen(core: &Core, project: &str, id: u64, check: Option<&ProjectCheck>) -> Seen {
     let read = {
         let state = core.boards.state.locked();
@@ -1315,7 +1318,12 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, check: Option<&ProjectCh
             ..Seen::unread()
         };
     };
-    let confirmed = match current {
+    let tells_latest = core
+        .workspaces
+        .agent(&owner)
+        .is_some_and(|agent| agent.worktree.is_some())
+        || footer::attributed(Path::new(project));
+    let confirmed = match current && tells_latest {
         true => owner_latest(core, project, &owner, &work.base).and_then(|latest| {
             (latest == work.head).then_some(()).ok_or_else(|| {
                 format!(
