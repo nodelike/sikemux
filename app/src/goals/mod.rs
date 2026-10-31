@@ -36,6 +36,7 @@ mod goal;
 mod home;
 mod rules;
 mod slice;
+mod start;
 
 /// Where in the goals the pane is.
 #[derive(Clone, Copy, PartialEq)]
@@ -63,6 +64,8 @@ pub struct GoalsPane {
     /// The note being written on what needs work, while it is open.
     note: Option<(Entity<InputState>, Subscription)>,
     busy: bool,
+    /// The box that starts work, at the top of Home.
+    start: start::Start,
     focus: FocusHandle,
     _reading: Task<()>,
 }
@@ -85,6 +88,7 @@ impl GoalsPane {
             picked: None,
             note: None,
             busy: false,
+            start: start::Start::default(),
             focus: cx.focus_handle(),
             _reading: Task::ready(()),
         };
@@ -332,7 +336,8 @@ impl Focusable for GoalsPane {
 }
 
 impl Render for GoalsPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.start_field(window, cx);
         let body = match (self.board.is_some(), self.at) {
             (false, _) => empty(None, "reading the goals…", cx),
             (true, At::Home) => home::home(self, cx),

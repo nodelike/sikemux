@@ -83,13 +83,7 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
         count(&slices, SliceState::Done) < slices.len()
     });
     let happened = pane.happened_here().len();
-    if goals.is_empty() && needs.is_empty() {
-        return empty(
-            Some("No goals yet"),
-            "A goal is a card with slices under it, each with gates to pass.",
-            cx,
-        );
-    }
+    let nothing = goals.is_empty() && needs.is_empty();
     let summary = [
         (needed > 0).then(|| state_count(needed, SliceState::NeedsYou)),
         Some(format!("{} moving", moving.len())),
@@ -124,6 +118,14 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
                     )
                 }),
         )
+        .child(super::start::start_box(pane, cx))
+        .when(nothing, |view| {
+            view.child(empty(
+                Some("No goals yet"),
+                "Start one above. A goal is a card with slices under it, each with gates to pass.",
+                cx,
+            ))
+        })
         .when(!needs.is_empty(), |view| {
             view.child(section("Needs you", needed, cx))
                 .children(NEEDS.iter().filter_map(|(need, name)| {
