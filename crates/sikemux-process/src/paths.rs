@@ -43,11 +43,15 @@ pub fn config_dir() -> Option<PathBuf> {
     Some(home()?.join(".config").join("sikemux"))
 }
 
-/// The endpoint file of the core that started this program, when one handed it over.
+/// The endpoint file of the core that started this program, when one handed it over. A
+/// program given a config folder of its own belongs to the Sikemux kept there, so an endpoint
+/// handed down from a core outside that folder is not its own.
 pub fn handed_cli_endpoint() -> Option<PathBuf> {
-    std::env::var_os(crate::vars::CLI_ENDPOINT)
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
+    let handed = env_path(crate::vars::CLI_ENDPOINT)?;
+    match env_path(crate::vars::CONFIG_DIR) {
+        Some(own) if !handed.starts_with(&own) => None,
+        _ => Some(handed),
+    }
 }
 
 /// A file in `~/.config/sikemux`, named `<stem>.dev.<extension>` in debug builds so a
