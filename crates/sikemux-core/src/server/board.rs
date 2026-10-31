@@ -160,8 +160,8 @@ struct Card {
     slice: Option<slice::Slice>,
     at: u64,
     updated_at: u64,
-    /// When its owner last claimed or changed it, which the board's own
-    /// changes leave alone: the owner's latest is the card it works now.
+    /// When its owner last claimed it, which nothing else changes: the
+    /// owner's latest claim is the card it works now.
     #[serde(default)]
     acted_at: u64,
 }
@@ -1257,7 +1257,11 @@ fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value,
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let card = board.card(id)?;
     if card.owner_id() == Some(agent) && card.status == Status::Progress {
-        return Ok(agent_view(core, board, card, true));
+        let card = board.card_mut(id)?;
+        card.acted_at = epoch_ms();
+        let view = agent_view(core, board, board.card(id)?, true);
+        boards.save(&mut state, project);
+        return Ok(view);
     }
     if card.status == Status::Done {
         return Err(format!("#{id} is done already"));
@@ -1341,7 +1345,6 @@ fn change_in(
         offered,
         dropped,
         woken,
-        runs,
         ..
     } = state;
     let board = boards
@@ -1368,17 +1371,13 @@ fn change_in(
     let blocked_before = board.blocked();
     let card = board.card_mut(id)?;
     let label = card.label();
-    let owner = card.owner_id().map(str::to_owned);
-    let verified = seen.verified(card);
-    if let (Some(slice), Ok(_), Ok(head)) = (card.slice.as_mut(), verified, &seen.head) {
-        slice::follow_head(slice, head, owner.as_deref(), runs.get(project));
-    }
+    let confirmed = seen.confirmed(card);
     let mut status = changes.status;
     let mut pending = None;
     let mut later = slice::Later::default();
     if let (Some(Status::Done), By::Agent(agent), Some(slice)) = (status, by, card.slice.as_mut()) {
         if let slice::Said::Pending { note, recheck } =
-            slice.say_done(&label, seen.has_check, verified)?
+            slice.say_done(&label, seen.has_check, confirmed)?
         {
             pending = Some(note);
             if let Some(sha) = recheck {
@@ -1448,15 +1447,12 @@ fn change_in(
         }
         None => {}
     }
-    let moved = slice::progress(project, card, passed, verified.ok());
+    let moved = slice::progress(project, card, passed);
     if moved.done && card.status != Status::Done {
         mark_done(core, card, by, project, dropped);
     }
     let later = later.and(moved.later);
     card.updated_at = epoch_ms();
-    if matches!(by, By::Agent(agent) if card.owner_id() == Some(agent.as_str())) {
-        card.acted_at = card.updated_at;
-    }
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
     let run_dropped = before.auto.as_ref().is_some_and(|run| !run.stage.is_over())
