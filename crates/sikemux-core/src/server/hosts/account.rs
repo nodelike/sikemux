@@ -156,13 +156,19 @@ pub(crate) async fn as_host<T: DeserializeOwned>(
 
 /// The second to sign a request with. The same request signed twice in one second would carry
 /// the same signature, which the accounts server refuses as a replay, so a repeat takes the
-/// next second instead.
+/// next second instead. A core taking over from another may make the request the old one made
+/// in its last second, so its signatures start a second after its first.
 fn unused_second(request: String) -> u64 {
     static SIGNED: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+    static FIRST_FREE: OnceLock<u64> = OnceLock::new();
     let now = epoch_secs();
+    let first_free = *FIRST_FREE.get_or_init(|| now + 1);
     let mut signed = SIGNED.get_or_init(Default::default).locked();
     signed.retain(|_, second| *second + SIGNATURE_MEMORY_SECS > now);
-    let second = signed.get(&request).map_or(now, |last| now.max(last + 1));
+    let second = signed
+        .get(&request)
+        .map_or(now, |last| now.max(last + 1))
+        .max(first_free);
     signed.insert(request, second);
     second
 }
