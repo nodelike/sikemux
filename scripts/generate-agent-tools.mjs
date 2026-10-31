@@ -94,6 +94,32 @@ compare(
   ),
   "crates/sikemux-simulator/src/tools.rs",
 );
+// Limits the core enforces itself, which the tools' schemas must state alike.
+const coreLimits = [
+  {
+    file: "crates/sikemux-core/src/server/board/slice.rs",
+    constant: "MAX_PROMISE_CHARS",
+    tools: ["board_add", "board_update"],
+    property: "promise",
+  },
+];
+for (const limit of coreLimits) {
+  const source = await readFile(resolve(root, limit.file), "utf8");
+  const found = new RegExp(`const ${limit.constant}: usize = (\\d+);`).exec(
+    source,
+  );
+  if (!found)
+    throw new Error(`${limit.file} no longer defines ${limit.constant}`);
+  for (const name of limit.tools) {
+    const declared = manifest.tools.find((tool) => tool.name === name)
+      ?.properties?.[limit.property]?.maxLength;
+    if (declared !== Number(found[1]))
+      throw new Error(
+        `browser/tools.json gives ${name}'s ${limit.property} a maxLength of ${declared}, but ${limit.constant} in ${limit.file} is ${found[1]}`,
+      );
+  }
+}
+
 // The core answers some harness methods itself and hands the rest to the
 // window, so a method counts as handled by either side's dispatch.
 const coreSource = await readFile(coreHandlersPath, "utf8");
