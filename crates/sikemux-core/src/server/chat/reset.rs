@@ -176,7 +176,8 @@ fn keep_unreadable(path: &Path, why: &str) {
 }
 
 /// Waits for the chat's usage limit to reset to send `prompt` again, when
-/// `resets_at` or the account's usage says when that is.
+/// `resets_at` or the account's usage says when that is. When it can't, the
+/// failed turn waits on the person instead.
 pub(super) fn schedule(
     chat: &Arc<Chat>,
     launch: &ChatLaunch,
@@ -191,6 +192,8 @@ pub(super) fn schedule(
     {
         let mut slots = resets.slots.locked();
         if slots.len() >= MAX_WAITING && !slots.contains_key(chat.agent_id()) {
+            drop(slots);
+            not_retrying(&core, chat);
             return;
         }
         if let Some(Slot::Waiting {
@@ -214,6 +217,8 @@ pub(super) fn schedule(
         }
         let Some(at) = at.filter(|at| *at > epoch_ms()) else {
             slots.remove(chat.agent_id());
+            drop(slots);
+            not_retrying(&core, &chat);
             return;
         };
         let waiting = Waiting {
@@ -227,6 +232,11 @@ pub(super) fn schedule(
         drop(slots);
         say(&chat, resume_notice(&launch.provider, at));
     });
+}
+
+fn not_retrying(core: &Core, chat: &Chat) {
+    core.inbox.not_retrying(chat.agent_id());
+    core.view_changed();
 }
 
 /// Stops the chat waiting for its limit to reset, as something sent to it

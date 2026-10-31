@@ -18,6 +18,7 @@ use crate::launch::PermissionMode;
 use crate::agent_accounts::sign_in::{self, SignIn};
 use crate::server::chat::failure::{Failure, FailureKind};
 use crate::server::chat::permission;
+use crate::server::inbox::Fault;
 
 use super::SessionEnd;
 use crate::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
@@ -271,7 +272,7 @@ impl Sink {
             TurnEnd::Failed { failure, response } => {
                 settle();
                 let failure = failure.payload(self.account.as_deref());
-                chat.turn_failing(&failure);
+                chat.turn_failing(&failure, Fault::Broke);
                 chat.emit(
                     ChatEventKind::TurnCompleted,
                     response.unwrap_or_else(|| json!({ "stopReason": "end_turn" })),
@@ -817,8 +818,14 @@ impl<B: Backend> Running<'_, B> {
             return ControlFlow::Break(Outcome::Rebind(Box::new(rebind)));
         }
         chat.stop_running();
+        state.failed_prompt = state.last_prompt.take();
+        let fault = match (failed.failure.kind, &state.failed_prompt) {
+            (FailureKind::Limit | FailureKind::Network, Some(_)) => Fault::Retrying,
+            (FailureKind::SignIn | FailureKind::Limit, _) => Fault::Account,
+            (FailureKind::Network | FailureKind::Other, _) => Fault::Broke,
+        };
         let failure = failed.failure.payload(current.as_deref());
-        chat.turn_failing(&failure);
+        chat.turn_failing(&failure, fault);
         if let Some(response) = failed.response {
             chat.emit(ChatEventKind::TurnCompleted, response);
         }
@@ -826,7 +833,6 @@ impl<B: Backend> Running<'_, B> {
         if let (FailureKind::SignIn, Some(core)) = (failed.failure.kind, chat.core.upgrade()) {
             agent_accounts::chat_refused(&core, self.provider, current.as_deref());
         }
-        state.failed_prompt = state.last_prompt.take();
         if failed.failure.kind == FailureKind::Network && state.failed_prompt.is_some() {
             chat.offline_failed.store(true, Ordering::Release);
         }
@@ -880,7 +886,7 @@ impl<B: Backend> Running<'_, B> {
             return ControlFlow::Break(Outcome::Rebind(rebind));
         }
         let failure = error_message("The agent did not stop, so its session was ended");
-        chat.turn_failing(&failure);
+        chat.turn_failing(&failure, Fault::Broke);
         chat.emit(ChatEventKind::Error, failure);
         ControlFlow::Break(Outcome::Ended(SessionEnd::Exited))
     }
@@ -1357,7 +1363,7 @@ async fn stopped(
     }
     if broke || chat.prompted() {
         let failure = error_message(&reason);
-        chat.turn_failing(&failure);
+        chat.turn_failing(&failure, Fault::Broke);
         chat.emit(ChatEventKind::Error, failure);
     }
     Outcome::Ended(SessionEnd::Exited)

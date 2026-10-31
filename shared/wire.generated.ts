@@ -631,6 +631,8 @@ export interface Inbox {
      * agent is in, else by the project the item names.
      */
     needs: Record<string, number>;
+    /** How many items wait on the person, in a project or not. */
+    needed?: number;
     /** How every open agent here shows together; none while none is open. */
     rollup: AgentRollup | null;
 }

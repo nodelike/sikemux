@@ -44,6 +44,7 @@ use prompt::bounded_text;
 
 use super::activity::Activity;
 use super::connection::{ClientConn, ClientId};
+use super::inbox::Fault;
 use super::spawn::Ending;
 use super::{Core, CoreError, CoreResult};
 use feed::{Feed, FeedState, Standing};
@@ -467,12 +468,15 @@ impl Chat {
     }
 
     /// The turn in progress failed, which the lead hears in place of its end,
-    /// or of the chat's when that comes first.
-    pub(crate) fn turn_failing(&self, failure: &Value) {
+    /// or of the chat's when that comes first, and the inbox lists as `fault`.
+    pub(crate) fn turn_failing(&self, failure: &Value, fault: Fault) {
         let message = failure
             .get("message")
             .and_then(Value::as_str)
             .unwrap_or_default();
+        if let Some(core) = self.core.upgrade() {
+            core.inbox.failed(self.agent_id(), message, fault);
+        }
         self.turn.locked().failure = Some(message.to_owned());
     }
 

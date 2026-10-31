@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use gpui_kit::Context;
-use sikemux_wire::protocol::{AgentGroup, DeviceView, PaneKind, SessionKind};
+use sikemux_wire::protocol::{PaneKind, SessionKind};
 use tokio::sync::mpsc;
 
 use crate::toast;
@@ -315,33 +315,9 @@ pub fn kept_running(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 
 struct KeptRunning;
 
-/// How many agents wait on the person: those asking for something, and those that finished
-/// a turn the person has not seen.
-fn waiting(view: &DeviceView) -> usize {
-    let waits =
-        |group: Option<AgentGroup>| matches!(group, Some(AgentGroup::Blocked | AgentGroup::Done));
-    view.workspace
-        .agents
-        .iter()
-        .filter(|agent| {
-            let chat = view
-                .chats
-                .iter()
-                .find(|chat| chat.agent_id == agent.id)
-                .map(|chat| chat.group);
-            let terminal = view
-                .sessions
-                .iter()
-                .find(|session| session.agent_id.as_deref() == Some(agent.id.as_str()))
-                .and_then(|session| session.group);
-            waits(chat.or(terminal))
-        })
-        .count()
-}
-
-/// Keeps the Dock or launcher icon's badge at the number of agents waiting on the person.
+/// Keeps the Dock or launcher icon's badge at the number of things waiting on the person.
 pub fn badge(bench: &mut Workbench) {
-    let count = bench.view.as_ref().map_or(0, waiting);
+    let count = bench.view.as_ref().map_or(0, |view| view.inbox.needed);
     if count != std::mem::replace(&mut bench.badge, count) {
         show_badge(count);
     }

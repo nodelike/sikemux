@@ -400,6 +400,7 @@ struct InboxItem: Codable, Hashable {
 }
 
 enum InboxTier: String, Codable, Hashable {
+    /// Everything with a `need`, and nothing else.
     case needs
     case review
     case finished

@@ -227,6 +227,7 @@ pub(crate) struct ForPerson {
     pub text: String,
     pub blocked: bool,
     pub assumption: Option<String>,
+    pub secret: bool,
     pub at: u64,
 }
 
@@ -362,6 +363,7 @@ impl Questions {
                 text: question.text.clone(),
                 blocked: question.blocked,
                 assumption: question.assumption.clone(),
+                secret: question.secret,
                 at: question.at,
             })
             .collect()

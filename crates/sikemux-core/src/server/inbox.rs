@@ -1,5 +1,5 @@
 //! What waits on the person, ranked once here so the rail, the notch and
-//! phones list it the same way: agents blocked or asking first, then changes
+//! phones list it the same way: whatever needs the person first, then changes
 //! to review, then finished work, then work under way. Built from what the
 //! core already keeps; only how each agent's latest turn went is kept here.
 
@@ -30,40 +30,91 @@ const MAX_FILES: usize = 20;
 const MAX_ANSWER_CHARS: usize = 600;
 const MAX_LINE_CHARS: usize = 200;
 
-fn tier(kind: InboxKind) -> InboxTier {
-    match kind {
-        InboxKind::Permission
-        | InboxKind::Question
-        | InboxKind::Input
-        | InboxKind::Held
-        | InboxKind::Assumption
-        | InboxKind::Gate => InboxTier::Needs,
-        InboxKind::PullRequest | InboxKind::Changes => InboxTier::Review,
-        InboxKind::Failed | InboxKind::Finished => InboxTier::Finished,
-        InboxKind::Working => InboxTier::Progress,
-    }
+/// How a turn failed, as far as the person is concerned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Fault {
+    /// Its account is signed out, or out of usage with nothing to send again once that resets.
+    Account,
+    /// The chat sends the prompt again by itself, once the plan resets or the network is back.
+    Retrying,
+    /// Anything else that stopped the turn.
+    Broke,
 }
 
-fn need(kind: InboxKind) -> Option<InboxNeed> {
-    match kind {
-        InboxKind::Permission | InboxKind::Question | InboxKind::Assumption | InboxKind::Gate => {
-            Some(InboxNeed::Decide)
+/// What an item tells of, which alone decides its kind, what it needs the person for, and
+/// so where it ranks.
+#[derive(Clone, Copy)]
+enum Case {
+    Permission,
+    /// `secret` when the answer is something only the person has, such as a password.
+    Question {
+        secret: bool,
+    },
+    Assumption,
+    Input,
+    /// The slice waits for the person to pass this gate.
+    Gate(Gate),
+    PullRequest,
+    /// Auto handed the card back.
+    HandedBack,
+    /// Two agents keep messaging each other and nothing else.
+    Looping,
+    /// Two agents keep changing the same lines.
+    Colliding,
+    /// The project's check keeps failing after agents' commits.
+    CheckFailing,
+    /// The turn ran into a problem, of this kind when the agent's driver knew it.
+    Failed(Option<Fault>),
+    Changes,
+    Finished,
+    Working,
+}
+
+/// Who an item waits on: the person, for something, or nobody, so it shows quietly.
+enum Wants {
+    Person(InboxNeed),
+    Nobody(Quiet),
+}
+
+/// Where an item that waits on nobody shows.
+enum Quiet {
+    Review,
+    Finished,
+    Progress,
+}
+
+impl Case {
+    fn placed(self) -> (InboxKind, Wants) {
+        use InboxNeed::{Decide, Fix, Unblock};
+        match self {
+            Case::Permission => (InboxKind::Permission, Wants::Person(Decide)),
+            Case::Question { secret: false } => (InboxKind::Question, Wants::Person(Decide)),
+            Case::Question { secret: true } => (InboxKind::Question, Wants::Person(Unblock)),
+            Case::Assumption => (InboxKind::Assumption, Wants::Person(Decide)),
+            Case::Input => (InboxKind::Input, Wants::Person(Unblock)),
+            Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
+            Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
+            Case::HandedBack | Case::Looping | Case::CheckFailing => {
+                (InboxKind::Held, Wants::Person(Fix))
+            }
+            Case::Colliding => (InboxKind::Held, Wants::Person(Decide)),
+            Case::Failed(Some(Fault::Account)) => (InboxKind::Failed, Wants::Person(Unblock)),
+            Case::Failed(Some(Fault::Broke)) => (InboxKind::Failed, Wants::Person(Fix)),
+            Case::Failed(Some(Fault::Retrying) | None) => {
+                (InboxKind::Failed, Wants::Nobody(Quiet::Finished))
+            }
+            Case::Changes => (InboxKind::Changes, Wants::Nobody(Quiet::Review)),
+            Case::Finished => (InboxKind::Finished, Wants::Nobody(Quiet::Finished)),
+            Case::Working => (InboxKind::Working, Wants::Nobody(Quiet::Progress)),
         }
-        InboxKind::Input => Some(InboxNeed::Unblock),
-        InboxKind::Held => Some(InboxNeed::Fix),
-        InboxKind::PullRequest
-        | InboxKind::Changes
-        | InboxKind::Failed
-        | InboxKind::Finished
-        | InboxKind::Working => None,
     }
 }
 
-/// Goes before the rest of its tier.
+/// Stops an agent until the person acts, so it goes before the older items that need them.
 fn pressing(kind: InboxKind) -> bool {
     matches!(
         kind,
-        InboxKind::Permission | InboxKind::Question | InboxKind::Input | InboxKind::Failed
+        InboxKind::Permission | InboxKind::Question | InboxKind::Input
     )
 }
 
@@ -130,12 +181,19 @@ fn remote_agents(core: &Core) -> Vec<RemoteAgent> {
         .collect()
 }
 
+/// What went wrong in a turn, and how, when the agent's driver knew.
+#[derive(Clone)]
+struct Problem {
+    said: String,
+    fault: Option<Fault>,
+}
+
 #[derive(Default)]
 struct Turn {
     started_at: u64,
     /// Unset while it runs, and when the person stopped it.
     ended_at: Option<u64>,
-    problem: Option<String>,
+    problem: Option<Problem>,
     recordings: Vec<InboxRecording>,
     /// Worked out the first time it is asked for once the turn ended.
     handoff: Option<InboxHandoff>,
@@ -173,9 +231,37 @@ impl Turns {
         let mut turns = self.turns.locked();
         let turn = turn(&mut turns, agent_id);
         turn.ended_at = Some(epoch_ms());
-        if let Some(problem) = problem {
-            turn.problem = Some(problem.to_owned());
+        if let Some(said) = problem {
+            match &mut turn.problem {
+                Some(problem) => said.clone_into(&mut problem.said),
+                None => {
+                    turn.problem = Some(Problem {
+                        said: said.to_owned(),
+                        fault: None,
+                    })
+                }
+            }
         }
+    }
+
+    /// The chat cannot send its failed turn's prompt again after all, so the turn waits on
+    /// the person's account.
+    pub(crate) fn not_retrying(&self, agent_id: &str) {
+        let mut turns = self.turns.locked();
+        let problem = turns
+            .get_mut(agent_id)
+            .and_then(|turn| turn.problem.as_mut());
+        if let Some(problem) = problem.filter(|problem| problem.fault == Some(Fault::Retrying)) {
+            problem.fault = Some(Fault::Account);
+        }
+    }
+
+    /// The agent's driver saw its turn fail, and how.
+    pub(crate) fn failed(&self, agent_id: &str, said: &str, fault: Fault) {
+        turn(&mut self.turns.locked(), agent_id).problem = Some(Problem {
+            said: said.to_owned(),
+            fault: Some(fault),
+        });
     }
 
     pub(crate) fn stopped(&self, agent_id: &str) {
@@ -187,7 +273,7 @@ impl Turns {
     fn snapshot(
         &self,
         agent_id: &str,
-    ) -> Option<(Option<u64>, Option<String>, Vec<InboxRecording>)> {
+    ) -> Option<(Option<u64>, Option<Problem>, Vec<InboxRecording>)> {
         self.turns
             .locked()
             .get(agent_id)
@@ -359,12 +445,19 @@ fn gone_agent(core: &Core, agent_id: &str) -> Agent {
     }
 }
 
-fn item(id: String, kind: InboxKind, what: String, at: u64) -> InboxItem {
+fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
+    let (kind, wants) = case.placed();
+    let (tier, need) = match wants {
+        Wants::Person(need) => (InboxTier::Needs, Some(need)),
+        Wants::Nobody(Quiet::Review) => (InboxTier::Review, None),
+        Wants::Nobody(Quiet::Finished) => (InboxTier::Finished, None),
+        Wants::Nobody(Quiet::Progress) => (InboxTier::Progress, None),
+    };
     InboxItem {
         id,
-        tier: tier(kind),
+        tier,
         kind,
-        need: need(kind),
+        need,
         agent_id: None,
         name: None,
         cli: None,
@@ -377,7 +470,10 @@ fn item(id: String, kind: InboxKind, what: String, at: u64) -> InboxItem {
         feed: None,
         turn: None,
         card: None,
-        gate: None,
+        gate: match case {
+            Case::Gate(gate) => Some(gate),
+            _ => None,
+        },
         request_id: None,
         choices: None,
         question_id: None,
@@ -453,7 +549,7 @@ fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
         Waits::Review { url } => {
             let mut item = item(
                 card_id,
-                InboxKind::PullRequest,
+                Case::PullRequest,
                 "Its pull request is ready for review".into(),
                 card.updated_at,
             );
@@ -463,7 +559,7 @@ fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
         Waits::Held { note } => {
             let mut item = item(
                 card_id,
-                InboxKind::Held,
+                Case::HandedBack,
                 "Its card came back to you".into(),
                 card.updated_at,
             );
@@ -486,11 +582,10 @@ fn gate_item(card: &Summary, gate: Gate, promise: &str) -> InboxItem {
             card.id,
             board::gate_key(gate)
         ),
-        InboxKind::Gate,
+        Case::Gate(gate),
         format!("Waits for you at {}", board::gate_words(gate)),
         card.updated_at,
     );
-    item.gate = Some(gate);
     item.detail = Some(promise.to_owned());
     item
 }
@@ -502,27 +597,27 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
     let mut item = if working {
         item(
             format!("agent:{}", agent.id),
-            InboxKind::Working,
+            Case::Working,
             "Working".into(),
             agent.at,
         )
     } else {
         let mut handoff = handoff(core, &agent.id);
         handoff.result = card.as_ref().and_then(|card| card.result.clone());
-        let (kind, what) = match &problem {
-            Some(_) => (InboxKind::Failed, "Ran into a problem"),
+        let (case, what) = match &problem {
+            Some(problem) => (Case::Failed(problem.fault), "Ran into a problem"),
             None if handoff.edited > 0 || card.as_ref().is_some_and(|card| card.done) => {
-                (InboxKind::Changes, "Finished, with changes to review")
+                (Case::Changes, "Finished, with changes to review")
             }
-            None => (InboxKind::Finished, "Finished"),
+            None => (Case::Finished, "Finished"),
         };
         let mut item = item(
             format!("agent:{}", agent.id),
-            kind,
+            case,
             what.into(),
             ended_at.unwrap_or(agent.at),
         );
-        item.detail = problem.map(|problem| clipped_line(&problem, MAX_LINE_CHARS));
+        item.detail = problem.map(|problem| clipped_line(&problem.said, MAX_LINE_CHARS));
         item.handoff = Some(handoff);
         item
     };
@@ -541,7 +636,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     for attention in core.chats.attentions() {
         let mut item = item(
             format!("permission:{}:{}", attention.agent_id, attention.id),
-            InboxKind::Permission,
+            Case::Permission,
             "Needs your permission".into(),
             attention.at,
         )
@@ -558,17 +653,22 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     }
     let questions = core.harness.questions.for_person();
     for question in &questions {
-        let (kind, what) = match (&question.assumption, question.blocked) {
+        let (case, what) = match (&question.assumption, question.blocked) {
             (Some(assumption), false) => (
-                InboxKind::Assumption,
+                Case::Assumption,
                 format!(
                     "Went on assuming {}",
                     clipped_line(assumption, MAX_LINE_CHARS)
                 ),
             ),
-            _ => (InboxKind::Question, "Asks you".to_owned()),
+            _ => (
+                Case::Question {
+                    secret: question.secret,
+                },
+                "Asks you".to_owned(),
+            ),
         };
-        let mut item = item(format!("question:{}", question.id), kind, what, question.at)
+        let mut item = item(format!("question:{}", question.id), case, what, question.at)
             .by(&question.agent_id, find(&question.agent_id));
         item.detail = Some(clipped_line(&question.text, MAX_LINE_CHARS));
         item.question_id = Some(question.id.clone());
@@ -579,7 +679,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         let other_name = core.names.name(other).unwrap_or_else(|| other.clone());
         let mut item = item(
             format!("loop:{agent}:{other}"),
-            InboxKind::Held,
+            Case::Looping,
             format!("Keeps messaging {other_name} and nothing else"),
             looped.since,
         )
@@ -594,7 +694,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         let other_name = core.names.name(other).unwrap_or_else(|| other.clone());
         let mut item = item(
             format!("collide:{agent}:{other}"),
-            InboxKind::Held,
+            Case::Colliding,
             format!("Keeps changing the same lines as {other_name}"),
             pair.since,
         )
@@ -637,7 +737,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
             .collect();
         let mut item = item(
             format!("check:{}", failing.project),
-            InboxKind::Held,
+            Case::CheckFailing,
             format!(
                 "The project's check keeps failing after {}'s commits",
                 names.join(", ")
@@ -671,7 +771,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         items.push(
             item(
                 format!("input:{agent_id}"),
-                InboxKind::Input,
+                Case::Input,
                 "Waits for you to type".into(),
                 session.active_at.unwrap_or(0),
             )
@@ -710,11 +810,9 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     let mut view = view_of(core, &agents(core, chats, sessions), sessions);
     with_remote_workers(&mut listed, &mut view.remote_agents);
     let mut needs: BTreeMap<String, usize> = BTreeMap::new();
-    for item in view
-        .items
-        .iter()
-        .filter(|item| item.tier == InboxTier::Needs)
-    {
+    let mut needed = 0;
+    for item in view.items.iter().filter(|item| item.need.is_some()) {
+        needed += 1;
         let project = (item.agent_id.as_ref())
             .and_then(|agent_id| project_of.get(agent_id))
             .or(item.project.as_ref());
@@ -726,6 +824,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         rollup: rollup(&listed),
         projects,
         needs,
+        needed,
         agents: listed,
         ..view
     }
@@ -901,7 +1000,8 @@ fn shown(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agent
     ranked.into_iter().map(|(_, shown)| shown).collect()
 }
 
-fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
+/// Everything that waits on the person besides how agents' turns went.
+fn waiting(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxItem> {
     let mut items = needs(core, agents, sessions);
     for card in board::cards_for_person(core, None) {
         if let Some(item) = card
@@ -912,6 +1012,11 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
             items.push(item);
         }
     }
+    items
+}
+
+fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
+    let mut items = waiting(core, agents, sessions);
     let listed: HashSet<String> = items
         .iter()
         .filter_map(|item| item.agent_id.clone())
@@ -934,6 +1039,7 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
         agents: Vec::new(),
         projects: BTreeMap::new(),
         needs: BTreeMap::new(),
+        needed: 0,
         rollup: None,
     }
 }
@@ -945,11 +1051,7 @@ pub(crate) fn digest(core: &Core, since: Option<u64>) -> InboxDigest {
     let since = since.or(left_at);
     let (chats, sessions) = core.ranked_infos();
     let agents = agents(core, &chats, &sessions);
-    let waiting = view_of(core, &agents, &sessions)
-        .items
-        .into_iter()
-        .filter(|item| item.tier == InboxTier::Needs)
-        .collect();
+    let waiting = ranked(waiting(core, &agents, &sessions));
     let (mut finished, mut failed) = (Vec::new(), Vec::new());
     if let Some(since) = since {
         let mut listed = HashSet::new();
@@ -976,7 +1078,7 @@ pub(crate) fn digest(core: &Core, since: Option<u64>) -> InboxDigest {
             }
             let mut item = item(
                 format!("card:{}:{}", card.project, card.id),
-                InboxKind::Finished,
+                Case::Finished,
                 "Its card is done".into(),
                 card.updated_at,
             );

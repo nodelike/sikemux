@@ -1,5 +1,5 @@
 //! What waits on the person, as the core ranks it, so the rail, the notch and
-//! phones list it the same way: agents blocked or asking first, then changes
+//! phones list it the same way: whatever needs the person first, then changes
 //! to review, then finished work, then work under way.
 
 use std::collections::BTreeMap;
@@ -12,6 +12,7 @@ use crate::slice::Gate;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InboxTier {
+    /// Everything with a `need`, and nothing else.
     Needs,
     Review,
     Finished,
@@ -22,11 +23,13 @@ pub enum InboxTier {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InboxNeed {
-    /// A gate to pass, a question to answer or a permission to give.
+    /// A gate to pass, a question to answer, a permission to give or a pull
+    /// request to merge.
     Decide,
-    /// Something only the person can do before work goes on, such as typing in a terminal.
+    /// Something only the person can do before work goes on, such as signing in,
+    /// giving a secret or typing in a terminal.
     Unblock,
-    /// A failed check or something held that needs mending.
+    /// A failed check or turn, or something held that needs mending.
     Fix,
 }
 
@@ -55,6 +58,9 @@ pub enum InboxKind {
     Failed,
     Finished,
     Working,
+    /// A kind a newer core sends, which this build does not know.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A browser recording an agent made.
@@ -152,6 +158,9 @@ pub struct Inbox {
     /// How many items wait on the person in each project, by the id of the project their
     /// agent is in, else by the project the item names.
     pub needs: BTreeMap<String, usize>,
+    /// How many items wait on the person, in a project or not.
+    #[serde(default)]
+    pub needed: usize,
     /// How every open agent here shows together; none while none is open.
     pub rollup: Option<AgentRollup>,
 }
