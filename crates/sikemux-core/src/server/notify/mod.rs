@@ -293,10 +293,17 @@ fn noted(core: &Core, away: bool, now: u64) {
 }
 
 /// Tells of each inbox item that needs the person and was not there at the last
-/// look, once, and takes each that no longer does off where it was told.
+/// look, once, and takes each that no longer does off where it was told. What
+/// the first look finds counts as told everywhere already, as it was before
+/// the core started, so it is neither sent again nor left on a phone once over.
 /// Nothing is looked at while nobody could be told.
 fn inbox(core: &Core, now: u64) {
-    if !core.window.is_open() && core.remote.notify_targets().is_none() {
+    let phones: Vec<String> = core
+        .remote
+        .notify_targets()
+        .map(|(_, targets)| targets.into_iter().map(|target| target.device_id).collect())
+        .unwrap_or_default();
+    if !core.window.is_open() && phones.is_empty() {
         return;
     }
     let items = super::inbox::told(core);
@@ -313,7 +320,11 @@ fn inbox(core: &Core, now: u64) {
                 }
                 None => {
                     let draft = needed(core, item, now);
-                    if !first {
+                    if first {
+                        for to in std::iter::once(APP).chain(phones.iter().map(String::as_str)) {
+                            state.alerted.insert((to.to_owned(), draft.card.clone()));
+                        }
+                    } else {
                         fresh.push(draft.clone());
                     }
                     kept.insert(item.id.clone(), draft);
@@ -421,7 +432,9 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             let started = core.notify.state.locked().turns.remove(&agent_id);
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
-            if long && !cancelled && !core.harness.questions.waits_on_answer(&agent_id) {
+            let asking = core.harness.questions.waits_on_answer(&agent_id)
+                || core.harness.questions.proposal_of(&agent_id).is_some();
+            if long && !cancelled && !asking {
                 if let Some(draft) = finished(core, &agent_id, now) {
                     alert_all(core, &draft, now);
                 }

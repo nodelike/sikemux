@@ -571,14 +571,24 @@ impl About for InboxItem {
     }
 }
 
+/// Two agents' ids in the same order whichever of them a pair names first, so the
+/// pair's item keeps its id.
+fn pair_id(one: &str, other: &str) -> String {
+    if one <= other {
+        format!("{one}:{other}")
+    } else {
+        format!("{other}:{one}")
+    }
+}
+
 /// The item for a card that waits on the person, unless what it waits for is
 /// an answer, which its question's item asks for.
 fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
-    let card_id = format!("card:{}:{}", card.project, card.id);
+    let card_id = |state: &str| format!("{state}:{}:{}", card.project, card.id);
     let mut item = match waits {
         Waits::Review { url } => {
             let mut item = item(
-                card_id,
+                card_id("review"),
                 Case::PullRequest,
                 "Its pull request is ready for review".into(),
                 card.updated_at,
@@ -588,7 +598,7 @@ fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
         }
         Waits::Held { need, note } => {
             let mut item = item(
-                card_id,
+                card_id("held"),
                 Case::HandedBack(*need),
                 "Its card came back to you".into(),
                 card.updated_at,
@@ -724,7 +734,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         let (agent, other) = &looped.agents;
         let other_name = core.names.name(other).unwrap_or_else(|| other.clone());
         let mut item = item(
-            format!("loop:{agent}:{other}"),
+            format!("loop:{}", pair_id(agent, other)),
             Case::Looping,
             format!("Keeps messaging {other_name} and nothing else"),
             looped.since,
@@ -739,7 +749,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         let (agent, other) = &pair.agents;
         let other_name = core.names.name(other).unwrap_or_else(|| other.clone());
         let mut item = item(
-            format!("collide:{agent}:{other}"),
+            format!("collide:{}", pair_id(agent, other)),
             Case::Colliding,
             format!("Keeps changing the same lines as {other_name}"),
             pair.since,
