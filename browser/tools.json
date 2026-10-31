@@ -1809,6 +1809,12 @@
           "type": "string",
           "maxLength": 16384
         },
+        "promise": {
+          "description": "What it changes, in one sentence; makes it a slice that passes Built, Looks right and Landed",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
         "parent": {
           "description": "Card it goes under",
           "type": "integer",
@@ -1879,6 +1885,12 @@
         "details": {
           "type": "string",
           "maxLength": 16384
+        },
+        "promise": {
+          "description": "What it changes, in one sentence; makes it a slice that passes Built, Looks right and Landed",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
         },
         "status": {
           "type": "string",
