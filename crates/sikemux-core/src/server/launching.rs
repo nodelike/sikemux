@@ -285,7 +285,7 @@ pub(crate) async fn start(
     launch.effort = chosen.effort;
     launch.account = chosen.account;
     launch.fallbacks = chosen.fallbacks;
-    let started = chat::begin(core, launch, by, Some(launcher_id), waits_for_person)?;
+    let started = chat::begin(core, launch, by, Some(launcher_id), waits_for_person, false)?;
     core.broadcast_local(&Event::ChatBegun {
         chat: started.info(),
     });

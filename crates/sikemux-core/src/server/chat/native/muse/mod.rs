@@ -716,7 +716,11 @@ async fn page_history(rpc: &Rpc, session_id: &str) -> Vec<Value> {
 }
 
 impl Backend for Muse {
-    async fn start(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
+    async fn start(
+        launch: &ChatLaunch,
+        _brief: Option<&str>,
+        sink: Sink,
+    ) -> Result<(Self, Opened), String> {
         let mode = launch.permission_mode;
         let cwd = launch.cwd.to_string_lossy().into_owned();
         // Muse asks again about approvals left waiting as soon as a session

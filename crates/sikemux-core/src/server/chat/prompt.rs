@@ -12,7 +12,7 @@ use crate::protocol::ChatContext;
 
 const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ATTACHMENTS: usize = 32;
-const MAX_CONTEXT_ITEMS: usize = 16;
+pub const MAX_CONTEXT_ITEMS: usize = 16;
 
 pub fn bounded_text(name: &str, value: &str, max: usize) -> Result<(), String> {
     if value.is_empty() || value.len() > max || value.contains(['\0', '\r', '\n']) {

@@ -31,7 +31,7 @@ mod brief;
 mod check;
 mod promote;
 
-pub(crate) use brief::brief;
+pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
 pub(crate) use promote::promote;
 

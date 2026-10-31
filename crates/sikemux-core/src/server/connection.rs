@@ -757,7 +757,7 @@ async fn run_requests(
                 client.answer::<ask::List>(request_id, Ok(core.session_infos()));
             }
             Request::AcpStart(ask::AcpStart { launch }) => {
-                match chat::begin(&core, *launch, Some(&client), None, false) {
+                match chat::begin(&core, *launch, Some(&client), None, false, false) {
                     Ok(started) => {
                         tokio::spawn(async move {
                             let result = chat::until_started(&core, started).await;

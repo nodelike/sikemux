@@ -621,7 +621,7 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
         return Ok(());
     }
     super::tell_clients(core);
-    let chat = chat::begin(core, launch, None, Some(launcher), false)
+    let chat = chat::begin(core, launch, None, Some(launcher), false, true)
         .map_err(|error| error.to_string())?;
     let _ = core.workspaces.edit_agent(agent, |agent| {
         agent.worktree = Some(AgentWorktree {

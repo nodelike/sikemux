@@ -18,6 +18,7 @@ use crate::launch::PermissionMode;
 use crate::agent_accounts::sign_in::{self, SignIn};
 use crate::server::chat::failure::{Failure, FailureKind};
 use crate::server::chat::permission;
+use crate::server::chat::prompt::MAX_CONTEXT_ITEMS;
 use crate::server::inbox::Fault;
 
 use super::SessionEnd;
@@ -64,6 +65,8 @@ impl From<&Replay> for Prompt {
 /// few hundred lines of what a tool printed, and a long chat loaded again
 /// would otherwise send all of it.
 const MAX_TEXT: usize = 128 * 1024;
+/// Where a chat's brief says it is from, when it goes with the first message.
+const BRIEF_URI: &str = "sikemux://memory";
 /// The largest picture an update carries, as base64. The chat keeps none
 /// bigger.
 const MAX_IMAGE: usize = 2 * 1024 * 1024;
@@ -385,12 +388,27 @@ pub(crate) struct Opened {
     pub setup: Value,
 }
 
+/// A chat's brief as context handed over with its first message, titled by its first line.
+fn brief_context(brief: String) -> ChatContext {
+    ChatContext {
+        uri: BRIEF_URI.to_owned(),
+        title: brief.lines().next().unwrap_or_default().to_owned(),
+        text: brief,
+    }
+}
+
 /// One agent the core speaks to in its own protocol.
 pub(crate) trait Backend: Sized + Send {
+    /// The agent takes instructions of the core's own as it starts, so a
+    /// chat's brief goes there rather than with its first message.
+    const INSTRUCTIONS: bool = false;
+
     /// Starts the agent and opens the chat's session, or loads the one it
-    /// resumes, replaying its history through `sink`.
+    /// resumes, replaying its history through `sink`, with `brief` among its
+    /// instructions when it takes them.
     fn start(
         launch: &ChatLaunch,
+        brief: Option<&str>,
         sink: Sink,
     ) -> impl std::future::Future<Output = Result<(Self, Opened), String>> + Send;
 
@@ -582,7 +600,8 @@ pub(crate) async fn run<B: Backend>(
             if first && chat.history_in_place() {
                 chat.feed.let_out();
             }
-            let started = B::start(&launch, sink.clone()).await;
+            let brief = B::INSTRUCTIONS.then(|| chat.brief()).flatten();
+            let started = B::start(&launch, brief.as_deref(), sink.clone()).await;
             chat.feed.let_out();
             let (backend, opened) = started?;
             sink.loaded();
@@ -747,11 +766,13 @@ impl<B: Backend> Running<'_, B> {
     async fn send(&mut self, replay: Replay) {
         self.state.turn += 1;
         self.chat.emit(ChatEventKind::TurnStarted, json!({}));
-        if let Err(error) = self
-            .backend
-            .prompt(self.state.turn, Prompt::from(&replay))
-            .await
-        {
+        let mut prompt = Prompt::from(&replay);
+        if !B::INSTRUCTIONS && prompt.context.len() < MAX_CONTEXT_ITEMS {
+            prompt
+                .context
+                .extend(self.chat.take_brief().map(brief_context));
+        }
+        if let Err(error) = self.backend.prompt(self.state.turn, prompt).await {
             self.chat.stop_running();
             self.chat.emit(ChatEventKind::Error, error_message(error));
         }

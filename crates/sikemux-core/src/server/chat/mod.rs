@@ -243,11 +243,24 @@ pub(crate) struct Chat {
     pub(crate) saved_shown: AtomicBool,
     /// The saved history is still being read into the chat.
     pub(crate) saved_reading: watch::Sender<bool>,
+    /// What Sikemux keeps for the project, which a chat the person started
+    /// is handed once: with its agent's instructions, or else with its first message.
+    brief: Mutex<Option<String>>,
 }
 
 impl Chat {
     pub(crate) fn agent_id(&self) -> &str {
         &self.launch.agent_id
+    }
+
+    /// What Sikemux keeps for the project, as the chat began.
+    pub(crate) fn brief(&self) -> Option<String> {
+        self.brief.locked().clone()
+    }
+
+    /// The chat's brief the first time it is asked for, for its first message.
+    pub(crate) fn take_brief(&self) -> Option<String> {
+        self.brief.locked().take()
     }
 
     pub(crate) fn provider(&self) -> &str {
@@ -1603,6 +1616,7 @@ impl Chats {
             restarts: Mutex::new(Default::default()),
             published: Mutex::new(AgentState::Unknown),
             unstarted: AtomicBool::new(false),
+            brief: Mutex::new(None),
             wanted: tokio::sync::Notify::new(),
             saved_shown: AtomicBool::new(history_shown),
             saved_reading: watch::channel(false).0,
@@ -1754,18 +1768,28 @@ fn launch(
 /// The chat is known to the core when this returns, so a stop asked for
 /// next finds it. With `waits_for_person`, its agent starts only once the
 /// person writes in the chat or something is sent to it.
+/// Starts a chat agent. `briefed` when its first task carries what Sikemux
+/// keeps for the project already, as Auto's does.
 pub(crate) fn begin(
     core: &Arc<Core>,
     launch_spec: ChatLaunch,
     subscriber: Option<&Arc<ClientConn>>,
     launcher: Option<String>,
     waits_for_person: bool,
+    briefed: bool,
 ) -> CoreResult<Arc<Chat>> {
     let origin = Origin {
         started_by: subscriber.and_then(|client| client.peer.device_id()),
         launcher,
     };
-    start(core, launch_spec, origin, subscriber, waits_for_person)
+    start(
+        core,
+        launch_spec,
+        origin,
+        subscriber,
+        waits_for_person,
+        briefed,
+    )
 }
 
 /// Starts a chat agent another agent asked for, with `lead` as who started it.
@@ -1779,7 +1803,7 @@ pub(crate) fn begin_worker(
         started_by: Some(lead.to_owned()),
         launcher,
     };
-    start(core, launch_spec, origin, None, false)
+    start(core, launch_spec, origin, None, false, true)
 }
 
 fn start(
@@ -1788,6 +1812,7 @@ fn start(
     origin: Origin,
     subscriber: Option<&Arc<ClientConn>>,
     waits_for_person: bool,
+    briefed: bool,
 ) -> CoreResult<Arc<Chat>> {
     super::launching::own_tools(core, &mut launch_spec);
     rebind::name_accounts(core, &mut launch_spec);
@@ -1798,6 +1823,9 @@ fn start(
     let resume_id = launch_spec.resume_id.clone();
     let waking = core.workspaces.agent(&launch_spec.agent_id).is_some();
     let (chat, queue) = core.chats.insert(core, launch_spec, origin, None)?;
+    if resume_id.is_none() && !briefed {
+        *chat.brief.locked() = super::memory::for_chat(core, &chat.launch.cwd);
+    }
     core.workspaces.note_begun(&chat);
     super::model_providers::chat_begun(core, &chat.launch);
     let naming = (

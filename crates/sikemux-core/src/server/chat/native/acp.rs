@@ -427,7 +427,11 @@ impl Acp {
 }
 
 impl Backend for Acp {
-    async fn start(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
+    async fn start(
+        launch: &ChatLaunch,
+        _brief: Option<&str>,
+        sink: Sink,
+    ) -> Result<(Self, Opened), String> {
         let (process, writer, lines) =
             Process::spawn(launch, Vec::<String>::new(), Vec::<(String, String)>::new())?;
         let driver = Driver {

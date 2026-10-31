@@ -315,9 +315,10 @@ impl Claude {
         shared: &Arc<Mutex<Shared>>,
         session_id: &str,
         start: Start<'_>,
-        mode: &str,
         model: Option<&str>,
+        brief: Option<&str>,
     ) -> Result<(Running, Value), String> {
+        let mode = config::permission_mode(launch.permission_mode);
         let mut args: Vec<String> = [
             "--output-format",
             "stream-json",
@@ -341,11 +342,11 @@ impl Claude {
             args.extend(["--model".to_owned(), model.to_owned()]);
         }
         let tools = servers::tool_servers(launch);
-        if servers::offers_sikemux_tools(&tools) {
-            args.extend([
-                "--append-system-prompt".to_owned(),
-                crate::server::gestures::PERSONALITY.to_owned(),
-            ]);
+        let personality =
+            servers::offers_sikemux_tools(&tools).then_some(crate::server::gestures::PERSONALITY);
+        let appended: Vec<&str> = personality.into_iter().chain(brief).collect();
+        if !appended.is_empty() {
+            args.extend(["--append-system-prompt".to_owned(), appended.join("\n\n")]);
         }
         if let Some(config) = mcp_config(&tools) {
             args.extend(["--mcp-config".to_owned(), config]);
@@ -481,7 +482,13 @@ impl Claude {
 }
 
 impl Backend for Claude {
-    async fn start(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
+    const INSTRUCTIONS: bool = true;
+
+    async fn start(
+        launch: &ChatLaunch,
+        brief: Option<&str>,
+        sink: Sink,
+    ) -> Result<(Self, Opened), String> {
         let mode = config::permission_mode(launch.permission_mode);
         let shared = Arc::new(Mutex::new(Shared {
             mode: mode.to_owned(),
@@ -512,8 +519,8 @@ impl Backend for Claude {
             &shared,
             &session_id,
             start,
-            mode,
             wanted.as_deref(),
+            brief,
         )
         .await?;
         if let Some(replaying) = replaying {

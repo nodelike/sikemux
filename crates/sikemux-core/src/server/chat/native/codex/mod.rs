@@ -560,7 +560,13 @@ impl Codex {
 }
 
 impl Backend for Codex {
-    async fn start(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
+    const INSTRUCTIONS: bool = true;
+
+    async fn start(
+        launch: &ChatLaunch,
+        brief: Option<&str>,
+        sink: Sink,
+    ) -> Result<(Self, Opened), String> {
         let mode = launch.permission_mode;
         let (process, writer, lines) = Process::spawn(
             launch,
@@ -627,10 +633,11 @@ impl Backend for Codex {
             .map(|servers| servers.keys().cloned().collect())
             .unwrap_or_default();
         let start_thread = || {
-            rpc.request(
-                "thread/start",
-                json!({ "cwd": cwd, "config": session_config }),
-            )
+            let mut params = json!({ "cwd": cwd, "config": session_config });
+            if let Some(brief) = brief {
+                params["developerInstructions"] = brief.into();
+            }
+            rpc.request("thread/start", params)
         };
         let mut lost = false;
         let opened = match &launch.resume_id {
