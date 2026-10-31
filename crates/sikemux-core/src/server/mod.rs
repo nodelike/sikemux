@@ -86,6 +86,7 @@ mod tasks;
 pub mod themes;
 mod tools;
 pub(crate) mod transcript;
+mod triage;
 mod triggers;
 mod updates;
 mod upgrade;

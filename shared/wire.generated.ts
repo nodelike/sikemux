@@ -3473,6 +3473,33 @@ export interface DecideParams {
     retire?: boolean;
 }
 
+export interface TriageParams {
+    project: string;
+    /** What the person typed so far. */
+    text: string;
+}
+
+/** The mode pre-picked for what the person typed, and what decided it. */
+export interface Triage {
+    mode: StartMode;
+    /**
+     * The fact that called for more than doing it at once, and the path in
+     * the text that showed it; none when nothing did.
+     */
+    because?: Because | null;
+}
+
+export type StartMode = "doIt" | "planFirst" | "withMe";
+
+export interface Because {
+    fact: HardFact;
+    /** The project's path, as the text names it. */
+    path: string;
+}
+
+/** Something the text touches that calls for planning first. */
+export type HardFact = "server" | "migration" | "protocol" | "seenByUsers";
+
 export interface MemoryParams {
     project: string;
 }
@@ -3700,6 +3727,7 @@ export interface CoreCalls {
     boardRemove: { params: BoardCardParams; answer: ProjectBoard };
     boardSettings: { params: BoardSettingsParams; answer: ProjectBoard };
     boardDecide: { params: DecideParams; answer: ProjectBoard };
+    triage: { params: TriageParams; answer: Triage };
     memory: { params: MemoryParams; answer: MemoryView };
     memoryAdd: { params: MemoryAddParams; answer: MemoryView };
     memoryUpdate: { params: MemoryUpdateParams; answer: MemoryView };

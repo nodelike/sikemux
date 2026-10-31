@@ -16,4 +16,5 @@ pub mod push;
 pub mod questions;
 pub mod share;
 pub mod slice;
+pub mod start;
 pub mod theme;

@@ -588,6 +588,9 @@ calls! { core, client, params;
     "boardDecide" BoardDecide (board::goal::DecideParams) -> board::BoardView: Full => {
         board::goal::person_decide(&core, params).await?
     },
+    "triage" Triage (super::triage::TriageParams) -> sikemux_wire::start::Triage: Full => {
+        super::triage::triage(&core, params).await?
+    },
     "memory" Memory (memory::MemoryParams) -> MemoryView: Watch, any_program => memory::person_view(&core, &client.peer, params)?,
     "memoryAdd" MemoryAdd (memory::MemoryAddParams) -> MemoryView: Full => memory::person_add(&core, client.peer.clone(), params).await?,
     "memoryUpdate" MemoryUpdate (memory::MemoryUpdateParams) -> MemoryView: Full => memory::person_update(&core, client.peer.clone(), params).await?,
