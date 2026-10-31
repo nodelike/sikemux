@@ -68,6 +68,8 @@ Check a `sikemux.json` into a project to add actions, processes and a preview to
 
 Processes go in its `tasks` list. Agents can start, read and stop them too. They keep running in the background while the window is closed.
 
+`planFirst` lists paths, such as `"planFirst": ["server/**", "db/schema.sql"]`, whose change Sikemux suggests planning before it starts, when what you type names one. Migrations folders, `.proto` and OpenAPI files, a top-level `server/` or `api/`, and UI folders such as `components/` count in every project without it.
+
 ## Quitting
 
 Terminals, agents and processes keep running when you quit, and come back where they were. **Quit and Stop Everything** (`⌥⌘Q`) ends them, and Sikemux stays stopped. Chats stay open asleep, each on its saved conversation with its name and tab, and start again only when you open or write to one: messages from agents and triggers wait for it until then. A turn they were in shows as stopped. Sikemux's window says it is stopped, with **Start Sikemux**, and nothing starts it again until you press that or start it another way. If Sikemux ever stops answering, its window says so, with **Restart Sikemux**: that ends it and starts it again. Terminals end; chats pick up where they were.

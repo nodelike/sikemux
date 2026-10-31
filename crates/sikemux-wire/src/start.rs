@@ -25,6 +25,8 @@ pub enum HardFact {
     Protocol,
     /// What the people using the product see.
     SeenByUsers,
+    /// A path the project's sikemux.json lists under `planFirst`.
+    Listed,
 }
 
 /// The mode pre-picked for what the person typed, and what decided it.

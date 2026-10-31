@@ -3498,7 +3498,7 @@ export interface Because {
 }
 
 /** Something the text touches that calls for planning first. */
-export type HardFact = "server" | "migration" | "protocol" | "seenByUsers";
+export type HardFact = "server" | "migration" | "protocol" | "seenByUsers" | "listed";
 
 export interface MemoryParams {
     project: string;

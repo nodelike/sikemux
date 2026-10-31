@@ -15,7 +15,16 @@ pub const CONFIG_FILE: &str = "sikemux.json";
 pub const CONFIG_VERSION: u64 = 1;
 
 const ROOT_FIELDS: &[&str] = &[
-    "version", "$schema", "icon", "actions", "tasks", "preview", "worktree", "generate", "check",
+    "version",
+    "$schema",
+    "icon",
+    "actions",
+    "tasks",
+    "preview",
+    "worktree",
+    "generate",
+    "check",
+    "planFirst",
 ];
 const ACTION_FIELDS: &[&str] = &[
     "id",
@@ -32,6 +41,7 @@ const WORKTREE_FIELDS: &[&str] = &["onCreate"];
 const HOOK_FIELDS: &[&str] = &["id", "label", "command"];
 const GENERATE_FIELDS: &[&str] = &["command", "outputs"];
 const MAX_OUTPUTS: usize = 50;
+const MAX_PLAN_FIRST: usize = 50;
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
 const MAX_ACTIONS: usize = 100;
 const MAX_TASKS: usize = 100;
@@ -195,6 +205,20 @@ pub struct ProjectConfig {
     /// change when its pull request has no CI.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub check: Option<String>,
+    /// Paths whose change is planned before it starts, beside the ones every
+    /// project has, such as migrations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_first: Option<PathGlobs>,
+}
+
+/// Project-relative path patterns, such as `server/**`, kept as written and
+/// read once into a matcher.
+#[derive(Serialize, Clone, Debug)]
+#[serde(transparent)]
+pub struct PathGlobs {
+    pub patterns: Vec<String>,
+    #[serde(skip)]
+    pub set: globset::GlobSet,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -374,6 +398,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let check = root
         .get("check")
         .and_then(|value| parse_command(Some(value), "$.check", &mut errors));
+    let plan_first = parse_plan_first(root.get("planFirst"), &mut errors);
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -387,6 +412,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         worktree,
         generate,
         check,
+        plan_first,
     })
 }
 
@@ -1105,6 +1131,45 @@ fn parse_generate(
         command: command?,
         outputs,
     }))
+}
+
+fn parse_plan_first(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<PathGlobs> {
+    let listed = match value? {
+        Value::Array(listed) if !listed.is_empty() && listed.len() <= MAX_PLAN_FIRST => listed,
+        _ => {
+            errors.push(issue(
+                "$.planFirst",
+                ConfigErrorCode::InvalidValue,
+                format!("planFirst must list between 1 and {MAX_PLAN_FIRST} path patterns."),
+            ));
+            return None;
+        }
+    };
+    let mut patterns = Vec::new();
+    let mut set = globset::GlobSetBuilder::new();
+    for (index, pattern) in listed.iter().enumerate() {
+        let path = format!("$.planFirst[{index}]");
+        let Some(pattern) = bounded_required(Some(pattern), &path, "Pattern", 512, errors) else {
+            continue;
+        };
+        let normalized = pattern.replace('\\', "/");
+        let relative = !normalized.starts_with('/')
+            && !has_drive_prefix(&normalized)
+            && !normalized.split('/').any(|part| part == "..");
+        match globset::Glob::new(&normalized) {
+            Ok(glob) if relative => {
+                set.add(glob);
+                patterns.push(normalized);
+            }
+            _ => errors.push(issue(
+                path,
+                ConfigErrorCode::InvalidValue,
+                "Each pattern must be a project-relative path pattern, such as server/**.",
+            )),
+        }
+    }
+    let set = set.build().ok()?;
+    (!patterns.is_empty()).then_some(PathGlobs { patterns, set })
 }
 
 fn parse_icon(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<String> {
