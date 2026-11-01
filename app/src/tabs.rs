@@ -113,10 +113,9 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                         .into_iter()
                         .flatten(),
                 )
-                .child(goals_toggle(bench, cx))
-                .child(separator(cx))
                 .children(battery_chip(bench, cx))
                 .child(clock(cx))
+                .child(goals_toggle(bench, cx))
                 .child(
                     IconButton::new(
                         "focus",
