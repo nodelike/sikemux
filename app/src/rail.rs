@@ -1211,11 +1211,7 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
 }
 
 /// A row of the account menu, roomier than other menus' rows since it opens the width of the rail.
-fn account_item(
-    label: &'static str,
-    icon: Icon,
-    hint: Option<SharedString>,
-) -> PopupMenuItem {
+fn account_item(label: &'static str, icon: Icon, hint: Option<SharedString>) -> PopupMenuItem {
     PopupMenuItem::element(move |_, cx| {
         let t = Tokens::get(cx);
         div()
