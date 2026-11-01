@@ -9684,7 +9684,6 @@ dependencies = [
  "sikemux-plugin-api",
  "tokio",
  "url",
- "vte",
  "workspace-hack",
 ]
 
