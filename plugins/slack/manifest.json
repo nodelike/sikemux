@@ -5,6 +5,19 @@
   "sikemux": ">=0.4",
   "callTimeoutSecs": 60,
   "accountMethods": ["signIn", "signOut"],
+  "tokenForm": {
+    "method": "signIn",
+    "lede": "Tools for your agents to read the threads you share, search, reply and look people up.",
+    "fields": [
+      {
+        "name": "token",
+        "label": "User OAuth token",
+        "placeholder": "xoxp-…",
+        "secret": true
+      }
+    ],
+    "tokenPage": "https://api.slack.com/apps"
+  },
   "tools": [
     {
       "name": "slack_thread",

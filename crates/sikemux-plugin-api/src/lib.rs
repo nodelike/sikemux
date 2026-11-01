@@ -30,7 +30,7 @@ pub use manifest::{
 };
 pub use network::{unreachable, Unreachable};
 pub use service::{Service, ServiceError, ServiceResult};
-pub use signin::SignInStatus;
+pub use signin::{SignInStatus, SignedInAs};
 
 pub type PluginFuture<'a, T> = Pin<Box<dyn Future<Output = PluginResult<T>> + Send + 'a>>;
 

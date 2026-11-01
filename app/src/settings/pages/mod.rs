@@ -16,11 +16,11 @@ mod agents;
 mod appearance;
 mod cli;
 mod cloud;
+mod connectors;
 mod devices;
 mod general;
 pub(crate) use general::sent as session_sent;
 mod keybindings;
-mod plugins;
 pub mod theme_editor;
 
 /// What the pages keep while settings are open: what the core last answered
@@ -33,6 +33,7 @@ pub struct State {
     pub activity: Option<activity::Fields>,
     pub appearance: Option<appearance::Fields>,
     pub cloud: Option<cloud::Fields>,
+    pub connectors: Option<connectors::Fields>,
     pub general: Option<general::Fields>,
     pub keybindings: Option<keybindings::Fields>,
     /// The command a search found, which the shortcuts page opens filtered to.
@@ -100,6 +101,11 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
         Page::Theme | Page::Interface | Page::Buddies if pages.appearance.is_none() => {
             cx.defer_in(window, appearance::make)
         }
+        Page::Connectors => match &pages.connectors {
+            None => cx.defer_in(window, connectors::make),
+            Some(fields) if fields.stale => cx.defer_in(window, connectors::read),
+            Some(_) => {}
+        },
         Page::SignOn if pages.cloud.is_none() => cx.defer_in(window, cloud::make),
         Page::Actions if pages.actions.is_none() => cx.defer_in(window, actions::make),
         Page::Cli if pages.cli.is_none() => {
@@ -163,7 +169,7 @@ pub fn render(
         | Page::Notch
         | Page::Voice
         | Page::Simulator => agents::render(bench, pages, page, &lit, this, cx),
-        Page::Integrations => plugins::render(bench, &lit, this, cx),
+        Page::Connectors => connectors::render(bench, pages, &lit, this, cx),
         Page::SignOn => cloud::render(bench, pages, &lit, this, cx),
         Page::Actions => actions::render(bench, pages, &lit, this, cx),
         Page::Cli => cli::render(bench, pages, &lit, this, cx),
@@ -172,14 +178,17 @@ pub fn render(
     }
 }
 
-/// The add-account dialog and the install or sign-in sheet, over whichever page is open.
+/// The add-account dialog, the install or sign-in sheet and a connector's sign-in, over
+/// whichever page is open.
 pub fn dialogs(
     bench: &Workbench,
     this: &Entity<Workbench>,
     window: &Window,
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
-    agents::dialogs(bench, this, window, cx)
+    let mut open = agents::dialogs(bench, this, window, cx);
+    open.extend(connectors::dialog(bench, this, cx));
+    open
 }
 
 /// Lists the model providers again while a page shows them, as after one is added.
@@ -188,6 +197,17 @@ pub fn providers_changed(bench: &Workbench, cx: &mut Context<Workbench>) {
     if shown {
         agents::read_providers(bench, cx);
     }
+}
+
+/// Reads the connectors' own settings again while the Connectors page shows them, as after a
+/// sign-in, once it next draws.
+pub fn plugins_changed(bench: &Workbench, cx: &mut App) {
+    change_form(
+        bench,
+        cx,
+        |pages| pages.connectors.as_mut(),
+        |fields, _| fields.stale = true,
+    );
 }
 
 /// Lists the account's other hosts again while the Devices page shows them,

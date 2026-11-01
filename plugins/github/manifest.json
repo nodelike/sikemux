@@ -9,7 +9,7 @@
   "accountMethods": ["setDefaultAccount", "signIn", "signOut"],
   "tokenForm": {
     "method": "signIn",
-    "lede": "Pull requests, Actions runs and issues for this repository, right beside your changes.",
+    "lede": "Tools for your agents to read and work on pull requests, Actions runs and issues.",
     "fields": [
       { "name": "host", "label": "Host", "placeholder": "github.com" },
       { "name": "token", "label": "Personal access token", "placeholder": "ghp_… or github_pat_…", "secret": true }

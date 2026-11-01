@@ -101,10 +101,10 @@ impl Plugin for Rundeck {
             match method {
                 "status" => return reply(auth::status(data_dir).await),
                 "login" => return answer(auth::login(data_dir, params(input)?)).await,
-                "loginWithToken" => {
+                "signInWithToken" => {
                     return answer(auth::login_with_token(data_dir, params(input)?)).await
                 }
-                "logout" => return answer(auth::logout(data_dir)).await,
+                "signOut" => return answer(auth::logout(data_dir)).await,
                 "lists" => return answer(auth::lists(data_dir)).await,
                 "setLists" => return answer(auth::set_lists(data_dir, params(input)?)).await,
                 _ => {}

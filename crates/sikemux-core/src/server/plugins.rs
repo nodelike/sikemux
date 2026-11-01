@@ -281,34 +281,49 @@ pub(crate) fn sign_in_callback(core: &Core, landed: Landed) -> CoreResult<()> {
         .map_err(CoreError::from)
 }
 
-/// Every plugin built in, each with whether its sign-in works, asked of its
+/// Every plugin built in, each with whether its sign-in works and as whom, asked of its
 /// service now.
 pub(crate) async fn listed(core: &Core) -> Vec<Listed> {
     let disabled = disabled(core);
     let asked = manifests(core).into_iter().map(|manifest| {
-        let id = manifest.id.clone();
-        let name = manifest.name.clone();
-        let enabled = !disabled.contains(&id);
+        let offers = |method: &str| manifest.account_methods.iter().any(|named| named == method);
+        let mut listed = Listed {
+            id: manifest.id.clone(),
+            name: manifest.name.clone(),
+            enabled: !disabled.contains(&manifest.id),
+            signed_in: None,
+            signed_in_as: None,
+            problem: None,
+            browser_sign_in: false,
+            sign_out: offers("signOut"),
+            token_form: manifest.token_form.clone(),
+        };
+        let browser = offers("signInWithBrowser");
         async move {
-            let signed_in = if enabled {
-                match call(core, &id, "status", Value::Null).await {
-                    Ok(status) => Some(
-                        serde_json::from_value::<SignInStatus<IgnoredAny>>(status)
-                            .is_ok_and(|status| status.configured && !status.auth_failed),
-                    ),
-                    Err(failure) if failure.category == Category::UnknownMethod => None,
-                    Err(_) => Some(false),
-                }
-            } else {
-                None
-            };
-            Listed {
-                id,
-                name,
-                enabled,
-                signed_in,
-                token_form: manifest.token_form.clone(),
+            if !listed.enabled {
+                return listed;
             }
+            match call(core, &listed.id, "status", Value::Null).await {
+                Ok(status) => {
+                    listed.browser_sign_in = browser && status["browserSignIn"] != false;
+                    let status = serde_json::from_value::<SignInStatus<IgnoredAny>>(status).ok();
+                    listed.signed_in = Some(
+                        status
+                            .as_ref()
+                            .is_some_and(|status| status.configured && !status.auth_failed),
+                    );
+                    if let Some(status) = status {
+                        listed.signed_in_as = status.signed_in_as;
+                        listed.problem = status.message;
+                    }
+                }
+                Err(failure) if failure.category == Category::UnknownMethod => {}
+                Err(failure) => {
+                    listed.signed_in = Some(false);
+                    listed.problem = Some(failure.message);
+                }
+            }
+            listed
         }
     });
     futures_util::future::join_all(asked).await

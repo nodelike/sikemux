@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use sikemux_plugin_api::store;
-use sikemux_plugin_api::{SignInStatus, StreamSink};
+use sikemux_plugin_api::{SignInStatus, SignedInAs, StreamSink};
 
 use crate::client::{self, at, text, Session};
 use crate::config::{self, Account, Install, SignIn, VercelConfig};
@@ -71,6 +71,16 @@ pub fn teams_of(data: &Value) -> Vec<Team> {
 }
 
 pub type Status = SignInStatus<Signed>;
+
+impl SignedInAs for Signed {
+    fn signed_in_as(&self) -> Option<String> {
+        let account = self.account.as_ref()?;
+        Some(match account.email.is_empty() {
+            true => account.username.clone(),
+            false => account.email.clone(),
+        })
+    }
+}
 
 /// Who is signed in, whether its token still works, and the teams it can see.
 pub async fn status(data_dir: &Path) -> Status {

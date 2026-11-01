@@ -111,6 +111,10 @@ fn status_of(configured: bool, found: Where, error: Option<SignozError>) -> Stat
             )
         ),
         message: error.map(|error| error.to_string()),
+        signed_in_as: configured.then(|| match found.email.is_empty() {
+            true => found.url.clone(),
+            false => found.email.clone(),
+        }),
         details: found,
     }
 }

@@ -1,0 +1,24 @@
+---
+title: Connectors
+description: "The services your agents reach for you, and where you sign in to them."
+---
+
+Connectors give your agents tools for the services you work with: GitHub, GitLab and Bitbucket, Jira and Linear, Slack, Vercel, AWS, SigNoz, Rundeck, and the databases you saved. You don't open these services in Sikemux. You ask an agent, and it uses the connector's tools on your behalf, signed in as you.
+
+## Settings → Connectors
+
+**Settings → Connectors** lists every connector with whether it's signed in and as whom.
+
+- **Sign in** opens the connector's sign-in: **Continue with** the service in your browser where it offers one, or the token form, with **Create a token** to make one on the service's site. Sikemux keeps the sign-in in the macOS Keychain.
+- **Sign out** forgets it.
+- The switch turns a connector off. Agents lose its tools, and it costs nothing until you turn it back on.
+
+A few connectors keep settings that only you change, never an agent:
+
+- **AWS** has no token form. Pick the profile from `~/.aws/config` to sign in with, and Sikemux opens its single sign-on in your browser, or in the browser **Settings → Single sign-on** names. **Profile agents start on** sets `AWS_PROFILE` for every agent, unless your own shell sets one.
+- **Rundeck** keeps **Production words**: a job whose project or top folder holds one of them counts as production, and an agent has to ask you before it runs one. **Branch options** names the job options that say which branch a run deploys.
+- **Database** lists the databases agents can reach, each with **Agents may change data** and **Remove**. See [Databases](/agents/databases/) for how agents propose new ones.
+
+An agent that finds a connector signed out asks you to sign in here. It can't sign in for you.
+
+Sign-ins stay on the host you made them on. A worker on another host uses that host's connectors, as [Linked hosts](/agents/linked-hosts/) explains.

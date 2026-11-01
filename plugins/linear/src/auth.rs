@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use sikemux_plugin_api::oauth::Tokens;
 use sikemux_plugin_api::store::{self, Accounts};
-use sikemux_plugin_api::{SignInStatus, StreamSink};
+use sikemux_plugin_api::{SignInStatus, SignedInAs, StreamSink};
 
 use crate::client::{self, at, Session};
 use crate::config::{self, LinearConfig, SignIn, Workspace};
@@ -43,6 +43,17 @@ pub struct Signed {
 }
 
 pub type Status = SignInStatus<Signed>;
+
+impl SignedInAs for Signed {
+    fn signed_in_as(&self) -> Option<String> {
+        let named: Vec<String> = self
+            .workspaces
+            .iter()
+            .map(|workspace| format!("{} in {}", workspace.user, workspace.name))
+            .collect();
+        (!named.is_empty()).then(|| named.join(", "))
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

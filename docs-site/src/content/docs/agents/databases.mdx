@@ -3,18 +3,16 @@ title: Databases
 description: "What agents can do with the databases you saved, and how they propose new ones."
 ---
 
-Agents reach the databases you saved in the **Database** pane by name: they list them, read their tables and run SQL. Each agent gets a connection of its own, read-only unless you tick **Let agents change data** for that database. Every query an agent runs shows up in that database's history, marked as an agent's.
+Agents reach the databases you saved by name: they list them, read their tables and run SQL. Each agent gets a connection of its own, read-only unless you switch on **Agents may change data** for that database in **Settings → Connectors**. That page also lists every saved database, with **Remove** beside each.
 
 ## When an agent adds one
 
 An agent can't save a database itself. When it sets one up for you, such as a read-only role, it proposes it instead, and Sikemux asks you first:
 
-1. Sikemux reads the agent's connection URL and tries it. A URL it can't read, a server it can't reach or a name you already use goes back to the agent, and you're asked nothing.
+1. Sikemux reads the agent's connection URL and tries it. A URL it can't read, a server URL without its password, a server it can't reach or a name you already use goes back to the agent, and you're asked nothing.
 2. A card asks you whether to add it, showing its name, engine, `user@host:port/database` and how many tables it found. It never shows the password.
-3. **Add** saves it, with any password in the Keychain. **Edit first** opens a new connection's form filled in from the proposal, and nothing is saved until you save it there. **Don't add** turns it down.
+3. **Add** saves it, with any password in the Keychain. **Don't add** turns it down.
 
-If the agent didn't give a password, Sikemux doesn't try the connection, and **Enter password** opens the form for you to type it.
+A database an agent adds opens read-only and agents can't change its data. Only you can change that, in **Settings → Connectors**.
 
-A database an agent adds opens read-only and agents can't change its data. Only you can change that, in its form.
-
-The card goes to you, never to another agent, and you can answer it in the app, on the notch or on your phone. **Edit first** and **Enter password** open the form in the app on the host the agent runs on, so open the app there to use them.
+The card goes to you, never to another agent, and you can answer it in the app, on the notch or on your phone.

@@ -92,6 +92,18 @@ pub struct Listed {
     /// Whether its sign-in works; none for a plugin with no sign-in, or one
     /// switched off.
     pub signed_in: Option<bool>,
+    /// Who is signed in, as its status names them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_in_as: Option<String>,
+    /// Why its sign-in does not work, as the service said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
+    /// It can be signed in to through the browser in this build.
+    #[serde(default)]
+    pub browser_sign_in: bool,
+    /// It can be signed out of.
+    #[serde(default)]
+    pub sign_out: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_form: Option<TokenForm>,
 }

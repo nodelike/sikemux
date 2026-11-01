@@ -8,7 +8,7 @@
   "accountMethods": ["setDefaultAccount", "signInWithBrowser", "signInWithToken", "signOut"],
   "tokenForm": {
     "method": "signInWithToken",
-    "lede": "Pull requests, pipelines and reviews for this repository, right beside your changes.",
+    "lede": "Tools for your agents to read and work on pull requests, pipelines and reviews.",
     "fields": [
       { "name": "token", "label": "Token", "placeholder": "ATATT… or ATCTT…", "secret": true },
       { "name": "email", "label": "Atlassian account email", "placeholder": "you@example.com" }

@@ -165,13 +165,20 @@ pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> JiraRes
 
 #[derive(Deserialize)]
 pub struct SignOut {
-    pub site: String,
+    /// The site to sign out of; the default one when none is named.
+    #[serde(default)]
+    pub site: Option<String>,
 }
 
 /// A browser sign-in is kept until the last of its sites is signed out of.
 pub async fn sign_out(data_dir: &Path, request: SignOut) -> JiraResult<()> {
-    let host = normalise_host(&request.site);
     let unused = store::update(data_dir, move |config: &mut JiraConfig| {
+        let Ok(host) = config
+            .site(request.site.as_deref())
+            .map(|site| site.host.clone())
+        else {
+            return Ok(None);
+        };
         let Some(site) = config.remove(&host) else {
             return Ok(None);
         };
@@ -230,6 +237,13 @@ fn status_of(sites: Vec<SiteStatus>, error: Option<JiraError>) -> Status {
         )
     );
     let configured = !sites.is_empty();
+    let named: Vec<String> = sites
+        .iter()
+        .map(|site| match &site.display_name {
+            Some(name) => format!("{name} on {}", site.host),
+            None => site.host.clone(),
+        })
+        .collect();
     Status {
         configured,
         ok: error.is_none(),
@@ -237,6 +251,7 @@ fn status_of(sites: Vec<SiteStatus>, error: Option<JiraError>) -> Status {
         message: error
             .filter(|error| configured || !matches!(error, JiraError::Unconfigured))
             .map(|error| error.to_string()),
+        signed_in_as: configured.then(|| named.join(", ")),
         details: Sites {
             sites,
             browser_sign_in: oauth::APP.available(),

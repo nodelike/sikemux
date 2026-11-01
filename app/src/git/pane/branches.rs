@@ -183,7 +183,7 @@ impl GitPane {
             let list: Option<PullList> = answer
                 .await
                 .ok()
-                .and_then(|answer| crate::host_marks::answer(&answer).ok());
+                .and_then(|answer| crate::core::outcome(&answer).ok());
             let pulls = list
                 .into_iter()
                 .flat_map(|list| list.pulls)

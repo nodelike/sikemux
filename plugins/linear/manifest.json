@@ -5,6 +5,19 @@
   "sikemux": ">=0.4",
   "callTimeoutSecs": 60,
   "accountMethods": ["signIn", "signInWithBrowser", "signOut"],
+  "tokenForm": {
+    "method": "signIn",
+    "lede": "Tools for your agents to search, read and update your Linear issues.",
+    "fields": [
+      {
+        "name": "key",
+        "label": "Personal API key",
+        "placeholder": "lin_api_…",
+        "secret": true
+      }
+    ],
+    "tokenPage": "https://linear.app/settings/account/security"
+  },
   "tools": [
     {
       "name": "linear_search",

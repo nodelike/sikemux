@@ -806,6 +806,7 @@ impl Workbench {
                 if !self.reads.keep_plugins(value) {
                     return;
                 }
+                crate::settings::plugins_changed(self, cx);
             }
             Update::Read("update", value) => {
                 let ready = |status: &UpdateStatus| {

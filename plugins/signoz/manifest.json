@@ -5,6 +5,23 @@
   "sikemux": ">=0.4",
   "environment": ["SIGNOZ_URL", "SIGNOZ_API_KEY"],
   "accountMethods": ["signIn", "signOut"],
+  "tokenForm": {
+    "method": "useApiKey",
+    "lede": "Tools for your agents to search logs and traces and read service health and dashboards.",
+    "fields": [
+      {
+        "name": "url",
+        "label": "SigNoz address",
+        "placeholder": "https://signoz.example.com"
+      },
+      {
+        "name": "apiKey",
+        "label": "API key",
+        "placeholder": "Your SigNoz API key",
+        "secret": true
+      }
+    ]
+  },
   "tools": [
     {
       "name": "signoz_services",

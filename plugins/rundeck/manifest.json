@@ -4,7 +4,24 @@
   "version": "0.1.0",
   "sikemux": ">=0.4",
   "callTimeoutSecs": 65,
-  "accountMethods": ["login", "loginWithToken", "logout"],
+  "accountMethods": ["login", "signInWithToken", "signOut"],
+  "tokenForm": {
+    "method": "signInWithToken",
+    "lede": "Tools for your agents to find, run and follow Rundeck jobs.",
+    "fields": [
+      {
+        "name": "url",
+        "label": "Rundeck server",
+        "placeholder": "https://rundeck.example.com"
+      },
+      {
+        "name": "token",
+        "label": "API token",
+        "placeholder": "Your Rundeck API token",
+        "secret": true
+      }
+    ]
+  },
   "tools": [
     {
       "name": "rundeck_projects",

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use sikemux_plugin_api::store::{self, Accounts};
-use sikemux_plugin_api::SignInStatus;
+use sikemux_plugin_api::{SignInStatus, SignedInAs};
 
 use crate::client::{self, Session};
 use crate::config::{self, SlackConfig, Workspace};
@@ -52,6 +52,17 @@ pub fn workspace_of(answer: &Value) -> SlackResult<Workspace> {
 }
 
 pub type Status = SignInStatus<Signed>;
+
+impl SignedInAs for Signed {
+    fn signed_in_as(&self) -> Option<String> {
+        let named: Vec<String> = self
+            .workspaces
+            .iter()
+            .map(|workspace| format!("{} in {}", workspace.user, workspace.name))
+            .collect();
+        (!named.is_empty()).then(|| named.join(", "))
+    }
+}
 
 /// Every workspace signed in, and whether the default one's token still works.
 pub async fn status(data_dir: &Path) -> Status {

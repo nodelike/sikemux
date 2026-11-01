@@ -1,5 +1,5 @@
-//! Whether a plugin is signed in and its sign-in still works, in the shape
-//! every plugin's sign-in view reads.
+//! Whether a plugin is signed in, as whom, and whether its sign-in still works,
+//! in the one shape Settings reads for every plugin.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,11 +13,19 @@ pub struct SignInStatus<D> {
     /// The service refused the sign-in, so signing in again is what helps.
     pub auth_failed: bool,
     pub message: Option<String>,
+    /// Who is signed in, as the person would name it, such as an email or a site.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_in_as: Option<String>,
     #[serde(flatten)]
     pub details: D,
 }
 
-impl<D> SignInStatus<D> {
+/// What a plugin's sign-in details say of who is signed in, for its status to name.
+pub trait SignedInAs {
+    fn signed_in_as(&self) -> Option<String>;
+}
+
+impl<D: SignedInAs> SignInStatus<D> {
     /// What asking the service as the signed-in account found. A spent rate
     /// limit still means the sign-in works.
     pub fn checked<T, S: Service>(
@@ -39,6 +47,7 @@ impl<D> SignInStatus<D> {
             ok,
             auth_failed,
             message,
+            signed_in_as: details.signed_in_as().filter(|_| configured),
             details,
         }
     }

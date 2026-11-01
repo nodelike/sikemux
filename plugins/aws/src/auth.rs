@@ -352,6 +352,7 @@ pub(crate) async fn status(ctx: &PluginContext) -> SignInStatus<Signed> {
             ok: false,
             auth_failed: false,
             message: None,
+            signed_in_as: None,
             details: Signed {
                 profile: None,
                 account: None,
@@ -359,14 +360,17 @@ pub(crate) async fn status(ctx: &PluginContext) -> SignInStatus<Signed> {
         };
     };
     let id = identity(Target::named(&profile), false).await;
-    let profile = Some(profile);
     SignInStatus {
         configured: true,
         ok: id.status == AwsStatus::Authed,
         auth_failed: matches!(id.status, AwsStatus::Expired | AwsStatus::NoCredentials),
         message: id.message,
+        signed_in_as: Some(match &id.account {
+            Some(account) => format!("{profile} ({account})"),
+            None => profile.clone(),
+        }),
         details: Signed {
-            profile,
+            profile: Some(profile),
             account: id.account,
         },
     }

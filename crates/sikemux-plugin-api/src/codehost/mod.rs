@@ -73,6 +73,12 @@ pub struct Signed {
     pub browser_sign_in: bool,
 }
 
+impl crate::SignedInAs for Signed {
+    fn signed_in_as(&self) -> Option<String> {
+        (!self.login.is_empty()).then(|| self.login.clone())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Repo {

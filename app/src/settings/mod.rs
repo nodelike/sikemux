@@ -248,7 +248,7 @@ pub fn before_shortcut(
     }
 }
 
-pub use pages::{providers_changed, remote_moved};
+pub use pages::{plugins_changed, providers_changed, remote_moved};
 
 /// Sets one of the person's preferences in the core.
 pub(crate) fn set(bench: &Workbench, key: &str, value: impl Into<Value>) {

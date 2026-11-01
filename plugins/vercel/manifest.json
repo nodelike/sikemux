@@ -5,6 +5,19 @@
   "sikemux": ">=0.4",
   "callTimeoutSecs": 60,
   "accountMethods": ["signIn", "signInWithBrowser", "signOut"],
+  "tokenForm": {
+    "method": "signIn",
+    "lede": "Tools for your agents to read deployments and build logs, and to redeploy, promote and stop them.",
+    "fields": [
+      {
+        "name": "token",
+        "label": "Access token",
+        "placeholder": "Your Vercel access token",
+        "secret": true
+      }
+    ],
+    "tokenPage": "https://vercel.com/account/settings/tokens"
+  },
   "tools": [
     {
       "name": "vercel_projects",

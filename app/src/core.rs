@@ -824,6 +824,18 @@ where
     }
 }
 
+/// The value inside a plugin's answer, or what its failure said.
+pub fn outcome<T: serde::de::DeserializeOwned>(value: &Value) -> Result<T, gpui_kit::SharedString> {
+    if let Some(failed) = value.get("failed") {
+        return Err(failed["message"]
+            .as_str()
+            .unwrap_or("the service did not answer")
+            .to_owned()
+            .into());
+    }
+    serde_json::from_value(value["value"].clone()).map_err(|error| error.to_string().into())
+}
+
 pub fn request(
     asks: &mpsc::UnboundedSender<Ask>,
     method: &'static str,

@@ -226,11 +226,21 @@ pub async fn status(data_dir: &Path) -> RundeckStatus {
             Err(error) => (false, is_auth_failure(&error), Some(error.to_string())),
         },
     };
+    let configured = saved.is_signed_in();
+    let server = connection
+        .url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    let signed_in_as = configured.then(|| match connection.user.is_empty() {
+        true => server.to_owned(),
+        false => format!("{} on {server}", connection.user),
+    });
     SignInStatus {
-        configured: saved.is_signed_in(),
+        configured,
         ok,
         auth_failed,
         message,
+        signed_in_as,
         details: connection,
     }
 }

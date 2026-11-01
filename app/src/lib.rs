@@ -13,6 +13,8 @@ mod chat;
 pub use chat::changes as chat_changes;
 pub use chat::composer;
 mod closing;
+#[cfg(target_os = "macos")]
+mod cloud_browser;
 mod command_popup;
 mod commands;
 pub mod console;

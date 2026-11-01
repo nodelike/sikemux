@@ -8,7 +8,7 @@
   "accountMethods": ["setDefaultAccount", "signInWithToken", "signOut"],
   "tokenForm": {
     "method": "signInWithToken",
-    "lede": "Merge requests, pipelines, issues and your To-Do list for this project, right beside your changes.",
+    "lede": "Tools for your agents to read and work on merge requests, pipelines and issues.",
     "fields": [
       { "name": "host", "label": "Server", "placeholder": "gitlab.com" },
       { "name": "token", "label": "Personal access token", "placeholder": "glpat-…", "secret": true }
