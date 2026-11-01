@@ -111,14 +111,6 @@ impl<S: Shows> ShownCache<S> {
         })
     }
 
-    /// `client` no longer shows the slots `gone` picks.
-    pub(crate) fn away(&self, client: ClientId, gone: impl Fn(&S::Slot) -> bool) {
-        self.state
-            .locked()
-            .shown
-            .retain(|(shown_to, slot), _| *shown_to != client || !gone(slot));
-    }
-
     /// The kept keys `pick` picks.
     pub(crate) fn keys(&self, pick: impl Fn(&S::Key) -> bool) -> Vec<S::Key> {
         self.state

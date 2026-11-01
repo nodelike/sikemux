@@ -18,12 +18,6 @@ use crate::theme::{
     TEXT_2XS, TEXT_LG, TEXT_SM, TEXT_XS,
 };
 
-/// Where a service's sign-in says the token it takes is kept.
-#[cfg(target_os = "macos")]
-pub const KEPT: &str = "Sikemux keeps your sign-in in the macOS Keychain.";
-#[cfg(not(target_os = "macos"))]
-pub const KEPT: &str = "Sikemux keeps your sign-in where only Sikemux can read it.";
-
 const COLUMN: f32 = 340.;
 const TILE: f32 = 56.;
 /// The height of the form's buttons and of the waiting row that stands in for one.
@@ -334,15 +328,6 @@ pub fn or(words: impl Into<SharedString>, cx: &App) -> Div {
         .child(line())
         .child(words.into())
         .child(line())
-}
-
-/// A line of small print in the column, such as what a button above it does.
-pub fn note(words: impl Into<SharedString>, cx: &App) -> Div {
-    div()
-        .text_size(theme::ui_text(TEXT_2XS))
-        .line_height(theme::ui_text(16.5))
-        .text_color(Tokens::get(cx).text_tertiary)
-        .child(words.into())
 }
 
 /// One of several accounts to pick between: its mark, its name, and a word on how it stands.

@@ -11,7 +11,6 @@ pub enum Topic {
     AgentSignIn,
     AgentStatus,
     Boards,
-    Ci,
     Git,
     Ports,
     Runs,

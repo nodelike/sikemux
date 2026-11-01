@@ -12,7 +12,6 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use super::repo::RepoId;
-use crate::server::changed::Topic;
 use crate::server::{plugins, Core};
 
 const TICK: Duration = Duration::from_secs(5);
@@ -34,8 +33,7 @@ pub(crate) struct Shown {
 struct Seen {
     runs: u64,
     going: bool,
-    /// Its runs moved at the last check. A code host's narrower lists, such as one commit's
-    /// runs, can lag behind the one checked here, so the next check tells clients again.
+    /// Its runs moved at the last check, so the next check comes sooner.
     moved: bool,
     at: Instant,
 }
@@ -106,11 +104,10 @@ async fn check(core: &Arc<Core>, repo: Shown) {
         runs.iter()
             .any(|run| run.get("status").and_then(Value::as_str) != Some("completed"))
     });
-    let (moved, moved_before) = {
+    let moved = {
         let mut state = core.ci.0.locked();
         let before = state.seen.get(&repo);
         let moved = before.is_some_and(|before| before.runs != fingerprint);
-        let moved_before = before.is_some_and(|before| before.moved);
         state.seen.insert(
             repo.clone(),
             Seen {
@@ -120,15 +117,10 @@ async fn check(core: &Arc<Core>, repo: Shown) {
                 at: Instant::now(),
             },
         );
-        (moved, moved_before)
+        moved
     };
     if moved {
         crate::server::board::ci_moved(core, &repo);
         crate::server::git::ci_moved(core, &repo);
-    }
-    if moved || moved_before {
-        core.changes
-            .changed(Topic::Ci, None, Some(vec![repo.id.to_string()]));
-        super::ci_moved(core, &repo.id);
     }
 }

@@ -15,7 +15,6 @@ use sikemux_wire::protocol::{
     TabRailScope,
 };
 
-use crate::codehost::{Area, OpenArea};
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
 use crate::install_pane::{SetUp, Words};
@@ -668,8 +667,7 @@ fn project_tree(
         ))
         .children(close);
     div().flex().flex_col().child(row).when(active, |tree| {
-        tree.pb(SPACE_1)
-            .child(surfaces(project, lit_surface(bench), bench.git.area, cx))
+        tree.pb(SPACE_1).child(surfaces(lit_surface(bench), cx))
     })
 }
 
@@ -845,44 +843,25 @@ fn rollup(bench: &Workbench, project: &str, cx: &App) -> Option<gpui_kit::AnyEle
     ui::status_mark(&format!("project:{project}"), status, cx)
 }
 
-/// What a project opens, in the order the rail lists them: its own surfaces,
-/// with its code host's sections after Git, each an area of the Git tab.
-fn surface_rows(
-    project: &ProjectInfo,
-) -> Vec<(Icon, SharedString, &'static str, Option<PaneKind>, Area)> {
-    let surface = |kind: PaneKind| {
-        let shown = crate::pane_kind::of(kind);
-        let (label, command) = shown.surface.unwrap_or_default();
-        (shown.icon, label.into(), command, Some(kind), Area::Local)
-    };
-    let mut rows: Vec<_> = [
-        PaneKind::Files,
-        PaneKind::Terminal,
-        PaneKind::Agent,
-        PaneKind::Git,
-    ]
-    .map(surface)
-    .into();
-    if let Some(host) = &project.code_host {
-        rows.extend(host.sections.iter().filter_map(|section| {
-            let area = Area::of(section)?;
-            Some((area.icon(), area.label(host), "", Some(PaneKind::Git), area))
-        }));
-    }
-    rows.extend([PaneKind::Search, PaneKind::Board].map(surface));
-    rows
-}
+/// What a project opens, in the order the rail lists them.
+const SURFACES: [PaneKind; 6] = [
+    PaneKind::Files,
+    PaneKind::Terminal,
+    PaneKind::Agent,
+    PaneKind::Git,
+    PaneKind::Search,
+    PaneKind::Board,
+];
 
 /// The project's surfaces, hung off a spine with a tick to each, the one in front lit.
-fn surfaces(
-    project: &ProjectInfo,
-    front: Option<PaneKind>,
-    area: Area,
-    cx: &Context<Workbench>,
-) -> impl IntoElement {
+fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let bench = cx.entity().downgrade();
-    let rows = surface_rows(project);
+    let rows = SURFACES.map(|kind| {
+        let shown = crate::pane_kind::of(kind);
+        let (label, command) = shown.surface.unwrap_or_default();
+        (shown.icon, SharedString::from(label), command, kind)
+    });
     let last = rows.len() - 1;
     div()
         .flex()
@@ -891,10 +870,9 @@ fn surfaces(
         .py(SPACE_0)
         .pr(SPACE_1H)
         .children(rows.into_iter().enumerate().map(
-            move |(index, (glyph, label, command, kind, opens))| {
+            move |(index, (glyph, label, command, kind))| {
                 let tail = index == last;
-                let in_git = kind == Some(PaneKind::Git);
-                let lit = kind.is_some() && kind == front && (!in_git || opens == area);
+                let lit = Some(kind) == front;
                 let spine = div().absolute().left_0().top_0();
                 let bench = bench.clone();
                 div()
@@ -902,18 +880,14 @@ fn surfaces(
                     .relative()
                     .h(px(25.))
                     .on_click(move |_, window, cx| {
-                        if let Some(page) = kind.and_then(page_of) {
+                        if let Some(page) = page_of(kind) {
                             let _ = bench.update(cx, |bench, cx| {
                                 if bench.rails.tab_open {
                                     bench.show_rail_page(page, cx);
                                 }
                             });
                         }
-                        if in_git {
-                            window.dispatch_action(Box::new(OpenArea { area: opens }), cx);
-                        } else {
-                            keymap::dispatch(command, window, cx);
-                        }
+                        keymap::dispatch(command, window, cx);
                     })
                     .pr(SPACE_2)
                     .flex()

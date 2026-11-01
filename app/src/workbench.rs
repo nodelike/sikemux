@@ -28,7 +28,6 @@ use tokio::sync::mpsc;
 
 use crate::battery::Battery;
 use crate::chat::{Answering, Chat, ComposeStage, Composing, Question, Sent};
-use crate::codehost::{Area, HostArea, OpenArea};
 use crate::core::{utc_offset_minutes, Ask, ChatAsk, ChatNews, Link, Target, Update, Watch};
 use crate::desk::{
     FocusAddress, NewPage, NewSimulator, PageBack, PageForward, ReloadPage, ReopenPage, ToggleDesk,
@@ -608,11 +607,8 @@ impl Workbench {
             chats: crate::chat::Chats::default(),
             git: crate::git::GitTab {
                 pane: None,
-                area: Area::Local,
-                host: None,
                 picked: None,
                 listing: false,
-                opening: None,
                 behind: false,
             },
             run_clock: cx.new(|_| crate::tabs::RunClock::default()),
@@ -1044,12 +1040,6 @@ impl Workbench {
             }
             Update::Read("ci-shown", _) => return,
             Update::Read("whatsNew", value) => crate::experience::whats_new_read(self, &value, cx),
-            Update::Read(key, value) if crate::codehost::on_desks(key) => {
-                self.read_desk_pulls(key, &value, cx);
-            }
-            Update::Read(key, value) if crate::codehost::watches(key) => {
-                self.git.host_read(key, &value, cx);
-            }
             Update::Read(key @ ("pickerFolders" | "sshHosts"), value) => {
                 self.reads.keep_picked(key, value);
                 self.picker_answered(cx);
@@ -1835,27 +1825,16 @@ impl Workbench {
         Some(label)
     }
 
-    /// Tells the Git pane and the code host's areas whether their host is in reach.
+    /// Tells the Git pane whether its host is in reach, and its repository's code host.
     fn tell_reach(&self, cx: &mut Context<Self>) {
         let away = self.out_of_reach();
         if let Some(pane) = &self.git.pane {
             let host = self.code_host_of(&pane.read(cx).repo);
-            let signed_in = self.host_signed_in(cx);
             pane.update(cx, |pane, cx| {
-                pane.set_out_of_reach(away.clone(), cx);
-                pane.set_code_host(host, signed_in, cx);
+                pane.set_out_of_reach(away, cx);
+                pane.set_code_host(host, cx);
             });
         }
-        if let Some(area) = &self.git.host {
-            area.update(cx, |area, cx| area.set_out_of_reach(away, cx));
-        }
-    }
-
-    fn host_signed_in(&self, cx: &App) -> bool {
-        self.git
-            .host
-            .as_ref()
-            .is_some_and(|area| area.read(cx).signed_in())
     }
 
     /// The code host of the project holding `repo`, with the account chosen for it there.
@@ -3393,7 +3372,7 @@ impl Workbench {
     }
 
     /// Makes the pane of the tab in front, for the kinds made the first time they come to the
-    /// front, and lets the code host's areas go once Git leaves it.
+    /// front.
     fn make_front_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.tell_reach(cx);
         let front = self
@@ -3406,7 +3385,6 @@ impl Workbench {
             Some(PaneKind::Board) => self.board_pane(cx),
             _ => {}
         }
-        self.host_area(front == Some(PaneKind::Git), cx);
     }
 
     /// Makes the Git pane when the project's Git tab comes to the front.
@@ -3439,11 +3417,11 @@ impl Workbench {
         self.git.behind = false;
         let bench = cx.entity().downgrade();
         let away = self.out_of_reach();
-        let (host, signed_in) = (self.code_host_of(&repo), self.host_signed_in(cx));
+        let host = self.code_host_of(&repo);
         let pane = cx.new(|cx| GitPane::new(target, repo, bench, window, cx));
         pane.update(cx, |pane, cx| {
             pane.set_out_of_reach(away, cx);
-            pane.set_code_host(host, signed_in, cx);
+            pane.set_code_host(host, cx);
         });
         if let Some(overview) = self.reads.git_overview.as_ref() {
             pane.update(cx, |pane, cx| pane.overview(overview, cx));
@@ -3539,139 +3517,6 @@ impl Workbench {
             .lines()
             .find(|line| !line.trim().is_empty())
             .map(str::to_owned)
-    }
-
-    /// Makes the code host's areas when the Git tab in front shows one, and keeps them
-    /// on the project's repository and branch.
-    fn host_area(&mut self, git_in_front: bool, cx: &mut Context<Self>) {
-        let (true, Some(project)) = (git_in_front, self.project()) else {
-            if let Some(shown) = &self.git.host {
-                shown.update(cx, |shown, _| shown.hide());
-            }
-            return;
-        };
-        let Some(host) = project.code_host.clone() else {
-            if self.git.area != Area::Local {
-                self.git.area = Area::Local;
-                self.parts.redraw(&self.parts.rail, cx);
-            }
-            return;
-        };
-        let (folder, branch) = (
-            project.path.to_string_lossy().into_owned(),
-            crate::codehost::branch_of(project),
-        );
-        let area = self.git.area;
-        let account = project
-            .code_hosts
-            .get(&host.host)
-            .and_then(|choice| choice.account.clone());
-        let opening = self.git.opening.take();
-        match &self.git.host {
-            Some(shown)
-                if shown.read(cx).project == folder && shown.read(cx).place() == &self.place() =>
-            {
-                shown.update(cx, |shown, cx| {
-                    shown.project_moved(&host, account, branch, cx);
-                    shown.show(area, cx);
-                    if let Some((area, number, repo)) = opening {
-                        shown.open_item(area, number, repo, cx);
-                    }
-                });
-            }
-            _ => {
-                if let Some(old) = &self.git.host {
-                    old.update(cx, |old, _| old.hide());
-                }
-                let (target, bench) = (self.target(), cx.entity().downgrade());
-                let away = self.out_of_reach();
-                let shown = cx.new(|_| HostArea::new(target, bench, folder, host, account, branch));
-                shown.update(cx, |shown, cx| {
-                    shown.set_out_of_reach(away, cx);
-                    shown.show(area, cx);
-                    if let Some((area, number, repo)) = opening {
-                        shown.open_item(area, number, repo, cx);
-                    }
-                });
-                self.git.host = Some(shown);
-            }
-        }
-    }
-
-    /// Brings the project's Git tab to the front showing `area`.
-    pub(crate) fn open_area(&mut self, area: Area, cx: &mut Context<Self>) {
-        self.git.area = area;
-        self.open_git(cx);
-        cx.notify();
-    }
-
-    /// Brings the project's Git tab to the front with pull request or issue `number` of the
-    /// host's repository `repo` open.
-    pub fn open_host_item(
-        &mut self,
-        area: Area,
-        number: u64,
-        repo: String,
-        cx: &mut Context<Self>,
-    ) {
-        self.git.opening = Some((area, number, repo));
-        self.open_area(area, cx);
-    }
-
-    /// Opens what a web link in a page names in the app: a pull request or issue of one of
-    /// the projects' repositories in that project's Git tab, anything else in the browser.
-    pub(crate) fn follow_web_link(&mut self, href: &str, cx: &mut Context<Self>) {
-        let asked = self
-            .target()
-            .request("codeHostLink", json!({ "url": href }));
-        let href = href.to_owned();
-        cx.spawn(async move |bench, cx| {
-            let found = asked.await.ok();
-            bench
-                .update(cx, |bench, cx| {
-                    let opened = found.is_some_and(|found| bench.open_linked_item(&found, cx));
-                    if !opened {
-                        cx.open_url(&href);
-                    }
-                })
-                .ok();
-        })
-        .detach();
-    }
-
-    /// Brings forward the project whose repository `found` names, its Git tab showing the pull
-    /// request or issue it names, and says whether one of the projects holds it.
-    fn open_linked_item(&mut self, found: &Value, cx: &mut Context<Self>) -> bool {
-        let Ok(host) = serde_json::from_value::<ProjectCodeHost>(found["codeHost"].clone()) else {
-            return false;
-        };
-        let item = &found["item"];
-        let area = match item["kind"].as_str() {
-            Some("pull") => Area::Pulls,
-            Some("issue") => Area::Issues,
-            _ => return false,
-        };
-        let Some(number) = item["number"].as_u64() else {
-            return false;
-        };
-        let holds = |project: &&ProjectInfo| {
-            project
-                .code_host
-                .as_ref()
-                .is_some_and(|held| held.host == host.host && held.repo == host.repo)
-        };
-        let Some(project) = self.projects().iter().find(holds).cloned() else {
-            return false;
-        };
-        self.git.opening = Some((area, number, host.repo.clone()));
-        self.git.area = area;
-        self.activate_project(&project.id);
-        self.call_in_front(
-            "openTab",
-            json!({ "project": project.id, "kind": "git", "target": project.path.to_string_lossy() }),
-        );
-        cx.notify();
-        true
     }
 
     /// Brings the project's Git tab to the front, opening one when it has none.
@@ -4604,7 +4449,6 @@ impl Render for Workbench {
             )
             .on_action(cx.listener(|bench, _: &TextSizeReset, _, _| bench.resize_front_text(None)))
             .on_action(cx.listener(|bench, _: &FocusGit, _, cx| bench.open_git(cx)))
-            .on_action(cx.listener(|bench, open: &OpenArea, _, cx| bench.open_area(open.area, cx)))
             .on_action(
                 cx.listener(|bench, _: &FocusSearch, window, cx| bench.open_search(window, cx)),
             )

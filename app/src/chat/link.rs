@@ -69,7 +69,7 @@ pub fn open(href: &str, agent: &str, bench: &WeakEntity<Workbench>, window: &Win
     }
     if !window.modifiers().platform {
         let shown = bench
-            .update(cx, |bench, cx| bench.open_link_on_desk(agent, href, cx))
+            .update(cx, |bench, cx| bench.open_on_desk(agent, href, cx))
             .unwrap_or(false);
         if shown {
             return;

@@ -229,7 +229,6 @@ enum CoreChangeTopic: String, Codable, Hashable {
     case agentSignIn
     case agentStatus
     case boards
-    case ci
     case git
     case ports
     case runs

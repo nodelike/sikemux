@@ -436,7 +436,6 @@ pub struct Segmented {
     options: Vec<(Option<Icon>, SharedString, Option<u64>)>,
     selected: usize,
     slide: bool,
-    fill: bool,
     on_select: Option<OnSelect>,
     /// Why it cannot be changed now, shown over it; none while it can.
     disabled: Option<SharedString>,
@@ -459,7 +458,6 @@ impl Segmented {
             options,
             selected,
             slide: false,
-            fill: false,
             on_select: None,
             disabled: None,
             waiting: None,
@@ -481,17 +479,10 @@ impl Segmented {
             options,
             selected,
             slide: false,
-            fill: false,
             on_select: None,
             disabled: None,
             waiting: None,
         }
-    }
-
-    /// Spans the width it is given, its choices sharing it, as a side panel's segment does.
-    pub fn fill(mut self) -> Self {
-        self.fill = true;
-        self
     }
 
     /// The switch in a pane's header, as GUI and TUI: a grey thumb slides to the chosen one.
@@ -602,11 +593,10 @@ impl RenderOnce for Segmented {
         }
         let t = Tokens::get(cx).clone();
         let on_select = self.on_select.filter(|_| self.disabled.is_none());
-        let (fill, waiting) = (self.fill, self.waiting);
+        let waiting = self.waiting;
         div()
             .id(self.id)
             .flex()
-            .when(fill, |track| track.w_full())
             .when_some(self.disabled, |track, reason| {
                 track.opacity(0.5).tooltip(super::tooltip(reason))
             })
@@ -626,8 +616,7 @@ impl RenderOnce for Segmented {
                             .group(GROUP)
                             .selected(chosen)
                             .accessibility_label(label.clone())
-                            .when(fill, |segment| segment.flex_1().min_w_0())
-                            .when(!fill && glyph.is_some(), |segment| segment.flex_1())
+                            .when(glyph.is_some(), |segment| segment.flex_1())
                             .h_full()
                             .px(SPACE_2)
                             .flex()

@@ -588,13 +588,9 @@ pub struct Notification {
 pub struct ListedPull {
     pub pull: Pull,
     pub state: PullState,
-    /// The issues its description says it closes, such as "Fixes #12".
-    pub closes: Vec<u64>,
     /// Its branch is in this repository rather than a fork's, so a branch of
     /// the same name here is the one it was opened from.
     pub own_branch: bool,
-    /// How the runs on its head commit stand, once any have run.
-    pub checks: Option<CheckTally>,
 }
 
 /// A pull request's state, with a draft and a merge told apart.
@@ -633,8 +629,6 @@ pub struct CheckTally {
 #[serde(rename_all = "camelCase")]
 pub struct PullList {
     pub pulls: Vec<ListedPull>,
-    /// How many are open and closed, from hosts that count them cheaply.
-    pub counts: Option<PullCounts>,
 }
 
 /// One check on a commit: a job of one of its runs, or a status an app outside

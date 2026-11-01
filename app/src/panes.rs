@@ -552,14 +552,6 @@ fn view(
         PaneKind::Files => ui::pane(cx)
             .child(crate::editor::pane(bench, &cx.entity(), target, window, cx))
             .into_any_element(),
-        PaneKind::Git
-            if bench.git.area != crate::codehost::Area::Local && bench.git.host.is_some() =>
-        {
-            match &bench.git.host {
-                Some(host) => ui::plain_pane(cx).child(host.clone()).into_any_element(),
-                None => ui::plain_pane(cx).into_any_element(),
-            }
-        }
         PaneKind::Git if bench.git_repo().is_none() && bench.git_repos().is_some() => ui::pane(cx)
             .child(crate::git::repos::picker(bench, cx))
             .into_any_element(),

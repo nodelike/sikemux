@@ -175,20 +175,3 @@ fn take_up(bench: &mut Workbench, resume: Resume, add: bool, cx: &mut Context<Wo
     })
     .detach();
 }
-
-/// Follows a link in a page outside a chat, such as an issue's comment or a release's notes:
-/// with ⌘ held, or anything but a web address, as the system does; else as
-/// [`Workbench::follow_web_link`] does, a pull request or issue in its project's Git tab.
-pub fn web_opener(bench: gpui_kit::WeakEntity<Workbench>) -> gpui_transcript::OnLink {
-    std::rc::Rc::new(move |href: &str, window: &mut Window, cx: &mut App| {
-        let web = href.starts_with("https://") || href.starts_with("http://");
-        if !web || window.modifiers().platform {
-            cx.open_url(href);
-            return;
-        }
-        let followed = bench.update(cx, |bench, cx| bench.follow_web_link(href, cx));
-        if followed.is_err() {
-            cx.open_url(href);
-        }
-    })
-}

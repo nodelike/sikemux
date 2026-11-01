@@ -13,9 +13,7 @@ use super::controls::OnClick;
 use super::{caps, icon, mark_box, meta, text};
 use crate::icons::Icon;
 use crate::motion;
-use crate::theme::{
-    Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_SM, TEXT_XS,
-};
+use crate::theme::{Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_XS};
 
 /// The hover group a row puts itself in, for a glyph in it that follows its text.
 pub const ROW: &str = "row";
@@ -637,57 +635,4 @@ pub fn close_button(
                 .text_color(t.text_tertiary)
                 .group_hover(CLOSE, move |style| style.text_color(t.danger)),
         )
-}
-
-/// A row of tabs over a page, the chosen one underlined in ink, with what acts on the page
-/// at its end.
-pub fn page_tabs(
-    tabs: impl IntoIterator<Item = gpui_kit::Stateful<gpui_kit::Div>>,
-    end: Option<AnyElement>,
-) -> gpui_kit::Div {
-    div()
-        .flex_none()
-        .px(SPACE_4)
-        .flex()
-        .items_center()
-        .gap(px(18.))
-        .children(tabs)
-        .children(end.map(|end| div().ml_auto().child(end)))
-}
-
-/// One tab of a page's row: its glyph and name, then how many it holds or how it stands.
-pub fn page_tab(
-    id: &str,
-    glyph: Icon,
-    label: &'static str,
-    mark: Option<AnyElement>,
-    on: bool,
-    cx: &App,
-) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let t = Tokens::get(cx).clone();
-    div()
-        .id(SharedString::from(format!("{id}-{label}")))
-        .h(px(34.))
-        .flex()
-        .items_center()
-        .gap(SPACE_1H)
-        .border_b_2()
-        .border_color(if on {
-            t.text_primary
-        } else {
-            gpui_kit::transparent_black()
-        })
-        .text_size(crate::theme::ui_text(TEXT_SM))
-        .text_color(if on { t.text_primary } else { t.text_secondary })
-        .cursor_pointer()
-        .when(!on, |tab| {
-            tab.hover(move |tab| tab.text_color(t.text_primary))
-        })
-        .child(super::icon(glyph, 13.).text_color(if on {
-            t.text_primary
-        } else {
-            t.text_tertiary
-        }))
-        .child(label)
-        .children(mark)
 }

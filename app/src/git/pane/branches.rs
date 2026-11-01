@@ -15,7 +15,6 @@ use sikemux_core::git::remote::{GitRemote, GitRemoteBranch};
 use sikemux_plugin_api::codehost::{PullList, PullState};
 
 use super::{row_button, GitPane, Pick, ROW_HEIGHT};
-use crate::codehost::Area;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
@@ -68,11 +67,12 @@ pub(super) struct Branches {
     pub(super) pulls: HashMap<String, Opened>,
 }
 
-/// A branch's open pull request: its number, title and whether it is a draft.
+/// A branch's open pull request: its number, title, address and whether it is a draft.
 #[derive(Clone, PartialEq)]
 pub(super) struct Opened {
     number: u64,
     title: String,
+    url: String,
     draft: bool,
 }
 
@@ -183,7 +183,7 @@ impl GitPane {
             let list: Option<PullList> = answer
                 .await
                 .ok()
-                .and_then(|answer| crate::codehost::answer(&answer).ok());
+                .and_then(|answer| crate::host_marks::answer(&answer).ok());
             let pulls = list
                 .into_iter()
                 .flat_map(|list| list.pulls)
@@ -192,6 +192,7 @@ impl GitPane {
                     let opened = Opened {
                         number: listed.pull.number,
                         title: listed.pull.title,
+                        url: listed.pull.url,
                         draft: listed.state == PullState::Draft,
                     };
                     Some((listed.pull.head?, opened))
@@ -897,7 +898,7 @@ fn branch_row(
                 .pr(SPACE_1H)
                 .text_size(crate::theme::ui_text(TEXT_XS_H))
                 .whitespace_nowrap()
-                .child(pane.author_face(&branch.author, &branch.author_email, 15., cx))
+                .child(ui::initials(&branch.author, &branch.author_email, 15., cx))
                 .children(name_and_tip(
                     &branch.name,
                     if branch.current {
@@ -1060,7 +1061,7 @@ fn branch_row(
     }
 }
 
-/// A branch's open pull request beside it, which opens it in the Git tab's pull requests.
+/// A branch's open pull request beside it, which opens its page on the code host.
 fn pull_chip(pane: &GitPane, branch: &str, index: usize, cx: &App) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
     let opened = pane.branches.pulls.get(branch)?;
@@ -1070,8 +1071,7 @@ fn pull_chip(pane: &GitPane, branch: &str, index: usize, cx: &App) -> Option<Any
     } else {
         t.live
     };
-    let bench = pane.bench.clone();
-    let repo = pane.host_of()?.0.repo;
+    let url = opened.url.clone();
     Some(
         gpui_kit::base::Button::new(("branch-pull", index))
             .accessibility_label(SharedString::from(format!("Open pull request #{number}")))
@@ -1091,11 +1091,7 @@ fn pull_chip(pane: &GitPane, branch: &str, index: usize, cx: &App) -> Option<Any
             .hover(move |style| style.bg(ink.opacity(0.12)))
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
-                bench
-                    .update(cx, |bench, cx| {
-                        bench.open_host_item(Area::Pulls, number, repo.clone(), cx)
-                    })
-                    .ok();
+                cx.open_url(&url);
             })
             .child(ui::icon(Icon::PullRequest, 10.).text_color(ink))
             .child(format!("#{number}"))

@@ -29,11 +29,9 @@ use sikemux_wire::protocol::ProjectCodeHost;
 use branches::{branch_card, branches_page, Branches};
 use history::{commit_card, commit_row, graph, CommitOwner, Graph, Inks};
 
-mod authors;
 mod branches;
 mod history;
 use super::review::{review, Review};
-use crate::codehost::inbox::Inbox;
 use crate::core::Target;
 use crate::editor::OpenAt;
 use crate::files::Mark;
@@ -121,7 +119,6 @@ enum Page {
     Changes,
     History,
     Branches,
-    Inbox,
 }
 
 /// A page's filter: its field once shown, and what it finds.
@@ -317,8 +314,6 @@ pub struct GitPane {
     pub repo: String,
     /// The repository's code host and the account chosen for it, as the workbench last said.
     code_host: Option<(ProjectCodeHost, Option<String>)>,
-    /// Someone is signed in to that host, which the inbox needs.
-    signed_in: bool,
     overview: Option<Result<GitOverview, String>>,
     /// Files moved to a group before git says so, by path.
     moving: HashMap<String, Side>,
@@ -358,10 +353,7 @@ pub struct GitPane {
     /// The commits the history's search finds, which the graph lays out.
     commits: Vec<GitCommit>,
     /// Each page's filter, by `Page`.
-    filters: [Filter; 4],
-    /// The code host's notifications, once the Inbox page first shows.
-    inbox: Option<Entity<Inbox>>,
-    authors: authors::Authors,
+    filters: [Filter; 3],
     draft: Entity<TextareaState>,
     /// A message written into the draft from outside the window's turn, set when it next draws.
     written: Option<String>,
@@ -407,19 +399,14 @@ impl GitPane {
     pub fn set_code_host(
         &mut self,
         host: Option<(ProjectCodeHost, Option<String>)>,
-        signed_in: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.code_host == host && self.signed_in == signed_in {
+        if self.code_host == host {
             return;
         }
         self.code_host = host;
-        self.signed_in = signed_in;
         if self.page == Page::Branches {
             self.read_branch_pulls(cx);
-        }
-        if self.page == Page::Inbox && !self.has_inbox() {
-            self.show_page(Page::Changes, cx);
         }
         cx.notify();
     }
@@ -447,7 +434,6 @@ impl GitPane {
             out_of_reach: None,
             repo,
             code_host: None,
-            signed_in: false,
             overview: None,
             moving: HashMap::new(),
             moved: Vec::new(),
@@ -475,8 +461,6 @@ impl GitPane {
             writer: None,
             commits: Vec::new(),
             filters: Default::default(),
-            inbox: None,
-            authors: Default::default(),
             branch_rows: ListState::new(0, ListAlignment::Top, px(400.)),
             draft,
             written: None,
@@ -612,8 +596,7 @@ impl GitPane {
         cx: &mut Context<Self>,
     ) -> Option<Entity<InputState>> {
         let filter = &self.filters[page as usize];
-        if page == Page::Inbox || (page == Page::Changes && !filter.open && filter.query.is_empty())
-        {
+        if page == Page::Changes && !filter.open && filter.query.is_empty() {
             return None;
         }
         if let Some(field) = &filter.field {
@@ -622,7 +605,7 @@ impl GitPane {
         let placeholder = match page {
             Page::Changes => "Filter files",
             Page::History => "Search commits",
-            Page::Branches | Page::Inbox => "Filter branches",
+            Page::Branches => "Filter branches",
         };
         let field = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
         let typing = cx.subscribe_in(
@@ -662,7 +645,6 @@ impl GitPane {
                 self.list_branches();
                 self.follow(cx);
             }
-            Page::Inbox => {}
         }
         cx.notify();
     }
@@ -733,37 +715,9 @@ impl GitPane {
         self.code_host.clone()
     }
 
-    /// The host's inbox is a page while someone is signed in to it, as on main.
-    fn has_inbox(&self) -> bool {
-        self.code_host.is_some() && self.signed_in
-    }
-
-    /// Lists the code host's notifications, or says there is no host to list them from.
-    fn open_inbox(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some((host, account)) = self.host_of().filter(|_| self.signed_in) else {
-            self.inbox = None;
-            return false;
-        };
-        match &self.inbox {
-            Some(inbox) if inbox.read(cx).is_for(&host, &account) => {
-                inbox.update(cx, |inbox, cx| inbox.read(cx));
-            }
-            _ => {
-                let (core, bench) = (self.core.clone(), self.bench.clone());
-                self.inbox = Some(cx.new(|cx| Inbox::new(core, bench, host, account, cx)));
-            }
-        }
-        true
-    }
-
-    /// The side column's pages in their order, the inbox last while the repository's host
-    /// has one.
+    /// The side column's pages in their order.
     fn page_order(&self) -> Vec<Page> {
-        let mut order = vec![Page::Changes, Page::History, Page::Branches];
-        if self.has_inbox() {
-            order.push(Page::Inbox);
-        }
-        order
+        vec![Page::Changes, Page::History, Page::Branches]
     }
 
     /// Turns to another page, springing over to it.
@@ -781,9 +735,6 @@ impl GitPane {
     fn show_page(&mut self, page: Page, cx: &mut Context<Self>) -> bool {
         if page == Page::Branches && self.page != page {
             self.read_remotes(cx);
-        }
-        if page == Page::Inbox && !self.open_inbox(cx) {
-            return false;
         }
         self.page = page;
         self.follow(cx);
@@ -2198,12 +2149,10 @@ impl GitPane {
             "1" => self.turn(Page::Changes, cx),
             "2" => self.turn(Page::History, cx),
             "3" => self.turn(Page::Branches, cx),
-            "4" => self.turn(Page::Inbox, cx),
             "F" => self.fetch(cx),
             "P" => self.push(cx),
             "p" => self.pull(cx),
             "r" if !history => self.refresh(cx),
-            _ if self.page == Page::Inbox => return,
             _ if self.page == Page::Branches && self.branch_key(typed, cx) => {}
             _ if self.page == Page::Branches => return,
             "h" if history => self.turn(Page::Changes, cx),
@@ -2249,9 +2198,6 @@ impl Render for GitPane {
             self.draft
                 .update(cx, |draft, cx| draft.set_value(written, window, cx));
         }
-        if matches!(self.page, Page::History | Page::Branches) {
-            self.read_authors(cx);
-        }
         let reviewed = review(self, window, cx);
         let pushed =
             matches!(&self.overview, Some(Ok(overview)) if overview.status.upstream.is_some());
@@ -2286,7 +2232,6 @@ impl Render for GitPane {
                     .child(div().flex_1().min_h_0().child(reviewed)),
             )
             .children(asking)
-            .children(host_menu(self, cx))
     }
 }
 
@@ -2332,7 +2277,7 @@ fn side(pane: &mut GitPane, window: &mut Window, cx: &mut Context<GitPane>) -> i
                 .children(
                     pane.out_of_reach
                         .clone()
-                        .map(|host| crate::codehost::away_note(&host, cx).mx(SPACE_2)),
+                        .map(|host| away_note(&host, cx).mx(SPACE_2)),
                 )
                 .child(pages_row)
                 .child(pages(pane, cx)),
@@ -2356,7 +2301,6 @@ fn side_page(
         Page::Changes => body.child(changes(pane, filter, cx)),
         Page::History => body.children(filter).child(history_list(pane, cx)),
         Page::Branches => body.children(filter).child(branches_page(pane, cx)),
-        Page::Inbox => body.child(div().flex_1().min_h_0().children(pane.inbox.clone())),
     }
     .into_any_element()
 }
@@ -2531,14 +2475,6 @@ fn pages(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoElement {
             "Branches — 3",
             Page::Branches,
         ))
-        .when(pane.has_inbox(), |pages| {
-            pages.child(page(
-                "git-page-inbox",
-                Icon::Inbox,
-                "Inbox — 4",
-                Page::Inbox,
-            ))
-        })
 }
 
 /// The History page: the branch's commits on the graph.
@@ -2720,7 +2656,6 @@ fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoElement {
                         .text_color(t.warn)
                         .child(busy)
                 }))
-                .children(host_account(pane, cx))
                 .child(more_menu(pane, cx)),
         )
         .child(
@@ -2885,17 +2820,21 @@ fn branch_switch(pane: &GitPane, branch: String, cx: &mut Context<GitPane>) -> i
     )
 }
 
-/// The project's code host account, lent by its areas: the person's face and its menu, or
-/// Sign in while signed out.
-fn host_account(pane: &GitPane, cx: &mut Context<GitPane>) -> Option<AnyElement> {
-    let host = pane.bench.upgrade()?.read(cx).git.host.clone()?;
-    Some(host.update(cx, |area, cx| crate::codehost::shell::account(area, cx)))
-}
-
-/// The code host's account menu, while the person has it open from the head.
-fn host_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> Option<ui::Choices> {
-    let host = pane.bench.upgrade()?.read(cx).git.host.clone()?;
-    host.update(cx, |area, cx| area.account_menu(cx))
+/// Says that `host` is out of reach and what shows is what it last said.
+fn away_note(host: &str, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    div()
+        .px(SPACE_3)
+        .py(SPACE_2)
+        .rounded(crate::theme::RADIUS_2)
+        .border_1()
+        .border_color(t.warn.opacity(0.4))
+        .bg(t.warn.opacity(0.08))
+        .text_size(crate::theme::ui_text(TEXT_XS))
+        .text_color(t.text_primary)
+        .child(format!(
+            "{host} is out of reach. Showing what it last said; changes wait until it is back."
+        ))
 }
 
 /// The head's menu of everything else: remotes, stashes, and the pane's own tools.
@@ -2905,27 +2844,11 @@ fn more_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoElement {
     let unstaged = pane.files().iter().any(has_unstaged);
     let stashes = pane.stashes.len();
     let commands_open = pane.commands_open;
-    let host = pane
-        .bench
-        .upgrade()
-        .and_then(|bench| bench.read(cx).git.host.clone());
     ui::menu_button(
         "git-more",
         Anchor::TopRight,
         ui::IconButton::new("git-more-button", Icon::More, "Remotes, stashes and more").glyph(13.),
-        move |mut popup, _, cx| {
-            if let Some(host) = host.clone() {
-                popup = popup
-                    .item(
-                        ui::MenuRow::new("Choose another repository…")
-                            .icon(Icon::Git)
-                            .item(cx)
-                            .on_click(move |_, window, cx| {
-                                host.update(cx, |area, cx| area.pick_repo(window, cx));
-                            }),
-                    )
-                    .separator();
-            }
+        move |popup, _, cx| {
             popup
                 .item(menu_line(
                     &view,

@@ -421,7 +421,7 @@ pub fn commit_row(
             .w(px(gutter))
             .h(px(ROW_HEIGHT)),
         )
-        .child(pane.author_face(&commit.author, &commit.author_email, 15., cx))
+        .child(ui::initials(&commit.author, &commit.author_email, 15., cx))
         .children(refs.first().map(|name| ref_badge(name, cx)))
         .child(
             div()
@@ -560,7 +560,7 @@ pub fn commit_card(
                         .flex()
                         .items_center()
                         .gap(SPACE_1H)
-                        .child(pane.author_face(&commit.author, &commit.author_email, 20., cx))
+                        .child(ui::initials(&commit.author, &commit.author_email, 20., cx))
                         .child(commit.author.clone())
                         .children(commit_agents(pane, &commit.full_hash, false, cx))
                         .into_any_element(),

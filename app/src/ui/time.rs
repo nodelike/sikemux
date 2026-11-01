@@ -29,17 +29,6 @@ pub fn took(ms: u64) -> String {
     }
 }
 
-/// A length in words, leaving out a part that is zero: `45s`, `3m`, `3m 5s`, `2h`, `2h 5m`.
-pub fn span(seconds: u64) -> String {
-    match seconds {
-        0..60 => format!("{seconds}s"),
-        60..3600 if seconds.is_multiple_of(60) => format!("{}m", seconds / 60),
-        60..3600 => format!("{}m {}s", seconds / 60, seconds % 60),
-        _ if (seconds / 60).is_multiple_of(60) => format!("{}h", seconds / 3600),
-        _ => format!("{}h {}m", seconds / 3600, seconds / 60 % 60),
-    }
-}
-
 /// A total to the nearest minute: `5m`, `3h`, `3h 20m`, and whole hours from a hundred: `1,234h`.
 pub fn total(ms: f64) -> String {
     let minutes = (ms / 60_000.).round() as i64;

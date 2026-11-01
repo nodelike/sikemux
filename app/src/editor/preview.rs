@@ -412,19 +412,6 @@ pub(super) fn bar(this: &Entity<Workbench>, key: &FileKey, finding: &Finding, cx
         .on_close(on(close_find))
 }
 
-/// [`reading_style`] whose web links open what they name in the app, as
-/// [`crate::links::web_opener`] does.
-pub(crate) fn reading_linked(
-    text_size: f32,
-    bench: &gpui_kit::WeakEntity<crate::workbench::Workbench>,
-    cx: &App,
-) -> Style {
-    Style {
-        on_link: Some(crate::links::web_opener(bench.clone())),
-        ..reading_style(text_size, cx)
-    }
-}
-
 /// How the app reads markdown at `text_size` points at the default text size, growing and
 /// shrinking with the person's choice as the rest of the interface's text does.
 pub(crate) fn reading_style(text_size: f32, cx: &App) -> Style {

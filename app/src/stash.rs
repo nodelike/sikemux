@@ -153,7 +153,7 @@ pub fn place(item: &StashItem) -> String {
             1 => Some("1 file".to_owned()),
             files => Some(format!("{files} files")),
         },
-        _ => size(item).map(crate::codehost::bytes),
+        _ => size(item).map(bytes),
     };
     let ago = Some(crate::ui::time::ago_written(&item.created_at));
     [what, ago]
@@ -821,8 +821,7 @@ fn tray_row(
         }
         (None, StashKind::File | StashKind::Video) => size(item).map(|size| {
             div().child(
-                ui::text(crate::codehost::bytes(size), TEXT_2XS_H, FontWeight::NORMAL)
-                    .text_color(t.text_tertiary),
+                ui::text(bytes(size), TEXT_2XS_H, FontWeight::NORMAL).text_color(t.text_tertiary),
             )
         }),
         _ => None,
@@ -1041,11 +1040,11 @@ fn cut_of(
 /// A pull request's or issue's glyph in the colour of `state`.
 fn state_mark(id: &str, state: &str, t: &Tokens) -> Option<AnyElement> {
     let (glyph, ink, _) = match id.starts_with("tracked:pull") {
-        true => crate::codehost::pull_look(serde_json::from_value(json!(state)).ok()?, t),
+        true => crate::host_marks::pull_look(serde_json::from_value(json!(state)).ok()?, t),
         false if state == "notPlanned" => {
-            crate::codehost::issue_look("closed", Some("not_planned"), t)
+            crate::host_marks::issue_look("closed", Some("not_planned"), t)
         }
-        false => crate::codehost::issue_look(state, None, t),
+        false => crate::host_marks::issue_look(state, None, t),
     };
     Some(ui::icon(glyph, 13.).text_color(ink).into_any_element())
 }
@@ -1753,4 +1752,20 @@ pub fn takes_drops(pane: Div, agent: &str, cx: &mut Context<Workbench>) -> Div {
         })
         .ok();
     })
+}
+
+/// A size in bytes as people read one: 512 B, 1.4 KB, 3.0 MB.
+fn bytes(size: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut value = size as f64;
+    let mut unit = 0;
+    while value >= 1024. && unit < UNITS.len() - 1 {
+        value /= 1024.;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{size} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
 }

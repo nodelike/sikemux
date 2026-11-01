@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 pub const DEFAULT_TERMINAL_FONT_SIZE: u32 = 13;
 pub const MIN_TERMINAL_FONT_SIZE: u32 = 8;
@@ -90,8 +89,6 @@ pub struct Preferences {
     pub language_server_trust: BTreeMap<String, bool>,
     /// The commands the person added to the command palette.
     pub custom_commands: Vec<CustomCommand>,
-    /// Each plugin's own settings, by the plugin's id, as the plugin reads them.
-    pub plugin_settings: BTreeMap<String, Value>,
     /// The browser app single sign-on opens in, or none for the default one.
     pub cloud_browser: String,
     /// The shortcut that brings that browser's desktop forward.
@@ -246,7 +243,6 @@ impl Default for Preferences {
             default_git_repos: BTreeMap::new(),
             language_server_trust: BTreeMap::new(),
             custom_commands: Vec::new(),
-            plugin_settings: BTreeMap::new(),
             cloud_browser: String::new(),
             cloud_browser_shortcut: String::new(),
             ios_simulator: true,

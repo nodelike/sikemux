@@ -246,43 +246,8 @@ pub(crate) async fn of_project(core: &Arc<Core>, project: &str) -> Result<Repo, 
 }
 
 impl Repo {
-    /// The repository `owner/name` on the code host whose plugin is `plugin`,
-    /// reached as `account`.
-    pub(crate) fn named(
-        core: &Core,
-        plugin: &str,
-        owner: &str,
-        name: &str,
-        account: Option<String>,
-    ) -> Result<Self, Failure> {
-        let id = plugin.strip_prefix("sikemux.").unwrap_or(plugin);
-        let host = host(core, id)
-            .map_err(|message| Failure::new(plugin, Category::Unsupported, message))?;
-        Ok(Self {
-            plugins: core.plugins,
-            host,
-            owner: owner.to_owned(),
-            name: name.to_owned(),
-            account,
-        })
-    }
-
     pub(crate) fn owner(&self) -> &str {
         &self.owner
-    }
-
-    /// The ref the host keeps pull request `number`'s head at, when it keeps one.
-    pub(crate) fn pull_head(&self, number: u64) -> Option<String> {
-        self.host
-            .spec
-            .pull_heads
-            .as_ref()
-            .map(|heads| format!("{heads}/{number}/head"))
-    }
-
-    /// What the host is called, as people know it.
-    pub(crate) fn label(&self) -> &'static str {
-        &self.host.spec.label
     }
 
     pub(crate) fn account(&self) -> Option<&str> {
@@ -400,21 +365,6 @@ const USUAL_BASES: [&str; 4] = ["main", "master", "develop", "trunk"];
 /// A branch others usually merge into, which needs no pull request of its own.
 pub(crate) fn is_usual_base(branch: &str) -> bool {
     USUAL_BASES.contains(&branch)
-}
-
-/// The branch a new pull request from `head` goes into: a usual base among
-/// `branches`, else the first other one.
-pub(crate) fn default_base<'a>(branches: &'a [String], head: Option<&str>) -> Option<&'a str> {
-    let others = || {
-        branches
-            .iter()
-            .map(String::as_str)
-            .filter(move |branch| Some(*branch) != head)
-    };
-    USUAL_BASES
-        .iter()
-        .find_map(|usual| others().find(|branch| branch == usual))
-        .or_else(|| others().next())
 }
 
 /// The open pull request `branch` is the head of, with how the checks on its
@@ -751,34 +701,11 @@ pub(crate) async fn merge(core: &Core, pull: &Pull, sha: &str) -> Result<(), Str
 }
 
 #[cfg(test)]
-impl Repo {
-    /// `nodelike/sikemux` on a host that keeps pull requests' heads under
-    /// `pull_heads`, as GitHub does and Bitbucket does not.
-    pub(crate) fn on_test_host(pull_heads: Option<&str>) -> Self {
-        let spec = Box::leak(Box::new(CodeHostSpec {
-            pull_heads: pull_heads.map(str::to_owned),
-            ..CodeHostSpec::default()
-        }));
-        Self {
-            plugins: None,
-            host: Host {
-                plugin: "sikemux.test",
-                spec,
-            },
-            owner: "nodelike".to_owned(),
-            name: "sikemux".to_owned(),
-            account: None,
-        }
-    }
-}
+impl Repo {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn names(branches: &[&str]) -> Vec<String> {
-        branches.iter().map(|branch| (*branch).to_owned()).collect()
-    }
 
     fn host(manifest: &str) -> Host {
         let manifest = sikemux_plugin_api::Manifest::from_json(manifest).expect("a manifest");
@@ -833,20 +760,5 @@ mod tests {
                 assert!(!host.public(server), "{server}");
             }
         }
-    }
-
-    #[test]
-    fn a_new_pull_request_goes_into_the_branch_a_repository_usually_merges_into() {
-        let branches = names(&["feat/x", "develop", "main"]);
-        assert_eq!(default_base(&branches, Some("feat/x")), Some("main"));
-        let branches = names(&["feat/x", "master"]);
-        assert_eq!(default_base(&branches, Some("feat/x")), Some("master"));
-    }
-
-    #[test]
-    fn a_new_pull_request_never_goes_into_the_branch_its_changes_are_on() {
-        assert_eq!(default_base(&names(&["main"]), Some("main")), None);
-        let branches = names(&["feat/x", "release/1"]);
-        assert_eq!(default_base(&branches, Some("feat/x")), Some("release/1"));
     }
 }

@@ -1,23 +1,23 @@
 use std::rc::Rc;
 
-use gpui_kit::base::{Button as BaseButton, Selectable};
+use gpui_kit::base::Selectable;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenu, PopupMenuItem};
 use gpui_kit::component::Side;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::{
-    div, px, Anchor, AnimationExt, AnyElement, AnyView, App, AppContext, ClickEvent, Context, Div,
-    ElementId, FontWeight, Hsla, InteractiveElement, Interactivity, IntoElement, ParentElement,
-    Render, RenderOnce, SharedString, Stateful, StatefulInteractiveElement, StyleRefinement,
-    Styled, Transformation, Window,
+    div, px, Anchor, AnimationExt, AnyElement, AnyView, App, AppContext, Context, Div, ElementId,
+    FontWeight, Hsla, InteractiveElement, Interactivity, IntoElement, ParentElement, Render,
+    RenderOnce, SharedString, Stateful, StatefulInteractiveElement, StyleRefinement, Styled,
+    Window,
 };
 
-use super::{icon, text};
+use super::text;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    Tokens, RADIUS_2, RADIUS_3, RADIUS_4, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS_H,
-    TEXT_3XS_H, TEXT_LG, TEXT_SM,
+    Tokens, RADIUS_2, RADIUS_3, RADIUS_4, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS_H, TEXT_3XS_H,
+    TEXT_LG,
 };
 
 /// How far rows sit inside a float, so a chosen row's corners run parallel to the float's:
@@ -269,79 +269,4 @@ pub fn card_tooltip(
         let body = body.clone();
         cx.new(|_| CardTooltipView { width, body }).into()
     }
-}
-
-/// The menu a split button's chevron opens.
-pub type SplitMenu = Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu>;
-
-/// A primary button with a chevron beside it, as GitHub's merge button: its face does the
-/// chosen thing, and the chevron opens `menu` to pick another. It dims and stops while `off`;
-/// `opens_up` lifts the menu above it, for a button at the foot of a page.
-#[allow(clippy::too_many_arguments)]
-pub fn split_button(
-    id: &str,
-    label: impl Into<SharedString>,
-    glyph: Option<Icon>,
-    off: bool,
-    opens_up: bool,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    menu: Option<SplitMenu>,
-    cx: &App,
-) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let label: SharedString = label.into();
-    let face = BaseButton::new(SharedString::from(id.to_owned()))
-        .accessibility_label(label.clone())
-        .px(SPACE_3)
-        .h(px(28.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap(SPACE_1H)
-        .text_size(crate::theme::ui_text(TEXT_SM))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(t.on_accent)
-        .when(!off, |button| button.on_click(on_click))
-        .children(glyph.map(|glyph| icon(glyph, 13.).text_color(t.on_accent)))
-        .child(label);
-    let picker = menu.map(|menu| {
-        let chevron = BaseButton::new(SharedString::from(format!("{id}-pill")))
-            .accessibility_label("More")
-            .w(px(28.))
-            .h(px(28.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .border_l_1()
-            .border_color(t.on_accent.opacity(0.25))
-            .child(
-                icon(Icon::Chevron, 11.)
-                    .with_transformation(Transformation::rotate(gpui_kit::radians(
-                        std::f32::consts::FRAC_PI_2,
-                    )))
-                    .text_color(t.on_accent),
-            );
-        let anchor = if opens_up {
-            Anchor::BottomRight
-        } else {
-            Anchor::TopRight
-        };
-        menu_button(
-            format!("{id}-menu"),
-            anchor,
-            chevron,
-            move |popup, window, cx| menu(popup, window, cx),
-        )
-        .into_any_element()
-    });
-    div()
-        .flex()
-        .flex_none()
-        .rounded(RADIUS_2)
-        .overflow_hidden()
-        .bg(t.accent)
-        .when(off, |button| button.opacity(0.5))
-        .child(face)
-        .children(picker)
-        .into_any_element()
 }

@@ -15,12 +15,6 @@ pub const AGENT_INSET: f32 = 6.;
 
 /// A pane's frame. Panes paint no ground of their own: the shell's shows through.
 pub fn pane(cx: &App) -> Div {
-    plain_pane(cx).children(super::grain::field(cx))
-}
-
-/// A pane's frame without the grain or the person's picture behind it, for a pane that is
-/// read closely, such as a code host's pull requests, runs and issues, or a plugin's pane.
-pub fn plain_pane(cx: &App) -> Div {
     div()
         .relative()
         .size_full()
@@ -28,6 +22,7 @@ pub fn plain_pane(cx: &App) -> Div {
         .border_1()
         .border_color(Tokens::get(cx).border)
         .rounded(RADIUS_3)
+        .children(super::grain::field(cx))
 }
 
 /// An agent pane's header: a bar across the top of the frame, what the pane is on the left

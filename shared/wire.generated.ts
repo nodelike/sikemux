@@ -1702,7 +1702,6 @@ export type CoreChangeTopic =
     | "agentSignIn"
     | "agentStatus"
     | "boards"
-    | "ci"
     | "git"
     | "ports"
     | "runs"
@@ -1763,8 +1762,6 @@ export interface Preferences {
     languageServerTrust: Record<string, boolean>;
     /** The commands the person added to the command palette. */
     customCommands: CustomCommand[];
-    /** Each plugin's own settings, by the plugin's id, as the plugin reads them. */
-    pluginSettings: Record<string, unknown>;
     /** The browser app single sign-on opens in, or none for the default one. */
     cloudBrowser: string;
     /** The shortcut that brings that browser's desktop forward. */
@@ -3242,7 +3239,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
     defaultGitRepos: {},
     languageServerTrust: {},
     customCommands: [],
-    pluginSettings: {},
     cloudBrowser: "",
     cloudBrowserShortcut: "",
     iosSimulator: true,

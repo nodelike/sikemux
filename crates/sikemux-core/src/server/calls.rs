@@ -546,26 +546,11 @@ calls! { core, client, params;
         answer(theme.ok_or("the wallpaper gave no theme")?)
     },
     "codeHostPulls": Watch => answer(super::codehost::pulls(&core, client.id, parse(params)?).await),
-    "codeHostRuns": Watch => answer(super::codehost::runs(&core, client.id, parse(params)?).await),
-    "codeHostIssues": Watch => answer(super::codehost::issues(&core, client.id, parse(params)?).await),
-    "codeHostReleases": Watch => answer(super::codehost::releases(&core, client.id, parse(params)?).await),
-    "codeHostPull": Watch => answer(super::codehost::pull(&core, client.id, parse(params)?).await),
-    "codeHostPullFiles": Watch => answer(super::codehost::pull_files(&core, client.id, parse(params)?).await),
-    "codeHostLink": Watch => answer(super::codehost::link(&core, parse(params)?).await),
-    "codeHostCheckout": Person => answer(super::codehost::checkout(&core, parse(params)?).await),
-    "codeHostNewPull": Watch => answer(super::codehost::new_pull(&core, parse(params)?).await),
     "codeHostTrackedContext" CodeHostTrackedContext (super::codehost::TrackedParams) -> plugins::Outcome: Watch => {
         super::codehost::tracked_context(&core, params).await
     },
-    "codeHostWorkOn": Person => answer(super::codehost::work_on(&core, parse(params)?).await),
     "codeHostTracked" CodeHostTracked (super::codehost::ReleasesParams) -> plugins::Outcome: Watch => {
         super::codehost::tracked(&core, client.id, params).await
-    },
-    "codeHostRun": Watch => answer(super::codehost::run(&core, client.id, parse(params)?).await),
-    "codeHostJobLog": Watch => answer(super::codehost::job_log(&core, client.id, parse(params)?).await),
-    "codeHostAway": Watch => {
-        super::codehost::away(&core, client.id);
-        answer(Value::Null)
     },
     "hosts": Watch => answer(super::hosts::rows(&core)),
     "hostInstalledFrom": Person => answer(super::hosts::installed_from(&core, parse(params)?)?),

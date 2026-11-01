@@ -26,13 +26,10 @@ pub use dock::{shell as dock_shell, DockMenu, DockRow, DockScope};
 pub use file_card::{file_head, Opens};
 pub use find_bar::FindBar;
 pub use floats::{
-    card_tooltip, float, menu, menu_button, split_button, tooltip, MenuRow, SplitMenu, FLOAT_INSET,
-    PANEL_INSET,
+    card_tooltip, float, menu, menu_button, tooltip, MenuRow, FLOAT_INSET, PANEL_INSET,
 };
-pub use lists::{
-    close_button, gives_way, hover_actions, page_tab, page_tabs, Group, Row, Tab, ROW,
-};
-pub use pane::{pane, plain_pane, PaneHeader, AGENT_INSET};
+pub use lists::{close_button, gives_way, hover_actions, Group, Row, Tab, ROW};
+pub use pane::{pane, PaneHeader, AGENT_INSET};
 pub use select::{select, Pick};
 pub use state_mark::status_mark;
 
