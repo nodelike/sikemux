@@ -1260,24 +1260,22 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         ),
     ];
     let sign_out = act(|bench, _, _| bench.sign_out());
+    let menu_width = px(bench.rail_width(Edge::Start)) - SPACE_2H * 2. - px(2.);
     let menu = ui::menu_button(
         "account-menu",
         Anchor::BottomLeft,
         row,
-        move |mut popup, _, cx| {
+        move |mut popup, _, _| {
+            popup = popup.min_w(menu_width).max_w(menu_width);
             for (label, icon, hint, act) in items.iter().cloned() {
                 popup = popup.item(
-                    ui::MenuRow::new(label)
-                        .icon(icon)
-                        .when_some(hint, ui::MenuRow::hint)
-                        .item(cx)
+                    account_item(label, icon, hint)
                         .on_click(move |event, window, cx| act(event, window, cx)),
                 );
             }
             let sign_out = sign_out.clone();
             popup.separator().item(
-                PopupMenuItem::new("Sign out")
-                    .icon(Icon::LogOut)
+                account_item("Sign out", Icon::LogOut, None)
                     .on_click(move |event, window, cx| sign_out(event, window, cx)),
             )
         },
@@ -1292,11 +1290,39 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .border_t_1()
         .border_color(t.border)
         .child(div().flex_1().min_w_0().child(menu))
-        .child(settings_button())
         .into_any_element()
 }
 
-/// Settings, kept in the rail's foot whether or not the person is signed in.
+/// A row of the account menu, roomier than other menus' rows since it opens the width of the rail.
+fn account_item(
+    label: &'static str,
+    icon: Icon,
+    hint: Option<SharedString>,
+) -> PopupMenuItem {
+    PopupMenuItem::element(move |_, cx| {
+        let t = Tokens::get(cx);
+        div()
+            .id(label)
+            .aria_label(label)
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(SPACE_2H)
+            .py(SPACE_1H)
+            .text_size(crate::theme::ui_text(TEXT_SM))
+            .child(ui::icon(icon, 16.).text_color(t.text_secondary))
+            .child(div().flex_1().min_w_0().truncate().child(label))
+            .children(hint.clone().map(|hint| {
+                div()
+                    .text_size(crate::theme::ui_text(TEXT_XS))
+                    .text_color(t.text_tertiary)
+                    .child(hint)
+            }))
+    })
+}
+
+/// Settings, in the rail's foot until the person signs in and it moves into the account menu.
 fn settings_button() -> IconButton {
     IconButton::new("settings", Icon::Settings, "Settings")
         .glyph(14.)
