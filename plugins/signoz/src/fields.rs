@@ -4,11 +4,55 @@
 use std::path::Path;
 
 use reqwest::Method;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::client;
 use crate::error::{SignozError, SignozResult};
-pub use sikemux_plugin_signoz_views::{FieldKey, KeyQuery, ValueQuery};
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldKey {
+    pub name: String,
+    pub context: String,
+    pub data_type: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Default, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Signal {
+    #[default]
+    Logs,
+    Traces,
+}
+
+impl Signal {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Logs => "logs",
+            Self::Traces => "traces",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyQuery {
+    #[serde(default)]
+    pub signal: Signal,
+    #[serde(default)]
+    pub search: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValueQuery {
+    #[serde(default)]
+    pub signal: Signal,
+    pub name: String,
+    #[serde(default)]
+    pub search: String,
+}
 
 const SUGGESTIONS: u32 = 50;
 

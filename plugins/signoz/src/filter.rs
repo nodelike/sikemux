@@ -1,7 +1,65 @@
-pub use sikemux_plugin_signoz_views::{Filter, FilterOp, Scope};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 use crate::error::{SignozError, SignozResult};
 use crate::query::{self, quote};
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum FilterOp {
+    Equals,
+    NotEquals,
+    Contains,
+    NotContains,
+    Exists,
+    NotExists,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Filter {
+    pub key: String,
+    pub op: FilterOp,
+    #[serde(default, deserialize_with = "plain_value")]
+    pub value: String,
+}
+
+/// A value as written in a filter or a dashboard variable. Numbers and booleans
+/// are read as their text, since SigNoz compares `status = '503'` and `status = 503` alike.
+pub(crate) fn text_of(value: Value) -> Result<String, String> {
+    match value {
+        Value::String(text) => Ok(text),
+        Value::Number(number) => Ok(number.to_string()),
+        Value::Bool(flag) => Ok(flag.to_string()),
+        Value::Null => Ok(String::new()),
+        other => Err(format!("expected text or a number, not {other}")),
+    }
+}
+
+pub fn plain_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    text_of(Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+}
+
+/// What every query narrows by, whichever signal it reads.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Scope {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<Filter>,
+    /// A filter in SigNoz's own query syntax, for anything the others cannot say.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expression: Option<String>,
+    /// A fixed range in Unix milliseconds. Without one, the last `minutes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minutes: Option<u32>,
+}
 
 const MAX_WINDOW_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 

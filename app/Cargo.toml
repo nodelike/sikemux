@@ -60,7 +60,6 @@ sikemux-plugin-aws-views = { path = "../plugins/aws/views" }
 sikemux-plugin-bruno-views = { path = "../plugins/bruno/views" }
 sikemux-plugin-database-views = { path = "../plugins/database/views" }
 sikemux-plugin-rundeck-views = { path = "../plugins/rundeck/views" }
-sikemux-plugin-signoz-views = { path = "../plugins/signoz/views" }
 sikemux-process = { path = "../crates/sikemux-process" }
 sikemux-client = { path = "../crates/sikemux-client" }
 sikemux-keychain = { path = "../crates/sikemux-keychain" }

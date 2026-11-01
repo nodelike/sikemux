@@ -12,11 +12,18 @@ use sikemux_plugin_api::store::{self, Secrets};
 
 use crate::error::{SignozError, SignozResult};
 
+/// How the plugin signs in to SigNoz: a session from an email and password, or an API key.
+#[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum AuthMode {
+    #[default]
+    Session,
+    ApiKey,
+}
+
 /// The signoz CLI's own entry, which every build shares with it.
 pub const API_KEYS: Secrets = Secrets::new("signoz-api");
 pub const SESSIONS: Secrets = Secrets::new(keychain_service!("sikemux-signoz-session"));
-
-pub use sikemux_plugin_signoz_views::AuthMode;
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]

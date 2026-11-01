@@ -9,7 +9,6 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::rc::Rc;
 
-use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::{
     div, px, AnyElement, App, Context, FontWeight, IntoElement, ParentElement, Render,
@@ -44,7 +43,6 @@ plugins! {
     bruno,
     database,
     rundeck,
-    signoz,
 }
 
 /// How many views a pane keeps, the least lately asked for going first.
@@ -1068,21 +1066,6 @@ pub fn browser_sign_in(
         .icon(mark)
         .on_click(cx.listener(move |pane, _, _, cx| start(&mut pane.host, cx)))
         .into_any_element()
-}
-
-/// A menu's way to hand `text` to an agent, for the pane `pane` names.
-pub fn send_submenu(
-    popup: PopupMenu,
-    label: impl Into<SharedString>,
-    pane: &WeakEntity<PluginPane>,
-    text: String,
-    window: &mut Window,
-    cx: &mut Context<PopupMenu>,
-) -> PopupMenu {
-    let Some(bench) = pane.upgrade().map(|pane| pane.read(cx).host.bench.clone()) else {
-        return popup;
-    };
-    send_to::submenu_with_text(popup, label, bench, text, window, cx)
 }
 
 fn notice(

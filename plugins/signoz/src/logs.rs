@@ -1,29 +1,60 @@
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::BTreeMap;
 use std::path::Path;
-use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sikemux_plugin_api::process;
-use sikemux_plugin_api::{reply, PluginResult, StreamSink};
 
 use crate::client;
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Narrows;
-use crate::query::{self, all_of, quote, View};
-pub use sikemux_plugin_signoz_views::{
-    LogLine, LogPage, LogSearch, TailTick, VolumeBucket, VolumeQuery,
-};
+use crate::filter::Scope;
+use crate::query::{self, all_of, quote};
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogLine {
+    pub id: String,
+    pub timestamp: String,
+    pub service: Option<String>,
+    pub severity: Option<String>,
+    pub body: String,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    /// Where the cause usually is: bodies say "request failed", attributes say why.
+    pub attributes: BTreeMap<String, Value>,
+    pub resources: BTreeMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogPage {
+    pub lines: Vec<LogLine>,
+    pub next_offset: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogSearch {
+    #[serde(flatten)]
+    pub scope: Scope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub severities: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u32>,
+}
 
 const DEFAULT_LIMIT: u32 = 30;
 const MAX_LIMIT: u32 = 500;
 const BODY_CHARS: usize = 1_000;
 const ID_WINDOW_MS: u64 = 10 * 60_000;
-const TAIL_INTERVAL: Duration = Duration::from_secs(2);
-const TAIL_MAX_BACKOFF: Duration = Duration::from_secs(30);
-const TAIL_GIVE_UP_AFTER: u32 = 8;
-const TAIL_REMEMBERED_IDS: usize = 4_000;
-
 /// What every returned line has in common, written once instead of on each line.
 #[derive(Serialize, Default, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -68,13 +99,6 @@ pub struct LogDigest {
     pub lines: Vec<DigestLine>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_offset: Option<u32>,
-}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-pub enum LogReply {
-    Lines(LogPage),
-    Digest(LogDigest),
 }
 
 fn present(value: &Option<String>) -> Option<&str> {
@@ -175,91 +199,12 @@ fn lines_of(result: &Value) -> Vec<LogLine> {
         .unwrap_or_default()
 }
 
-const DEFAULT_BUCKETS: u32 = 60;
-const MAX_BUCKETS: u32 = 240;
-
-/// How many lines of each level arrived in each slice of the window. The
-/// severity toggles are left out on purpose: the chart shows the whole shape
-/// of the traffic, and the reader's choice only dims part of it.
-pub async fn volume(data_dir: &Path, request: VolumeQuery) -> SignozResult<Vec<VolumeBucket>> {
-    let search = LogSearch {
-        severities: Vec::new(),
-        ..request.search
-    };
-    let (start, end) = search.scope.window()?;
-    let buckets = request
-        .buckets
-        .unwrap_or(DEFAULT_BUCKETS)
-        .clamp(1, MAX_BUCKETS);
-    let step_seconds = ((end - start) / 1_000 / u64::from(buckets)).max(1);
-    let spec = json!({
-        "signal": "logs",
-        "stepInterval": step_seconds,
-        "aggregations": [{ "expression": "count()" }],
-        "groupBy": [{ "name": "severity_text", "fieldContext": "log" }],
-    });
-    let request = query::builder(
-        "time_series",
-        (start, end),
-        query::with_filter(spec, expression(&search)?),
-    );
-    let result = client::query_range(data_dir, &request).await?;
-    Ok(bucket(&result, start, end, step_seconds * 1_000))
-}
-
-fn bucket(result: &Value, start: u64, end: u64, step_ms: u64) -> Vec<VolumeBucket> {
-    let first = start - start % step_ms;
-    let count = ((end.saturating_sub(first)) / step_ms + 1) as usize;
-    let mut buckets: Vec<VolumeBucket> = (0..count)
-        .map(|index| VolumeBucket {
-            start: first + index as u64 * step_ms,
-            counts: BTreeMap::new(),
-        })
-        .collect();
-    let series = result
-        .pointer("/aggregations/0/series")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    for serie in &series {
-        let level = serie
-            .pointer("/labels/0/value")
-            .and_then(Value::as_str)
-            .map(|level| level.trim().to_uppercase())
-            .filter(|level| !level.is_empty())
-            .unwrap_or_else(|| "OTHER".into());
-        for point in serie
-            .get("values")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let (Some(at), Some(value)) = (
-                point.get("timestamp").and_then(Value::as_u64),
-                point.get("value").and_then(Value::as_f64),
-            ) else {
-                continue;
-            };
-            let index = (at.saturating_sub(first) / step_ms) as usize;
-            if let Some(slot) = buckets.get_mut(index) {
-                *slot.counts.entry(level.clone()).or_default() += value.max(0.0) as u64;
-            }
-        }
-    }
-    buckets
-}
-
-pub async fn search(data_dir: &Path, search: LogSearch) -> SignozResult<LogReply> {
-    if search.view == View::Agent {
-        if let Some(id) = present(&search.id) {
-            return one_line(data_dir, &search, id).await.map(LogReply::Digest);
-        }
+pub async fn search(data_dir: &Path, search: LogSearch) -> SignozResult<LogDigest> {
+    if let Some(id) = present(&search.id) {
+        return one_line(data_dir, &search, id).await;
     }
     let found = page(data_dir, &search).await?;
-    Ok(match search.view {
-        View::Pane => LogReply::Lines(found),
-        View::Agent => LogReply::Digest(digest(found.lines, found.next_offset, Some(BODY_CHARS))),
-    })
+    Ok(digest(found.lines, found.next_offset, Some(BODY_CHARS)))
 }
 
 /// The lines `search` finds, every field of each.
@@ -423,96 +368,6 @@ pub fn digest(
     }
 }
 
-struct Seen {
-    order: VecDeque<String>,
-    ids: HashSet<String>,
-}
-
-impl Seen {
-    fn new() -> Self {
-        Self {
-            order: VecDeque::new(),
-            ids: HashSet::new(),
-        }
-    }
-
-    fn first_time(&mut self, id: &str) -> bool {
-        if self.ids.contains(id) {
-            return false;
-        }
-        self.ids.insert(id.to_string());
-        self.order.push_back(id.to_string());
-        if self.order.len() > TAIL_REMEMBERED_IDS {
-            if let Some(oldest) = self.order.pop_front() {
-                self.ids.remove(&oldest);
-            }
-        }
-        true
-    }
-}
-
-fn latest_ms(lines: &[LogLine]) -> Option<u64> {
-    lines
-        .iter()
-        .filter_map(|line| query::parse_timestamp_ns(&line.timestamp))
-        .max()
-        .map(|ns| (ns / 1_000_000).max(0) as u64)
-}
-
-/// Sends the most recent lines, then every new one as it arrives. Each poll
-/// looks back a second past the newest line it has, so a line written late
-/// is still caught, and anything already sent is dropped.
-pub async fn tail(data_dir: &Path, mut search: LogSearch, sink: StreamSink) -> PluginResult<()> {
-    let backlog = search.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    search.offset = None;
-    let mut seen = Seen::new();
-    let mut since = query::window(search.scope.minutes.or(Some(15))).0;
-    let mut first = true;
-    let mut failures = 0u32;
-    loop {
-        let window = (since, process::clock::epoch_ms());
-        let outcome = async {
-            let request = if first {
-                list_query(&search, window, backlog, 0, true)?
-            } else {
-                list_query(&search, window, MAX_LIMIT, 0, false)?
-            };
-            client::query_range(data_dir, &request).await
-        }
-        .await;
-        let wait = match outcome {
-            Ok(result) => {
-                failures = 0;
-                let mut lines = lines_of(&result);
-                if first {
-                    lines.reverse();
-                    first = false;
-                }
-                lines.retain(|line| seen.first_time(&line.id));
-                if let Some(latest) = latest_ms(&lines) {
-                    since = since.max(latest.saturating_sub(1_000));
-                }
-                if !lines.is_empty() {
-                    sink.send(reply(TailTick { lines, error: None })?)?;
-                }
-                TAIL_INTERVAL
-            }
-            Err(error) => {
-                failures += 1;
-                sink.send(reply(TailTick {
-                    lines: Vec::new(),
-                    error: Some(error.to_string()),
-                })?)?;
-                if failures >= TAIL_GIVE_UP_AFTER {
-                    return Ok(());
-                }
-                (TAIL_INTERVAL * 2u32.pow(failures.min(4))).min(TAIL_MAX_BACKOFF)
-            }
-        };
-        tokio::time::sleep(wait).await;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -561,22 +416,6 @@ mod tests {
             "(body CONTAINS 'can\\'t') AND (severity_text IN ('ERROR', 'FATAL')) AND (service.name = 'api')"
         );
         assert_eq!(expression(&LogSearch::default()).unwrap(), None);
-    }
-
-    #[test]
-    fn buckets_every_level_and_leaves_quiet_slices_empty() {
-        let result = json!({ "aggregations": [{ "series": [
-            { "labels": [{ "value": "error" }], "values": [{ "timestamp": 60_000, "value": 2 }, { "timestamp": 180_000, "value": 1 }] },
-            { "labels": [{ "value": "INFO" }], "values": [{ "timestamp": 60_000, "value": 40 }] },
-            { "labels": [{ "value": "" }], "values": [{ "timestamp": 120_000, "value": 3 }] },
-        ] }] });
-        let buckets = bucket(&result, 60_000, 240_000, 60_000);
-        assert_eq!(buckets.len(), 4);
-        assert_eq!(buckets[0].counts.get("ERROR"), Some(&2));
-        assert_eq!(buckets[0].counts.get("INFO"), Some(&40));
-        assert_eq!(buckets[1].counts.get("OTHER"), Some(&3));
-        assert_eq!(buckets[2].counts.get("ERROR"), Some(&1));
-        assert!(buckets[3].counts.is_empty());
     }
 
     fn line(id: &str, pod: &str, status: u64, body: &str) -> LogLine {
@@ -690,16 +529,5 @@ mod tests {
         );
         assert_eq!(ksuid_seconds("not-a-ksuid"), None);
         assert_eq!(ksuid_seconds("zzzzzzzzzzzzzzzzzzzzzzzzzzz"), None);
-    }
-
-    #[test]
-    fn remembers_a_bounded_number_of_lines() {
-        let mut seen = Seen::new();
-        assert!(seen.first_time("a"));
-        assert!(!seen.first_time("a"));
-        for index in 0..TAIL_REMEMBERED_IDS {
-            seen.first_time(&index.to_string());
-        }
-        assert!(seen.first_time("a"));
     }
 }

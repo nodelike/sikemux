@@ -3,7 +3,7 @@
 //   config    — where SigNoz is, and the key in the Keychain the shell CLI shares
 //   client    — the HTTP client, size limits, and SigNoz's error shapes
 //   query     — v5 query_range builders, filter quoting, and time windows
-//   logs      — search, and a tail that polls for new lines
+//   logs      — search
 //   services  — health per service, and one service's charts, endpoints and errors
 //   traces    — every span of one trace, ordered for a waterfall
 //   agent     — which method each of the agent's tools reaches
@@ -20,20 +20,30 @@ mod logs;
 mod query;
 mod services;
 mod traces;
-mod views;
 
 use std::path::Path;
 use std::sync::Arc;
 
 use reqwest::Method;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
-    SignInStatus, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, SignInStatus,
 };
-use sikemux_plugin_signoz_views::Where;
 
+use crate::config::AuthMode;
 use crate::error::{SignozError, SignozResult};
+
+/// Which SigNoz the plugin is signed in to, and as whom.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Where {
+    pub url: String,
+    pub auth: AuthMode,
+    pub email: String,
+    pub key_from_environment: bool,
+    pub version: Option<String>,
+}
 
 pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
     Ok(Arc::new(Signoz {
@@ -140,10 +150,8 @@ impl Plugin for Signoz {
                 }
                 "signOut" => answer(auth::sign_out(data_dir)).await,
                 "searchLogs" => answer(logs::search(data_dir, params(input)?)).await,
-                "logVolume" => answer(logs::volume(data_dir, params(input)?)).await,
                 "dashboards" => answer(dashboards::list(data_dir)).await,
                 "dashboard" => answer(dashboards::get(data_dir, params(input)?)).await,
-                "panel" => answer(dashboards::panel(data_dir, params(input)?)).await,
                 "dashboardPanel" => answer(dashboards::saved_panel(data_dir, params(input)?)).await,
                 "services" => answer(services::health(data_dir, params(input)?)).await,
                 "serviceOverview" => answer(services::overview(data_dir, params(input)?)).await,
@@ -153,30 +161,6 @@ impl Plugin for Signoz {
                 "searchTraces" => answer(traces::search(data_dir, params(input)?)).await,
                 "fieldKeys" => answer(fields::keys(data_dir, params(input)?)).await,
                 "fieldValues" => answer(fields::values(data_dir, params(input)?)).await,
-                "servicesView" => answer(views::services_view(data_dir, params(input)?)).await,
-                "serviceView" => answer(views::service_view(data_dir, params(input)?)).await,
-                "logsView" => answer(views::logs_view(data_dir, params(input)?)).await,
-                "volumeView" => answer(views::volume_view(data_dir, params(input)?)).await,
-                "tracesView" => answer(views::traces_view(data_dir, params(input)?)).await,
-                "traceView" => answer(views::trace_view(data_dir, params(input)?)).await,
-                "dashboardsView" => answer(views::dashboards_view(data_dir)).await,
-                "dashboardView" => answer(views::dashboard_view(data_dir, params(input)?)).await,
-                "panelView" => answer(views::panel_view(data_dir, params(input)?)).await,
-                _ => Err(PluginError::unknown_method(method)),
-            }
-        })
-    }
-
-    fn stream<'a>(
-        &'a self,
-        ctx: &'a PluginContext,
-        method: &'a str,
-        input: Value,
-        sink: StreamSink,
-    ) -> PluginFuture<'a, ()> {
-        Box::pin(async move {
-            match method {
-                "tailLogs" => logs::tail(ctx.data_dir(), params(input)?, sink).await,
                 _ => Err(PluginError::unknown_method(method)),
             }
         })
@@ -292,12 +276,6 @@ mod live {
             .expect("clock")
             .as_millis() as u64;
 
-        let volume = plugin
-            .call(ctx, "logVolume", json!({ "minutes": 15, "buckets": 30 }))
-            .await
-            .expect("log volume");
-        assert!(volume.as_array().is_some_and(|buckets| buckets.len() >= 30));
-
         let dashboards = plugin
             .call(ctx, "dashboards", Value::Null)
             .await
@@ -308,23 +286,12 @@ mod live {
                 .call(ctx, "dashboard", json!({ "id": summary["id"] }))
                 .await
                 .expect("dashboard");
-            let variables: serde_json::Map<String, Value> = dashboard["variables"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|variable| {
-                    (
-                        variable["name"].as_str().unwrap_or_default().to_string(),
-                        variable["selected"].clone(),
-                    )
-                })
-                .collect();
             for panel in dashboard["panels"].as_array().expect("panels") {
                 if panel["drawable"] != true {
                     continue;
                 }
                 let data = plugin
-                    .call(ctx, "panel", json!({ "kind": panel["kind"], "query": panel["query"], "variables": variables, "minutes": 60 }))
+                    .call(ctx, "dashboardPanel", json!({ "dashboardId": summary["id"], "panelId": panel["id"], "minutes": 60 }))
                     .await;
                 assert!(
                     data.is_ok(),
@@ -347,13 +314,17 @@ mod live {
                     "start": now - 60 * 60_000,
                     "end": now,
                     "limit": 5,
-                    "view": "pane",
                 }),
             )
             .await
             .expect("filtered logs");
+        let shared = &filtered["shared"]["attributes"]["status"];
         for line in filtered["lines"].as_array().expect("lines") {
-            assert_eq!(line["attributes"]["status"], json!(503), "{line}");
+            let status = match &line["attributes"]["status"] {
+                Value::Null => shared,
+                own => own,
+            };
+            assert_eq!(status, &json!(503), "{line}");
         }
         let page = plugin
             .call(
@@ -381,14 +352,6 @@ mod live {
                 .expect("trace");
             assert_eq!(trace["traceId"], trace_id);
         }
-        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let sink = StreamSink::new(move |item| sender.send(item).is_ok());
-        let tail = plugin.stream(ctx, "tailLogs", json!({ "minutes": 5, "limit": 3 }), sink);
-        let first = tokio::select! {
-            item = receiver.recv() => item,
-            _ = tail => None,
-        };
-        assert!(first.expect("the tail sends its backlog")["error"].is_null());
     }
 
     #[tokio::test]

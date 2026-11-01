@@ -1,16 +1,98 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::client;
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Narrows;
-use crate::query::{self, quote, round_ms, View};
-pub use sikemux_plugin_signoz_views::{
-    Trace, TraceOrder, TracePage, TraceRequest, TraceSearch, TraceSpan, TraceSummary,
-};
+use crate::filter::Scope;
+use crate::query::{self, quote, round_ms};
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceSummary {
+    pub trace_id: String,
+    pub timestamp: String,
+    pub service: String,
+    pub name: String,
+    pub duration_ms: f64,
+    pub error: bool,
+    pub status_code: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TracePage {
+    pub traces: Vec<TraceSummary>,
+    pub next_offset: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceSpan {
+    pub span_id: String,
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub service: String,
+    pub depth: usize,
+    pub offset_ms: f64,
+    pub duration_ms: f64,
+    pub error: bool,
+    pub status: Option<String>,
+    pub kind: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Trace {
+    pub trace_id: String,
+    pub start: String,
+    pub duration_ms: f64,
+    pub error_count: usize,
+    pub services: Vec<String>,
+    /// In the order a waterfall draws them: each span followed by its children, earliest first.
+    pub spans: Vec<TraceSpan>,
+    pub truncated: bool,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum TraceOrder {
+    #[default]
+    Slowest,
+    Recent,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceSearch {
+    #[serde(flatten)]
+    pub scope: Scope,
+    #[serde(default)]
+    pub errors_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_duration_ms: Option<f64>,
+    #[serde(default)]
+    pub order: TraceOrder,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceRequest {
+    pub trace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minutes: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_spans: Option<u32>,
+}
 
 const MAX_SPANS: u32 = 5_000;
 const DEFAULT_LOOKBACK_MINUTES: u32 = 24 * 60;
@@ -156,13 +238,6 @@ pub struct TraceOutline {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub truncated: bool,
     pub spans: Vec<OutlineSpan>,
-}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-pub enum TraceReply {
-    Waterfall(Trace),
-    Outline(TraceOutline),
 }
 
 fn text(data: &Value, key: &str) -> Option<String> {
@@ -383,8 +458,7 @@ fn outline(trace: Trace, from: Option<&str>, most: usize) -> SignozResult<TraceO
     })
 }
 
-pub async fn trace(data_dir: &Path, request: TraceRequest) -> SignozResult<TraceReply> {
-    let view = request.view;
+pub async fn trace(data_dir: &Path, request: TraceRequest) -> SignozResult<TraceOutline> {
     let from = request
         .span_id
         .as_deref()
@@ -396,10 +470,7 @@ pub async fn trace(data_dir: &Path, request: TraceRequest) -> SignozResult<Trace
         .unwrap_or(DEFAULT_OUTLINE_SPANS)
         .clamp(1, MAX_OUTLINE_SPANS) as usize;
     let trace = whole_trace(data_dir, request).await?;
-    Ok(match view {
-        View::Pane => TraceReply::Waterfall(trace),
-        View::Agent => TraceReply::Outline(outline(trace, from.as_deref(), most)?),
-    })
+    outline(trace, from.as_deref(), most)
 }
 
 pub async fn whole_trace(data_dir: &Path, request: TraceRequest) -> SignozResult<Trace> {

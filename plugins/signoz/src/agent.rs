@@ -1,4 +1,4 @@
-//! Agents reach several of the pane's methods through one tool, so fewer
+//! Agents reach several methods through one tool, so fewer
 //! schemas ride on every request. What the agent passes picks the method.
 
 use serde_json::Value;

@@ -155,7 +155,6 @@ pub struct Field {
     label: SharedString,
     state: Entity<InputState>,
     mono: bool,
-    hint: Option<SharedString>,
 }
 
 impl Field {
@@ -164,19 +163,12 @@ impl Field {
             label: label.into(),
             state: state.clone(),
             mono: false,
-            hint: None,
         }
     }
 
     /// For a key, a token or an address, typed as the machine reads it.
     pub fn mono(mut self) -> Self {
         self.mono = true;
-        self
-    }
-
-    /// Where to find what goes in it, under the box.
-    pub fn hint(mut self, hint: impl Into<SharedString>) -> Self {
-        self.hint = Some(hint.into());
         self
     }
 }
@@ -218,68 +210,12 @@ impl RenderOnce for Field {
                             .child(Input::new(&self.state).appearance(false).bordered(false)),
                     ),
             )
-            .children(self.hint.map(|hint| {
-                div()
-                    .text_size(theme::ui_text(TEXT_2XS))
-                    .line_height(theme::ui_text(16.5))
-                    .text_color(t.text_tertiary)
-                    .child(hint)
-            }))
     }
 }
 
 /// What a box in the form is for, over it.
 pub fn label(words: impl Into<SharedString>, cx: &App) -> Div {
     text(words, TEXT_2XS, FontWeight::MEDIUM).text_color(Tokens::get(cx).text_tertiary)
-}
-
-/// `control` under its label, across the column, for a pick that is not typed.
-pub fn labelled(words: impl Into<SharedString>, control: impl IntoElement, cx: &App) -> Div {
-    div()
-        .w_full()
-        .flex()
-        .flex_col()
-        .gap(SPACE_1)
-        .text_left()
-        .child(label(words, cx))
-        .child(control)
-}
-
-/// An address already given, as a box with what answered there and the way to change it.
-pub fn address(
-    shown: impl Into<SharedString>,
-    meta: Option<SharedString>,
-    change: Stateful<Div>,
-    cx: &App,
-) -> Div {
-    let t = Tokens::get(cx);
-    div()
-        .w_full()
-        .h(px(30.))
-        .px(SPACE_2)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .rounded(RADIUS_2)
-        .border_1()
-        .border_color(t.border)
-        .bg(tint(t))
-        .text_left()
-        .child(
-            text(shown, TEXT_XS, FontWeight::NORMAL)
-                .min_w_0()
-                .truncate()
-                .font_family(theme::MONO)
-                .text_color(t.text_primary),
-        )
-        .children(meta.map(|meta| {
-            text(meta, TEXT_2XS, FontWeight::NORMAL)
-                .flex_none()
-                .font_family(theme::MONO)
-                .text_color(t.live)
-        }))
-        .child(div().flex_1())
-        .child(change)
 }
 
 /// A quiet way round the form, as words that underline under the pointer.
@@ -366,11 +302,6 @@ pub fn error(words: impl Into<SharedString>, cx: &App) -> AnyElement {
         .overflow_y_scroll()
         .child(words.into())
         .into_any_element()
-}
-
-/// Something to know before signing in, in the warning colour.
-pub fn warning(words: impl Into<SharedString>, cx: &App) -> Div {
-    callout(Tokens::get(cx).warn).child(words.into())
 }
 
 fn callout(tone: Hsla) -> Div {
