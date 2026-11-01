@@ -268,6 +268,26 @@ pub fn welcome(
     agent: Option<&AgentRow>,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
+    let mark = match agent {
+        Some(agent) => agent.mark(32., cx),
+        None => ui::mark("claude", 32.),
+    };
+    let project = bench.project().map(|project| project.name.clone());
+    welcome_over(
+        mark,
+        project.unwrap_or_default(),
+        bench.parts.activity.clone(),
+        cx,
+    )
+}
+
+/// An agent's face, by `mark`, asking what is being made in `project`, over `under`.
+pub fn welcome_over(
+    mark: AnyElement,
+    project: impl Into<SharedString>,
+    under: impl IntoElement,
+    cx: &App,
+) -> Div {
     div()
         .w_full()
         .max_w(px(756.))
@@ -275,30 +295,19 @@ pub fn welcome(
         .flex()
         .flex_col()
         .gap(SPACE_6)
-        .child(greeting(bench, agent, cx))
-        .child(div().w_full().child(bench.parts.activity.clone()))
+        .child(greeting(mark, project.into(), cx))
+        .child(div().w_full().child(under))
 }
 
-/// The agent's face asking what is being made in the project.
-fn greeting(
-    bench: &Workbench,
-    agent: Option<&AgentRow>,
-    cx: &mut Context<Workbench>,
-) -> impl IntoElement {
+/// An agent's face asking what is being made in the project.
+fn greeting(mark: AnyElement, project: SharedString, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let project = bench
-        .project()
-        .map(|project| project.name.clone())
-        .unwrap_or_default();
     div()
         .flex()
         .items_center()
         .justify_center()
         .gap(SPACE_3)
-        .child(div().flex().child(match agent {
-            Some(agent) => agent.mark(32., cx),
-            None => ui::mark("claude", 32.),
-        }))
+        .child(div().flex().child(mark))
         .child(
             div()
                 .min_w_0()

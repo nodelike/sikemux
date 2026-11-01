@@ -13,7 +13,7 @@ use sikemux_wire::slice::SliceState;
 
 use super::evidence::minute;
 use super::goal::{count, crumb, row, section, strip};
-use super::{empty, goals_of, slices_of, state_count, At, GoalsPane};
+use super::{empty, goals_of, slices_of, At, GoalsPane};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL};
 use crate::ui;
@@ -91,7 +91,36 @@ impl GoalsPane {
     }
 }
 
+/// Home, laid out as a new chat opens: an agent asking what is being made in the project, over
+/// what needs the person and what is moving, with the composer that starts work at the bottom.
 pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let mark = pane.start_launcher(cx).map_or_else(
+        || ui::mark("claude", 32.),
+        |launcher| ui::mark(&launcher.provider, 32.),
+    );
+    let project = (pane.bench.upgrade())
+        .and_then(|bench| Some(bench.read(cx).project()?.name.clone()))
+        .unwrap_or_default();
+    let welcome = crate::home::welcome_over(mark, project, lists(pane, cx), cx);
+    div()
+        .size_full()
+        .p(px(ui::AGENT_INSET))
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .id("goals-home")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .child(crate::home::centred(welcome).min_h_full().py(SPACE_5)),
+        )
+        .child(super::start::start_box(pane, cx))
+        .into_any_element()
+}
+
+/// What needs the person, grouped by what they are needed for, then the goals moving and done.
+fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let (needs, happened) = pane.read_inbox(cx);
     let needed = needs.len();
@@ -108,48 +137,25 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
         let slices = slices_of(&board.cards, goal.id);
         count(&slices, SliceState::Done) < slices.len()
     });
-    let nothing = goals.is_empty() && needs.is_empty();
-    let summary = [
-        (needed > 0).then(|| state_count(needed, SliceState::NeedsYou)),
-        Some(format!("{} moving", moving.len())),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" · ");
     div()
         .flex()
         .flex_col()
-        .child(ui::text("Home", TEXT_XL, FontWeight::SEMIBOLD).text_color(t.text_primary))
-        .child(
-            div()
-                .pt(SPACE_1H)
-                .flex()
-                .gap(SPACE_1)
-                .child(ui::meta(summary, cx))
-                .when(happened > 0, |line| {
-                    line.child(ui::meta("·", cx)).child(
-                        div()
-                            .id("goals-overnight")
-                            .cursor_pointer()
-                            .text_color(t.text_secondary)
-                            .hover(move |style| style.text_color(t.text_primary))
-                            .child(ui::text(
-                                format!("{happened} happened while you were away"),
-                                TEXT_2XS,
-                                FontWeight::NORMAL,
-                            ))
-                            .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Overnight, cx))),
-                    )
-                }),
-        )
-        .child(super::start::start_box(pane, cx))
-        .when(nothing, |view| {
-            view.child(empty(
-                Some("No goals yet"),
-                "Start one above. A goal is a card with slices under it, each with gates to pass.",
-                cx,
-            ))
+        .when(happened > 0, |view| {
+            view.child(
+                div()
+                    .id("goals-overnight")
+                    .flex()
+                    .justify_center()
+                    .cursor_pointer()
+                    .text_color(t.text_secondary)
+                    .hover(move |style| style.text_color(t.text_primary))
+                    .child(ui::text(
+                        format!("{happened} happened while you were away"),
+                        TEXT_2XS,
+                        FontWeight::NORMAL,
+                    ))
+                    .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Overnight, cx))),
+            )
         })
         .when(!needs.is_empty(), |view| {
             view.child(section("Needs you", needed, cx))

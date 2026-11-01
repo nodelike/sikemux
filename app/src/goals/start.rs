@@ -11,8 +11,8 @@ use std::time::Duration;
 use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::{
     div, AnyElement, App, AppContext, ClipboardEntry, ClipboardItem, Context, Entity,
-    InteractiveElement, IntoElement, ParentElement, PathPromptOptions, SharedString, Styled,
-    Subscription, Task, WeakEntity, Window,
+    InteractiveElement, IntoElement, ParentElement, PathPromptOptions, SharedString, Subscription,
+    Task, WeakEntity, Window,
 };
 use serde_json::json;
 use sikemux_core::server::call;
@@ -149,7 +149,7 @@ impl GoalsPane {
     }
 
     /// The agent work starts with: the one picked, else the one the rail starts with.
-    fn start_launcher(&self, cx: &App) -> Option<LauncherInfo> {
+    pub(super) fn start_launcher(&self, cx: &App) -> Option<LauncherInfo> {
         let bench = self.bench.upgrade()?;
         let bench = bench.read(cx);
         let picked = (self.start.chosen.launcher.as_deref())
@@ -592,10 +592,7 @@ pub(super) fn start_box(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
         let heard = bench.read(cx).voice.read(cx).heard_for(START_DRAFT);
         composer = composer.dictation(mic.clone(), heard);
     }
-    // The composer pads itself for a chat's full width; here it lines up with the column.
     div()
-        .mt(crate::theme::SPACE_5)
-        .mx(-crate::theme::SPACE_4)
         .key_context("ChatComposer")
         .on_action(cx.listener(|pane, _: &OlderPrompt, window, cx| pane.recall(true, window, cx)))
         .on_action(cx.listener(|pane, _: &NewerPrompt, window, cx| pane.recall(false, window, cx)))

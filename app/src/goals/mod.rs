@@ -408,12 +408,27 @@ impl Render for GoalsPane {
         self.follow_project(cx);
         self.start_field(window, cx);
         self.assert_field(window, cx);
-        let body = match (self.boards.is_some(), self.at) {
-            (false, _) => empty(None, "reading the goals…", cx),
+        let column = |body: AnyElement| {
+            div()
+                .id("goals-column")
+                .size_full()
+                .overflow_y_scroll()
+                .child(
+                    div()
+                        .w_full()
+                        .max_w(px(crate::chat::composer::WIDTH) + crate::theme::SPACE_6 * 2.)
+                        .mx_auto()
+                        .px(crate::theme::SPACE_6)
+                        .py(crate::theme::SPACE_5)
+                        .child(body),
+                )
+        };
+        let shown = match (self.boards.is_some(), self.at) {
+            (false, _) => column(empty(None, "reading the goals…", cx)).into_any_element(),
             (true, At::Home) => home::home(self, cx),
-            (true, At::Overnight) => home::overnight(self, cx),
-            (true, At::Goal(id)) => goal::goal(self, id, cx),
-            (true, At::Slice(id)) => slice::slice(self, id, cx),
+            (true, At::Overnight) => column(home::overnight(self, cx)).into_any_element(),
+            (true, At::Goal(id)) => column(goal::goal(self, id, cx)).into_any_element(),
+            (true, At::Slice(id)) => column(slice::slice(self, id, cx)).into_any_element(),
         };
         div()
             .id("goals")
@@ -421,25 +436,7 @@ impl Render for GoalsPane {
             .track_focus(&self.focus)
             .size_full()
             .flex()
-            .child(
-                ui::pane(cx).flex_1().min_w_0().child(
-                    div()
-                        .id("goals-column")
-                        .size_full()
-                        .overflow_y_scroll()
-                        .child(
-                            div()
-                                .w_full()
-                                .max_w(
-                                    px(crate::chat::composer::WIDTH) + crate::theme::SPACE_6 * 2.,
-                                )
-                                .mx_auto()
-                                .px(crate::theme::SPACE_6)
-                                .py(crate::theme::SPACE_5)
-                                .child(body),
-                        ),
-                ),
-            )
+            .child(ui::pane(cx).flex_1().min_w_0().child(shown))
     }
 }
 
