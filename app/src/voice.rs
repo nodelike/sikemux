@@ -415,11 +415,28 @@ impl crate::workbench::Workbench {
         if let Some(id) = crate::terminal::focused(self) {
             return Some(Target::Terminal(id));
         }
-        self.chats.open.iter().find_map(|(agent, chat)| {
+        let focused = |draft: &Entity<gpui_kit::component::input::TextareaState>| {
+            gpui_kit::Focusable::focus_handle(draft.read(cx), cx).is_focused(window)
+        };
+        let chat = self.chats.open.iter().find_map(|(agent, chat)| {
             let draft = &chat.composer.as_ref()?.draft;
-            let focused = gpui_kit::Focusable::focus_handle(draft.read(cx), cx).is_focused(window);
-            focused.then(|| Target::Chat(agent.clone()))
+            focused(draft).then(|| Target::Chat(agent.clone()))
+        });
+        chat.or_else(|| {
+            let start = crate::goals::START_DRAFT;
+            focused(&self.draft_of(start, cx)?).then(|| Target::Chat(start.to_owned()))
         })
+    }
+
+    /// The draft that words for `agent` go into: its chat's, or the goals' start box.
+    fn draft_of(
+        &self,
+        agent: &str,
+        cx: &gpui_kit::App,
+    ) -> Option<Entity<gpui_kit::component::input::TextareaState>> {
+        let chat = self.chats.open.get(agent);
+        chat.and_then(|chat| Some(chat.composer.as_ref()?.draft.clone()))
+            .or_else(|| self.goals.as_ref()?.read(cx).start_draft(agent))
     }
 
     pub fn dictated(
@@ -431,12 +448,7 @@ impl crate::workbench::Workbench {
         match heard {
             Heard::Say(said) => window.push_notification(said.clone(), cx),
             Heard::Words(Some(Target::Chat(agent)), text) => {
-                let Some(draft) = self
-                    .chats
-                    .open
-                    .get(agent)
-                    .and_then(|chat| Some(chat.composer.as_ref()?.draft.clone()))
-                else {
+                let Some(draft) = self.draft_of(agent, cx) else {
                     return self.copy_dictation(text, window, cx);
                 };
                 draft.update(cx, |draft, cx| {

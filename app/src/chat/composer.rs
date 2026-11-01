@@ -91,6 +91,8 @@ pub struct Composer {
     /// The mic, and what it has heard so far.
     dictation: Option<AnyView>,
     heard: Option<SharedString>,
+    /// A control of the composer's owner at the end of the bar, before the mic and send.
+    aside: Option<AnyElement>,
     /// The chat's text size, as a share of its designed size.
     text_scale: f32,
     on_send: Act,
@@ -126,6 +128,7 @@ impl Composer {
             notice: None,
             dictation: None,
             heard: None,
+            aside: None,
             text_scale: 1.,
             on_send,
             on_stop,
@@ -197,6 +200,11 @@ impl Composer {
 
     pub fn dictation(mut self, mic: impl Into<AnyView>, heard: Option<SharedString>) -> Self {
         (self.dictation, self.heard) = (Some(mic.into()), heard);
+        self
+    }
+
+    pub fn aside(mut self, aside: impl IntoElement) -> Self {
+        self.aside = Some(aside.into_any_element());
         self
     }
 
@@ -354,6 +362,7 @@ impl RenderOnce for Composer {
                     .map(|usage| context_meter(usage, self.compactions, &self.provider, cx)),
             )
             .child(div().flex_1())
+            .children(self.aside)
             .children(self.dictation)
             .child(send(
                 stopping,

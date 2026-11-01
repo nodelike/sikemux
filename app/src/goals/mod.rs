@@ -41,6 +41,8 @@ mod rules;
 mod slice;
 mod start;
 
+pub use start::START_DRAFT;
+
 /// Where in the goals the pane is.
 #[derive(Clone, Copy, PartialEq)]
 enum At {

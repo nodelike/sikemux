@@ -86,8 +86,8 @@ mod tools;
 pub(crate) use installing::installs_moved;
 mod worktree;
 
-pub use attach::lasting;
-pub use composing::{dictate, ComposeStage, ComposerView, Composing, Sent};
+pub use attach::{chip, lasting, tiles};
+pub use composing::{dictate, step_prompts, ComposeStage, ComposerView, Composing, Sent};
 pub use draft::key as draft_key;
 pub use questions::{question_keys, Answering, Question};
 

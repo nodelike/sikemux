@@ -566,6 +566,40 @@ pub(super) fn strip(
     }
 }
 
+/// One step through `prompts`, oldest first, as a shell's arrows: up from an empty draft, and
+/// either way while the draft still shows a prompt they brought back, which `recalled` keeps with
+/// what was typed. Stepping past the latest gives back what was typed. None leaves the arrow to
+/// the draft's text.
+pub fn step_prompts(
+    prompts: &[String],
+    recalled: &mut Option<(usize, String)>,
+    older: bool,
+    draft: &str,
+) -> Option<String> {
+    let showing = recalled
+        .as_ref()
+        .is_some_and(|(at, _)| prompts.get(*at).map(String::as_str) == Some(draft));
+    if !showing {
+        *recalled = None;
+        if !older || !draft.trim().is_empty() {
+            return None;
+        }
+    }
+    let (at, typed) = recalled.take().unwrap_or((prompts.len(), draft.to_owned()));
+    if older {
+        let at = at.checked_sub(1)?;
+        *recalled = Some((at, typed));
+        return Some(prompts[at].clone());
+    }
+    match prompts.get(at + 1) {
+        Some(prompt) => {
+            *recalled = Some((at + 1, typed));
+            Some(prompt.clone())
+        }
+        None => Some(typed),
+    }
+}
+
 impl Chat {
     /// The choice the arrows are on: where they moved to, else the one picked, else the first.
     pub(super) fn cursor_at(&self, question: &Question) -> usize {
@@ -609,37 +643,9 @@ impl Chat {
         prompts
     }
 
-    /// One step through the sent prompts, as a shell's arrows: up from an empty draft, and either
-    /// way while the draft still shows a prompt they brought back. Stepping past the latest gives
-    /// back what was typed. None leaves the arrow to the draft's text.
+    /// One step through the prompts sent in this chat.
     pub fn recall(&mut self, older: bool, draft: &str, cx: &App) -> Option<String> {
-        let prompts = self.prompts(cx);
-        let showing = self
-            .recalled
-            .as_ref()
-            .is_some_and(|(at, _)| prompts.get(*at).map(String::as_str) == Some(draft));
-        if !showing {
-            self.recalled = None;
-            if !older || !draft.trim().is_empty() {
-                return None;
-            }
-        }
-        let (at, typed) = self
-            .recalled
-            .take()
-            .unwrap_or((prompts.len(), draft.to_owned()));
-        if older {
-            let at = at.checked_sub(1)?;
-            self.recalled = Some((at, typed));
-            return Some(prompts[at].clone());
-        }
-        match prompts.get(at + 1) {
-            Some(prompt) => {
-                self.recalled = Some((at + 1, typed));
-                Some(prompt.clone())
-            }
-            None => Some(typed),
-        }
+        step_prompts(&self.prompts(cx), &mut self.recalled, older, draft)
     }
 
     /// What the empty draft says, as the chat stands: what typing answers, or where words go.
