@@ -10,10 +10,30 @@ use sikemux_plugin_api::store::{self, Secrets};
 
 use crate::error::VercelResult;
 
+/// The Vercel account signed in.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Account {
+    /// Vercel's user id.
+    pub id: String,
+    pub username: String,
+    pub name: String,
+    pub email: String,
+    #[serde(default)]
+    pub sign_in: SignIn,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum SignIn {
+    #[default]
+    Token,
+    /// The Sikemux integration, installed from the browser on one team at a time.
+    Browser,
+}
+
 /// The account's token and each team install's, under `entry`.
 pub const KEYCHAIN: Secrets = Secrets::new(keychain_service!("sikemux-vercel-token"));
-
-pub use sikemux_plugin_vercel_views::{Account, SignIn};
 
 /// Where the Sikemux integration is installed, each with a token of its own.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]

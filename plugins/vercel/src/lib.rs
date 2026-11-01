@@ -1,5 +1,5 @@
 // Vercel: an account's projects and deployments, each deployment's build log, and
-// building, promoting and stopping them, in a pane and as agent tools.
+// building, promoting and stopping them, as agent tools.
 //
 //   config      — the account signed in here, its tokens in the Keychain, and the team chosen
 //   client      — the REST client, the token, the team a call is for, and Vercel's errors in words
@@ -7,7 +7,6 @@
 //   auth        — signing in with the browser or an access token, choosing a team, and the account's status
 //   projects    — projects, their domains, and the names of their environment variables
 //   deployments — listing and reading deployments, build logs, redeploy, promote and cancel
-//   views       — what the pane shows, and the text an agent is handed of a deployment
 
 mod auth;
 mod client;
@@ -16,7 +15,6 @@ mod deployments;
 mod error;
 mod oauth;
 mod projects;
-mod views;
 
 use std::sync::Arc;
 
@@ -55,7 +53,6 @@ impl Plugin for Vercel {
                     reply(auth::status(data_dir).await)
                 }
                 "signOut" => answer(auth::sign_out(data_dir)).await,
-                "setTeam" => answer(auth::set_team(data_dir, params(input)?)).await,
                 "projects" => answer(projects::projects(data_dir, params(input)?)).await,
                 "domains" => answer(projects::domains(data_dir, params(input)?)).await,
                 "env" => answer(projects::env(data_dir, params(input)?)).await,
@@ -65,13 +62,6 @@ impl Plugin for Vercel {
                 "redeploy" => answer(deployments::redeploy(data_dir, params(input)?)).await,
                 "promote" => answer(deployments::promote(data_dir, params(input)?)).await,
                 "cancel" => answer(deployments::cancel(data_dir, params(input)?)).await,
-                "projectsView" => answer(views::projects_view(data_dir, params(input)?)).await,
-                "deploymentsView" => {
-                    answer(views::deployments_view(data_dir, params(input)?)).await
-                }
-                "logView" => answer(views::log_view(data_dir, params(input)?)).await,
-                "domainsView" => answer(views::domains_view(data_dir, params(input)?)).await,
-                "envView" => answer(views::env_view(data_dir, params(input)?)).await,
                 _ => Err(PluginError::unknown_method(method)),
             }
         })

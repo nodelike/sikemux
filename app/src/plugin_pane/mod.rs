@@ -47,7 +47,6 @@ plugins! {
     rundeck,
     signoz,
     slack,
-    vercel,
 }
 
 /// How many views a pane keeps, the least lately asked for going first.

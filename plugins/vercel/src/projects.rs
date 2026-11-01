@@ -2,12 +2,61 @@
 
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sikemux_plugin_vercel_views::{Domain, Production, Project, Variable};
 
 use crate::client::{at, number, some_text, text, Session};
 use crate::error::{VercelError, VercelResult};
+
+/// A production deployment: where it answers and how it stands. `state` is Vercel's own:
+/// BUILDING, ERROR, INITIALIZING, QUEUED, READY or CANCELED.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Production {
+    pub id: String,
+    pub url: Option<String>,
+    pub state: String,
+    pub created_at: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    pub framework: Option<String>,
+    pub updated_at: u64,
+    pub repo: Option<String>,
+    pub git_provider: Option<String>,
+    pub production_branch: Option<String>,
+    /// The deployment serving production.
+    pub production: Option<Production>,
+    /// A newer production build that is still building or failed, while the one before it serves.
+    pub latest_production: Option<Production>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Domain {
+    pub name: String,
+    pub verified: bool,
+    pub redirect: Option<String>,
+    pub git_branch: Option<String>,
+    pub created_at: Option<u64>,
+}
+
+/// An environment variable without its value, which never leaves Vercel through Sikemux.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Variable {
+    pub id: String,
+    pub key: String,
+    pub target: Vec<String>,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub git_branch: Option<String>,
+    pub updated_at: Option<u64>,
+}
 
 /// A name or id as one part of an address, so it can never reach another endpoint.
 pub fn segment(what: &str, value: &str) -> VercelResult<String> {

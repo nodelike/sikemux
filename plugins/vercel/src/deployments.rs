@@ -4,13 +4,61 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sikemux_plugin_vercel_views::{Deployment, Log, LogLine, Target};
 
 use crate::client::{at, number, some_text, text, Session};
 use crate::error::{VercelError, VercelResult};
 use crate::projects::segment;
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Target {
+    Production,
+    Preview,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Deployment {
+    pub id: String,
+    pub project: String,
+    pub project_id: Option<String>,
+    pub url: Option<String>,
+    pub state: String,
+    pub target: Target,
+    pub created_at: u64,
+    pub ready_at: Option<u64>,
+    /// How long the build ran, once it finished.
+    pub build_ms: Option<u64>,
+    pub branch: Option<String>,
+    pub commit: Option<String>,
+    pub message: Option<String>,
+    pub author: Option<String>,
+    /// The deployment this one built again, for a redeploy.
+    pub redeploy_of: Option<String>,
+    pub inspector_url: Option<String>,
+    pub aliases: Option<Vec<String>>,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogLine {
+    pub at: u64,
+    /// stdout, stderr, command or fatal.
+    pub kind: String,
+    pub text: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Log {
+    pub deployment: Deployment,
+    pub lines: Vec<LogLine>,
+    /// Lines left out before the ones here.
+    pub skipped: usize,
+}
 
 const DEFAULT_LIMIT: u64 = 20;
 const MAX_LIMIT: u64 = 100;

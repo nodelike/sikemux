@@ -63,7 +63,6 @@ sikemux-plugin-jira-views = { path = "../plugins/jira/views" }
 sikemux-plugin-rundeck-views = { path = "../plugins/rundeck/views" }
 sikemux-plugin-signoz-views = { path = "../plugins/signoz/views" }
 sikemux-plugin-slack-views = { path = "../plugins/slack/views" }
-sikemux-plugin-vercel-views = { path = "../plugins/vercel/views" }
 sikemux-process = { path = "../crates/sikemux-process" }
 sikemux-client = { path = "../crates/sikemux-client" }
 sikemux-keychain = { path = "../crates/sikemux-keychain" }
