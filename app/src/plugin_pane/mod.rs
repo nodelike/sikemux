@@ -42,7 +42,6 @@ plugins! {
     aws,
     bruno,
     database,
-    rundeck,
 }
 
 /// How many views a pane keeps, the least lately asked for going first.

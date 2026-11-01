@@ -13,12 +13,22 @@ use serde_json::Value;
 use sikemux_plugin_api::http::{self, Deadline, Redirects};
 use sikemux_plugin_api::process;
 use sikemux_plugin_api::SignInStatus;
-use sikemux_plugin_rundeck_views::Connection;
 
 use crate::error::{Rundeck, RundeckError, RundeckResult};
 
 use crate::client::{get_json, request_as, seg, Session, API_VERSION};
 use crate::config::{self, Saved, Settings};
+
+/// Which Rundeck the plugin is signed in to, and as whom.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Connection {
+    pub url: String,
+    pub user: String,
+    pub token_present: bool,
+    pub rundeck_version: Option<String>,
+    pub allow_insecure_private_http: bool,
+}
 
 const MAX_AUTH_RESPONSE_BYTES: usize = 1024 * 1024;
 const LOGIN_DEADLINE: Duration = Duration::from_secs(20);

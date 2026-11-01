@@ -1,6 +1,5 @@
-// Execution endpoints: history, single fetch, run, abort, and the summary of
-// a job's latest and last successful run. State/output polling lives in
-// watch.rs / logs.rs.
+// Execution endpoints: history, single fetch, run, abort, and the branch a run
+// deployed. State/output polling lives in watch.rs / logs.rs.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -12,7 +11,7 @@ use sikemux_plugin_api::process;
 
 use crate::error::{RundeckError, RundeckResult};
 
-use crate::client::{get_json, post_empty_json, post_json, seg, Session, HTTP};
+use crate::client::{get_json, post_empty_json, post_json, seg, Session};
 
 #[derive(Serialize, Clone, Deserialize)]
 pub struct Execution {
@@ -177,54 +176,6 @@ pub async fn executions(
     Ok(executions)
 }
 
-#[derive(Deserialize)]
-struct Paging {
-    total: Option<u64>,
-}
-
-#[derive(Deserialize)]
-struct PagedExecutionList {
-    executions: Vec<Execution>,
-    paging: Option<Paging>,
-}
-
-#[derive(Serialize)]
-pub struct ProjectExecutions {
-    pub executions: Vec<Execution>,
-    pub total: Option<u64>,
-}
-
-/// One page of every job's runs in a project, newest first. Rundeck leaves
-/// running executions out of this list, so the first page adds them.
-pub async fn project_executions(
-    session: &Session,
-    project: String,
-    max: Option<u32>,
-    offset: Option<u32>,
-) -> RundeckResult<ProjectExecutions> {
-    let limit = max.unwrap_or(50).min(200);
-    let offset = offset.unwrap_or(0);
-    let path = format!("/project/{}/executions", seg(&project)?);
-    let query = [("max", limit.to_string()), ("offset", offset.to_string())];
-    let page: PagedExecutionList = get_json(session, &path, &query).await?;
-    let total = page.paging.and_then(|paging| paging.total);
-    if offset > 0 {
-        return Ok(ProjectExecutions {
-            executions: page.executions,
-            total,
-        });
-    }
-    let running_path = format!("/project/{}/executions/running", seg(&project)?);
-    let running = get_json::<ExecutionList>(session, &running_path, &[])
-        .await
-        .map(|list| list.executions)
-        .unwrap_or_default();
-    Ok(ProjectExecutions {
-        executions: merge_executions(page.executions, running, limit as usize),
-        total,
-    })
-}
-
 fn status_is_running(status: &Option<String>) -> bool {
     status
         .as_deref()
@@ -269,19 +220,6 @@ pub async fn execution(session: &Session, execution_id: u64) -> RundeckResult<Ex
 
 // ---- summaries for the matrix and the plan ---------------------------------
 
-#[derive(Serialize, Clone)]
-pub struct ExecSummary {
-    pub execution_id: u64,
-    pub status: Option<String>,
-    pub custom_status: Option<String>,
-    pub user: Option<String>,
-    pub started_at: Option<String>,
-    pub ended_at: Option<String>,
-    pub permalink: Option<String>,
-    pub branch: Option<String>,
-    pub options: BTreeMap<String, String>,
-}
-
 /// The value of the first option named like one of `branch_options`, trying
 /// the names in order and ignoring case.
 pub fn branch_from_options(
@@ -304,52 +242,6 @@ pub fn branch_from_options(
 pub fn deployed_branch(execution: &Execution, branch_options: &[String]) -> Option<String> {
     let options = execution.job.as_ref()?.options.as_ref()?;
     branch_from_options(options, branch_options)
-}
-
-fn summarize(execution: Execution, branch_options: &[String]) -> ExecSummary {
-    let options = execution
-        .job
-        .and_then(|job| job.options)
-        .unwrap_or_default();
-    ExecSummary {
-        execution_id: execution.id,
-        status: execution.status,
-        custom_status: execution.custom_status,
-        user: execution.user,
-        started_at: execution.date_started.and_then(|date| date.date),
-        ended_at: execution.date_ended.and_then(|date| date.date),
-        permalink: execution.permalink,
-        branch: branch_from_options(&options, branch_options),
-        options,
-    }
-}
-
-fn is_succeeded(execution: &Execution) -> bool {
-    execution
-        .status
-        .as_deref()
-        .is_some_and(|status| status.eq_ignore_ascii_case("succeeded"))
-}
-
-/// The job's newest execution and its newest successful one.
-pub async fn latest_and_deployed(
-    session: &Session,
-    job_id: &str,
-    branch_options: &[String],
-) -> RundeckResult<(Option<ExecSummary>, Option<ExecSummary>)> {
-    let latest = HTTP
-        .limited(job_executions(session, job_id, 1, None))
-        .await?
-        .into_iter()
-        .next();
-    let deployed = match &latest {
-        Some(execution) if is_succeeded(execution) => latest.clone(),
-        _ => HTTP.limited(newest_succeeded(session, job_id)).await?,
-    };
-    Ok((
-        latest.map(|execution| summarize(execution, branch_options)),
-        deployed.map(|execution| summarize(execution, branch_options)),
-    ))
 }
 
 // ---- run ------------------------------------------------------------------
@@ -487,10 +379,6 @@ pub struct WorkflowState {
     pub step_count: Option<u32>,
     #[serde(rename = "completed")]
     pub completed: Option<bool>,
-}
-
-pub async fn execution_state(session: &Session, execution_id: u64) -> RundeckResult<WorkflowState> {
-    get_json(session, &format!("/execution/{execution_id}/state"), &[]).await
 }
 
 #[cfg(test)]

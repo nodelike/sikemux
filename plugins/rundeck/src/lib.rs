@@ -1,35 +1,29 @@
-// Rundeck integration: projects, jobs, the deploy matrix, running jobs and
-// following them live. Rundeck speaks bearer-token REST, so we call the API
-// directly with reqwest.
+// Rundeck integration: projects, jobs, running jobs and following them, as agent
+// tools. Rundeck speaks bearer-token REST, so we call the API directly with reqwest.
 //
 // Module split:
 //   agent       — what the rundeck_* agent tools answer
 //   config      — the saved sign-in and settings, and whether the URL is safe to call
 //   client      — shared HTTP client, error classification, request limiter
-//   auth        — password login, token login, logout, status
-//   projects    — projects, jobs, job index, the matrix
-//   jobs        — job definition and remote option values
-//   executions  — history, a project's runs, run, abort, latest/deployed summaries
-//   watch       — stream of execution state until it finishes
-//   logs        — stream of log output with an offset cursor
+//   auth        — password login, token login, logout, status, the person's lists
+//   projects    — projects
+//   jobs        — job definitions
+//   executions  — history, one run, run, abort, and the branch a run deployed
+//   watch       — following a run's state until it finishes
+//   logs        — a run's log output, read with an offset cursor
 //   plan        — read-only git inspection (dirty / ahead-behind / relation)
 
 mod agent;
-mod ansi;
 mod auth;
 mod client;
 mod config;
 mod error;
 mod executions;
-mod form;
 mod jobs;
 mod logs;
-mod notice;
-mod places;
 mod plan;
 mod projects;
 mod shape;
-mod views;
 mod watch;
 
 use std::sync::Arc;
@@ -37,7 +31,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Value;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
 };
 
 use crate::client::Session;
@@ -56,78 +50,9 @@ struct Rundeck {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ProjectParams {
-    project: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JobParams {
-    job_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UrlParams {
-    url: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JobCellsParams {
-    jobs: Vec<projects::RundeckJob>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ExecutionsParams {
-    job_id: String,
-    project: String,
-    max: Option<u32>,
-    only_succeeded: Option<bool>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProjectExecutionsParams {
-    project: String,
-    max: Option<u32>,
-    offset: Option<u32>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct ExecutionParams {
     #[serde(deserialize_with = "executions::id_from_string_or_number")]
     execution_id: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WatchParams {
-    #[serde(deserialize_with = "executions::id_from_string_or_number")]
-    execution_id: u64,
-    #[serde(default)]
-    job: Option<watch::WatchedJob>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunParams {
-    job_id: String,
-    #[serde(flatten)]
-    request: executions::RunRequest,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlanParams {
-    job_id: String,
-    project: String,
-    service: String,
-    target_branch: String,
-    #[serde(default)]
-    repo_path: String,
 }
 
 #[derive(Deserialize)]
@@ -153,15 +78,6 @@ struct ExcerptParams {
     execution_id: u64,
     tail: Option<usize>,
     grep: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LogsParams {
-    #[serde(deserialize_with = "executions::id_from_string_or_number")]
-    execution_id: u64,
-    offset: Option<String>,
-    backlog: Option<u32>,
 }
 
 async fn signed_in(ctx: &PluginContext) -> RundeckResult<(Session, Saved)> {
@@ -197,117 +113,10 @@ impl Plugin for Rundeck {
             let session = &session;
             let branch_options = &saved.settings.branch_options;
             match method {
-                "treeView" => answer(views::tree_view(session)).await,
-                "jobsView" => {
-                    answer(views::jobs_view(session, &saved.settings, params(input)?)).await
-                }
-                "jobView" => {
-                    answer(views::job_view(session, &saved.settings, params(input)?)).await
-                }
-                "activityView" => {
-                    answer(views::activity_view(
-                        session,
-                        &saved.settings,
-                        params(input)?,
-                    ))
-                    .await
-                }
-                "executionView" => {
-                    answer(views::execution_view(
-                        session,
-                        &saved.settings,
-                        params(input)?,
-                    ))
-                    .await
-                }
-                "deployTargetView" => {
-                    answer(places::deploy_target_view(
-                        session,
-                        &saved.settings,
-                        params(input)?,
-                    ))
-                    .await
-                }
-                "catalogView" => answer(places::catalog_view(session, &saved.settings)).await,
-                "deployView" => {
-                    answer(form::deploy_view(session, &saved.settings, params(input)?)).await
-                }
-                "planView" => {
-                    answer(form::plan_view(session, &saved.settings, params(input)?)).await
-                }
-                "checkRun" => {
-                    answer(form::check_run(session, &saved.settings, params(input)?)).await
-                }
                 "projects" => answer(projects::projects(session)).await,
-                "jobs" => {
-                    let ProjectParams { project } = params(input)?;
-                    answer(projects::jobs(session, project)).await
-                }
-                "jobIndex" => answer(projects::job_index(session)).await,
-                "jobDetail" => {
-                    let JobParams { job_id } = params(input)?;
-                    answer(jobs::job_detail(session, job_id)).await
-                }
-                "optionValues" => {
-                    let UrlParams { url } = params(input)?;
-                    answer(jobs::option_values(url)).await
-                }
-                "branchesMatrix" => {
-                    let ProjectParams { project } = params(input)?;
-                    answer(projects::branches_matrix(session, project, branch_options)).await
-                }
-                "jobCells" => {
-                    let JobCellsParams { jobs } = params(input)?;
-                    answer(projects::job_cells(session, jobs, branch_options)).await
-                }
-                "executions" => {
-                    let p: ExecutionsParams = params(input)?;
-                    answer(executions::executions(
-                        session,
-                        p.job_id,
-                        p.project,
-                        p.max,
-                        p.only_succeeded,
-                    ))
-                    .await
-                }
-                "projectExecutions" => {
-                    let p: ProjectExecutionsParams = params(input)?;
-                    answer(executions::project_executions(
-                        session, p.project, p.max, p.offset,
-                    ))
-                    .await
-                }
-                "execution" => {
-                    let ExecutionParams { execution_id } = params(input)?;
-                    answer(executions::execution(session, execution_id)).await
-                }
-                "executionState" => {
-                    let ExecutionParams { execution_id } = params(input)?;
-                    answer(executions::execution_state(session, execution_id)).await
-                }
-                "run" => {
-                    let RunParams { job_id, request } = params(input)?;
-                    answer(executions::run(session, job_id, request)).await
-                }
                 "abort" => {
                     let ExecutionParams { execution_id } = params(input)?;
                     answer(executions::abort(session, execution_id)).await
-                }
-                "plan" => {
-                    let p: PlanParams = params(input)?;
-                    answer(plan::plan(
-                        session,
-                        plan::PlanRequest {
-                            job_id: p.job_id,
-                            project: p.project,
-                            service: p.service,
-                            target_branch: p.target_branch,
-                            repo_path: p.repo_path,
-                            branch_options: branch_options.clone(),
-                        },
-                    ))
-                    .await
                 }
                 "agentJobs" => {
                     let FindJobsParams { project, filter } = params(input)?;
@@ -355,41 +164,6 @@ impl Plugin for Rundeck {
     ) -> PluginFuture<'a, bool> {
         Box::pin(async move { Ok(config::load(ctx.data_dir()).await?.is_signed_in()) })
     }
-
-    fn stream<'a>(
-        &'a self,
-        ctx: &'a PluginContext,
-        method: &'a str,
-        input: Value,
-        sink: StreamSink,
-    ) -> PluginFuture<'a, ()> {
-        Box::pin(async move {
-            match method {
-                "watch" => {
-                    let WatchParams { execution_id, job } = params(input)?;
-                    let (session, saved) = signed_in(ctx).await?;
-                    watch::watch(
-                        session,
-                        execution_id,
-                        job,
-                        saved.settings.branch_options,
-                        sink,
-                    )
-                    .await
-                }
-                "logs" => {
-                    let LogsParams {
-                        execution_id,
-                        offset,
-                        backlog,
-                    } = params(input)?;
-                    let (session, _) = signed_in(ctx).await?;
-                    logs::logs(session, execution_id, offset, backlog, sink).await
-                }
-                _ => Err(PluginError::unknown_method(method)),
-            }
-        })
-    }
 }
 
 #[cfg(test)]
@@ -400,24 +174,6 @@ mod tests {
     fn its_manifest_parses() {
         let plugin = plugin().expect("manifest parses");
         assert_eq!(plugin.manifest().id, "sikemux.rundeck");
-    }
-
-    #[test]
-    fn run_params_take_the_job_id_and_skip_missing_fields() {
-        let p: RunParams = params(serde_json::json!({
-            "jobId": "abc",
-            "options": {"BRANCH": "main"},
-            "loglevel": "DEBUG",
-            "filter": null,
-            "runAtTime": null,
-            "asUser": null
-        }))
-        .unwrap();
-        assert_eq!(p.job_id, "abc");
-        assert_eq!(
-            serde_json::to_value(&p.request).unwrap(),
-            serde_json::json!({"options": {"BRANCH": "main"}, "loglevel": "DEBUG"})
-        );
     }
 
     #[test]

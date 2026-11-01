@@ -1,16 +1,11 @@
-// A job's definition as the run form needs it, and the values list a job
-// option can load from a remote URL.
-
-use std::time::Duration;
+// A job's definition, with the options a run takes.
 
 use serde::Serialize;
-use serde_json::{Map, Value};
-use sikemux_plugin_api::http::{self, Deadline, Redirects};
+use serde_json::Value;
 
-use crate::error::{Rundeck, RundeckError, RundeckResult};
+use crate::error::{RundeckError, RundeckResult};
 
 use crate::client::{get_json, get_json_at_version, seg, Session, JOB_DEFINITION_API_VERSION};
-use crate::config;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct JobDetail {
@@ -233,88 +228,6 @@ pub async fn definitions(session: &Session, project: &str) -> RundeckResult<Vec<
 
 // ---- remote option values -------------------------------------------------
 
-const OPTION_VALUES_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_OPTION_VALUES_BYTES: usize = 1024 * 1024;
-
-#[derive(Serialize, Clone, Debug, PartialEq)]
-pub struct OptionValue {
-    pub name: String,
-    pub value: String,
-}
-
-fn scalar_text(value: &Value) -> Option<String> {
-    match value {
-        Value::String(text) => Some(text.clone()),
-        Value::Number(number) => Some(number.to_string()),
-        Value::Bool(flag) => Some(flag.to_string()),
-        _ => None,
-    }
-}
-
-fn parse_option_values(body: &Value) -> RundeckResult<Vec<OptionValue>> {
-    let pair = |name: String, value: String| OptionValue { name, value };
-    match body {
-        Value::Array(items) => Ok(items
-            .iter()
-            .filter_map(|item| match item {
-                Value::Object(entry) => {
-                    let value = entry.get("value").and_then(scalar_text);
-                    let name = entry.get("name").and_then(scalar_text);
-                    match (name, value) {
-                        (Some(name), Some(value)) => Some(pair(name, value)),
-                        (None, Some(value)) => Some(pair(value.clone(), value)),
-                        (Some(name), None) => Some(pair(name.clone(), name)),
-                        (None, None) => None,
-                    }
-                }
-                other => scalar_text(other).map(|value| pair(value.clone(), value)),
-            })
-            .collect()),
-        Value::Object(map) => Ok(object_pairs(map)),
-        _ => Err(RundeckError::Api(
-            "option values must be a JSON list or object".into(),
-        )),
-    }
-}
-
-fn object_pairs(map: &Map<String, Value>) -> Vec<OptionValue> {
-    map.iter()
-        .filter_map(|(name, value)| {
-            scalar_text(value).map(|value| OptionValue {
-                name: name.clone(),
-                value,
-            })
-        })
-        .collect()
-}
-
-pub async fn option_values(url: String) -> RundeckResult<Vec<OptionValue>> {
-    let transport = config::validate_transport(&url, true).await?;
-    let client = transport
-        .pin_dns(http::builder::<Rundeck>(
-            Redirects::Refuse,
-            Deadline::WholeAnswer,
-        ))
-        .timeout(OPTION_VALUES_TIMEOUT)
-        .build()?;
-    let resp = client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-        .await?;
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(RundeckError::Http {
-            status: status.as_u16(),
-            message: format!("option values URL answered {status}"),
-        });
-    }
-    let bytes = http::read_body(resp, MAX_OPTION_VALUES_BYTES).await?;
-    let body: Value = serde_json::from_slice(&bytes)
-        .map_err(|_| RundeckError::Api("option values URL did not return JSON".into()))?;
-    parse_option_values(&body)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,26 +327,5 @@ mod tests {
         assert!(detail.execution_enabled && detail.schedule_enabled);
         assert!(!detail.scheduled);
         assert!(detail.options.is_empty() && detail.steps.is_empty());
-    }
-
-    #[test]
-    fn option_values_accept_strings_pairs_and_maps() {
-        let pair = |name: &str, value: &str| OptionValue {
-            name: name.into(),
-            value: value.into(),
-        };
-        assert_eq!(
-            parse_option_values(&json!(["a", "b"])).unwrap(),
-            [pair("a", "a"), pair("b", "b")]
-        );
-        assert_eq!(
-            parse_option_values(&json!([{"name": "Main", "value": "main"}])).unwrap(),
-            [pair("Main", "main")]
-        );
-        assert_eq!(
-            parse_option_values(&json!({"Main": "main"})).unwrap(),
-            [pair("Main", "main")]
-        );
-        assert!(parse_option_values(&json!("nope")).is_err());
     }
 }
