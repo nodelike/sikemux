@@ -138,22 +138,6 @@ pub(crate) fn aws_in_use() -> bool {
         || find_executable(&crate::common::aws_bin()).is_some()
 }
 
-#[derive(Serialize)]
-pub struct AwsSetup {
-    cli: bool,
-    homebrew: bool,
-}
-
-/// What the pane needs before it can offer profiles: the CLI, and Homebrew to install it with.
-pub(crate) fn setup() -> AwsSetup {
-    use sikemux_plugin_api::process::user_environment::find_executable;
-    let bin = crate::common::aws_bin();
-    AwsSetup {
-        cli: std::path::Path::new(&bin).is_file() || find_executable(&bin).is_some(),
-        homebrew: find_executable("brew").is_some(),
-    }
-}
-
 /// The profile and region a call runs as: the one asked for, else the one
 /// agents start on, else `default`. Several others and no choice is an error
 /// that lists them.
@@ -360,9 +344,9 @@ pub(crate) struct Signed {
     account: Option<String>,
 }
 
-/// Whether AWS calls work as the profile the AWS pane shows.
+/// Whether AWS calls work as the profile picked to sign in with.
 pub(crate) async fn status(ctx: &PluginContext) -> SignInStatus<Signed> {
-    let Some(profile) = crate::agent_profile::pane_profile(ctx) else {
+    let Some(profile) = crate::agent_profile::account_profile(ctx) else {
         return SignInStatus {
             configured: false,
             ok: false,

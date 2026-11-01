@@ -39,7 +39,6 @@ macro_rules! plugins {
 }
 
 plugins! {
-    aws,
     bruno,
     database,
 }
@@ -1036,35 +1035,6 @@ pub fn failure(failure: &Failure, cx: &App) -> AnyElement {
         Some(failure.message.clone()),
         cx,
     )
-}
-
-/// The button that starts the plugin's browser sign-in, or, while it runs, the row that waits
-/// for it with the way to stop it.
-pub fn browser_sign_in(
-    host: &Host,
-    id: &'static str,
-    mark: Icon,
-    label: impl Into<SharedString>,
-    start: impl Fn(&mut Host, &mut Context<PluginPane>) + 'static,
-    cx: &mut Context<PluginPane>,
-) -> AnyElement {
-    if host.signing_in() {
-        return ui::sign_in::waiting(
-            id,
-            "Finish signing in in your browser",
-            cx.listener(|pane, _, _, cx| {
-                pane.host.cancel_sign_in();
-                cx.notify();
-            }),
-            cx,
-        )
-        .into_any_element();
-    }
-    ui::Button::new(id, label, ui::Variant::Primary)
-        .wide()
-        .icon(mark)
-        .on_click(cx.listener(move |pane, _, _, cx| start(&mut pane.host, cx)))
-        .into_any_element()
 }
 
 fn notice(

@@ -24,18 +24,18 @@ impl fmt::Display for AwsError {
             Self::Aws(message) => write!(formatter, "aws: {message}"),
             Self::CliMissing(bin) => write!(
                 formatter,
-                "The AWS CLI is not installed ({bin} is not on PATH). Ask the person to install it from the AWS pane in Sikemux."
+                "The AWS CLI is not installed ({bin} is not on PATH). Ask the person to install it."
             ),
             Self::TokenExpired(profile) => write!(
                 formatter,
-                "AWS sign-in expired for profile {profile}. Ask the person to sign in from the AWS pane in Sikemux; it needs their browser, so you cannot do it."
+                "AWS sign-in expired for profile {profile}. Ask the person to sign in from Settings › Connectors in Sikemux; it needs their browser, so you cannot do it."
             ),
             Self::NoCredentials(profile) => write!(
                 formatter,
-                "Profile {profile} has no AWS credentials. Ask the person to sign in or fix the profile from the AWS pane in Sikemux."
+                "Profile {profile} has no AWS credentials. Ask the person to sign in from Settings › Connectors in Sikemux, or to fix the profile."
             ),
             Self::NoProfiles => formatter.write_str(
-                "No AWS profile is set up. Ask the person to set one up from the AWS pane in Sikemux.",
+                "No AWS profile is set up. Ask the person to set one up in ~/.aws/config.",
             ),
             Self::ChooseProfile(profiles) => write!(
                 formatter,

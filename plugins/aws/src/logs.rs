@@ -1,17 +1,10 @@
-// CloudWatch logs: a bounded search for agents, and the live tail the pane
-// streams with `aws logs tail <group> --follow`, whose child is killed when
-// the host drops the stream.
+// CloudWatch logs: a bounded search for agents.
 
-use std::process::Stdio;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use sikemux_plugin_api::{reply, PluginResult, StreamSink};
-use sikemux_plugin_aws_views::{LogLevel, LogLine};
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
 
-use crate::common::{aws_bin, aws_command, aws_json, cli_value, Target};
+use crate::common::{aws_json, cli_value, Target};
 use crate::error::{AwsError, AwsResult};
 
 const DEFAULT_EVENTS: usize = 100;
@@ -22,9 +15,6 @@ const SCANNED_EVENTS: &str = "2000";
 const MAX_MESSAGE_CHARS: usize = 2000;
 const RESULT_BUDGET: usize = 24_000;
 const SUGGESTED_GROUPS: &str = "30";
-const ERROR_WORDS: [&str; 6] = ["ERROR", "ERR", "FATAL", "CRITICAL", "PANIC", "SEVERE"];
-const WARN_WORDS: [&str; 2] = ["WARN", "WARNING"];
-
 #[derive(Serialize)]
 pub struct LogSearch {
     group: String,
@@ -233,142 +223,4 @@ async fn unknown_group(target: &Target, group: &str) -> AwsError {
             similar.join(", ")
         )
     })
-}
-
-pub(crate) async fn tail(
-    target: Target,
-    log_group: String,
-    log_stream: Option<String>,
-    since: Option<String>,
-    sink: StreamSink,
-) -> PluginResult<()> {
-    cli_value(&log_group)?;
-    if let Some(stream) = &log_stream {
-        cli_value(stream)?;
-    }
-    if let Some(since) = &since {
-        cli_value(since)?;
-    }
-    let bin = aws_bin();
-    let mut cmd = Command::from(aws_command(&target));
-    // The AWS CLI's embedded Python block-buffers stdout when it is a
-    // pipe, so a quiet log stream would never reach us without this.
-    cmd.env("PYTHONUNBUFFERED", "1")
-        .arg("logs")
-        .arg("tail")
-        .arg(&log_group)
-        .arg("--follow")
-        .arg("--format")
-        .arg("short");
-    if let Some(stream) = &log_stream {
-        cmd.arg("--log-stream-names").arg(stream);
-    }
-    cmd.arg("--since").arg(since.as_deref().unwrap_or("5m"));
-    cmd.stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-
-    let mut child = cmd.spawn().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            AwsError::CliMissing(bin.clone())
-        } else {
-            AwsError::Io(e)
-        }
-    })?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or(AwsError::Aws("no stdout".into()))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or(AwsError::Aws("no stderr".into()))?;
-
-    let mut out_lines = BufReader::new(stdout).lines();
-    let mut err_lines = BufReader::new(stderr).lines();
-    let mut stderr_open = true;
-    loop {
-        tokio::select! {
-            line = out_lines.next_line() => match line {
-                Ok(Some(line)) => send(&sink, tailed(&line))?,
-                _ => break,
-            },
-            line = err_lines.next_line(), if stderr_open => match line {
-                Ok(Some(line)) => send(&sink, from_cli(line))?,
-                _ => stderr_open = false,
-            },
-        }
-    }
-    while stderr_open {
-        match err_lines.next_line().await {
-            Ok(Some(line)) => send(&sink, from_cli(line))?,
-            _ => stderr_open = false,
-        }
-    }
-    let _ = child.wait().await;
-    Ok(())
-}
-
-fn send(sink: &StreamSink, line: Option<LogLine>) -> PluginResult<()> {
-    match line {
-        Some(line) => sink.send(reply(line)?),
-        None => Ok(()),
-    }
-}
-
-/// A line `aws logs tail --format short` printed: its time, then the event's text.
-fn tailed(line: &str) -> Option<LogLine> {
-    if line.trim().is_empty() {
-        return None;
-    }
-    let dated = line.split_once(' ').and_then(|(stamp, text)| {
-        let (day, clock) = stamp.split_once('T')?;
-        let clock = clock.get(..8)?;
-        let shaped = |text: &str, form: &str| {
-            text.len() == form.len()
-                && text.chars().zip(form.chars()).all(|(c, f)| {
-                    if f == '9' {
-                        c.is_ascii_digit()
-                    } else {
-                        c == f
-                    }
-                })
-        };
-        (shaped(day, "9999-99-99") && shaped(clock, "99:99:99")).then_some((day, clock, text))
-    });
-    let (day, clock, text) = match dated {
-        Some((day, clock, text)) => (Some(day.to_owned()), Some(clock.to_owned()), text),
-        None => (None, None, line),
-    };
-    let text = plain(text);
-    Some(LogLine {
-        level: level_of(&text),
-        text,
-        day,
-        clock,
-    })
-}
-
-/// Something the CLI itself said, such as its sign-in having run out.
-fn from_cli(line: String) -> Option<LogLine> {
-    (!line.trim().is_empty()).then(|| LogLine {
-        day: None,
-        clock: None,
-        text: plain(&line),
-        level: Some(LogLevel::Error),
-    })
-}
-
-fn level_of(text: &str) -> Option<LogLevel> {
-    let words = || {
-        text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-            .map(str::to_ascii_uppercase)
-    };
-    if words().any(|word| ERROR_WORDS.contains(&word.as_str())) {
-        Some(LogLevel::Error)
-    } else if words().any(|word| WARN_WORDS.contains(&word.as_str())) {
-        Some(LogLevel::Warn)
-    } else {
-        None
-    }
 }

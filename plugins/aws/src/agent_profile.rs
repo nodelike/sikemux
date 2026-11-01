@@ -37,10 +37,9 @@ struct Picks {
     default: Option<String>,
     #[serde(default)]
     projects: BTreeMap<PathBuf, String>,
-    /// The profile the AWS pane shows, which the plugin's sign-in is checked
-    /// as.
+    /// The profile the plugin's sign-in is checked as.
     #[serde(default)]
-    pane: Option<String>,
+    account: Option<String>,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,7 +61,7 @@ pub struct AgentProfile {
     pub source: AgentProfileSource,
 }
 
-/// What the pane shows: the picks for one project, and what they come to.
+/// The picks for one project, or for every project, and what they come to.
 #[derive(Serialize)]
 pub struct AgentProfilePicks {
     pub(crate) project: Option<String>,
@@ -121,16 +120,19 @@ pub(crate) fn pick(
     Ok(picks(ctx, project))
 }
 
-pub(crate) fn pane_profile(ctx: &PluginContext) -> Option<String> {
-    read(ctx.data_dir()).pane
+pub(crate) fn account_profile(ctx: &PluginContext) -> Option<String> {
+    read(ctx.data_dir()).account
 }
 
-/// Picks the profile the AWS pane shows; no profile clears the pick.
-pub(crate) fn pick_pane(ctx: &PluginContext, profile: Option<String>) -> AwsResult<Option<String>> {
+/// Picks the profile the plugin's sign-in is checked as; no profile clears the pick.
+pub(crate) fn pick_account(
+    ctx: &PluginContext,
+    profile: Option<String>,
+) -> AwsResult<Option<String>> {
     let profile = profile.filter(|profile| !profile.trim().is_empty());
     let _turn = WRITING.locked();
     let mut saved = read(ctx.data_dir());
-    saved.pane.clone_from(&profile);
+    saved.account.clone_from(&profile);
     save(ctx, &saved)?;
     Ok(profile)
 }

@@ -94,8 +94,6 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-api]
 opt-level = "z"
-[profile.release.package.sikemux-plugin-aws-views]
-opt-level = "z"
 [profile.release.package.sikemux-plugin-bruno-views]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-database-views]

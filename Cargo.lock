@@ -9371,7 +9371,6 @@ dependencies = [
  "sikemux-linked",
  "sikemux-markdown",
  "sikemux-plugin-api",
- "sikemux-plugin-aws-views",
  "sikemux-plugin-bruno-views",
  "sikemux-plugin-database-views",
  "sikemux-process",
@@ -9528,17 +9527,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-plugin-aws-views",
  "time",
  "tokio",
- "workspace-hack",
-]
-
-[[package]]
-name = "sikemux-plugin-aws-views"
-version = "0.1.0"
-dependencies = [
- "serde",
  "workspace-hack",
 ]
 
