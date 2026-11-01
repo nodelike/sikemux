@@ -23,7 +23,7 @@ use crate::icons::Icon;
 use crate::motion;
 use crate::ports::PortRow;
 use crate::theme::{
-    Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_XS,
+    Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_XS,
 };
 use crate::toast;
 use crate::ui::{self, IconButton, Tab};
@@ -115,19 +115,24 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                 )
                 .children(battery_chip(bench, cx))
                 .child(clock(cx))
-                .child(goals_toggle(bench, cx))
                 .child(
-                    IconButton::new(
-                        "focus",
-                        Icon::Focus,
-                        match crate::keymap::hint("view.focusMode", cx) {
-                            Some(keys) => format!("Focus mode — hide rails — {keys}"),
-                            None => "Focus mode — hide rails".to_owned(),
-                        },
-                    )
-                    .width(30.)
-                    .pressed(!bench.rails.side_open && !bench.rails.tab_open)
-                    .on_click(cx.listener(|bench, _, _, cx| bench.toggle_focus_mode(cx))),
+                    div()
+                        .flex()
+                        .gap(SPACE_0)
+                        .child(goals_toggle(bench, cx))
+                        .child(
+                            IconButton::new(
+                                "focus",
+                                Icon::Focus,
+                                match crate::keymap::hint("view.focusMode", cx) {
+                                    Some(keys) => format!("Focus mode — hide rails — {keys}"),
+                                    None => "Focus mode — hide rails".to_owned(),
+                                },
+                            )
+                            .width(30.)
+                            .pressed(!bench.rails.side_open && !bench.rails.tab_open)
+                            .on_click(cx.listener(|bench, _, _, cx| bench.toggle_focus_mode(cx))),
+                        ),
                 ),
         );
     let row = tabs.map(|(copy, tabs)| {
