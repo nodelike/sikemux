@@ -45,7 +45,7 @@ pub(super) fn rail(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
                     let (project, id) = (board.project.clone(), goal.id);
                     let open = pane.here.as_deref() == Some(board.project.as_str())
                         && matches!(pane.at, At::Goal(at) | At::Slice(at) if at == id
-                        || pane.card(at).is_some_and(|card| card.parent == Some(id)));
+                        || goal.goal_slices.contains(&at));
                     Row::new(
                         SharedString::from(format!("rail-goal-{}-{id}", board.project)),
                         goal.title.clone(),

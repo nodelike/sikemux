@@ -52,13 +52,15 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
     else {
         return div().into_any_element();
     };
-    let goal = card.parent.and_then(|goal| pane.card(goal));
+    let goal = super::goals_of(pane.cards())
+        .into_iter()
+        .find(|goal| goal.goal_slices.contains(&id));
     let shown = pane.shown_evidence(slice);
     let gate = waiting(slice).filter(|gate| gate.passer == Passer::Person);
     div()
         .flex()
         .flex_col()
-        .when_some(goal, |view, goal| {
+        .when_some(goal.filter(|goal| goal.id != id), |view, goal| {
             let goal_id = goal.id;
             view.child(
                 crumb("slice-back", goal.title.clone(), cx)

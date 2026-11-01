@@ -1193,10 +1193,9 @@ fn proof_words(proof: &Proof) -> &'static str {
 
 /// How a goal's slices stand together, marked as one: failed when one
 /// failed, needing the person when one does, moving when one moves, done when
-/// every one is, else waiting. None for a card with no slices under it.
+/// every one is, else waiting. None for a card that is no goal.
 pub(super) fn goal_state(board: &Board, goal: &Card) -> Option<SliceState> {
-    let states: Vec<SliceState> = (board.cards.iter())
-        .filter(|card| card.parent == Some(goal.id))
+    let states: Vec<SliceState> = (board.held_by_goal(goal).into_iter())
         .filter_map(|card| {
             let held_up = board.held_up(card);
             Some(card.slice.as_ref()?.state(held_up, board.settings.landing))
@@ -1216,11 +1215,7 @@ pub(super) fn goal_state(board: &Board, goal: &Card) -> Option<SliceState> {
 /// The gates a goal's slices wait at, in the order they will be reached: a
 /// slice that waits on another comes after it. Each says what it waits on now.
 pub(super) fn next_gates(core: &Core, board: &Board, goal: &Card, now: u64) -> Vec<NextGate> {
-    let under: Vec<&Card> = board
-        .cards
-        .iter()
-        .filter(|card| card.parent == Some(goal.id))
-        .collect();
+    let under = board.held_by_goal(goal);
     let mut placed: Vec<u64> = Vec::new();
     let mut next = Vec::new();
     while placed.len() < under.len() {
@@ -1656,7 +1651,7 @@ fn move_work(
 pub(super) fn rebind(board: &mut Board) -> Vec<u64> {
     let goals: Vec<(u64, u64)> = (board.cards.iter())
         .filter(|card| card.slice.is_some())
-        .map(|card| (card.id, board.goal_card(card)))
+        .map(|card| (card.id, board.goal_above(card).id))
         .collect();
     let mut moved = Vec::new();
     for (id, goal) in goals {

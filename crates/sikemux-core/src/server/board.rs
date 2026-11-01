@@ -251,6 +251,28 @@ impl Board {
         goal
     }
 
+    /// What the goal `goal` holds: the cards right under it, and the goal
+    /// itself when it is a slice, which with nothing under it makes a goal of
+    /// one slice, as Auto's cards are. A goal is a card at the top holding a
+    /// slice; for any other card this is empty.
+    fn held_by_goal<'a>(&'a self, goal: &'a Card) -> Vec<&'a Card> {
+        if goal.parent.is_some() {
+            return Vec::new();
+        }
+        let held: Vec<&Card> = std::iter::once(goal)
+            .filter(|goal| goal.slice.is_some())
+            .chain(
+                self.cards
+                    .iter()
+                    .filter(|card| card.parent == Some(goal.id)),
+            )
+            .collect();
+        match held.iter().any(|card| card.slice.is_some()) {
+            true => held,
+            false => Vec::new(),
+        }
+    }
+
     /// Whether `card` waits on another card, or nobody holds it.
     fn held_up(&self, card: &Card) -> bool {
         card.owner.is_none() || !self.waits_on(card).is_empty()
@@ -271,20 +293,25 @@ impl Board {
             .collect()
     }
 
-    /// Checks that `asserts` stand on the goal of a card under `parent`.
-    /// The assertions `asserts` names on the goal of a card under `parent`,
-    /// each with the evidence it needs, when every one stands there.
+    /// The assertions `asserts` names on the goal of card `card` under
+    /// `parent`, which is the card itself at the top, each with the evidence
+    /// it needs, when every one stands there. A card not yet added has none.
     fn check_asserts(
         &self,
+        card: Option<u64>,
         parent: Option<u64>,
         asserts: &[u64],
     ) -> Result<Vec<slice::Named>, String> {
         if asserts.is_empty() {
             return Ok(Vec::new());
         }
-        let parent =
-            parent.ok_or("A slice fulfils its goal's assertions, so it sits under the goal")?;
-        let goal = self.goal_card(self.card(parent)?);
+        let goal = match (parent, card) {
+            (Some(parent), _) => self.goal_above(self.card(parent)?).id,
+            (None, Some(card)) => card,
+            (None, None) => return Err(
+                "A slice at the top is a goal of its own, with no assertions until it is added; add it, then write them with board_assert".into(),
+            ),
+        };
         let kept = &self.card(goal)?.goal;
         (asserts.iter())
             .map(|id| match kept.assertion(*id) {
@@ -306,18 +333,6 @@ impl Board {
             })
             .find(|card| self.reaches(card.id, id, |card| card.parent.into_iter().collect()))
             .map(|card| card.id)
-    }
-
-    /// The goal `card` sits under: the card at the top above it, or itself.
-    fn goal_card(&self, card: &Card) -> u64 {
-        let mut top = card;
-        for _ in 0..self.cards.len() {
-            match top.parent.and_then(|parent| self.card(parent).ok()) {
-                Some(parent) => top = parent,
-                None => break,
-            }
-        }
-        top.id
     }
 
     fn card_mut(&mut self, id: u64) -> Result<&mut Card, String> {
@@ -1169,6 +1184,11 @@ pub struct CardView {
     pub recordings: Vec<InboxRecording>,
     /// For a slice of a goal: its promise, gates, evidence and notes.
     pub slice: Option<SliceView>,
+    /// For a goal, its slices' cards in board order: those right under it,
+    /// and its own card when it is a slice itself. Empty for a card that is no
+    /// goal; the one way a client tells which cards are goals.
+    #[serde(default)]
+    pub goal_slices: Vec<u64>,
     /// For a goal, the gates its slices wait at, in the order they will be
     /// reached: a slice that waits on another comes after it.
     pub next: Vec<NextGate>,
@@ -1280,6 +1300,10 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
                 board.settings.landing,
             )
         }),
+        goal_slices: (board.held_by_goal(card).iter())
+            .filter(|held| held.slice.is_some())
+            .map(|held| held.id)
+            .collect(),
         next: slice::next_gates(core, board, card, now),
         goal_state: slice::goal_state(board, card),
         decisions: card.goal.decisions(),
@@ -1465,7 +1489,7 @@ fn add_card(
     if !adding.asserts.is_empty() && adding.promise.is_none() {
         return Err("A slice fulfils assertions; give the card a promise too".into());
     }
-    let named = board.check_asserts(adding.parent, &adding.asserts)?;
+    let named = board.check_asserts(None, adding.parent, &adding.asserts)?;
     let id = board.next.max(1);
     board.next = id + 1;
     let maker = match by {
@@ -1662,7 +1686,8 @@ fn change_in(
             if before.slice.is_none() && changes.promise.is_none() {
                 return Err("A slice fulfils assertions; give the card a promise too".into());
             }
-            let named = board.check_asserts(changes.parent.unwrap_or(before.parent), asserts)?;
+            let named =
+                board.check_asserts(Some(id), changes.parent.unwrap_or(before.parent), asserts)?;
             let dropped = (before.slice.as_ref())
                 .is_some_and(|slice| slice.asserts().any(|id| !asserts.contains(&id)));
             let started = before.slice.as_ref().is_some_and(|slice| slice.started);
@@ -1687,7 +1712,7 @@ fn change_in(
         board.check_parent(Some(id), parent)?;
         if parent.is_some() && !before.goal.is_none() {
             return Err(format!(
-                "#{id} is a goal that keeps decisions or rules of its own, so it stays at the top"
+                "#{id} is a goal that keeps decisions, rules or assertions of its own, so it stays at the top"
             ));
         }
     }

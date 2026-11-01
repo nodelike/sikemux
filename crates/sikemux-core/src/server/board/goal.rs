@@ -428,7 +428,7 @@ pub(crate) fn change(
 /// The assertions of goal `goal` that a slice under it that has started fulfils.
 fn bound(board: &Board, goal: u64) -> Vec<u64> {
     (board.cards.iter())
-        .filter(|card| board.goal_card(card) == goal)
+        .filter(|card| board.goal_above(card).id == goal)
         .filter_map(|card| card.slice.as_ref().filter(|slice| slice.started))
         .flat_map(|slice| slice.asserts())
         .collect()
@@ -447,7 +447,7 @@ fn may_assert(board: &Board, goal: u64, agent: &str, change: &Change) -> Result<
         return Ok(());
     };
     let started = board.cards.iter().find(|slice| {
-        board.goal_card(slice) == goal
+        board.goal_above(slice).id == goal
             && (slice.slice.as_ref())
                 .is_some_and(|slice| slice.started && slice.asserts().any(|named| named == *id))
     });

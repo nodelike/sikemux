@@ -419,20 +419,23 @@ impl Render for GoalsPane {
     }
 }
 
-/// The slices under card `goal` among `cards`, in the board's order.
+/// The slices the core says goal `goal` holds among `cards`, in the board's order.
 fn slices_of(cards: &[CardView], goal: u64) -> Vec<(&CardView, &SliceView)> {
+    let Some(goal) = cards.iter().find(|card| card.id == goal) else {
+        return Vec::new();
+    };
     cards
         .iter()
-        .filter(|card| card.parent == Some(goal))
+        .filter(|card| goal.goal_slices.contains(&card.id))
         .filter_map(|card| Some((card, card.slice.as_ref()?)))
         .collect()
 }
 
-/// The cards on top of a board with slices under them, which the core gives a goal's state.
+/// The cards the core says are goals.
 fn goals_of(cards: &[CardView]) -> Vec<&CardView> {
     cards
         .iter()
-        .filter(|card| card.parent.is_none() && card.goal_state.is_some())
+        .filter(|card| !card.goal_slices.is_empty())
         .collect()
 }
 
