@@ -430,7 +430,9 @@ impl Render for GoalsPane {
                         .child(
                             div()
                                 .w_full()
-                                .max_w(px(680.))
+                                .max_w(
+                                    px(crate::chat::composer::WIDTH) + crate::theme::SPACE_6 * 2.,
+                                )
                                 .mx_auto()
                                 .px(crate::theme::SPACE_6)
                                 .py(crate::theme::SPACE_5)

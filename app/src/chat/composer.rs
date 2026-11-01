@@ -401,7 +401,7 @@ impl RenderOnce for Composer {
                 div()
                     .relative()
                     .w_full()
-                    .max_w(px(820.))
+                    .max_w(px(WIDTH))
                     .p(SPACE_2)
                     .flex()
                     .flex_col()
@@ -446,7 +446,7 @@ impl RenderOnce for Composer {
             .children(self.notice.map(|notice| {
                 let line = div()
                     .w_full()
-                    .max_w(px(820.))
+                    .max_w(px(WIDTH))
                     .pt(SPACE_1H)
                     .px(SPACE_1)
                     .flex()
@@ -614,7 +614,7 @@ fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl Into
         );
     div()
         .w_full()
-        .max_w(px(820.))
+        .max_w(px(WIDTH))
         .px(px(STRIP_STEP))
         .child(strip_row)
         .on_children_prepainted(|bounds, _, cx| {
@@ -713,6 +713,9 @@ impl Room {
         }
     }
 }
+
+/// The widest the composer draws, which the goals' column takes too.
+pub const WIDTH: f32 = 820.;
 
 /// How far the strip over the composer steps in from either side of it.
 const STRIP_STEP: f32 = 20.;
