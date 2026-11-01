@@ -12,7 +12,7 @@ use serde_json::json;
 use sikemux_core::server::{HostFound, HostReach};
 use sikemux_wire::protocol::{
     AccountInfo, AgentGroup, AgentStatus, PaneKind, Preferences, ProjectInfo, TabRailPage,
-    TabRailScope,
+    TabRailScope, WindowView,
 };
 
 use crate::hosts::HostChoice;
@@ -676,8 +676,12 @@ fn project_tree(
 }
 
 /// The surface the project tree lights: the tab rail's page while it is open, unless the
-/// tab in front is a surface the tab rail has no page for, such as Git.
+/// tab in front is a surface the tab rail has no page for, such as Git; none on the goals,
+/// where Home or Overnight is lit instead.
 fn lit_surface(bench: &Workbench) -> Option<PaneKind> {
+    if bench.window_view == WindowView::Goals {
+        return None;
+    }
     let front = bench
         .tab()
         .and_then(|tab| tabs::first_view(&tab.pane))
