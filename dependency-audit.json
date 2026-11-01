@@ -1,5 +1,5 @@
 {
-  "reviewBy": "2026-11-01",
+  "reviewBy": "2026-11-15",
   "allowedRustWarnings": {
     "RUSTSEC-2024-0370": "proc-macro-error, a build-time macro dependency of glib-macros, reached only through the GTK3 graph of the Linux build (the GPUI app's WebKitGTK browser); nothing it generates ships on macOS.",
     "RUSTSEC-2024-0384": "instant, behind GPUI Kit (gpui-base, gpui-component); no release replaces it with web-time yet, so it goes when GPUI Kit moves.",
