@@ -1860,6 +1860,9 @@ fn change_in(
     card.updated_at = epoch_ms();
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
+    if after.status == Status::Done {
+        board.ci_failing.forget(&after.ci);
+    }
     let run_dropped = before.kept_run().is_some()
         && after.status != before.status
         && after.status != Status::Progress;
@@ -1974,6 +1977,7 @@ fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, Strin
     let removed = board.card(id)?.clone();
     let blocked_before = board.blocked();
     board.cards.retain(|card| card.id != id);
+    board.ci_failing.forget(&removed.ci);
     for card in &mut board.cards {
         card.depends_on.retain(|other| *other != id);
         if card.parent == Some(id) {

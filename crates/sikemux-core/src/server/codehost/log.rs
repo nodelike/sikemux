@@ -158,7 +158,9 @@ fn failed_test(line: &str) -> Option<String> {
     } else if let Some(rest) = line.strip_prefix("--- FAIL: ") {
         rest.split_whitespace().next()?
     } else if let Some(rest) = line.strip_prefix("FAILED ") {
-        rest.split(" - ").next()?
+        rest.split(" - ")
+            .next()
+            .filter(|test| !test.starts_with('('))?
     } else {
         let rest = line.strip_prefix("FAIL ")?.trim_start();
         match rest.strip_prefix('[') {

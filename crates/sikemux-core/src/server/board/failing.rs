@@ -30,6 +30,20 @@ pub(super) struct Failure {
 }
 
 impl Failure {
+    /// Whether the two name the same failure, one perhaps more closely: a
+    /// workflow covers its jobs, and a job without a test covers its tests,
+    /// for when a run's jobs or a job's log could not be read.
+    fn same(&self, other: &Failure) -> bool {
+        self == other || self.covers(other) || other.covers(self)
+    }
+
+    fn covers(&self, other: &Failure) -> bool {
+        self.test.is_none()
+            && (self.check == other.check
+                || (other.check.strip_prefix(self.check.as_str()))
+                    .is_some_and(|job| job.starts_with(" / ")))
+    }
+
     fn label(&self) -> String {
         match &self.test {
             Some(test) => format!("{}: {test}", self.check),
@@ -58,7 +72,7 @@ impl Broke {
 
     /// Whether `card` already holds one of its failures.
     pub(super) fn held_by(&self, card: &[Failure]) -> bool {
-        self.failures.iter().any(|failure| card.contains(failure))
+        (self.failures.iter()).any(|failure| card.iter().any(|held| held.same(failure)))
     }
 
     /// Keeps its failures on `card`'s, up to as many as a card holds.
@@ -85,6 +99,14 @@ impl Broke {
 pub(super) struct Latest {
     sha: String,
     failures: Vec<Failure>,
+}
+
+impl Latest {
+    /// Forgets the failures of a card that is done or deleted, so they need
+    /// two failing runs again before they make a card.
+    pub(super) fn forget(&mut self, card: &[Failure]) {
+        (self.failures).retain(|failure| !card.iter().any(|held| held.same(failure)));
+    }
 }
 
 fn labels(failures: &[Failure]) -> String {
@@ -141,7 +163,7 @@ pub(crate) fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[Faile
         );
         failed
             .into_iter()
-            .filter(|failure| before.failures.contains(failure))
+            .filter(|failure| before.failures.iter().any(|was| was.same(failure)))
             .collect()
     };
     if again.is_empty() {

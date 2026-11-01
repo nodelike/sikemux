@@ -575,7 +575,7 @@ fn conclusion(run_or_job: &Value) -> Option<Conclusion> {
 
 /// Failed jobs read on one commit.
 const MAX_FAILED_JOBS: usize = 6;
-/// How long reading them may take before only their workflows are known.
+/// How long reading them may take before the reading is given up.
 const FAILED_JOBS_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A CI job that failed on a commit, and what its log says.
@@ -590,15 +590,13 @@ pub(crate) struct FailedJob {
 }
 
 /// The first few jobs that failed in the runs of `workflows` on `sha`, each
-/// read from its log. A run whose jobs can't be read counts as one failed
-/// job, and so do the workflows when no run can be.
-pub(crate) async fn failed_jobs(repo: &Repo, sha: &str, workflows: &[String]) -> Vec<FailedJob> {
-    let whole = |check: String, url: Option<String>| FailedJob {
-        check,
-        url,
-        tests: Vec::new(),
-        error: None,
-    };
+/// read from its log, or none when the runs can't be read in time. A run
+/// whose jobs can't be read counts as one failed job, named by its workflow.
+pub(crate) async fn failed_jobs(
+    repo: &Repo,
+    sha: &str,
+    workflows: &[String],
+) -> Option<Vec<FailedJob>> {
     let read = async {
         let mut failed = Vec::new();
         let runs = runs_on(repo, None, sha, workflows).await?;
@@ -625,15 +623,19 @@ pub(crate) async fn failed_jobs(repo: &Repo, sha: &str, workflows: &[String]) ->
                 });
             }
             if failed.len() == before && failed.len() < MAX_FAILED_JOBS {
-                failed.push(whole(workflow, text(run, "url")));
+                failed.push(FailedJob {
+                    check: workflow,
+                    url: text(run, "url"),
+                    tests: Vec::new(),
+                    error: None,
+                });
             }
         }
         Ok::<_, String>(failed)
     };
     match tokio::time::timeout(FAILED_JOBS_BUDGET, read).await {
-        Ok(Ok(failed)) if !failed.is_empty() => failed,
-        _ if workflows.is_empty() => vec![whole("CI".to_owned(), None)],
-        _ => vec![whole(workflows.join(", "), None)],
+        Ok(Ok(failed)) if !failed.is_empty() => Some(failed),
+        _ => None,
     }
 }
 

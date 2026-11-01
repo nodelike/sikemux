@@ -462,8 +462,9 @@ async fn wait_for_ci(
             match &checks {
                 Ok(CiChecks::Passed) => crate::server::board::ci_ruled(&core, &project, tip, &[]),
                 Ok(CiChecks::Failed(_)) => {
-                    let failed = codehost::failed_jobs(repo, tip, &workflows).await;
-                    crate::server::board::ci_ruled(&core, &project, tip, &failed);
+                    if let Some(failed) = codehost::failed_jobs(repo, tip, &workflows).await {
+                        crate::server::board::ci_ruled(&core, &project, tip, &failed);
+                    }
                 }
                 _ => {}
             }
