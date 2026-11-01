@@ -60,7 +60,6 @@ sikemux-plugin-aws-views = { path = "../plugins/aws/views" }
 sikemux-plugin-bruno-views = { path = "../plugins/bruno/views" }
 sikemux-plugin-database-views = { path = "../plugins/database/views" }
 sikemux-plugin-jira-views = { path = "../plugins/jira/views" }
-sikemux-plugin-linear-views = { path = "../plugins/linear/views" }
 sikemux-plugin-rundeck-views = { path = "../plugins/rundeck/views" }
 sikemux-plugin-signoz-views = { path = "../plugins/signoz/views" }
 sikemux-plugin-slack-views = { path = "../plugins/slack/views" }

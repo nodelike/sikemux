@@ -1,12 +1,11 @@
 // Linear: the person's issues and a search, one issue with its comments, and
-// the changes a person or their agents make, in a pane and as agent tools.
+// the changes their agents make, as agent tools.
 //
 //   config — the workspaces signed in here, and their keys or tokens in the Keychain
 //   client — the GraphQL client, the key or token, and Linear's errors in words
 //   oauth  — signing in through the browser with a Linear account
 //   auth   — signing in with the browser or a personal API key, and each workspace's status
 //   issues — listing, reading, commenting on, changing and filing issues
-//   views  — what the pane shows, which the core keeps
 
 mod auth;
 mod client;
@@ -14,7 +13,6 @@ mod config;
 mod error;
 mod issues;
 mod oauth;
-mod views;
 
 use std::sync::Arc;
 
@@ -53,15 +51,11 @@ impl Plugin for Linear {
                     reply(auth::status(data_dir).await)
                 }
                 "signOut" => answer(auth::sign_out(data_dir, params(input)?)).await,
-                "setDefault" => answer(auth::set_default(data_dir, params(input)?)).await,
                 "search" => answer(issues::search(data_dir, params(input)?)).await,
                 "issue" => answer(issues::issue(data_dir, params(input)?)).await,
                 "comment" => answer(issues::comment(data_dir, params(input)?)).await,
                 "update" => answer(issues::update(data_dir, params(input)?)).await,
                 "create" => answer(issues::create(data_dir, params(input)?)).await,
-                "teams" => answer(issues::teams(data_dir, params(input)?)).await,
-                "listView" => answer(views::list_view(data_dir, params(input)?)).await,
-                "issueView" => answer(views::issue_view(data_dir, params(input)?)).await,
                 _ => Err(PluginError::unknown_method(method)),
             }
         })

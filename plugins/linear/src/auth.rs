@@ -165,18 +165,6 @@ pub async fn sign_out(data_dir: &Path, input: WorkspaceRef) -> LinearResult<()> 
     Ok(())
 }
 
-/// Makes the workspace named the one calls use when they name none.
-pub async fn set_default(data_dir: &Path, input: WorkspaceRef) -> LinearResult<()> {
-    store::update(data_dir, move |config: &mut LinearConfig| {
-        let id = config
-            .account(input.workspace.as_deref())
-            .map(|workspace| workspace.id.clone())
-            .ok_or_else(|| LinearError::NotFound("no such Linear workspace is signed in".into()))?;
-        config.set_default(&id)
-    })
-    .await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

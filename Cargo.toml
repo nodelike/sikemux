@@ -102,8 +102,6 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-jira-views]
 opt-level = "z"
-[profile.release.package.sikemux-plugin-linear-views]
-opt-level = "z"
 [profile.release.package.sikemux-plugin-rundeck-views]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-signoz-views]

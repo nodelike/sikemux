@@ -44,7 +44,6 @@ plugins! {
     bruno,
     database,
     jira,
-    linear,
     rundeck,
     signoz,
     slack,
@@ -1043,33 +1042,6 @@ pub fn failure(failure: &Failure, cx: &App) -> AnyElement {
         Some(failure.message.clone()),
         cx,
     )
-}
-
-/// Asks the person to sign in to the plugin through its browser sign-in.
-pub fn signed_out(
-    host: &Host,
-    mark: Icon,
-    name: &'static str,
-    detail: &'static str,
-    cx: &mut Context<PluginPane>,
-) -> AnyElement {
-    let ink = Tokens::get(cx).text_primary;
-    ui::sign_in::Screen::new(
-        "plugin-sign-in-page",
-        ui::picture(mark, 26., ink),
-        format!("Sign in to {name}"),
-    )
-    .lede(detail)
-    .foot(ui::sign_in::KEPT)
-    .child(browser_sign_in(
-        host,
-        "plugin-sign-in",
-        Icon::LogIn,
-        "Sign in with the browser",
-        |host, cx| host.sign_in_with_browser(cx),
-        cx,
-    ))
-    .into_any_element()
 }
 
 /// The button that starts the plugin's browser sign-in, or, while it runs, the row that waits
