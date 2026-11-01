@@ -142,7 +142,6 @@ const PICTURES = {
   codex: "shared/assets/agent-logos/codex.svg",
   omp: "shared/assets/agent-logos/omp.svg",
   muse: "shared/assets/agent-logos/muse.svg",
-  bruno: "shared/assets/bruno.svg",
 };
 /** GPUI's SVG renderer has no oklch(), which WebKit draws, so a picture's oklch colours are
  * written as the sRGB they come to. */

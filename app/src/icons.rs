@@ -46,7 +46,6 @@ icons!(
     BoltFill => "bolt-fill",
     Book => "book",
     Briefcase => "briefcase",
-    Bruno => "bruno",
     Building => "building",
     Camera => "camera",
     Check => "check",

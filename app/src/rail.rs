@@ -553,7 +553,6 @@ fn plugins(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
 pub(crate) fn plugin_mark(id: &str) -> Option<Icon> {
     Some(match id.strip_prefix("sikemux.")? {
         "aws" => Icon::Aws,
-        "bruno" => Icon::Bruno,
         "database" => Icon::Database,
         "jira" => Icon::Jira,
         "linear" => Icon::Linear,

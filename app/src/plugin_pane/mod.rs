@@ -38,9 +38,7 @@ macro_rules! plugins {
     };
 }
 
-plugins! {
-    bruno,
-}
+plugins! {}
 
 /// How many views a pane keeps, the least lately asked for going first.
 const KEPT_AT_MOST: usize = 32;
@@ -80,11 +78,6 @@ pub struct Registration {
     pub pane: fn() -> Box<dyn Panel>,
     pub top_bar: Option<fn() -> Box<dyn Panel>>,
     pub palettes: &'static [PluginPalette],
-}
-
-/// A panel of type `P`, for a registration to name.
-pub fn boxed<P: Panel + Default>() -> Box<dyn Panel> {
-    Box::<P>::default()
 }
 
 fn registration(plugin: &str) -> Option<&'static Registration> {
@@ -981,44 +974,6 @@ fn say_once(said: String) {
     if SAID.with(|kept| kept.borrow_mut().insert(said.clone())) {
         eprintln!("{said}");
     }
-}
-
-/// A handler on panel `P` and its host, for an element of the panel's.
-pub fn listen<P: Panel, E: ?Sized>(
-    cx: &Context<PluginPane>,
-    act: impl Fn(&mut P, &mut Host, &E, &mut Window, &mut Context<PluginPane>) + 'static,
-) -> impl Fn(&E, &mut Window, &mut App) + 'static {
-    let pane = cx.weak_entity();
-    move |event, window, cx| {
-        let _ = pane.update(cx, |pane, cx| {
-            if let Some((panel, host)) = pane.parts::<P>() {
-                act(panel, host, event, window, cx);
-            }
-        });
-    }
-}
-
-/// Runs `work`, then hands what it gave to panel `P`.
-pub fn after<P: Panel, T: 'static>(
-    work: impl Future<Output = T> + 'static,
-    then: impl FnOnce(&mut P, &mut Host, T, &mut Context<PluginPane>) + 'static,
-    cx: &mut Context<PluginPane>,
-) {
-    cx.spawn(async move |pane, cx| {
-        let done = work.await;
-        let _ = pane.update(cx, |pane, cx| {
-            if let Some((panel, host)) = pane.parts::<P>() {
-                then(panel, host, done, cx);
-                cx.notify();
-            }
-        });
-    })
-    .detach();
-}
-
-/// Said while a view is still on its way.
-pub fn loading(cx: &App) -> AnyElement {
-    notice(None, "Loading…", None, cx)
 }
 
 /// Said when a list or a page has nothing to show.

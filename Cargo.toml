@@ -1,8 +1,8 @@
 [workspace]
-members = ["app", "app/crates/*", "crates/*", "plugins/*", "plugins/*/views"]
+members = ["app", "app/crates/*", "crates/*", "plugins/*"]
 # A bare cargo run here leaves out the GPUI app and its crates, which take far longer to build than the
 # core; name them with -p to build them.
-default-members = ["crates/*", "plugins/*", "plugins/*/views"]
+default-members = ["crates/*", "plugins/*"]
 resolver = "2"
 
 [workspace.package]
@@ -72,8 +72,6 @@ opt-level = 3
 opt-level = "z"
 [profile.release.package.sikemux-plugin-bitbucket]
 opt-level = "z"
-[profile.release.package.sikemux-plugin-bruno]
-opt-level = "z"
 [profile.release.package.sikemux-plugin-database]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-github]
@@ -93,8 +91,6 @@ opt-level = "z"
 [profile.release.package.sikemux-plugin-vercel]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-api]
-opt-level = "z"
-[profile.release.package.sikemux-plugin-bruno-views]
 opt-level = "z"
 # Terminal output, serialization and search run through these for every byte,
 # so they stay at full speed: built for size, parsing a terminal flood took 55%
