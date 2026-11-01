@@ -104,7 +104,7 @@ mod tests {
             (Some(false), Some(false))
         );
         let error = plugin
-            .call(&ctx, "channelsView", json!({}))
+            .call(&ctx, "search", json!({ "query": "deploy" }))
             .await
             .expect_err("signed out");
         assert_eq!(error.category, sikemux_plugin_api::Category::Unconfigured);
