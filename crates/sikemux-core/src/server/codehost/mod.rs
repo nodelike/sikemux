@@ -18,6 +18,7 @@ use sikemux_plugin_api::codehost::{
 use sikemux_process::sync::Locked;
 
 pub(crate) mod ci;
+pub(crate) mod log;
 pub(crate) mod repo;
 
 use super::changed::Topic;

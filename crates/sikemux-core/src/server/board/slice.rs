@@ -461,6 +461,20 @@ impl Slice {
         self.add_evidence(gate, epoch_ms(), None, verdict, proof, &assertions);
     }
 
+    /// A run that failed before its work began, such as CI's on the
+    /// project's branch, kept as what the work is to mend.
+    pub(super) fn failed_run(&mut self, command: String, sha: &str, output: String) {
+        let Some(gate) = self.waiting() else {
+            return;
+        };
+        let proof = Proof::Run {
+            command,
+            sha: Some(sha.to_owned()),
+            output,
+        };
+        self.add_evidence(gate, epoch_ms(), None, Some(Verdict::Failed), proof, &[]);
+    }
+
     /// The assertions still without what they need on its latest commit.
     fn missing(&self) -> Vec<String> {
         (self.asserts.iter())
@@ -1076,7 +1090,7 @@ impl Slice {
     }
 }
 
-fn short(sha: &str) -> &str {
+pub(super) fn short(sha: &str) -> &str {
     sha.get(..7).unwrap_or(sha)
 }
 
@@ -1717,6 +1731,7 @@ pub(super) fn file_fix(core: &Core, board: &mut Board, id: u64, sha: &str) -> Op
             depends_on: Vec::new(),
             ticket: None,
             trigger: None,
+            ci: None,
         },
         None,
     );

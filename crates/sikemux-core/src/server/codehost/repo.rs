@@ -8,6 +8,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use super::log;
 use crate::protocol::{CodeHostChoice, ProjectCodeHost, ProjectPull, PullChecks};
 use crate::server::board::Pull;
 use crate::server::plugins::{self, Category, CodeHostSpec, Failure, Provided};
@@ -500,22 +501,7 @@ pub(crate) async fn commit_checks(
     sha: &str,
     workflows: &[String],
 ) -> Result<Checks, String> {
-    let page = repo
-        .call(
-            "runs",
-            json!({ "headSha": sha, "branch": branch, "perPage": 50 }),
-        )
-        .await?;
-    let named = |run: &&Value| {
-        workflows.is_empty() || text(run, "name").is_some_and(|name| workflows.contains(&name))
-    };
-    let runs: Vec<&Value> = page["runs"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|run| run["sha"].as_str() == Some(sha))
-        .filter(named)
-        .collect();
+    let runs = runs_on(repo, branch, sha, workflows).await?;
     if let Some(going) = runs
         .iter()
         .find(|run| run["status"].as_str() != Some("completed"))
@@ -534,7 +520,7 @@ pub(crate) async fn commit_checks(
     }
     let ended = |wanted: Conclusion| -> Vec<String> {
         runs.iter()
-            .filter(|run| run["conclusion"].as_str().map(Conclusion::of) == Some(wanted))
+            .filter(|run| conclusion(run) == Some(wanted))
             .map(|run| {
                 format!(
                     "{}: {} {}",
@@ -555,6 +541,100 @@ pub(crate) async fn commit_checks(
     } else {
         Checks::Passed
     })
+}
+
+/// The runs of `workflows` on `sha`, or of every workflow when none is named.
+async fn runs_on(
+    repo: &Repo,
+    branch: Option<&str>,
+    sha: &str,
+    workflows: &[String],
+) -> Result<Vec<Value>, String> {
+    let page = repo
+        .call(
+            "runs",
+            json!({ "headSha": sha, "branch": branch, "perPage": 50 }),
+        )
+        .await?;
+    let named = |run: &&Value| {
+        workflows.is_empty() || text(run, "name").is_some_and(|name| workflows.contains(&name))
+    };
+    Ok(page["runs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|run| run["sha"].as_str() == Some(sha))
+        .filter(named)
+        .cloned()
+        .collect())
+}
+
+fn conclusion(run_or_job: &Value) -> Option<Conclusion> {
+    run_or_job["conclusion"].as_str().map(Conclusion::of)
+}
+
+/// Failed jobs read on one commit.
+const MAX_FAILED_JOBS: usize = 6;
+/// How long reading them may take before only their workflows are known.
+const FAILED_JOBS_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A CI job that failed on a commit, and what its log says.
+pub(crate) struct FailedJob {
+    /// Its workflow's name and its own, such as `CI / clippy`.
+    pub check: String,
+    pub url: Option<String>,
+    /// The tests its log says failed, when its test runner names them.
+    pub tests: Vec<String>,
+    /// The error its log shows.
+    pub error: Option<String>,
+}
+
+/// The first few jobs that failed in the runs of `workflows` on `sha`, each
+/// read from its log. A run whose jobs can't be read counts as one failed
+/// job, and so do the workflows when no run can be.
+pub(crate) async fn failed_jobs(repo: &Repo, sha: &str, workflows: &[String]) -> Vec<FailedJob> {
+    let whole = |check: String, url: Option<String>| FailedJob {
+        check,
+        url,
+        tests: Vec::new(),
+        error: None,
+    };
+    let read = async {
+        let mut failed = Vec::new();
+        let runs = runs_on(repo, None, sha, workflows).await?;
+        for run in runs
+            .iter()
+            .filter(|run| conclusion(run) == Some(Conclusion::Failed))
+        {
+            let workflow = text(run, "name").unwrap_or_else(|| "CI".to_owned());
+            let before = failed.len();
+            let detail = self::run(repo, &run["id"]).await.unwrap_or_default();
+            let jobs = detail["jobs"].as_array().into_iter().flatten();
+            for job in jobs.filter(|job| conclusion(job) == Some(Conclusion::Failed)) {
+                if failed.len() >= MAX_FAILED_JOBS {
+                    return Ok(failed);
+                }
+                let lines = log_tail(repo, &run["id"], &job["id"], log::LOG_LINES)
+                    .await
+                    .unwrap_or_default();
+                failed.push(FailedJob {
+                    check: format!("{workflow} / {}", text(job, "name").unwrap_or_default()),
+                    url: text(job, "url").or_else(|| text(run, "url")),
+                    tests: log::failed_tests(&lines),
+                    error: log::read_error(&lines).0,
+                });
+            }
+            if failed.len() == before && failed.len() < MAX_FAILED_JOBS {
+                failed.push(whole(workflow, text(run, "url")));
+            }
+        }
+        Ok::<_, String>(failed)
+    };
+    match tokio::time::timeout(FAILED_JOBS_BUDGET, read).await {
+        Ok(Ok(failed)) if !failed.is_empty() => failed,
+        _ if workflows.is_empty() => vec![whole("CI".to_owned(), None)],
+        _ => vec![whole(workflows.join(", "), None)],
+    }
 }
 
 /// How a finished CI run or job ended, by the `conclusion` its host gave.

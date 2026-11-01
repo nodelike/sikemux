@@ -352,6 +352,8 @@ pub(crate) fn look(dir: &Path, waiting: &[String]) -> Looked {
 /// has run there, all must have passed. A commit nobody pushes waits for it;
 /// one on no branch for a while, as after a rebase, ends with no verdict, as
 /// do those under a tip that no run starts on or whose runs were cancelled.
+/// Each verdict on the tip goes to the board too, which files CI failing
+/// the same way twice in a row as a card.
 async fn wait_for_ci(
     core: Arc<Core>,
     project: String,
@@ -456,7 +458,16 @@ async fn wait_for_ci(
         if let Some((tip, held, repo)) = unruled {
             let since = *tips_since.entry(tip.clone()).or_insert(now);
             let overdue = now.saturating_sub(since) >= CI_START_WAIT_MS;
-            let outcome = match codehost::commit_checks(repo, None, tip, &workflows).await {
+            let checks = codehost::commit_checks(repo, None, tip, &workflows).await;
+            match &checks {
+                Ok(CiChecks::Passed) => crate::server::board::ci_ruled(&core, &project, tip, &[]),
+                Ok(CiChecks::Failed(_)) => {
+                    let failed = codehost::failed_jobs(repo, tip, &workflows).await;
+                    crate::server::board::ci_ruled(&core, &project, tip, &failed);
+                }
+                _ => {}
+            }
+            let outcome = match checks {
                 Ok(CiChecks::Passed) => Some(Ok((true, format!("{label} passed on {tip}")))),
                 Ok(CiChecks::Failed(what)) => Some(Ok((false, what))),
                 Ok(CiChecks::Stopped(why)) => Some(Err(format!(

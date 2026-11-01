@@ -31,6 +31,7 @@ use sikemux_wire::slice::{
 mod arrival;
 pub(crate) mod auto;
 mod blind;
+mod failing;
 mod finish;
 pub(crate) mod git;
 pub(crate) mod goal;
@@ -47,6 +48,7 @@ pub use auto::{
     Hold, Landing, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams,
     Stage,
 };
+pub(crate) use failing::ci_ruled;
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 pub use goal::AssertParams;
 pub(crate) use slice::{
@@ -167,7 +169,12 @@ struct Card {
     /// The trigger whose firing added it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trigger: Option<u64>,
-    /// Its ticket or trigger arriving again while it was open, oldest first.
+    /// What CI kept failing on, on the project's branch, that it was filed
+    /// for or took since.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    ci: Vec<failing::Failure>,
+    /// Its ticket, trigger or CI failure arriving again while it was open,
+    /// oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     arrivals: Vec<arrival::Arrival>,
     /// The run Auto gave the card, in a worktree of its own.
@@ -217,6 +224,9 @@ struct Board {
     /// What each of its slices waited on when clients were last told.
     #[serde(skip)]
     told_waits: HashMap<u64, Wait>,
+    /// The latest CI run that failed on the project's branch, while the core runs.
+    #[serde(skip)]
+    ci_failing: failing::Latest,
 }
 
 impl Board {
@@ -818,6 +828,8 @@ struct Adding {
     ticket: Option<Ticket>,
     /// The trigger whose firing it is.
     trigger: Option<u64>,
+    /// What CI kept failing on, on the project's branch.
+    ci: Option<failing::Broke>,
 }
 
 impl Adding {
@@ -839,6 +851,7 @@ impl Adding {
             },
             ticket: None,
             trigger: None,
+            ci: None,
         })
     }
 }
@@ -1430,9 +1443,12 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
 /// A card added as `adding` asks, by `maker`, or the person or Sikemux when none.
 fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card {
     let now = epoch_ms();
-    let slice = adding
+    let mut slice = adding
         .promise
         .map(|promise| slice::Slice::new(promise, Vec::new(), None));
+    if let (Some(slice), Some(broke)) = (&mut slice, &adding.ci) {
+        slice.failed_run(broke.checks(), &broke.sha, broke.output.clone());
+    }
     Card {
         id,
         title: adding.title,
@@ -1450,6 +1466,7 @@ fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card
         result: None,
         ticket: adding.ticket,
         trigger: adding.trigger,
+        ci: adding.ci.map(|broke| broke.failures).unwrap_or_default(),
         arrivals: Vec::new(),
         auto: None,
         recordings: Vec::new(),
@@ -1553,6 +1570,7 @@ pub(crate) fn add_for_trigger(
         depends_on: Vec::new(),
         ticket: None,
         trigger: Some(trigger),
+        ci: None,
     };
     add_card(core, project, &By::Auto("Trigger"), adding, None)?;
     tell_clients(core);
@@ -2554,6 +2572,7 @@ impl AddParams {
             depends_on: distinct_cards(self.depends_on, "dependsOn")?,
             ticket: self.ticket.map(TicketParams::ticket).transpose()?,
             trigger: None,
+            ci: None,
         })
     }
 }
@@ -2714,6 +2733,7 @@ fn ticket_card(title: &str, details: &str, ticket: Option<TicketParams>) -> Resu
         depends_on: Vec::new(),
         ticket: ticket.map(TicketParams::ticket).transpose()?,
         trigger: None,
+        ci: None,
     })
 }
 

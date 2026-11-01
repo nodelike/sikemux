@@ -2,7 +2,7 @@
 //! run of its workflow on its branch that passed, and the commits between
 //! them, those whose changes the failing job's error points at first.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -13,20 +13,15 @@ use sikemux_process::sync::Locked;
 
 use super::{git, remember, Found};
 use crate::protocol::CodeHostChoice;
+use crate::server::codehost::log;
 use crate::server::codehost::repo::{self as codehost, Conclusion, Repo};
 use crate::server::Core;
 
 const ASK_BUDGET: Duration = Duration::from_secs(10);
 const LOG_BUDGET: Duration = Duration::from_secs(20);
-const LOG_LINES: usize = 800;
-const MAX_LINE_CHARS: usize = 240;
-const EXCERPT_BYTES: usize = 1500;
-const MAX_NAMED: usize = 24;
 /// Commits between the passing run and the failing one that are ranked.
 const MAX_RANGE: usize = 200;
 const MAX_ALSO_FAILING: usize = 4;
-/// What GitHub writes when a step fails; what follows is the job cleaning up.
-const STEP_FAILED: &str = "##[error]Process completed with exit code";
 /// Folder names too common to say where an error is.
 const COMMON_FOLDERS: [&str; 24] = [
     "src",
@@ -54,16 +49,6 @@ const COMMON_FOLDERS: [&str; 24] = [
     "scripts",
     "bin",
 ];
-/// Paths in a log that point into installed dependencies, not the project.
-const DEPENDENCIES: [&str; 6] = [
-    "node_modules/",
-    ".pnpm/",
-    ".cargo/",
-    "/rustc/",
-    "site-packages/",
-    "/usr/",
-];
-
 /// The CI run a target names.
 pub(super) enum Asked {
     /// A run by its address on the code host, or its id.
@@ -437,14 +422,17 @@ async fn read_run(repo: &Repo, id: &Value, job: Option<Value>) -> Result<(Failin
     };
     let log = async {
         let job = read?;
-        timed(LOG_BUDGET, codehost::log_tail(repo, id, &job, LOG_LINES))
-            .await
-            .ok()
+        timed(
+            LOG_BUDGET,
+            codehost::log_tail(repo, id, &job, log::LOG_LINES),
+        )
+        .await
+        .ok()
     };
     let (history, log) = tokio::join!(history, log);
     let whole = history.is_some() && (log.is_some() || !reads_log);
     let (passed, began) = history.unwrap_or_default();
-    let (error, named) = log.as_deref().map(read_error).unwrap_or_default();
+    let (error, named) = log.as_deref().map(log::read_error).unwrap_or_default();
     let failed_jobs: Vec<&str> = failed_jobs
         .iter()
         .map(|found| text(found, "name"))
@@ -479,117 +467,6 @@ fn remember_run(key: &str, failing: &Arc<Failing>) {
 fn runs() -> &'static Mutex<HashMap<String, Arc<Failing>>> {
     static RUNS: OnceLock<Mutex<HashMap<String, Arc<Failing>>>> = OnceLock::new();
     RUNS.get_or_init(Default::default)
-}
-
-/// `line` without terminal colours, cut to a readable length.
-fn plain(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut chars = line.chars();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            if chars.next() == Some('[') {
-                for c in chars.by_ref() {
-                    if c.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-            continue;
-        }
-        out.push(c);
-    }
-    if out.chars().count() > MAX_LINE_CHARS {
-        out = out.chars().take(MAX_LINE_CHARS).collect::<String>() + "…";
-    }
-    out
-}
-
-fn says_failed(line: &str) -> bool {
-    let lower = line.to_lowercase();
-    let failed = ["error", "failed", "panicked", "fail ", "✗", "assertion"]
-        .iter()
-        .any(|word| lower.contains(word))
-        || lower.trim_start().starts_with("fail");
-    failed && (!lower.contains("warning") || lower.contains("error:"))
-}
-
-/// Lines that only repeat that something failed, or where: stack frames and
-/// the exit status, also behind a tool's `name: ` prefix.
-fn is_noise(line: &str) -> bool {
-    let trimmed = line.trim();
-    let said = trimmed
-        .split_once(": ")
-        .filter(|(prefix, _)| prefix.len() <= 40 && !prefix.contains(['/', '.']))
-        .map_or(trimmed, |(_, said)| said.trim());
-    said.is_empty() || said.starts_with("at ") || trimmed.starts_with(STEP_FAILED)
-}
-
-/// A short excerpt of the error in a failing job's log `lines`, and the
-/// files it names.
-fn read_error(lines: &[String]) -> (Option<String>, Vec<String>) {
-    let ended = lines
-        .iter()
-        .position(|line| line.starts_with(STEP_FAILED))
-        .map_or(lines.len(), |at| at + 1);
-    let lines: Vec<String> = lines[..ended].iter().map(|line| plain(line)).collect();
-    let mut around = BTreeSet::new();
-    for (at, line) in lines.iter().enumerate() {
-        if says_failed(line) && !is_noise(line) {
-            around.extend(at.saturating_sub(1)..(at + 4).min(lines.len()));
-        }
-    }
-    let mut excerpt = String::new();
-    let mut last = None;
-    let mut named = Vec::new();
-    for at in around {
-        let line = &lines[at];
-        for path in paths_in(line) {
-            if named.len() < MAX_NAMED && !named.contains(&path) {
-                named.push(path);
-            }
-        }
-        if is_noise(line) || excerpt.len() + line.len() > EXCERPT_BYTES {
-            continue;
-        }
-        if last.is_some_and(|last| last + 1 != at) {
-            excerpt.push_str("…\n");
-        }
-        excerpt.push_str(line.trim_end());
-        excerpt.push('\n');
-        last = Some(at);
-    }
-    let excerpt = excerpt.trim_end();
-    ((!excerpt.is_empty()).then(|| excerpt.to_owned()), named)
-}
-
-/// The file paths `line` names, without their line and column, leading `./`
-/// and `../`, and paths into installed dependencies.
-fn paths_in(line: &str) -> Vec<String> {
-    line.split(|c: char| c.is_whitespace() || "\"'`()[]{}<>,;|│╭╰─".contains(c))
-        .filter_map(|token| {
-            let token = token.strip_prefix("file://").unwrap_or(token);
-            if token.contains("://") || DEPENDENCIES.iter().any(|at| token.contains(at)) {
-                return None;
-            }
-            let mut path = token.trim_end_matches(['.', ':']);
-            while let Some((rest, tail)) = path.rsplit_once(':') {
-                if tail.is_empty() || !tail.chars().all(|c| c.is_ascii_digit()) {
-                    break;
-                }
-                path = rest;
-            }
-            while let Some(rest) = path.strip_prefix("./").or_else(|| path.strip_prefix("../")) {
-                path = rest;
-            }
-            let (stem, extension) = path.rsplit_once('.')?;
-            let named = !stem.is_empty()
-                && !stem.ends_with('/')
-                && (1..=6).contains(&extension.len())
-                && extension.starts_with(|c: char| c.is_ascii_alphabetic())
-                && extension.chars().all(|c| c.is_ascii_alphanumeric());
-            named.then(|| path.to_owned())
-        })
-        .collect()
 }
 
 /// Whether the error's `named` path is the repository's file `file`.
