@@ -15,7 +15,9 @@ use super::evidence::minute;
 use super::goal::{count, crumb, row, section, strip};
 use super::{empty, goals_of, slices_of, At, GoalsPane};
 use crate::icons::Icon;
-use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL};
+use crate::theme::{
+    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL,
+};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -101,7 +103,8 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
     let project = (pane.bench.upgrade())
         .and_then(|bench| Some(bench.read(cx).project()?.name.clone()))
         .unwrap_or_default();
-    let welcome = crate::home::welcome_over(mark, project, lists(pane, cx), cx);
+    let welcome = crate::home::welcome_over(mark, project, lists(pane, cx), cx)
+        .max_w(px(crate::chat::composer::WIDTH));
     div()
         .size_full()
         .p(px(ui::AGENT_INSET))
@@ -113,7 +116,12 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
-                .child(crate::home::centred(welcome).min_h_full().py(SPACE_5)),
+                .child(
+                    crate::home::centred(welcome)
+                        .min_h_full()
+                        .py(SPACE_5)
+                        .px(SPACE_4),
+                ),
         )
         .child(super::start::start_box(pane, cx))
         .into_any_element()

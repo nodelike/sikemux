@@ -279,9 +279,12 @@ pub fn welcome(
         bench.parts.activity.clone(),
         cx,
     )
+    .max_w(px(756.))
+    .mx(px(22.))
 }
 
-/// An agent's face, by `mark`, asking what is being made in `project`, over `under`.
+/// An agent's face, by `mark`, asking what is being made in `project`, over `under`, as wide as
+/// it is given.
 pub fn welcome_over(
     mark: AnyElement,
     project: impl Into<SharedString>,
@@ -290,8 +293,6 @@ pub fn welcome_over(
 ) -> Div {
     div()
         .w_full()
-        .max_w(px(756.))
-        .mx(px(22.))
         .flex()
         .flex_col()
         .gap(SPACE_6)
