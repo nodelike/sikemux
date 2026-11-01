@@ -106,44 +106,6 @@ pub async fn send(
     })
 }
 
-/// A picture the site gives only to someone signed in, such as a project's avatar.
-pub async fn fetch(
-    credentials: &Credentials,
-    path: &str,
-    query: &[(String, String)],
-) -> JiraResult<Response> {
-    let get = |renewed: Option<String>| {
-        signed(
-            HTTP.client()
-                .map(|client| client.get(format!("{}{path}", credentials.url))),
-            credentials,
-            renewed.as_deref(),
-        )
-        .map(|request| request.header("Accept", "image/*").query(query))
-    };
-    let mut response = HTTP.send(get(None)?).await?;
-    if response.status() == StatusCode::UNAUTHORIZED {
-        if let Auth::Atlassian { site, token } = &credentials.auth {
-            response = HTTP
-                .send(get(Some(
-                    oauth::ACCESS
-                        .renew(&site.account_id, token, oauth::entry(site))
-                        .await?
-                        .token,
-                ))?)
-                .await?;
-        }
-    }
-    let status = response.status();
-    if !status.is_success() {
-        return Err(JiraError::Http {
-            status: status.as_u16(),
-            message: "the picture did not load".into(),
-        });
-    }
-    Ok(response)
-}
-
 fn signed(
     request: JiraResult<RequestBuilder>,
     credentials: &Credentials,

@@ -1,17 +1,34 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_plugin_api::oauth::Tokens;
 use sikemux_plugin_api::store::{self, Accounts};
 use sikemux_plugin_api::{SignInStatus, StreamSink};
-use sikemux_plugin_jira_views::{SiteStatus, Sites};
 
 use crate::client::{self, Auth, Credentials};
 use crate::config::{self, normalise_host, JiraConfig, SignIn as SiteSignIn, Site};
 use crate::error::{JiraError, JiraResult};
 use crate::oauth;
+
+/// A Jira site signed in to.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteStatus {
+    pub host: String,
+    pub display_name: Option<String>,
+    pub default: bool,
+}
+
+/// The sites signed in to, as the plugin's `status` says.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Sites {
+    pub sites: Vec<SiteStatus>,
+    /// A build without the OAuth secret can only take an API token.
+    pub browser_sign_in: bool,
+}
 
 /// Who is asking, on the site named or the default one.
 pub async fn credentials(data_dir: &Path, host: Option<&str>) -> JiraResult<(Site, Credentials)> {

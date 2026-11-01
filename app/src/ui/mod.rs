@@ -33,7 +33,7 @@ pub use lists::{
     close_button, gives_way, hover_actions, page_tab, page_tabs, Group, Row, Tab, ROW,
 };
 pub use pane::{pane, plain_pane, PaneHeader, AGENT_INSET};
-pub use select::{marked_select, select, Pick};
+pub use select::{select, Pick};
 pub use state_mark::status_mark;
 
 use std::f32::consts::TAU;

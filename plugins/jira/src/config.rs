@@ -114,51 +114,6 @@ pub fn cloud_host(given: &str) -> JiraResult<String> {
     }
 }
 
-/// An issue a web address names on a site signed in here: `/browse/KEY-1`, or a board or
-/// list with `selectedIssue=KEY-1`.
-#[derive(serde::Serialize)]
-pub struct IssueLink {
-    pub site: String,
-    pub key: String,
-}
-
-pub fn issue_link(data_dir: &Path, address: &str) -> Option<IssueLink> {
-    let url = url::Url::parse(address).ok()?;
-    let site = url.host_str()?.to_ascii_lowercase();
-    if !load(data_dir)
-        .ok()?
-        .sites
-        .iter()
-        .any(|known| known.host == site)
-    {
-        return None;
-    }
-    let browsed = url
-        .path_segments()?
-        .skip_while(|part| *part != "browse")
-        .nth(1)
-        .map(str::to_owned);
-    let selected = url
-        .query_pairs()
-        .find(|(name, _)| name == "selectedIssue")
-        .map(|(_, key)| key.into_owned());
-    let key = browsed.or(selected).filter(|key| is_issue_key(key))?;
-    Some(IssueLink { site, key })
-}
-
-/// Whether `key` is an issue's key, such as `ACME-12`.
-fn is_issue_key(key: &str) -> bool {
-    let Some((space, number)) = key.split_once('-') else {
-        return false;
-    };
-    space.starts_with(|letter: char| letter.is_ascii_uppercase())
-        && space
-            .chars()
-            .all(|letter| letter.is_ascii_uppercase() || letter.is_ascii_digit() || letter == '_')
-        && !number.is_empty()
-        && number.chars().all(|digit| digit.is_ascii_digit())
-}
-
 pub fn load(data_dir: &Path) -> JiraResult<JiraConfig> {
     Ok(store::load(data_dir)?)
 }

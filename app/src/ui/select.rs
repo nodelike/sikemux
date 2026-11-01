@@ -48,21 +48,6 @@ pub fn select(
     on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
-    marked_select(id, None, shown, picks, chosen, disabled, on_pick, cx)
-}
-
-/// [`select`] with `mark` before what it shows, such as a status's colour.
-#[allow(clippy::too_many_arguments)]
-pub fn marked_select(
-    id: impl Into<SharedString>,
-    mark: Option<AnyElement>,
-    shown: impl Into<SharedString>,
-    picks: Vec<Pick>,
-    chosen: Option<SharedString>,
-    disabled: bool,
-    on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id: SharedString = id.into();
     let shown: SharedString = shown.into();
@@ -85,7 +70,6 @@ pub fn marked_select(
         .when(!disabled, |field| {
             field.hover(move |style| style.border_color(t.border_strong))
         })
-        .children(mark)
         .child(div().truncate().child(shown))
         .child(
             icon(Icon::Chevron, 9.)

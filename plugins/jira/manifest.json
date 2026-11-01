@@ -3,13 +3,6 @@
   "name": "Jira",
   "version": "0.1.0",
   "sikemux": ">=0.4",
-  "views": {
-    "listView": { "everySecs": 30 },
-    "issueView": { "everySecs": 30 },
-    "boardView": { "everySecs": 30 },
-    "spacesView": { "everySecs": 300 }
-  },
-  "writes": ["comment", "transition", "assign", "setTask", "moveIssue", "create", "edit", "link", "worklog"],
   "accountMethods": ["signIn", "signInWithBrowser", "signOut"],
   "tools": [
     {

@@ -43,7 +43,6 @@ plugins! {
     aws,
     bruno,
     database,
-    jira,
     rundeck,
     signoz,
 }

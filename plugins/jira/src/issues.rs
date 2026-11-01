@@ -1,6 +1,6 @@
 // Reading and changing issues: JQL search, one issue with its comments and the
-// transitions it can take, comments, workflow transitions, assignment, new and edited
-// issues, links between them, time logged, and the person's saved filters.
+// transitions it can take, comments, workflow transitions, new and edited issues,
+// links between them, and time logged.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -11,19 +11,106 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sikemux_plugin_api::process::sync::Locked;
 
-pub use sikemux_plugin_jira_views::{
-    AssignRequest, AssignableRequest, CommentRequest, IssueRequest, SiteRequest, TaskRequest,
-    TransitionRequest,
-};
-use sikemux_plugin_jira_views::{
-    Change, Comment, FieldChange, Filter, IssueSummary, Parent, Person, Project, Transition,
-};
-
 use crate::adf;
 use crate::auth;
 use crate::client::{self, Credentials};
 use crate::config::Site;
 use crate::error::{JiraError, JiraResult};
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Person {
+    pub account_id: String,
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueSummary {
+    pub key: String,
+    pub summary: String,
+    pub status: String,
+    pub priority: Option<String>,
+    pub assignee: Option<Person>,
+    pub issue_type: Option<String>,
+    pub sprint: Option<String>,
+    pub updated: Option<String>,
+    /// The day it is due, as `2026-10-31`.
+    pub due: Option<String>,
+    /// The epic or other issue it sits under.
+    pub parent: Option<Parent>,
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Parent {
+    pub key: String,
+    pub summary: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Comment {
+    pub id: String,
+    pub author: String,
+    pub created: String,
+    /// Markdown.
+    pub body: String,
+}
+
+/// One edit to an issue: who made it, when, and the fields it changed.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Change {
+    pub id: String,
+    pub author: String,
+    pub created: String,
+    pub fields: Vec<FieldChange>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldChange {
+    pub field: String,
+    /// Absent when the field was empty, or is long text such as the description.
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Transition {
+    pub id: String,
+    pub name: String,
+    /// The status the issue is in after taking it.
+    pub to: String,
+    pub to_category: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct IssueRequest {
+    pub key: String,
+    #[serde(default)]
+    pub site: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CommentRequest {
+    pub key: String,
+    pub body: String,
+    #[serde(default)]
+    pub site: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TransitionRequest {
+    pub key: String,
+    #[serde(default)]
+    pub to: Option<String>,
+    #[serde(default)]
+    pub site: Option<String>,
+}
 
 const DEFAULT_LIMIT: u64 = 20;
 const MAX_LIMIT: u64 = 100;
@@ -96,7 +183,6 @@ fn person(value: Option<&Value>) -> Option<Person> {
     Some(Person {
         account_id: text(value.get("accountId")).unwrap_or_default(),
         name: text(value.get("displayName")).unwrap_or_else(|| "someone".into()),
-        avatar_url: text(value.pointer("/avatarUrls/48x48")),
     })
 }
 
@@ -119,7 +205,6 @@ pub fn summarise(issue: &Value, site: &str, sprint_field: Option<&str>) -> Issue
         key,
         summary: text(fields.get("summary")).unwrap_or_default(),
         status: text(fields.pointer("/status/name")).unwrap_or_default(),
-        status_category: text(fields.pointer("/status/statusCategory/key")).unwrap_or_default(),
         priority: text(fields.pointer("/priority/name")),
         assignee: person(fields.get("assignee")),
         issue_type: text(fields.pointer("/issuetype/name")),
@@ -130,7 +215,6 @@ pub fn summarise(issue: &Value, site: &str, sprint_field: Option<&str>) -> Issue
             Some(Parent {
                 key: text(parent.get("key"))?,
                 summary: text(parent.pointer("/fields/summary")).unwrap_or_default(),
-                color: None,
             })
         }),
     }
@@ -146,7 +230,6 @@ pub fn comments(body: &Value) -> Vec<Comment> {
                     id: text(comment.get("id")).unwrap_or_default(),
                     author: text(comment.pointer("/author/displayName"))
                         .unwrap_or_else(|| "someone".into()),
-                    author_avatar_url: text(comment.pointer("/author/avatarUrls/48x48")),
                     created: text(comment.get("created")).unwrap_or_default(),
                     body: adf::to_markdown(comment.get("body").unwrap_or(&Value::Null)),
                 })
@@ -166,7 +249,6 @@ pub fn history(changelog: &Value) -> Vec<Change> {
         .map(|entry| Change {
             id: text(entry.get("id")).unwrap_or_default(),
             author: text(entry.pointer("/author/displayName")).unwrap_or_else(|| "Jira".into()),
-            author_avatar_url: text(entry.pointer("/author/avatarUrls/48x48")),
             created: text(entry.get("created")).unwrap_or_default(),
             fields: entry
                 .get("items")
@@ -244,10 +326,6 @@ pub fn pick<'a>(transitions: &'a [Transition], wanted: &str) -> Option<&'a Trans
 #[derive(Clone, Default, Debug, PartialEq)]
 pub(crate) struct CustomFields {
     pub sprint: Option<String>,
-    /// An epic's colour on a board, `ghx-label-1` to `ghx-label-14`.
-    pub epic_color: Option<String>,
-    /// An issue's own colour by name, such as `teal`, which newer projects keep.
-    pub issue_color: Option<String>,
 }
 
 impl CustomFields {
@@ -264,8 +342,6 @@ impl CustomFields {
         };
         Self {
             sprint: id_of("com.pyxis.greenhopper.jira:gh-sprint"),
-            epic_color: id_of("com.pyxis.greenhopper.jira:gh-epic-color"),
-            issue_color: id_of("com.pyxis.greenhopper.jira:jsw-issue-color"),
         }
     }
 }
@@ -524,7 +600,6 @@ pub async fn comment(data_dir: &Path, request: CommentRequest) -> JiraResult<Com
     Ok(Comment {
         id: text(posted.get("id")).unwrap_or_default(),
         author: text(posted.pointer("/author/displayName")).unwrap_or_default(),
-        author_avatar_url: text(posted.pointer("/author/avatarUrls/48x48")),
         created: text(posted.get("created")).unwrap_or_default(),
         body: adf::to_markdown(posted.get("body").unwrap_or(&Value::Null)),
     })
@@ -581,86 +656,6 @@ pub async fn transition(data_dir: &Path, request: TransitionRequest) -> JiraResu
         status: Some(status),
         transitions: now,
     })
-}
-
-pub async fn assign(data_dir: &Path, request: AssignRequest) -> JiraResult<()> {
-    let (site, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
-    let path = format!("{}/assignee", issue_path(&request.key)?);
-    let account = if request.me {
-        Some(site.account_id.clone())
-    } else {
-        request.account_id.filter(|id| !id.is_empty())
-    };
-    client::send(
-        &credentials,
-        Method::PUT,
-        &path,
-        &[],
-        Some(&json!({ "accountId": account })),
-    )
-    .await?;
-    Ok(())
-}
-
-/// Ticks or clears one task in an issue's description, writing back Jira's own document so
-/// nothing else in it changes.
-pub async fn set_task(data_dir: &Path, request: TaskRequest) -> JiraResult<()> {
-    let (_, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
-    let path = issue_path(&request.key)?;
-    let issue = client::send(
-        &credentials,
-        Method::GET,
-        &path,
-        &[("fields", "description".into())],
-        None,
-    )
-    .await?;
-    let mut description = issue
-        .get("fields")
-        .and_then(|fields| fields.get("description"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    if !adf::set_task(&mut description, request.index, &request.text, request.done) {
-        return Err(JiraError::NotFound(format!(
-            "{} changed in Jira since it was opened; reload it and try again",
-            request.key.trim()
-        )));
-    }
-    client::send(
-        &credentials,
-        Method::PUT,
-        &path,
-        &[],
-        Some(&json!({ "fields": { "description": description } })),
-    )
-    .await?;
-    Ok(())
-}
-
-pub async fn assignable(data_dir: &Path, request: AssignableRequest) -> JiraResult<Vec<Person>> {
-    let (_, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
-    issue_path(&request.key)?;
-    let people = client::send(
-        &credentials,
-        Method::GET,
-        "/rest/api/3/user/assignable/search",
-        &[
-            ("issueKey", request.key.trim().to_string()),
-            ("query", request.query),
-            ("maxResults", "20".into()),
-        ],
-        None,
-    )
-    .await?;
-    Ok(people
-        .as_array()
-        .map(|people| {
-            people
-                .iter()
-                .filter_map(|value| person(Some(value)))
-                .collect()
-        })
-        .unwrap_or_default())
 }
 
 /// Fields an agent can set when creating or editing an issue. Only those given are sent.
@@ -1099,85 +1094,9 @@ pub async fn worklog(data_dir: &Path, request: WorklogRequest) -> JiraResult<Val
     Ok(json!({ "id": logged.get("id"), "timeSpent": logged.get("timeSpent") }))
 }
 
-/// The filters the person has starred in Jira, to list beside "assigned to me" and the sprint.
-pub async fn filters(data_dir: &Path, request: SiteRequest) -> JiraResult<Vec<Filter>> {
-    let (_, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
-    let found = client::send(
-        &credentials,
-        Method::GET,
-        "/rest/api/3/filter/favourite",
-        &[],
-        None,
-    )
-    .await?;
-    Ok(found
-        .as_array()
-        .map(|filters| {
-            filters
-                .iter()
-                .filter_map(|filter| {
-                    Some(Filter {
-                        id: text(filter.get("id"))?,
-                        name: text(filter.get("name"))?,
-                        jql: text(filter.get("jql"))?,
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default())
-}
-
-pub fn projects_of(body: &Value) -> Vec<Project> {
-    body.get("values")
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|project| {
-                    Some(Project {
-                        key: text(project.get("key"))?,
-                        name: text(project.get("name"))?,
-                        avatar_url: text(project.pointer("/avatarUrls/48x48")),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// The projects the person can browse, most recently busy first.
-pub async fn projects(data_dir: &Path, request: SiteRequest) -> JiraResult<Vec<Project>> {
-    let (_, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
-    let found = client::send(
-        &credentials,
-        Method::GET,
-        "/rest/api/3/project/search",
-        &[
-            ("maxResults", "100".into()),
-            ("orderBy", "-lastIssueUpdatedTime".into()),
-        ],
-        None,
-    )
-    .await?;
-    Ok(projects_of(&found))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn reads_projects_by_key_and_name() {
-        let body = json!({ "values": [ { "key": "CIQ", "name": "ChannelIQ" }, { "key": "OPS" } ] });
-        assert_eq!(
-            projects_of(&body),
-            vec![Project {
-                key: "CIQ".into(),
-                name: "ChannelIQ".into(),
-                avatar_url: None,
-            }]
-        );
-    }
 
     fn sample() -> Value {
         json!({ "key": "ABC-12", "fields": {
@@ -1201,12 +1120,10 @@ mod tests {
                 key: "ABC-12".into(),
                 summary: "Fix the login race".into(),
                 status: "In Progress".into(),
-                status_category: "indeterminate".into(),
                 priority: Some("High".into()),
                 assignee: Some(Person {
                     account_id: "a1".into(),
                     name: "Ana".into(),
-                    avatar_url: None,
                 }),
                 issue_type: Some("Bug".into()),
                 sprint: Some("Sprint 5".into()),
@@ -1215,7 +1132,6 @@ mod tests {
                 parent: Some(Parent {
                     key: "ABC-1".into(),
                     summary: "Sign-in".into(),
-                    color: None,
                 }),
                 url: "https://acme.atlassian.net/browse/ABC-12".into(),
             }
@@ -1257,7 +1173,6 @@ mod tests {
             [Comment {
                 id: "9".into(),
                 author: "Ana".into(),
-                author_avatar_url: None,
                 created: "2026-10-04".into(),
                 body: "Looks good".into()
             }]
