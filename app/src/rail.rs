@@ -110,6 +110,10 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                 .px(SPACE_2H)
                 .pb(SPACE_4)
                 .overflow_y_scroll()
+                .children(
+                    crate::goals::places(bench, cx)
+                        .map(|places| div().pb(SPACE_2H).flex().flex_col().children(places)),
+                )
                 .child(
                     Group::new("Projects", empty)
                         .first()

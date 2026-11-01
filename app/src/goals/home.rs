@@ -17,6 +17,7 @@ use super::{empty, goals_of, slices_of, state_count, At, GoalsPane};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL};
 use crate::ui;
+use crate::workbench::Workbench;
 
 /// Something that finished or failed while the person was away.
 #[derive(Clone, Copy)]
@@ -32,45 +33,56 @@ const NEEDS: [(InboxNeed, &str); 3] = [
 ];
 
 impl GoalsPane {
-    /// What waits on the person, in the core's order.
-    fn needs(&self, cx: &gpui_kit::App) -> Vec<InboxItem> {
-        let Some(bench) = self.bench.upgrade() else {
-            return Vec::new();
+    /// Whether an inbox item is about the project the view shows: its card is on that project's
+    /// board, or its agent works in it.
+    fn shows(&self, item: &InboxItem, bench: &Workbench) -> bool {
+        let Some(here) = self.here.as_deref() else {
+            return false;
         };
-        let bench = bench.read(cx);
+        if let Some(card) = &item.card {
+            return card.project == here;
+        }
+        let id = bench.project().map(|project| project.id.as_str());
+        item.project
+            .as_deref()
+            .is_some_and(|project| project == here || Some(project) == id)
+    }
+
+    /// What in the project the view shows waits on the person, in the core's order.
+    pub(super) fn needs(&self, bench: &Workbench) -> Vec<InboxItem> {
         bench.shown().map_or(Vec::new(), |view| {
             (view.inbox.items.iter())
-                .filter(|item| item.need.is_some())
+                .filter(|item| item.need.is_some() && self.shows(item, bench))
                 .cloned()
                 .collect()
         })
     }
 
-    /// How many things wait on the person, as the core counts them.
-    pub(super) fn needed(&self, cx: &gpui_kit::App) -> usize {
-        let Some(bench) = self.bench.upgrade() else {
-            return 0;
-        };
-        let bench = bench.read(cx);
-        bench.shown().map_or(0, |view| view.inbox.needed)
-    }
-
-    /// What finished or failed while the person was away, in time order.
-    pub(super) fn happened(&self) -> Vec<Happened<'_>> {
+    /// What in the project the view shows finished or failed while the person was away, in time
+    /// order.
+    pub(super) fn happened(&self, bench: &Workbench) -> Vec<Happened<'_>> {
         let Some(digest) = self.digest.as_ref() else {
             return Vec::new();
         };
-        let finished = digest
-            .finished
-            .iter()
+        let finished = (digest.finished.iter())
+            .filter(|item| self.shows(item, bench))
             .map(|item| Happened { done: true, item });
-        let failed = digest
-            .failed
-            .iter()
+        let failed = (digest.failed.iter())
+            .filter(|item| self.shows(item, bench))
             .map(|item| Happened { done: false, item });
         let mut happened: Vec<Happened> = finished.chain(failed).collect();
         happened.sort_by_key(|happened| happened.item.at);
         happened
+    }
+
+    /// What waits on the person and how many things happened while they were away, read from the
+    /// window.
+    fn read_inbox(&self, cx: &gpui_kit::App) -> (Vec<InboxItem>, usize) {
+        let Some(bench) = self.bench.upgrade() else {
+            return (Vec::new(), 0);
+        };
+        let bench = bench.read(cx);
+        (self.needs(bench), self.happened(bench).len())
     }
 
     /// The title of the goal an item is on, when it is on one here.
@@ -81,10 +93,11 @@ impl GoalsPane {
 
 pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (needs, needed) = (pane.needs(cx), pane.needed(cx));
+    let (needs, happened) = pane.read_inbox(cx);
+    let needed = needs.len();
     let goals: Vec<(&BoardView, &CardView)> = pane
-        .boards()
-        .iter()
+        .board()
+        .into_iter()
         .flat_map(|board| {
             goals_of(&board.cards)
                 .into_iter()
@@ -95,7 +108,6 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
         let slices = slices_of(&board.cards, goal.id);
         count(&slices, SliceState::Done) < slices.len()
     });
-    let happened = pane.happened().len();
     let nothing = goals.is_empty() && needs.is_empty();
     let summary = [
         (needed > 0).then(|| state_count(needed, SliceState::NeedsYou)),
@@ -208,18 +220,18 @@ fn needs_row(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) ->
         .into_any_element()
 }
 
-/// A goal on one line: its title and project, how many slices are done, what comes next and
+/// A goal on one line: its title, how many slices are done, what comes next and
 /// what that waits on, and its strip.
 fn goal_row(board: &BoardView, goal: &CardView, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (project, id) = (board.project.clone(), goal.id);
+    let id = goal.id;
     let slices = slices_of(&board.cards, id);
     let done = count(&slices, SliceState::Done);
     row(
         SharedString::from(format!("goal-{}-{id}", board.project)),
         cx,
     )
-    .on_click(cx.listener(move |pane, _, _, cx| pane.go_to(project.clone(), At::Goal(id), cx)))
+    .on_click(cx.listener(move |pane, _, _, cx| pane.go(At::Goal(id), cx)))
     .child(
         ui::text(goal.title.clone(), TEXT_SM, FontWeight::MEDIUM)
             .flex_shrink_1()
@@ -227,10 +239,6 @@ fn goal_row(board: &BoardView, goal: &CardView, cx: &mut Context<GoalsPane>) -> 
             .truncate()
             .text_color(t.text_primary),
     )
-    .child(ui::meta(
-        super::rail::project_name(&board.project).to_owned(),
-        cx,
-    ))
     .child(ui::meta(format!("{done} of {} done", slices.len()), cx))
     .children(
         (goal.next.first())
@@ -258,10 +266,15 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
             ))
             .into_any_element();
     };
-    let happened = pane.happened();
+    let Some(bench) = pane.bench.upgrade() else {
+        return div().into_any_element();
+    };
+    let (happened, waiting) = {
+        let bench = bench.read(cx);
+        (pane.happened(bench), pane.needs(bench).len())
+    };
     let finished = happened.iter().filter(|happened| happened.done).count();
     let failed = happened.len() - finished;
-    let waiting = pane.needed(cx);
     let mut groups: Vec<(Option<String>, Vec<Happened>)> = Vec::new();
     for happened in &happened {
         let goal = pane.goal_title(happened.item);

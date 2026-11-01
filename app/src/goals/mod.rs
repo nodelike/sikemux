@@ -36,12 +36,18 @@ mod assertions;
 mod evidence;
 mod goal;
 mod home;
-mod rail;
+mod rails;
 mod rules;
 mod slice;
 mod start;
 
+pub use rails::{goal_rows, places};
 pub use start::START_DRAFT;
+
+/// The view moved to another place, or what it shows changed, which the window's rails show.
+pub struct Moved;
+
+impl gpui_kit::EventEmitter<Moved> for GoalsPane {}
 
 /// Where in the goals the pane is.
 #[derive(Clone, Copy, PartialEq)]
@@ -58,8 +64,8 @@ pub struct GoalsPane {
     bench: WeakEntity<Workbench>,
     /// Every project's board, once read.
     boards: Option<Vec<BoardView>>,
-    /// The project of the goal or slice open, as its board names it: its folder, which the core's
-    /// board calls take.
+    /// The project in front of the workbench, which the view shows, as its board names it: its
+    /// folder, which the core's board calls take.
     here: Option<String>,
     /// The rules and knowledge kept for the project open and the folders above it.
     memory: Option<MemoryView>,
@@ -83,13 +89,14 @@ impl GoalsPane {
     pub fn new(
         asks: UnboundedSender<Ask>,
         bench: WeakEntity<Workbench>,
+        here: Option<String>,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut pane = Self {
             asks,
             bench,
             boards: None,
-            here: None,
+            here,
             memory: None,
             digest: None,
             at: At::Home,
@@ -137,6 +144,7 @@ impl GoalsPane {
                     Ok(digest) => pane.digest = Some(digest),
                     Err(error) => pane.said(&format!("Couldn't read what happened: {error}"), cx),
                 }
+                cx.emit(Moved);
                 cx.notify();
             });
         });
@@ -150,7 +158,6 @@ impl GoalsPane {
         };
         if gone {
             self.at = At::Home;
-            self.here = None;
             self.picked = None;
             self.note = None;
         }
@@ -191,6 +198,7 @@ impl GoalsPane {
                     Ok(board) => {
                         pane.take_one(board);
                         then(pane);
+                        cx.emit(Moved);
                     }
                     Err(error) => pane.said(&error, cx),
                 }
@@ -209,12 +217,35 @@ impl GoalsPane {
         self.boards().iter().find(|board| board.project == project)
     }
 
-    /// The cards of the project open.
+    /// The board of the project the view shows.
+    fn board(&self) -> Option<&BoardView> {
+        self.board_of(self.here.as_deref()?)
+    }
+
+    /// The cards of the project the view shows.
     fn cards(&self) -> &[CardView] {
-        self.here
-            .as_deref()
-            .and_then(|project| self.board_of(project))
-            .map_or(&[], |board| board.cards.as_slice())
+        self.board().map_or(&[], |board| board.cards.as_slice())
+    }
+
+    /// Follows the project in front of the workbench: the view shows that project's goals, and
+    /// a goal or slice of another goes back to Home.
+    fn follow_project(&mut self, cx: &mut Context<Self>) {
+        let Some(bench) = self.bench.upgrade() else {
+            return;
+        };
+        let front =
+            (bench.read(cx).project()).map(|project| project.path.to_string_lossy().into_owned());
+        if front == self.here {
+            return;
+        }
+        self.here = front;
+        if matches!(self.at, At::Goal(_) | At::Slice(_)) {
+            self.at = At::Home;
+        }
+        self.picked = None;
+        self.note = None;
+        self.memory = None;
+        self.changed(cx);
     }
 
     fn card(&self, id: u64) -> Option<&CardView> {
@@ -255,10 +286,10 @@ impl GoalsPane {
                 }
                 None => return None,
             };
-            Some((inbox.project.clone(), at))
+            (self.here.as_deref() == Some(inbox.project.as_str())).then_some(at)
         });
         match opens {
-            Some((project, at)) => self.go_to(project, at, cx),
+            Some(at) => self.go(at, cx),
             None => {
                 if let Some(agent) = item.agent_id.clone() {
                     let _ = self.bench.update(cx, |bench, _| bench.open_agent(&agent));
@@ -273,18 +304,8 @@ impl GoalsPane {
             self.note = None;
         }
         self.at = at;
+        cx.emit(Moved);
         cx.notify();
-    }
-
-    /// Opens a goal or slice of `project`, reading that project's rules when it is another.
-    fn go_to(&mut self, project: String, at: At, cx: &mut Context<Self>) {
-        let other = self.here.as_deref() != Some(project.as_str());
-        self.here = Some(project);
-        self.go(at, cx);
-        if other {
-            self.memory = None;
-            self.changed(cx);
-        }
     }
 
     /// Passes the gate slice `card` waits at, as the person.
@@ -384,6 +405,7 @@ impl Focusable for GoalsPane {
 
 impl Render for GoalsPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.follow_project(cx);
         self.start_field(window, cx);
         self.assert_field(window, cx);
         let body = match (self.boards.is_some(), self.at) {
@@ -399,8 +421,6 @@ impl Render for GoalsPane {
             .track_focus(&self.focus)
             .size_full()
             .flex()
-            .gap(crate::theme::SPACE_2H)
-            .child(rail::rail(self, cx))
             .child(
                 ui::pane(cx).flex_1().min_w_0().child(
                     div()

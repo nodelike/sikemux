@@ -61,13 +61,50 @@ pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .absolute()
             .size_full(),
         )
-        .child(crate::track::rail(
-            bench,
-            |page, cx| page_panel(bench, page, cx),
-            cx,
-        ))
-        .child(pages(bench, cx))
+        .map(|rail| match goals_page(bench, cx) {
+            Some(goals) => rail.child(goals),
+            None => rail
+                .child(crate::track::rail(
+                    bench,
+                    |page, cx| page_panel(bench, page, cx),
+                    cx,
+                ))
+                .child(pages(bench, cx)),
+        })
         .into_any_element()
+}
+
+/// While the window is on the goals, the rail lists only the goals of the project in front.
+fn goals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let rows = crate::goals::goal_rows(bench, cx)?;
+    let list = match (rows.is_empty(), bench.project()) {
+        (false, _) => div()
+            .id("goals-rail-scroll")
+            .flex_1()
+            .min_h_0()
+            .p(SPACE_2H)
+            .overflow_y_scroll()
+            .children(rows)
+            .into_any_element(),
+        (true, Some(project)) => rail_empty(
+            Icon::Steps,
+            format!("No goals in {}", project.name),
+            None,
+            cx,
+        ),
+        (true, None) => rail_empty(
+            Icon::Steps,
+            "No project open",
+            Some(("project.open", "open one")),
+            cx,
+        ),
+    };
+    Some(
+        page_body()
+            .child(page_header("Goals", bench, cx))
+            .child(list)
+            .into_any_element(),
+    )
 }
 
 /// What one of the rail's pages holds; the rail's frame and its page switch stay put while

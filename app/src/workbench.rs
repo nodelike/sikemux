@@ -170,8 +170,10 @@ pub struct Workbench {
     /// The Search pane of the project whose Search tab was last in front.
     pub search: Option<Entity<SearchPane>>,
     pub board: Option<Entity<crate::board::BoardPane>>,
-    /// The goals, made the first time the window shows them.
+    /// The goals, made the first time the window shows them, and the window hearing them move,
+    /// which its rails show.
     pub goals: Option<Entity<crate::goals::GoalsPane>>,
+    goals_moved: Option<Subscription>,
     /// What the window shows, as the person last left it.
     pub window_view: WindowView,
     /// Settings, while they take the stage's place.
@@ -635,6 +637,7 @@ impl Workbench {
             search: None,
             board: None,
             goals: None,
+            goals_moved: None,
             window_view: WindowView::default(),
             settings: cx.new(|_| crate::settings::Settings::default()),
             window: window.window_handle(),
@@ -3035,7 +3038,10 @@ impl Workbench {
             return goals.clone();
         }
         let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
-        let goals = cx.new(|cx| crate::goals::GoalsPane::new(asks, bench, cx));
+        let here = (self.project()).map(|project| project.path.to_string_lossy().into_owned());
+        let goals = cx.new(|cx| crate::goals::GoalsPane::new(asks, bench, here, cx));
+        self.goals_moved =
+            Some(cx.subscribe(&goals, |_, _, _: &crate::goals::Moved, cx| cx.notify()));
         self.goals = Some(goals.clone());
         goals
     }
@@ -4623,7 +4629,7 @@ impl Render for Workbench {
                             bench.resize_rail(edge, f32::from(width) - 15., window, cx);
                         },
                     ))
-                    .when(side_tuck < 1. && !goals, |row| {
+                    .when(side_tuck < 1., |row| {
                         row.child(self.docked_rail(Edge::Start, side_tuck, cx))
                     })
                     .child(
@@ -4632,7 +4638,7 @@ impl Render for Workbench {
                             .clone()
                             .cached(StyleRefinement::default().flex_1().min_w_0().h_full()),
                     )
-                    .when(tab_tuck < 1. && !goals, |row| {
+                    .when(tab_tuck < 1., |row| {
                         row.child(self.docked_rail(Edge::End, tab_tuck, cx))
                     }),
             )
@@ -4641,10 +4647,10 @@ impl Render for Workbench {
                 div()
                     .absolute()
                     .inset_0()
-                    .when(!self.rails.side_open && !goals, |above| {
+                    .when(!self.rails.side_open, |above| {
                         above.child(self.rail_edge(Edge::Start, window, cx))
                     })
-                    .when(!self.rails.tab_open && !goals, |above| {
+                    .when(!self.rails.tab_open, |above| {
                         above.child(self.rail_edge(Edge::End, window, cx))
                     })
                     .children(asked)
