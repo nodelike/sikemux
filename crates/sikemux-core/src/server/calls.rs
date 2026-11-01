@@ -673,17 +673,7 @@ calls! { core, client, params;
         super::open_files::show(&core, client.id, parse(params)?)?;
         answer(())
     },
-    "pluginView": Watch => answer(super::plugin_views::view(&core, client.id, parse(params)?).await),
-    "pluginViewAway": Watch => {
-        super::plugin_views::away(&core, client.id, parse(params)?);
-        answer(())
-    },
-    "pluginViewsRead": Watch => {
-        super::plugin_views::read_again(&core, parse(params)?);
-        answer(())
-    },
     "plugins": Watch => answer(plugins::listed(&core).await),
-    "pluginLink": Watch => answer(plugins::link(&core, parse(params)?).await),
     "pluginSetDisabled": Person => {
         plugins::set_disabled(&core, parse(params)?);
         answer(())

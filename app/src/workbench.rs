@@ -20,7 +20,7 @@ use gpui_kit::{
 };
 use serde_json::{json, Value};
 use sikemux_wire::protocol::{
-    AgentFace, AgentGroup, AgentStatus, DeviceView, LauncherInfo, MidTurnSend, Pane, PaneKind,
+    AgentFace, AgentGroup, AgentStatus, DeviceView, LauncherInfo, MidTurnSend, PaneKind,
     PermissionMode, Preferences, ProjectCodeHost, ProjectInfo, ProjectLayout, RecentInfo,
     RemoteStatus, SessionId, SessionInfo, SpaceInfo, Tab, TabRailPage, TabRailScope,
 };
@@ -175,13 +175,6 @@ pub struct Workbench {
     /// The Search pane of the project whose Search tab was last in front.
     pub search: Option<Entity<SearchPane>>,
     pub board: Option<Entity<crate::board::BoardPane>>,
-    /// The plugin panes of the strip in front, by view.
-    pub plugin_panes: HashMap<String, Entity<crate::plugin_pane::PluginPane>>,
-    /// Each plugin's item in the top bar, by plugin.
-    pub plugin_bars: HashMap<String, Entity<crate::plugin_pane::PluginPane>>,
-    /// The place each plugin's pane opens at next, by plugin, until its pane is made.
-    plugin_opening: HashMap<String, String>,
-    pub top_bar_hovered: bool,
     /// Settings, while they take the stage's place.
     pub settings: Entity<crate::settings::Settings>,
     pub hosts: crate::hosts::Hosts,
@@ -651,10 +644,6 @@ impl Workbench {
             editors: cx.new(|_| crate::editor::Editors::default()),
             search: None,
             board: None,
-            plugin_panes: HashMap::new(),
-            plugin_bars: HashMap::new(),
-            plugin_opening: HashMap::new(),
-            top_bar_hovered: false,
             settings: cx.new(|_| crate::settings::Settings::default()),
             window: window.window_handle(),
             parts: Parts::new(cx),
@@ -1109,19 +1098,6 @@ impl Workbench {
                 if matches!(
                     &*update,
                     Update::Changed {
-                        topic: Topic::PluginView,
-                        ..
-                    }
-                ) =>
-            {
-                if let Update::Changed { paths, .. } = *update {
-                    self.plugin_views_changed(&Place::Account(host), paths.as_deref(), cx);
-                }
-            }
-            Update::From(host, update)
-                if matches!(
-                    &*update,
-                    Update::Changed {
                         topic: Topic::Files | Topic::Git,
                         ..
                     }
@@ -1192,9 +1168,6 @@ impl Workbench {
                     if let Some(board) = &self.board {
                         board.update(cx, |board, cx| board.changed(cx));
                     }
-                }
-                if topic == Topic::PluginView {
-                    self.plugin_views_changed(&Place::This, paths.as_deref(), cx);
                 }
                 if topic == Topic::Lsp {
                     crate::editor::diagnostics_changed(
@@ -3559,199 +3532,6 @@ impl Workbench {
         self.search = Some(cx.new(|cx| SearchPane::new(target, project, bench, cx)));
     }
 
-    /// Keeps a pane for each plugin view of the strip in front, so a plugin's tab keeps what
-    /// was picked in it while another tab is in front, and lets go of the rest.
-    fn plugin_panes(&mut self, cx: &mut Context<Self>) {
-        fn plugin_views(pane: &Pane, into: &mut Vec<(String, String)>) {
-            into.extend(
-                crate::panes::views(pane)
-                    .filter(|view| view.kind == PaneKind::Plugin)
-                    .map(|view| (view.id.clone(), view.target.clone())),
-            );
-        }
-        let mut shown = Vec::new();
-        if let Some(strip) = self.strip() {
-            for tab in self.tabs(&strip) {
-                plugin_views(&tab.pane, &mut shown);
-            }
-        }
-        let mut in_front = Vec::new();
-        if let Some(tab) = self.tab() {
-            plugin_views(&tab.pane, &mut in_front);
-        }
-        self.plugin_panes.retain(|id, pane| {
-            let kept = shown.iter().any(|(kept, _)| kept == id);
-            match kept && in_front.iter().any(|(front, _)| front == id) {
-                true => pane.update(cx, |pane, cx| pane.show(cx)),
-                false => pane.update(cx, |pane, _| pane.hide()),
-            }
-            kept
-        });
-        for (id, target) in shown {
-            if self.plugin_panes.contains_key(&id) {
-                continue;
-            }
-            let (core, bench) = (self.target(), cx.entity().downgrade());
-            let pane =
-                cx.new(|_| crate::plugin_pane::PluginPane::new(&target, id.clone(), core, bench));
-            let plugin = crate::plugin_pane::parts(&target).0.to_owned();
-            if let Some(at) = self.plugin_opening.remove(&plugin) {
-                pane.update(cx, |pane, cx| pane.open_at(&at, cx));
-            }
-            self.plugin_panes.insert(id, pane);
-        }
-        self.plugin_bars(cx);
-    }
-
-    /// Makes the top bar's item of each enabled plugin that draws one, here or on the host chosen.
-    fn plugin_bars(&mut self, cx: &mut Context<Self>) {
-        let enabled: Vec<String> = self
-            .reads
-            .plugins
-            .on()
-            .map(|plugin| plugin.id.clone())
-            .filter(|id| crate::plugin_pane::has_top_bar(id))
-            .collect();
-        let core = self.target();
-        self.plugin_bars
-            .retain(|id, bar| enabled.contains(id) && bar.read(cx).host.place() == core.place());
-        for id in enabled {
-            if self.plugin_bars.contains_key(&id) {
-                continue;
-            }
-            let target = format!("{id}:{}", crate::plugin_pane::TOP_BAR);
-            let (core, bench) = (self.target(), cx.entity().downgrade());
-            let bar = cx.new(|_| {
-                crate::plugin_pane::PluginPane::new(&target, "topbar".into(), core, bench)
-            });
-            self.plugin_bars.insert(id, bar);
-        }
-    }
-
-    /// Opens `plugin`'s pane at the place `at` names and brings its tab to the front: the pane this
-    /// strip already holds, else a new tab.
-    pub fn open_plugin_at(&mut self, plugin: &str, at: String, cx: &mut Context<Self>) {
-        let (Some(surface), Some(strip)) = (crate::plugin_pane::surface(plugin), self.strip())
-        else {
-            return;
-        };
-        let open = self
-            .plugin_panes
-            .values()
-            .find(|pane| pane.read(cx).host.plugin == plugin)
-            .cloned();
-        match open {
-            Some(pane) => pane.update(cx, |pane, cx| pane.open_at(&at, cx)),
-            None => {
-                self.plugin_opening.insert(plugin.to_owned(), at);
-            }
-        }
-        let target = format!("{plugin}:{surface}");
-        let params = json!({ "kind": PaneKind::Plugin, "target": target });
-        self.call_in_front("openTab", strip.with(params));
-    }
-
-    /// Opens a plugin's palette, its rows read from the plugin's view.
-    pub fn open_plugin_palette(
-        &mut self,
-        palette: &'static crate::plugin_pane::PluginPalette,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let spec = crate::palette::Spec::new(
-            palette.id,
-            palette.placeholder,
-            Vec::new(),
-            move |row, bench, _, cx| bench.open_plugin_at(palette.plugin, row.key.to_string(), cx),
-        )
-        .empty("reading…");
-        let spec = match palette.typed {
-            Some(typed) => spec.typed(typed),
-            None => spec,
-        };
-        self.toggle_palette(spec, window, cx);
-        self.read_plugin_palette(palette, cx);
-    }
-
-    fn read_plugin_palette(
-        &mut self,
-        palette: &'static crate::plugin_pane::PluginPalette,
-        cx: &mut Context<Self>,
-    ) {
-        let settings = self
-            .preferences()
-            .plugin_settings
-            .get(palette.plugin)
-            .cloned()
-            .unwrap_or(Value::Null);
-        let params = palette
-            .params
-            .map_or_else(|| json!({}), |params| params(&settings));
-        let asked = self.target().request(
-            "pluginView",
-            json!({
-                "plugin": palette.plugin,
-                "method": palette.view,
-                "params": params,
-                "slot": format!("{}/palette", palette.plugin),
-            }),
-        );
-        cx.spawn(async move |this, cx| {
-            let read = match asked.await {
-                Ok(answer) => match answer.get("failed") {
-                    Some(failed) => Err(crate::plugin_pane::Failure::of(failed)),
-                    None => Ok((palette.rows)(&answer["value"])),
-                },
-                Err(error) => Err(crate::plugin_pane::Failure::core(error)),
-            };
-            let _ = this.update(cx, |bench, cx| {
-                if let Some(open) = bench
-                    .overlays
-                    .palette
-                    .as_mut()
-                    .filter(|open| open.id() == palette.id)
-                {
-                    match read {
-                        Ok(rows) => open.refill(rows, cx),
-                        Err(failure) => open.failed(
-                            failure,
-                            move |bench, _, cx| {
-                                if let Some(open) = bench.overlays.palette.as_mut() {
-                                    open.refill(Vec::new(), cx);
-                                }
-                                bench.parts.redraw(&bench.parts.finder, cx);
-                                bench.read_plugin_palette(palette, cx);
-                            },
-                            cx,
-                        ),
-                    }
-                    bench.parts.redraw(&bench.parts.finder, cx);
-                }
-            });
-        })
-        .detach();
-    }
-
-    /// Tells the plugin panes on `place` that some of their plugins' views changed.
-    fn plugin_views_changed(
-        &self,
-        place: &Place,
-        paths: Option<&[String]>,
-        cx: &mut Context<Self>,
-    ) {
-        let desks = self.desk_plugin_panes(cx);
-        for pane in (self.plugin_panes.values())
-            .chain(self.plugin_bars.values())
-            .chain(&desks)
-        {
-            pane.update(cx, |pane, cx| {
-                if pane.host.place() == place {
-                    pane.changed(paths, cx);
-                }
-            });
-        }
-    }
-
     /// Makes the board pane when the project's board tab comes to the front.
     fn board_pane(&mut self, cx: &mut Context<Self>) {
         let Some(project) = self.project() else {
@@ -4579,7 +4359,6 @@ impl Parts {
                     bench.compose(window, cx);
                     bench.hint(window, cx);
                     bench.make_front_pane(window, cx);
-                    bench.plugin_panes(cx);
                     crate::desk::prepare(bench, window, cx);
                     bench.settle_takes_keys();
                     // The frame being drawn is not done, so a view not drawn yet may still show in it.

@@ -74,7 +74,6 @@ pub fn of(kind: PaneKind) -> Kind {
             Never,
         ),
         PaneKind::Browser => kind_of(Icon::Globe, "Browser", None, None, Never),
-        PaneKind::Plugin => kind_of(Icon::Window, "Plugin", None, None, Never),
         PaneKind::Desk => kind_of(Icon::PanelRight, "Desk", None, None, Never),
         PaneKind::ProjectSettings => kind_of(Icon::Settings, "Project settings", None, None, Never),
         PaneKind::InstallSikemux => kind_of(Icon::Download, "Install Sikemux", None, None, Never),

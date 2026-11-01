@@ -17,7 +17,6 @@ pub use chat::composer;
 mod ci_card;
 mod closing;
 #[cfg(target_os = "macos")]
-mod cloud_browser;
 pub mod codehost;
 mod command_popup;
 mod commands;
@@ -63,7 +62,6 @@ mod picker;
 mod picture;
 mod pinch;
 mod places;
-mod plugin_pane;
 mod ports;
 mod project_settings;
 pub mod project_switcher;

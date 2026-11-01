@@ -40,8 +40,6 @@ pub enum Topic {
     Drafts,
     /// A project's pull requests, runs, issues or releases on its code host.
     CodeHost,
-    /// What a plugin's pane shows; `paths` names each view as `plugin/method`.
-    PluginView,
     /// Files clients have open moved on disk; `paths` names them as the clients did.
     Files,
     /// Whether an update is out, and how installing it goes.

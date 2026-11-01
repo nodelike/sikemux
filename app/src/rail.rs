@@ -145,7 +145,6 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .child(this_host(bench, cx))
                         .children(hosts(bench, cx)),
                 )
-                .child(Group::new("Plugins", "no plugins").children(plugins(bench, cx)))
                 .child(
                     Group::new("Terminals", "no terminals")
                         .actions(actions(
@@ -507,61 +506,6 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
             )
         })
         .collect()
-}
-
-/// The plugins that are on and draw in the rail, signed in or not.
-fn plugins(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
-    let ink = Tokens::get(cx).text_secondary;
-    let strip = bench.strip();
-    bench
-        .reads
-        .plugins
-        .on()
-        .filter_map(|plugin| {
-            let mark = plugin_mark(&plugin.id)?;
-            let tone = plugin
-                .signed_in
-                .map(|signed_in| if signed_in { Tone::Ok } else { Tone::Idle });
-            let id = plugin.id.as_str();
-            let opens =
-                crate::plugin_pane::surface(id)
-                    .zip(strip.clone())
-                    .map(|(surface, strip)| {
-                        let target = format!("{id}:{surface}");
-                        cx.listener(move |bench: &mut Workbench, _, _, _| {
-                            let params = json!({ "kind": PaneKind::Plugin, "target": target });
-                            bench.call_in_front("openTab", strip.with(params));
-                        })
-                    });
-            Some(
-                Row::new(
-                    SharedString::from(format!("plugin-{id}")),
-                    plugin.name.clone(),
-                )
-                .mark(16., ui::picture(mark, 13., ink))
-                .quiet()
-                .status(tone.map(|tone| ui::dot(tone, cx)))
-                .when_some(opens, |row, opens| row.on_click(opens))
-                .into_any_element(),
-            )
-        })
-        .collect()
-}
-
-/// The mark of a plugin that has a place of its own in the rail; code hosts show
-/// under their projects instead.
-pub(crate) fn plugin_mark(id: &str) -> Option<Icon> {
-    Some(match id.strip_prefix("sikemux.")? {
-        "aws" => Icon::Aws,
-        "database" => Icon::Database,
-        "jira" => Icon::Jira,
-        "linear" => Icon::Linear,
-        "rundeck" => Icon::Rundeck,
-        "signoz" => Icon::Signoz,
-        "slack" => Icon::Slack,
-        "vercel" => Icon::Vercel,
-        _ => return None,
-    })
 }
 
 /// Terminals started outside every project, each opening in the terminals' strip.

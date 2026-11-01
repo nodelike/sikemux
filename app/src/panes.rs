@@ -440,9 +440,9 @@ fn stack(
         .unwrap_or(0);
     let pills = panes.iter().enumerate().filter_map(|(at, child)| {
         let first = views(child).next()?;
-        let (lead, kind, target) = (first.id.clone(), first.kind, first.target);
+        let (lead, kind) = (first.id.clone(), first.kind);
         let mark = ui::picture(
-            crate::tabs::view_icon(kind, target),
+            crate::pane_kind::of(kind).icon,
             13.,
             match kind {
                 PaneKind::Terminal => t.live,
@@ -588,10 +588,6 @@ fn view(
                 ui::pane(cx).child(pane.clone()).into_any_element()
             }
             None => ui::pane(cx).into_any_element(),
-        },
-        PaneKind::Plugin => match bench.plugin_panes.get(id) {
-            Some(pane) => ui::plain_pane(cx).child(pane.clone()).into_any_element(),
-            None => ui::plain_pane(cx).into_any_element(),
         },
         PaneKind::Agent => home::agent_view(bench, tab, id, target, cx),
         PaneKind::Desk => desk::pane(bench, target, window, cx),

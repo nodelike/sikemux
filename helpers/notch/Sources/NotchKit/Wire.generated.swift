@@ -258,8 +258,6 @@ enum CoreChangeTopic: String, Codable, Hashable {
     case drafts
     /// A project's pull requests, runs, issues or releases on its code host.
     case codeHost
-    /// What a plugin's pane shows; `paths` names each view as `plugin/method`.
-    case pluginView
     /// Files clients have open moved on disk; `paths` names them as the clients did.
     case files
     /// Whether an update is out, and how installing it goes.

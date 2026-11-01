@@ -92,7 +92,6 @@ pub enum PaneKind {
     Search,
     Board,
     Browser,
-    Plugin,
     /// An agent's pages, files, task terminals and simulator; `target` is the agent.
     Desk,
     /// A project's own settings; `target` is its folder.

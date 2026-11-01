@@ -156,11 +156,6 @@ pub enum DeskItem {
         url: String,
         shown: Entity<HostArea>,
     },
-    /// What a plugin's own view shows of a link, such as a Jira issue.
-    Plugin {
-        url: String,
-        shown: Entity<crate::plugin_pane::PluginPane>,
-    },
 }
 
 impl DeskItem {
@@ -168,7 +163,7 @@ impl DeskItem {
         match self {
             DeskItem::File(_) => DeskKind::Files,
             DeskItem::Terminal { .. } => DeskKind::Terminals,
-            DeskItem::Hosted { .. } | DeskItem::Plugin { .. } => DeskKind::Pages,
+            DeskItem::Hosted { .. } => DeskKind::Pages,
         }
     }
 
@@ -179,8 +174,7 @@ impl DeskItem {
                 DeskItem::Terminal { session: one, .. },
                 DeskItem::Terminal { session: other, .. },
             ) => one == other,
-            (DeskItem::Hosted { url: one, .. }, DeskItem::Hosted { url: other, .. })
-            | (DeskItem::Plugin { url: one, .. }, DeskItem::Plugin { url: other, .. }) => {
+            (DeskItem::Hosted { url: one, .. }, DeskItem::Hosted { url: other, .. }) => {
                 one == other
             }
             _ => false,
@@ -445,7 +439,7 @@ impl Desks {
     fn files(&self) -> impl Iterator<Item = &PathBuf> {
         self.items.values().flatten().filter_map(|item| match item {
             DeskItem::File(path) => Some(path),
-            DeskItem::Terminal { .. } | DeskItem::Hosted { .. } | DeskItem::Plugin { .. } => None,
+            DeskItem::Terminal { .. } | DeskItem::Hosted { .. } => None,
         })
     }
 }
@@ -866,9 +860,7 @@ impl Workbench {
     fn close_desk_item(&mut self, agent: &str, item: DeskItem, cx: &mut Context<Self>) {
         let closing = match &item {
             DeskItem::File(path) => vec![crate::editor::FileKey::new(self.place(), path)],
-            DeskItem::Terminal { .. } | DeskItem::Hosted { .. } | DeskItem::Plugin { .. } => {
-                Vec::new()
-            }
+            DeskItem::Terminal { .. } | DeskItem::Hosted { .. } => Vec::new(),
         };
         let agent = agent.to_owned();
         crate::editor::close_unsaved(
@@ -1186,7 +1178,7 @@ impl Workbench {
                 true
             }
             _ => {
-                if let Some(linked @ (DeskItem::Hosted { .. } | DeskItem::Plugin { .. })) =
+                if let Some(linked @ DeskItem::Hosted { .. }) =
                     self.desks.read(cx).front.get(&agent).cloned()
                 {
                     self.close_desk_item(&agent, linked, cx);
@@ -1314,9 +1306,7 @@ impl Workbench {
         }
         let held = (self.desks.read(cx).items.get(agent).into_iter().flatten())
             .find(|item| match item {
-                DeskItem::Hosted { url: held, .. } | DeskItem::Plugin { url: held, .. } => {
-                    held == url
-                }
+                DeskItem::Hosted { url: held, .. } => held == url,
                 _ => false,
             })
             .cloned();
@@ -1327,29 +1317,19 @@ impl Workbench {
         }
         let target = self.chat_target(agent);
         let hosted = target.request("codeHostLink", json!({ "url": url }));
-        let plugin = target.request("pluginLink", json!({ "url": url }));
         let (agent, url) = (agent.to_owned(), url.to_owned());
         cx.spawn(async move |bench, cx| {
             let hosted = hosted.await.ok().and_then(|found| {
                 let host = serde_json::from_value(found["codeHost"].clone()).ok()?;
                 Some((host, found["item"].clone()))
             });
-            let plugin = match hosted {
-                Some(_) => None,
-                None => plugin.await.ok().and_then(|found| {
-                    Some((found["plugin"].as_str()?.to_owned(), found["at"].clone()))
-                }),
-            };
             bench
                 .update(cx, |bench, cx| {
-                    match (hosted, plugin) {
-                        (Some((host, item)), _) => {
+                    match hosted {
+                        Some((host, item)) => {
                             bench.open_hosted_on_desk(&agent, &url, target, host, &item, cx)
                         }
-                        (None, Some((plugin, at))) => {
-                            bench.open_plugin_on_desk(&agent, &url, target, &plugin, &at, cx)
-                        }
-                        (None, None) => {
+                        None => {
                             bench.open_on_desk(&agent, &url, cx);
                         }
                     }
@@ -1402,52 +1382,6 @@ impl Workbench {
             true,
             cx,
         );
-    }
-
-    /// Puts what `plugin`'s own view shows of `at` on `agent`'s desk, in front, or the link's
-    /// web page when its view cannot show it alone.
-    fn open_plugin_on_desk(
-        &mut self,
-        agent: &str,
-        url: &str,
-        target: crate::core::Target,
-        plugin: &str,
-        at: &Value,
-        cx: &mut Context<Self>,
-    ) {
-        let surface = crate::plugin_pane::surface(plugin).unwrap_or_default();
-        let place = format!("{plugin}:{surface}");
-        let slot = format!("desk-{agent}-{url}");
-        let bench = cx.entity().downgrade();
-        let shown = cx.new(|_| crate::plugin_pane::PluginPane::new(&place, slot, target, bench));
-        if !shown.update(cx, |shown, cx| shown.show_alone(at, cx)) {
-            self.open_on_desk(agent, url, cx);
-            return;
-        }
-        self.open_agent(agent);
-        self.put_on_desk(
-            agent,
-            DeskItem::Plugin {
-                url: url.to_owned(),
-                shown,
-            },
-            true,
-            cx,
-        );
-    }
-
-    /// The plugin views the desks hold, which hear as the plugin panes in tabs do that the
-    /// core read them again.
-    pub(crate) fn desk_plugin_panes(
-        &self,
-        cx: &App,
-    ) -> Vec<Entity<crate::plugin_pane::PluginPane>> {
-        (self.desks.read(cx).items.values().flatten())
-            .filter_map(|item| match item {
-                DeskItem::Plugin { shown, .. } => Some(shown.clone()),
-                _ => None,
-            })
-            .collect()
     }
 
     /// Swaps the desk's pull request, issue or run `shown` for the web page of its link, which
@@ -1698,7 +1632,6 @@ impl Workbench {
                 json!({ "terminal": title, "session": session })
             }
             DeskItem::Hosted { url, .. } => json!({ "pull": url }),
-            DeskItem::Plugin { url, .. } => json!({ "plugin": url }),
         };
         let desk = |agent: &String| {
             let page = desks.pages.get(agent);
@@ -2026,7 +1959,6 @@ pub fn pane(
                 title.clone(),
             ),
             DeskItem::Hosted { shown, .. } => shown.read(cx).desk_face(cx),
-            DeskItem::Plugin { shown, .. } => shown.read(cx).desk_face(cx),
         };
         let (pick_agent, pick_item) = (agent.to_owned(), item.clone());
         let (close_agent, close_item) = (agent.to_owned(), item.clone());
@@ -2187,9 +2119,6 @@ pub fn pane(
                 cx,
             ),
             DeskItem::Hosted { shown, .. } => {
-                div().size_full().child(shown.clone()).into_any_element()
-            }
-            DeskItem::Plugin { shown, .. } => {
                 div().size_full().child(shown.clone()).into_any_element()
             }
         };
@@ -2501,9 +2430,7 @@ fn tab_menu(
                     .separator()
                     .item(close)
             }
-            DeskTab::Page { url, .. }
-            | DeskTab::Item(DeskItem::Hosted { url, .. })
-            | DeskTab::Item(DeskItem::Plugin { url, .. }) => popup
+            DeskTab::Page { url, .. } | DeskTab::Item(DeskItem::Hosted { url, .. }) => popup
                 .item(
                     PopupMenuItem::new("Copy Link")
                         .icon(Icon::Copy)

@@ -838,7 +838,7 @@ export type Pane =
       };
 
 export type PaneKind =
-    "agent" | "terminal" | "files" | "git" | "search" | "board" | "browser" | "plugin" | "desk" | "projectSettings" | "installSikemux" | "stash";
+    "agent" | "terminal" | "files" | "git" | "search" | "board" | "browser" | "desk" | "projectSettings" | "installSikemux" | "stash";
 
 export type SplitDir = "row" | "column" | "stack";
 
@@ -1720,7 +1720,6 @@ export type CoreChangeTopic =
     | "preferences"
     | "drafts"
     | "codeHost"
-    | "pluginView"
     | "files"
     | "update"
     | "stash"

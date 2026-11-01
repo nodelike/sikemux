@@ -211,15 +211,14 @@ pub(crate) fn manifest(core: &Core, plugin: &str) -> Option<&'static Manifest> {
         .find(|manifest| manifest.id == plugin)
 }
 
-/// `plugin` ran `method`; when its manifest names it as a write, what it
-/// shows is read again at once, and again once the service has settled.
+/// `plugin` ran `method`; when its manifest names it as a write, what the core keeps of its
+/// code host is read again at once, and again once the service has settled.
 pub(crate) fn wrote(core: &Arc<Core>, plugin: &str, method: &str, params: &Value) {
     if !manifest(core, plugin)
         .is_some_and(|manifest| manifest.writes.iter().any(|write| write == method))
     {
         return;
     }
-    super::plugin_views::wrote(core, plugin);
     super::codehost::wrote(core, plugin, params);
 }
 
@@ -315,34 +314,6 @@ pub(crate) async fn listed(core: &Core) -> Vec<Listed> {
     futures_util::future::join_all(asked).await
 }
 
-#[derive(Deserialize)]
-pub(crate) struct LinkParams {
-    url: String,
-}
-
-/// The plugin whose own view shows what a web address names, and where in that view, as
-/// the first enabled plugin's `resolveLink` answers; null when none does.
-pub(crate) async fn link(core: &Core, params: LinkParams) -> Value {
-    let disabled = disabled(core);
-    let url = params.url;
-    let asked = manifests(core).into_iter().filter_map(|manifest| {
-        let id = manifest.id.clone();
-        let url = url.clone();
-        (!disabled.contains(&id)).then_some(async move {
-            let at = call(core, &id, "resolveLink", json!({ "url": url }))
-                .await
-                .ok()?;
-            (!at.is_null()).then(|| json!({ "plugin": id, "at": at }))
-        })
-    });
-    futures_util::future::join_all(asked)
-        .await
-        .into_iter()
-        .flatten()
-        .next()
-        .unwrap_or(Value::Null)
-}
-
 /// A plugin's call may have signed it in or out, or picked another account,
 /// so clients read the plugins again.
 pub(crate) fn sign_in_moved(core: &Core, plugin: &str, method: &str) {
@@ -354,7 +325,6 @@ pub(crate) fn sign_in_moved(core: &Core, plugin: &str, method: &str) {
     });
     if account_moved {
         core.changes.changed(Topic::Plugins, None, None);
-        super::plugin_views::signed(core, plugin);
     }
 }
 
@@ -449,8 +419,19 @@ pub(crate) async fn call_agent_tool(
         .call_agent_tool(name, arguments)
         .await
         .map_err(|failure| explain(&failure))?;
-    super::plugin_views::tool_ran(core, name);
+    tool_ran(core, name);
     Ok(answer)
+}
+
+/// An agent ran the tool `tool`, which may be one of a plugin's writes.
+fn tool_ran(core: &Arc<Core>, tool: &str) {
+    let found = manifests(core).into_iter().find_map(|manifest| {
+        let tool = manifest.tools.iter().find(|each| each.name == tool)?;
+        Some((manifest.id.as_str(), tool.method.as_str()))
+    });
+    if let Some((plugin, method)) = found {
+        wrote(core, plugin, method, &Value::Null);
+    }
 }
 
 /// An agent cannot sign in on the person's behalf, so a signed-out plugin says

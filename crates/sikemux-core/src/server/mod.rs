@@ -58,7 +58,6 @@ mod network_watch;
 mod notch;
 mod notify;
 mod open_files;
-mod plugin_views;
 pub mod plugins;
 mod ports;
 mod preferences;
@@ -360,7 +359,6 @@ pub(crate) struct Core {
     pub(crate) plugins: Option<plugins::Provided>,
     pub(crate) code_host_lists: codehost::Lists,
     /// The plugin views panes look at, kept and read again while they do.
-    pub(crate) plugin_views: plugin_views::Views,
     /// The files clients have open, watched wherever they are.
     pub(crate) open_files: open_files::OpenFiles,
     pub(crate) layouts: layout::Layouts,
@@ -480,7 +478,6 @@ impl Core {
             git: git::Projects::default(),
             plugins,
             code_host_lists: Default::default(),
-            plugin_views: Default::default(),
             open_files: Default::default(),
             layouts: layout::Layouts::new(data_dir),
             account: Default::default(),

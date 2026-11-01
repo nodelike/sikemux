@@ -65,15 +65,6 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
         .border_b_1()
         .border_color(t.border)
         .window_control_area(WindowControlArea::Drag)
-        .on_hover(cx.listener(|bench, hovered: &bool, _, cx| {
-            if bench.top_bar_hovered == *hovered {
-                return;
-            }
-            bench.top_bar_hovered = *hovered;
-            for bar in bench.plugin_bars.values() {
-                bar.update(cx, |_, cx| cx.notify());
-            }
-        }))
         .when(cfg!(target_os = "macos"), |bar| {
             bar.child(div().w(px(80.)).flex_none())
         })
@@ -86,7 +77,6 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                 .items_center()
                 .gap(SPACE_2)
                 .pr(SPACE_4)
-                .children(bench.plugin_bars.values().cloned())
                 .children(
                     git_chip(bench, cx)
                         .map(|chip| {
@@ -920,7 +910,7 @@ fn strip_tab(
             base.mark(match file_icon {
                 Some(icon) => gpui_kit::img(icon).size(px(14.)).into_any_element(),
                 None => ui::picture(
-                    view_icon(kind, target),
+                    crate::pane_kind::of(kind).icon,
                     13.,
                     if kind == PaneKind::Terminal {
                         t.live
@@ -1280,18 +1270,6 @@ pub fn view_label(bench: &Workbench, pane: &Pane) -> SharedString {
             || "Files".into(),
             |name| SharedString::from(name.to_string_lossy().into_owned()),
         ),
-        Some((PaneKind::Plugin, target)) => {
-            let id = crate::plugin_pane::parts(target).0;
-            bench
-                .reads
-                .plugins
-                .all()
-                .find(|plugin| plugin.id == id)
-                .map_or_else(
-                    || "Plugin".into(),
-                    |plugin| SharedString::from(plugin.name.clone()),
-                )
-        }
         Some((kind, _)) => crate::pane_kind::of(kind).label.into(),
         None => "".into(),
     }
@@ -1302,16 +1280,6 @@ pub fn first_view(pane: &Pane) -> Option<(PaneKind, &String)> {
     crate::panes::views(pane)
         .next()
         .map(|view| (view.kind, view.target))
-}
-
-/// A view's icon: its plugin's mark for a plugin's pane, else its kind's.
-pub fn view_icon(kind: PaneKind, target: &str) -> Icon {
-    match kind {
-        PaneKind::Plugin => {
-            crate::rail::plugin_mark(crate::plugin_pane::parts(target).0).unwrap_or(Icon::Window)
-        }
-        kind => crate::pane_kind::of(kind).icon,
-    }
 }
 
 fn clock(cx: &App) -> impl IntoElement {

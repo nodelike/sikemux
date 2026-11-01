@@ -130,14 +130,6 @@ impl<S: Shows> ShownCache<S> {
             .collect()
     }
 
-    /// Forgets the kept reads `pick` picks, and says which they were.
-    pub(crate) fn forget(&self, pick: impl Fn(&S::Key) -> bool) -> Vec<S::Key> {
-        let mut state = self.state.locked();
-        let forgot: Vec<S::Key> = state.kept.keys().filter(|key| pick(key)).cloned().collect();
-        state.kept.retain(|key, _| !pick(key));
-        forgot
-    }
-
     /// Every kept answer, with its key.
     pub(crate) fn each(&self, mut see: impl FnMut(&S::Key, &Value)) {
         for (key, kept) in &self.state.locked().kept {
