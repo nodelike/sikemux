@@ -3,16 +3,18 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum StartMode {
-    /// One agent does it, and the project's usual checks say when it is done.
-    DoIt,
+    /// One agent takes it, and the project's usual checks say when it is done.
+    HandOff,
     /// A lead talks it through with the person first, and it goes on in
     /// slices they approve.
     PlanFirst,
-    /// A chat with the person, as today, still kept as a goal.
-    WithMe,
+    /// A chat with the person, as today, still kept as a goal. What the start
+    /// box opens on, and what triage picks when nothing calls for planning.
+    #[default]
+    Chat,
 }
 
 /// Something the text touches that calls for planning first.
@@ -34,8 +36,8 @@ pub enum HardFact {
 #[serde(rename_all = "camelCase")]
 pub struct Triage {
     pub mode: StartMode,
-    /// The fact that called for more than doing it at once, and the path in
-    /// the text that showed it; none when nothing did.
+    /// The fact that called for planning first, and the path in the text that
+    /// showed it; none when nothing did.
     #[serde(default)]
     pub because: Option<Because>,
 }

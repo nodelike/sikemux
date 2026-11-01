@@ -106,7 +106,7 @@ fn triaged(project: &Path, text: &str) -> Triage {
         mode: if because.is_some() {
             StartMode::PlanFirst
         } else {
-            StartMode::DoIt
+            StartMode::default()
         },
         because,
     }

@@ -443,6 +443,8 @@ pub struct Segmented {
     waiting: Option<(usize, usize)>,
     /// The choice Sikemux suggests, marked with a dot, and why.
     suggested: Option<(usize, SharedString)>,
+    /// What each choice does, in a line, shown over it.
+    tooltips: Vec<SharedString>,
 }
 
 impl Segmented {
@@ -464,6 +466,7 @@ impl Segmented {
             disabled: None,
             waiting: None,
             suggested: None,
+            tooltips: Vec::new(),
         }
     }
 
@@ -486,6 +489,7 @@ impl Segmented {
             disabled: None,
             waiting: None,
             suggested: None,
+            tooltips: Vec::new(),
         }
     }
 
@@ -503,6 +507,11 @@ impl Segmented {
     /// Counts what waits on the person under the choice at `index`, in the warning colour.
     pub fn waiting(mut self, index: usize, count: usize) -> Self {
         self.waiting = (count > 0).then_some((index, count));
+        self
+    }
+
+    pub fn tooltips(mut self, tooltips: impl IntoIterator<Item = SharedString>) -> Self {
+        self.tooltips = tooltips.into_iter().collect();
         self
     }
 
@@ -603,7 +612,7 @@ impl RenderOnce for Segmented {
         let t = Tokens::get(cx).clone();
         let on_select = self.on_select.filter(|_| self.disabled.is_none());
         let waiting = self.waiting;
-        let suggested = self.suggested;
+        let (suggested, tooltips) = (self.suggested, self.tooltips);
         div()
             .id(self.id)
             .flex()
@@ -625,6 +634,10 @@ impl RenderOnce for Segmented {
                         let why = (suggested.as_ref())
                             .filter(|(at, _)| *at == index)
                             .map(|(_, why)| why.clone());
+                        let tip = match (tooltips.get(index), &why) {
+                            (Some(tip), Some(why)) => Some(format!("{tip}\n{why}").into()),
+                            (tip, why) => tip.or(why.as_ref()).cloned(),
+                        };
                         BaseButton::new(("segment", index))
                             .group(GROUP)
                             .selected(chosen)
@@ -647,8 +660,8 @@ impl RenderOnce for Segmented {
                             .when_some(on_select, |segment, handler| {
                                 segment.on_click(move |_, window, cx| handler(&index, window, cx))
                             })
-                            .when_some(why.clone(), |segment, why| {
-                                segment.tooltip(super::tooltip(why))
+                            .when_some(tip, |segment, tip: SharedString| {
+                                segment.tooltip(super::tooltip(tip))
                             })
                             .children(glyph.map(|glyph| {
                                 icon(glyph, 13.)

@@ -3613,13 +3613,13 @@ export interface TriageParams {
 export interface Triage {
     mode: StartMode;
     /**
-     * The fact that called for more than doing it at once, and the path in
-     * the text that showed it; none when nothing did.
+     * The fact that called for planning first, and the path in the text that
+     * showed it; none when nothing did.
      */
     because?: Because | null;
 }
 
-export type StartMode = "doIt" | "planFirst" | "withMe";
+export type StartMode = "handOff" | "planFirst" | "chat";
 
 export interface Because {
     fact: HardFact;

@@ -37,10 +37,23 @@ const SETTLE: Duration = Duration::from_millis(300);
 /// The longest card title the box makes; the rest of what was typed goes into its details.
 const TITLE_CHARS: usize = 80;
 
-const MODES: [(StartMode, &str); 3] = [
-    (StartMode::DoIt, "Do it"),
-    (StartMode::PlanFirst, "Plan first"),
-    (StartMode::WithMe, "With me"),
+/// Each way to start, with what it is called and what it does, in a line.
+const MODES: [(StartMode, &str, &str); 3] = [
+    (
+        StartMode::HandOff,
+        "Hand off",
+        "An agent takes it and works on its own; you hear back only if it needs you.",
+    ),
+    (
+        StartMode::PlanFirst,
+        "Plan first",
+        "A lead talks it through with you, then works in slices you approve.",
+    ),
+    (
+        StartMode::Chat,
+        "Chat",
+        "Work on it together, turn by turn.",
+    ),
 ];
 
 /// The agent the person picked to take the work, as the composer's agent menu picks it.
@@ -75,7 +88,7 @@ impl Default for Start {
             draft: None,
             mic: None,
             files: Vec::new(),
-            mode: StartMode::DoIt,
+            mode: StartMode::default(),
             picked: false,
             suggested: None,
             chosen: Chosen::default(),
@@ -163,7 +176,7 @@ impl GoalsPane {
         if text.is_empty() {
             self.start.suggested = None;
             if !self.start.picked {
-                self.start.mode = StartMode::DoIt;
+                self.start.mode = StartMode::default();
             }
             cx.notify();
             return;
@@ -392,7 +405,7 @@ fn titled(text: &str) -> (String, Option<String>) {
 /// What the agent that takes the work is told first.
 fn first_message(mode: StartMode, card: u64, text: &str) -> String {
     match mode {
-        StartMode::DoIt => format!(
+        StartMode::HandOff => format!(
             "{text}\n\nThis is card #{card} on the project's board, and you hold it: do it, \
              and mark it done with board_update once the project's checks pass."
         ),
@@ -403,14 +416,14 @@ fn first_message(mode: StartMode, card: u64, text: &str) -> String {
              slices as cards under #{card} with board_add, each with a promise, and wait for me \
              to approve them before any work starts."
         ),
-        StartMode::WithMe => format!(
+        StartMode::Chat => format!(
             "{text}\n\nSikemux tracks this as goal card #{card} on the project's board, which \
              you hold."
         ),
     }
 }
 
-/// Why the core suggested more than doing it at once, in a few words.
+/// Why the core suggested planning first, in a few words.
 fn because_words(because: &Because) -> String {
     let fact = match because.fact {
         HardFact::Server => "server code",
@@ -552,21 +565,22 @@ pub(super) fn start_box(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
     });
     let chosen = MODES
         .iter()
-        .position(|(mode, _)| *mode == pane.start.mode)
+        .position(|(mode, ..)| *mode == pane.start.mode)
         .unwrap_or(0);
     let words = MODES
         .iter()
-        .map(|(_, name)| (SharedString::from(*name), None))
+        .map(|(_, name, _)| (SharedString::from(*name), None))
         .collect();
-    let mut modes = Segmented::words("start-mode", words, chosen).on_select(cx.listener(
-        |pane, chosen: &usize, _, cx| {
-            if let Some((mode, _)) = MODES.get(*chosen) {
+    let tips = MODES.iter().map(|(.., tip)| SharedString::from(*tip));
+    let mut modes = Segmented::words("start-mode", words, chosen)
+        .tooltips(tips)
+        .on_select(cx.listener(|pane, chosen: &usize, _, cx| {
+            if let Some((mode, ..)) = MODES.get(*chosen) {
                 pane.pick(*mode, cx);
             }
-        },
-    ));
+        }));
     if let Some((mode, because)) = &pane.start.suggested {
-        let at = MODES.iter().position(|(each, _)| each == mode);
+        let at = MODES.iter().position(|(each, ..)| each == mode);
         let why = because.as_ref().map(because_words);
         if let (Some(at), Some(why)) = (at, why) {
             modes = modes.suggested(at, why);
