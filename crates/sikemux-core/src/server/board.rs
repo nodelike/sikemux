@@ -1068,6 +1068,12 @@ struct Maker {
 }
 
 impl Card {
+    /// Its ticket, when its tracker closed it with nothing of its slice
+    /// landed, which leaves the card to the person.
+    fn ticket_done_unlanded(&self) -> Option<&Ticket> {
+        self.ticket.as_ref().filter(|ticket| ticket.done_unlanded)
+    }
+
     /// The run Auto has on it while the card is not done, handed back or not.
     fn kept_run(&self) -> Option<&Run> {
         self.auto.as_ref().filter(|_| self.status != Status::Done)
@@ -2252,8 +2258,8 @@ pub(crate) enum Waits {
         url: Option<String>,
     },
     /// Its ticket `key` was closed in its tracker with nothing of its slice
-    /// landed, where the person lands slices.
-    TicketDone { key: String },
+    /// landed, where the person lands slices, while the slice waits at `gate`.
+    TicketDone { key: String, gate: Option<Gate> },
     /// Its owner asked the person something it waits on.
     Answer,
 }
@@ -2271,9 +2277,10 @@ fn waits(core: &Core, landing: Landing, card: &Card) -> Option<Waits> {
             note: run.note.clone(),
         });
     }
-    if let Some(ticket) = (card.ticket.as_ref()).filter(|ticket| ticket.done_unlanded) {
+    if let Some(ticket) = card.ticket_done_unlanded() {
         return Some(Waits::TicketDone {
             key: ticket.key.clone(),
+            gate: card.slice.as_ref().and_then(slice::Slice::waiting),
         });
     }
     let url = run

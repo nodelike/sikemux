@@ -393,6 +393,7 @@ fn takes(board: &Board, card: &Card) -> bool {
         && card.owner.is_none()
         && card.auto.is_none()
         && card.created_by.is_none()
+        && card.ticket_done_unlanded().is_none()
         && board.waits_on(card).is_empty()
         && !board
             .cards

@@ -614,16 +614,25 @@ fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
             item.url = url.clone();
             item
         }
-        Waits::TicketDone { key } => {
+        Waits::TicketDone { key, gate } => {
             let mut item = item(
                 card_id("ticket"),
                 Case::TicketDone,
                 format!("{key} says done, but nothing of it landed"),
                 card.updated_at,
             );
-            item.detail = Some(format!(
-                "{key} was closed in its tracker. Pass Landed once its work is in, or mark the slice done to close it as it stands"
-            ));
+            item.detail = Some(match gate {
+                Some(Gate::Landed) => format!(
+                    "{key} was closed in its tracker. Pass Landed once its work is in, mark the slice done to close it as it stands, or reopen the ticket"
+                ),
+                Some(gate) => format!(
+                    "{key} was closed in its tracker while the slice waits at {}. Mark the slice done to close it as it stands, or reopen the ticket",
+                    board::gate_words(*gate)
+                ),
+                None => format!(
+                    "{key} was closed in its tracker. Mark the slice done to close it as it stands, or reopen the ticket"
+                ),
+            });
             item
         }
         Waits::Answer => return None,
