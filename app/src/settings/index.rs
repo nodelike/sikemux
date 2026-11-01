@@ -30,6 +30,7 @@ pub enum Page {
     Devices,
     Hosts,
     Connectors,
+    Mods,
     SignOn,
     Actions,
     Cli,
@@ -49,7 +50,7 @@ pub const GROUPS: [(&str, &[Page]); 6] = [
     ("This Mac", &[Notch, Voice, Simulator]),
     (
         "Connect",
-        &[Devices, Hosts, Connectors, SignOn, Actions, Cli],
+        &[Devices, Hosts, Connectors, Mods, SignOn, Actions, Cli],
     ),
 ];
 
@@ -88,6 +89,7 @@ impl Page {
             Devices => "Devices",
             Hosts => "Hosts",
             Connectors => "Connectors",
+            Mods => "Mods",
             SignOn => "Single sign-on",
             Actions => "Actions",
             Cli => "Command line",
@@ -121,6 +123,7 @@ impl Page {
             Devices => "Your phone, and reaching this host from it",
             Hosts => "Other hosts on your account",
             Connectors => "The services your agents reach for you",
+            Mods => "Panels you and your agents made",
             SignOn => "Cloud sign-ins started from Sikemux",
             Actions => "Your own commands, one keystroke away",
             Cli => "The sikemux command in your shell",
@@ -153,6 +156,7 @@ impl Page {
             Devices => Icon::Phone,
             Hosts => Icon::Server,
             Connectors => Icon::Plug,
+            Mods => Icon::Dashboard,
             SignOn => Icon::LogIn,
             Actions => Icon::Run,
             Cli => Icon::Terminal,
@@ -305,6 +309,7 @@ pub const ENTRIES: &[Entry] = &[
     section(Devices, "Phones", "phone mobile iphone android qr code scan revoke remove forget access watch full control"),
     section(Hosts, "Hosts", "linked hosts machines servers rename remove account link"),
     section(Connectors, "Connectors", "aws bitbucket database postgres postgresql mysql sqlite sql github gitlab jira linear rundeck signoz slack vercel sign in sign out login logout token account enable disable switch off turn on integrations plugins connectors"),
+    section(Mods, "Mods", "mods mod panel panels html page dashboard widget custom make own approve allow writes take back turn off remove pin"),
     section(SignOn, "Single sign-on", "sso aws gcp login cloud"),
     row(SignOn, "Single sign-on", "Browser app", "chrome safari firefox arc"),
     row(SignOn, "Single sign-on", "Workspace shortcut", "desktop space mission control"),

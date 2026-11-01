@@ -255,6 +255,11 @@ impl Repo {
         self.account.as_deref()
     }
 
+    /// What the host is called, as people know it.
+    pub(crate) fn label(&self) -> &'static str {
+        &self.host.spec.label
+    }
+
     pub(crate) fn id(&self) -> RepoId {
         RepoId {
             provider: self.host.plugin().to_owned(),

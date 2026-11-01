@@ -46,6 +46,8 @@ mod keymap;
 mod links;
 pub mod memory;
 pub use links::follow_opened;
+mod mod_pane;
+mod mods;
 mod motion;
 mod new_tab;
 pub mod notifications;

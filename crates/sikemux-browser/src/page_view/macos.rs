@@ -145,10 +145,12 @@ impl PageView {
         room: Room,
         events: impl Fn(PageEvent) + 'static,
     ) -> Self {
-        let (fills, base) = match room {
-            Room::Grows => (false, None),
+        let (fills, clear, base) = match room {
+            Room::Grows => (false, true, None),
+            Room::Panel => (true, true, None),
             Room::Fills(path) => (
                 true,
+                false,
                 path.map(|path| {
                     NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()))
                 }),
@@ -194,7 +196,7 @@ impl PageView {
             ];
             view.unregisterDraggedTypes();
             view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*messages)));
-            if !fills {
+            if clear {
                 let no = NSNumber::numberWithBool(false);
                 view.setValue_forKey(Some(&no), &NSString::from_str("drawsBackground"));
             }

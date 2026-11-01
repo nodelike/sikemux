@@ -243,7 +243,7 @@ fn added_skills(
 
 /// A folder's real path, also for one not made yet: macOS reports changes
 /// under real paths, and a home or config folder may be reached through a link.
-fn resolved(folder: &Path) -> PathBuf {
+pub(super) fn resolved(folder: &Path) -> PathBuf {
     let Some(existing) = folder.ancestors().find(|above| above.exists()) else {
         return folder.to_path_buf();
     };
@@ -256,7 +256,7 @@ fn resolved(folder: &Path) -> PathBuf {
 /// Where to watch for a skills folder: the folder itself once it exists, or
 /// else the nearest folder above it, which shows it being made. Both are
 /// watched to any depth: on macOS a shallow watch hears nothing from below.
-fn watch_target(folder: &Path) -> PathBuf {
+pub(super) fn watch_target(folder: &Path) -> PathBuf {
     let folder = resolved(folder);
     folder
         .ancestors()

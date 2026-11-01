@@ -121,6 +121,7 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
                             }
                         });
                     }
+                    PageEvent::Mod(_) => {}
                 });
                 if applied.is_err() {
                     break;

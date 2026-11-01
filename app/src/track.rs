@@ -297,7 +297,10 @@ pub(crate) fn settle<T: 'static, K: 'static>(
 fn pages_sideways(tab: &sikemux_wire::protocol::Tab) -> bool {
     !matches!(
         crate::tabs::first_view(&tab.pane),
-        Some((PaneKind::Files | PaneKind::Desk | PaneKind::Browser, _))
+        Some((
+            PaneKind::Files | PaneKind::Desk | PaneKind::Browser | PaneKind::Mod,
+            _
+        ))
     )
 }
 

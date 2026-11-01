@@ -840,65 +840,71 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     blocking(move || {
         let project = caller_project(&core, &request);
         let caller = request.agent_id.clone().unwrap_or_default();
-        let agents = listed(&core);
-        let names: HashMap<String, String> = agents
-            .iter()
-            .filter_map(|agent| Some((agent.agent_id.clone(), agent.name.clone()?)))
-            .collect();
-        let now = epoch_ms();
-        let rows: Vec<Value> = agents
-            .iter()
-            .filter(|agent| all || agent.project == project)
-            .map(|agent| {
-                let host = host_of(&core, agent);
-                let reachable = core
-                    .hosts
-                    .team
-                    .get(&agent.agent_id)
-                    .is_none_or(|foreign| core.hosts.reachable(&foreign.host));
-                let status = if reachable {
-                    status_word(agent.standing(&core))
-                } else {
-                    "out of reach"
-                };
-                let mut row = json!({
-                    "name": agent.name,
-                    "agentId": agent.agent_id,
-                    "cli": agent.cli,
-                    "title": agent.title,
-                    "status": status,
-                    "lastActive": since(agent.active_at, now),
-                    "canMessage": agent.reach != Reach::Stopped
-                        && agent.agent_id != caller
-                        && blind_between(&core, &caller, &agent.agent_id, "").is_ok(),
-                });
-                let fields = row.as_object_mut().expect("a row is an object");
-                if let Some(parent) = &agent.parent {
-                    fields.insert(
-                        "startedBy".into(),
-                        names
-                            .get(parent)
-                            .cloned()
-                            .unwrap_or_else(|| parent.clone())
-                            .into(),
-                    );
-                }
-                if agent.agent_id == caller {
-                    fields.insert("you".into(), true.into());
-                }
-                if let Some(host) = host {
-                    fields.insert("host".into(), host.into());
-                }
-                if all {
-                    fields.insert("project".into(), agent.project.clone().into());
-                }
-                row
-            })
-            .collect();
+        let rows = rows(&core, (!all).then_some(project.as_str()), &caller);
         Ok(json!({ "project": project, "agents": rows }))
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// The agents in `project`, or in every project without one, as `agent_list` answers
+/// `caller`.
+pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Value> {
+    let agents = listed(core);
+    let names: HashMap<String, String> = agents
+        .iter()
+        .filter_map(|agent| Some((agent.agent_id.clone(), agent.name.clone()?)))
+        .collect();
+    let now = epoch_ms();
+    agents
+        .iter()
+        .filter(|agent| project.is_none_or(|project| agent.project == project))
+        .map(|agent| {
+            let host = host_of(core, agent);
+            let reachable = core
+                .hosts
+                .team
+                .get(&agent.agent_id)
+                .is_none_or(|foreign| core.hosts.reachable(&foreign.host));
+            let status = if reachable {
+                status_word(agent.standing(core))
+            } else {
+                "out of reach"
+            };
+            let mut row = json!({
+                "name": agent.name,
+                "agentId": agent.agent_id,
+                "cli": agent.cli,
+                "title": agent.title,
+                "status": status,
+                "lastActive": since(agent.active_at, now),
+                "canMessage": agent.reach != Reach::Stopped
+                    && agent.agent_id != caller
+                    && blind_between(core, caller, &agent.agent_id, "").is_ok(),
+            });
+            let fields = row.as_object_mut().expect("a row is an object");
+            if let Some(parent) = &agent.parent {
+                fields.insert(
+                    "startedBy".into(),
+                    names
+                        .get(parent)
+                        .cloned()
+                        .unwrap_or_else(|| parent.clone())
+                        .into(),
+                );
+            }
+            if agent.agent_id == caller {
+                fields.insert("you".into(), true.into());
+            }
+            if let Some(host) = host {
+                fields.insert("host".into(), host.into());
+            }
+            if project.is_none() {
+                fields.insert("project".into(), agent.project.clone().into());
+            }
+            row
+        })
+        .collect()
 }
 
 /// Closes agents the caller started, or that one of its workers started, as

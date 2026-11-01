@@ -429,6 +429,16 @@ calls! { core, client, params;
         answer(style)
     },
     "preferences" Preferences (NoParams) -> Preferences: Watch => core.preferences.get(),
+    "mods": Watch => answer(super::mods::list(&core).await?),
+    "modPage": Watch => answer(super::mods::page(&core, parse(params)?).await?),
+    "modRead": Person => super::mods::read(&core, client, parse(params)?).await,
+    "modWrite": Person => super::mods::write(&core, client, parse(params)?).await,
+    "allowMod": Person => answer(super::mods::allow(&core, parse(params)?).await?),
+    "setModBadge": Person => answer(super::mods::set_badge(&core, parse(params)?)?),
+    "pinMod": Person => answer(super::mods::pin(&core, parse(params)?)?),
+    "turnModOff": Person => answer(super::mods::turn_off(&core, parse(params)?)?),
+    "removeMod": Person => answer(super::mods::remove(&core, parse(params)?).await?),
+    "addExampleMod": Person => answer(super::mods::add_example(&core, parse(params)?).await?),
     "stash": Person => {
         let params = serde_json::from_value(params).unwrap_or_default();
         answer(super::stash::list(&core, params).await?)
@@ -1291,7 +1301,7 @@ pub struct PromptChatParams {
 
 /// Sends the person's message as `AcpPrompt` does, for a client whose own request
 /// carries no context: the agents, earlier chats and issues the message names.
-async fn prompt_chat(core: &Arc<Core>, params: PromptChatParams) -> CoreResult<()> {
+pub(super) async fn prompt_chat(core: &Arc<Core>, params: PromptChatParams) -> CoreResult<()> {
     let PromptChatParams {
         agent_id,
         message_id,
@@ -1391,7 +1401,7 @@ async fn edits(core: &Arc<Core>, filter: Filter) -> CoreResult<Vec<Edit>> {
 }
 
 /// What waits on the person, ranked as devices' views list it.
-async fn inbox(core: &Arc<Core>) -> CoreResult<sikemux_wire::inbox::Inbox> {
+pub(super) async fn inbox(core: &Arc<Core>) -> CoreResult<sikemux_wire::inbox::Inbox> {
     let core = core.clone();
     blocking(move || {
         let (chats, sessions) = core.ranked_infos();

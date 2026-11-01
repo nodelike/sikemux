@@ -51,6 +51,7 @@ mod lsp;
 mod memory;
 mod messages;
 mod model_providers;
+mod mods;
 mod move_agent;
 mod names;
 mod network_watch;
@@ -127,6 +128,7 @@ pub use hosts::{HostFound, HostReach, HostRow, LinkView as HostLink, SetUpWork, 
 pub use memory::{KeepSeededParams, MemoryEntryParams, MemoryParams};
 pub use messages::log::{Outcome as MessageOutcome, Row as MessageRow, Tone as MessageTone};
 pub use messages::Kind as MessageKind;
+pub use mods::{is_mod_id, ModExample, ModInfo, ModList};
 pub use names::ClosedAgent;
 pub use ports::{ListeningPort, PortOwner, ProjectPort};
 pub use project_roots::ProjectEntry;
@@ -394,6 +396,7 @@ pub(crate) struct Core {
     pub(crate) drafts: drafts::Drafts,
     /// Where the person moved each diagram's tables, by what it is a diagram of.
     pub(crate) diagrams: diagrams::Diagrams,
+    pub(crate) mods: mods::Mods,
     /// Answers in parts on the connections that asked for them.
     pub(crate) streams: streams::Streams,
     pub(crate) look: themes::Look,
@@ -507,6 +510,7 @@ impl Core {
             preferences: preferences::Prefs::new(data_dir),
             drafts: drafts::Drafts::new(data_dir),
             diagrams: diagrams::Diagrams::new(data_dir),
+            mods: mods::Mods::new(data_dir),
             streams: streams::Streams::default(),
             look: themes::Look::default(),
         });
@@ -1103,6 +1107,7 @@ pub(crate) async fn run_core(
         crate::agent_accounts::usage::keep_readings_in(data_dir.join("plan-limits.json"));
         tokio::spawn(workspace::refresh_launchers(core.clone()));
         skill_library::watch_global(&core);
+        mods::watch(&core);
         account::start(&core);
         tokio::spawn(crate::usage::serve(core.clone(), data_dir.to_owned()));
     }

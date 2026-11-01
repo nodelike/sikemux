@@ -46,7 +46,7 @@ pub(crate) fn for_person(method: &str) -> bool {
 /// that only reads, and `core` for one that runs with the core as well.
 macro_rules! methods {
     ($($name:literal $($read:ident)? $(, $with:ident)? => $run:path { $repo:ident: String $(, $arg:ident: $ty:ty)* $(,)? }),* $(,)?) => {
-        fn reads(method: &str) -> bool {
+        pub(super) fn reads(method: &str) -> bool {
             match method {
                 $($name => methods!(@read $($read)?),)*
                 _ => false,

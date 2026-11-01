@@ -8,8 +8,8 @@ use serde_json::Value;
 use sikemux_core::git::log::GitOverview;
 use sikemux_core::git::status::ProjectRepo;
 use sikemux_core::server::{
-    AccountUsage, ActivitySummary, Draft, HostRow, ProjectEntry, ProjectPort, RunView, ShareView,
-    ShownStash, SshHost, TaskList, TrustQuestion, UpdateStatus,
+    AccountUsage, ActivitySummary, Draft, HostRow, ModList, ProjectEntry, ProjectPort, RunView,
+    ShareView, ShownStash, SshHost, TaskList, TrustQuestion, UpdateStatus,
 };
 use sikemux_plugin_api::codehost::PullList;
 use sikemux_plugin_api::{Listed, TokenForm};
@@ -88,6 +88,8 @@ pub struct Reads {
     pub usage: Vec<AccountUsage>,
     /// The chats this host shares read-only.
     pub shares: Vec<ShareView>,
+    /// The mods of the host in front, once its core has listed them.
+    pub mods: Option<ModList>,
     /// The account's Stash, as this host last listed it.
     pub stash: Option<ShownStash>,
     pub themes: Vec<ThemeSummary>,
@@ -209,6 +211,11 @@ impl Reads {
         self.git_overview = Some(serde_json::from_value(value).map_err(|error| error.to_string()));
     }
 
+    /// Keeps the mods the core listed, and says whether they differ from those kept.
+    pub fn keep_mods(&mut self, value: Value) -> bool {
+        decoded(value, "mods").is_some_and(|read| keep(&mut self.mods, Some(read)))
+    }
+
     /// Keeps the chats this host shares, and says whether they differ from those kept.
     pub fn keep_shares(&mut self, value: Value) -> bool {
         keep_decoded(&mut self.shares, value, "shares")
@@ -254,6 +261,7 @@ impl Reads {
             "runs" => self.runs.clear(),
             "ports" => self.ports.clear(),
             "activity" => self.activity = None,
+            "mods" => self.mods = None,
             "git-project-repo" => self.git_project_repo = None,
             "trust" => self.trust.clear(),
             "host-trust" => self.host_trust.clear(),

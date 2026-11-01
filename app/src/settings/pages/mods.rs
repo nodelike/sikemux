@@ -1,0 +1,166 @@
+//! The mods of the host in front: what each reads and may change, to open, turn off, take its
+//! writes back from, or remove.
+
+use gpui_kit::component::switch::Switch;
+use gpui_kit::{
+    div, AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled, Window,
+};
+use serde_json::json;
+use sikemux_core::server::ModInfo;
+
+use crate::icons::Icon;
+use crate::settings::rows;
+use crate::theme::{Tokens, SPACE_1H};
+use crate::ui;
+use crate::workbench::Workbench;
+
+/// What a mod reads and may change, as its row says it.
+fn about(shown: &ModInfo) -> SharedString {
+    if let Some(problem) = &shown.problem {
+        return format!("Cannot show: {problem}").into();
+    }
+    let mut said = Vec::new();
+    if !shown.reads.is_empty() {
+        said.push(format!("reads {}", shown.reads.join(", ")));
+    }
+    if !shown.writes.is_empty() {
+        let allowed = match shown.allowed {
+            true => "allowed",
+            false => "asks first",
+        };
+        said.push(format!("changes {} ({allowed})", shown.writes.join(", ")));
+    }
+    if shown.project.is_some() {
+        said.push("shows in one project".to_owned());
+    }
+    match said.is_empty() {
+        true => SharedString::from(shown.description.clone()),
+        false => said.join(" · ").into(),
+    }
+}
+
+fn controls(shown: &ModInfo, this: &Entity<Workbench>) -> AnyElement {
+    let id = shown.id.clone();
+    let button = |what: &str, label: &'static str| {
+        ui::Button::new(
+            SharedString::from(format!("mod-{what}-{id}")),
+            label,
+            ui::Variant::Outline,
+        )
+    };
+    let (opening, open) = (this.clone(), (shown.id.clone(), shown.name.clone()));
+    let open = button("open", "Open")
+        .disabled(shown.off || shown.problem.is_some())
+        .on_click(move |_, window, cx| {
+            opening.update(cx, |bench, cx| {
+                crate::settings::close(bench, window, cx);
+                bench.open_mod(&open.0, &open.1);
+            })
+        });
+    let (taking, taken) = (this.clone(), shown.id.clone());
+    let take_back = (shown.allowed && !shown.writes.is_empty()).then(|| {
+        button("take-back", "Take back writes").on_click(move |_, _, cx| {
+            let id = taken.clone();
+            taking.update(cx, |bench, _| {
+                bench
+                    .target()
+                    .call("allowMod", json!({ "id": id, "writes": null }))
+            })
+        })
+    });
+    let (removing, removed) = (this.clone(), shown.clone());
+    let remove = button("remove", "Remove")
+        .icon(Icon::Trash)
+        .on_click(move |_, _, cx| removing.update(cx, |bench, cx| bench.remove_mod(&removed, cx)));
+    let (switching, switched) = (this.clone(), shown.id.clone());
+    let on = Switch::new(SharedString::from(format!("mod-on-{id}")))
+        .checked(!shown.off)
+        .on_change(move |on: &bool, _: &mut Window, cx: &mut App| {
+            let off = !*on;
+            switching.update(cx, |bench, _| bench.turn_mod_off(&switched, off))
+        });
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(open)
+        .children(take_back)
+        .child(remove)
+        .child(on)
+        .into_any_element()
+}
+
+pub fn render(
+    bench: &Workbench,
+    lit: &dyn Fn(&str) -> bool,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> Vec<AnyElement> {
+    let ink = Tokens::get(cx).text_secondary;
+    let list = bench.reads.mods.as_ref();
+    let mods = list.map(|list| list.mods.as_slice()).unwrap_or_default();
+    let body = match mods.is_empty() {
+        true => rows::note(
+            "No mods yet. Ask an agent for one with the + beside Mods in the rail.",
+            cx,
+        ),
+        false => div()
+            .children(mods.iter().map(|shown| {
+                rows::row_with(
+                    Some(ui::picture(crate::mods::icon(shown), 16., ink)),
+                    shown.name.clone(),
+                    Some(about(shown)),
+                    controls(shown, this),
+                    cx,
+                )
+            }))
+            .into_any_element(),
+    };
+    let folder = list.map(|list| format!("Each mod is a folder of {}.", list.folder.display()));
+    let examples = list
+        .map(|list| list.examples.as_slice())
+        .unwrap_or_default();
+    let examples = div().children(examples.iter().map(|example| {
+        let (adding, id, name) = (this.clone(), example.id.clone(), example.name.clone());
+        let add = ui::Button::new(
+            SharedString::from(format!("mod-example-{}", example.id)),
+            if example.added { "Added" } else { "Add" },
+            ui::Variant::Outline,
+        )
+        .disabled(example.added)
+        .on_click(move |_, window, cx| {
+            adding.update(cx, |bench, cx| {
+                crate::settings::close(bench, window, cx);
+                bench.add_example_mod(&id, &name, cx);
+            })
+        });
+        rows::row_with(
+            Some(ui::picture(Icon::Dashboard, 16., ink)),
+            example.name.clone(),
+            Some(example.description.clone().into()),
+            add,
+            cx,
+        )
+    }));
+    vec![rows::section(
+        "Mods",
+        None,
+        Some(
+            folder
+                .map(|folder| format!("{folder} A mod reads only what its mod.json names, and asks you once before it changes anything."))
+                .unwrap_or_default()
+                .into(),
+        ),
+        lit("Mods"),
+        body,
+        cx,
+    ),
+    rows::section(
+        "Examples",
+        None,
+        Some("Mods Sikemux ships for you to copy into your mods folder and change.".into()),
+        lit("Examples"),
+        examples,
+        cx,
+    )]
+}

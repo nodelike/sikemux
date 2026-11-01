@@ -149,6 +149,20 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .children(hosts(bench, cx)),
                 )
                 .child(
+                    Group::new("Mods", "no mods")
+                        .actions(actions(
+                            None,
+                            [
+                                IconButton::new("add-mod", Icon::Plus, "Make a mod with an agent")
+                                    .on_click(
+                                        cx.listener(|bench, _, _, cx| bench.ask_for_mod(None, cx)),
+                                    ),
+                            ],
+                            cx,
+                        ))
+                        .children(mods(bench, cx)),
+                )
+                .child(
                     Group::new("Terminals", "no terminals")
                         .actions(actions(
                             None,
@@ -503,6 +517,76 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                                     }
                                 }),
                         )
+                },
+                row,
+                cx,
+            )
+        })
+        .collect()
+}
+
+/// The mods of the host in front that show in the project in front, each opening in a tab of its
+/// own, with the few words its page shows beside its name.
+fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
+    let ink = Tokens::get(cx).text_secondary;
+    let front = bench
+        .tab()
+        .and_then(|tab| tabs::first_view(&tab.pane))
+        .filter(|(kind, _)| *kind == PaneKind::Mod)
+        .map(|(_, target)| target.clone());
+    let settings_open = bench.settings.read(cx).is_open();
+    let project = bench.project().map(|project| project.name.clone());
+    bench
+        .mods_here()
+        .map(|shown| {
+            let (id, name) = (shown.id.clone(), shown.name.clone());
+            let row = Row::new(SharedString::from(format!("mod-{id}")), name.clone())
+                .mark(16., ui::picture(crate::mods::icon(shown), 13., ink))
+                .quiet()
+                .chosen(!settings_open && front.as_ref() == Some(&id))
+                .when_some(shown.badge.clone(), |row, badge| row.detail(badge))
+                .when(shown.problem.is_some(), |row| {
+                    row.status(Some(ui::dot(Tone::Failed, cx)))
+                })
+                .on_click(cx.listener(move |bench, _, _, _| bench.open_mod(&id, &name)));
+            let (bench, shown, project) = (cx.weak_entity(), shown.clone(), project.clone());
+            with_menu(
+                SharedString::from(format!("mod-{}-menu", shown.id)),
+                move |popup, _, _| {
+                    let pinned = shown.project.is_some();
+                    let pin = match (pinned, &project) {
+                        (true, _) => "Show in every project".to_owned(),
+                        (false, Some(project)) => format!("Show only in {project}"),
+                        (false, None) => "Show only in this project".to_owned(),
+                    };
+                    let (pinning, editing, removing) =
+                        (bench.clone(), bench.clone(), bench.clone());
+                    let (id, edited, removed) = (shown.id.clone(), shown.clone(), shown.clone());
+                    popup
+                        .item(
+                            PopupMenuItem::new(pin)
+                                .icon(Icon::Pin)
+                                .on_click(move |_, _, cx| {
+                                    let _ =
+                                        pinning.update(cx, |bench, _| bench.pin_mod(&id, pinned));
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new("Edit with an agent")
+                                .icon(Icon::Sparkle)
+                                .on_click(move |_, _, cx| {
+                                    let edited = Some(edited.clone());
+                                    let _ = editing
+                                        .update(cx, |bench, cx| bench.ask_for_mod(edited, cx));
+                                }),
+                        )
+                        .separator()
+                        .item(PopupMenuItem::new("Remove").icon(Icon::Trash).on_click(
+                            move |_, _, cx| {
+                                let _ =
+                                    removing.update(cx, |bench, cx| bench.remove_mod(&removed, cx));
+                            },
+                        ))
                 },
                 row,
                 cx,

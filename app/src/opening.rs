@@ -124,8 +124,8 @@ impl Workbench {
         });
     }
 
-    /// An agent's `ui_open`: a file in the editor, the project's changes, a task's terminal,
-    /// or the project's preview on the agent's desk; the window comes forward with `focus`.
+    /// An agent's `ui_open`: a file in the editor, the project's changes, a task's terminal, a
+    /// mod, or the project's preview on the agent's desk; the window comes forward with `focus`.
     pub(crate) fn ui_open(
         &mut self,
         request: HarnessRequest,
@@ -205,6 +205,27 @@ impl Workbench {
                 })
                 .detach();
             }
+            "mod" => {
+                let Some(project) = self.project_here(&request.project) else {
+                    return answer(Err("That project is not open in Sikemux".into()));
+                };
+                let tab = json!({
+                    "project": project,
+                    "kind": sikemux_wire::protocol::PaneKind::Mod,
+                    "target": params["mod"],
+                    "title": params["title"],
+                    "behind": !focus,
+                });
+                let opened = crate::core::request(&self.asks, "openTab", tab);
+                cx.background_spawn(async move {
+                    answer(
+                        opened
+                            .await
+                            .map(|tab| json!({ "kind": kind, "windowId": tab })),
+                    );
+                })
+                .detach();
+            }
             "preview" => {
                 let (Some(agent), Some(url)) =
                     (request.agent_id.as_deref(), params["url"].as_str())
@@ -222,7 +243,9 @@ impl Workbench {
                     )),
                 }
             }
-            _ => answer(Err("kind must be file, diff, terminal, or preview".into())),
+            _ => answer(Err(
+                "kind must be file, diff, terminal, preview, or mod".into()
+            )),
         }
     }
 

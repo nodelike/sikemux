@@ -23,6 +23,14 @@ impl View {
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         let _ = html;
     }
+
+    /// Runs `script` in the page, with no answer waited for.
+    pub(crate) fn run(&self, script: &str) {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        self.page.run_script(script);
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        let _ = script;
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -58,7 +66,7 @@ pub(crate) fn open(
 ) -> Option<View> {
     let parent = gpui_native_view::window_x11(window)?;
     let ground = match room {
-        Room::Grows => crate::theme::page_ground_rgb(crate::theme::Tokens::get(cx)),
+        Room::Grows | Room::Panel => crate::theme::page_ground_rgb(crate::theme::Tokens::get(cx)),
         Room::Fills(_) => [255; 3],
     };
     let page =

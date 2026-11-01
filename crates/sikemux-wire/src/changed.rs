@@ -47,6 +47,8 @@ pub enum Topic {
     Stash,
     /// The rules and knowledge the core keeps for a project or a folder above it.
     Memory,
+    /// The mods in the person's mods folder; `paths` names those whose files moved.
+    Mods,
     /// The core is stopping on purpose, so its clients do not start it again.
     Stopping,
     /// A topic from a newer core, which a client skips.

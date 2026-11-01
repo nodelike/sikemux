@@ -581,6 +581,10 @@ fn view(
             }
             None => ui::pane(cx).into_any_element(),
         },
+        PaneKind::Mod => match bench.mod_panes.get(id) {
+            Some(pane) => ui::pane(cx).child(pane.clone()).into_any_element(),
+            None => ui::pane(cx).into_any_element(),
+        },
         PaneKind::Agent => home::agent_view(bench, tab, id, target, cx),
         PaneKind::Desk => desk::pane(bench, target, window, cx),
         PaneKind::ProjectSettings => crate::project_settings::pane(bench, target, window, cx),

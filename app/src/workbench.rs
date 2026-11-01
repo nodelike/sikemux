@@ -176,6 +176,8 @@ pub struct Workbench {
     goals_moved: Option<Subscription>,
     /// What the window shows, as the person last left it.
     pub window_view: WindowView,
+    /// The mod panes of the strip in front, by view.
+    pub mod_panes: HashMap<String, Entity<crate::mod_pane::ModPane>>,
     /// Settings, while they take the stage's place.
     pub settings: Entity<crate::settings::Settings>,
     pub hosts: crate::hosts::Hosts,
@@ -474,6 +476,10 @@ impl Workbench {
         let _ = asks.send(Ask::Follow(Topic::AgentSignIn));
         let _ = asks.send(Ask::Follow(Topic::AgentStatus));
         let _ = asks.send(Ask::Follow(Topic::AgentAccounts));
+        let _ = asks.send(Ask::Follow(Topic::Mods));
+        for topic in [Topic::Tasks, Topic::Runs, Topic::Usage, Topic::Questions] {
+            let _ = asks.send(Ask::Follow(topic));
+        }
         cx.spawn(async move |this, cx| loop {
             cx.background_executor()
                 .timer(Self::until_next_minute())
@@ -639,6 +645,7 @@ impl Workbench {
             goals: None,
             goals_moved: None,
             window_view: WindowView::default(),
+            mod_panes: HashMap::new(),
             settings: cx.new(|_| crate::settings::Settings::default()),
             window: window.window_handle(),
             parts: Parts::new(cx),
@@ -705,6 +712,8 @@ impl Workbench {
                 self.apply(*update, cx)
             }
             Update::HostView(host, view) => {
+                let moved = crate::mod_pane::Moved::View;
+                self.mods_follow(&Place::Account(host.clone()), moved, cx);
                 let in_front = self.place() == crate::hosts::Place::Account(host.clone());
                 self.hosts.views.insert(host, *view);
                 self.settle_closing();
@@ -746,6 +755,7 @@ impl Workbench {
                 self.hosts.keep_linked(&self.reads.hosts);
             }
             Update::View(view) => {
+                self.mods_follow(&Place::This, crate::mod_pane::Moved::View, cx);
                 crate::ui::moving_face::set_on(view.face_style.motion, cx);
                 let account_moved =
                     self.view.as_ref().map(|shown| &shown.account) != Some(&view.account);
@@ -863,6 +873,9 @@ impl Workbench {
                 if let Ok(palette) = serde_json::from_value(value) {
                     theme::apply(&palette, cx);
                     crate::syntax::restyle(cx);
+                    for pane in self.mod_panes.values() {
+                        pane.update(cx, |pane, cx| pane.retheme(cx));
+                    }
                     cx.refresh_windows();
                 }
             }
@@ -1005,6 +1018,12 @@ impl Workbench {
                     return;
                 }
             }
+            Update::Read("mods", value) => {
+                if !self.reads.keep_mods(value) {
+                    return;
+                }
+                self.parts.redraw(&self.parts.rail, cx);
+            }
             Update::Read("themes", value) => {
                 if !self.reads.keep_themes(value) {
                     return;
@@ -1076,6 +1095,19 @@ impl Workbench {
                 if matches!(
                     &*update,
                     Update::Changed {
+                        topic: Topic::Mods,
+                        ..
+                    }
+                ) =>
+            {
+                if let Update::Changed { paths, .. } = *update {
+                    self.mods_moved(&Place::Account(host), paths.as_deref(), cx);
+                }
+            }
+            Update::From(host, update)
+                if matches!(
+                    &*update,
+                    Update::Changed {
                         topic: Topic::Files | Topic::Git,
                         ..
                     }
@@ -1097,6 +1129,12 @@ impl Workbench {
                         );
                     }
                     self.project_changed(&place, topic, project, paths, cx);
+                }
+            }
+            Update::From(host, update) if matches!(&*update, Update::Changed { .. }) => {
+                if let Update::Changed { topic, .. } = *update {
+                    let moved = crate::mod_pane::Moved::Topic(topic);
+                    self.mods_follow(&Place::Account(host), moved, cx);
                 }
             }
             Update::From(..) => {}
@@ -1152,6 +1190,10 @@ impl Workbench {
                         goals.update(cx, |goals, cx| goals.changed(cx));
                     }
                 }
+                if topic == Topic::Mods {
+                    self.mods_moved(&Place::This, paths.as_deref(), cx);
+                }
+                self.mods_follow(&Place::This, crate::mod_pane::Moved::Topic(topic), cx);
                 if topic == Topic::Lsp {
                     crate::editor::diagnostics_changed(
                         self,
@@ -1944,7 +1986,7 @@ impl Workbench {
             return;
         }
         if place != self.watched_place {
-            for key in ["activity", "tasks", "runs", "ports"] {
+            for key in ["activity", "tasks", "runs", "ports", "mods"] {
                 self.reads.forget(key);
             }
         }
@@ -1954,6 +1996,7 @@ impl Workbench {
             "activity",
             Watch::new("activitySummary", activity, &[Topic::Activity]),
         );
+        target.watch("mods", Watch::new("mods", json!({}), &[Topic::Mods]));
         match &place {
             crate::hosts::Place::Account(host) if self.trust.host.as_ref() != Some(host) => {
                 self.reads.forget("host-trust");
@@ -3498,6 +3541,82 @@ impl Workbench {
         self.search = Some(cx.new(|cx| SearchPane::new(target, project, bench, cx)));
     }
 
+    /// Keeps a pane for each mod view of the strip in front, showing those of the tab in front
+    /// and pausing the rest, and lets go of the others.
+    fn mod_panes(&mut self, cx: &mut Context<Self>) {
+        let views_in = |pane: &sikemux_wire::protocol::Pane| -> Vec<(String, String)> {
+            crate::panes::views(pane)
+                .filter(|view| view.kind == PaneKind::Mod)
+                .map(|view| (view.id.clone(), view.target.clone()))
+                .collect()
+        };
+        let shown: Vec<(String, String)> = self
+            .strip()
+            .map(|strip| {
+                self.tabs(&strip)
+                    .iter()
+                    .flat_map(|tab| views_in(&tab.pane))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let in_front = self
+            .tab()
+            .map(|tab| views_in(&tab.pane))
+            .unwrap_or_default();
+        let core = self.target();
+        let project = match self.strip() {
+            Some(Strip::Project(_)) => self
+                .project()
+                .map(|project| project.path.to_string_lossy().into_owned()),
+            _ => None,
+        };
+        self.mod_panes.retain(|view, pane| {
+            let kept = shown.iter().any(|(id, target)| {
+                let pane = pane.read(cx);
+                id == view && &pane.id == target && pane.core.place() == core.place()
+            });
+            match kept && in_front.iter().any(|(id, _)| id == view) {
+                true => pane.update(cx, |pane, cx| pane.show(cx)),
+                false => pane.update(cx, |pane, _| pane.hide()),
+            }
+            kept
+        });
+        for (view, id) in shown {
+            if let std::collections::hash_map::Entry::Vacant(slot) = self.mod_panes.entry(view) {
+                let bench = cx.weak_entity();
+                let pane = crate::mod_pane::ModPane::new(id, core.clone(), project.clone(), bench);
+                slot.insert(cx.new(|_| pane));
+            }
+        }
+    }
+
+    /// The core at `place` said the files of the mods in `paths` moved, or of any mod without.
+    fn mods_moved(&mut self, place: &Place, paths: Option<&[String]>, cx: &mut Context<Self>) {
+        for pane in self.mod_panes.values() {
+            let moved = {
+                let pane = pane.read(cx);
+                pane.core.place() == place && paths.is_none_or(|paths| paths.contains(&pane.id))
+            };
+            if moved {
+                pane.update(cx, |pane, cx| pane.files_moved(cx));
+            }
+        }
+    }
+
+    /// Something the mods on `place` may watch moved.
+    fn mods_follow(
+        &mut self,
+        place: &Place,
+        moved: crate::mod_pane::Moved,
+        cx: &mut Context<Self>,
+    ) {
+        for pane in self.mod_panes.values() {
+            if pane.read(cx).core.place() == place {
+                pane.update(cx, |pane, cx| pane.moved(moved, cx));
+            }
+        }
+    }
+
     /// Makes the board pane when the project's board tab comes to the front.
     fn board_pane(&mut self, cx: &mut Context<Self>) {
         let Some(project) = self.project() else {
@@ -4192,6 +4311,7 @@ impl Parts {
                     bench.compose(window, cx);
                     bench.hint(window, cx);
                     bench.make_front_pane(window, cx);
+                    bench.mod_panes(cx);
                     crate::desk::prepare(bench, window, cx);
                     bench.settle_takes_keys();
                     // The frame being drawn is not done, so a view not drawn yet may still show in it.
@@ -4470,6 +4590,9 @@ impl Render for Workbench {
                     bench.toggle_new_tab(window, cx);
                 }),
             )
+            .on_action(cx.listener(|bench, _: &crate::mods::OpenMod, window, cx| {
+                bench.toggle_mods_palette(window, cx);
+            }))
             .on_action(
                 cx.listener(|bench, _: &crate::theme_palette::SwitchTheme, window, cx| {
                     bench.toggle_theme_palette(window, cx);

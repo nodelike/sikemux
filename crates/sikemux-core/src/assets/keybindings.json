@@ -72,6 +72,14 @@
         "other": null
     },
     {
+        "id": "palette.mods",
+        "label": "Open mod…",
+        "detail": "Open a panel you or an agent made, or ask an agent for a new one",
+        "category": "Workspace",
+        "mac": null,
+        "other": null
+    },
+    {
         "id": "session.close",
         "label": "Close session",
         "detail": "Close the project, host or terminal session in front, asking first if agents would stop",

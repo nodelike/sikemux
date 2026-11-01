@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 pub mod asks;
 mod host;
 
-pub use host::{dispatch, work, CodeHost};
+pub use host::{dispatch, reads, work, CodeHost};
 
 /// An id the shapes below carry as text, for a host whose API takes it as a number.
 pub fn numeric_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {

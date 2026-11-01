@@ -744,6 +744,10 @@ async fn dispatch(
                     request.params["title"] = run.label.unwrap_or(run.task_id).into();
                 }
             }
+            if kind.as_deref() == Some("mod") {
+                let id = required_text(&request.params, "mod")?.to_owned();
+                request.params["title"] = super::mods::title(core, &id).await?.into();
+            }
             if kind.as_deref() == Some("preview") {
                 if request.agent_id.is_none() {
                     return Err("Opening a preview requires a Sikemux agent session".into());

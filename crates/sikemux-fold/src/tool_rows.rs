@@ -513,7 +513,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
             verb: "show",
             kind: "read",
             icon: "window",
-            target: &["{path}:{line}", "{path}", "{kind}"],
+            target: &["{path}:{line}", "{path}", "{mod}", "{kind}"],
             detail: &[],
             plugin: None,
         },

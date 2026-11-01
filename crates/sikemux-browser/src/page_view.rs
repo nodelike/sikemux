@@ -1,7 +1,7 @@
-//! A page an agent showed, drawn inline in its chat reply, or an HTML file shown as it
-//! reads: a web view of its own that keeps no storage and never navigates. Its script can
-//! only report the page's height, a link the person clicked and a scroll the page had no
-//! use for; the app decides what each means.
+//! A page an agent showed, drawn inline in its chat reply, an HTML file shown as it reads, or a
+//! mod: a web view of its own that keeps no storage and never navigates. Its script can only
+//! report the page's height, a link the person clicked, a scroll the page had no use for and,
+//! from a mod, what it asks of its bridge; the app decides what each means.
 
 use std::path::Path;
 
@@ -26,6 +26,8 @@ pub enum Room<'a> {
     /// Filling a file's pane on a page's usual white and scrolling itself. With the file's
     /// path on this disk, what it links to beside it, such as its styles and pictures, loads too.
     Fills(Option<&'a Path>),
+    /// Filling a pane on the app's own ground and scrolling itself, as a mod does.
+    Panel,
 }
 
 /// The address a page's text is read from, which is the only one it may load.
@@ -48,6 +50,8 @@ pub enum PageEvent {
     Link(String),
     /// A vertical scroll the page did not use, for whatever holds the page to scroll by.
     Wheel(f64),
+    /// What a mod's page asked of the bridge the app gave it.
+    Mod(serde_json::Value),
 }
 
 impl PageEvent {
@@ -60,6 +64,7 @@ impl PageEvent {
                 .as_str()
                 .map(|url| PageEvent::Link(url.to_owned())),
             "wheel" => message["deltaY"].as_f64().map(PageEvent::Wheel),
+            "mod" => Some(PageEvent::Mod(message)),
             _ => None,
         }
     }

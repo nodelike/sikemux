@@ -1325,20 +1325,25 @@
     },
     {
       "name": "ui_open",
-      "row": {"verb": "show", "kind": "read", "icon": "window", "target": ["{path}:{line}", "{path}", "{kind}"]},
+      "row": {"verb": "show", "kind": "read", "icon": "window", "target": ["{path}:{line}", "{path}", "{mod}", "{kind}"]},
       "method": "ui.open",
-      "description": "Open a file, diff, terminal or the preview.",
+      "description": "Open a file, diff, terminal, the preview or a mod.",
       "properties": {
         "kind": {
           "enum": [
             "file",
             "diff",
             "terminal",
-            "preview"
+            "preview",
+            "mod"
           ]
         },
         "path": {
           "type": "string"
+        },
+        "mod": {
+          "type": "string",
+          "description": "With kind mod: the mod's id, its folder's name in the mods folder"
         },
         "line": {
           "type": "integer",

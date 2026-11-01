@@ -21,6 +21,7 @@ mod devices;
 mod general;
 pub(crate) use general::sent as session_sent;
 mod keybindings;
+mod mods;
 pub mod theme_editor;
 
 /// What the pages keep while settings are open: what the core last answered
@@ -170,6 +171,7 @@ pub fn render(
         | Page::Voice
         | Page::Simulator => agents::render(bench, pages, page, &lit, this, cx),
         Page::Connectors => connectors::render(bench, pages, &lit, this, cx),
+        Page::Mods => mods::render(bench, &lit, this, cx),
         Page::SignOn => cloud::render(bench, pages, &lit, this, cx),
         Page::Actions => actions::render(bench, pages, &lit, this, cx),
         Page::Cli => cli::render(bench, pages, &lit, this, cx),

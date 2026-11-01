@@ -36,6 +36,7 @@ impl PageView {
         gtk_thread()?;
         let (fills, base) = match room {
             Room::Grows => (false, None),
+            Room::Panel => (true, None),
             Room::Fills(path) => (
                 true,
                 path.and_then(|path| url::Url::from_file_path(path).ok())

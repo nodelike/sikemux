@@ -101,6 +101,8 @@ pub enum PaneKind {
     InstallSikemux,
     /// What the account keeps in its Stash; `target` is `stash`.
     Stash,
+    /// A panel the person made as a web page; `target` is the mod's id.
+    Mod,
     /// A kind a newer core shows, which this build does not know and leaves out.
     #[serde(other)]
     Unknown,

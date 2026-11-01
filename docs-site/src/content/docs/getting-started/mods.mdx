@@ -1,0 +1,82 @@
+---
+title: Mods
+description: "Panels you or your agents make as a web page: a pull request queue, CI status, an agent usage meter, anything Sikemux or your connectors know."
+---
+
+A **mod** is a panel you make yourself, as a web page, that opens in a tab like any other. It can show what Sikemux knows, such as your agents, the agent board, your processes and Git, and what your signed-in connectors read, such as pull requests, CI runs, Jira issues or logs. Mods live on your host, outside the app, so they cost the download nothing.
+
+## Making one
+
+The easiest way is to ask an agent. Click **+** beside **Mods** in the side rail, or pick **Make a mod with an agent** in **Open mod…**, and say what it should show, such as "my open pull requests with their CI status". An agent starts in the project in front, writes the mod and opens it.
+
+To change a mod, right-click it in the rail and pick **Edit with an agent**.
+
+## Opening one
+
+Each mod has a row under **Mods** in the side rail, with its icon, its name and a few words it may show beside them, such as "3 failing". Click it to open the mod, or to bring its tab forward if it is open. **Open mod…** in the command palette and **Mod** under **New…** list them too.
+
+Right-click a mod's row to:
+
+- **Show only in** the project in front. A mod shows in every project until you do; **Show in every project** brings it back.
+- **Edit with an agent**.
+- **Remove** it, which moves its folder to the Trash.
+
+**Settings → Mods** lists every mod with what it reads and what it may change, and opens, turns off or removes each.
+
+### Examples
+
+Sikemux ships **Pull requests**, which shows the project's open pull requests with their checks and its latest CI runs on GitHub, GitLab or Bitbucket, and re-runs a failed one. Add it from **Settings → Mods** or **Open mod…**: it is copied into your mods folder, where you or an agent can change it.
+
+## What a mod may do
+
+A mod reads only what its `mod.json` names, and never sees your sign-ins: Sikemux asks the service and hands the mod the answer.
+
+A mod that changes something, such as messaging an agent, adding a card to the agent board or re-running a CI run, names that in its `mod.json` as well. The first time it tries, Sikemux lists everything it may change and asks you once. **Allow** holds until its `mod.json` asks for more. **Take back writes** in **Settings → Mods** withdraws it.
+
+A mod whose tab is out of sight stops reading and its timers pause, so a mod left open does not slow your agents.
+
+## Writing one by hand
+
+Each mod is a folder in `~/.config/sikemux/mods/`, named with lowercase letters, digits and dashes, holding two files. Sikemux follows the folder: a new mod shows in the rail at once, and an open mod shows your changes as you save.
+
+`mod.json` says what it is:
+
+```json
+{
+  "name": "Pull requests",
+  "icon": "pull-request",
+  "description": "Open pull requests and their CI.",
+  "reads": ["repo", "github"],
+  "writes": ["github.rerun"]
+}
+```
+
+`icon` is one of Sikemux's icon names, such as `dashboard`, `pull-request`, `agents`, `board`, `gauge` or `jira`.
+
+`index.html` is the page. Keep it one file: pictures and fonts beside it are folded in, other files are not. It wears your theme through CSS variables such as `--foreground`, `--muted-foreground`, `--border`, `--accent`, `--success`, `--warning` and `--destructive`, and links open in your browser.
+
+The page reaches Sikemux through `window.sikemux`:
+
+| Call | What it does |
+| ---- | ------------ |
+| `sikemux.read(name, params)` | Reads `name` once and resolves with the answer. |
+| `sikemux.watch(name, params, callback, { every })` | Calls `callback(value, error)` now and whenever the answer changes, only while the mod shows. Sikemux's own data is read again when it changes; a connector is read again every `every` milliseconds, a minute unless set. Returns a function that stops it. |
+| `sikemux.write(name, params)` | Makes a change, asking you first as above. |
+| `sikemux.badge(text)` | Shows a few words beside the mod's name in the rail, or none with `null`. |
+| `sikemux.every(ms, run)` | Runs `run` every `ms` milliseconds while the mod shows. |
+| `sikemux.on("shown" \| "hidden", listener)` | Hears the mod's tab come forward or go out of sight. |
+
+What a mod reads, each named in `reads`:
+
+| Name | Answer |
+| ---- | ------ |
+| `agents` | The project's agents as agents' own `agent_list` gives them; `{ all: true }` for every project. |
+| `board` | The project's agent board. |
+| `tasks`, `runs` | The project's processes, and their runs. |
+| `questions`, `inbox` | What agents ask you, and what waits on you. |
+| `usage` | How much of their plans your agent accounts have used. |
+| `repo` | The code host the project's origin is on: `connector`, `owner`, `name`, `account`. |
+| `git.status`, `git.log`, `git.branches`… | The project's repository, as the Git pane reads it. Declare `git`. |
+| `github.pulls`, `gitlab.runs`, `jira_search`… | A connector you are signed in to, by its method or by the tool name agents use. Declare the connector, such as `github` or `jira`. |
+
+What a mod may change, each named in `writes`: `agents.send` (`{ agent, text }`, as if you wrote it), `board.add`, `board.update`, and a connector's own changes, such as `github.rerun` or `jira_comment`.
