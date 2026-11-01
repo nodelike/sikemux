@@ -46,7 +46,6 @@ plugins! {
     jira,
     rundeck,
     signoz,
-    slack,
 }
 
 /// How many views a pane keeps, the least lately asked for going first.
@@ -1085,37 +1084,6 @@ pub fn send_submenu(
         return popup;
     };
     send_to::submenu_with_text(popup, label, bench, text, window, cx)
-}
-
-/// Hands `text` to the agent the person picks, or a new chat, as its next message.
-pub fn send_to_agent(
-    id: &'static str,
-    host: &Host,
-    text: String,
-    cx: &mut Context<PluginPane>,
-) -> AnyElement {
-    let agents = Rc::new(host.agents(cx));
-    let picks = agents
-        .iter()
-        .enumerate()
-        .map(|(at, agent)| ui::Pick::new(at.to_string(), agent.label.clone()))
-        .collect();
-    let pane = cx.entity();
-    ui::select(
-        id,
-        "Send to agent",
-        picks,
-        None,
-        agents.is_empty(),
-        move |key, window, cx| {
-            let Some(agent) = key.parse::<usize>().ok().and_then(|at| agents.get(at)) else {
-                return;
-            };
-            let (to, text) = (agent.to.clone(), text.clone());
-            pane.update(cx, |pane, cx| pane.host.send_to_agent(to, text, window, cx));
-        },
-        cx,
-    )
 }
 
 fn notice(

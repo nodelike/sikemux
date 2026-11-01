@@ -1,12 +1,11 @@
 // Slack: read a thread a person shares, search, reply, and say who someone is,
-// for the person in a pane of their own and for their agents as tools.
+// as tools for the person's agents.
 //
 //   config — the workspaces signed in here, and their tokens in the Keychain
 //   client — the HTTP client, the token, and Slack's `ok: false` answers
 //   auth   — signing in with a token, and the status of each workspace
 //   text   — message links, and Slack's markup as markdown
 //   slack  — channels, history, threads, search, posts and people
-//   views  — a thread as the pane shows it, with what an agent is handed of it
 
 mod auth;
 mod client;
@@ -14,7 +13,6 @@ mod config;
 mod error;
 mod slack;
 mod text;
-mod views;
 
 use std::sync::Arc;
 
@@ -53,10 +51,6 @@ impl Plugin for Slack {
                     reply(auth::status(data_dir).await)
                 }
                 "signOut" => answer(auth::sign_out(data_dir, params(input)?)).await,
-                "setDefault" => answer(auth::set_default(data_dir, params(input)?)).await,
-                "channelsView" => answer(slack::channels_view(data_dir, params(input)?)).await,
-                "historyView" => answer(slack::history_view(data_dir, params(input)?)).await,
-                "threadView" => answer(views::thread_view(data_dir, params(input)?)).await,
                 "thread" => answer(slack::thread(data_dir, params(input)?)).await,
                 "search" => answer(slack::search(data_dir, params(input)?)).await,
                 "post" => answer(slack::post(data_dir, params(input)?)).await,

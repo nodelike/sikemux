@@ -3,16 +3,33 @@
 
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use sikemux_plugin_api::store::{self, Accounts};
 use sikemux_plugin_api::SignInStatus;
-use sikemux_plugin_slack_views::{Listed, Signed};
 
 use crate::client::{self, Session};
 use crate::config::{self, SlackConfig, Workspace};
 use crate::error::{SlackError, SlackResult};
+
+/// The workspaces signed in, as the plugin's `status` says.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+pub struct Signed {
+    pub workspaces: Vec<Listed>,
+}
+
+/// A workspace signed in, and who in it.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Listed {
+    pub id: String,
+    pub name: String,
+    pub domain: String,
+    pub user: String,
+    pub user_id: String,
+    pub is_default: bool,
+}
 
 /// Who a token belongs to, as `auth.test` says.
 pub fn workspace_of(answer: &Value) -> SlackResult<Workspace> {
@@ -120,18 +137,6 @@ pub async fn sign_out(data_dir: &Path, input: WorkspaceRef) -> SlackResult<()> {
         client::forget(&workspace.id);
     }
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub struct DefaultChoice {
-    pub id: String,
-}
-
-pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> SlackResult<()> {
-    store::update(data_dir, move |config: &mut SlackConfig| {
-        config.set_default(&input.id)
-    })
-    .await
 }
 
 #[cfg(test)]
