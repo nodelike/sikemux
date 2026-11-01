@@ -3,7 +3,25 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use sikemux_plugin_database_views::{Column as ColumnInfo, TableKind};
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TableKind {
+    Table,
+    View,
+    MaterializedView,
+    ForeignTable,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnInfo {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+    pub nullable: bool,
+    pub default: Option<String>,
+    pub primary_key: bool,
+}
 
 /// A table's kind from PostgreSQL's `relkind` letter.
 pub fn postgres_kind(relkind: &str) -> TableKind {
@@ -50,14 +68,6 @@ pub struct TableInfo {
     pub columns: Vec<ColumnInfo>,
     pub indexes: Vec<Index>,
     pub foreign_keys: Vec<ForeignKey>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct TableRequest {
-    pub id: String,
-    #[serde(default)]
-    pub schema: Option<String>,
-    pub table: String,
 }
 
 /// A name written so the database reads it as one identifier, whatever it holds.

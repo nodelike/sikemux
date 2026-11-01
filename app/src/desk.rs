@@ -2654,11 +2654,6 @@ impl Workbench {
             WindowCall::Open { request } => {
                 return self.open_from_cli(call_id, request, answer, cx)
             }
-            WindowCall::OpenPlugin { plugin, at } => {
-                self.bring_window_forward(cx);
-                self.open_plugin_at(&plugin, at, cx);
-                return answer(Ok(Value::Null));
-            }
             WindowCall::Harness { request } => request,
         };
         let request: HarnessRequest = match serde_json::from_value(request) {

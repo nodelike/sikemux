@@ -57,7 +57,6 @@ sikemux-host = { path = "../crates/sikemux-host", default-features = false }
 sikemux-markdown = { path = "../crates/sikemux-markdown" }
 sikemux-plugin-api = { path = "../crates/sikemux-plugin-api" }
 sikemux-plugin-bruno-views = { path = "../plugins/bruno/views" }
-sikemux-plugin-database-views = { path = "../plugins/database/views" }
 sikemux-process = { path = "../crates/sikemux-process" }
 sikemux-client = { path = "../crates/sikemux-client" }
 sikemux-keychain = { path = "../crates/sikemux-keychain" }

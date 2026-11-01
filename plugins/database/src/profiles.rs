@@ -65,10 +65,6 @@ impl Server {
         Ok(())
     }
 
-    fn same_sign_in(&self, other: &Self) -> bool {
-        self.host == other.host && self.port == other.port && self.user == other.user
-    }
-
     fn trimmed(self) -> Self {
         Self {
             host: self.host.trim().to_string(),
@@ -95,15 +91,6 @@ impl Target {
                 Err(DatabaseError::BadArg("a database file is needed".into()))
             }
             Self::Sqlite { .. } => Ok(()),
-        }
-    }
-
-    /// Whether a password saved for one would sign in to the other: the same engine, host, port and user.
-    fn same_sign_in(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Postgres(saved), Self::Postgres(typed))
-            | (Self::Mysql(saved), Self::Mysql(typed)) => saved.same_sign_in(typed),
-            _ => false,
         }
     }
 
@@ -246,11 +233,6 @@ pub struct SaveRequest {
     pub password: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct IdRequest {
-    pub id: String,
-}
-
 fn profiles_path(data_dir: &Path) -> PathBuf {
     data_dir.join("profiles.json")
 }
@@ -351,6 +333,17 @@ pub fn save(data_dir: &Path, request: SaveRequest) -> DatabaseResult<Profile> {
     Ok(saved)
 }
 
+/// Lets agents change the database's data, or keeps them to reading it.
+pub fn set_agent_writes(data_dir: &Path, id: &str, on: bool) -> DatabaseResult<()> {
+    let _turn = WRITING.locked();
+    let mut profiles = load(data_dir)?;
+    let mut changed = profiles.get(id)?.clone();
+    changed.read_only = !on;
+    changed.agent_writes = on;
+    profiles.upsert(changed);
+    store(data_dir, &profiles)
+}
+
 pub fn remove(data_dir: &Path, id: &str) -> DatabaseResult<()> {
     let _turn = WRITING.locked();
     let mut profiles = load(data_dir)?;
@@ -382,28 +375,6 @@ pub fn saved_password(profile: &Profile) -> DatabaseResult<Option<String>> {
         password_read(split_id(&profile.id).0)
     } else {
         Ok(None)
-    }
-}
-
-/// The password to try a draft with: the one just typed, or else the saved one while the draft still signs in
-/// to the same server as the same user.
-pub fn password_for(
-    data_dir: &Path,
-    draft: &Draft,
-    typed: Option<String>,
-) -> DatabaseResult<Option<String>> {
-    if typed.is_some() {
-        return Ok(typed);
-    }
-    let Some(id) = draft.id.as_deref() else {
-        return Ok(None);
-    };
-    let profiles = load(data_dir)?;
-    match profiles.get(id) {
-        Ok(saved) if saved.target.same_sign_in(&draft.target.clone().trimmed()) => {
-            saved_password(saved)
-        }
-        _ => Ok(None),
     }
 }
 
@@ -458,21 +429,6 @@ mod tests {
     }
 
     #[test]
-    fn a_typed_password_wins_and_no_saved_one_means_none() {
-        let dir = scratch("password-for");
-        let saved = save(&dir, sqlite("Local", "/tmp/a.db")).unwrap();
-        let mut draft = sqlite("Local", "/tmp/a.db").profile;
-        draft.id = Some(saved.id);
-        assert_eq!(
-            password_for(&dir, &draft, Some("typed".into())).unwrap(),
-            Some("typed".into())
-        );
-        assert_eq!(password_for(&dir, &draft, None).unwrap(), None);
-        draft.id = None;
-        assert_eq!(password_for(&dir, &draft, None).unwrap(), None);
-    }
-
-    #[test]
     fn a_password_is_saved_as_typed_and_only_blank_forgets_it() {
         assert_eq!(password_change(None), PasswordChange::Keep);
         assert_eq!(password_change(Some("   ")), PasswordChange::Forget);
@@ -481,25 +437,6 @@ mod tests {
             password_change(Some(" secret ")),
             PasswordChange::Set(" secret ")
         );
-    }
-
-    #[test]
-    fn a_saved_password_is_reused_only_for_the_same_server_and_user() {
-        let server = |host: &str, port: Option<u16>, user: &str| Server {
-            host: host.into(),
-            port,
-            database: "app".into(),
-            user: user.into(),
-            tls: Tls::Prefer,
-        };
-        let saved = Target::Postgres(server("db", None, "app"));
-        let mut renamed = server("db", None, "app");
-        renamed.database = "other".into();
-        assert!(saved.same_sign_in(&Target::Postgres(renamed)));
-        assert!(!saved.same_sign_in(&Target::Postgres(server("other", None, "app"))));
-        assert!(!saved.same_sign_in(&Target::Postgres(server("db", Some(6543), "app"))));
-        assert!(!saved.same_sign_in(&Target::Postgres(server("db", None, "admin"))));
-        assert!(!saved.same_sign_in(&Target::Mysql(server("db", None, "app"))));
     }
 
     #[test]

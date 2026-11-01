@@ -1,20 +1,40 @@
-// The connection form: what it starts from, the choices it offers, and a filled-in form read
-// back as a profile, or what it still needs.
+// A database's address read as a draft of its profile, and a draft read back as a profile, or
+// what it still needs.
 
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use sikemux_plugin_database_views::{Engine, EngineChoice, ProfileDraft, ProfileForm, TlsChoice};
 
 use crate::engines::mysql::MYSQL_PORT;
 use crate::error::{DatabaseError, DatabaseResult};
-use crate::profiles::{self, Draft, Profile, Server, Target, Tls, POSTGRES_PORT};
+use crate::profiles::{Draft, Server, Target, Tls, POSTGRES_PORT};
 
-#[derive(Deserialize, Default)]
-pub struct FormAsk {
-    /// The saved connection to edit; none for a new one.
-    #[serde(default)]
+/// A connection before it is saved, in the fields its address gives.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileDraft {
+    /// None until it is first saved.
     pub id: Option<String>,
+    pub name: String,
+    pub engine: Engine,
+    pub host: String,
+    /// As typed; empty for the engine's usual port.
+    pub port: String,
+    pub database: String,
+    pub user: String,
+    pub tls: String,
+    pub path: String,
+    pub read_only: bool,
+    /// Agents may run statements that change data; never while it is read only.
+    pub agent_writes: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Engine {
+    Postgres,
+    Mysql,
+    Sqlite,
 }
 
 /// A connection URL pasted into the form, and the form as it stood.
@@ -28,15 +48,6 @@ pub struct UrlAsk {
 #[derive(Serialize)]
 pub struct FromUrl {
     pub profile: ProfileDraft,
-    pub password: Option<String>,
-}
-
-/// A filled-in form as Save and Test send it.
-#[derive(Deserialize)]
-pub struct Filled {
-    pub profile: ProfileDraft,
-    /// Left out to keep the saved password; empty to forget it.
-    #[serde(default)]
     pub password: Option<String>,
 }
 
@@ -62,60 +73,6 @@ const TLS_MODES: [(Tls, &str, &str, &str); 4] = [
     (Tls::Disable, "disable", "Off", "Never encrypt"),
 ];
 
-pub fn form(data_dir: &Path, ask: FormAsk) -> DatabaseResult<ProfileForm> {
-    let (draft, has_password) = match ask.id {
-        Some(id) => {
-            let saved = profiles::load(data_dir)?.get(&id)?.clone();
-            (draft_of(&saved), saved.has_password)
-        }
-        None => (blank(), false),
-    };
-    Ok(ProfileForm {
-        draft,
-        has_password,
-        engines: engines(),
-        tls_modes: TLS_MODES
-            .iter()
-            .map(|(_, value, label, detail)| TlsChoice {
-                value: (*value).into(),
-                label: (*label).into(),
-                detail: (*detail).into(),
-            })
-            .collect(),
-    })
-}
-
-fn engines() -> Vec<EngineChoice> {
-    let server = |engine, label: &str, port, user: &str, database: &str| EngineChoice {
-        engine,
-        label: label.into(),
-        default_port: Some(port),
-        name_hint: "Production".into(),
-        user_hint: user.into(),
-        database_hint: database.into(),
-        path_hint: String::new(),
-    };
-    vec![
-        server(
-            Engine::Postgres,
-            "PostgreSQL",
-            POSTGRES_PORT,
-            "postgres",
-            "All databases",
-        ),
-        server(Engine::Mysql, "MySQL", MYSQL_PORT, "root", "All databases"),
-        EngineChoice {
-            engine: Engine::Sqlite,
-            label: "SQLite".into(),
-            default_port: None,
-            name_hint: "Local app data".into(),
-            user_hint: String::new(),
-            database_hint: String::new(),
-            path_hint: "~/data/app.db".into(),
-        },
-    ]
-}
-
 /// A new PostgreSQL connection to every database on this host, as its usual user on its usual
 /// port, encrypted when the server offers it.
 pub fn blank() -> ProfileDraft {
@@ -132,38 +89,6 @@ pub fn blank() -> ProfileDraft {
         read_only: false,
         agent_writes: false,
     }
-}
-
-fn draft_of(profile: &Profile) -> ProfileDraft {
-    let mut draft = ProfileDraft {
-        id: Some(profile.id.clone()),
-        name: profile.name.clone(),
-        read_only: profile.read_only,
-        agent_writes: profile.agent_writes,
-        ..blank()
-    };
-    match &profile.target {
-        Target::Postgres(server) | Target::Mysql(server) => {
-            draft.engine = match profile.target {
-                Target::Mysql(_) => Engine::Mysql,
-                _ => Engine::Postgres,
-            };
-            draft.host = server.host.clone();
-            draft.port = server.port.map(|port| port.to_string()).unwrap_or_default();
-            draft.database = server.database.clone();
-            draft.user = server.user.clone();
-            draft.tls = TLS_MODES
-                .iter()
-                .find(|(tls, ..)| *tls == server.tls)
-                .map_or("prefer", |(_, value, ..)| value)
-                .into();
-        }
-        Target::Sqlite { path } => {
-            draft.engine = Engine::Sqlite;
-            draft.path = path.clone();
-        }
-    }
-    draft
 }
 
 /// Fills the form from a URL such as `postgres://app:secret@db.internal:5432/shop?sslmode=require`,
@@ -430,28 +355,5 @@ mod tests {
             panic!("not PostgreSQL");
         };
         assert_eq!(usual.port, None);
-    }
-
-    #[test]
-    fn edits_a_saved_connection_as_it_was_saved() {
-        let saved = Profile {
-            id: "p1".into(),
-            name: "Shop".into(),
-            read_only: false,
-            agent_writes: true,
-            has_password: true,
-            target: Target::Mysql(Server {
-                host: "db.internal".into(),
-                port: Some(6543),
-                database: "shop".into(),
-                user: "app".into(),
-                tls: Tls::VerifyFull,
-            }),
-        };
-        let draft = draft_of(&saved);
-        assert_eq!(draft.engine, Engine::Mysql);
-        assert_eq!(draft.port, "6543");
-        assert_eq!(draft.tls, "verify-full");
-        assert_eq!(profile(draft).unwrap().target, saved.target);
     }
 }

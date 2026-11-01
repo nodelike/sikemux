@@ -40,7 +40,6 @@ macro_rules! plugins {
 
 plugins! {
     bruno,
-    database,
 }
 
 /// How many views a pane keeps, the least lately asked for going first.

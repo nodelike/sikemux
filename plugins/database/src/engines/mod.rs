@@ -57,15 +57,6 @@ impl Session {
         }
     }
 
-    /// The engine and its version, such as `PostgreSQL 16.4` or `SQLite 3.46.0`.
-    pub async fn version(&self) -> DatabaseResult<String> {
-        match self {
-            Self::Mysql(session) => session.version().await,
-            Self::Postgres(session) => session.version().await,
-            Self::Sqlite(session) => session.version().await,
-        }
-    }
-
     /// The schema a table is looked for in when none is named.
     pub fn default_schema(&self) -> String {
         match self {
@@ -86,14 +77,6 @@ impl Session {
                         "this connection names no database, so name a schema".into(),
                     )
                 }),
-        }
-    }
-
-    /// The databases on a PostgreSQL server this user may connect to; the others hold one each.
-    pub async fn databases(&self) -> DatabaseResult<Vec<String>> {
-        match self {
-            Self::Postgres(session) => session.databases().await,
-            Self::Mysql(_) | Self::Sqlite(_) => Ok(Vec::new()),
         }
     }
 

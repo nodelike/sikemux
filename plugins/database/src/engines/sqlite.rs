@@ -85,15 +85,6 @@ impl Session {
         .map_err(|error| DatabaseError::Query(error.to_string()))?
     }
 
-    pub async fn version(&self) -> DatabaseResult<String> {
-        let version = self
-            .with(|connection| {
-                connection.query_row("select sqlite_version()", [], |row| row.get::<_, String>(0))
-            })
-            .await?;
-        Ok(format!("SQLite {version}"))
-    }
-
     /// `main`, and any database attached to it.
     pub async fn schemas(&self) -> DatabaseResult<Vec<String>> {
         self.with(|connection| {
@@ -332,10 +323,9 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn it_opens_a_file_and_reads_its_version() {
+    async fn it_opens_a_file() {
         let path = fixture("open");
         let session = Session::open(path.to_str().unwrap(), false).await.unwrap();
-        assert!(session.version().await.unwrap().starts_with("SQLite 3."));
         let count = session
             .with(|connection| {
                 connection.query_row("select count(*) from customers", [], |row| {

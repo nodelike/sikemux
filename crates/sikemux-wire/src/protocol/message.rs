@@ -146,12 +146,6 @@ pub enum WindowCall {
     Open {
         request: Value,
     },
-    /// Opens a plugin's pane at the place `at` names in it, which the plugin
-    /// alone reads, as the person asked.
-    OpenPlugin {
-        plugin: String,
-        at: String,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

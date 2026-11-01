@@ -10,8 +10,7 @@ use std::sync::{mpsc, Arc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::cli::protocol::{HarnessRequest, CORE_REPLY_TIMEOUT};
-use crate::protocol::WindowCall;
+use crate::cli::protocol::HarnessRequest;
 
 use super::plugins::{self, Gated};
 use super::questions;
@@ -35,8 +34,6 @@ const SERVICE: &str = "sikemux-approval-test";
 enum Does {
     /// Runs the tool's method as the agent called it.
     Approve,
-    /// Opens the plugin's pane on the call, to change it before it runs.
-    Edit,
     Decline,
 }
 
@@ -54,17 +51,12 @@ struct Proposal {
     header: String,
     text: String,
     choices: Vec<Offered>,
-    /// Where the plugin's pane opens to change the call; needed by an `edit` choice.
-    #[serde(default)]
-    edit: Option<String>,
 }
 
-/// The part of a call that may hold a password: what the agent called it with, and the
-/// place its plugin's pane opens to change it.
+/// The part of a call that may hold a password: what the agent called it with.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Held {
     arguments: Value,
-    edit: Option<String>,
 }
 
 /// A call waiting on the person, kept with its question; what it holds is kept apart.
@@ -211,12 +203,6 @@ pub(crate) async fn propose(
         .iter()
         .map(|offered| offered.does)
         .collect();
-    if does.contains(&Does::Edit) && proposal.edit.is_none() {
-        return Err(format!(
-            "{} offered an edit with nowhere to make it",
-            gated.plugin
-        ));
-    }
     let choices = proposal
         .choices
         .into_iter()
@@ -230,10 +216,7 @@ pub(crate) async fn propose(
         plugin: gated.plugin,
         method: gated.method,
         does,
-        held: Some(Arc::new(Held {
-            arguments,
-            edit: proposal.edit,
-        })),
+        held: Some(Arc::new(Held { arguments })),
     };
     questions::put_to_person(
         core,
@@ -274,18 +257,6 @@ pub(crate) async fn settle(
                 Value::String(said) => format!("The person approved it. {said}"),
                 _ => "The person approved it, and it is done.".to_owned(),
             })
-        }
-        Some(Does::Edit) => {
-            let open = WindowCall::OpenPlugin {
-                plugin: plugin.clone(),
-                at: held()?.edit.clone().unwrap_or_default(),
-            };
-            let call = core
-                .window
-                .call(open, "change it in its form", false, None)?;
-            let late = "Sikemux's window did not open the form; try again.".to_owned();
-            super::harness::answer_of(core, call, CORE_REPLY_TIMEOUT, late).await?;
-            Ok("The person opened it in Sikemux to change it first; nothing is done until they save it there.".to_owned())
         }
         Some(Does::Decline) | None => Ok("The person turned it down; nothing was done.".to_owned()),
     }

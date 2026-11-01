@@ -6,7 +6,6 @@ publish = false
 
 [dependencies]
 sikemux-plugin-api = { path = "../../crates/sikemux-plugin-api" }
-sikemux-plugin-database-views = { path = "views" }
 futures-util = { version = "0.3", default-features = false }
 mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust", "rustls-tls", "ring"] }
 rusqlite = { version = "0.40", features = ["bundled", "column_decltype"] }

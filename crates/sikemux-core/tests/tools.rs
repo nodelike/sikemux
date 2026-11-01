@@ -248,7 +248,6 @@ async fn play_window(
                 client.window_open_closed(call_id);
                 continue;
             }
-            WindowCall::OpenPlugin { plugin, .. } => Err(format!("{plugin} is not played here")),
         };
         client.answer_window(call_id, answer.into());
     }

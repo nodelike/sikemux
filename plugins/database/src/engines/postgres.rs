@@ -53,10 +53,6 @@ fn query_error(error: tokio_postgres::Error) -> DatabaseError {
     DatabaseError::Query(describe(&error))
 }
 
-const DATABASES: &str = "select datname::text from pg_database \
-     where datallowconn and not datistemplate and has_database_privilege(datname, 'CONNECT') \
-     order by datname";
-
 const SCHEMAS: &str = "select nspname::text from pg_namespace \
      where nspname not in ('pg_catalog', 'information_schema', 'pg_toast') \
        and nspname not like 'pg_temp_%' and nspname not like 'pg_toast_temp_%' \
@@ -393,15 +389,6 @@ impl Session {
             .map_err(|error| DatabaseError::Connect(describe(&error)))
     }
 
-    pub async fn databases(&self) -> DatabaseResult<Vec<String>> {
-        let rows = self
-            .client
-            .query(DATABASES, &[])
-            .await
-            .map_err(query_error)?;
-        Ok(rows.iter().map(|row| row.get(0)).collect())
-    }
-
     /// The schemas this user may look into, `public` first.
     pub async fn schemas(&self) -> DatabaseResult<Vec<String>> {
         let rows = self.client.query(SCHEMAS, &[]).await.map_err(query_error)?;
@@ -482,16 +469,6 @@ impl Session {
                 })
                 .collect(),
         })
-    }
-
-    pub async fn version(&self) -> DatabaseResult<String> {
-        let row = self
-            .client
-            .query_one("show server_version", &[])
-            .await
-            .map_err(|error| DatabaseError::Query(describe(&error)))?;
-        let version: String = row.get(0);
-        Ok(format!("PostgreSQL {version}"))
     }
 }
 
@@ -870,11 +847,10 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn a_live_server_reports_its_version_and_keeps_read_only() {
+    async fn a_live_server_keeps_read_only() {
         let Some(session) = open_test_server(true).await else {
             return;
         };
-        assert!(session.version().await.unwrap().starts_with("PostgreSQL "));
         let write = session
             .client
             .batch_execute("create temporary table sikemux_probe (id int)")

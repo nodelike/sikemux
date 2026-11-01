@@ -4,12 +4,6 @@
   "version": "0.1.0",
   "sikemux": ">=0.4",
   "callTimeoutSecs": 600,
-  "views": {
-    "explorerView": { "everySecs": 120 },
-    "tableView": { "everySecs": 120 },
-    "historyView": { "everySecs": 30 }
-  },
-  "writes": ["save", "remove", "connect", "disconnect", "query", "agentQuery", "agentAdd", "clearHistory"],
   "tools": [
     {
       "name": "db_databases",
@@ -113,7 +107,7 @@
       "properties": {
         "url": {
           "type": "string",
-          "description": "postgres://, mysql:// or sqlite:// URL. Leave out a password you don't hold; the person types it."
+          "description": "postgres://, mysql:// or sqlite:// URL. A server's URL needs its password; the person sees the rest before approving, never the password."
         },
         "name": {
           "type": "string"

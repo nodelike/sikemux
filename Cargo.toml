@@ -96,8 +96,6 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-bruno-views]
 opt-level = "z"
-[profile.release.package.sikemux-plugin-database-views]
-opt-level = "z"
 # Terminal output, serialization and search run through these for every byte,
 # so they stay at full speed: built for size, parsing a terminal flood took 55%
 # longer and encoding JSON 48% longer.
