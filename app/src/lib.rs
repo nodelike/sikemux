@@ -14,7 +14,6 @@ mod chat;
 pub use chat::changes as chat_changes;
 pub use chat::composer;
 mod closing;
-#[cfg(target_os = "macos")]
 pub mod codehost;
 mod command_popup;
 mod commands;
