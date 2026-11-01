@@ -82,9 +82,8 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                         .map(|chip| {
                             crate::settings::leaves(div().child(chip), cx).into_any_element()
                         })
-                        .map(|chip| [Some(chip), ci_glyph(bench, cx), Some(separator(cx))])
+                        .map(|chip| [chip, separator(cx)])
                         .into_iter()
-                        .flatten()
                         .flatten(),
                 )
                 .children(
@@ -226,49 +225,6 @@ fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
                         .children(count("↓", git.behind, t.warn)),
                 )
             })
-            .into_any_element(),
-    )
-}
-
-/// How CI went for the branch's newest commit across all its workflows: the most pressing
-/// run's mark and a count, with every run in the card that opens over it.
-fn ci_glyph(bench: &Workbench, cx: &App) -> Option<AnyElement> {
-    let t = Tokens::get(cx).clone();
-    let runs = bench.head_runs();
-    let outcome = runs
-        .iter()
-        .map(|run| run.outcome)
-        .min_by_key(|outcome| crate::ci_card::urgency(*outcome))?;
-    let card = bench.ci.card.clone();
-    let hovered = card.clone();
-    let clicked = card.clone();
-    Some(
-        div()
-            .id("ci-glyph")
-            .relative()
-            .on_hover(move |inside: &bool, _, cx| {
-                hovered.update(cx, |card, cx| card.hover(*inside, cx))
-            })
-            .on_click(move |_, window, cx| {
-                clicked.update(cx, |card, cx| card.close(cx));
-                let area = crate::codehost::Area::Actions;
-                window.dispatch_action(Box::new(crate::codehost::OpenArea { area }), cx)
-            })
-            .h(px(24.))
-            .px(SPACE_1H)
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .rounded(crate::theme::RADIUS_1)
-            .hover(move |style| style.bg(t.surface_chosen))
-            .child(ui::run_mark(
-                "ci-glyph-mark",
-                crate::ci_card::outcome_key(outcome),
-                12.,
-                cx,
-            ))
-            .child(crate::ci_card::chip_count(&runs, cx))
-            .child(div().absolute().bottom_0().right_0().child(card))
             .into_any_element(),
     )
 }

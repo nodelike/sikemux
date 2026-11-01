@@ -28,7 +28,6 @@ use tokio::sync::mpsc;
 
 use crate::battery::Battery;
 use crate::chat::{Answering, Chat, ComposeStage, Composing, Question, Sent};
-use crate::ci::{Ci, CiRepo};
 use crate::codehost::{Area, HostArea, OpenArea};
 use crate::core::{utc_offset_minutes, Ask, ChatAsk, ChatNews, Link, Target, Update, Watch};
 use crate::desk::{
@@ -96,8 +95,6 @@ pub struct Workbench {
     _voice_heard: [Subscription; 4],
     pub keys: Keyboard,
     window_active: bool,
-    /// Whether any of the window shows: not minimised, hidden or wholly behind another window.
-    window_shown: bool,
     /// The agents last told to the core as on screen, and whether the window was in front.
     on_screen: Option<(Vec<String>, bool)>,
     /// The project the per-project watches were last made for, by path.
@@ -116,7 +113,6 @@ pub struct Workbench {
     /// Each open project settings tab's state, by the project's folder.
     pub project_settings: HashMap<String, crate::project_settings::ProjectSettings>,
     pub shown: crate::experience::Shown,
-    pub ci: Ci,
     picture: crate::picture::AccountPicture,
     /// From asking the core to sign in until the browser is done or gives up.
     pub signing_in: bool,
@@ -509,9 +505,7 @@ impl Workbench {
                 }
                 crate::terminal::keep_blinking(bench, cx);
             }),
-            cx.observe_window_visibility(window, |bench, _, window, cx| {
-                bench.window_shown = window.is_visible();
-                bench.watch_ci();
+            cx.observe_window_visibility(window, |bench, _, _, cx| {
                 crate::terminal::keep_blinking(bench, cx)
             }),
             cx.observe(&voice, |bench, _, cx| {
@@ -560,14 +554,9 @@ impl Workbench {
                 focus,
             },
             window_active: window.is_window_active(),
-            window_shown: window.is_visible(),
             on_screen: None,
             watched_project: None,
             watched_place: crate::hosts::Place::This,
-            ci: Ci::new({
-                let bench = cx.weak_entity();
-                cx.new(|_| crate::ci_card::CiCard::new(bench))
-            }),
             battery: crate::battery::read(),
             agent_setup: Default::default(),
             overlays: Overlays::default(),
@@ -789,7 +778,6 @@ impl Workbench {
                 self.watch_project();
                 self.watch_worktree();
                 self.watch_picture();
-                self.watch_ci();
                 self.close_chats(cx);
                 self.open_chat(cx);
                 self.rest_chats_later(cx);
@@ -820,17 +808,6 @@ impl Workbench {
             Update::Read("skills-added", value) => return self.offer_skills(&value, cx),
             Update::Read("plugins", value) => {
                 if !self.reads.keep_plugins(value) {
-                    return;
-                }
-                self.watch_ci();
-            }
-            Update::Read("ci", value) => {
-                if !self.ci.newest_read(value, &self.asks) {
-                    return;
-                }
-            }
-            Update::Read("ci-head", value) => {
-                if !self.ci.head_read(value) {
                     return;
                 }
             }
@@ -2082,40 +2059,6 @@ impl Workbench {
         } else {
             Target::new(&self.asks, place).watch("host-drafts", watch(there));
         }
-    }
-
-    /// Keeps the core checking the CI of the repository in front while its host is signed in
-    /// and the window shows; a hidden window has it check none.
-    fn watch_ci(&mut self) {
-        let shown = self.ci_repo().filter(|_| self.window_shown);
-        self.ci.watch(shown, &self.asks);
-    }
-
-    fn ci_repo(&self) -> Option<CiRepo> {
-        let project = self.project()?;
-        let host = project
-            .code_host
-            .as_ref()
-            .filter(|host| host.host == "github")?;
-        let signed_in = self.reads.plugins.signed_in(&host.plugin) == Some(true);
-        let (owner, name) = host.repo.split_once('/')?;
-        if !signed_in {
-            return None;
-        }
-        Some(CiRepo {
-            plugin: host.plugin.clone(),
-            owner: owner.to_owned(),
-            name: name.to_owned(),
-            account: project
-                .code_hosts
-                .get(&host.host)
-                .and_then(|choice| choice.account.clone()),
-            branch: project.git.as_ref()?.branch.clone(),
-        })
-    }
-
-    pub fn head_runs(&self) -> Vec<sikemux_plugin_api::codehost::Run> {
-        self.ci.head_runs().to_vec()
     }
 
     /// Asks for the account's picture when it is one this window has not got.

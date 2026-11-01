@@ -11,10 +11,8 @@ mod board;
 mod boot;
 mod buddy_picker;
 mod chat;
-mod ci;
 pub use chat::changes as chat_changes;
 pub use chat::composer;
-mod ci_card;
 mod closing;
 #[cfg(target_os = "macos")]
 pub mod codehost;

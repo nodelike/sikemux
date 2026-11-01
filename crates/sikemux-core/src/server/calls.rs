@@ -639,10 +639,6 @@ calls! { core, client, params;
         answer(())
     },
     "trustAsks": Person => answer(super::tasks::asks(&core)),
-    "showCi": Watch, any_program => {
-        super::codehost::ci::show(&core, client.id, parse(params)?);
-        answer(())
-    },
     "answerTrust": Person => {
         let params: TrustAnswerParams = parse(params)?;
         let answered_by = answered_by(&core, &client.peer);
