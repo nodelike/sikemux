@@ -128,13 +128,12 @@ pub async fn release_notes(version: String) -> Result<ReleaseNotes, String> {
         return Ok(known);
     }
     let tag = format!("v{version}");
-    let release: GithubRelease = get_json(&format!("{REPO_API}/releases/tags/{tag}"))
-        .await
-        .map_err(|error| format!("GitHub has no release {tag}: {error}"))?;
-    let credits = match previous_tag(&parsed).await {
-        Some(previous) => credits_between(&previous, &tag).await,
-        None => None,
-    };
+    let release_url = format!("{REPO_API}/releases/tags/{tag}");
+    let (release, credits) = tokio::join!(get_json::<GithubRelease>(&release_url), async {
+        let previous = previous_tag(&parsed).await?;
+        credits_between(&previous, &tag).await
+    });
+    let release = release.map_err(|error| format!("GitHub has no release {tag}: {error}"))?;
     let notes = ReleaseNotes {
         version: version.clone(),
         notes: release.body.filter(|body| !body.trim().is_empty()),
@@ -173,21 +172,27 @@ fn previous_release<'a>(version: &Version, tags: impl Iterator<Item = &'a str>) 
 }
 
 async fn credits_between(previous: &str, tag: &str) -> Option<ReleaseCredits> {
-    let mut commits = Vec::new();
-    let mut total = 0;
-    for page in 1..=MAX_COMMIT_PAGES {
-        let comparison: Comparison = get_json(&format!(
-            "{REPO_API}/compare/{previous}...{tag}?per_page={COMMITS_PER_PAGE}&page={page}"
-        ))
-        .await
-        .ok()?;
-        total = comparison.total_commits;
-        let fetched = comparison.commits.len();
-        commits.extend(comparison.commits);
-        if fetched < COMMITS_PER_PAGE || commits.len() >= total as usize {
-            break;
-        }
+    let page_url = |page: usize| {
+        format!("{REPO_API}/compare/{previous}...{tag}?per_page={COMMITS_PER_PAGE}&page={page}")
+    };
+    let first: Comparison = get_json(&page_url(1)).await.ok()?;
+    let total = first.total_commits;
+    let mut commits = first.commits;
+    let pages = (total as usize)
+        .div_ceil(COMMITS_PER_PAGE)
+        .min(MAX_COMMIT_PAGES);
+    let mut fetching = JoinSet::new();
+    for page in 2..=pages {
+        let url = page_url(page);
+        fetching.spawn(async move { (page, get_json::<Comparison>(&url).await) });
     }
+    let mut rest = Vec::new();
+    while let Some(joined) = fetching.join_next().await {
+        let (page, comparison) = joined.ok()?;
+        rest.push((page, comparison.ok()?.commits));
+    }
+    rest.sort_by_key(|(page, _)| *page);
+    commits.extend(rest.into_iter().flat_map(|(_, page)| page));
     Some(ReleaseCredits {
         commits: total,
         compare: format!("{REPO_WEB}/compare/{previous}...{tag}"),

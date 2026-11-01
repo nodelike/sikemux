@@ -14,7 +14,7 @@ use gpui_kit::{
 use gpui_transcript::{Markdown, Pen, Style};
 use serde::Deserialize;
 use serde_json::json;
-use sikemux_core::server::{UpdateState, UpdateStatus};
+use sikemux_core::server::{UpdateRelease, UpdateState, UpdateStatus};
 use sikemux_wire::protocol::UpdateChannel;
 
 use crate::core::{self, Ask};
@@ -99,19 +99,27 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         else {
             return;
         };
-        let Ok(version) = bench.update(cx, |bench, cx| {
-            let shown = pending(bench)
-                .and_then(|update| update.available.as_ref())
-                .map_or_else(|| version.clone(), |release| release.version.clone());
+        let Ok((version, complete)) = bench.update(cx, |bench, cx| {
+            let available = pending(bench).and_then(|update| update.available.as_ref());
+            let shown =
+                available.map_or_else(|| version.clone(), |release| release.version.clone());
+            let bundled = available.and_then(Bundled::of);
             if let Some(news) = news_of(bench) {
                 news.running = Some(version);
                 news.version = Some(shown.clone());
             }
+            let complete = bundled.as_ref().is_some_and(|bundled| bundled.complete);
+            if let Some(bundled) = bundled {
+                show_notes(bench, Ok(bundled.notes), bundled.avatars);
+            }
             bench.parts.redraw(&bench.parts.over, cx);
-            shown
+            (shown, complete)
         }) else {
             return;
         };
+        if complete {
+            return;
+        }
         let notes = core::request(&asks, "releaseNotes", json!({ "version": version }))
             .await
             .and_then(|notes| {
@@ -128,13 +136,11 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             })
             .unwrap_or_default();
         let _ = bench.update(cx, |bench, cx| {
-            if let Some(news) = news_of(bench) {
-                news.markdown = notes
-                    .as_ref()
-                    .ok()
-                    .and_then(|notes| notes.notes.as_deref())
-                    .map(|text| Rc::new(crate::editor::preview::render(&without_title(text))));
-                news.notes = Some(notes);
+            let shown = news_of(bench).and_then(|news| news.notes.as_ref());
+            let has_notes =
+                shown.is_some_and(|shown| shown.as_ref().is_ok_and(|shown| shown.notes.is_some()));
+            if notes.is_ok() || !has_notes {
+                show_notes(bench, notes, HashMap::new());
             }
             bench.parts.redraw(&bench.parts.over, cx);
         });
@@ -155,6 +161,76 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         });
     })
     .detach();
+}
+
+/// What the update's own manifest says about it, so its notes show without asking GitHub.
+struct Bundled {
+    notes: Notes,
+    avatars: HashMap<String, Arc<Image>>,
+    /// The manifest carried the credits too, so GitHub has nothing to add.
+    complete: bool,
+}
+
+#[derive(Deserialize)]
+struct BundledCredits {
+    commits: u32,
+    compare: String,
+    contributors: Vec<Contributor>,
+    avatars: HashMap<String, String>,
+}
+
+impl Bundled {
+    fn of(release: &UpdateRelease) -> Option<Self> {
+        let credits = release
+            .credits
+            .as_ref()
+            .and_then(|credits| serde_json::to_value(credits).ok())
+            .and_then(|credits| serde_json::from_value::<BundledCredits>(credits).ok());
+        if release.notes.is_none() && credits.is_none() {
+            return None;
+        }
+        let complete = credits.is_some();
+        let (commits, compare, contributors, avatars) = match credits {
+            Some(credits) => (
+                Some(credits.commits),
+                Some(credits.compare),
+                credits.contributors,
+                credits
+                    .avatars
+                    .into_iter()
+                    .filter_map(|(url, data)| Some((url, data_image(&data)?)))
+                    .collect(),
+            ),
+            None => (None, None, Vec::new(), HashMap::new()),
+        };
+        Some(Self {
+            notes: Notes {
+                notes: release.notes.clone(),
+                date: release.date.clone(),
+                commits,
+                compare,
+                contributors,
+            },
+            avatars,
+            complete,
+        })
+    }
+}
+
+fn show_notes(
+    bench: &mut Workbench,
+    notes: Result<Notes, String>,
+    avatars: HashMap<String, Arc<Image>>,
+) {
+    if let Some(news) = news_of(bench) {
+        news.markdown = notes
+            .as_ref()
+            .ok()
+            .and_then(|notes| notes.notes.as_deref())
+            .map(|text| Rc::new(crate::editor::preview::render(&without_title(text))));
+        news.notes = Some(notes);
+        news.avatars.extend(avatars);
+    }
 }
 
 /// The update the core found for this app, while one is there to install.
