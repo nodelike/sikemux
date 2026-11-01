@@ -422,8 +422,9 @@ enum InboxKind: String, Codable, Hashable {
     case input
     /// Auto handed the card back, Sikemux holds the messages two agents
     /// keep sending each other, two agents keep changing the same lines, the
-    /// project's check keeps failing, or a rule or knowledge Sikemux keeps no
-    /// longer holds, for the reason in `detail`.
+    /// project's check keeps failing, a rule or knowledge Sikemux keeps no
+    /// longer holds, or a slice's ticket was closed with nothing of it landed,
+    /// for the reason in `detail`.
     case held
     /// The agent went on with an assumption the person may correct.
     case assumption

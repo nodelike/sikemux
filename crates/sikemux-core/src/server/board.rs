@@ -126,6 +126,10 @@ pub struct Ticket {
     /// Why the last change did not reach the ticket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_note: Option<String>,
+    /// Its tracker closed it while its slice had not landed, where the person
+    /// lands slices, so the person decides what that means.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub done_unlanded: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -969,6 +973,7 @@ impl TicketParams {
             provider: self.provider.unwrap_or(Tracker::Jira),
             synced: None,
             sync_note: None,
+            done_unlanded: false,
         })
     }
 }
@@ -1822,6 +1827,11 @@ fn change_in(
     if moved.done && card.status != Status::Done {
         mark_done(core, card, by, project, dropped, landed_before);
     }
+    if card.status != before.status {
+        if let Some(ticket) = &mut card.ticket {
+            ticket.done_unlanded = false;
+        }
+    }
     let later = later.and(moved.later);
     card.updated_at = epoch_ms();
     remember_team(core, board, id);
@@ -2241,6 +2251,9 @@ pub(crate) enum Waits {
         promise: String,
         url: Option<String>,
     },
+    /// Its ticket `key` was closed in its tracker with nothing of its slice
+    /// landed, where the person lands slices.
+    TicketDone { key: String },
     /// Its owner asked the person something it waits on.
     Answer,
 }
@@ -2256,6 +2269,11 @@ fn waits(core: &Core, landing: Landing, card: &Card) -> Option<Waits> {
         return Some(Waits::Held {
             need,
             note: run.note.clone(),
+        });
+    }
+    if let Some(ticket) = (card.ticket.as_ref()).filter(|ticket| ticket.done_unlanded) {
+        return Some(Waits::TicketDone {
+            key: ticket.key.clone(),
         });
     }
     let url = run
@@ -2357,7 +2375,8 @@ pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Resul
 }
 
 /// The cards Auto handed back to the person, the slices waiting at the
-/// person's gate, and the cards done since `done_since`.
+/// person's gate or whose ticket closed with nothing landed, and the cards
+/// done since `done_since`.
 pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summary> {
     let state = core.boards.state.locked();
     state
@@ -2367,7 +2386,12 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
         .filter(|(board, card)| {
             matches!(
                 waits(core, board.settings.landing, card),
-                Some(Waits::Review { .. } | Waits::Held { .. } | Waits::Gate { .. })
+                Some(
+                    Waits::Review { .. }
+                        | Waits::Held { .. }
+                        | Waits::Gate { .. }
+                        | Waits::TicketDone { .. }
+                )
             ) || done_since
                 .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)
         })

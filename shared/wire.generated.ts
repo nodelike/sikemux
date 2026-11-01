@@ -2182,6 +2182,11 @@ export interface CardTicket {
     synced?: CardStatus;
     /** Why the last change did not reach the ticket. */
     syncNote?: string;
+    /**
+     * Its tracker closed it while its slice had not landed, where the person
+     * lands slices, so the person decides what that means.
+     */
+    doneUnlanded?: boolean;
 }
 
 /** Where a card's ticket lives. */

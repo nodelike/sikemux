@@ -63,6 +63,9 @@ enum Case {
     PullRequest,
     /// Auto handed the card back, for the person to fix something or unblock it.
     HandedBack(Hold),
+    /// The slice's ticket was closed in its tracker with nothing of it
+    /// landed, where the person lands slices.
+    TicketDone,
     /// Two agents keep messaging each other and nothing else.
     Looping,
     /// Two agents keep changing the same lines.
@@ -113,7 +116,7 @@ impl Case {
             | Case::Looping
             | Case::CheckFailing
             | Case::StaleMemory => (InboxKind::Held, Wants::Person(Fix)),
-            Case::Colliding => (InboxKind::Held, Wants::Person(Decide)),
+            Case::Colliding | Case::TicketDone => (InboxKind::Held, Wants::Person(Decide)),
             Case::Failed(Some(Fault::Account)) => (InboxKind::Failed, Wants::Person(Unblock)),
             Case::Failed(Some(Fault::Broke)) => (InboxKind::Failed, Wants::Person(Fix)),
             Case::Failed(Some(Fault::Retrying) | None) => {
@@ -609,6 +612,18 @@ fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
         Waits::Gate { gate, promise, url } => {
             let mut item = gate_item(card, *gate, promise);
             item.url = url.clone();
+            item
+        }
+        Waits::TicketDone { key } => {
+            let mut item = item(
+                card_id("ticket"),
+                Case::TicketDone,
+                format!("{key} says done, but nothing of it landed"),
+                card.updated_at,
+            );
+            item.detail = Some(format!(
+                "{key} was closed in its tracker. Pass Landed once its work is in, or mark the slice done to close it as it stands"
+            ));
             item
         }
         Waits::Answer => return None,

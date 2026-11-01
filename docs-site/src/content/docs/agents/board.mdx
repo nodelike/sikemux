@@ -26,7 +26,7 @@ A check command runs on commits on the project's branch, so an agent in a checko
 Each project says once who passes Landed, under **Lands** in the board's settings or **Slices land** on a goal:
 
 - **Once on the branch**: Sikemux passes Landed as soon as the slice's commits are on the project's branch, and Auto merges its pull requests itself once their checks pass and a reviewer approves.
-- **When you pass it**: nothing counts as landed until you pass Landed yourself. Auto leaves its pull requests open for you to merge, and merging one passes Landed as yours. An agent can still land its own commits with `git_commit`, but its slice then waits for you at Landed. A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see. Marking a slice done yourself passes every gate it has left, and moving it back to Open clears them.
+- **When you pass it**: nothing counts as landed until you pass Landed yourself. Auto leaves its pull requests open for you to merge, and merging one passes Landed as yours. An agent can still land its own commits with `git_commit`, but its slice then waits for you at Landed. A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see. Marking a slice done yourself passes every gate it has left, and moving it back to Open clears them. A Jira ticket closed with nothing of its slice landed doesn't close the slice either: it waits for you under **Decide**, saying the ticket says done but nothing landed, until you pass Landed, mark the slice done, or the ticket is opened again.
 
 ## Assertions
 

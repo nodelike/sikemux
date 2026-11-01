@@ -1,7 +1,8 @@
 //! Keeps the ticket behind each card in step with it through the person's
 //! own sign-in: a card taken moves its ticket into the workflow's in-progress
 //! statuses, a card done moves it into its done statuses with a comment naming
-//! its pull request, and a ticket closed in its tracker closes its card.
+//! its pull request, and a ticket closed in its tracker closes its card, but
+//! for a slice the person lands that has not landed, which waits for them.
 
 use std::sync::Arc;
 
@@ -9,6 +10,7 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
+use super::auto::Landing;
 use super::{change_card, send_notices, By, Changes, Status, Ticket, Tracker};
 use crate::server::connection::blocking;
 use crate::server::plugins::{self, Failure, Provided};
@@ -91,7 +93,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                     Status::Done => Some("done"),
                 };
                 let work = match wanted {
-                    Some(to) if ticket.synced != Some(card.status) => {
+                    Some(to) if ticket.synced != Some(card.status) && !ticket.done_unlanded => {
                         if since(failed) < RETRY_AFTER_MS {
                             next = sooner(next, failed.map(|at| at + RETRY_AFTER_MS));
                             continue;
@@ -169,11 +171,13 @@ async fn run(core: &Arc<Core>, project: &str, id: u64, ticket: &Ticket, work: Wo
             settle(core, project, id, &ticket.key, status, outcome);
         }
         Work::Look => {
-            let closed = issue
+            let category = issue
                 .ok()
-                .is_some_and(|issue| issue["statusCategory"].as_str() == Some("done"));
-            if closed {
-                close(core, project, id, &ticket.key).await;
+                .and_then(|issue| issue["statusCategory"].as_str().map(str::to_owned));
+            match category.as_deref() {
+                Some("done") => close(core, project, id, &ticket.key).await,
+                Some(_) if ticket.done_unlanded => reopened(core, project, id, &ticket.key),
+                _ => {}
             }
         }
     }
@@ -229,6 +233,28 @@ fn into_category(transitions: &Value, category: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The ticket closed with nothing landed was opened again in its tracker, so
+/// it no longer waits for the person, and goes back in step with its card.
+fn reopened(core: &Core, project: &str, id: u64, key: &str) {
+    let mut state = core.boards.state.locked();
+    let Some(card) = state
+        .boards
+        .get_mut(project)
+        .and_then(|board| board.card_mut(id).ok())
+    else {
+        return;
+    };
+    let Some(ticket) = (card.ticket.as_mut()).filter(|ticket| ticket.key == key) else {
+        return;
+    };
+    ticket.done_unlanded = false;
+    ticket.synced = None;
+    card.updated_at = epoch_ms();
+    core.boards.save(&mut state, project);
+    drop(state);
+    core.boards.wake.now();
+}
+
 /// Notes on the card's ticket how its update went.
 fn settle(
     core: &Core,
@@ -264,25 +290,38 @@ fn settle(
     core.boards.save(&mut state, project);
 }
 
-/// The ticket was closed in its tracker, so its card is done.
+/// The ticket was closed in its tracker, so its card is done. A slice the
+/// person lands that has not landed stays open, waiting for the person to
+/// decide, since a closed ticket lands nothing.
 async fn close(core: &Arc<Core>, project: &str, id: u64, key: &str) {
     let core2 = core.clone();
     let (project, key) = (project.to_owned(), key.to_owned());
     let notices = blocking(move || {
         let open = {
             let mut state = core2.boards.state.locked();
-            let Some(card) = state
-                .boards
-                .get_mut(&project)
-                .and_then(|board| board.card_mut(id).ok())
-            else {
+            let Some(board) = state.boards.get_mut(&project) else {
                 return Ok(Vec::new());
             };
+            let landing = board.settings.landing;
+            let Ok(card) = board.card_mut(id) else {
+                return Ok(Vec::new());
+            };
+            let unlanded = landing == Landing::Person
+                && (card.slice.as_ref()).is_some_and(|slice| slice.waiting().is_some());
+            let open = card.status != Status::Done;
             let Some(ticket) = card.ticket.as_mut().filter(|ticket| ticket.key == key) else {
                 return Ok(Vec::new());
             };
             ticket.synced = Some(Status::Done);
-            card.status != Status::Done
+            if open && unlanded {
+                if !ticket.done_unlanded {
+                    ticket.done_unlanded = true;
+                    card.updated_at = epoch_ms();
+                    core2.boards.save(&mut state, &project);
+                }
+                return Ok(Vec::new());
+            }
+            open
         };
         if !open {
             return Ok(Vec::new());
