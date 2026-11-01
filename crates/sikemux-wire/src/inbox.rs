@@ -62,9 +62,6 @@ pub enum InboxKind {
     Failed,
     Finished,
     Working,
-    /// A kind a newer core sends, which this build does not know.
-    #[serde(other)]
-    Unknown,
 }
 
 /// A browser recording an agent made.
