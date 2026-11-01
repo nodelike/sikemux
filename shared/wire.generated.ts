@@ -2491,9 +2491,12 @@ export interface GoalRule {
 
 /** Work that arrived again for a card that already held it. */
 export interface Arrival {
-    /** The ticket's or trigger's title. */
+    /** The ticket's, trigger's or CI failure's title. */
     title: string;
-    /** What came with it, such as a webhook's request, cut to what a card keeps. */
+    /**
+     * What came with it, such as a webhook's request or what CI printed, cut
+     * to what a card keeps.
+     */
     details: string;
     at: number;
 }
