@@ -2133,6 +2133,12 @@ export interface BoardCard {
     /** For a slice of a goal: its promise, gates, evidence and notes. */
     slice: SliceView | null;
     /**
+     * For a goal, its slices' cards in board order: those right under it,
+     * and its own card when it is a slice itself. Empty for a card that is no
+     * goal; the one way a client tells which cards are goals.
+     */
+    goalSlices?: number[];
+    /**
      * For a goal, the gates its slices wait at, in the order they will be
      * reached: a slice that waits on another comes after it.
      */
