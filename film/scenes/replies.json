@@ -27,5 +27,21 @@
       { "tool": "Bash", "input": { "command": "git add src/cart.mjs test/cart.test.mjs", "description": "Stage the fix" }, "result": "", "ms": 300 },
       { "tool": "Bash", "input": { "command": "git commit -m \"fix(cart): round tax once on the whole cart, so totals match the receipt\"", "description": "Commit the fix" }, "result": "[main 4f1c2a7] fix(cart): round tax once on the whole cart", "ms": 3600000 }
     ]
+    },
+  {
+    "when": "p95",
+    "steps": [
+      { "tool": "mcp__sikemux-tools__signoz_traces", "input": { "service": "checkout-api", "since": "24h" }, "result": "p95 3.08 s until 12:05, 391 ms since; 212 failed checkouts before, 0 after", "ms": 500 },
+      { "say": "Yes. p95 dropped from 3.1 s to 390 ms right after the 12:05 deploy, and no checkout has failed since.", "perSecond": 80 },
+      { "tool": "mcp__sikemux-tools__page_show", "input": { "title": "Checkout p95 latency" }, "result": "{\"page\":{\"id\":\"c4a7f00d000000000000000000000001\",\"title\":\"Checkout p95 latency\",\"height\":314}}", "ms": 300 }
+    ]
+  },
+  {
+    "when": "empty projects page",
+    "steps": [
+      { "say": "Here are three, drawn with the dashboard's own colours. I'd go with B.", "perSecond": 80 },
+      { "tool": "mcp__sikemux-tools__page_show", "input": { "title": "Empty projects page, three ways" }, "result": "{\"page\":{\"id\":\"c4a7f00d000000000000000000000002\",\"title\":\"Empty projects page, three ways\",\"height\":304}}", "ms": 300 },
+      { "say": "B gets someone to a first deploy in two clicks and still works for people who know the shortcut.", "perSecond": 80 }
+    ]
   }
 ]
