@@ -20,13 +20,10 @@
     ]
   },
   {
-    "when": "open the checkout",
+    "when": "open vercel.com",
     "steps": [
-      { "say": "Running every test before I commit, since checkout and the order emails both use this total.", "perSecond": 20 },
-      { "tool": "Bash", "input": { "command": "pnpm test", "description": "Run every test" }, "result": "# tests 8\n# pass 8\n# fail 0", "ms": 6400 },
-      { "tool": "Bash", "input": { "command": "git commit -am \"fix(cart): round tax once on the whole cart, so totals match the receipt\"", "description": "Commit the fix" }, "result": "[main 4f1c2a7] fix(cart): round tax once on the whole cart", "ms": 1300 },
-      { "tool": "mcp__sikemux-tools__browser_navigate", "call": "browser.navigate", "input": { "url": "http://localhost:5173/checkout/" }, "ms": 1500 },
-      { "say": "Committed as 4f1c2a7, and all eight tests pass. The checkout in my tab now comes to $62.06, the same as the receipt.", "perSecond": 20 }
+      { "say": "Opening vercel.com in my tab.", "perSecond": 20 },
+      { "tool": "mcp__sikemux-tools__browser_navigate", "call": "browser.navigate", "input": { "url": "https://vercel.com/" }, "ms": 1200 }
     ]
   },
   {

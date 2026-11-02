@@ -19,7 +19,6 @@
 //!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
 //!   title "TEXT"                gives the last chat that title
 //!   page ID FILE                keeps FILE as the page a scripted page_show call names by ID
-//!   serve PORT FOLDER           serves FOLDER, beside the scene, on localhost:PORT
 //!   open FILE|terminal|git      opens FILE of the last project, a new terminal or Git in a tab
 //!   patch FILE                  applies FILE, a diff beside the scene, to the last project unstaged
 //!   prefer KEY [VALUE]          sets a preference, VALUE as JSON or else as text, or puts
@@ -233,7 +232,6 @@ struct World {
     chat: Option<String>,
     claude: PathBuf,
     world: Value,
-    servers: Vec<Child>,
 }
 
 impl World {
@@ -380,7 +378,6 @@ impl World {
             chat: None,
             claude,
             world: args.world.clone(),
-            servers: Vec::new(),
         })
     }
 
@@ -714,24 +711,6 @@ impl World {
                     bail!("could not apply {}", step.text(0)?);
                 }
             }
-            "serve" => {
-                let server = sikemux_process::user_environment::command("python3")
-                    .args([
-                        "-m",
-                        "http.server",
-                        step.text(0)?,
-                        "--bind",
-                        "127.0.0.1",
-                        "--directory",
-                    ])
-                    .arg(self.scenes.join(step.text(1)?))
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()
-                    .context("serving the pages")?;
-                self.servers.push(server);
-                std::thread::sleep(Duration::from_millis(500));
-            }
             "page" => {
                 let pages = self.work.join("data").join(sikemux_core::pages::FOLDER);
                 std::fs::create_dir_all(&pages)?;
@@ -806,10 +785,6 @@ fn expand_home(value: &Value) -> Value {
 
 impl Drop for World {
     fn drop(&mut self) {
-        for server in &mut self.servers {
-            let _ = server.kill();
-            let _ = server.wait();
-        }
         let group = -(self.core.id() as i32);
         unsafe { libc::kill(group, libc::SIGTERM) };
         let started = Instant::now();
