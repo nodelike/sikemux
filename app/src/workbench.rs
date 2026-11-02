@@ -4615,7 +4615,7 @@ impl Render for Workbench {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .pt(SPACE_1)
+                    .pt(if goals { SPACE_2H } else { SPACE_1 })
                     .px(SPACE_2H)
                     .pb(SPACE_2H)
                     .on_drag_move(cx.listener(
