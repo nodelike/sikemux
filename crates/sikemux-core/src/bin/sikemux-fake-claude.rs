@@ -27,7 +27,8 @@
 //! drops it.
 //!
 //! A model change is answered the way Claude Code does, with a message saying
-//! so. `FAKE_CLAUDE_SETTINGS_MODEL` names the model its settings choose, and
+//! so. `FAKE_CLAUDE_MODEL` names the model its messages say wrote them (`fake`),
+//! `FAKE_CLAUDE_SETTINGS_MODEL` the model its settings choose, and
 //! `FAKE_CLAUDE_MODELS`, a JSON list, the models it lists in place of its own.
 //!
 //! An account is its `CLAUDE_CONFIG_DIR`: `auth status --json` prints its
@@ -126,7 +127,7 @@ impl Claude {
         self.send(json!({
             "type": "stream_event",
             "parent_tool_use_id": null,
-            "event": { "type": "message_start", "message": { "id": message_id, "model": "fake", "usage": { "input_tokens": 10, "output_tokens": 1 } } },
+            "event": { "type": "message_start", "message": { "id": message_id, "model": model(), "usage": { "input_tokens": 10, "output_tokens": 1 } } },
         }));
         self.send(json!({
             "type": "stream_event",
@@ -137,7 +138,7 @@ impl Claude {
             "type": "assistant",
             "uuid": uuid::Uuid::new_v4().to_string(),
             "parent_tool_use_id": null,
-            "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": text }], "usage": { "input_tokens": 10, "output_tokens": 5 } },
+            "message": { "id": message_id, "model": model(), "role": "assistant", "content": [{ "type": "text", "text": text }], "usage": { "input_tokens": 10, "output_tokens": 5 } },
         });
         self.record(assistant.clone());
         self.send(assistant);
@@ -151,7 +152,7 @@ impl Claude {
             "stop_reason": if error.is_some() { Value::Null } else { json!("end_turn") },
             "user_message_uuid": prompt,
             "total_cost_usd": 0.01,
-            "modelUsage": { "fake": { "contextWindow": 200000 } },
+            "modelUsage": { model(): { "contextWindow": 200000 } },
         });
         if let Some(error) = error {
             result["result"] = json!(error);
@@ -197,7 +198,7 @@ impl Claude {
                 self.send(json!({
                     "type": "stream_event",
                     "parent_tool_use_id": null,
-                    "event": { "type": "message_start", "message": { "id": message_id, "model": "fake" } },
+                    "event": { "type": "message_start", "message": { "id": message_id, "model": model() } },
                 }));
                 let mut said = String::new();
                 for index in 0..count {
@@ -213,7 +214,7 @@ impl Claude {
                     "type": "assistant",
                     "uuid": uuid::Uuid::new_v4().to_string(),
                     "parent_tool_use_id": null,
-                    "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": said }] },
+                    "message": { "id": message_id, "model": model(), "role": "assistant", "content": [{ "type": "text", "text": said }] },
                 });
                 self.record(assistant.clone());
                 self.send(assistant);
@@ -235,7 +236,7 @@ impl Claude {
                     "type": "assistant",
                     "uuid": uuid::Uuid::new_v4().to_string(),
                     "parent_tool_use_id": null,
-                    "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": "back online" }] },
+                    "message": { "id": message_id, "model": model(), "role": "assistant", "content": [{ "type": "text", "text": "back online" }] },
                 });
                 self.record(assistant.clone());
                 self.send(assistant);
@@ -255,7 +256,7 @@ impl Claude {
                     "type": "assistant",
                     "uuid": uuid::Uuid::new_v4().to_string(),
                     "parent_tool_use_id": null,
-                    "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": "back" }] },
+                    "message": { "id": message_id, "model": model(), "role": "assistant", "content": [{ "type": "text", "text": "back" }] },
                 });
                 self.record(assistant.clone());
                 self.send(assistant);
@@ -298,7 +299,7 @@ impl Claude {
                 );
                 let assistant = |id: String, parent: Option<&str>, content: Value| {
                     json!({ "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": parent,
-                        "message": { "id": id, "model": "fake", "role": "assistant", "content": content } })
+                        "message": { "id": id, "model": model(), "role": "assistant", "content": content } })
                 };
                 let result = |parent: Option<&str>, tool: &str, said: &str| {
                     json!({ "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": parent,
@@ -381,7 +382,7 @@ impl Claude {
                 let tool_id = format!("toolu-{uuid}-{at}");
                 self.send(json!({
                     "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
-                    "message": { "id": id, "model": "fake", "role": "assistant",
+                    "message": { "id": id, "model": model(), "role": "assistant",
                         "content": [{ "type": "tool_use", "id": tool_id, "name": name, "input": step["input"] }] },
                 }));
                 clock.wait(step["ms"].as_f64().unwrap_or(600.));
@@ -402,7 +403,7 @@ impl Claude {
             };
             self.send(json!({
                 "type": "stream_event", "parent_tool_use_id": null,
-                "event": { "type": "message_start", "message": { "id": id, "model": "fake" } },
+                "event": { "type": "message_start", "message": { "id": id, "model": model() } },
             }));
             for piece in said.split_inclusive(char::is_whitespace) {
                 let delta = if kind == "text" {
@@ -425,7 +426,7 @@ impl Claude {
             };
             let assistant = json!({
                 "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
-                "message": { "id": id, "model": "fake", "role": "assistant", "content": [block] },
+                "message": { "id": id, "model": model(), "role": "assistant", "content": [block] },
             });
             self.record(assistant.clone());
             self.send(assistant);
@@ -489,6 +490,11 @@ fn scripted_reply(prompt: &str) -> Option<Vec<Value>> {
             .then(|| reply["steps"].as_array().cloned())
             .flatten()
     })
+}
+
+/// The model its messages say wrote them: `FAKE_CLAUDE_MODEL`, or `fake`.
+fn model() -> String {
+    std::env::var("FAKE_CLAUDE_MODEL").unwrap_or_else(|_| "fake".to_owned())
 }
 
 /// A file named beside `FAKE_CLAUDE_SCRIPT`.
