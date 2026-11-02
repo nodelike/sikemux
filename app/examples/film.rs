@@ -7,15 +7,19 @@
 //!     [--wallpaper <png>] [--lockup <png>] [--height 1440] [--blur] [--draft]
 //!     [--stills 1.5,4] [--grid]
 //!
+//! The window's native views, the desk's browser and the pages agents show, live in a stand-in
+//! window offscreen, and each picture of the window has them laid over it where they sit.
+//!
 //! A scene is a step a line, `#` starting a comment; a step ending in `&` plays on while the
 //! next ones start. A place is in window points: `x,y`, a box `x,y,w,h`, or the quoted label of
 //! a control the window reports. Times are in seconds.
 //!   stage W H / window W H      the frame and the window in its middle, in points
 //!   replies FILE                the stand-in Claude's scripted replies (see sikemux-fake-claude)
 //!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
-//!   chat NAME                   opens a Claude chat named NAME in the last project
+//!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
 //!   title "TEXT"                gives the last chat that title
 //!   page ID FILE                keeps FILE as the page a scripted page_show call names by ID
+//!   serve PORT FOLDER           serves FOLDER, beside the scene, on localhost:PORT
 //!   open FILE|terminal|git      opens FILE of the last project, a new terminal or Git in a tab
 //!   patch FILE                  applies FILE, a diff beside the scene, to the last project unstaged
 //!   prefer KEY [VALUE]          sets a preference, VALUE as JSON or else as text, or puts
@@ -229,6 +233,7 @@ struct World {
     chat: Option<String>,
     claude: PathBuf,
     world: Value,
+    servers: Vec<Child>,
 }
 
 impl World {
@@ -303,7 +308,6 @@ impl World {
             .env("HOME", &home)
             .env("SIKEMUX_CORE_SOCKET", &socket)
             .env(sikemux_process::vars::AGENT_SEARCH, "path")
-            .env("FAKE_CLAUDE_CLOCK", clock)
             .env("FAKE_CLAUDE_MODEL", SEEDED_MODEL)
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
@@ -311,6 +315,11 @@ impl World {
             .process_group(0);
         if let Some(replies) = &replies {
             command.env("FAKE_CLAUDE_SCRIPT", replies);
+        }
+        // A clip paces the replies by its own time; snaps take the clock on the wall, so the
+        // durations the chat shows are real ones.
+        if !args.stills.as_ref().is_some_and(Vec::is_empty) {
+            command.env("FAKE_CLAUDE_CLOCK", clock);
         }
         let core = command.spawn().context("starting the core")?;
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -371,6 +380,7 @@ impl World {
             chat: None,
             claude,
             world: args.world.clone(),
+            servers: Vec::new(),
         })
     }
 
@@ -458,6 +468,22 @@ impl World {
             .filter_map(Value::as_str)
         {
             self.add_project(other, None)?;
+        }
+        let spaces: Vec<&Value> = world["spaces"].as_array().into_iter().flatten().collect();
+        if !spaces.is_empty() {
+            let infos: Vec<Value> = spaces
+                .iter()
+                .map(|space| json!({ "id": space["id"], "name": space["name"], "icon": space["icon"] }))
+                .collect();
+            self.call("setSpaces", json!({ "spaces": infos }))?;
+        }
+        for space in &spaces {
+            for project in space["projects"].as_array().into_iter().flatten() {
+                self.call(
+                    "updateProject",
+                    json!({ "id": project, "patch": { "space": space["id"] } }),
+                )?;
+            }
         }
         for host in world["sshHosts"]
             .as_array()
@@ -649,6 +675,10 @@ impl World {
                     "openTab",
                     json!({ "project": project, "kind": "agent", "target": chat }),
                 )?;
+                self.call(
+                    "moveTab",
+                    json!({ "project": project, "tab": format!("agent:{chat}"), "to": 0 }),
+                )?;
                 if let Ok(name) = step.text(0) {
                     self.call("renameAgent", json!({ "agentId": chat, "name": name }))?;
                 }
@@ -683,6 +713,24 @@ impl World {
                 if !applied.success() {
                     bail!("could not apply {}", step.text(0)?);
                 }
+            }
+            "serve" => {
+                let server = sikemux_process::user_environment::command("python3")
+                    .args([
+                        "-m",
+                        "http.server",
+                        step.text(0)?,
+                        "--bind",
+                        "127.0.0.1",
+                        "--directory",
+                    ])
+                    .arg(self.scenes.join(step.text(1)?))
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .context("serving the pages")?;
+                self.servers.push(server);
+                std::thread::sleep(Duration::from_millis(500));
             }
             "page" => {
                 let pages = self.work.join("data").join(sikemux_core::pages::FOLDER);
@@ -758,6 +806,10 @@ fn expand_home(value: &Value) -> Value {
 
 impl Drop for World {
     fn drop(&mut self) {
+        for server in &mut self.servers {
+            let _ = server.kill();
+            let _ = server.wait();
+        }
         let group = -(self.core.id() as i32);
         unsafe { libc::kill(group, libc::SIGTERM) };
         let started = Instant::now();
@@ -851,10 +903,8 @@ struct Director {
     next_id: u64,
     lens: Option<u64>,
     bench: Option<gpui::Entity<workbench::Workbench>>,
-    window_size: (f32, f32),
-    /// Where scripted pages are kept, and the Swift program that draws one.
-    pages: PathBuf,
-    page_drawer: PathBuf,
+    #[cfg(target_os = "macos")]
+    stand_in: Option<native::StandIn>,
     /// Who the rail shows as signed in, kept over whatever the core says.
     signed_in: Option<sikemux_wire::protocol::AccountInfo>,
     compositor: Compositor,
@@ -976,49 +1026,6 @@ impl Director {
         if std::fs::write(&fresh, format!("{ms:.1}")).is_ok() {
             let _ = std::fs::rename(&fresh, &self.clock);
         }
-    }
-
-    /// Lays each page a chat shows over the place the window keeps for it, drawn by WebKit as
-    /// the app's own view would draw it, since that view is not in the window's pictures.
-    fn lay_pages(&mut self, shot: &mut image::RgbaImage) -> anyhow::Result<()> {
-        let spots = sikemux_gpui::drive::spots();
-        let theme = self
-            .cx
-            .update(|cx| theme::page_rule(theme::Tokens::get(cx), None));
-        let density = shot.width() as f32 / self.window_size.0;
-        for (name, frame) in spots.as_object().into_iter().flatten() {
-            let Some(id) = name.strip_prefix("chat-page-") else {
-                continue;
-            };
-            let Some([left, top, width, height]) =
-                serde_json::from_value::<[f32; 4]>(frame.clone()).ok()
-            else {
-                continue;
-            };
-            let html = std::fs::read_to_string(self.pages.join(format!("{id}.html")))?;
-            let themed = self.pages.join(format!("{id}.themed.html"));
-            std::fs::write(&themed, sikemux_core::pages::themed(&html, &theme, None))?;
-            let drawn = self.pages.join(format!("{id}.png"));
-            let made = sikemux_process::user_environment::command("swift")
-                .arg(&self.page_drawer)
-                .arg(&themed)
-                .arg(width.to_string())
-                .arg(height.to_string())
-                .arg(density.to_string())
-                .arg(&drawn)
-                .status()?;
-            if !made.success() {
-                bail!("could not draw page {id}");
-            }
-            let page = image::open(&drawn)?.to_rgba8();
-            image::imageops::overlay(
-                shot,
-                &page,
-                (left * density).round() as i64,
-                (top * density).round() as i64,
-            );
-        }
-        Ok(())
     }
 
     /// Shows the world's account as signed in, over the core's view as each one arrives.
@@ -1172,6 +1179,8 @@ impl Director {
     }
 
     fn pump(&mut self) {
+        #[cfg(target_os = "macos")]
+        native::run_loop();
         self.cx.update(|cx| cx.set_reduce_motion(false));
         self.cx.run_until_parked();
     }
@@ -1209,7 +1218,10 @@ impl Director {
                 self.spent[1] += reading.elapsed();
                 if let Some(path) = self.snap.take() {
                     let mut shot = shot.clone();
-                    self.lay_pages(&mut shot)?;
+                    #[cfg(target_os = "macos")]
+                    if let Some(stand_in) = &self.stand_in {
+                        stand_in.lay_over(&mut shot)?;
+                    }
                     shot.save(&path)?;
                     println!("film: saved {}", path.display());
                 }
@@ -1688,6 +1700,8 @@ fn main() -> anyhow::Result<()> {
         Arc::new(icons::Icons),
         gpui_platform::current_headless_renderer,
     );
+    #[cfg(target_os = "macos")]
+    let stand_in = native::StandIn::open(window_size);
     let link = core::start(core::Home::at(world.socket.clone()));
     let window = cx.update(|cx| {
         gpui_kit::init(cx);
@@ -1818,12 +1832,8 @@ fn main() -> anyhow::Result<()> {
         next_id: 0,
         lens: None,
         bench: bench.borrow().clone(),
-        window_size,
-        pages: args.work.join("data").join(sikemux_core::pages::FOLDER),
-        page_drawer: args.scene.parent().and_then(Path::parent).map_or_else(
-            || PathBuf::from("page.swift"),
-            |film| film.join("page.swift"),
-        ),
+        #[cfg(target_os = "macos")]
+        stand_in,
         signed_in: args.world["signedIn"]["name"].as_str().map(|name| {
             sikemux_wire::protocol::AccountInfo {
                 name: Some(name.into()),
@@ -1897,4 +1907,175 @@ fn main() -> anyhow::Result<()> {
         )?;
     }
     played
+}
+
+/// The stand-in that holds the window's native views offscreen, and the pictures of them laid
+/// over the window's own.
+#[cfg(target_os = "macos")]
+mod native {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::time::{Duration, Instant};
+
+    use anyhow::{anyhow, Context as _};
+    use block2::RcBlock;
+    use objc2::rc::Retained;
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{
+        NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType,
+        NSBitmapImageRep, NSImage, NSView, NSWindow, NSWindowStyleMask,
+    };
+    use objc2_foundation::{NSDictionary, NSError, NSNumber, NSPoint, NSRect, NSSize};
+    use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
+
+    /// Lets WebKit and AppKit do what they have waiting, without blocking.
+    pub fn run_loop() {
+        core_foundation::runloop::CFRunLoop::run_in_mode(
+            // SAFETY: a constant CoreFoundation sets up when it loads.
+            unsafe { core_foundation::runloop::kCFRunLoopDefaultMode },
+            Duration::ZERO,
+            false,
+        );
+    }
+
+    pub struct StandIn {
+        _window: Retained<NSWindow>,
+        view: Retained<NSView>,
+        mtm: MainThreadMarker,
+    }
+
+    impl StandIn {
+        /// A borderless window as big as the filmed one, far off screen, whose view the
+        /// offscreen window's native views are added to.
+        pub fn open(size: (f32, f32)) -> Option<Self> {
+            let mtm = MainThreadMarker::new()?;
+            let app = NSApplication::sharedApplication(mtm);
+            app.setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
+            let size = NSSize::new(f64::from(size.0), f64::from(size.1));
+            // SAFETY: main thread, and the window is kept for as long as the film runs.
+            let window = unsafe {
+                NSWindow::initWithContentRect_styleMask_backing_defer(
+                    mtm.alloc(),
+                    NSRect::new(NSPoint::new(-20_000., -20_000.), size),
+                    NSWindowStyleMask::Borderless,
+                    NSBackingStoreType::Buffered,
+                    false,
+                )
+            };
+            // SAFETY: as above.
+            unsafe { window.setReleasedWhenClosed(false) };
+            let view = NSView::initWithFrame(mtm.alloc(), NSRect::new(NSPoint::ZERO, size));
+            window.setContentView(Some(&view));
+            window.orderBack(None);
+            gpui_native_view::stand_in_for_offscreen(view.clone());
+            Some(Self {
+                _window: window,
+                view,
+                mtm,
+            })
+        }
+
+        /// Lays every WebKit view showing in the stand-in over `shot`, where it sits.
+        pub fn lay_over(&self, shot: &mut image::RgbaImage) -> anyhow::Result<()> {
+            let height = self.view.frame().size.height;
+            let density = f64::from(shot.width()) / self.view.frame().size.width;
+            let mut found = Vec::new();
+            web_views(&self.view, &mut found);
+            for webview in found {
+                let visible = webview.visibleRect();
+                if visible.size.width < 1. || visible.size.height < 1. {
+                    continue;
+                }
+                let placed = webview.convertRect_toView(visible, Some(&self.view));
+                let top = if self.view.isFlipped() {
+                    placed.origin.y
+                } else {
+                    height - placed.origin.y - placed.size.height
+                };
+                let picture = self.picture(&webview, visible, density)?;
+                image::imageops::overlay(
+                    shot,
+                    &picture,
+                    (placed.origin.x * density).round() as i64,
+                    (top * density).round() as i64,
+                );
+            }
+            Ok(())
+        }
+
+        /// What `webview` draws in `rect`, at `density` pixels a point.
+        fn picture(
+            &self,
+            webview: &WKWebView,
+            rect: NSRect,
+            density: f64,
+        ) -> anyhow::Result<image::RgbaImage> {
+            let screen = webview
+                .window()
+                .map_or(1., |window| window.backingScaleFactor());
+            // SAFETY: main thread, as `mtm` proves.
+            let configuration = unsafe { WKSnapshotConfiguration::new(self.mtm) };
+            // SAFETY: `configuration` is ours and not yet handed to WebKit.
+            unsafe {
+                configuration.setRect(rect);
+                configuration.setSnapshotWidth(Some(&NSNumber::numberWithDouble(
+                    rect.size.width * density / screen,
+                )));
+            }
+            let taken: Rc<RefCell<Option<Option<Vec<u8>>>>> = Rc::default();
+            let kept = taken.clone();
+            let block = RcBlock::new(move |image: *mut NSImage, _: *mut NSError| {
+                // SAFETY: WebKit passes a live image or nil; `retain` takes our own reference.
+                let image = unsafe { Retained::retain(image) };
+                *kept.borrow_mut() = Some(image.and_then(|image| png(&image)));
+            });
+            // SAFETY: main thread; WebKit copies the block and holds `configuration` for the call.
+            unsafe {
+                webview
+                    .takeSnapshotWithConfiguration_completionHandler(Some(&configuration), &block)
+            };
+            let started = Instant::now();
+            while taken.borrow().is_none() {
+                if started.elapsed() > Duration::from_secs(10) {
+                    return Err(anyhow!("WebKit never drew a page"));
+                }
+                run_loop();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let png = taken
+                .borrow_mut()
+                .take()
+                .flatten()
+                .ok_or_else(|| anyhow!("WebKit drew no picture of a page"))?;
+            Ok(image::load_from_memory(&png)
+                .context("reading a page's picture")?
+                .to_rgba8())
+        }
+    }
+
+    /// The WebKit views under `view` that are not hidden, front to back as AppKit keeps them.
+    fn web_views(view: &NSView, found: &mut Vec<Retained<WKWebView>>) {
+        for child in view.subviews().iter() {
+            if child.isHiddenOrHasHiddenAncestor() {
+                continue;
+            }
+            match child.downcast::<WKWebView>() {
+                Ok(webview) => found.push(webview),
+                Err(child) => web_views(&child, found),
+            }
+        }
+    }
+
+    fn png(image: &NSImage) -> Option<Vec<u8>> {
+        let tiff = image.TIFFRepresentation()?;
+        let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)?;
+        // SAFETY: an empty dictionary is a valid set of properties.
+        let png = unsafe {
+            bitmap.representationUsingType_properties(
+                NSBitmapImageFileType::PNG,
+                &NSDictionary::new(),
+            )
+        }?;
+        Some(png.to_vec())
+    }
 }

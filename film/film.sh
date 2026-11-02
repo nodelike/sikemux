@@ -39,11 +39,13 @@ command -v ffmpeg >/dev/null || fail "ffmpeg is needed (brew install ffmpeg)"
 say "building the core, the stand-in Claude and the film"
 cargo build --quiet --manifest-path "$ROOT/Cargo.toml" \
   -p sikemux-host -p sikemux-core --bin sikemux-host --bin sikemux-fake-claude
-cargo build --quiet --manifest-path "$GPUI/Cargo.toml" --example film --features drive
+cargo build --quiet --manifest-path "$GPUI/Cargo.toml" --example film
 bin="$ROOT/target/debug"
 
 work="$(mktemp -d -t sxfilm)"
 trap 'rm -rf "$work"' EXIT
+# The window keeps its browser's history and pages here, never in the person's own settings.
+export SIKEMUX_CONFIG_DIR="$work/config"
 folder="$ROOT/film/out/$scene"
 mkdir -p "$folder"
 

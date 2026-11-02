@@ -9296,6 +9296,7 @@ version = "0.6.0-nightly.11"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "block2 0.6.2",
  "chrono",
  "core-foundation 0.10.1",
  "film-frame",
@@ -9319,6 +9320,7 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation 0.3.2",
  "objc2-metal 0.3.2",
+ "objc2-web-kit",
  "percent-encoding",
  "raw-window-handle",
  "rustls",

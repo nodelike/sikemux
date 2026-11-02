@@ -109,7 +109,23 @@
     "admin-dashboard",
     "design-system",
     "ios-app",
-    "infra"
+    "infra",
+    "dotfiles",
+    "blog"
+  ],
+  "spaces": [
+    {
+      "id": "work",
+      "name": "Work",
+      "icon": "briefcase",
+      "projects": ["storefront", "payments-api", "admin-dashboard", "design-system", "infra"]
+    },
+    {
+      "id": "personal",
+      "name": "Personal",
+      "icon": "home",
+      "projects": ["ios-app", "dotfiles", "blog"]
+    }
   ],
   "sshHosts": [
     { "name": "gpu-box", "hostName": "10.0.4.20", "user": "edon" },

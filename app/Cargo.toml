@@ -92,3 +92,10 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features =
 # So the shot can read what the window drew, such as an open menu's items.
 gpui-base = { version = "=0.8.1", features = ["test-support"] }
 gpui-component = { version = "=0.8.1", default-features = false, features = ["test-support"] }
+
+# The film holds the window's native views in a stand-in window offscreen and pictures them.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSBitmapImageRep", "NSGraphics", "NSImage", "NSImageRep", "NSResponder", "NSRunningApplication", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSValue"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "WKSnapshotConfiguration", "WKWebView", "block2", "objc2-app-kit"] }
