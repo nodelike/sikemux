@@ -377,6 +377,11 @@ fn is_test_script(name: &str) -> bool {
     regex!(r"^test(?-u:\b)").is_match(name)
 }
 
+/// The `test` script `npm init` writes, which only fails.
+fn is_placeholder_test(name: &str, body: &str) -> bool {
+    name == "test" && body.contains("no test specified")
+}
+
 fn script_rank(name: &str) -> usize {
     if let Some(rank) = RUN_SCRIPTS.iter().position(|script| *script == name) {
         rank
@@ -423,6 +428,7 @@ fn node_tasks(root: &Path, files: &HashSet<String>) -> Vec<Task> {
     let mut scripts: Vec<(String, String)> = script_entries(manifest.get("scripts"))
         .into_iter()
         .filter(|(name, _)| FOLDER_NAME.is_match(&name.replace(':', "-")))
+        .filter(|(name, body)| !is_placeholder_test(name, body))
         .collect();
     scripts.sort_by_key(|(name, _)| script_rank(name));
     scripts.truncate(MAX_SCRIPTS);
@@ -600,6 +606,15 @@ pub fn detected(project: &Path) -> Vec<Found> {
         }));
     }
     found
+}
+
+/// The command that tests the project as its root's build files suggest, the
+/// same one its test task runs, for a project that names no check.
+pub fn test_check(project: &Path) -> Option<String> {
+    tasks_in(project)
+        .into_iter()
+        .find(|task| task.id.ends_with(".test"))
+        .map(|task| task.command)
 }
 
 pub fn is_run_task(task_id: &str) -> bool {

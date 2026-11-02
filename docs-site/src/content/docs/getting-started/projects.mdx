@@ -88,6 +88,16 @@ Or name the CI workflows that count, when the project's CI is its check:
 
 Sikemux then reads the code host's runs on the project's branch as pushed, instead of building it, so the agent's commit has to be on that branch and pushed: an agent whose commit isn't is told to land and push it, and the slice waits until it is. Every workflow named has to pass on the pushed branch's newest commit, which holds the agent's. Other branches on the remote, such as work in progress, decide nothing. A run that is cancelled, or that doesn't start within a few minutes of the push, counts as no verdict, so the agent marks the card done again to have it checked.
 
+Without a `check`, Sikemux uses the test command the project's build files suggest at its root: the `test` script in `package.json` (not the one `npm init` writes, which only fails), `cargo test` for a Cargo project, `go test` for a Go module, pytest or Django's tests for a Python project, and Maven's or Gradle's `test`. It reads them once, when Sikemux starts. This check runs only on a slice's latest commit when its agent marks it done, never on every commit, and never marks the project as broken. `"check": false` turns it off.
+
+### The changed page
+
+When a slice's change touches the files a page is drawn from (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.astro`, `.html` and stylesheets), Sikemux opens the page itself once the slice passes **Built**, in a tab on its agent's desk, and keeps screenshots of it at the tab's width and at a phone's and a tablet's as the slice's evidence. It opens a server the agent started itself first. When the agent works in the project's own checkout, it opens the `preview` URL instead, if something is listening there, or else a server the project's run task started.
+
+It opens a server's own address, never the route the change touched, and it never starts a server. It takes nothing when no server is running, when the only server is in another checkout, or when the window is closed. It also takes nothing for a page that needs you to sign in first, or for a change that isn't a web page. These screenshots show the running thing, but they don't count as an assertion's evidence. `"preview": false` turns this off.
+
+Sikemux versions before this one reject `false` for either field and ignore the whole file, so leave the field out until everyone working on the project has updated.
+
 ## Quitting
 
 Terminals, agents and processes keep running when you quit, and come back where they were. **Quit and Stop Everything** (`⌥⌘Q`) ends them, and Sikemux stays stopped. Chats stay open asleep, each on its saved conversation with its name and tab, and start again only when you open or write to one: messages from agents and triggers wait for it until then. A turn they were in shows as stopped. Sikemux's window says it is stopped, with **Start Sikemux**, and nothing starts it again until you press that or start it another way. If Sikemux ever stops answering, its window says so, with **Restart Sikemux**: that ends it and starts it again. Terminals end; chats pick up where they were.

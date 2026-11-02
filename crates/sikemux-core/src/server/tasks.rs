@@ -18,7 +18,7 @@ use crate::harness::runs::Run;
 use crate::launch::PermissionMode;
 use crate::protocol::{SessionId, SpawnTarget};
 use crate::tasks::check::{self, Check, CheckItem, Checked, Listening};
-use crate::tasks::config::{self, ConfigLoad, TrustCommand};
+use crate::tasks::config::{self, ConfigLoad, Stated, TrustCommand};
 use crate::tasks::detect::{self, AddedTask, PERSONAL_PREFIX};
 use crate::tasks::java::{self, JavaChoice};
 use crate::tasks::results::{self, TestResults};
@@ -513,7 +513,9 @@ pub(crate) async fn start_preview(core: &Arc<Core>, project: String) -> CoreResu
     };
     let command = config
         .preview
-        .and_then(|preview| preview.command)
+        .as_ref()
+        .and_then(Stated::given)
+        .and_then(|preview| preview.command.clone())
         .filter(|command| !command.is_empty())
         .ok_or("sikemux.json has no preview command")?;
     if !config_trusted(core, &info.path, None).await {
@@ -1016,6 +1018,7 @@ pub(crate) async fn launch(
         ConfigLoad::Valid { config, .. } if task.source == Source::Project => config
             .preview
             .as_ref()
+            .and_then(Stated::given)
             .filter(|preview| preview.command.as_deref() == Some(task.command.as_str()))
             .and_then(|preview| preview.url.clone()),
         _ => None,

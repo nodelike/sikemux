@@ -24,7 +24,7 @@ use sikemux_wire::slice::{
 use super::auto::Landing;
 use super::{
     change_card, change_in, messages, project_at, project_view, send_notices, Board, BoardView, By,
-    Card, Changes, Notice, State, Status,
+    Card, Changes, Checker, Notice, State, Status,
 };
 use crate::git::Git;
 use crate::server::connection::blocking;
@@ -581,6 +581,7 @@ impl Slice {
                 feed: recording.feed.clone(),
                 turn: recording.turn,
                 width: None,
+                opened: None,
             },
             &assertions,
         );
@@ -590,7 +591,7 @@ impl Slice {
     /// Keeps the screenshots at `shots`, the agent's and those the core took
     /// beside it at set widths, for the assertions a screenshot shows, in place
     /// of those they had, unless a note is pinned to one.
-    fn screenshots(&mut self, agent: &str, shots: &[(String, Option<u32>)]) {
+    fn screenshots(&mut self, agent: &str, shots: &[Shot]) {
         let Some(gate) = self.waiting() else {
             return;
         };
@@ -613,8 +614,35 @@ impl Slice {
                     feed: None,
                     turn: None,
                     width: *width,
+                    opened: None,
                 },
                 &assertions,
+            );
+        }
+    }
+
+    /// Keeps the screenshots the core took itself of the page at `opened`,
+    /// which the change ending at `head` shows, toward the gate it waits at.
+    /// They show the running thing, but no assertion's evidence.
+    pub(super) fn page(&mut self, owner: &str, head: &str, opened: &str, shots: &[Shot]) {
+        let Some(gate) = self.waiting().filter(|_| self.head() == Some(head)) else {
+            return;
+        };
+        for (path, width) in shots {
+            self.add_evidence(
+                gate,
+                epoch_ms(),
+                Some(owner.to_owned()),
+                None,
+                Proof::Picture {
+                    path: path.clone(),
+                    seconds: None,
+                    feed: None,
+                    turn: None,
+                    width: *width,
+                    opened: Some(opened.to_owned()),
+                },
+                &[],
             );
         }
     }
@@ -859,7 +887,7 @@ impl Slice {
             }
             (_, true) if checking == Checking::Nothing => {
                 return Err(format!(
-                    "Not {words}: this project names no check in sikemux.json, neither a command nor CI, so nothing can show the work sound. Ask your lead or the person how it is to be checked"
+                    "Not {words}: this project names no check in sikemux.json, neither a command nor CI, and Sikemux found no test command in its build files, so nothing can show the work sound. Ask your lead or the person how it is to be checked"
                 )
                 .into())
             }
@@ -1266,7 +1294,7 @@ pub(super) fn next_gates(core: &Core, board: &Board, goal: &Card, now: u64) -> V
 pub(super) enum Checking {
     /// It names no check.
     Nothing,
-    /// Its check command runs on each commit on the project's branch.
+    /// Its check command runs on commits on the project's branch.
     Command,
     /// Its CI runs on the project's branch as pushed; `pushed` says whether
     /// that holds the slice's head.
@@ -1433,38 +1461,46 @@ pub(super) fn passed_notice(card: &Card, passed: &[Gate], landing: Landing) -> O
     })
 }
 
-/// Collects a slice's change as Diff evidence, unless its work moved on meanwhile.
+/// Collects a slice's change as Diff evidence, unless its work moved on
+/// meanwhile, and has the page it shows taken when it changes the project's pages.
 fn collect_diff(core: &Core, diff: DiffWork) {
-    let proof = match diff_of(Path::new(&diff.project), &diff.base, &diff.head) {
-        Ok(proof) => proof,
+    let (proof, pages) = match diff_of(Path::new(&diff.project), &diff.base, &diff.head) {
+        Ok(collected) => collected,
         Err(error) => {
             eprintln!("sikemux core: the slice's change was not collected: {error}");
             return;
         }
     };
-    let mut state = core.boards.state.locked();
-    let Some(card) = state
-        .boards
-        .get_mut(&diff.project)
-        .and_then(|board| board.card_mut(diff.card).ok())
-    else {
-        return;
+    let owner = {
+        let mut state = core.boards.state.locked();
+        let Some(card) = state
+            .boards
+            .get_mut(&diff.project)
+            .and_then(|board| board.card_mut(diff.card).ok())
+        else {
+            return;
+        };
+        let owner = card.owner_id().map(str::to_owned);
+        let Some(slice) = card
+            .slice
+            .as_mut()
+            .filter(|slice| slice.head() == Some(diff.head.as_str()))
+        else {
+            return;
+        };
+        slice.add_evidence(diff.gate, epoch_ms(), owner.clone(), None, proof, &[]);
+        core.boards.save(&mut state, &diff.project);
+        owner
     };
-    let owner = card.owner_id().map(str::to_owned);
-    let Some(slice) = card
-        .slice
-        .as_mut()
-        .filter(|slice| slice.head() == Some(diff.head.as_str()))
-    else {
-        return;
-    };
-    slice.add_evidence(diff.gate, epoch_ms(), owner, None, proof, &[]);
-    core.boards.save(&mut state, &diff.project);
+    if let (true, Some(owner)) = (pages, owner) {
+        super::page::take(core, diff.project, diff.card, owner, diff.head);
+    }
 }
 
-fn diff_of(repo: &Path, base: &str, head: &str) -> Result<Proof, String> {
+/// The change from `base` to `head`, and whether it touches the project's pages.
+fn diff_of(repo: &Path, base: &str, head: &str) -> Result<(Proof, bool), String> {
     let numstat = Git::quick(repo).trimmed(&["diff", "--numstat", base, head])?;
-    let (mut files, mut added, mut removed) = (Vec::new(), 0, 0);
+    let (mut files, mut added, mut removed, mut pages) = (Vec::new(), 0, 0, false);
     for line in numstat.lines() {
         let mut parts = line.splitn(3, '\t');
         let (Some(plus), Some(minus), Some(path)) = (parts.next(), parts.next(), parts.next())
@@ -1473,17 +1509,19 @@ fn diff_of(repo: &Path, base: &str, head: &str) -> Result<Proof, String> {
         };
         added += plus.parse::<u64>().unwrap_or(0);
         removed += minus.parse::<u64>().unwrap_or(0);
+        pages |= super::page::is_page_file(path);
         if files.len() < DIFF_FILES {
             files.push(path.to_owned());
         }
     }
-    Ok(Proof::Diff {
+    let proof = Proof::Diff {
         base: base.to_owned(),
         head: head.to_owned(),
         files,
         added,
         removed,
-    })
+    };
+    Ok((proof, pages))
 }
 
 /// What each commit's Sikemux footer names, kept as read so a commit is
@@ -1517,7 +1555,7 @@ impl Footers {
 /// checkout whose commits carry no Sikemux footer, git can't tell whose a
 /// commit is, so the head the board heard of the owner's own git_commit
 /// stands once git still holds it.
-pub(super) fn seen(core: &Core, project: &str, id: u64, check: Option<&ProjectCheck>) -> Seen {
+pub(super) fn seen(core: &Core, project: &str, id: u64, check: Option<&Checker>) -> Seen {
     let read = {
         let state = core.boards.state.locked();
         state.boards.get(project).and_then(|board| {
@@ -1530,8 +1568,8 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, check: Option<&ProjectCh
     };
     let checking = |head: Option<&str>| match check {
         None => Checking::Nothing,
-        Some(ProjectCheck::Command(_)) => Checking::Command,
-        Some(ProjectCheck::Ci { .. }) => Checking::Ci {
+        Some(Checker::Named(ProjectCheck::Command(_)) | Checker::Found(_)) => Checking::Command,
+        Some(Checker::Named(ProjectCheck::Ci { .. })) => Checking::Ci {
             pushed: head.is_some_and(|head| crate::git::pushed(Path::new(project), head)),
         },
     };
@@ -2133,8 +2171,33 @@ pub(crate) fn wants_screenshot(core: &Core, agent: &str) -> bool {
 /// own, and moves the slice on. `shots` are the browser's answers, the agent's first.
 /// The board's writer removes a file once no evidence names it.
 pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, shots: &[Value]) {
+    let decoded = decode_shots(shots);
+    if decoded.is_empty() {
+        return;
+    }
+    let target = {
+        let state = core.boards.state.locked();
+        state.boards.iter().find_map(|(project, board)| {
+            let id = working_slice(board, agent)?;
+            let slice = board.card(id).ok()?.slice.as_ref()?;
+            (!slice.asserting(Collect::Screenshot).is_empty()).then(|| (project.clone(), id))
+        })
+    };
+    if let Some((project, id)) = target {
+        keep_shots(core, &project, id, &decoded, |slice, kept| {
+            slice.screenshots(agent, kept)
+        });
+    }
+}
+
+/// A screenshot kept as evidence: its file, and the width the page was laid out at.
+pub(super) type Shot = (String, Option<u32>);
+
+/// The pictures in the browser's answers to screenshots, each with the width
+/// it was taken at.
+pub(super) fn decode_shots(shots: &[Value]) -> Vec<(Vec<u8>, Option<u32>)> {
     use base64::Engine;
-    let decoded: Vec<(Vec<u8>, Option<u32>)> = shots
+    shots
         .iter()
         .filter_map(|shot| {
             let bytes = (shot.get("data").and_then(Value::as_str))
@@ -2145,29 +2208,31 @@ pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, shots: &[Value]) {
                 .and_then(|width| u32::try_from(width).ok());
             Some((bytes, width))
         })
-        .collect();
-    if decoded.is_empty() {
-        return;
-    }
-    let target = {
+        .collect()
+}
+
+/// Writes `decoded` each to a file of its own and has the slice on `id`
+/// keep them with `collect`, then moves the slice on. The board's writer
+/// removes a file once no evidence names it.
+pub(super) fn keep_shots(
+    core: &Arc<Core>,
+    project: &str,
+    id: u64,
+    decoded: &[(Vec<u8>, Option<u32>)],
+    collect: impl FnOnce(&mut Slice, &[Shot]),
+) {
+    let paths = {
         let mut state = core.boards.state.locked();
-        let found = state.boards.iter().find_map(|(project, board)| {
-            let id = working_slice(board, agent)?;
-            let slice = board.card(id).ok()?.slice.as_ref()?;
-            let paths = (decoded.iter())
-                .map(|(_, width)| core.boards.evidence_file(project, id, *width))
-                .collect::<Option<Vec<_>>>()?;
-            (!slice.asserting(Collect::Screenshot).is_empty()).then(|| (project.clone(), id, paths))
-        });
-        if let Some((project, _, paths)) = &found {
-            if let Some(board) = state.boards.get_mut(project) {
-                board.writing.extend(paths.iter().cloned());
-            }
+        let Some(paths) = (decoded.iter())
+            .map(|(_, width)| core.boards.evidence_file(project, id, *width))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
+        if let Some(board) = state.boards.get_mut(project) {
+            board.writing.extend(paths.iter().cloned());
         }
-        found
-    };
-    let Some((project, id, paths)) = target else {
-        return;
+        paths
     };
     let mut kept = Vec::new();
     for ((bytes, width), path) in decoded.iter().zip(&paths) {
@@ -2186,9 +2251,9 @@ pub(crate) fn screenshot_taken(core: &Arc<Core>, agent: &str, shots: &[Value]) {
         }
     }
     if !kept.is_empty() {
-        moved_by_evidence(core, &project, id, |slice| slice.screenshots(agent, &kept));
+        moved_by_evidence(core, project, id, |slice| collect(slice, &kept));
     }
-    if let Some(board) = core.boards.state.locked().boards.get_mut(&project) {
+    if let Some(board) = core.boards.state.locked().boards.get_mut(project) {
         board.writing.retain(|writing| !paths.contains(writing));
     }
 }

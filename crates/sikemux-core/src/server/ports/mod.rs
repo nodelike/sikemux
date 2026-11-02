@@ -21,7 +21,7 @@ use sikemux_process::sync::Locked;
 
 use crate::protocol::SessionId;
 use crate::server::changed::Topic;
-use crate::tasks::config::{self, ConfigLoad};
+use crate::tasks::config::{self, ConfigLoad, Stated};
 
 use super::connection::{blocking, ClientId};
 use super::wake::Wake;
@@ -74,6 +74,21 @@ pub enum PortOwner {
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<SessionId>,
     },
+}
+
+impl PortOwner {
+    /// `agent_id` started it, by itself or in a task it ran.
+    pub(crate) fn started_by(&self, agent_id: &str) -> bool {
+        match self {
+            PortOwner::Agent {
+                agent_id: owner, ..
+            } => owner == agent_id,
+            PortOwner::Task {
+                agent_id: owner, ..
+            } => owner.as_deref() == Some(agent_id),
+            PortOwner::Terminal { .. } => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -320,15 +335,7 @@ fn look(core: &Core) -> Vec<ListeningPort> {
 pub(crate) fn agent_url(core: &Core, agent_id: &str) -> Option<String> {
     look(core)
         .into_iter()
-        .find(|listening| match &listening.owner {
-            PortOwner::Agent {
-                agent_id: owner, ..
-            } => owner == agent_id,
-            PortOwner::Task {
-                agent_id: owner, ..
-            } => owner.as_deref() == Some(agent_id),
-            PortOwner::Terminal { .. } => false,
-        })
+        .find(|listening| listening.owner.started_by(agent_id))
         .map(|listening| format!("http://localhost:{}", listening.port))
 }
 
@@ -364,7 +371,11 @@ fn preview_port(url: &str) -> Option<u16> {
 pub(crate) fn for_project(found: Vec<ListeningPort>, project: &Path) -> Vec<ProjectPort> {
     let project_text = project.to_string_lossy();
     let preview_url = match config::load(project) {
-        ConfigLoad::Valid { config, .. } => config.preview.and_then(|preview| preview.url),
+        ConfigLoad::Valid { config, .. } => config
+            .preview
+            .as_ref()
+            .and_then(Stated::given)
+            .and_then(|preview| preview.url.clone()),
         _ => None,
     };
     let preview = preview_url.as_deref().and_then(preview_port);

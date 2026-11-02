@@ -37,6 +37,7 @@ pub(crate) mod git;
 pub(crate) mod goal;
 mod hand_off;
 mod migrate;
+mod page;
 mod review;
 mod slice;
 mod tickets;
@@ -514,6 +515,8 @@ pub(crate) struct Boards {
     writer: Arc<Writer>,
     /// What commits' footers name, for telling an agent's commits on the branch.
     footers: slice::Footers,
+    /// The test command each project's build files suggest, read once.
+    found_checks: Mutex<HashMap<String, Option<String>>>,
     /// Offers cards, runs Auto and keeps tickets and the window up to date.
     pub(crate) wake: Wake,
 }
@@ -672,6 +675,7 @@ impl Boards {
             folder,
             writer: Arc::default(),
             footers: slice::Footers::default(),
+            found_checks: Mutex::default(),
             wake: Wake::default(),
         };
         {
@@ -2957,17 +2961,65 @@ pub(crate) async fn person_settings(
     .map_err(|error| error.to_string())
 }
 
+/// What proves a change sound in a project.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Checker {
+    /// The check its `sikemux.json` names, run on each commit on its branch.
+    Named(ProjectCheck),
+    /// The test command its build files suggest, for a project that names
+    /// none, run only on a slice's work.
+    Found(String),
+}
+
+impl Checker {
+    pub(crate) fn command(&self) -> Option<&str> {
+        match self {
+            Checker::Named(ProjectCheck::Command(command)) | Checker::Found(command) => {
+                Some(command)
+            }
+            Checker::Named(ProjectCheck::Ci { .. }) => None,
+        }
+    }
+
+    /// The check as an agent or the person is told of it.
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Checker::Named(check) => check.label(),
+            Checker::Found(command) => format!("`{command}`"),
+        }
+    }
+}
+
 /// What proves a change sound in `project`: the `check` its `sikemux.json`
-/// names, once the person trusts that file.
-pub(crate) fn project_check(core: &Core, project: &str) -> Option<ProjectCheck> {
+/// names, once the person trusts that file, else the test command its build
+/// files suggest, unless the file turns that off with `"check": false`.
+pub(crate) fn project_check(core: &Core, project: &str) -> Option<Checker> {
+    use crate::tasks::config::{ConfigLoad, Stated};
     let load = crate::tasks::config::load(Path::new(project));
-    let crate::tasks::config::ConfigLoad::Valid { config, .. } = &load else {
-        return None;
+    let stated = match &load {
+        ConfigLoad::Valid { config, .. } => config.check.as_ref(),
+        ConfigLoad::Absent { .. } => None,
+        ConfigLoad::Invalid { .. } => return None,
     };
-    let check = config.check.clone()?;
-    crate::server::tasks::config_needs(core, &load)
-        .is_none()
-        .then_some(check)
+    match stated {
+        Some(Stated::Off) => None,
+        Some(Stated::Given(check)) => crate::server::tasks::config_needs(core, &load)
+            .is_none()
+            .then(|| Checker::Named(check.clone())),
+        None => found_check(core, project).map(Checker::Found),
+    }
+}
+
+fn found_check(core: &Core, project: &str) -> Option<String> {
+    if let Some(found) = core.boards.found_checks.locked().get(project) {
+        return found.clone();
+    }
+    let found = crate::tasks::detect::test_check(Path::new(project));
+    core.boards
+        .found_checks
+        .locked()
+        .insert(project.to_owned(), found.clone());
+    found
 }
 
 /// Runs the project's check command in `dir`: whether it passed, and the end

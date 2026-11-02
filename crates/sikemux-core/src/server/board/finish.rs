@@ -19,7 +19,6 @@ use crate::server::connection::blocking;
 use crate::server::wake::sooner;
 use crate::server::worktree;
 use crate::server::{messages, Core};
-use crate::tasks::config::ProjectCheck;
 use sikemux_wire::slice::Verdict;
 
 /// How long a run whose checks could not be read waits before it reads them again.
@@ -721,9 +720,12 @@ async fn checking(core: &Arc<Core>, step: Step) {
         Checks::None => {
             let (owner, project) = (core.clone(), step.project.clone());
             let check = blocking(move || Ok(super::project_check(&owner, &project))).await;
+            let check = check.map(|check| {
+                check.and_then(|check| Some((check.label(), check.command()?.to_owned())))
+            });
             match check {
-            Ok(Some(ProjectCheck::Command(command))) => {
-                step.note(core, Stage::Checking, &format!("Running {command}"));
+            Ok(Some((label, command))) => {
+                step.note(core, Stage::Checking, &format!("Running {label}"));
                 let (cwd, running) = (step.tree(), command.clone());
                 let checked = blocking(move || git::check(&cwd, &running).map_err(Into::into)).await;
                 match checked {

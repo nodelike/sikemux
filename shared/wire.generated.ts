@@ -2334,6 +2334,11 @@ export type Proof =
            * the core took beside the agent's at a phone's or a tablet's width.
            */
           width?: number;
+          /**
+           * The page the core opened itself to take it, once the check passed
+           * on a change to the project's pages; none for the agent's own.
+           */
+          opened?: string;
       }
     /**
      * The change from `base` to `head`, which are the ends of a run of the

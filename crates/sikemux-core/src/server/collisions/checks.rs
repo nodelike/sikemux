@@ -19,6 +19,7 @@ use tokio::sync::Notify;
 
 use super::{tell, State};
 use crate::git::Git;
+use crate::server::board::Checker;
 use crate::server::codehost::ci::Shown;
 use crate::server::codehost::repo::{self as codehost, Checks as CiChecks, CI_START_WAIT_MS};
 use crate::server::repo_events::RepoEvent;
@@ -45,6 +46,8 @@ pub(super) struct Commit {
     pub sha: String,
     pub subject: String,
     pub agents: Vec<String>,
+    /// A slice asked for it to be checked, rather than only its landing.
+    pub asked: bool,
 }
 
 #[derive(Default)]
@@ -195,18 +198,26 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
             wait.wake.notify_one();
         }
     }
-    for (project, dir, commits) in state.checks.startable() {
-        let command = match crate::server::board::project_check(core, &project) {
-            Some(ProjectCheck::Command(command)) => command,
-            Some(ProjectCheck::Ci { ci }) => {
+    for (project, dir, mut commits) in state.checks.startable() {
+        let (command, named) = match crate::server::board::project_check(core, &project) {
+            Some(Checker::Named(ProjectCheck::Command(command))) => (command, true),
+            Some(Checker::Named(ProjectCheck::Ci { ci })) => {
                 tokio::spawn(wait_for_ci(core.clone(), project, dir, commits, ci));
                 continue;
+            }
+            Some(Checker::Found(command)) => {
+                commits.retain(|commit| commit.asked);
+                (command, false)
             }
             None => {
                 state.checks.running.remove(&project);
                 continue;
             }
         };
+        if commits.is_empty() {
+            state.checks.running.remove(&project);
+            continue;
+        }
         let core = core.clone();
         tokio::spawn(async move {
             let ordering = dir.clone();
@@ -272,6 +283,7 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
                         sha: generated,
                         subject: "the files the project generates".to_owned(),
                         agents,
+                        asked: true,
                     });
                     state.checks.wait_again(project, dir, again);
                     drop(state);
@@ -286,7 +298,7 @@ pub(super) fn start(core: &Arc<Core>, state: &mut State) {
                 .checks
                 .running
                 .remove(&project);
-            ended(&core, &project, &command, &commits, outcome);
+            ended(&core, &project, &command, &commits, outcome, named);
         });
     }
 }
@@ -530,9 +542,10 @@ async fn wait_for_ci(
                     sha: tip,
                     subject: String::new(),
                     agents: Vec::new(),
+                    asked: false,
                 });
             }
-            ended(&core, &project, &label, &checked, outcome);
+            ended(&core, &project, &label, &checked, outcome, true);
         }
         commits.retain(|commit| !credited.contains(&commit.sha));
         if commits.is_empty() {
@@ -574,12 +587,16 @@ fn newest_with(dir: &Path, commits: Vec<Commit>) -> (Vec<Commit>, Vec<Commit>) {
     (held, others)
 }
 
+/// A check ended. Only a check the project named marks the project broken
+/// and tells the agents whose commits it failed after; the board hears of
+/// every one.
 fn ended(
     core: &Arc<Core>,
     project: &str,
     command: &str,
     commits: &[Commit],
     outcome: Result<(bool, String), String>,
+    named: bool,
 ) {
     let collisions = &core.collisions;
     let agents: BTreeSet<&String> = commits.iter().flat_map(|commit| &commit.agents).collect();
@@ -605,7 +622,7 @@ fn ended(
     let mut person_at = None;
     if passed {
         state.checks.failing.remove(project);
-    } else {
+    } else if named {
         let now = epoch_ms();
         let failing = state
             .checks

@@ -187,6 +187,32 @@ pub struct GenerateConfig {
     pub outputs: Vec<String>,
 }
 
+/// A field a project may also set to `false`: none, and none worked out in
+/// its place. Left out, the core works one out itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Stated<T> {
+    Off,
+    Given(T),
+}
+
+impl<T> Stated<T> {
+    pub fn given(&self) -> Option<&T> {
+        match self {
+            Stated::Off => None,
+            Stated::Given(value) => Some(value),
+        }
+    }
+}
+
+impl<T: Serialize> Serialize for Stated<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Stated::Off => serializer.serialize_bool(false),
+            Stated::Given(value) => value.serialize(serializer),
+        }
+    }
+}
+
 /// What proves the project sound.
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(untagged)]
@@ -219,8 +245,10 @@ pub struct ProjectConfig {
     pub icon: Option<String>,
     pub actions: Vec<ProjectAction>,
     pub tasks: Vec<ProjectTask>,
+    /// The page the project serves, which the core also opens itself to show
+    /// a change to its pages.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub preview: Option<ProjectPreview>,
+    pub preview: Option<Stated<ProjectPreview>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorktreeConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -228,7 +256,7 @@ pub struct ProjectConfig {
     /// What proves the project sound: on each commit, and on a card's change
     /// when its pull request has no CI.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub check: Option<ProjectCheck>,
+    pub check: Option<Stated<ProjectCheck>>,
     /// Paths whose change is planned before it starts, beside the ones every
     /// project has, such as migrations.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -478,7 +506,10 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
     if generates > 0 {
         reasons.push("a command that regenerates committed files".to_owned());
     }
-    let checks = usize::from(matches!(config.check, Some(ProjectCheck::Command(_))));
+    let checks = usize::from(matches!(
+        config.check,
+        Some(Stated::Given(ProjectCheck::Command(_)))
+    ));
     if checks > 0 {
         reasons.push("a check command".to_owned());
     }
@@ -554,6 +585,7 @@ fn preview_command(config: &ProjectConfig) -> Option<&str> {
     config
         .preview
         .as_ref()?
+        .given()?
         .command
         .as_deref()
         .filter(|command| !command.is_empty())
@@ -975,14 +1007,21 @@ fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Proj
     tasks
 }
 
-fn parse_preview(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<ProjectPreview> {
-    let Some(record) = value?.as_object() else {
-        errors.push(issue(
-            "$.preview",
-            ConfigErrorCode::InvalidType,
-            "Preview must be an object.",
-        ));
-        return None;
+fn parse_preview(
+    value: Option<&Value>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<Stated<ProjectPreview>> {
+    let record = match value? {
+        Value::Bool(false) => return Some(Stated::Off),
+        Value::Object(record) => record,
+        _ => {
+            errors.push(issue(
+                "$.preview",
+                ConfigErrorCode::InvalidType,
+                "Preview must be an object, or false.",
+            ));
+            return None;
+        }
     };
     reject_unknown_fields(record, PREVIEW_FIELDS, "$.preview", errors);
     let url = bounded_optional(
@@ -1038,7 +1077,7 @@ fn parse_preview(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option
             }
         }
     }
-    Some(ProjectPreview { url, command })
+    Some(Stated::Given(ProjectPreview { url, command }))
 }
 
 fn parse_worktree(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<WorktreeConfig> {
@@ -1103,17 +1142,22 @@ fn parse_worktree(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Optio
     Some(WorktreeConfig { on_create: hooks })
 }
 
-fn parse_check(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<ProjectCheck> {
+fn parse_check(
+    value: Option<&Value>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<Stated<ProjectCheck>> {
     let record = match value? {
+        Value::Bool(false) => return Some(Stated::Off),
         Value::String(_) => {
-            return parse_command(value, "$.check", errors).map(ProjectCheck::Command)
+            return parse_command(value, "$.check", errors)
+                .map(|command| Stated::Given(ProjectCheck::Command(command)))
         }
         Value::Object(record) => record,
         _ => {
             errors.push(issue(
                 "$.check",
                 ConfigErrorCode::InvalidType,
-                "Check must be a command, or an object naming the CI workflows that count.",
+                "Check must be a command, an object naming the CI workflows that count, or false.",
             ));
             return None;
         }
@@ -1148,7 +1192,7 @@ fn parse_check(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<P
             )
         })
         .collect();
-    (ci.len() == listed.len()).then_some(ProjectCheck::Ci { ci })
+    (ci.len() == listed.len()).then_some(Stated::Given(ProjectCheck::Ci { ci }))
 }
 
 fn parse_generate(

@@ -491,9 +491,7 @@ pub(crate) async fn answer_of(
 
 /// The agent's screenshot, and when its slice keeps screenshots as evidence, the same
 /// page taken beside it at each of [`board::SCREENSHOT_WIDTHS`], before the agent's call
-/// returns so nothing the agent does next meets its tab at another width. Each is only a
-/// resize, so the page does not reload; the tab is put back as it was held after both,
-/// whatever became of them.
+/// returns so nothing the agent does next meets its tab at another width.
 async fn slice_screenshots(
     core: &Core,
     request: &HarnessRequest,
@@ -501,9 +499,22 @@ async fn slice_screenshots(
     answer: &Value,
 ) -> Vec<Value> {
     let mut shots = vec![answer.clone()];
-    if !board::wants_screenshot(core, agent_id) {
-        return shots;
+    if board::wants_screenshot(core, agent_id) {
+        shots.extend(other_widths(core, request, agent_id).await);
     }
+    shots
+}
+
+/// The page `request` took a screenshot of in `agent_id`'s tab, taken again at
+/// each of [`board::SCREENSHOT_WIDTHS`]. Each is only a resize, so the page does
+/// not reload; the tab is put back as it was held after both, whatever became
+/// of them.
+pub(crate) async fn other_widths(
+    core: &Core,
+    request: &HarnessRequest,
+    agent_id: &str,
+) -> Vec<Value> {
+    let mut shots = Vec::new();
     let asked = |method: &str, params: Value, step: &str| HarnessRequest {
         id: format!("{}-{step}", request.id),
         project: request.project.clone(),
@@ -543,7 +554,7 @@ async fn slice_screenshots(
     shots
 }
 
-async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> {
+pub(crate) async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> {
     let in_window = ["browser.", "sim."]
         .iter()
         .any(|prefix| request.method.starts_with(prefix));
@@ -742,9 +753,11 @@ async fn dispatch(
                     .await
                     .map_err(|error| error.to_string())?;
                 let url = match config {
-                    crate::tasks::config::ConfigLoad::Valid { config, .. } => {
-                        config.preview.and_then(|preview| preview.url)
-                    }
+                    crate::tasks::config::ConfigLoad::Valid { config, .. } => config
+                        .preview
+                        .as_ref()
+                        .and_then(crate::tasks::config::Stated::given)
+                        .and_then(|preview| preview.url.clone()),
                     _ => None,
                 };
                 let url = url.ok_or("No preview URL is configured in sikemux.json")?;

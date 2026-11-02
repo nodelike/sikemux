@@ -796,6 +796,7 @@ impl Collisions {
                     sha: commit.to_owned(),
                     subject: message.lines().next().unwrap_or_default().to_owned(),
                     agents,
+                    asked: false,
                 },
             );
         }
@@ -815,6 +816,7 @@ impl Collisions {
                 sha: sha.to_owned(),
                 subject,
                 agents: vec![agent.to_owned()],
+                asked: true,
             }],
         );
         self.wake.now();
@@ -895,7 +897,10 @@ impl Collisions {
             if before.is_some_and(|before| before != at) {
                 core.harness.note_repository(&project, "git.moved");
             }
-            if crate::server::board::project_check(&core, &project).is_none() {
+            if !matches!(
+                crate::server::board::project_check(&core, &project),
+                Some(crate::server::board::Checker::Named(_))
+            ) {
                 return;
             }
             let Ok(head) = edits::git(&dir, &["log", "-1", "--format=%H%x00%s"]) else {
@@ -913,6 +918,7 @@ impl Collisions {
                 sha: sha.to_owned(),
                 subject: subject.to_owned(),
                 agents,
+                asked: false,
             };
             core.collisions
                 .state

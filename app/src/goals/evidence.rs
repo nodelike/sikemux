@@ -56,7 +56,12 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
         .border_color(t.border)
         .overflow_hidden();
     match &evidence.proof {
-        Proof::Picture { path, seconds, .. } => {
+        Proof::Picture {
+            path,
+            seconds,
+            opened: page,
+            ..
+        } => {
             let opened = path.clone();
             let frame = frame
                 .h(px(LARGE))
@@ -64,12 +69,23 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
                 .cursor_pointer()
                 .on_click(cx.listener(move |pane, _, _, cx| pane.open_file(&opened, cx)));
             match seconds {
-                None => frame
+                None => div()
+                    .flex()
+                    .flex_col()
+                    .gap(SPACE_1)
                     .child(
-                        img(std::path::PathBuf::from(path))
-                            .size_full()
-                            .object_fit(ObjectFit::Contain),
+                        frame.child(
+                            img(std::path::PathBuf::from(path))
+                                .size_full()
+                                .object_fit(ObjectFit::Contain),
+                        ),
                     )
+                    .when_some(page.clone(), |column, page| {
+                        column.child(ui::meta(
+                            format!("Sikemux opened {page} after the check"),
+                            cx,
+                        ))
+                    })
                     .into_any_element(),
                 Some(seconds) => frame
                     .flex()
