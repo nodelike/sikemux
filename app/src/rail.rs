@@ -1139,18 +1139,10 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let Some(account) = view.account.as_deref() else {
         return sign_in(bench, cx).into_any_element();
     };
-    let who = account
-        .name
-        .clone()
-        .or_else(|| account.email.clone())
-        .unwrap_or_else(|| "Signed in".into());
+    let who = account.name.clone().unwrap_or_else(|| "Signed in".into());
     let row = Row::new("account", who)
         .mark(24., avatar(bench, account, 24., &t))
-        .centered()
-        .when_some(
-            account.name.as_ref().and(account.email.clone()),
-            |row, email| row.subtitle(ui::meta(email, cx)),
-        );
+        .centered();
     use crate::settings::Page;
     let settings_keys = keymap::hint("settings.toggle", cx);
     let act = |act: fn(&mut Workbench, &mut Window, &mut Context<Workbench>)| {
