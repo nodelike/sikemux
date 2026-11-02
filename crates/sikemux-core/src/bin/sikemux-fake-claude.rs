@@ -17,7 +17,9 @@
 //! `{ "when": "words in the prompt", "steps": [...] }`, a step being
 //! `{ "think": "..." }`, `{ "say": "..." }` or `{ "say_file": "reply.md" }`
 //! (beside the script), streamed a word at a time at `perSecond` (30), or
-//! `{ "tool": "Read", "input": {...}, "result": "...", "ms": 600 }`. While
+//! `{ "tool": "Read", "input": {...}, "result": "...", "ms": 600 }`. A tool step
+//! with `"call": "browser.navigate"` makes that call to Sikemux's own tools with
+//! its input, as the agent's tools server would, and answers with what they said. While
 //! `FAKE_CLAUDE_CLOCK` names a file holding a time in milliseconds, those
 //! pauses follow that time rather than the real one, so a recording that
 //! draws slower than real time still sees the reply arrive at a steady pace.
@@ -385,11 +387,15 @@ impl Claude {
                     "message": { "id": id, "model": model(), "role": "assistant",
                         "content": [{ "type": "tool_use", "id": tool_id, "name": name, "input": step["input"] }] },
                 }));
+                let result = match step["call"].as_str() {
+                    Some(method) => sikemux_tool(method, &step["input"]),
+                    None => step["result"].as_str().unwrap_or_default().to_owned(),
+                };
                 clock.wait(step["ms"].as_f64().unwrap_or(600.));
                 self.send(json!({
                     "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
                     "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": tool_id,
-                        "content": step["result"].as_str().unwrap_or_default() }] },
+                        "content": result }] },
                 }));
                 continue;
             }
@@ -495,6 +501,33 @@ fn scripted_reply(prompt: &str) -> Option<Vec<Value>> {
 /// The model its messages say wrote them: `FAKE_CLAUDE_MODEL`, or `fake`.
 fn model() -> String {
     std::env::var("FAKE_CLAUDE_MODEL").unwrap_or_else(|_| "fake".to_owned())
+}
+
+/// What one of Sikemux's own tools answers `method` with, over the endpoint Sikemux handed
+/// this agent.
+fn sikemux_tool(method: &str, params: &Value) -> String {
+    use sikemux_process::vars;
+    let Some(endpoint) = std::env::var_os(vars::CLI_ENDPOINT) else {
+        return "Sikemux handed this agent no tools".to_owned();
+    };
+    let project = std::env::current_dir()
+        .map(|cwd| cwd.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let agent = std::env::var(vars::TOOLS_AGENT_ID).ok();
+    match sikemux_core::cli::client::attempt(
+        std::path::Path::new(&endpoint),
+        &project,
+        agent.as_deref(),
+        method,
+        params,
+        std::time::Duration::from_secs(60),
+    ) {
+        Ok(answer) => answer.to_string(),
+        Err(
+            sikemux_core::cli::client::Failure::NotSent(error)
+            | sikemux_core::cli::client::Failure::Sent(error),
+        ) => error,
+    }
 }
 
 /// A file named beside `FAKE_CLAUDE_SCRIPT`.
