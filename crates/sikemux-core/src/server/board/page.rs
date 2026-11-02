@@ -100,7 +100,9 @@ fn address(core: &Core, project: &str, owner: &str) -> Option<String> {
 }
 
 /// Opens `url` in a tab of the owner's and takes it at its own width and at
-/// each of the widths a slice's screenshots are also taken at.
+/// each of the widths a slice's screenshots are also taken at, then closes the
+/// tab again when it was a new one. A tab of the owner's already on that site
+/// is used instead of a new one, and left open.
 async fn shoot(
     core: &Arc<Core>,
     project: &str,
@@ -115,24 +117,45 @@ async fn shoot(
         method: method.to_owned(),
         params,
     };
+    let had = forward(core, asked("browser.state", json!({}), "tabs"))
+        .await
+        .map(|state| tab_ids(&state))
+        .unwrap_or_default();
     let opened = asked(
         "browser.navigate",
         json!({ "url": url, "newTab": true, "waitFor": { "networkIdle": true, "timeoutMs": SETTLE_MS } }),
         "open",
     );
-    if let Err(error) = forward(core, opened).await {
-        eprintln!("sikemux core: the slice's page at {url} did not open: {error}");
-        return Vec::new();
-    }
-    let shot = asked("browser.screenshot", json!({}), "shot");
-    let first = match forward(core, shot.clone()).await {
-        Ok(first) => first,
+    let tab = match forward(core, opened).await {
+        Ok(opened) => opened["tabId"].as_str().map(str::to_owned),
         Err(error) => {
-            eprintln!("sikemux core: the slice's page at {url} was not taken: {error}");
+            eprintln!("sikemux core: the slice's page at {url} did not open: {error}");
             return Vec::new();
         }
     };
-    let mut shots = vec![first];
-    shots.extend(other_widths(core, &shot, owner).await);
+    let shot = asked("browser.screenshot", json!({}), "shot");
+    let mut shots = Vec::new();
+    match forward(core, shot.clone()).await {
+        Ok(first) => {
+            shots.push(first);
+            shots.extend(other_widths(core, &shot, owner).await);
+        }
+        Err(error) => eprintln!("sikemux core: the slice's page at {url} was not taken: {error}"),
+    }
+    if let Some(tab) = tab.filter(|tab| !had.contains(tab)) {
+        let close = asked("browser.tab.close", json!({ "tabId": tab }), "close");
+        if let Err(error) = forward(core, close).await {
+            eprintln!("sikemux core: the tab the slice's page opened in was not closed: {error}");
+        }
+    }
     shots
+}
+
+fn tab_ids(state: &serde_json::Value) -> Vec<String> {
+    state["tabs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tab| tab["tabId"].as_str().map(str::to_owned))
+        .collect()
 }
