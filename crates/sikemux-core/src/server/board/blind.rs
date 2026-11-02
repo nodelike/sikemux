@@ -250,9 +250,13 @@ async fn start(core: &Arc<Core>, step: &Step, agent: &str, head: &str) -> Result
             let (provider, model) = chosen
                 .map(|chosen| (chosen.provider, chosen.model))
                 .unwrap_or_default();
-            let (mut launch, launcher) =
-                core.workspaces
-                    .auto_launch(Some(&launcher), &cwd, provider.as_deref(), model)?;
+            let (mut launch, launcher) = core.workspaces.board_launch(
+                Some(&launcher),
+                &cwd,
+                provider.as_deref(),
+                model,
+                super::auto::PICKED_IN,
+            )?;
             let (named, _) = core.names.give(
                 Starting {
                     agent_id: &agent,

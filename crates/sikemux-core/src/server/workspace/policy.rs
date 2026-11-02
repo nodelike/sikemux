@@ -130,15 +130,17 @@ impl Workspaces {
         !self.published.locked().launchers.is_empty()
     }
 
-    /// How Auto starts an agent of its own in `cwd`: with the launcher the
-    /// project names, else the first the app offers that works, in that
-    /// launcher's own permission mode. Reads the Keychain, so it blocks.
-    pub(crate) fn auto_launch(
+    /// How the board starts an agent of its own in `cwd`: with the launcher
+    /// named, else the first the app offers that works, in that launcher's own
+    /// permission mode. A launcher gone is to be picked again `picked_in`.
+    /// Reads the Keychain, so it blocks.
+    pub(crate) fn board_launch(
         &self,
         launcher: Option<&str>,
         cwd: &Path,
         provider: Option<&str>,
         model: Option<String>,
+        picked_in: &str,
     ) -> Result<(ChatLaunch, String), String> {
         let chosen = {
             let published = self.published.locked();
@@ -149,7 +151,7 @@ impl Workspaces {
                     .iter()
                     .find(|launcher| launcher.id == id)
                     .ok_or_else(|| {
-                        format!("Sikemux can no longer start {id}; pick another agent in the board's Auto settings")
+                        format!("Sikemux can no longer start {id}; pick another agent {picked_in}")
                     })?,
                 None => launchers.iter().find(usable).ok_or(
                     "Sikemux has not said which agents it can start; open Sikemux once so it can",

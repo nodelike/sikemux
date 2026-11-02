@@ -96,11 +96,12 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> Result<
             let folder = Path::new(&project);
             let (checkout, cwd) = agent::cut_for(folder, folder, &worktree::branch_for(&text))?;
             let mut unclaimed = Unclaimed(Some(checkout.clone()));
-            let (mut launch, launcher) = core.workspaces.auto_launch(
+            let (mut launch, launcher) = core.workspaces.board_launch(
                 launcher.as_deref(),
                 &cwd,
                 provider.as_deref(),
                 model,
+                "in the start box's agent menu",
             )?;
             core.names.give(
                 Starting {

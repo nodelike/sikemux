@@ -22,6 +22,8 @@ use crate::server::{chat, messages, Core};
 
 pub(super) const MAX_SLOTS: u32 = 8;
 const DEFAULT_SLOTS: u32 = 2;
+/// Where the person picks the agents Auto starts.
+pub(super) const PICKED_IN: &str = "in the board's Auto settings";
 const MAX_LAUNCHER_CHARS: usize = 256;
 const MAX_MODEL_CHARS: usize = 200;
 
@@ -567,11 +569,12 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
         );
         blocking(move || {
             let tree = worktree::cut_for_card(Path::new(&project), &branch)?;
-            let started = core.workspaces.auto_launch(
+            let started = core.workspaces.board_launch(
                 settings.launcher.as_deref(),
                 &tree.cwd,
                 settings.provider.as_deref(),
                 settings.model.clone(),
+                PICKED_IN,
             );
             let (mut launch, launcher) = match started {
                 Ok(started) => started,
