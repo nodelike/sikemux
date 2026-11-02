@@ -200,7 +200,7 @@ pub(crate) fn of_program(
             sub if !GIT_COMMANDS.contains(&sub) => {
                 let stands_for = alias(sub)?;
                 match stands_for.strip_prefix('!') {
-                    Some(shell) => of_command(shell, &[]).map(|ship| ship.kind),
+                    Some(shell) => of_command(shell, &[], Looks::Every).map(|ship| ship.kind),
                     None => (stands_for.split_whitespace().next() == Some("push"))
                         .then_some(ShipKind::Push),
                 }
@@ -227,17 +227,32 @@ fn matches(rule: &Rule, args: &[String]) -> bool {
         }
 }
 
+/// Which programs of a command line a check looks at.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Looks {
+    Every,
+    /// Only those the shim does not see, where the shim is first on PATH:
+    /// programs run by a path, and the project's own commands.
+    PastTheShim,
+}
+
 /// What a shell command line does that leaves this machine, its first such
 /// command if any. `extra` are the project's own commands that do, such as
 /// `make deploy`, each matched by its leading words.
-pub(crate) fn of_command(line: &str, extra: &[String]) -> Option<Ship> {
+pub(crate) fn of_command(line: &str, extra: &[String], looks: Looks) -> Option<Ship> {
     segments(line).iter().find_map(|words| {
         let words = command_words(words)?;
         if let Some(script) = shell_script(words) {
-            return of_command(script, extra);
+            return of_command(script, extra, looks);
         }
         let (program, args) = words.split_first()?;
-        let kind = of_program(program, args, &|_| None).or_else(|| {
+        let shimmed =
+            !program.contains('/') && (program == "git" || PROGRAMS.contains(&program.as_str()));
+        let known = match looks == Looks::PastTheShim && shimmed {
+            true => None,
+            false => of_program(program, args, &|_| None),
+        };
+        let kind = known.or_else(|| {
             extra
                 .iter()
                 .any(|listed| leads(listed, words))

@@ -962,6 +962,7 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         core.all_sessions().len(),
         chats.len() + carried
     );
+    super::install_shim(&config);
     for record in chats {
         chat::resume(&core, record);
     }

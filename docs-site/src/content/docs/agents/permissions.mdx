@@ -33,8 +33,8 @@ What counts:
 
 A project that lands slices **Once on the branch** ([when slices land](/agents/board/#when-slices-land)) lets agents land their own work, so their pushes and merges there go through without asking. Sikemux reads a push as part of landing, since a push is how commits reach the project's branch. Deploying, publishing and changing production data always wait for you.
 
-Sikemux catches these where agents run commands: it stands in for each of those programs on every agent's `PATH`, in chats and in terminal tabs alike, and Claude Code, Grok and Hermes also check each shell command before it runs. What it doesn't catch:
+Sikemux catches these where agents run commands: it stands in for each of those programs on every agent's `PATH`, so agents in chats and in terminal tabs are both held, and a chat with Claude Code, Grok or Hermes also checks each shell command before it runs. The person's answer reaches an agent in a terminal tab as a message, typed in once it is waiting for one. What it doesn't catch:
 
-- a program run by its full path, such as `/opt/homebrew/bin/vercel --prod`, by Codex, OpenCode, Pi or OMP, or by an agent in a terminal tab;
+- a program run by its full path, such as `/opt/homebrew/bin/vercel --prod`, by Codex, OpenCode, Pi or OMP in a chat, or by any agent in a terminal tab;
 - a script that sets its own `PATH` before deploying, unless your project lists it under `ship`;
 - code that calls a deploy service's API itself, such as `curl` to Vercel, or a cloud SDK with its own credentials.

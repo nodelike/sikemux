@@ -1056,9 +1056,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
         0,
         config.plugins,
     )?;
-    chat::restore(&core);
-    workspace::restore(&core);
-    core.chats.clear_history();
+    install_shim(&config);
     if let Some(path) = config.cli_endpoint.clone() {
         match tools::ToolEndpoint::start(core.clone(), path).await {
             Ok(tools) => {
@@ -1067,7 +1065,18 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
             Err(error) => eprintln!("sikemux core: agents' tools are unavailable: {error}"),
         }
     }
+    chat::restore(&core);
+    workspace::restore(&core);
+    core.chats.clear_history();
     run_core(core, listener, lock, config).await
+}
+
+/// Puts what agents find first on their PATH in place, before any agent starts, the chats
+/// taken up again from an earlier core included, so none runs without its checks.
+pub(crate) fn install_shim(config: &ServerConfig) {
+    if let Some(data_dir) = config.data_dir.as_deref() {
+        crate::git_guard::shim::install(data_dir, config.cli_endpoint.as_deref());
+    }
 }
 
 /// The accept loop of a core, whether it started fresh or took over from an
@@ -1092,7 +1101,6 @@ pub(crate) async fn run_core(
     backdrop::follow(&core);
     if let Some(data_dir) = config.data_dir.as_deref() {
         crate::agent_accounts::usage::keep_readings_in(data_dir.join("plan-limits.json"));
-        crate::git_guard::shim::install(data_dir, config.cli_endpoint.as_deref());
         tokio::spawn(workspace::refresh_launchers(core.clone()));
         skill_library::watch_global(&core);
         account::start(&core);

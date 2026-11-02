@@ -23,8 +23,8 @@ use super::footer;
 const AGENT_BIN: &str = "agent-bin";
 /// The name the hook is linked under, outside the agents' PATH.
 const HOOK: &str = "sikemux-git-hook";
-/// Given to the hook where the shim already checks git, so it checks only
-/// what leaves this machine.
+/// Given to the hook where the shim is first on PATH, so it checks only what
+/// leaves this machine past the shim.
 const SHIP_ONLY: &str = "ship";
 /// macOS has no `timeout`, which agents reach for out of habit.
 const TIMEOUT: &str = "timeout";
@@ -277,7 +277,11 @@ fn run_hook(ship_only: bool) -> i32 {
         return 2;
     }
     let extra = project_ships(&cwd);
-    match crate::ship::of_command(command, &extra).and_then(|ship| held(&ship, &cwd)) {
+    let looks = match ship_only {
+        true => crate::ship::Looks::PastTheShim,
+        false => crate::ship::Looks::Every,
+    };
+    match crate::ship::of_command(command, &extra, looks).and_then(|ship| held(&ship, &cwd)) {
         Some(held) => {
             eprintln!("{held}");
             2

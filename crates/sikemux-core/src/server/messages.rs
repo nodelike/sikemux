@@ -127,7 +127,7 @@ pub(crate) struct Carried {
 impl Letter {
     /// Sent by a part of Sikemux that carries work on, not by an agent.
     fn by_sikemux(&self) -> bool {
-        self.from_id == BOARD || self.from_id == TRIGGER
+        self.from_id == BOARD || self.from_id == TRIGGER || self.from_id == SIKEMUX
     }
 
     fn carried(&self, to: &str, question: Option<String>) -> Carried {
@@ -326,7 +326,8 @@ impl Mailbox {
             .rev()
             .find(|sent| sent.digest == digest && now.saturating_sub(sent.at) < REPEAT_WINDOW_MS);
         // Answers, reports and questions each stand for an event of their own,
-        // however alike they read, and so do a board note and a trigger's firing.
+        // however alike they read, and so do a board note, a trigger's firing
+        // and Sikemux's word of what the person allowed.
         if let Some(repeat) =
             repeat.filter(|_| letter.kind == Kind::Message && !letter.by_sikemux())
         {
