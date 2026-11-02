@@ -1,0 +1,51 @@
+# Pictures of the app for sikemux.com, taken by the site's `pnpm shots`: the window alone at 2x,
+# with the default theme and no picture behind the panes.
+stage 1760 900
+window 1760 900
+replies replies.json
+prefer themeId aura-noir
+prefer paneImage null
+project shop shop
+patch site-fix.diff
+chat Wren
+title "Cart totals a cent off"
+settle 6
+click 871,774
+type "Some orders come out a cent off at checkout. Find out why and fix it properly, with a test." 200
+key enter
+wait 1
+# The core times the turn by the clock on the wall, so the work takes a believable while.
+hold 40
+wait 5
+type "Good. Run all the tests, then commit it with a clear message." 200
+key enter
+wait 3
+hold 8
+wait 0.5
+snap agents
+chat Rhea
+title "The shop's schema"
+settle 2
+click 871,774
+type "draw the shop's schema" 200
+key enter
+wait 10
+snap visual-diagram
+open terminal
+settle 2
+type "node --test" 200
+key enter
+wait 3
+snap terminals
+open git
+settle 2
+click 405,181
+type "fix(cart): round tax once, on the whole cart" 200
+key enter
+key enter
+type "A cart of cheap items could come out a cent off the receipt. The discount can no longer push the total below zero." 200
+wait 0.5
+snap git
+settings Usage
+settle 2
+snap activity

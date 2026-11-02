@@ -1,0 +1,26 @@
+diff --git a/src/cart.mjs b/src/cart.mjs
+index f3997e9..7b07245 100644
+--- a/src/cart.mjs
++++ b/src/cart.mjs
+@@ -1,7 +1,7 @@
+ export function cartTotal(lines, { taxRate = 0, discountCents = 0 } = {}) {
+   const subtotal = lines.reduce((sum, line) => sum + line.priceCents * line.quantity, 0);
+-  const taxed = Math.round((subtotal - discountCents) * (1 + taxRate));
+-  return Math.max(taxed, 0);
++  const discounted = Math.max(subtotal - Math.min(discountCents, subtotal), 0);
++  return discounted + Math.round(discounted * taxRate);
+ }
+ 
+ export function mergeLines(lines) {
+diff --git a/test/cart.test.mjs b/test/cart.test.mjs
+index 3b79a6b..9741540 100644
+--- a/test/cart.test.mjs
++++ b/test/cart.test.mjs
+@@ -10,3 +10,7 @@ test("applies tax after the discount", () => assert.equal(cartTotal([mug], { tax
+ test("never goes below zero", () => assert.equal(cartTotal([tee], { discountCents: 9000 }), 0));
+ test("merges lines for the same variant", () => assert.deepEqual(mergeLines([mug, mug]), [{ ...mug, quantity: 4 }]));
+ test("keeps different variants apart", () => assert.equal(mergeLines([mug, tee]).length, 2));
++test("rounds tax once, on the whole cart", () => {
++  const pencil = { variantId: "pencil", priceCents: 105, quantity: 3 };
++  assert.equal(cartTotal([pencil], { taxRate: 0.075 }), 339);
++});

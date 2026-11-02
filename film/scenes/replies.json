@@ -7,5 +7,25 @@
       { "tool": "Read", "input": { "file_path": "src/orders.ts" }, "result": "export type OrderStatus = \"cart\" | \"placed\" | \"paid\" | \"shipped\";", "ms": 400 },
       { "say_file": "reply-schema.md", "perSecond": 45 }
     ]
+    },
+  {
+    "when": "a cent off",
+    "steps": [
+      { "think": "A cent off sounds like rounding. I'll find where the total is worked out and see where it rounds.", "perSecond": 80 },
+      { "tool": "Grep", "input": { "pattern": "Math.round", "path": "src" }, "result": "src/cart.mjs:3:  const taxed = Math.round((subtotal - discountCents) * (1 + taxRate));", "ms": 300 },
+      { "tool": "Read", "input": { "file_path": "src/cart.mjs" }, "result": "export function cartTotal(lines, { taxRate = 0, discountCents = 0 } = {}) {", "ms": 300 },
+      { "tool": "Edit", "input": { "file_path": "src/cart.mjs", "old_string": "  const taxed = Math.round((subtotal - discountCents) * (1 + taxRate));\n  return Math.max(taxed, 0);", "new_string": "  const discounted = Math.max(subtotal - Math.min(discountCents, subtotal), 0);\n  return discounted + Math.round(discounted * taxRate);" }, "result": "The file src/cart.mjs has been updated.", "ms": 400 },
+      { "tool": "Bash", "input": { "command": "node --test", "description": "Run the tests" }, "result": "# tests 8\n# pass 8\n# fail 0", "ms": 900 },
+      { "say": "The total rounded the tax and the price together, so a cart of cheap items could come out a cent away from what the receipt adds up to. It now rounds the tax once, on the whole cart, and a discount can no longer push the total below zero. I added a test with three pencils that used to come out at 338 cents.", "perSecond": 80 }
+    ]
+  },
+  {
+    "when": "run all the tests",
+    "steps": [
+      { "say": "Running every test before I commit, since checkout and the order emails both use this total.", "perSecond": 80 },
+      { "tool": "Bash", "input": { "command": "pnpm test", "description": "Run every test" }, "result": "# tests 8\n# pass 8\n# fail 0", "ms": 700 },
+      { "tool": "Bash", "input": { "command": "git add src/cart.mjs test/cart.test.mjs", "description": "Stage the fix" }, "result": "", "ms": 300 },
+      { "tool": "Bash", "input": { "command": "git commit -m \"fix(cart): round tax once on the whole cart, so totals match the receipt\"", "description": "Commit the fix" }, "result": "[main 4f1c2a7] fix(cart): round tax once on the whole cart", "ms": 3600000 }
+    ]
   }
 ]
