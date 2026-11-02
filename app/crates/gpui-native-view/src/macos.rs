@@ -99,14 +99,29 @@ fn rect_in(parent: &NSView, bounds: Bounds<Pixels>) -> NSRect {
     )
 }
 
+thread_local! {
+    static STAND_IN: RefCell<Option<Retained<NSView>>> = const { RefCell::new(None) };
+}
+
+/// Gives windows drawn offscreen, which have no view of their own, `view` to hold their native
+/// views, so a tool that pictures such a window can lay those views over it. A window on screen
+/// never uses it.
+pub fn stand_in_for_offscreen(view: Retained<NSView>) {
+    STAND_IN.with(|stand_in| *stand_in.borrow_mut() = Some(view));
+}
+
 /// The view GPUI draws the window into, which native views are added to.
 pub fn window_view(window: &Window) -> Option<Retained<NSView>> {
-    let handle = HasWindowHandle::window_handle(window).ok()?;
-    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
-        return None;
-    };
-    // SAFETY: GPUI hands out its own live NSView, and this runs on the main thread.
-    unsafe { Retained::retain(appkit.ns_view.as_ptr().cast::<NSView>()) }
+    let own = HasWindowHandle::window_handle(window)
+        .ok()
+        .and_then(|handle| match handle.as_raw() {
+            // SAFETY: GPUI hands out its own live NSView, and this runs on the main thread.
+            RawWindowHandle::AppKit(appkit) => unsafe {
+                Retained::retain(appkit.ns_view.as_ptr().cast::<NSView>())
+            },
+            _ => None,
+        });
+    own.or_else(|| STAND_IN.with(|stand_in| stand_in.borrow().clone()))
 }
 
 /// Gives GPUI the keyboard back when the person clicks something GPUI draws, or

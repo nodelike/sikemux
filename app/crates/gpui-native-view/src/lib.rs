@@ -33,7 +33,7 @@ use gpui::{
 #[cfg(target_os = "linux")]
 pub use linux::window_x11;
 #[cfg(target_os = "macos")]
-pub use macos::{window_view, OwnedView};
+pub use macos::{stand_in_for_offscreen, window_view, OwnedView};
 #[cfg(target_os = "macos")]
 pub use objc2::rc::Retained;
 #[cfg(target_os = "macos")]
