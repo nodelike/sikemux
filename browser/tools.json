@@ -4,7 +4,7 @@
     "file": "SIKEMUX_GUIDE.md",
     "name": "guide",
     "row": {"verb": "read", "kind": "read", "icon": "logo", "target": ["the guide: {topic}", "the guide"]},
-    "description": "Read before your first process or browser click. Pass a topic for one area in depth.",
+    "description": "Read before your first process or browser click. Topics go deeper.",
     "comment": "The sidecar answers it from the guide the core serves with this manifest, so it has no harness method."
   },
   "tools": [
@@ -12,7 +12,7 @@
       "name": "browser_navigate",
       "row": {"verb": "open", "kind": "fetch", "icon": "globe", "target": ["{url}", "{go}"]},
       "method": "browser.navigate",
-      "description": "Open a URL or go back, forward or reload, then wait for the page.",
+      "description": "Go to a URL, back, forward or reload; waits for the page.",
       "properties": {
         "url": {
           "type": "string",
@@ -127,7 +127,7 @@
       "name": "browser_click",
       "row": {"verb": "click", "kind": "edit", "icon": "click", "target": ["“{text}”", "{selector}", "element {index}", "{x}, {y}"], "detail": ["{role}"]},
       "method": "browser.click",
-      "description": "Click an element by number, text or selector, or a point.",
+      "description": "Click an element by number, text, selector or point.",
       "properties": {
         "index": {
           "description": "Element number from state or find",
@@ -184,7 +184,7 @@
       "name": "browser_type",
       "row": {"verb": "type", "kind": "edit", "icon": "text", "target": ["into {selector}", "into element {index}", "into the focused field"]},
       "method": "browser.type",
-      "description": "Type into a field, replacing its value, or at the caret.",
+      "description": "Type into a field, replacing it or at the caret.",
       "properties": {
         "index": {
           "description": "Field number; omit to type at the caret",
@@ -223,7 +223,7 @@
       "name": "browser_press",
       "row": {"verb": "press", "kind": "edit", "icon": "keyboard", "target": ["{key}"]},
       "method": "browser.press",
-      "description": "Press a key or chord, such as Enter or Meta+a.",
+      "description": "Press a key or chord, such as Meta+a.",
       "properties": {
         "key": {
           "type": "string",
@@ -404,7 +404,7 @@
       "name": "browser_dialog",
       "row": {"verb": "answer", "kind": "edit", "icon": "message", "target": ["“{text}”", "the dialog"]},
       "method": "browser.dialog",
-      "description": "Answer the page's alert, confirm or prompt.",
+      "description": "Answer an alert, confirm or prompt.",
       "properties": {
         "accept": {
           "type": "boolean"
@@ -514,7 +514,7 @@
       "name": "browser_network",
       "row": {"verb": "network", "kind": "read", "icon": "network", "target": ["“{filter}”", "request {id}", "recent requests"], "detail": ["{method}"]},
       "method": "browser.network",
-      "description": "List the page's requests with status and body.",
+      "description": "List page requests with status and body.",
       "properties": {
         "limit": {
           "type": "integer",
@@ -556,7 +556,7 @@
       "name": "browser_console",
       "row": {"verb": "read", "kind": "read", "icon": "terminal", "target": ["the page console"]},
       "method": "browser.console",
-      "description": "List the page's console messages and errors.",
+      "description": "List page console messages and errors.",
       "properties": {
         "limit": {
           "type": "integer",
@@ -645,7 +645,7 @@
       "name": "browser_record",
       "row": {"verb": "record", "kind": "execute", "icon": "record", "target": ["{action}"], "detail": ["{path}"]},
       "method": "browser.record",
-      "description": "Record this tab to MP4, or stop recording.",
+      "description": "Record this tab to MP4, or stop.",
       "properties": {
         "action": {
           "enum": [
@@ -667,7 +667,7 @@
       "name": "browser_wait",
       "row": {"verb": "wait", "kind": "think", "icon": "hourglass", "target": ["for “{text}”", "for “{textGone}” to go", "for {selector}", "for {selectorGone} to go", "for {url}", "for {urlGone} to go", "{ms}"]},
       "method": "browser.wait",
-      "description": "Wait for text, a selector, a url or a quiet network.",
+      "description": "Wait for text, a selector, a URL or quiet network.",
       "properties": {
         "text": {
           "type": "string",
@@ -731,7 +731,7 @@
       "name": "browser_switch_tab",
       "row": {"verb": "switch", "kind": "move", "icon": "tabs", "target": ["tab {tabId}"]},
       "method": "browser.tab.switch",
-      "description": "Make one of this agent's tabs the current one.",
+      "description": "Switch to one of this agent's tabs.",
       "properties": {
         "tabId": {
           "type": "string",
@@ -1210,7 +1210,7 @@
       "name": "process_start",
       "row": {"verb": "start", "kind": "execute", "icon": "run", "target": ["{processId}", "{label}", "{command}"], "detail": ["{command}"]},
       "method": "process.start",
-      "description": "Start a sikemux.json process or shell command.",
+      "description": "Start a sikemux.json process or a command.",
       "properties": {
         "processId": {
           "description": "From workspace_inspect or an earlier result",
@@ -1267,7 +1267,7 @@
       "name": "process_read",
       "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{processId}", "{executionId}"], "detail": ["“{search}”"]},
       "method": "process.read",
-      "description": "Read a process's output by cursor, tail or search.",
+      "description": "Read process output by cursor, tail or search.",
       "properties": {
         "executionId": {
           "description": "A run; else processId's latest",
@@ -1570,7 +1570,7 @@
       "name": "who_wrote",
       "row": {"verb": "find", "kind": "search", "icon": "search", "target": ["who wrote {target}"]},
       "method": "agent.wrote",
-      "description": "Who broke CI, a test or a commit, and how to reach them.",
+      "description": "Who broke CI, a test or a commit; how to reach them.",
       "properties": {
         "target": {
           "description": "Commit, path or path:line, test name, CI run URL or id, or ci",
@@ -1943,7 +1943,7 @@
       "name": "board_decide",
       "row": {"verb": "decide", "kind": "edit", "icon": "issue", "target": ["decision #{decision}", "{text}"]},
       "method": "board.decide",
-      "description": "Record, correct or retire a goal's decision.",
+      "description": "Keep a goal's decisions.",
       "properties": {
         "decision": {
           "description": "The decision to correct or retire; leave out to record one",
@@ -1970,7 +1970,7 @@
       "name": "board_assert",
       "row": {"verb": "assert", "kind": "edit", "icon": "issue", "target": ["assertion #{assertion}", "{text}"]},
       "method": "board.assert",
-      "description": "Write, correct or retire a goal's assertion.",
+      "description": "Keep a goal's assertions.",
       "properties": {
         "goal": {
           "description": "The goal's card; leave out for the goal your card sits under",
@@ -2090,7 +2090,7 @@
       "name": "memory_update",
       "row": {"verb": "update", "kind": "edit", "icon": "text", "target": ["memory #{id}"], "detail": ["{text}", "{wrong}"]},
       "method": "memory.update",
-      "description": "Correct, dispute or retire a rule or knowledge.",
+      "description": "Mend what is kept.",
       "properties": {
         "id": {
           "type": "integer",
@@ -2167,7 +2167,7 @@
       "name": "memory_list",
       "row": {"verb": "list", "kind": "read", "icon": "log-lines", "target": ["what Sikemux keeps"]},
       "method": "memory.list",
-      "description": "List the rules, knowledge and decisions kept here.",
+      "description": "List what is kept.",
       "properties": {},
       "required": []
     },
@@ -2372,7 +2372,7 @@
       "name": "app_console",
       "row": {"verb": "read", "kind": "read", "icon": "logo", "target": ["the app console"]},
       "method": "app.console",
-      "description": "Read the Sikemux app's console and errors.",
+      "description": "Read Sikemux's console and errors.",
       "properties": {
         "limit": {
           "type": "integer",

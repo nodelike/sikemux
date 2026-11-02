@@ -1389,6 +1389,13 @@ long as the goal. Pass
 `decision` with its number to correct it with new `text` or `why`, or with
 `retire: true` when it no longer stands.
 
+`board_assert` writes what must hold once the goal is done, with `text` and
+the `evidence` that shows it, which Sikemux collects on each slice's latest
+commit: `check`, `recording`, `screenshot`, or `workflow` with the CI
+`workflow` whose run shows it. `goal` names another goal's card than the one
+your card sits under. Pass `assertion` with its number to correct it, or
+with `retire: true` when it no longer has to hold.
+
 ### Cards Auto runs
 
 When the person turns on Auto for a project, the board starts an agent of its
