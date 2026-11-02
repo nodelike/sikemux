@@ -14,7 +14,10 @@
 //!   replies FILE                the stand-in Claude's scripted replies (see sikemux-fake-claude)
 //!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
 //!   chat NAME                   opens a Claude chat named NAME in the last project
-//!   open FILE                   opens FILE of the last project in a tab
+//!   title "TEXT"                gives the last chat that title
+//!   open FILE|terminal|git      opens FILE of the last project, a new terminal or Git in a tab
+//!   patch FILE                  applies FILE, a diff beside the scene, to the last project unstaged
+//!   prefer KEY VALUE            sets a preference, VALUE as JSON or else as text
 //!   settle S                    lets the core and the window catch up, unfilmed
 //!   hold S                      gives the core S real seconds with the film's time stopped, so
 //!                               an answer that takes a round trip lands between two frames
@@ -28,7 +31,9 @@
 //!   pinch FACTOR [S]            pinches at the cursor, above 1 to zoom in
 //!   pan DX,DY [S] / scroll DY [S]          two-finger scrolls at the cursor
 //!   shape arrow|hand|beam|auto  which pointer is drawn
+//!   settings PAGE               opens settings at the page of that name
 //!   wait S / mark KIND / still NAME / end [HOLD]
+//!   snap NAME                   saves the window alone as drawn, without the stage or cursor
 
 use std::cell::RefCell;
 use std::io::Write;
@@ -51,6 +56,8 @@ use sikemux_client::client::CoreClient;
 use sikemux_gpui::{core, icons, theme, workbench};
 
 const FPS: f64 = 60.;
+/// The model the stand-in Claude and the seeded year of activity say did the work.
+const SEEDED_MODEL: &str = "claude-opus-4-5";
 
 #[derive(Clone, Debug)]
 struct Word {
@@ -217,6 +224,7 @@ struct World {
     home: PathBuf,
     scenes: PathBuf,
     project: Option<(String, PathBuf)>,
+    chat: Option<String>,
     claude: PathBuf,
     world: Value,
 }
@@ -229,6 +237,7 @@ impl World {
         for folder in [&home, &claude, &work.join("data")] {
             std::fs::create_dir_all(folder)?;
         }
+        std::fs::write(home.join(".zshrc"), "PROMPT='%F{6}%1~%f %F{5}❯%f '\n")?;
         std::fs::write(
             claude.join("fake-account.json"),
             json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "edon@acme.dev", "subscriptionType": "max" })
@@ -254,6 +263,7 @@ impl World {
             .env("SIKEMUX_CORE_SOCKET", &socket)
             .env(sikemux_process::vars::AGENT_SEARCH, "path")
             .env("FAKE_CLAUDE_CLOCK", clock)
+            .env("FAKE_CLAUDE_MODEL", SEEDED_MODEL)
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log)
@@ -317,6 +327,7 @@ impl World {
                 .parent()
                 .map_or_else(|| PathBuf::from("."), Path::to_path_buf),
             project: None,
+            chat: None,
             claude,
             world: args.world.clone(),
         })
@@ -362,10 +373,11 @@ impl World {
                 );
             }
             sql += &format!(
-                "INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write) \
-                 VALUES ({at}, 'claude', '{place}', {}, {}, 0, {});\n",
+                "INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write, model) \
+                 VALUES ({at}, 'claude', '{place}', {}, {}, {}, {}, '{SEEDED_MODEL}');\n",
                 (busy * 900_000.) as i64,
                 (busy * 300_000.) as i64,
+                (busy * 6_000_000.) as i64,
                 (busy * 1_500_000.) as i64,
             );
             for commit in 0..(busy * 6.) as i64 {
@@ -471,18 +483,7 @@ impl World {
             .flatten()
             .filter_map(Value::as_str)
         {
-            let opened = match tab {
-                "terminal" => self.call("newTerminal", json!({ "project": project })),
-                "git" => self.call(
-                    "openTab",
-                    json!({ "project": project, "kind": "git", "target": path }),
-                ),
-                file => self.call(
-                    "openTab",
-                    json!({ "project": project, "kind": "files", "target": path.join(file) }),
-                ),
-            };
-            if let Err(error) = opened {
+            if let Err(error) = self.open_tab(project, path, tab) {
                 eprintln!("film: could not open the {tab} tab: {error}");
             }
         }
@@ -499,6 +500,21 @@ impl World {
             }
         }
         Ok(())
+    }
+
+    /// Opens a terminal, the Git tab, or a file of the project.
+    fn open_tab(&self, project: &str, path: &Path, tab: &str) -> anyhow::Result<Value> {
+        match tab {
+            "terminal" => self.call("newTerminal", json!({ "project": project })),
+            "git" => self.call(
+                "openTab",
+                json!({ "project": project, "kind": "git", "target": path }),
+            ),
+            file => self.call(
+                "openTab",
+                json!({ "project": project, "kind": "files", "target": path.join(file) }),
+            ),
+        }
     }
 
     fn call(&self, method: &str, params: Value) -> anyhow::Result<Value> {
@@ -566,13 +582,42 @@ impl World {
                 if let Ok(name) = step.text(0) {
                     self.call("renameAgent", json!({ "agentId": chat, "name": name }))?;
                 }
+                self.chat = Some(chat);
+            }
+            "title" => {
+                let chat = self
+                    .chat
+                    .clone()
+                    .ok_or_else(|| anyhow!("open a chat first"))?;
+                self.call(
+                    "updateAgent",
+                    json!({ "agentId": chat, "patch": { "title": step.text(0)?, "renamed": true } }),
+                )?;
+            }
+            "prefer" => {
+                let value = match step.text(1)? {
+                    "null" => Value::Null,
+                    text => serde_json::from_str(text).unwrap_or_else(|_| json!(text)),
+                };
+                self.call(
+                    "setPreference",
+                    json!({ "key": step.text(0)?, "value": value }),
+                )?;
+            }
+            "patch" => {
+                let (_, path) = self.project()?.clone();
+                let applied = sikemux_process::user_environment::command("git")
+                    .arg("apply")
+                    .arg(self.scenes.join(step.text(0)?))
+                    .current_dir(&path)
+                    .status()?;
+                if !applied.success() {
+                    bail!("could not apply {}", step.text(0)?);
+                }
             }
             "open" => {
                 let (project, path) = self.project()?.clone();
-                self.call(
-                    "openTab",
-                    json!({ "project": project, "kind": "files", "target": path.join(step.text(0)?) }),
-                )?;
+                self.open_tab(&project, &path, step.text(0)?)?;
             }
             _ => return Ok(false),
         }
@@ -728,10 +773,12 @@ struct Director {
     tweens: Vec<Tween>,
     next_id: u64,
     lens: Option<u64>,
+    bench: Option<gpui::Entity<workbench::Workbench>>,
     compositor: Compositor,
     output: (u32, u32),
     sink: Sink,
     still: Option<PathBuf>,
+    snap: Option<PathBuf>,
     stills: PathBuf,
     grid: bool,
     events: Vec<Value>,
@@ -987,12 +1034,13 @@ impl Director {
     }
 
     fn frame(&mut self) -> anyhow::Result<()> {
-        let wanted = self.recording
-            && (self.still.is_some()
-                || match &self.sink {
-                    Sink::Video { .. } => true,
-                    Sink::Stills { frames } => frames.contains(&self.recorded),
-                });
+        let wanted = self.snap.is_some()
+            || self.recording
+                && (self.still.is_some()
+                    || match &self.sink {
+                        Sink::Video { .. } => true,
+                        Sink::Stills { frames } => frames.contains(&self.recorded),
+                    });
         let step = Duration::from_secs_f64(1. / (FPS * self.pictures_a_frame as f64));
         for _ in 0..self.pictures_a_frame {
             let drawing = Instant::now();
@@ -1015,6 +1063,10 @@ impl Director {
                 let reading = Instant::now();
                 let shot = self.cx.capture_screenshot(self.window)?;
                 self.spent[1] += reading.elapsed();
+                if let Some(path) = self.snap.take() {
+                    shot.save(&path)?;
+                    println!("film: saved {}", path.display());
+                }
                 let framing = Instant::now();
                 self.compositor.add(Picture {
                     window: &shot,
@@ -1420,8 +1472,26 @@ impl Director {
                 }
             }
             "mark" => self.mark(step.text(0)?, None),
+            "settings" => {
+                let name = step.text(0)?;
+                let page = sikemux_gpui::settings::Page::named(name)
+                    .ok_or_else(|| anyhow!("line {}: no settings page called {name}", step.line))?;
+                let bench = self.bench.clone().ok_or_else(|| anyhow!("no workbench"))?;
+                self.cx
+                    .update_window(self.window, |_, window, cx| {
+                        bench.update(cx, |bench, cx| {
+                            sikemux_gpui::settings::open(bench, page, window, cx)
+                        })
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                self.wait(0.3)?;
+            }
             "still" => {
                 self.still = Some(self.stills.join(format!("{}.png", step.text(0)?)));
+                self.frame()?;
+            }
+            "snap" => {
+                self.snap = Some(self.stills.join(format!("{}.png", step.text(0)?)));
                 self.frame()?;
             }
             "end" => {
@@ -1601,10 +1671,12 @@ fn main() -> anyhow::Result<()> {
         tweens: Vec::new(),
         next_id: 0,
         lens: None,
+        bench: bench.borrow().clone(),
         compositor,
         output: (output_width, output_height),
         sink,
         still: None,
+        snap: None,
         stills,
         grid: args.grid,
         events: Vec::new(),

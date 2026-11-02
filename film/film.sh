@@ -4,6 +4,7 @@
 # (and music, with --music) under it.
 #   film/film.sh <scene> [--draft] [--blur] [--music [track]] [--out clip.mp4]
 #   film/film.sh <scene> --stills 1.5,4 [--grid]     pictures at those seconds, to film/out/<scene>/
+#   film/film.sh <scene> --snaps [--out folder]       only the scene's snap pictures of the window
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
@@ -18,13 +19,14 @@ scene="${1:-}"
   fail "usage: film/film.sh <scene> [...]; scenes: $(cd "$ROOT/film/scenes" && ls *.film | sed 's/\.film$//' | tr '\n' ' ')"
 shift
 
-draft=0 blur=0 music="" stills="" grid=0 out=""
+draft=0 blur=0 music="" stills="" snaps=0 grid=0 out=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --draft) draft=1; shift ;;
     --blur) blur=1; shift ;;
     --grid) grid=1; shift ;;
     --stills) stills="$2"; shift 2 ;;
+    --snaps) snaps=1; shift ;;
     --out) out="$2"; shift 2 ;;
     --music)
       if [[ -n "${2:-}" && "$2" != --* ]]; then music="$2"; shift 2
@@ -61,6 +63,11 @@ args=(
 [[ $draft == 1 ]] && args+=(--draft)
 [[ $blur == 1 ]] && args+=(--blur)
 [[ $grid == 1 ]] && args+=(--grid)
+
+if [[ $snaps == 1 ]]; then
+  "$bin/examples/film" "${args[@]}" --stills "" --out "${out:-$folder}"
+  exit
+fi
 
 if [[ -n "$stills" ]]; then
   "$bin/examples/film" "${args[@]}" --stills "$stills" --out "$folder"
