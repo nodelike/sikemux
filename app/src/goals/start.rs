@@ -16,7 +16,7 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_core::server::call;
-use sikemux_core::server::{BoardAddParams, HandOffParams, TriageParams};
+use sikemux_core::server::{BoardAddParams, BoardHandOffParams, TriageParams};
 use sikemux_wire::protocol::{LauncherInfo, ProjectInfo};
 use sikemux_wire::start::{Because, HardFact, StartMode};
 use tokio::sync::oneshot;
@@ -406,16 +406,17 @@ impl GoalsPane {
     ) {
         let files = std::mem::take(&mut self.start.files);
         let Chosen { model, payer, .. } = self.start.chosen.clone();
-        let asked = Target::here(&self.asks).request_typed::<call::BoardHandOff>(HandOffParams {
-            project: project.path.to_string_lossy().into_owned(),
-            text: text.clone(),
-            files: (files.iter())
-                .map(|path| path.to_string_lossy().into_owned())
-                .collect(),
-            launcher: Some(launcher.id),
-            model,
-            provider: payer,
-        });
+        let asked =
+            Target::here(&self.asks).request_typed::<call::BoardHandOff>(BoardHandOffParams {
+                project: project.path.to_string_lossy().into_owned(),
+                text: text.clone(),
+                files: (files.iter())
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect(),
+                launcher: Some(launcher.id),
+                model,
+                provider: payer,
+            });
         self.busy = true;
         cx.notify();
         cx.spawn_in(window, async move |pane, cx| {
