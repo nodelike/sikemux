@@ -1,21 +1,23 @@
-# Sikemux v0.6.0-nightly.11
+# Sikemux v0.6.1-nightly.1
 
-The eleventh nightly of the new Sikemux app. Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
+The first nightly after 0.6.0. Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
 
-Your phone needs the nightly phone app, 0.2.0-nightly.3 or later, from TestFlight on iPhone or the Google Play testing track on Android, and nightly hosts link only with other nightly hosts.
+## Before you update
 
-## New since nightly.10
+- **Your phone needs 0.2.0-nightly.13**, from TestFlight on iPhone or the Google Play testing track on Android. It speaks the newer protocol this nightly does, so it connects to hosts on this nightly but not to hosts on stable 0.6.0.
+- **This nightly links only with other hosts on it.** Hosts on stable 0.6.0 and hosts on this nightly can't reach each other.
 
-- **A Stash that reads your links.** The Stash tray lists items as rows, newest first, and the server reads the first pages a stashed prompt or text links to, with each site's icon; pull requests and issues show in their state's colour.
-- **DBML diagrams remember.** Where you moved a diagram's tables, and its pan and zoom, survive restarts and updates, and references over several columns meet their tables cleanly.
-- **Agents manage their teams.** An agent can close the agents it started, keep 16 teammates open at once, up from 6, and a project can hold 64 agent-started agents.
-- **Tabs say what's going on.** An agent's tab shows its shells, subagents and next timer, as its rail row does.
-- **Jira cards drag.** Drag a card to another column of its lane on the Jira board, as on the agents' board. Thanks to @ankit-ml12.
-- **Faster, typed talk with the core.** The window reads the core's answers as typed values, so chats and lists update with less work.
-- Links to pull requests and issues read as GitHub writes them, and other hosts' folders show under ~ from that host's own home.
-- Tab and Shift-Tab reach a terminal's program again, and a close button's click no longer also opens what it closes.
-- A task an agent runs again replaces its earlier terminal on the desk, and showing local files no longer runs out after 16.
-- The top bar's CI chip settles when a run finishes, and an agent's header shows its worktree's pull request again.
-- The Sikemux mark sits centred in every icon.
+## New since 0.6.0
 
-For the complete patch history, compare [`v0.6.0-nightly.10...v0.6.0-nightly.11`](https://github.com/nodelike/sikemux/compare/v0.6.0-nightly.10...v0.6.0-nightly.11).
+- **Goals.** A view of its own, toggled from the title bar: Home lists what needs you in every project, grouped Decide, Unblock and Fix, and starts work from the chat's composer with Hand off, Plan first or Chat. A goal lists the promises its slices make, what each waits on and roughly how long, and the evidence that shows them.
+- **Slices on evidence.** A board card that makes a promise passes Built, Looks right and Landed only on evidence Sikemux collects itself: a check on the owner's latest commit, a CI workflow, screenshots at desktop, phone and tablet widths. Auto's pull requests carry that evidence.
+- **CI on the board.** A project's check can be its CI, and CI failing the same way twice in a row on the branch becomes a card.
+- **Memory.** Sikemux keeps the rules you'd otherwise repeat in every chat, hands them to new chats and agents in your project, and offers to move each into the folder's AGENTS.md.
+- **Waiting on you.** Any question or proposal an agent ends its turn with lands in the inbox, answerable in one click, and anything that comes to need you notifies you once.
+- **Processes.** Sikemux's run-a-command tools are processes now, and an agent's runs tidy themselves: starting under the same label replaces the old run.
+- **Connectors.** Settings › Connectors replaces Integrations, with each connector's mark and whether it is signed in.
+- Agents' browser tabs tidy themselves, agent worktrees get branches named for their work, and the context ring counts how often a chat was compacted.
+- Stopping everything puts chats to sleep and keeps them asleep until you open one, and `sikemux restart` keeps terminals and chats.
+- The rail shows only your account's name, never its email, so screenshots don't reveal it.
+
+For the complete patch history, compare [`v0.6.0...v0.6.1-nightly.1`](https://github.com/nodelike/sikemux/compare/v0.6.0...v0.6.1-nightly.1).

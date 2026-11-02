@@ -1,7 +1,5 @@
-# 0.2.0-nightly.12
+# 0.2.0-nightly.13
 
-• An agent's name reads @Name, as it does on the Mac.
-• On Android, lists scroll again under the swipe back.
-• The app icon and splash hold the Sikemux mark centred.
-• Keeps the app in step with the latest Sikemux on your host, including its faster, typed calls.
-• Works with hosts on the Sikemux nightly; update your host to the nightly to use it.
+• Works with hosts on Sikemux 0.6.1-nightly.1 or later; hosts on stable 0.6.0 need the nightly to link with this app.
+• Speaks the host's new inbox: questions and proposals agents end their turns with, and what each waits on you for.
+• Keeps the app in step with the latest Sikemux on your host.
