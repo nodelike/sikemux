@@ -1167,7 +1167,8 @@ fn list_item(line: &str) -> Option<&str> {
 }
 
 /// The paragraph's last sentence, when it asks the person something or offers more, and
-/// whether it offers. Inside backticks nothing ends a sentence or asks.
+/// whether it offers, read after a lead-in such as "Next step:". Inside backticks nothing
+/// ends a sentence or asks.
 fn last_ask(paragraph: &str) -> Option<(String, bool)> {
     let paragraph = paragraph.trim();
     let mut coded = false;
@@ -1197,8 +1198,11 @@ fn last_ask(paragraph: &str) -> Option<(String, bool)> {
     let start = ends.last().copied().unwrap_or(0);
     let sentence = paragraph[start..].trim().trim_matches(['*', '_']);
     let plain = sentence.to_lowercase();
-    let offer = OFFERS.iter().any(|opening| plain.starts_with(opening)) && !plain.contains(" or ");
-    let leaves = offer && plain.starts_with("if you");
+    let asked = (plain.rsplit(": ").next())
+        .unwrap_or(&plain)
+        .trim_start_matches(['*', '_']);
+    let offer = OFFERS.iter().any(|opening| asked.starts_with(opening)) && !asked.contains(" or ");
+    let leaves = offer && asked.starts_with("if you");
     (asks || leaves).then(|| (sentence.to_owned(), offer))
 }
 
