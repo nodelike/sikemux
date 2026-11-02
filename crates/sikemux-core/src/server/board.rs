@@ -35,6 +35,7 @@ mod failing;
 mod finish;
 pub(crate) mod git;
 pub(crate) mod goal;
+mod hand_off;
 mod migrate;
 mod review;
 mod slice;
@@ -51,6 +52,8 @@ pub use auto::{
 pub(crate) use failing::ci_ruled;
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 pub use goal::AssertParams;
+pub(crate) use hand_off::hand_off;
+pub use hand_off::{HandOffParams, HandedOff};
 pub(crate) use slice::{
     follow, gate_key, gate_words, person_note, person_pass, screenshot_taken, wants_screenshot,
     SCREENSHOT_WIDTHS,
@@ -816,6 +819,7 @@ fn optional_text(params: &Value, key: &str) -> Result<Option<String>, String> {
 }
 
 /// A new card, as the person or an agent asked for it.
+#[derive(Default)]
 struct Adding {
     title: String,
     details: String,
@@ -1484,7 +1488,7 @@ fn add_card(
     by: &By,
     adding: Adding,
     holder: Option<&str>,
-) -> Result<Value, String> {
+) -> Result<(u64, Value), String> {
     let boards = &core.boards;
     let mut state = boards.state.locked();
     let board = state
@@ -1507,7 +1511,7 @@ fn add_card(
                 "It was on the board already, so it went to the card that holds it.".into(),
             );
         }
-        return Ok(view);
+        return Ok((id, view));
     }
     if matches!(by, By::Agent(_)) && !adding.acceptance.is_empty() {
         return Err(ONLY_PERSON_ACCEPTS.into());
@@ -1548,7 +1552,7 @@ fn add_card(
     if let (Some(note), Some(fields)) = (note, view.as_object_mut()) {
         fields.insert("note".into(), note.into());
     }
-    Ok(view)
+    Ok((id, view))
 }
 
 /// Adds a card for trigger `trigger` that came due, as the person's own, so Auto carries it
@@ -2088,7 +2092,9 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     blocking(move || {
         let project = caller_project(&core, &request);
         let holder = claim.then_some(agent.as_str());
-        add_card(&core, &project, &By::Agent(agent.clone()), adding, holder).map_err(Into::into)
+        add_card(&core, &project, &By::Agent(agent.clone()), adding, holder)
+            .map(|(_, view)| view)
+            .map_err(Into::into)
     })
     .await
     .map_err(|error| error.to_string())

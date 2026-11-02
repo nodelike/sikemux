@@ -3515,6 +3515,26 @@ export interface BoardTicketParams {
     provider?: Tracker;
 }
 
+export interface BoardHandOffParams {
+    project: string;
+    /** What the person typed, which the agent is sent and the slice promises. */
+    text: string;
+    /** The files that go with it. */
+    files?: string[];
+    /** The app's launcher the agent starts with; none for the first that works. */
+    launcher?: string;
+    model?: string;
+    /** The connected provider it runs on in place of its own account. */
+    provider?: string;
+}
+
+/** The slice that tracks the work, and the agent doing it. */
+export interface HandedOff {
+    card: number;
+    agent: string;
+    board: ProjectBoard;
+}
+
 /**
  * A ticket the person puts on a project's board, with the tickets under it and the keys
  * of the tickets it waits on and holds up.
@@ -3870,6 +3890,7 @@ export interface CoreCalls {
     boards: { params: NoParams; answer: ProjectBoard[] };
     board: { params: BoardParams; answer: ProjectBoard };
     boardAdd: { params: BoardAddParams; answer: ProjectBoard };
+    boardHandOff: { params: BoardHandOffParams; answer: HandedOff };
     boardAddTicket: { params: BoardAddTicketParams; answer: ProjectBoard };
     boardUpdate: { params: BoardUpdateParams; answer: ProjectBoard };
     boardRemove: { params: BoardCardParams; answer: ProjectBoard };

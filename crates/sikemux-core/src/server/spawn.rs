@@ -26,6 +26,7 @@ use super::messages;
 use super::names::{Adopted, AgentName, Worker};
 use super::saved::{self, Saved};
 use super::workspace::{Lead, Paid};
+use super::worktree::agent::Unclaimed;
 use super::worktree::{self, AgentWorktree};
 use super::Core;
 
@@ -397,18 +398,6 @@ fn start(
         chat,
         checkout: checkout.0.take().map(Box::new),
     }))
-}
-
-/// A worktree cut for a teammate that has not started yet, removed again if
-/// starting it fails, so no branch or folder is left behind.
-struct Unclaimed(Option<AgentWorktree>);
-
-impl Drop for Unclaimed {
-    fn drop(&mut self) {
-        if let Some(tree) = self.0.take() {
-            worktree::remove(&tree.repo, &tree.path, &tree.branch);
-        }
-    }
 }
 
 pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {

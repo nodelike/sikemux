@@ -577,6 +577,7 @@ calls! { core, client, params;
     "boards" Boards (NoParams) -> Vec<board::BoardView>: Watch, any_program => board::boards(&core),
     "board" Board (board::BoardParams) -> board::BoardView: Watch, any_program => board::board(&core, params).await?,
     "boardAdd" BoardAdd (board::AddParams) -> board::BoardView: Full => board::person_add(&core, params).await?,
+    "boardHandOff" BoardHandOff (board::HandOffParams) -> board::HandedOff: Full => board::hand_off(&core, params).await?,
     "boardAddTicket" BoardAddTicket (board::AddTicketParams) -> board::BoardView: Full => {
         board::person_add_ticket(&core, params).await?
     },

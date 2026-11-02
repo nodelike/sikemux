@@ -75,6 +75,18 @@ pub(crate) fn cut_for(
     ))
 }
 
+/// A worktree cut for an agent that has not started yet, removed again if
+/// starting it fails, so no branch or folder is left behind.
+pub(crate) struct Unclaimed(pub Option<AgentWorktree>);
+
+impl Drop for Unclaimed {
+    fn drop(&mut self) {
+        if let Some(tree) = self.0.take() {
+            super::remove(&tree.repo, &tree.path, &tree.branch);
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub(crate) struct AtParams {
     cwd: PathBuf,

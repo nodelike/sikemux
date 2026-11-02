@@ -66,6 +66,7 @@ const SOURCES = [
   `${CORE}/server/board/slice.rs`,
   `${CORE}/server/board/goal.rs`,
   `${CORE}/server/board/arrival.rs`,
+  `${CORE}/server/board/hand_off.rs`,
   `${CORE}/server/memory/mod.rs`,
   `${CORE}/server/triage.rs`,
   `${CORE}/server/workspace.rs`,
@@ -152,6 +153,7 @@ const RENAMES = {
     UpdateParams: "BoardUpdateParams",
     CardParams: "BoardCardParams",
   },
+  [`${CORE}/server/board/hand_off.rs`]: { HandOffParams: "BoardHandOffParams" },
   [`${CORE}/server/board/slice.rs`]: {
     PassParams: "BoardPassParams",
     NoteParams: "BoardNoteParams",
