@@ -683,7 +683,19 @@ export interface InboxItem {
 export type InboxTier = "needs" | "review" | "finished" | "progress";
 
 export type InboxKind =
-    "permission" | "question" | "input" | "held" | "assumption" | "gate" | "ship" | "pullRequest" | "changes" | "failed" | "finished" | "working";
+    | "permission"
+    | "question"
+    | "input"
+    | "held"
+    | "assumption"
+    | "gate"
+    | "ship"
+    | "pullRequest"
+    | "seededRules"
+    | "changes"
+    | "failed"
+    | "finished"
+    | "working";
 
 /** What the person is needed for, for an item that waits on them. */
 export type InboxNeed = "decide" | "unblock" | "fix";
@@ -3690,6 +3702,8 @@ export interface MemoryParams {
  */
 export interface MemoryView {
     folders: FolderMemory[];
+    /** The project's search of its past sessions for rules; none until it runs. */
+    seeding?: Seeding | null;
 }
 
 /**
@@ -3805,6 +3819,44 @@ export type Stale =
           by: Learned;
       };
 
+/**
+ * Where looking through a project's past sessions for the rules the person
+ * keeps repeating stands. It runs once per project unless the person runs
+ * it again.
+ */
+export type Seeding =
+    | {
+          kind: "reading";
+          since: number;
+      }
+    /**
+     * Rules waiting for the person to keep with `keepSeededRules`, which
+     * keeps those it names and drops the rest.
+     */
+    | {
+          kind: "offered";
+          rules: SeededRule[];
+          at: number;
+      }
+    /** It ended, with `kept` of the rules it found kept as rules. */
+    | {
+          kind: "ran";
+          at: number;
+          kept: number;
+      };
+
+/**
+ * A rule the person said again and again in their past sessions in a
+ * project, offered to keep.
+ */
+export interface SeededRule {
+    /** The same for as long as it is offered. */
+    id: number;
+    text: string;
+    /** How many sessions it was said in. */
+    sessions: number;
+}
+
 export interface MemoryAddParams {
     project: string;
     entry: NewMemory;
@@ -3859,6 +3911,12 @@ export interface MemoryUpdateParams {
 export interface MemoryEntryParams {
     project: string;
     id: number;
+}
+
+export interface KeepSeededParams {
+    project: string;
+    /** The offered rules to keep; the rest are dropped. */
+    keep: number[];
 }
 
 /** The person passes a gate of a slice. */
@@ -3929,6 +3987,8 @@ export interface CoreCalls {
     memoryAdd: { params: MemoryAddParams; answer: MemoryView };
     memoryUpdate: { params: MemoryUpdateParams; answer: MemoryView };
     promoteRule: { params: MemoryEntryParams; answer: MemoryView };
+    keepSeededRules: { params: KeepSeededParams; answer: MemoryView };
+    seedRules: { params: MemoryParams; answer: MemoryView };
     boardRetry: { params: BoardCardParams; answer: ProjectBoard };
     boardPass: { params: BoardPassParams; answer: ProjectBoard };
     boardNote: { params: BoardNoteParams; answer: ProjectBoard };

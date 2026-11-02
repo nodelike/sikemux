@@ -601,6 +601,8 @@ calls! { core, client, params;
     "memoryAdd" MemoryAdd (memory::MemoryAddParams) -> MemoryView: Full => memory::person_add(&core, client.peer.clone(), params).await?,
     "memoryUpdate" MemoryUpdate (memory::MemoryUpdateParams) -> MemoryView: Full => memory::person_update(&core, client.peer.clone(), params).await?,
     "promoteRule" PromoteRule (memory::MemoryEntryParams) -> MemoryView: Person => memory::promote(&core, client.peer.clone(), params).await?,
+    "keepSeededRules" KeepSeededRules (memory::KeepSeededParams) -> MemoryView: Person => memory::keep_seeded(&core, client.peer.clone(), params).await?,
+    "seedRules" SeedRules (memory::MemoryParams) -> MemoryView: Person => memory::seed_again(&core, client.peer.clone(), params).await?,
     "boardRetry" BoardRetry (board::CardParams) -> board::BoardView: Full => board::person_retry(&core, params).await?,
     "boardPass" BoardPass (board::PassParams) -> board::BoardView: Full => board::person_pass(&core, params).await?,
     "boardNote" BoardNote (board::NoteParams) -> board::BoardView: Full => board::person_note(&core, params).await?,

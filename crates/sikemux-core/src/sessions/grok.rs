@@ -10,7 +10,7 @@ use crate::agent_catalog::AgentKind;
 
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::now_iso8601;
-use super::search::{each_line, Prose};
+use super::search::{each_line, Hear, Speaker};
 use super::AgentSession;
 use super::{condense, mtime_of, MAX_AGENT_TRANSCRIPTS_INSPECTED, MAX_AGENT_TRANSCRIPT_PATHS};
 use super::{file_stamp, FileStamp};
@@ -312,14 +312,17 @@ pub(super) fn grok_transcript(session_dir: &Path) -> Option<PathBuf> {
 }
 
 /// What the person and Grok wrote: its streamed message chunks joined back into messages.
-pub(super) fn grok_prose(session_dir: &Path, prose: &mut Prose) {
+pub(super) fn grok_prose(session_dir: &Path, prose: &mut dyn Hear) {
     let Some(path) = grok_transcript(session_dir) else {
         return;
     };
     let mut message: Option<(bool, String)> = None;
-    let flush = |message: &mut Option<(bool, String)>, prose: &mut Prose| {
+    let flush = |message: &mut Option<(bool, String)>, prose: &mut dyn Hear| {
         if let Some((user, text)) = message.take() {
-            prose.push(if user { grok_user_query(&text) } else { &text });
+            match user {
+                true => prose.push(Speaker::Person, grok_user_query(&text)),
+                false => prose.push(Speaker::Agent, &text),
+            }
         }
     };
     each_line(&path, |line| {
@@ -406,7 +409,7 @@ impl AgentOps for Grok {
         grok_transcript(found.place.as_deref()?).map(|path| file_stamp(&path))
     }
 
-    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
         grok_prose(found.place.as_deref()?, prose);
         Some(())
     }

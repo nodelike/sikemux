@@ -71,6 +71,8 @@ enum Case {
     CheckFailing,
     /// Something Sikemux keeps for the project's agents no longer holds.
     StaleMemory,
+    /// Rules the person kept saying in the project's past sessions wait to be kept.
+    SeededRules,
     /// The turn ran into a problem, of this kind when the agent's driver knew it.
     Failed(Option<Fault>),
     Changes,
@@ -103,6 +105,7 @@ impl Case {
             Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
             Case::Ship(_) => (InboxKind::Ship, Wants::Person(Decide)),
             Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
+            Case::SeededRules => (InboxKind::SeededRules, Wants::Person(Decide)),
             Case::HandedBack(Hold::Unblock) => (InboxKind::Held, Wants::Person(Unblock)),
             Case::HandedBack(Hold::Fix)
             | Case::Looping
@@ -832,6 +835,22 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         }
         item.project = Some(stale.folder);
         item.detail = Some(format!("{why}Correct #{} or retire it.", stale.id));
+        items.push(item);
+    }
+    for offer in super::memory::offers(core) {
+        let mut item = item(
+            format!("seeded:{}", offer.project),
+            Case::SeededRules,
+            "You've said these rules in past sessions. Keep them?".to_owned(),
+            offer.at,
+        );
+        item.project = Some(offer.project);
+        item.detail = Some(
+            (offer.rules.iter())
+                .map(|rule| format!("• {} (in {} sessions)", rule.text, rule.sessions))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
         items.push(item);
     }
     for failing in core.collisions.failing() {

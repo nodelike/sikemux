@@ -95,7 +95,7 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
                 .map(|(card, slice)| slice_row(card, slice, cx)),
         )
         .children(landing(pane, cx))
-        .children(super::rules::rules(pane, goal, cx))
+        .child(super::rules::rules(pane, goal, cx))
         .into_any_element()
 }
 

@@ -10,7 +10,7 @@ use tokio::process::Command;
 use super::apply_login_environment;
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::muse_data_root;
-use super::search::Prose;
+use super::search::{Hear, Speaker};
 use super::AgentSession;
 use super::FileStamp;
 use crate::agent_accounts::defaults::{clean_model, json_effort, json_model};
@@ -209,7 +209,7 @@ pub(super) async fn rename_muse_session(
 }
 
 /// The text Muse keeps for searching the session, its own fields one a line.
-pub(super) fn muse_prose(session_id: &str, prose: &mut Prose) {
+pub(super) fn muse_prose(session_id: &str, prose: &mut dyn Hear) {
     let Some(conn) = muse_db() else {
         return;
     };
@@ -220,7 +220,7 @@ pub(super) fn muse_prose(session_id: &str, prose: &mut Prose) {
     );
     if let Ok(text) = text {
         for field in text.split('\u{1f}') {
-            prose.push(field);
+            prose.push(Speaker::Unknown, field);
         }
     }
 }
@@ -247,7 +247,7 @@ impl AgentOps for Muse {
         Some(FileStamp::at_secs(found.session.mtime))
     }
 
-    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
         muse_prose(&found.session.id, prose);
         Some(())
     }

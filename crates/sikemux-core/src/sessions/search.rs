@@ -423,6 +423,21 @@ fn starts_word(text: &str, at: usize) -> bool {
         .is_some_and(char::is_alphanumeric)
 }
 
+/// Who wrote a message in a saved session.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Speaker {
+    /// What the person typed.
+    Person,
+    Agent,
+    /// Text whose writer the agent's own store does not keep.
+    Unknown,
+}
+
+/// What a saved session's reader hands on, a message at a time, oldest first.
+pub(crate) trait Hear {
+    fn push(&mut self, by: Speaker, text: &str);
+}
+
 /// What the person and the agent wrote, one message a line: the first
 /// messages up to [`PROSE_HEAD`], then the last up to [`PROSE_TAIL`].
 #[derive(Default)]
@@ -432,8 +447,8 @@ pub(crate) struct Prose {
     tail_bytes: usize,
 }
 
-impl Prose {
-    pub(crate) fn push(&mut self, text: &str) {
+impl Hear for Prose {
+    fn push(&mut self, _by: Speaker, text: &str) {
         let mut line = String::new();
         for word in text.split_whitespace() {
             if line.len() + word.len() >= MAX_MESSAGE {
@@ -461,7 +476,9 @@ impl Prose {
             }
         }
     }
+}
 
+impl Prose {
     fn finish(mut self) -> String {
         for line in self.tail {
             self.head.push_str(&line);

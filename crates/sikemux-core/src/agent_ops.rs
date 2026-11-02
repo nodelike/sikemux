@@ -21,7 +21,7 @@ use crate::server::activity_log::{ModelTally, ReadState};
 use crate::server::chat::feed::Said;
 use crate::sessions::context::SessionContext;
 use crate::sessions::recent::{Found, Hit, PageScan};
-use crate::sessions::search::Prose;
+use crate::sessions::search::Hear;
 use crate::sessions::{self, AgentSession, FileStamp};
 
 pub(crate) type Pending<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -47,8 +47,9 @@ pub(crate) type TokenCounter = fn(text: &str, state: ReadState) -> (ModelTally, 
 /// What one record of the transcript its CLI writes says, each with whether a turn starts there.
 pub(crate) type SaidReader = fn(record: &Value, items: &mut Vec<(bool, Said)>);
 
-/// Writes a commit message in the repository at `repo` with `model`, as `prompt` asks.
-pub(crate) type CommitWriter = fn(repo: &str, model: &str, prompt: &str) -> Result<String, String>;
+/// Asks `model` once in the folder `dir`, without a chat or a saved session,
+/// and answers what it wrote back, such as a commit message.
+pub(crate) type AskOnce = fn(dir: &str, model: &str, prompt: &str) -> Result<String, String>;
 
 /// Where an agent writes the sessions of one folder and account.
 #[derive(Default)]
@@ -111,7 +112,7 @@ pub(crate) trait AgentOps: Sync {
     }
 
     /// What was said in `found`.
-    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()>;
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()>;
 
     /// Renames a session kept in files or a database Sikemux can write. None when
     /// only its CLI can.
@@ -297,8 +298,8 @@ pub(crate) trait AgentOps: Sync {
         None
     }
 
-    /// How it writes a commit message, for agents whose catalog entry names commit models.
-    fn commit_writer(&self) -> Option<CommitWriter> {
+    /// How its model is asked once, for agents whose catalog entry names commit models.
+    fn ask_once(&self) -> Option<AskOnce> {
         None
     }
 

@@ -16,7 +16,7 @@ use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::now_iso8601;
 use super::rename::session_file_within;
 use super::roots::{omp_agent_root, omp_session_dirs};
-use super::search::{each_line, Prose};
+use super::search::{each_line, Hear};
 use super::AgentSession;
 use super::{
     collect_transcripts, condense, file_stamp, is_jsonl, read_prefix, read_suffix,
@@ -344,7 +344,7 @@ impl AgentOps for Omp {
         omp_last_model(Path::new(session_id))
     }
 
-    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
         each_line(found.place.as_deref()?, |line| message_prose(line, prose));
         Some(())
     }

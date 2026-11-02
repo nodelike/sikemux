@@ -8,7 +8,7 @@ use rusqlite::{Connection, OpenFlags};
 use super::history;
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::environment_path;
-use super::search::Prose;
+use super::search::{Hear, Speaker};
 use super::AgentSession;
 use super::FileStamp;
 use crate::agent_accounts::defaults::json_model;
@@ -241,23 +241,36 @@ pub(super) fn opencode_last_model(session_id: &str) -> Option<(String, String)> 
 }
 
 /// What the person and OpenCode wrote in the session: its text parts, never tool calls.
-pub(super) fn opencode_prose(db: &Path, session_id: &str, prose: &mut Prose) {
+pub(super) fn opencode_prose(db: &Path, session_id: &str, prose: &mut dyn Hear) {
     let Ok(conn) = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
         return;
     };
     let Ok(mut stmt) = conn.prepare(
-        "SELECT substr(json_extract(data, '$.text'), 1, 8192) FROM part \
-         WHERE session_id = ?1 AND json_extract(data, '$.type') = 'text' \
-         AND COALESCE(json_extract(data, '$.synthetic'), 0) = 0 \
-         ORDER BY time_created, id",
+        "SELECT json_extract(m.data, '$.role'), substr(json_extract(p.data, '$.text'), 1, 8192) \
+         FROM part p JOIN message m ON m.id = p.message_id \
+         WHERE p.session_id = ?1 AND json_extract(p.data, '$.type') = 'text' \
+         AND COALESCE(json_extract(p.data, '$.synthetic'), 0) = 0 \
+         ORDER BY p.time_created, p.id",
     ) else {
         return;
     };
-    let Ok(rows) = stmt.query_map([session_id], |row| row.get::<_, Option<String>>(0)) else {
+    let Ok(rows) = stmt.query_map([session_id], |row| {
+        Ok((
+            row.get::<_, Option<String>>(0)?,
+            row.get::<_, Option<String>>(1)?,
+        ))
+    }) else {
         return;
     };
-    for text in rows.map_while(Result::ok).flatten() {
-        prose.push(&text);
+    for (role, text) in rows.map_while(Result::ok) {
+        let Some(text) = text else {
+            continue;
+        };
+        let by = match role.as_deref() {
+            Some("user") => Speaker::Person,
+            _ => Speaker::Agent,
+        };
+        prose.push(by, &text);
     }
 }
 
@@ -291,7 +304,7 @@ impl AgentOps for Opencode {
         Some(FileStamp::at_secs(found.session.mtime))
     }
 
-    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
         opencode_prose(found.place.as_deref()?, &found.session.id, prose);
         Some(())
     }

@@ -696,7 +696,7 @@ pub(super) fn run_ai_commit_model(
     } else {
         model.trim()
     };
-    match provider.kind.ops().commit_writer() {
+    match provider.kind.ops().ask_once() {
         Some(write) => write(repo, model, prompt),
         None => Err(format!(
             "{} cannot write commit messages",
@@ -705,12 +705,8 @@ pub(super) fn run_ai_commit_model(
     }
 }
 
-/// A commit message from Hermes, asked once without a session.
-pub(crate) fn hermes_commit_message(
-    repo: &str,
-    model: &str,
-    prompt: &str,
-) -> Result<String, String> {
+/// Hermes's answer, asked once without a session.
+pub(crate) fn hermes_once(repo: &str, model: &str, prompt: &str) -> Result<String, String> {
     run_ai_candidate(AgentKind::Hermes.entry().command, |bin| {
         let mut command = sikemux_process::user_environment::agent_command(bin);
         command
@@ -720,12 +716,8 @@ pub(crate) fn hermes_commit_message(
     })
 }
 
-/// A commit message from Claude Code, printed once without tools or a saved session.
-pub(crate) fn claude_commit_message(
-    repo: &str,
-    model: &str,
-    prompt: &str,
-) -> Result<String, String> {
+/// Claude Code's answer, printed once without tools or a saved session.
+pub(crate) fn claude_once(repo: &str, model: &str, prompt: &str) -> Result<String, String> {
     run_ai_candidate(AgentKind::Claude.entry().command, |bin| {
         let mut command = sikemux_process::user_environment::agent_command(bin);
         let (entrypoint, caller) = sikemux_process::vars::CLAUDE_ENTRYPOINT;

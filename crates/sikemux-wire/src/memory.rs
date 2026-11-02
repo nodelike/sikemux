@@ -147,10 +147,51 @@ pub struct FolderMemory {
     pub hidden: usize,
 }
 
+/// A rule the person said again and again in their past sessions in a
+/// project, offered to keep.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeededRule {
+    /// The same for as long as it is offered.
+    pub id: u64,
+    pub text: String,
+    /// How many sessions it was said in.
+    pub sessions: u32,
+}
+
+/// Where looking through a project's past sessions for the rules the person
+/// keeps repeating stands. It runs once per project unless the person runs
+/// it again.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Seeding {
+    Reading {
+        since: u64,
+    },
+    /// Rules waiting for the person to keep with `keepSeededRules`, which
+    /// keeps those it names and drops the rest.
+    Offered {
+        rules: Vec<SeededRule>,
+        at: u64,
+    },
+    /// It ended, with `kept` of the rules it found kept as rules.
+    Ran {
+        at: u64,
+        kept: u32,
+    },
+}
+
 /// What applies to a project: its own folder first, then each folder above
 /// it, nearest first.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryView {
     pub folders: Vec<FolderMemory>,
+    /// The project's search of its past sessions for rules; none until it runs.
+    #[serde(default)]
+    pub seeding: Option<Seeding>,
 }

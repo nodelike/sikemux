@@ -1,6 +1,7 @@
 //! The sessions each agent CLI saves on disk: listing them, their titles,
 //! paging them for the Recent list, searching them, renaming, moving and deleting them.
 
+pub(crate) mod asked;
 pub mod carry;
 pub(crate) mod claude;
 pub(crate) mod codex;
@@ -203,10 +204,10 @@ const MAX_AGENT_TRANSCRIPTS_INSPECTED: usize = 5_000;
 
 /// A message's text blocks, or its content when that is plain text, leaving
 /// out text the CLI wrote itself in tags.
-fn push_texts(content: &Value, prose: &mut search::Prose) {
+fn push_texts(content: &Value, by: search::Speaker, prose: &mut dyn search::Hear) {
     let mut push = |text: &str| {
         if !text.trim_start().starts_with('<') {
-            prose.push(text);
+            prose.push(by, text);
         }
     };
     match content {

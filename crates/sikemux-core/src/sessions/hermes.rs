@@ -8,13 +8,13 @@ use crate::agent_catalog::AgentKind;
 
 use super::apply_login_environment;
 use super::recent::{Found, Hit, Listed, PageScan};
-use super::search::Prose;
+use super::search::{Hear, Speaker};
 use super::AgentSession;
 use super::FileStamp;
 use crate::agent_accounts::defaults::{
     clean_effort, clean_model, qualify_model, yaml_agent_reasoning_effort, yaml_model_section,
 };
-use crate::agent_ops::CommitWriter;
+use crate::agent_ops::AskOnce;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
 use crate::git::ai_provider;
@@ -150,22 +150,28 @@ pub(super) fn hermes_stamp(session_id: &str) -> Option<FileStamp> {
 }
 
 /// What the person and Hermes wrote in the session.
-pub(super) fn hermes_prose(session_id: &str, prose: &mut Prose) {
+pub(super) fn hermes_prose(session_id: &str, prose: &mut dyn Hear) {
     let Some(conn) = hermes_db() else {
         return;
     };
     let Ok(mut stmt) = conn.prepare(
-        "SELECT substr(content, 1, 8192) FROM messages \
+        "SELECT role, substr(content, 1, 8192) FROM messages \
          WHERE session_id = ?1 AND role IN ('user', 'assistant') AND content IS NOT NULL \
          ORDER BY id",
     ) else {
         return;
     };
-    let Ok(rows) = stmt.query_map([session_id], |row| row.get::<_, String>(0)) else {
+    let Ok(rows) = stmt.query_map([session_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }) else {
         return;
     };
-    for text in rows.map_while(Result::ok) {
-        prose.push(&text);
+    for (role, text) in rows.map_while(Result::ok) {
+        let by = match role.as_str() {
+            "user" => Speaker::Person,
+            _ => Speaker::Agent,
+        };
+        prose.push(by, &text);
     }
 }
 
@@ -191,7 +197,7 @@ impl AgentOps for Hermes {
         hermes_stamp(&found.session.id)
     }
 
-    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
         hermes_prose(&found.session.id, prose);
         Some(())
     }
@@ -255,8 +261,8 @@ impl AgentOps for Hermes {
         Some(AgentKind::Hermes.home_root()?.join("skills"))
     }
 
-    fn commit_writer(&self) -> Option<CommitWriter> {
-        Some(ai_provider::hermes_commit_message)
+    fn ask_once(&self) -> Option<AskOnce> {
+        Some(ai_provider::hermes_once)
     }
 }
 

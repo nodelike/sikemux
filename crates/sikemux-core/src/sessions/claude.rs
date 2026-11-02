@@ -12,7 +12,7 @@ use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::append_line;
 use super::roots::agent_config_root;
 use super::search::each_line;
-use super::search::Prose;
+use super::search::{Hear, Speaker};
 use super::transcript::written;
 use super::AgentSession;
 use super::{
@@ -25,7 +25,7 @@ use crate::agent_accounts::sign_in::{self, SignIn};
 use crate::agent_accounts::status::{self, AccountStatus, AgentStatus};
 use crate::agent_accounts::usage::{self, Usage};
 use crate::agent_catalog::AgentKind;
-use crate::agent_ops::CommitWriter;
+use crate::agent_ops::AskOnce;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
 use crate::agent_ops::{SaidReader, TokenCounter};
@@ -321,7 +321,7 @@ const ASIDES: [&str; 4] = [
 
 /// What one transcript line adds to what the person and Claude wrote: typed
 /// prompts and Claude's replies, never tool calls, their output or thinking.
-pub(super) fn claude_prose(line: &str, prose: &mut Prose) {
+pub(super) fn claude_prose(line: &str, prose: &mut dyn Hear) {
     let user = line.contains("\"type\":\"user\"");
     if user && line.contains("\"tool_result\"") {
         return;
@@ -344,7 +344,11 @@ pub(super) fn claude_prose(line: &str, prose: &mut Prose) {
     else {
         return;
     };
-    push_texts(content, prose);
+    let by = match kind {
+        Some("user") => Speaker::Person,
+        _ => Speaker::Agent,
+    };
+    push_texts(content, by, prose);
 }
 
 /// Claude keeps each session in `projects/<project>/<session>.jsonl`.
@@ -430,7 +434,7 @@ impl AgentOps for Claude {
         }
     }
 
-    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
         each_line(found.place.as_deref()?, |line| claude_prose(line, prose));
         Some(())
     }
@@ -571,8 +575,8 @@ impl AgentOps for Claude {
         Some(AgentKind::Claude.home_root()?.join("skills"))
     }
 
-    fn commit_writer(&self) -> Option<CommitWriter> {
-        Some(ai_provider::claude_commit_message)
+    fn ask_once(&self) -> Option<AskOnce> {
+        Some(ai_provider::claude_once)
     }
 }
 

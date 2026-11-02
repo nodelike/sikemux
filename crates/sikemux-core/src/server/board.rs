@@ -2725,7 +2725,11 @@ pub(crate) async fn person_add(core: &Arc<Core>, params: AddParams) -> Result<Bo
             }
         }
         let adding = params.adding()?;
+        let goal = adding.parent.is_none();
         add_card(&core, &project, &By::Person, adding, owner.as_deref())?;
+        if goal {
+            super::memory::seed_once(&core, &project);
+        }
         Ok(project_view(&core, &project))
     })
     .await

@@ -16,11 +16,11 @@ use gpui_kit::{
 use serde::Serialize;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::{
-    BoardNoteParams, BoardPassParams, BoardView, CardView, HoldParams, MemoryEntryParams,
-    MemoryParams, NoParams,
+    BoardNoteParams, BoardPassParams, BoardView, CardView, HoldParams, KeepSeededParams,
+    MemoryEntryParams, MemoryParams, NoParams,
 };
-use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem};
-use sikemux_wire::memory::MemoryView;
+use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem, InboxKind};
+use sikemux_wire::memory::{MemoryView, Seeding};
 use sikemux_wire::slice::{
     CheckRun, Gate, GateState, GateView, Need, Passer, SliceState, SliceView, Wait, WaitOn,
 };
@@ -71,6 +71,8 @@ pub struct GoalsPane {
     bound_for: Option<String>,
     /// The rules and knowledge kept for the project open and the folders above it.
     memory: Option<MemoryView>,
+    /// The rules offered from past sessions the person unticked, to leave out when they keep.
+    unticked: std::collections::HashSet<u64>,
     /// What finished, failed and waits since the person last left.
     digest: Option<InboxDigest>,
     at: At,
@@ -101,6 +103,7 @@ impl GoalsPane {
             here,
             bound_for: None,
             memory: None,
+            unticked: Default::default(),
             digest: None,
             at: At::Home,
             picked: None,
@@ -298,6 +301,9 @@ impl GoalsPane {
 
     /// Opens what an inbox item is about: its slice or goal, else its agent's chat.
     fn open(&mut self, item: &InboxItem, cx: &mut Context<Self>) {
+        if item.kind == InboxKind::SeededRules {
+            return self.go(At::Home, cx);
+        }
         let opens = item.card.as_ref().and_then(|inbox| {
             let card = self
                 .board_of(&inbox.project)?
@@ -411,14 +417,73 @@ impl GoalsPane {
 
     /// Moves rule `id` into the AGENTS.md of the repository it is kept for, as the person.
     fn promote(&mut self, id: u64, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
+        if let Some(project) = self.here.clone() {
+            self.ask_memory::<call::PromoteRule>(MemoryEntryParams { project, id }, cx);
         }
+    }
+
+    /// How many rules from past sessions are offered to keep now.
+    fn offered(&self) -> usize {
+        match self
+            .memory
+            .as_ref()
+            .and_then(|memory| memory.seeding.as_ref())
+        {
+            Some(Seeding::Offered { rules, .. }) => rules.len(),
+            _ => 0,
+        }
+    }
+
+    /// Ticks or unticks a rule offered from past sessions.
+    fn tick_seeded(&mut self, id: u64, on: bool, cx: &mut Context<Self>) {
+        match on {
+            true => self.unticked.remove(&id),
+            false => self.unticked.insert(id),
+        };
+        cx.notify();
+    }
+
+    /// Keeps the ticked rules offered from past sessions, or none when `keep` is false, which
+    /// ends the offer either way.
+    fn keep_seeded(&mut self, keep: bool, cx: &mut Context<Self>) {
         let Some(project) = self.here.clone() else {
             return;
         };
-        let params = MemoryEntryParams { project, id };
-        let asked = core::Target::here(&self.asks).request_typed::<call::PromoteRule>(params);
+        let offered = match self
+            .memory
+            .as_ref()
+            .and_then(|memory| memory.seeding.as_ref())
+        {
+            Some(Seeding::Offered { rules, .. }) => rules,
+            _ => return,
+        };
+        let keep = (offered.iter())
+            .map(|rule| rule.id)
+            .filter(|id| keep && !self.unticked.contains(id))
+            .collect();
+        self.unticked.clear();
+        self.ask_memory::<call::KeepSeededRules>(KeepSeededParams { project, keep }, cx);
+    }
+
+    /// Looks through the project's past sessions for the rules the person repeats, again.
+    fn seed_rules(&mut self, cx: &mut Context<Self>) {
+        if let Some(project) = self.here.clone() {
+            self.ask_memory::<call::SeedRules>(MemoryParams { project }, cx);
+        }
+    }
+
+    /// Asks the core to change what it keeps for the project, and shows what it keeps after.
+    fn ask_memory<C: Call<Answer = MemoryView> + 'static>(
+        &mut self,
+        params: C::Params,
+        cx: &mut Context<Self>,
+    ) where
+        C::Params: Serialize,
+    {
+        if self.busy {
+            return;
+        }
+        let asked = core::Target::here(&self.asks).request_typed::<C>(params);
         self.busy = true;
         cx.notify();
         cx.spawn(async move |pane, cx| {

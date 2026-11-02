@@ -14,6 +14,7 @@ use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::HarnessRequest;
 use crate::launch::{account_variable, named_account};
 use crate::protocol::ChatLaunch;
+use crate::sessions::asked;
 use crate::sessions::recent::RecentProvider;
 use crate::sessions::search::{self, Scope, SearchRequest, SearchResult, SessionMatch, MAX_LIMIT};
 
@@ -93,6 +94,16 @@ fn scope_of(core: &Core, projects: Vec<String>) -> Scope {
                 .iter()
                 .any(|folder| project.starts_with(folder))
     })
+}
+
+/// What the person typed in `project`'s saved sessions, a list per session,
+/// newest session first.
+pub(crate) fn typed_in(core: &Core, project: &str, budget: Duration) -> Vec<Vec<String>> {
+    asked::asked(
+        &providers(core),
+        &scope_of(core, vec![project.to_owned()]),
+        budget,
+    )
 }
 
 fn run_search(

@@ -10,7 +10,7 @@ use crate::agent_catalog::AgentKind;
 use super::index::{indexed, Indexed};
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::{append_line, now_iso8601};
-use super::search::Prose;
+use super::search::{Hear, Speaker};
 use super::{
     collect_transcripts, condense, file_stamp, is_jsonl, push_texts, read_suffix,
     stamped_transcripts, text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
@@ -200,7 +200,7 @@ pub(super) fn rename_pi_session(path: &Path, name: &str) -> Result<(), String> {
 }
 
 /// What one Pi or OMP session line adds to what the person and the agent wrote.
-pub(super) fn message_prose(line: &str, prose: &mut Prose) {
+pub(super) fn message_prose(line: &str, prose: &mut dyn Hear) {
     if !line.contains("\"message\"") {
         return;
     }
@@ -213,13 +213,13 @@ pub(super) fn message_prose(line: &str, prose: &mut Prose) {
     let Some(message) = value.get("message") else {
         return;
     };
-    if matches!(
-        message.get("role").and_then(Value::as_str),
-        Some("user" | "assistant")
-    ) {
-        if let Some(content) = message.get("content") {
-            push_texts(content, prose);
-        }
+    let by = match message.get("role").and_then(Value::as_str) {
+        Some("user") => Speaker::Person,
+        Some("assistant") => Speaker::Agent,
+        _ => return,
+    };
+    if let Some(content) = message.get("content") {
+        push_texts(content, by, prose);
     }
 }
 
@@ -257,7 +257,7 @@ impl AgentOps for Pi {
         }
     }
 
-    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
         each_line(found.place.as_deref()?, |line| message_prose(line, prose));
         Some(())
     }

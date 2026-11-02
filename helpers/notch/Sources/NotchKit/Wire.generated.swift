@@ -437,6 +437,9 @@ enum InboxKind: String, Codable, Hashable {
     case ship
     /// The card's pull request at `url` is ready for review.
     case pullRequest
+    /// Rules the person kept saying in past sessions in `project`, offered to
+    /// keep; its memory view lists them, for `keepSeededRules`.
+    case seededRules
     /// A turn or card that changed files.
     case changes
     case failed

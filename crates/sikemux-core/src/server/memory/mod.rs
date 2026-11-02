@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use sikemux_wire::memory::{
-    FolderMemory, Knowledge, Learned, ListedRule, MemoryCheck, MemoryView, Rule, Stale,
+    FolderMemory, Knowledge, Learned, ListedRule, MemoryCheck, MemoryView, Rule, Seeding, Stale,
 };
 
 use super::access::Peer;
@@ -30,10 +30,13 @@ use crate::text::to_keep;
 mod brief;
 mod check;
 mod promote;
+mod seed;
 
 pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
 pub(crate) use promote::promote;
+pub(crate) use seed::{again as seed_again, keep as keep_seeded};
+pub(crate) use seed::{offers, seed_once};
 
 const FOLDER: &str = "memory";
 const MAX_FOLDERS: usize = 256;
@@ -51,6 +54,10 @@ struct Held {
     next: u64,
     rules: Vec<Rule>,
     knowledge: Vec<Knowledge>,
+    /// The search of a project's past sessions for rules, kept on the
+    /// project's own folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    seeding: Option<Seeding>,
 }
 
 impl Held {
@@ -127,7 +134,10 @@ impl Memory {
         }
         let held = kept::load_all::<Held>(folder.as_deref())
             .into_iter()
-            .map(|held| (held.folder.clone(), held))
+            .map(|mut held| {
+                held.seeding = seed::settled(held.seeding.take());
+                (held.folder.clone(), held)
+            })
             .collect();
         Self {
             state: Mutex::new(State {
@@ -262,6 +272,22 @@ pub enum NewMemory {
     },
 }
 
+/// What `folder` keeps, kept from now on when it kept nothing yet.
+fn holding<'a>(state: &'a mut State, folder: &str) -> Result<&'a mut Held, String> {
+    if !state.held.contains_key(folder) && state.held.len() >= MAX_FOLDERS {
+        return Err(format!(
+            "Sikemux already keeps rules and knowledge for {MAX_FOLDERS} folders, as many as it can"
+        ));
+    }
+    Ok(state.held.entry(folder.to_owned()).or_insert_with(|| Held {
+        folder: folder.to_owned(),
+        next: 1,
+        rules: Vec::new(),
+        knowledge: Vec::new(),
+        seeding: None,
+    }))
+}
+
 fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {
     let (text, folder) = match &new {
         NewMemory::Rule { text, folder, .. } | NewMemory::Knowledge { text, folder, .. } => (
@@ -270,17 +296,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
         ),
     };
     let mut state = core.memory.state.locked();
-    if !state.held.contains_key(&folder) && state.held.len() >= MAX_FOLDERS {
-        return Err(format!(
-            "Sikemux already keeps rules and knowledge for {MAX_FOLDERS} folders, as many as it can"
-        ));
-    }
-    let held = state.held.entry(folder.clone()).or_insert_with(|| Held {
-        folder: folder.clone(),
-        next: 1,
-        rules: Vec::new(),
-        knowledge: Vec::new(),
-    });
+    let held = holding(&mut state, &folder)?;
     if held.len() >= MAX_ENTRIES {
         return Err(format!(
             "{folder} already keeps {MAX_ENTRIES} rules and knowledge; retire some first"
@@ -541,7 +557,11 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
             }
         })
         .collect();
-    MemoryView { folders }
+    let seeding = state
+        .held
+        .get(project)
+        .and_then(|held| held.seeding.clone());
+    MemoryView { folders, seeding }
 }
 
 /// Stale knowledge, for the inbox.
@@ -793,6 +813,14 @@ pub struct MemoryAddParams {
 pub struct MemoryEntryParams {
     pub project: String,
     pub id: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeepSeededParams {
+    pub project: String,
+    /// The offered rules to keep; the rest are dropped.
+    pub keep: Vec<u64>,
 }
 
 pub(crate) async fn person_view(

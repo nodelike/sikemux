@@ -252,6 +252,13 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
                     })
                 }))
         })
+        .children(super::rules::offer(pane, false, cx).map(|offer| {
+            div()
+                .flex()
+                .flex_col()
+                .child(section("Rules from past sessions", pane.offered(), cx))
+                .child(offer)
+        }))
         .when(!moving.is_empty(), |view| {
             view.child(section("Moving", moving.len(), cx))
                 .children(moving.iter().map(|(board, goal)| goal_row(board, goal, cx)))
@@ -275,6 +282,7 @@ fn need_icon(kind: InboxKind) -> Icon {
         InboxKind::Input => Icon::Terminal,
         InboxKind::PullRequest => Icon::PullRequest,
         InboxKind::Ship => Icon::Shield,
+        InboxKind::SeededRules => Icon::Book,
         _ => Icon::Warning,
     }
 }

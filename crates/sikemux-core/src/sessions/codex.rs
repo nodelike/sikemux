@@ -16,7 +16,7 @@ use super::index::{indexed, Indexed};
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::agent_config_root;
 use super::search::each_line;
-use super::search::Prose;
+use super::search::{Hear, Speaker};
 use super::AgentSession;
 use super::{apply_login_environment, apply_process_config};
 use super::{
@@ -28,7 +28,7 @@ use crate::agent_accounts::sign_in::{self, SignIn};
 use crate::agent_accounts::status::{self, AccountStatus, AgentStatus};
 use crate::agent_accounts::usage::{self, Usage};
 use crate::agent_catalog::AgentKind;
-use crate::agent_ops::CommitWriter;
+use crate::agent_ops::AskOnce;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, DeleteCommand, RenameCommand, SessionPlaces};
 use crate::agent_ops::{SaidReader, TokenCounter};
@@ -342,7 +342,7 @@ async fn send_line(stdin: &mut ChildStdin, line: &str) -> Result<(), String> {
 }
 
 /// What one rollout line adds to what the person and Codex wrote.
-pub(super) fn codex_prose(line: &str, prose: &mut Prose) {
+pub(super) fn codex_prose(line: &str, prose: &mut dyn Hear) {
     if !line.contains("\"event_msg\"")
         || !(line.contains("\"user_message\"") || line.contains("\"agent_message\""))
     {
@@ -354,13 +354,13 @@ pub(super) fn codex_prose(line: &str, prose: &mut Prose) {
     let Some(payload) = value.get("payload") else {
         return;
     };
-    if matches!(
-        payload.get("type").and_then(Value::as_str),
-        Some("user_message" | "agent_message")
-    ) {
-        if let Some(text) = payload.get("message").and_then(Value::as_str) {
-            prose.push(text);
-        }
+    let by = match payload.get("type").and_then(Value::as_str) {
+        Some("user_message") => Speaker::Person,
+        Some("agent_message") => Speaker::Agent,
+        _ => return,
+    };
+    if let Some(text) = payload.get("message").and_then(Value::as_str) {
+        prose.push(by, text);
     }
 }
 
@@ -455,7 +455,7 @@ impl AgentOps for Codex {
         places
     }
 
-    fn prose(&self, found: &Found, prose: &mut Prose) -> Option<()> {
+    fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()> {
         each_line(found.place.as_deref()?, |line| codex_prose(line, prose));
         Some(())
     }
@@ -555,7 +555,7 @@ impl AgentOps for Codex {
         Some(AgentKind::Codex.home_root()?.join("skills"))
     }
 
-    fn commit_writer(&self) -> Option<CommitWriter> {
+    fn ask_once(&self) -> Option<AskOnce> {
         Some(ai_provider::run_codex_app_server)
     }
 }
