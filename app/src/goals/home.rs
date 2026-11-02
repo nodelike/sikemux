@@ -369,17 +369,23 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
 }
 
 /// A goal on one line: its title, how many slices are done, what comes next and
-/// what that waits on, and its strip.
+/// what that waits on, and its strip. It opens the goal, or a lone slice's worker's chat.
 fn goal_row(board: &BoardView, goal: &CardView, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = goal.id;
     let slices = slices_of(&board.cards, id);
     let done = count(&slices, SliceState::Done);
+    let worker = goal.slice.as_ref().and(goal.owner.clone());
     row(
         SharedString::from(format!("goal-{}-{id}", board.project)),
         cx,
     )
-    .on_click(cx.listener(move |pane, _, _, cx| pane.go(At::Goal(id), cx)))
+    .on_click(cx.listener(move |pane, _, _, cx| match &worker {
+        Some(agent) => {
+            let _ = pane.bench.update(cx, |bench, _| bench.open_agent(agent));
+        }
+        None => pane.go(At::Goal(id), cx),
+    }))
     .child(
         ui::text(goal.title.clone(), TEXT_SM, FontWeight::MEDIUM)
             .flex_shrink_1()

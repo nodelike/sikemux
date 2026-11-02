@@ -16,7 +16,7 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_core::server::call;
-use sikemux_core::server::{BoardAddParams, TriageParams};
+use sikemux_core::server::{BoardAddParams, HandOffParams, TriageParams};
 use sikemux_wire::protocol::{LauncherInfo, ProjectInfo};
 use sikemux_wire::start::{Because, HardFact, StartMode};
 use tokio::sync::oneshot;
@@ -34,6 +34,8 @@ use crate::workbench::Workbench;
 pub const START_DRAFT: &str = "goals-start";
 /// How long typing pauses before the core is asked to suggest a way.
 const SETTLE: Duration = Duration::from_millis(300);
+/// How long the line saying where a Hand off went stays under the composer.
+const HANDED_SHOWN: Duration = Duration::from_secs(4);
 /// The longest card title the box makes; the rest of what was typed goes into its details.
 const TITLE_CHARS: usize = 80;
 
@@ -79,6 +81,9 @@ pub(super) struct Start {
     /// What was started from the box, oldest first, which the arrows bring back.
     sent: Vec<String>,
     recalled: Option<(usize, String)>,
+    /// The card the last Hand off became, for a few seconds or until the person types again.
+    handed: Option<u64>,
+    _shown: Task<()>,
     _triage: Task<()>,
 }
 
@@ -94,6 +99,8 @@ impl Default for Start {
             chosen: Chosen::default(),
             sent: Vec::new(),
             recalled: None,
+            handed: None,
+            _shown: Task::ready(()),
             _triage: Task::ready(()),
         }
     }
@@ -173,6 +180,9 @@ impl GoalsPane {
     /// Asks the core to suggest a way once typing settles.
     fn typed(&mut self, cx: &mut Context<Self>) {
         let text = self.typed_text(cx);
+        if !text.is_empty() {
+            self.start.handed = None;
+        }
         if text.is_empty() {
             self.start.suggested = None;
             if !self.start.picked {
@@ -288,6 +298,9 @@ impl GoalsPane {
             );
             return;
         };
+        if self.start.mode == StartMode::HandOff {
+            return self.hand_off(text, project, launcher, window, cx);
+        }
         let (started, agent) = oneshot::channel();
         let folder = project.path.to_string_lossy().into_owned();
         let here = Target::here(&self.asks);
@@ -367,7 +380,7 @@ impl GoalsPane {
                     );
                     bench.ask_chat(ChatAsk::Prompt {
                         agent: agent.clone(),
-                        text: first_message(mode, card, &text),
+                        text: first_message(mode == StartMode::PlanFirst, card, &text),
                         paths: (files.iter())
                             .map(|path| path.to_string_lossy().into_owned())
                             .collect(),
@@ -375,6 +388,63 @@ impl GoalsPane {
                         attach: false,
                     });
                 });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Hands the work to an agent that takes it in its own checkout, in the background, as a
+    /// slice of its own; no chat opens.
+    fn hand_off(
+        &mut self,
+        text: String,
+        project: ProjectInfo,
+        launcher: LauncherInfo,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let files = std::mem::take(&mut self.start.files);
+        let Chosen { model, payer, .. } = self.start.chosen.clone();
+        let asked = Target::here(&self.asks).request_typed::<call::BoardHandOff>(HandOffParams {
+            project: project.path.to_string_lossy().into_owned(),
+            text: text.clone(),
+            files: (files.iter())
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+            launcher: Some(launcher.id),
+            model,
+            provider: payer,
+        });
+        self.busy = true;
+        cx.notify();
+        cx.spawn_in(window, async move |pane, cx| {
+            let handed = asked.await;
+            let _ = pane.update_in(cx, |pane, window, cx| {
+                pane.busy = false;
+                match handed {
+                    Ok(handed) => {
+                        pane.take_one(handed.board);
+                        if let Some((draft, _)) = &pane.start.draft {
+                            draft.update(cx, |draft, cx| draft.set_value("", window, cx));
+                        }
+                        pane.start.sent.push(text);
+                        pane.start.cleared();
+                        pane.start.handed = Some(handed.card);
+                        pane.start._shown = cx.spawn(async move |pane, cx| {
+                            cx.background_executor().timer(HANDED_SHOWN).await;
+                            let _ = pane.update(cx, |pane, cx| {
+                                pane.start.handed = None;
+                                cx.notify();
+                            });
+                        });
+                        cx.emit(super::Moved);
+                    }
+                    Err(error) => {
+                        pane.start.files = files;
+                        pane.said(&error, cx);
+                    }
+                }
                 cx.notify();
             });
         })
@@ -403,20 +473,16 @@ fn titled(text: &str) -> (String, Option<String>) {
 }
 
 /// What the agent that takes the work is told first.
-fn first_message(mode: StartMode, card: u64, text: &str) -> String {
-    match mode {
-        StartMode::HandOff => format!(
-            "{text}\n\nThis is card #{card} on the project's board, and you hold it: do it, \
-             and mark it done with board_update once the project's checks pass."
-        ),
-        StartMode::PlanFirst => format!(
+fn first_message(plans_first: bool, card: u64, text: &str) -> String {
+    match plans_first {
+        true => format!(
             "{text}\n\nYou lead goal card #{card} on the project's board, which you hold. \
              Before anything is built, talk it through with me: ask what you need to know, one \
              question at a time, and record what I decide with board_decide. Then propose the \
              slices as cards under #{card} with board_add, each with a promise, and wait for me \
              to approve them before any work starts."
         ),
-        StartMode::Chat => format!(
+        false => format!(
             "{text}\n\nSikemux tracks this as goal card #{card} on the project's board, which \
              you hold."
         ),
@@ -433,6 +499,23 @@ fn because_words(because: &Because) -> String {
         HardFact::Listed => "your project lists it",
     };
     format!("Touches {} · {fact}", because.path)
+}
+
+/// The line under the composer: the agent starting, or the card the last Hand off became, which
+/// opens it.
+fn notice(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> Option<Notice> {
+    if pane.busy {
+        return Some(Notice::Waiting("Starting the agent…".into()));
+    }
+    let card = pane.start.handed?;
+    let this = cx.weak_entity();
+    let open: Act = Rc::new(move |_, cx| {
+        let _ = this.update(cx, |pane, cx| pane.go(super::At::Slice(card), cx));
+    });
+    Some(Notice::Done(
+        format!("Handed off as #{card}").into(),
+        ("Open".into(), open),
+    ))
 }
 
 /// The agent menu of the composer, picking which agent, account, provider and model start.
@@ -595,10 +678,7 @@ pub(super) fn start_box(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
             crate::chat::chip(bench.downgrade()),
         )
         .aside(modes)
-        .notice(
-            pane.busy
-                .then(|| Notice::Waiting("Starting the agent…".into())),
-        );
+        .notice(notice(pane, cx));
     if let Some(launcher) = &launcher {
         composer = composer.model_menu(agent_menu(pane, launcher, &bench, cx), bench.clone());
     }
