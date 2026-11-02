@@ -47,8 +47,8 @@ pub(crate) type TokenCounter = fn(text: &str, state: ReadState) -> (ModelTally, 
 /// What one record of the transcript its CLI writes says, each with whether a turn starts there.
 pub(crate) type SaidReader = fn(record: &Value, items: &mut Vec<(bool, Said)>);
 
-/// Asks `model` once in the folder `dir`, without a chat or a saved session,
-/// and answers what it wrote back, such as a commit message.
+/// Asks `model` once in the folder `dir`, without a chat, and answers what it
+/// wrote back, such as a commit message.
 pub(crate) type AskOnce = fn(dir: &str, model: &str, prompt: &str) -> Result<String, String>;
 
 /// Where an agent writes the sessions of one folder and account.

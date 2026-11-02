@@ -1,8 +1,8 @@
 //! The rules the person keeps repeating, found once per project in what they
 //! typed in its past sessions and offered to keep. Only their own messages
 //! are read, without secrets or pasted text, and a model is asked once about
-//! them, with no chat, tools or saved session, so nothing it does shows as an
-//! agent or comes back as a past session. What it finds is an offer, never a
+//! them, with no chat, tools, hooks or saved session, so nothing it does shows
+//! as an agent, sets off the person's own hooks or comes back as a past session. What it finds is an offer, never a
 //! rule, until the person keeps it.
 
 use std::path::PathBuf;
@@ -28,7 +28,8 @@ const MAX_RULE_CHARS: usize = 300;
 const MIN_SESSIONS: u32 = 2;
 /// How long reading the past sessions may take.
 const READ_BUDGET: Duration = Duration::from_secs(20);
-/// The agents whose model is asked, in turn, until one is installed.
+/// The agents whose model is asked, in turn, until one is installed: those
+/// whose one-shot answer keeps no session and runs none of the person's hooks.
 const ASKED: [AgentKind; 2] = [AgentKind::Claude, AgentKind::Codex];
 
 const PROMPT: &str = "Below are messages one person typed to AI coding agents in past sessions of one project, grouped by session. Find the rules they keep repeating: standing instructions for how agents should work in this project, such as what to always or never do, how to test, commit, name or style things, and when to ask first. Leave out one-off tasks, questions, and anything about a single change. Keep only rules said in at least two different sessions. Write each as one short imperative sentence in plain words, with no names, secrets or quotes. Answer with only a JSON array of at most 20 objects, most repeated first, each {\"text\": the rule, \"sessions\": how many sessions said it}. Answer [] when there are none.";

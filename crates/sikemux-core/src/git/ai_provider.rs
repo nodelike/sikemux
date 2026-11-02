@@ -457,7 +457,8 @@ fn run_codex_app_server_candidate(
                                     "sandbox": "read-only",
                                     "ephemeral": true,
                                     "serviceName": "sikemux",
-                                    "developerInstructions": "Answer directly from the supplied prompt. Do not call tools or inspect the workspace. Return only the requested commit message."
+                                    "config": { "features": { "hooks": false }, "notify": [] },
+                                    "developerInstructions": "Answer directly from the supplied prompt. Do not call tools or inspect the workspace. Return only what it asks for."
                                 }
                             }),
                         )?;
@@ -716,7 +717,7 @@ pub(crate) fn hermes_once(repo: &str, model: &str, prompt: &str) -> Result<Strin
     })
 }
 
-/// Claude Code's answer, printed once without tools or a saved session.
+/// Claude Code's answer, printed once without tools, hooks or a saved session.
 pub(crate) fn claude_once(repo: &str, model: &str, prompt: &str) -> Result<String, String> {
     run_ai_candidate(AgentKind::Claude.entry().command, |bin| {
         let mut command = sikemux_process::user_environment::agent_command(bin);
@@ -734,6 +735,8 @@ pub(crate) fn claude_once(repo: &str, model: &str, prompt: &str) -> Result<Strin
             "",
             "--setting-sources",
             "user",
+            "--settings",
+            r#"{"disableAllHooks":true}"#,
             "--strict-mcp-config",
         ]);
         (
