@@ -34,6 +34,14 @@ const NEEDS: [(InboxNeed, &str); 3] = [
     (InboxNeed::Fix, "Fix"),
 ];
 
+/// What Home lists from the inbox and the digest.
+#[derive(Default)]
+struct Inboxed {
+    questions: Vec<(InboxItem, String)>,
+    needs: Vec<InboxItem>,
+    happened: usize,
+}
+
 impl GoalsPane {
     /// Whether an inbox item is about the project the view shows: its card is on that project's
     /// board, or its agent works in it.
@@ -50,14 +58,40 @@ impl GoalsPane {
             .is_some_and(|project| project == here || Some(project) == id)
     }
 
-    /// What in the project the view shows waits on the person, in the core's order.
+    /// What in the project the view shows waits on the person, in the core's order, besides
+    /// the questions agents asked.
     pub(super) fn needs(&self, bench: &Workbench) -> Vec<InboxItem> {
         bench.shown().map_or(Vec::new(), |view| {
             (view.inbox.items.iter())
+                .filter(|item| item.kind != InboxKind::Question)
                 .filter(|item| item.need.is_some() && self.shows(item, bench))
                 .cloned()
                 .collect()
         })
+    }
+
+    /// What agents in every project asked the person and wait on, one per agent, in the core's
+    /// order, each with the name of its project.
+    fn questions(&self, bench: &Workbench) -> Vec<(InboxItem, String)> {
+        let Some(view) = bench.shown() else {
+            return Vec::new();
+        };
+        let project_name = |folder: &str| {
+            let named = (bench.projects().iter())
+                .find(|project| project.path.to_string_lossy() == folder)
+                .map(|project| project.name.clone());
+            named.unwrap_or_else(|| {
+                let last = folder.rsplit('/').find(|part| !part.is_empty());
+                last.unwrap_or(folder).to_owned()
+            })
+        };
+        (view.inbox.items.iter())
+            .filter(|item| item.kind == InboxKind::Question)
+            .map(|item| {
+                let project = item.project.as_deref().map(project_name);
+                (item.clone(), project.unwrap_or_default())
+            })
+            .collect()
     }
 
     /// What in the project the view shows finished or failed while the person was away, in time
@@ -79,12 +113,16 @@ impl GoalsPane {
 
     /// What waits on the person and how many things happened while they were away, read from the
     /// window.
-    fn read_inbox(&self, cx: &gpui_kit::App) -> (Vec<InboxItem>, usize) {
+    fn read_inbox(&self, cx: &gpui_kit::App) -> Inboxed {
         let Some(bench) = self.bench.upgrade() else {
-            return (Vec::new(), 0);
+            return Inboxed::default();
         };
         let bench = bench.read(cx);
-        (self.needs(bench), self.happened(bench).len())
+        Inboxed {
+            questions: self.questions(bench),
+            needs: self.needs(bench),
+            happened: self.happened(bench).len(),
+        }
     }
 
     /// The title of the goal an item is on, when it is on one here.
@@ -130,7 +168,11 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
 /// What needs the person, grouped by what they are needed for, then the goals moving and done.
 fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (needs, happened) = pane.read_inbox(cx);
+    let Inboxed {
+        questions,
+        needs,
+        happened,
+    } = pane.read_inbox(cx);
     let needed = needs.len();
     let goals: Vec<(&BoardView, &CardView)> = pane
         .board()
@@ -164,6 +206,10 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
                     ))
                     .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Overnight, cx))),
             )
+        })
+        .when(!questions.is_empty(), |view| {
+            view.child(section("Waiting on you", questions.len(), cx))
+                .children((questions.iter()).map(|(item, project)| question_row(item, project, cx)))
         })
         .when(!needs.is_empty(), |view| {
             view.child(section("Needs you", needed, cx))
@@ -229,6 +275,46 @@ fn needs_row(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) ->
                 .text_color(t.text_primary),
         )
         .children(about.map(|about| ui::meta(about, cx).flex_shrink_1().min_w_0().truncate()))
+        .child(div().flex_1())
+        .child(ui::meta(ui::time::age(item.at), cx))
+        .into_any_element()
+}
+
+/// What an agent asked the person, on one line with the agent, its project and how long it has
+/// waited; it opens the agent's chat.
+fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let tint = match item.need {
+        Some(InboxNeed::Unblock) => t.danger,
+        _ => t.warn,
+    };
+    let asked = item.detail.clone().unwrap_or_default();
+    let agent = item.agent_id.clone();
+    row(SharedString::from(format!("question-{}", item.id)), cx)
+        .on_click(cx.listener(move |pane, _, _, cx| {
+            if let Some(agent) = &agent {
+                let _ = pane.bench.update(cx, |bench, _| bench.open_agent(agent));
+            }
+        }))
+        .child(ui::icon(Icon::Message, 14.).text_color(tint))
+        .child(
+            ui::text(
+                format!("Waiting on you: {asked}"),
+                TEXT_SM,
+                FontWeight::MEDIUM,
+            )
+            .flex_shrink_1()
+            .min_w_0()
+            .truncate()
+            .text_color(t.text_primary),
+        )
+        .children(item.name.clone().map(|name| ui::meta(name, cx)))
+        .child(
+            ui::meta(project.to_owned(), cx)
+                .flex_shrink_1()
+                .min_w_0()
+                .truncate(),
+        )
         .child(div().flex_1())
         .child(ui::meta(ui::time::age(item.at), cx))
         .into_any_element()

@@ -20,12 +20,14 @@ fn shown(bench: &Workbench) -> Option<&gpui_kit::Entity<GoalsPane>> {
         .filter(|_| bench.window_view == WindowView::Goals)
 }
 
-/// Home, with how many things wait on the person, and Overnight, with how many happened.
+/// Home, with how many things wait on the person as the core counts them, and Overnight, with
+/// how many happened.
 pub fn places(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Vec<AnyElement>> {
     let goals = shown(bench)?.clone();
     let t = Tokens::get(cx).clone();
     let pane = goals.read(cx);
-    let (at, needed, happened) = (pane.at, pane.needs(bench).len(), pane.happened(bench).len());
+    let needed = bench.shown().map_or(0, |view| view.inbox.needed);
+    let (at, happened) = (pane.at, pane.happened(bench).len());
     let place = |id: &'static str, title: &'static str, icon: Icon, to: At, count: usize| {
         let goals = goals.clone();
         Row::new(id, title)
