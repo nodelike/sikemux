@@ -6,6 +6,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -97,6 +98,14 @@ function built(name) {
   return path;
 }
 
+// A binary written over in place while it runs, such as a dev core that outlives the
+// window, is killed by macOS when it next starts, so each lands as a new file instead.
+function put(from, to) {
+  const fresh = `${to}.${process.pid}.new`;
+  copyFileSync(from, fresh, constants.COPYFILE_FICLONE);
+  renameSync(fresh, to);
+}
+
 // Laid out as a release is, with the core and the notch each in an app of its own under
 // Contents/Helpers: the core tells the window from an agent's `sikemux` command by the bundle
 // each runs from, which would be the same bundle if the core sat beside the window.
@@ -110,14 +119,9 @@ function assemble() {
   mkdirSync(macos, { recursive: true });
   mkdirSync(resources, { recursive: true });
   mkdirSync(dirname(ownCore), { recursive: true });
-  copyFileSync(appBinary, join(macos, "sikemux"), constants.COPYFILE_FICLONE);
-  for (const helper of appHelpers)
-    copyFileSync(
-      built(helper),
-      join(macos, helper),
-      constants.COPYFILE_FICLONE,
-    );
-  copyFileSync(built("sikemux-host"), ownCore, constants.COPYFILE_FICLONE);
+  put(appBinary, join(macos, "sikemux"));
+  for (const helper of appHelpers) put(built(helper), join(macos, helper));
+  put(built("sikemux-host"), ownCore);
   writeFileSync(
     join(coreApp, "Contents", "Info.plist"),
     `<?xml version="1.0" encoding="UTF-8"?>
