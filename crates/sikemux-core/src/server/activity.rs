@@ -36,6 +36,9 @@ impl Core {
         }
         let agent_id = agent_id.to_owned();
         let came_to_rest = matches!(activity, Activity::Finished { .. } | Activity::Problem(_));
+        if came_to_rest {
+            self.ship.turn_ended(&agent_id);
+        }
         match &activity {
             Activity::Started => {
                 if let Some(place) = super::activity_log::place(self, &agent_id) {
@@ -51,6 +54,7 @@ impl Core {
         }
         match activity {
             Activity::Started => {
+                self.ship.turn_started(&agent_id);
                 self.seen.started(&agent_id);
                 self.inbox.started(&agent_id);
                 self.boards.wake.now();

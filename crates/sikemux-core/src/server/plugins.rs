@@ -427,6 +427,7 @@ pub(crate) async fn call_agent_tool(
     let Some(Provided(plugins)) = core.plugins else {
         return Err("plugins are not loaded".into());
     };
+    super::ship::check_tool(core, request, name, &arguments).await?;
     if let Some(gated) = plugins.gated(name) {
         return super::approvals::propose(core, request, gated, arguments).await;
     }

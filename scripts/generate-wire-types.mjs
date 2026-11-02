@@ -56,6 +56,7 @@ const SOURCES = [
   `${CORE}/server/chat/find.rs`,
   `${CORE}/sessions/search.rs`,
   `${CORE}/server/questions.rs`,
+  `${CORE}/server/ship.rs`,
   `${CORE}/server/codehost/mod.rs`,
   `${CORE}/server/plugins.rs`,
   `${PLUGIN_API}/codehost/mod.rs`,

@@ -55,6 +55,9 @@ struct Done {
     /// Why the commit made was neither landed nor pushed.
     #[serde(skip_serializing_if = "Option::is_none")]
     not_landed: Option<String>,
+    /// Why its commits were not pushed: a push waits on the person.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    not_pushed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     landed: Option<super::land::Landed>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -156,6 +159,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                         committed,
                         nothing_committed,
                         not_landed: Some(why),
+                        not_pushed: None,
                         landed: None,
                         pushed: None,
                     })
@@ -167,7 +171,14 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         let from = landed
             .as_ref()
             .map_or(dir.as_path(), |landed| landed.repo.as_path());
-        let pushed = match push {
+        let ship = crate::ship::Ship {
+            kind: sikemux_wire::inbox::ShipKind::Push,
+            what: "git_commit push".to_owned(),
+        };
+        let not_pushed = push
+            .then(|| super::super::ship::check(&core, &agent_id, ship, from).err())
+            .flatten();
+        let pushed = match push && not_pushed.is_none() {
             true => Some(super::push::push(&core, from, &agent_id, "origin")?),
             false => None,
         };
@@ -175,6 +186,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             committed,
             nothing_committed,
             not_landed: None,
+            not_pushed,
             landed,
             pushed,
         })

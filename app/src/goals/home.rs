@@ -274,6 +274,7 @@ fn need_icon(kind: InboxKind) -> Icon {
         InboxKind::Permission => Icon::Shield,
         InboxKind::Input => Icon::Terminal,
         InboxKind::PullRequest => Icon::PullRequest,
+        InboxKind::Ship => Icon::Shield,
         _ => Icon::Warning,
     }
 }
@@ -311,6 +312,7 @@ fn needs_row(
                 .truncate(),
         )
         .child(div().flex_1())
+        .children(item.hold.as_ref().map(|hold| ship_buttons(&hold.id, cx)))
         .child(ui::meta(ui::time::age(item.at), cx))
         .into_any_element()
 }
@@ -365,6 +367,37 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
         .child(div().flex_1())
         .children(answers)
         .child(ui::meta(ui::time::age(item.at), cx))
+        .into_any_element()
+}
+
+/// Allows a held action once, or refuses it, without opening the agent.
+fn ship_buttons(hold: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let (allow, refuse) = (hold.to_owned(), hold.to_owned());
+    div()
+        .flex()
+        .gap(SPACE_1)
+        .child(
+            Button::new(
+                SharedString::from(format!("ship-allow-{hold}")),
+                "Allow once",
+                Variant::Primary,
+            )
+            .on_click(cx.listener(move |pane, _, _, cx| {
+                cx.stop_propagation();
+                pane.answer_ship::<call::AllowShip>(allow.clone(), cx)
+            })),
+        )
+        .child(
+            Button::new(
+                SharedString::from(format!("ship-refuse-{hold}")),
+                "Refuse",
+                Variant::Outline,
+            )
+            .on_click(cx.listener(move |pane, _, _, cx| {
+                cx.stop_propagation();
+                pane.answer_ship::<call::RefuseShip>(refuse.clone(), cx)
+            })),
+        )
         .into_any_element()
 }
 

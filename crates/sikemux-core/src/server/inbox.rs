@@ -14,7 +14,7 @@ use crate::protocol::{AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, 
 use crate::text::{clipped, clipped_line};
 use sikemux_wire::inbox::{
     AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandoff, InboxItem, InboxKind,
-    InboxNeed, InboxRecording, InboxTier, RemoteAgent, TeamLink,
+    InboxNeed, InboxRecording, InboxTier, RemoteAgent, ShipHold, ShipKind, TeamLink,
 };
 
 use super::board::{self, Hold, Summary, Waits};
@@ -44,7 +44,7 @@ pub(crate) enum Fault {
 
 /// What an item tells of, which alone decides its kind, what it needs the person for, and
 /// so where it ranks.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Case {
     Permission,
     /// `secret` when the answer is something only the person has, such as a password.
@@ -55,6 +55,8 @@ enum Case {
     Input,
     /// The slice waits for the person to pass this gate.
     Gate(Gate),
+    /// An agent's action that leaves this machine waits for the person to allow it.
+    Ship(ShipHold),
     PullRequest,
     /// Auto handed the card back, for the person to fix something or unblock it.
     HandedBack(Hold),
@@ -90,7 +92,7 @@ enum Quiet {
 }
 
 impl Case {
-    fn placed(self) -> (InboxKind, Wants) {
+    fn placed(&self) -> (InboxKind, Wants) {
         use InboxNeed::{Decide, Fix, Unblock};
         match self {
             Case::Permission => (InboxKind::Permission, Wants::Person(Decide)),
@@ -99,6 +101,7 @@ impl Case {
             Case::Assumption => (InboxKind::Assumption, Wants::Person(Decide)),
             Case::Input => (InboxKind::Input, Wants::Person(Unblock)),
             Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
+            Case::Ship(_) => (InboxKind::Ship, Wants::Person(Decide)),
             Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
             Case::HandedBack(Hold::Unblock) => (InboxKind::Held, Wants::Person(Unblock)),
             Case::HandedBack(Hold::Fix)
@@ -488,8 +491,12 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         feed: None,
         turn: None,
         card: None,
-        gate: match case {
-            Case::Gate(gate) => Some(gate),
+        gate: match &case {
+            Case::Gate(gate) => Some(*gate),
+            _ => None,
+        },
+        hold: match case {
+            Case::Ship(hold) => Some(hold),
             _ => None,
         },
         request_id: None,
@@ -750,6 +757,26 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         item.detail = Some(clipped_line(&question.text, MAX_LINE_CHARS));
         item.question_id = Some(question.id.clone());
         item.answers.clone_from(&question.answers);
+        items.push(item);
+    }
+    for waiting in core.ship.waiting() {
+        let what = match waiting.hold.kind {
+            ShipKind::Push => "Wants to push",
+            ShipKind::Merge => "Wants to merge",
+            ShipKind::Deploy => "Wants to deploy",
+            ShipKind::Publish => "Wants to publish",
+            ShipKind::ProductionWrite => "Wants to write to a production database",
+        };
+        let detail = clipped_line(&waiting.hold.what, MAX_LINE_CHARS);
+        let mut item = item(
+            format!("ship:{}", waiting.hold.id),
+            Case::Ship(waiting.hold),
+            what.into(),
+            waiting.at,
+        )
+        .by(&waiting.agent_id, find(&waiting.agent_id));
+        item.project.get_or_insert(waiting.project);
+        item.detail = Some(detail);
         items.push(item);
     }
     for looped in core.harness.mailbox.loops() {

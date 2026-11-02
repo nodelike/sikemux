@@ -16,8 +16,8 @@ use gpui_kit::{
 use serde::Serialize;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::{
-    BoardNoteParams, BoardPassParams, BoardView, CardView, MemoryEntryParams, MemoryParams,
-    NoParams,
+    BoardNoteParams, BoardPassParams, BoardView, CardView, HoldParams, MemoryEntryParams,
+    MemoryParams, NoParams,
 };
 use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem};
 use sikemux_wire::memory::MemoryView;
@@ -174,6 +174,22 @@ impl GoalsPane {
             None => boards.push(board),
         }
         self.take(boards);
+    }
+
+    /// Answers an action an agent took that leaves this machine: `C` allows it once or
+    /// refuses it. The inbox drops the item once the core has.
+    fn answer_ship<C: Call<Params = HoldParams, Answer = ()> + 'static>(
+        &mut self,
+        hold: String,
+        cx: &mut Context<Self>,
+    ) {
+        let asked = core::Target::here(&self.asks).request_typed::<C>(HoldParams { hold });
+        cx.spawn(async move |pane, cx| {
+            if let Err(error) = asked.await {
+                let _ = pane.update(cx, |pane, cx| pane.said(&error, cx));
+            }
+        })
+        .detach();
     }
 
     fn said(&self, error: &str, cx: &mut Context<Self>) {

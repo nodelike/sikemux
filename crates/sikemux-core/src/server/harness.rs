@@ -17,8 +17,8 @@ use tokio::time::Instant;
 
 use crate::cli::protocol::{
     is_browser_method, is_sim_method, validate_harness, HarnessRequest, COMMIT_FOOTER_METHOD,
-    CORE_REPLY_TIMEOUT, GIT_GUARD_METHOD, PLUGINS_CHANGED_METHOD, SIM_CANCEL_METHOD,
-    SIM_OFFERED_METHOD, TOOLS_MANIFEST_METHOD,
+    CORE_REPLY_TIMEOUT, GIT_GUARD_METHOD, PLUGINS_CHANGED_METHOD, SHIP_CHECK_METHOD,
+    SIM_CANCEL_METHOD, SIM_OFFERED_METHOD, TOOLS_MANIFEST_METHOD,
 };
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
 use crate::harness::journal::{EventsPage, JournalRecord, Journals};
@@ -677,6 +677,7 @@ async fn dispatch(
         "git.commit" => super::edits::commit::call(core, &request).await,
         COMMIT_FOOTER_METHOD => super::edits::footer::call(core, &request, grant).await,
         GIT_GUARD_METHOD => super::edits::guard::call(core, &request).await,
+        SHIP_CHECK_METHOD => super::ship::call(core, &request).await,
         "browser.screenshot" => {
             let answer = forward(core, request.clone()).await?;
             if let Some(agent_id) = request.agent_id.clone() {
@@ -1528,6 +1529,7 @@ fn tool_name(request: &HarnessRequest) -> Option<String> {
         | TOOLS_MANIFEST_METHOD
         | COMMIT_FOOTER_METHOD
         | GIT_GUARD_METHOD
+        | SHIP_CHECK_METHOD
         | SIM_OFFERED_METHOD
         | SIM_CANCEL_METHOD => None,
         "plugins.call" => request

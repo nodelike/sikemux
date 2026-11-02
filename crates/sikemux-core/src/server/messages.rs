@@ -1452,6 +1452,30 @@ pub(crate) async fn from_sikemux(
     deliver(core, &target, letter).await
 }
 
+/// Tells an agent what the person decided about something of its that
+/// Sikemux held for them, which starts a turn when it is at rest. Fails when
+/// the agent has stopped or is gone.
+pub(crate) async fn for_person(
+    core: &Arc<Core>,
+    to: String,
+    text: String,
+) -> Result<Value, String> {
+    let target = running(core, to).await?;
+    let letter = Letter {
+        kind: Kind::Message,
+        from_id: SIKEMUX.to_owned(),
+        from_name: "Sikemux".to_owned(),
+        cli: "sikemux".to_owned(),
+        text,
+        at: epoch_ms(),
+        note: Some(
+            "Sent by Sikemux with the person's answer about an action it held for them.".to_owned(),
+        ),
+        answers: None,
+    };
+    deliver(core, &target, letter).await
+}
+
 const AUTO_NOTE: &str = "Sent by Sikemux's Auto, which runs this project's board for the person, not by the person or another agent.";
 
 fn auto_letter(text: String) -> Letter {

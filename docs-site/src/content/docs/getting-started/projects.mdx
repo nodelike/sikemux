@@ -68,6 +68,8 @@ Check a `sikemux.json` into a project to add actions, processes and a preview to
 
 Processes go in its `tasks` list. Agents can start, read and stop them too. They keep running in the background while the window is closed.
 
+`ship` lists your project's own commands that put work live, such as `"ship": ["make deploy", "scripts/release.sh"]`, matched by their leading words: an agent running one waits for you to allow it first, like a deploy ([what leaves this machine](/agents/permissions/#what-leaves-this-machine)). Claude Code, Grok and Hermes catch them; other agents catch them only when the script runs a program Sikemux knows, such as `vercel`.
+
 `planFirst` lists paths, such as `"planFirst": ["server/**", "db/schema.sql"]`, whose change Sikemux suggests planning before it starts, when what you type names one. Migrations folders, `.proto` and OpenAPI files, a top-level `server/` or `api/`, and UI folders such as `components/` count in every project without it.
 
 ### The project's check

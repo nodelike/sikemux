@@ -3,7 +3,7 @@ title: Databases
 description: "What agents can do with the databases you saved, and how they propose new ones."
 ---
 
-Agents reach the databases you saved by name: they list them, read their tables and run SQL. Each agent gets a connection of its own, read-only unless you switch on **Agents may change data** for that database in **Settings → Connectors**. That page also lists every saved database, with **Remove** beside each.
+Agents reach the databases you saved by name: they list them, read their tables and run SQL. Each agent gets a connection of its own, read-only unless you switch on **Agents may change data** for that database in **Settings → Connectors**. Switch on **Production** beside it too, and every statement an agent runs there while it may change data waits for you to allow it first, under **Decide** in Goals ([what leaves this machine](/agents/permissions/#what-leaves-this-machine)); reading a production database it can't change never asks. That page also lists every saved database, with **Remove** beside each.
 
 ## When an agent adds one
 

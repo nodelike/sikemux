@@ -432,6 +432,9 @@ enum InboxKind: String, Codable, Hashable {
     case assumption
     /// The slice on `card` waits for the person to pass `gate`.
     case gate
+    /// An agent's action that leaves this machine, held as `hold` until the
+    /// person allows it once with `allowShip` or refuses it with `refuseShip`.
+    case ship
     /// The card's pull request at `url` is ready for review.
     case pullRequest
     /// A turn or card that changed files.

@@ -338,6 +338,9 @@ impl Claude {
         .map(str::to_owned)
         .collect();
         args.extend(["--permission-mode".to_owned(), mode.to_owned()]);
+        if let Some(settings) = crate::git_guard::shim::claude_settings() {
+            args.extend(["--settings".to_owned(), settings]);
+        }
         if let Some(model) = model.filter(|model| *model != config::DEFAULT) {
             args.extend(["--model".to_owned(), model.to_owned()]);
         }

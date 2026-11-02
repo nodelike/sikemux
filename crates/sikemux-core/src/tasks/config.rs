@@ -25,6 +25,7 @@ const ROOT_FIELDS: &[&str] = &[
     "generate",
     "check",
     "planFirst",
+    "ship",
 ];
 const ACTION_FIELDS: &[&str] = &[
     "id",
@@ -42,6 +43,7 @@ const HOOK_FIELDS: &[&str] = &["id", "label", "command"];
 const GENERATE_FIELDS: &[&str] = &["command", "outputs"];
 const MAX_OUTPUTS: usize = 50;
 const MAX_PLAN_FIRST: usize = 50;
+const MAX_SHIP: usize = 50;
 const CHECK_FIELDS: &[&str] = &["ci"];
 const MAX_WORKFLOWS: usize = 20;
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
@@ -231,6 +233,10 @@ pub struct ProjectConfig {
     /// project has, such as migrations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_first: Option<PathGlobs>,
+    /// The project's own commands that leave this machine, such as
+    /// `make deploy`, which an agent runs only once the person allows it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ship: Vec<String>,
 }
 
 /// Project-relative path patterns, such as `server/**`, kept as written and
@@ -419,6 +425,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let generate = parse_generate(root.get("generate"), &mut errors);
     let check = parse_check(root.get("check"), &mut errors);
     let plan_first = parse_plan_first(root.get("planFirst"), &mut errors);
+    let ship = parse_ship(root.get("ship"), &mut errors);
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -433,6 +440,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         generate,
         check,
         plan_first,
+        ship,
     })
 }
 
@@ -1199,6 +1207,29 @@ fn parse_generate(
         command: command?,
         outputs,
     }))
+}
+
+fn parse_ship(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let listed = match value {
+        Value::Array(listed) if !listed.is_empty() && listed.len() <= MAX_SHIP => listed,
+        _ => {
+            errors.push(issue(
+                "$.ship",
+                ConfigErrorCode::InvalidValue,
+                format!("ship must list between 1 and {MAX_SHIP} commands."),
+            ));
+            return Vec::new();
+        }
+    };
+    (listed.iter().enumerate())
+        .filter_map(|(index, command)| {
+            let path = format!("$.ship[{index}]");
+            bounded_required(Some(command), &path, "Command", 512, errors)
+        })
+        .collect()
 }
 
 fn parse_plan_first(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<PathGlobs> {

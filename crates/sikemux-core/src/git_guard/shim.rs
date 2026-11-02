@@ -23,6 +23,9 @@ use super::footer;
 const AGENT_BIN: &str = "agent-bin";
 /// The name the hook is linked under, outside the agents' PATH.
 const HOOK: &str = "sikemux-git-hook";
+/// Given to the hook where the shim already checks git, so it checks only
+/// what leaves this machine.
+const SHIP_ONLY: &str = "ship";
 /// macOS has no `timeout`, which agents reach for out of habit.
 const TIMEOUT: &str = "timeout";
 
@@ -47,6 +50,11 @@ pub(crate) fn install(data_dir: &Path, endpoint: Option<&Path>) {
     crate::agent_shell::install(data_dir);
     match link(&folder, "git") {
         Ok(()) => {
+            for program in crate::ship::PROGRAMS {
+                if let Err(error) = link(&folder, program) {
+                    eprintln!("sikemux core: agents' {program} commands go unchecked: {error}");
+                }
+            }
             let _ = FOLDER.set(folder);
         }
         Err(error) => eprintln!("sikemux core: agents' git commands go unchecked: {error}"),
@@ -115,6 +123,14 @@ pub(super) fn grok_hooks(command: &str) -> Value {
             "hooks": [{ "type": "command", "command": command }],
         }],
     })
+}
+
+/// The settings a Claude Code chat starts with to check each shell command for
+/// what leaves this machine, which a program it runs by its full path would
+/// get past the shim with. None before [`install`].
+pub(crate) fn claude_settings() -> Option<String> {
+    let (_, command) = hook()?;
+    Some(json!({ "hooks": grok_hooks(&format!("{command} {SHIP_ONLY}")) }).to_string())
 }
 
 /// The plugin a Grok chat loads the hook from. None before [`install`].
@@ -221,17 +237,23 @@ pub fn run_if_git() -> Option<i32> {
     let name = args.next()?;
     match Path::new(&name).file_name()?.to_str()? {
         "git" => Some(run(args.collect())),
-        HOOK => Some(run_hook()),
+        HOOK => Some(run_hook(args.next().is_some_and(|arg| arg == SHIP_ONLY))),
         TIMEOUT => Some(crate::timeout::run(args.collect())),
         footer::LINK => Some(footer::run(args.collect())),
-        _ => None,
+        program => {
+            let program = crate::ship::PROGRAMS
+                .iter()
+                .find(|known| **known == program)?;
+            Some(run_program(program, args.collect()))
+        }
     }
 }
 
 /// Checks the shell command in the tool call a harness writes to stdin, in
-/// Claude's hook form, which Grok and Hermes share. Exit code 2 refuses it,
-/// with the reason on stderr.
-fn run_hook() -> i32 {
+/// Claude's hook form, which Grok and Hermes share: for what the git guard
+/// refuses unless `ship_only`, and for what leaves this machine. Exit code 2
+/// refuses it, with the reason on stderr.
+fn run_hook(ship_only: bool) -> i32 {
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
         return 0;
@@ -247,13 +269,87 @@ fn run_hook() -> i32 {
         .iter()
         .find_map(|key| tool[*key].as_str())
         .map_or_else(|| PathBuf::from(cwd), |dir| Path::new(cwd).join(dir));
-    match super::refusal(command, &cwd, &others) {
-        Some(refusal) => {
-            eprintln!("{refusal}");
+    if let Some(refusal) = (!ship_only)
+        .then(|| super::refusal(command, &cwd, &others))
+        .flatten()
+    {
+        eprintln!("{refusal}");
+        return 2;
+    }
+    let extra = project_ships(&cwd);
+    match crate::ship::of_command(command, &extra).and_then(|ship| held(&ship, &cwd)) {
+        Some(held) => {
+            eprintln!("{held}");
             2
         }
         None => 0,
     }
+}
+
+/// The commands the project `cwd` is in lists in its sikemux.json as leaving
+/// this machine, such as `make deploy`.
+fn project_ships(cwd: &Path) -> Vec<String> {
+    let project = cwd
+        .ancestors()
+        .find(|dir| dir.join(crate::tasks::config::CONFIG_FILE).is_file());
+    match project.map(crate::tasks::config::load) {
+        Some(crate::tasks::config::ConfigLoad::Valid { config, .. }) => config.ship,
+        _ => Vec::new(),
+    }
+}
+
+/// What the agent is told when the core holds `ship`, run in `cwd`, for the
+/// person to allow first. None when it may run now.
+fn held(ship: &crate::ship::Ship, cwd: &Path) -> Option<String> {
+    let endpoint = footer::endpoint()?;
+    let asked = crate::cli::client::attempt(
+        &endpoint,
+        &cwd.to_string_lossy(),
+        None,
+        crate::cli::protocol::SHIP_CHECK_METHOD,
+        &json!({ "kind": ship.kind, "what": ship.what }),
+        GUARD_WAIT,
+    );
+    match asked {
+        Ok(answer) if answer["allowed"] == true => None,
+        Ok(answer) => Some(answer["said"].as_str().unwrap_or_default().to_owned()),
+        Err(_) => Some(format!(
+            "Sikemux could not ask whether `{}` may leave this machine. Run it again in a moment.",
+            ship.what
+        )),
+    }
+}
+
+/// Runs `program`, which the shim stands in for, unless what it does leaves
+/// this machine and the core holds it for the person.
+fn run_program(program: &str, args: Vec<OsString>) -> i32 {
+    let words: Vec<String> = args
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    if let Some(kind) = crate::ship::of_program(program, &words, &|_| None) {
+        let ship = crate::ship::Ship {
+            kind,
+            what: std::iter::once(program.to_owned())
+                .chain(words)
+                .collect::<Vec<_>>()
+                .join(" "),
+        };
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if let Some(held) = held(&ship, &cwd) {
+            eprintln!("{held}");
+            return 1;
+        }
+    }
+    let Some(real) = real(program) else {
+        eprintln!("{program}: Sikemux found no {program} to run on PATH");
+        return 127;
+    };
+    let error = sikemux_process::user_environment::command(&real)
+        .args(&args)
+        .exec();
+    eprintln!("{program}: {}: {error}", real.display());
+    126
 }
 
 fn run(args: Vec<OsString>) -> i32 {
@@ -270,6 +366,21 @@ fn run(args: Vec<OsString>) -> i32 {
     if let Some(refusal) = super::refused(&words, private_index, &real, &others) {
         eprintln!("{refusal}");
         return 1;
+    }
+    let alias = |name: &str| alias_of(&git, name);
+    if let Some(kind) = crate::ship::of_program("git", &words, &alias) {
+        let ship = crate::ship::Ship {
+            kind,
+            what: std::iter::once("git".to_owned())
+                .chain(words.iter().cloned())
+                .collect::<Vec<_>>()
+                .join(" "),
+        };
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if let Some(held) = held(&ship, &cwd) {
+            eprintln!("{held}");
+            return 1;
+        }
     }
     let mut command = sikemux_process::user_environment::command(&git);
     let subcommand = super::git_args(&words);
@@ -311,18 +422,41 @@ fn others(dir: &Path, paths: &[String]) -> Option<Vec<String>> {
 
 const GUARD_WAIT: Duration = Duration::from_secs(10);
 
+/// What the git alias `name` stands for, as git in this folder reads it.
+fn alias_of(git: &Path, name: &str) -> Option<String> {
+    let output = sikemux_process::user_environment::command(git)
+        .args(["config", "--get", &format!("alias.{name}")])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+/// Whether `path` is this shim rather than the program it stands in for.
+fn is_shim(path: &Path) -> bool {
+    static SHIM: OnceLock<Option<PathBuf>> = OnceLock::new();
+    let shim = SHIM.get_or_init(|| {
+        std::env::current_exe()
+            .and_then(|exe| exe.canonicalize())
+            .ok()
+    });
+    path.canonicalize().ok() == *shim
+}
+
+/// The program `name` this shim stands in for, the first on PATH that is not
+/// the shim itself.
+fn real(name: &str) -> Option<PathBuf> {
+    sikemux_process::user_environment::find_executables(name)
+        .into_iter()
+        .find(|found| !is_shim(found))
+}
+
 /// The git this shim stands in for, never the shim itself.
 fn real_git() -> Option<PathBuf> {
-    let shim = std::env::current_exe()
-        .and_then(|exe| exe.canonicalize())
-        .ok();
-    let not_shim = |git: &PathBuf| git.canonicalize().ok() != shim;
     std::env::var_os(vars::REAL_GIT)
         .map(PathBuf::from)
-        .filter(|git| git.is_file() && not_shim(git))
-        .or_else(|| {
-            sikemux_process::user_environment::find_executables("git")
-                .into_iter()
-                .find(|git| not_shim(git))
-        })
+        .filter(|git| git.is_file() && !is_shim(git))
+        .or_else(|| real("git"))
 }

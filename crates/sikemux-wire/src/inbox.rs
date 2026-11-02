@@ -23,14 +23,41 @@ pub enum InboxTier {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InboxNeed {
-    /// A gate to pass, a question to answer, a permission to give or a pull
-    /// request to merge.
+    /// A gate to pass, a question to answer, a permission to give, a pull
+    /// request to merge or an action leaving this machine to allow.
     Decide,
     /// Something only the person can do before work goes on, such as signing in,
     /// giving a secret or typing in a terminal.
     Unblock,
     /// A failed check or turn, or something held that needs mending.
     Fix,
+}
+
+/// What an agent's action does once it leaves this machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShipKind {
+    /// Sends commits to a remote.
+    Push,
+    /// Merges a pull request on the code host.
+    Merge,
+    /// Puts work live, such as a deploy or a release of infrastructure.
+    Deploy,
+    /// Releases a package or an image for others to install.
+    Publish,
+    /// Changes data in a database marked as production.
+    ProductionWrite,
+}
+
+/// An action an agent wanted to take that leaves this machine, held until the
+/// person allows it once or refuses it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShipHold {
+    pub id: String,
+    pub kind: ShipKind,
+    /// The exact command or tool call, which allowing it lets run once.
+    pub what: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +81,9 @@ pub enum InboxKind {
     Assumption,
     /// The slice on `card` waits for the person to pass `gate`.
     Gate,
+    /// An agent's action that leaves this machine, held as `hold` until the
+    /// person allows it once with `allowShip` or refuses it with `refuseShip`.
+    Ship,
     /// The card's pull request at `url` is ready for review.
     PullRequest,
     /// A turn or card that changed files.
@@ -128,6 +158,9 @@ pub struct InboxItem {
     /// The gate the slice on `card` waits at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<Gate>,
+    /// The action a Ship item holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold: Option<ShipHold>,
     pub request_id: Option<String>,
     /// The options a permission is answered with.
     pub choices: Option<PermissionChoices>,

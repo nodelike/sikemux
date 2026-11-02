@@ -117,6 +117,10 @@ pub struct Profile {
     /// Lets agents run statements that change data. Without it an agent's connection is read-only.
     #[serde(default)]
     pub agent_writes: bool,
+    /// Marks it as production: while agents may change its data, each statement an agent runs
+    /// here waits for the person to allow it.
+    #[serde(default)]
+    pub production: bool,
     #[serde(default)]
     pub has_password: bool,
     #[serde(flatten)]
@@ -325,6 +329,7 @@ pub fn save(data_dir: &Path, request: SaveRequest) -> DatabaseResult<Profile> {
         name,
         read_only: profile.read_only,
         agent_writes: profile.agent_writes && !profile.read_only,
+        production: existing.as_ref().is_some_and(|kept| kept.production),
         has_password,
         target,
     };
@@ -340,6 +345,16 @@ pub fn set_agent_writes(data_dir: &Path, id: &str, on: bool) -> DatabaseResult<(
     let mut changed = profiles.get(id)?.clone();
     changed.read_only = !on;
     changed.agent_writes = on;
+    profiles.upsert(changed);
+    store(data_dir, &profiles)
+}
+
+/// Marks the database as production, whose changes by agents wait for the person, or not.
+pub fn set_production(data_dir: &Path, id: &str, on: bool) -> DatabaseResult<()> {
+    let _turn = WRITING.locked();
+    let mut profiles = load(data_dir)?;
+    let mut changed = profiles.get(id)?.clone();
+    changed.production = on;
     profiles.upsert(changed);
     store(data_dir, &profiles)
 }

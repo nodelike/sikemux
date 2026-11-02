@@ -29,6 +29,9 @@ pub struct AgentDatabase {
     pub address: String,
     /// Whether the agent may run statements that change data here.
     pub writable: bool,
+    /// Whether it is production, where each statement an agent may change data with waits
+    /// for the person to allow it.
+    pub production: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -44,7 +47,7 @@ pub struct DatabaseRef {
     pub database: String,
 }
 
-/// Whether agents may change a saved database's data.
+/// A switch on a saved database: whether agents may change its data, or whether it is production.
 #[derive(Deserialize, Debug)]
 pub struct WritesRequest {
     pub database: String,
@@ -119,7 +122,15 @@ fn describe_profile(profile: &Profile) -> AgentDatabase {
         engine,
         address: address(&profile.target),
         writable: profile.agent_writes && !profile.read_only,
+        production: profile.production,
     }
+}
+
+/// Whether a statement an agent runs on the database `database` names may change production
+/// data: the database is production, and agents may change its data.
+pub fn writes_production(data_dir: &Path, database: DatabaseRef) -> DatabaseResult<bool> {
+    let saved = describe_profile(profiles::load(data_dir)?.find(&database.database)?);
+    Ok(saved.production && saved.writable)
 }
 
 pub fn databases(data_dir: &Path) -> DatabaseResult<Vec<AgentDatabase>> {

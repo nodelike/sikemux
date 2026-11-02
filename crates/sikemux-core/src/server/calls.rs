@@ -17,8 +17,8 @@ use super::names::{AgentName, ClosedAgent, NameTheme};
 use super::workspace;
 use super::{
     agent_accounts, agent_sign_in, board, inbox, memory, messages, model_providers, plugins,
-    questions, remote, saved, saved_sessions, share, skill_library, who_wrote, Core, CoreError,
-    CoreResult,
+    questions, remote, saved, saved_sessions, share, ship, skill_library, who_wrote, Core,
+    CoreError, CoreResult,
 };
 use crate::protocol::{AgentBuddy, Preferences, RemoteStatus};
 use sikemux_wire::catalog::CatalogAgent;
@@ -570,6 +570,8 @@ calls! { core, client, params;
     "questions" Questions (NoParams) -> Vec<AgentQuestion>: Watch, any_program => questions::views(&core),
     "answerQuestion" AnswerQuestion (questions::AnswerParams) -> (): Full => questions::answer(&core, params).await?,
     "answerQuestions" AnswerQuestions (questions::AnswersParams) -> (): Full => questions::answer_all(&core, params).await?,
+    "allowShip" AllowShip (ship::HoldParams) -> (): Full => ship::allow(&core, params).await?,
+    "refuseShip" RefuseShip (ship::HoldParams) -> (): Full => ship::refuse(&core, params).await?,
     "agentMessages": Watch, any_program => answer(agent_messages(&core, parse(params)?).await?),
     "agentMessageRows" AgentMessageRows (AgentMessagesParams) -> AgentMessageRows: Watch, any_program => {
         agent_message_rows(&core, params).await?

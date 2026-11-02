@@ -662,6 +662,8 @@ export interface InboxItem {
     card: InboxCard | null;
     /** The gate the slice on `card` waits at. */
     gate?: Gate;
+    /** The action a Ship item holds. */
+    hold?: ShipHold;
     requestId: string | null;
     /** The options a permission is answered with. */
     choices: PermissionChoices | null;
@@ -681,7 +683,7 @@ export interface InboxItem {
 export type InboxTier = "needs" | "review" | "finished" | "progress";
 
 export type InboxKind =
-    "permission" | "question" | "input" | "held" | "assumption" | "gate" | "pullRequest" | "changes" | "failed" | "finished" | "working";
+    "permission" | "question" | "input" | "held" | "assumption" | "gate" | "ship" | "pullRequest" | "changes" | "failed" | "finished" | "working";
 
 /** What the person is needed for, for an item that waits on them. */
 export type InboxNeed = "decide" | "unblock" | "fix";
@@ -699,6 +701,20 @@ export interface InboxCard {
  * the order it passes them.
  */
 export type Gate = "built" | "looksRight" | "landed";
+
+/**
+ * An action an agent wanted to take that leaves this machine, held until the
+ * person allows it once or refuses it.
+ */
+export interface ShipHold {
+    id: string;
+    kind: ShipKind;
+    /** The exact command or tool call, which allowing it lets run once. */
+    what: string;
+}
+
+/** What an agent's action does once it leaves this machine. */
+export type ShipKind = "push" | "merge" | "deploy" | "publish" | "productionWrite";
 
 /** What an agent left when its turn ended, for whoever picks it up. */
 export interface InboxHandoff {
@@ -3435,6 +3451,10 @@ export interface AnswersParams {
     answers: AnswerParams[];
 }
 
+export interface HoldParams {
+    hold: string;
+}
+
 export interface AgentMessagesParams {
     project: string;
     limit?: number | null;
@@ -3886,6 +3906,8 @@ export interface CoreCalls {
     questions: { params: NoParams; answer: AgentQuestion[] };
     answerQuestion: { params: AnswerParams; answer: null };
     answerQuestions: { params: AnswersParams; answer: null };
+    allowShip: { params: HoldParams; answer: null };
+    refuseShip: { params: HoldParams; answer: null };
     agentMessageRows: { params: AgentMessagesParams; answer: AgentMessageRows };
     boards: { params: NoParams; answer: ProjectBoard[] };
     board: { params: BoardParams; answer: ProjectBoard };

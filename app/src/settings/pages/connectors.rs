@@ -72,6 +72,7 @@ struct Database {
     engine: String,
     address: String,
     writable: bool,
+    production: bool,
 }
 
 #[derive(Deserialize)]
@@ -487,20 +488,10 @@ fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyE
     ]
 }
 
-/// A saved database, with whether agents may change its data and the way to remove it.
+/// A saved database, with whether agents may change its data, whether it is production, and the
+/// way to remove it.
 fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyElement {
     let name = database.name.clone();
-    let writes = {
-        let (this, name) = (this.clone(), name.clone());
-        Switch::new(SharedString::from(format!("database-writes-{name}")))
-            .checked(database.writable)
-            .on_change(move |on: &bool, window: &mut Window, cx: &mut App| {
-                let params = json!({ "database": name, "on": *on });
-                this.update(cx, |bench, cx| {
-                    change_database(bench, "setAgentWrites", params, window, cx)
-                })
-            })
-    };
     let remove = {
         let (this, name) = (this.clone(), name.clone());
         ui::IconButton::new(
@@ -515,15 +506,6 @@ fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyE
             })
         })
     };
-    let t = Tokens::get(cx);
-    let writes = div()
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .text_size(crate::theme::ui_text(crate::theme::TEXT_XS))
-        .text_color(t.text_tertiary)
-        .child("Agents may change data")
-        .child(writes);
     setting(
         database.name.clone(),
         Some(format!("{} · {}", database.engine, database.address).into()),
@@ -531,10 +513,55 @@ fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyE
             .flex()
             .items_center()
             .gap(SPACE_2)
-            .child(writes)
+            .child(database_switch(
+                &name,
+                "Agents may change data",
+                database.writable,
+                "setAgentWrites",
+                this,
+                cx,
+            ))
+            .child(database_switch(
+                &name,
+                "Production",
+                database.production,
+                "setProduction",
+                this,
+                cx,
+            ))
             .child(remove),
         cx,
     )
+}
+
+/// One of a saved database's switches, labelled, which `method` sets.
+fn database_switch(
+    name: &str,
+    label: &'static str,
+    checked: bool,
+    method: &'static str,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let (this, database) = (this.clone(), name.to_owned());
+    let switch = Switch::new(SharedString::from(format!("database-{method}-{name}")))
+        .checked(checked)
+        .on_change(move |on: &bool, window: &mut Window, cx: &mut App| {
+            let params = json!({ "database": database, "on": *on });
+            this.update(cx, |bench, cx| {
+                change_database(bench, method, params, window, cx)
+            })
+        });
+    let t = Tokens::get(cx);
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .text_size(crate::theme::ui_text(crate::theme::TEXT_XS))
+        .text_color(t.text_tertiary)
+        .child(label)
+        .child(switch)
+        .into_any_element()
 }
 
 fn change_database(

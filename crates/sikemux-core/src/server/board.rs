@@ -2470,6 +2470,13 @@ pub(crate) fn attach_recording(core: &Arc<Core>, agent_id: &str, recording: Inbo
     }
 }
 
+/// Who passes Landed in `project`: Sikemux once a slice is on the branch, or
+/// the person.
+pub(crate) fn landing(core: &Core, project: &str) -> auto::Landing {
+    let state = core.boards.state.locked();
+    (state.boards.get(project)).map_or_else(auto::Landing::default, |board| board.settings.landing)
+}
+
 /// The goal a card sits under: the top card above it, or itself.
 pub(crate) struct GoalRef {
     pub project: String,

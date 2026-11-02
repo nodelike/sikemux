@@ -75,6 +75,7 @@ mod seen;
 mod session;
 mod session_watch;
 mod share;
+mod ship;
 mod shown_cache;
 mod skill_library;
 mod spare;
@@ -133,6 +134,7 @@ pub use questions::{AnswerParams, AnswersParams};
 pub use remote::{trust_remote_file, ApprovalSetting, Pairing};
 pub use saved::SearchParams;
 pub use share::{ShareState, ShareView};
+pub use ship::HoldParams;
 pub use ssh::{Reach, SshHost};
 pub use stash::{
     AttachParams, Attached, ItemParams, PromptParams, ShownStash, ShownStashItem, ShownStashLink,
@@ -345,6 +347,8 @@ pub(crate) struct Core {
     pub(crate) workspaces: workspace::Workspaces,
     pub(crate) seen: seen::Seen,
     pub(crate) lifecycle: lifecycle::Lifecycle,
+    /// Agents' actions that leave this machine, held for the person.
+    pub(crate) ship: ship::Ships,
     pub(crate) session_watch: session_watch::SessionWatch,
     pub(crate) activity_log: Arc<activity_log::ActivityLog>,
     pub(crate) device_view: device_view::DeviceViews,
@@ -469,6 +473,7 @@ impl Core {
             workspaces: workspace::Workspaces::new(data_dir).with_plugins(plugins),
             seen: seen::Seen::default(),
             lifecycle: lifecycle::Lifecycle::default(),
+            ship: ship::Ships::default(),
             session_watch: session_watch::SessionWatch::default(),
             activity_log: Arc::new(activity_log::ActivityLog::new(data_dir)),
             device_view: device_view::DeviceViews::default(),

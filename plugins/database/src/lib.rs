@@ -68,6 +68,17 @@ impl Plugin for Database {
                     }))
                     .await
                 }
+                "setProduction" => {
+                    let agent::WritesRequest { database, on } = params(input)?;
+                    let id = profiles::load(&data_dir)?.find(&database)?.id.clone();
+                    answer(profiles::blocking(move || {
+                        profiles::set_production(&data_dir, &id, on)
+                    }))
+                    .await
+                }
+                "agentWritesProduction" => {
+                    reply(agent::writes_production(&data_dir, params(input)?)?)
+                }
                 "agentDatabases" => reply(agent::databases(&data_dir)?),
                 "agentTables" => answer(agent::tables(&self.pool, &data_dir, params(input)?)).await,
                 "agentDescribe" => {

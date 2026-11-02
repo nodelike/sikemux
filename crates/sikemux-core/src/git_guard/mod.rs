@@ -34,7 +34,7 @@ pub(crate) fn refusal(command: &str, cwd: &Path, others: &Others) -> Option<Stri
 }
 
 /// The script of `sh -c script`, or of a shell given other options first.
-fn shell_script(words: &[String]) -> Option<&str> {
+pub(crate) fn shell_script(words: &[String]) -> Option<&str> {
     let (shell, rest) = words.split_first()?;
     if !is_shell(shell) {
         return None;
@@ -365,7 +365,7 @@ fn flags_before_paths(args: &[String]) -> impl Iterator<Item = &str> {
 }
 
 /// `git`'s arguments from its subcommand on, past options such as `-C dir`.
-fn git_args(args: &[String]) -> &[String] {
+pub(crate) fn git_args(args: &[String]) -> &[String] {
     let mut at = 0;
     while let Some(arg) = args.get(at) {
         match arg.as_str() {
@@ -378,7 +378,7 @@ fn git_args(args: &[String]) -> &[String] {
 }
 
 /// A command's words without what runs it, such as `env X=1` or `sudo`.
-fn command_words(words: &[String]) -> Option<&[String]> {
+pub(crate) fn command_words(words: &[String]) -> Option<&[String]> {
     let runner = |word: &str| {
         matches!(
             word,
@@ -391,7 +391,7 @@ fn command_words(words: &[String]) -> Option<&[String]> {
     Some(&words[at..])
 }
 
-fn base_name(word: &str) -> &str {
+pub(crate) fn base_name(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
 }
 
@@ -401,7 +401,7 @@ fn is_shell(word: &str) -> bool {
 
 /// The words of each simple command in `line`, split at `;`, `&`, `|`,
 /// brackets, backticks and line breaks outside quotes.
-fn segments(line: &str) -> Vec<Vec<String>> {
+pub(crate) fn segments(line: &str) -> Vec<Vec<String>> {
     let mut segments = vec![Vec::new()];
     let mut word: Option<String> = None;
     let mut chars = line.chars();
