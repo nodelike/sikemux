@@ -1,6 +1,6 @@
 # Pictures of the app for sikemux.com, taken by the site's `pnpm shots`: the window alone at 2x,
-# in the default theme. The hero, Git and Usage keep the world's picture behind the panes; the
-# chats and the terminal show only the dither over the whole pane.
+# in the default theme. Git and Usage keep the world's picture behind the panes; the chats and the
+# terminal show only the dither over the whole pane. The hero is hero.film, in a real window.
 stage 1760 900
 window 1760 900
 replies replies.json
@@ -15,16 +15,12 @@ settle 6
 click 871,774
 type "Some orders come out a cent off at checkout. Find out why and fix it properly, with a test." 200
 key enter
-wait 1
-# The core times the turn by the clock on the wall, so the work takes a believable while.
-hold 40
-wait 5
+# Snaps run the stand-in Claude on the clock on the wall, so each reply takes its real time.
+hold 22
+wait 0.5
 type "Good. Run all the tests, then commit it with a clear message." 200
 key enter
-wait 3
-hold 8
-wait 0.5
-snap hero
+hold 12
 prefer paneImage null
 prefer paneCoverage full
 prefer paneStrength 1.4
@@ -36,7 +32,8 @@ settle 2
 click 871,774
 type "draw the database schema so I can see how orders connect" 200
 key enter
-wait 10
+hold 8
+wait 1
 snap visual-diagram
 chat Kaito
 title "Checkout latency after the fix"
@@ -44,7 +41,8 @@ settle 2
 click 871,774
 type "did the payments fix bring checkout p95 back down?" 200
 key enter
-wait 6
+hold 4
+wait 1
 snap visual-chart
 chat Mio
 title "Empty projects page"
@@ -52,13 +50,15 @@ settle 2
 click 871,774
 type "sketch the empty projects page three ways before you build it" 200
 key enter
-wait 6
+hold 5
+wait 1
 snap visual-mockup
 open terminal
 settle 2
 type "node --test" 200
 key enter
-wait 3
+hold 3
+wait 0.5
 snap terminals
 prefer paneImage
 prefer paneCoverage

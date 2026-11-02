@@ -1,0 +1,27 @@
+# The hero for sikemux.com, taken by the site's `pnpm shots`: the storefront agent's chat beside
+# its desk's browser on the store's checkout page, served on localhost, with the world's picture
+# behind the panes.
+window 1760 900
+replies replies.json
+prefer themeId aura-noir
+serve 5173 pages/storefront
+project storefront shop
+patch site-fix.diff
+chat Wren
+title "Cart totals a cent off"
+settle 6
+click 871,774
+type "Some orders come out a cent off at checkout. Find out why and fix it properly, with a test." 200
+key enter
+hold 22
+wait 0.5
+type "Good. Run all the tests, commit it, then open the checkout so I can see the total." 200
+key enter
+hold 16
+wait 1
+# The strip starts on its first tab, this chat's, and the pointer rests on the empty top bar.
+cursor 700,59
+pan 4000,0 0.3
+cursor 1300,20
+wait 0.5
+snap hero
