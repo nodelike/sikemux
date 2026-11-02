@@ -7,7 +7,8 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::{BoardView, CardView};
+use sikemux_core::server::call;
+use sikemux_core::server::{AnswerParams, BoardView, CardView};
 use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
 use sikemux_wire::slice::SliceState;
 
@@ -18,7 +19,7 @@ use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL,
 };
-use crate::ui;
+use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
 /// Something that finished or failed while the person was away.
@@ -109,6 +110,25 @@ impl GoalsPane {
         let mut happened: Vec<Happened> = finished.chain(failed).collect();
         happened.sort_by_key(|happened| happened.item.at);
         happened
+    }
+
+    /// Answers question `question` with the answer at `choice` among those it takes in one click.
+    fn answer(&mut self, question: String, choice: usize, cx: &mut Context<Self>) {
+        let answered = crate::core::Target::here(&self.asks).request_typed::<call::AnswerQuestion>(
+            AnswerParams {
+                id: question,
+                answer: None,
+                choice: Some(choice),
+                choices: None,
+                fine: false,
+            },
+        );
+        cx.spawn(async move |pane, cx| {
+            if let Err(error) = answered.await {
+                let _ = pane.update(cx, |pane, cx| pane.said(&error, cx));
+            }
+        })
+        .detach();
     }
 
     /// What waits on the person and how many things happened while they were away, read from the
@@ -280,8 +300,8 @@ fn needs_row(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) ->
         .into_any_element()
 }
 
-/// What an agent asked the person, on one line with the agent, its project and how long it has
-/// waited; it opens the agent's chat.
+/// What an agent asked the person, on one line with the agent, its project, the answers it takes
+/// in one click and how long it has waited; it opens the agent's chat.
 fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let tint = match item.need {
@@ -290,6 +310,22 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
     };
     let asked = item.detail.clone().unwrap_or_default();
     let agent = item.agent_id.clone();
+    let answers: Vec<Button> = item.question_id.clone().map_or(Vec::new(), |question| {
+        (item.answers.iter().enumerate())
+            .map(|(choice, answer)| {
+                let question = question.clone();
+                Button::new(
+                    SharedString::from(format!("answer-{question}-{choice}")),
+                    answer.clone(),
+                    Variant::Outline,
+                )
+                .on_click(cx.listener(move |pane, _, _, cx| {
+                    cx.stop_propagation();
+                    pane.answer(question.clone(), choice, cx);
+                }))
+            })
+            .collect()
+    });
     row(SharedString::from(format!("question-{}", item.id)), cx)
         .on_click(cx.listener(move |pane, _, _, cx| {
             if let Some(agent) = &agent {
@@ -316,6 +352,7 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
                 .truncate(),
         )
         .child(div().flex_1())
+        .children(answers)
         .child(ui::meta(ui::time::age(item.at), cx))
         .into_any_element()
 }
