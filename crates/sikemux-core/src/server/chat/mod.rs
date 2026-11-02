@@ -320,7 +320,7 @@ impl Chat {
                 _ => None,
             };
             if matches!(ended, Some(Ending::Finished)) {
-                super::questions::proposed(&core, self.agent_id());
+                super::questions::asked_in_reply(&core, self.agent_id());
             }
             if let Some(activity) = activity {
                 core.note_activity(self.agent_id(), activity);
@@ -469,7 +469,7 @@ impl Chat {
             if giving_up {
                 chat.feed.give_up_subagents();
             }
-            super::questions::proposed(&core, &agent_id);
+            super::questions::asked_in_reply(&core, &agent_id);
             core.note_activity(&agent_id, Activity::Finished { cancelled: false });
             chat.report_turn(&core, Ending::Finished);
             chat.publish_state();

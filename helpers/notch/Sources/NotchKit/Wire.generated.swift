@@ -416,7 +416,9 @@ enum InboxTier: String, Codable, Hashable {
 enum InboxKind: String, Codable, Hashable {
     /// Answer with the chat's permission reply, naming `requestId`.
     case permission
-    /// Answer with `answerQuestion`, naming `questionId`.
+    /// What the agent waits on the person to answer, asked with a tool or in
+    /// the reply its turn ended with, as `detail` says: one at most for each
+    /// agent, the latest. Answer with `answerQuestion`, naming `questionId`.
     case question
     /// An agent in a terminal waits for the person to type.
     case input
@@ -428,15 +430,11 @@ enum InboxKind: String, Codable, Hashable {
     case held
     /// The agent went on with an assumption the person may correct.
     case assumption
-    /// The agent's turn ended proposing more or asking the person to choose,
-    /// as `detail` says. Answer with `answerQuestion`, naming `questionId`.
-    case proposal
     /// The slice on `card` waits for the person to pass `gate`.
     case gate
     /// The card's pull request at `url` is ready for review.
     case pullRequest
-    /// A turn or card that changed files. With `questionId` when the turn
-    /// ended proposing more, which `answerQuestion` answers, as for a Proposal.
+    /// A turn or card that changed files.
     case changes
     case failed
     case finished

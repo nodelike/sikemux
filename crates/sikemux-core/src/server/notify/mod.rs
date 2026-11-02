@@ -434,7 +434,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
             let asking = core.harness.questions.waits_on_answer(&agent_id)
-                || core.harness.questions.proposal_of(&agent_id).is_some();
+                || core.harness.questions.asks_in_reply(&agent_id);
             if long && !cancelled && !asking {
                 if let Some(draft) = finished(core, &agent_id, now) {
                     alert_all(core, &draft, now);

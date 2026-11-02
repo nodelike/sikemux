@@ -666,6 +666,11 @@ export interface InboxItem {
     /** The options a permission is answered with. */
     choices: PermissionChoices | null;
     questionId: string | null;
+    /**
+     * The answers a question can be given in one tap, in order: `answerQuestion`
+     * takes the index as `choice`.
+     */
+    answers?: string[];
     url: string | null;
     handoff: InboxHandoff | null;
     recordings: InboxRecording[];
@@ -676,7 +681,7 @@ export interface InboxItem {
 export type InboxTier = "needs" | "review" | "finished" | "progress";
 
 export type InboxKind =
-    "permission" | "question" | "input" | "held" | "assumption" | "proposal" | "gate" | "pullRequest" | "changes" | "failed" | "finished" | "working";
+    "permission" | "question" | "input" | "held" | "assumption" | "gate" | "pullRequest" | "changes" | "failed" | "finished" | "working";
 
 /** What the person is needed for, for an item that waits on them. */
 export type InboxNeed = "decide" | "unblock" | "fix";

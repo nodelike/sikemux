@@ -38,7 +38,9 @@ pub enum InboxNeed {
 pub enum InboxKind {
     /// Answer with the chat's permission reply, naming `requestId`.
     Permission,
-    /// Answer with `answerQuestion`, naming `questionId`.
+    /// What the agent waits on the person to answer, asked with a tool or in
+    /// the reply its turn ended with, as `detail` says: one at most for each
+    /// agent, the latest. Answer with `answerQuestion`, naming `questionId`.
     Question,
     /// An agent in a terminal waits for the person to type.
     Input,
@@ -50,15 +52,11 @@ pub enum InboxKind {
     Held,
     /// The agent went on with an assumption the person may correct.
     Assumption,
-    /// The agent's turn ended proposing more or asking the person to choose,
-    /// as `detail` says. Answer with `answerQuestion`, naming `questionId`.
-    Proposal,
     /// The slice on `card` waits for the person to pass `gate`.
     Gate,
     /// The card's pull request at `url` is ready for review.
     PullRequest,
-    /// A turn or card that changed files. With `questionId` when the turn
-    /// ended proposing more, which `answerQuestion` answers, as for a Proposal.
+    /// A turn or card that changed files.
     Changes,
     Failed,
     Finished,
@@ -134,6 +132,10 @@ pub struct InboxItem {
     /// The options a permission is answered with.
     pub choices: Option<PermissionChoices>,
     pub question_id: Option<String>,
+    /// The answers a question can be given in one tap, in order: `answerQuestion`
+    /// takes the index as `choice`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<String>,
     pub url: Option<String>,
     pub handoff: Option<InboxHandoff>,
     pub recordings: Vec<InboxRecording>,
