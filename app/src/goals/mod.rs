@@ -67,6 +67,8 @@ pub struct GoalsPane {
     /// The project in front of the workbench, which the view shows, as its board names it: its
     /// folder, which the core's board calls take.
     here: Option<String>,
+    /// The project something was opened in from another, until the workbench has it in front.
+    bound_for: Option<String>,
     /// The rules and knowledge kept for the project open and the folders above it.
     memory: Option<MemoryView>,
     /// What finished, failed and waits since the person last left.
@@ -97,6 +99,7 @@ impl GoalsPane {
             bench,
             boards: None,
             here,
+            bound_for: None,
             memory: None,
             digest: None,
             at: At::Home,
@@ -235,6 +238,12 @@ impl GoalsPane {
         };
         let front =
             (bench.read(cx).project()).map(|project| project.path.to_string_lossy().into_owned());
+        if let Some(bound) = &self.bound_for {
+            if front.as_ref() != Some(bound) {
+                return;
+            }
+            self.bound_for = None;
+        }
         if front == self.here {
             return;
         }
@@ -286,16 +295,37 @@ impl GoalsPane {
                 }
                 None => return None,
             };
-            (self.here.as_deref() == Some(inbox.project.as_str())).then_some(at)
+            Some((inbox.project.clone(), at))
         });
         match opens {
-            Some(at) => self.go(at, cx),
+            Some((project, at)) => {
+                if self.here.as_deref() != Some(project.as_str()) {
+                    self.bring(project, cx);
+                }
+                self.go(at, cx)
+            }
             None => {
                 if let Some(agent) = item.agent_id.clone() {
                     let _ = self.bench.update(cx, |bench, _| bench.open_agent(&agent));
                 }
             }
         }
+    }
+
+    /// Shows the project at `folder`, bringing it to the front of the workbench too.
+    fn bring(&mut self, folder: String, cx: &mut Context<Self>) {
+        let _ = self.bench.update(cx, |bench, _| {
+            let project = (bench.projects().iter())
+                .find(|project| project.path.to_string_lossy() == folder)
+                .map(|project| project.id.clone());
+            if let Some(project) = project {
+                bench.activate_project(&project);
+            }
+        });
+        self.here = Some(folder.clone());
+        self.bound_for = Some(folder);
+        self.memory = None;
+        self.changed(cx);
     }
 
     fn go(&mut self, at: At, cx: &mut Context<Self>) {

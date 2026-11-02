@@ -35,11 +35,22 @@ const NEEDS: [(InboxNeed, &str); 3] = [
     (InboxNeed::Fix, "Fix"),
 ];
 
+/// The name of the project at `folder`, or the folder's last part when no project is there.
+fn project_name(bench: &Workbench, folder: &str) -> String {
+    let named = (bench.projects().iter())
+        .find(|project| project.path.to_string_lossy() == folder)
+        .map(|project| project.name.clone());
+    named.unwrap_or_else(|| {
+        let last = folder.rsplit('/').find(|part| !part.is_empty());
+        last.unwrap_or(folder).to_owned()
+    })
+}
+
 /// What Home lists from the inbox and the digest.
 #[derive(Default)]
 struct Inboxed {
     questions: Vec<(InboxItem, String)>,
-    needs: Vec<InboxItem>,
+    needs: Vec<(InboxItem, String)>,
     happened: usize,
 }
 
@@ -59,40 +70,24 @@ impl GoalsPane {
             .is_some_and(|project| project == here || Some(project) == id)
     }
 
-    /// What in the project the view shows waits on the person, in the core's order, besides
-    /// the questions agents asked.
-    pub(super) fn needs(&self, bench: &Workbench) -> Vec<InboxItem> {
+    /// What in every project waits on the person, in the core's order, besides the questions
+    /// agents asked; the same things the core counts as needing the person.
+    pub(super) fn needs(bench: &Workbench) -> Vec<InboxItem> {
+        Self::waiting(bench, |item| item.kind != InboxKind::Question)
+    }
+
+    /// What agents in every project asked the person and wait on, one per agent.
+    fn questions(bench: &Workbench) -> Vec<InboxItem> {
+        Self::waiting(bench, |item| item.kind == InboxKind::Question)
+    }
+
+    fn waiting(bench: &Workbench, kind: impl Fn(&InboxItem) -> bool) -> Vec<InboxItem> {
         bench.shown().map_or(Vec::new(), |view| {
             (view.inbox.items.iter())
-                .filter(|item| item.kind != InboxKind::Question)
-                .filter(|item| item.need.is_some() && self.shows(item, bench))
+                .filter(|item| item.need.is_some() && kind(item))
                 .cloned()
                 .collect()
         })
-    }
-
-    /// What agents in every project asked the person and wait on, one per agent, in the core's
-    /// order, each with the name of its project.
-    fn questions(&self, bench: &Workbench) -> Vec<(InboxItem, String)> {
-        let Some(view) = bench.shown() else {
-            return Vec::new();
-        };
-        let project_name = |folder: &str| {
-            let named = (bench.projects().iter())
-                .find(|project| project.path.to_string_lossy() == folder)
-                .map(|project| project.name.clone());
-            named.unwrap_or_else(|| {
-                let last = folder.rsplit('/').find(|part| !part.is_empty());
-                last.unwrap_or(folder).to_owned()
-            })
-        };
-        (view.inbox.items.iter())
-            .filter(|item| item.kind == InboxKind::Question)
-            .map(|item| {
-                let project = item.project.as_deref().map(project_name);
-                (item.clone(), project.unwrap_or_default())
-            })
-            .collect()
     }
 
     /// What in the project the view shows finished or failed while the person was away, in time
@@ -138,9 +133,15 @@ impl GoalsPane {
             return Inboxed::default();
         };
         let bench = bench.read(cx);
+        let named = |item: InboxItem| {
+            let folder =
+                (item.card.as_ref().map(|card| card.project.as_str())).or(item.project.as_deref());
+            let project = folder.map(|folder| project_name(bench, folder));
+            (item.clone(), project.unwrap_or_default())
+        };
         Inboxed {
-            questions: self.questions(bench),
-            needs: self.needs(bench),
+            questions: Self::questions(bench).into_iter().map(named).collect(),
+            needs: Self::needs(bench).into_iter().map(named).collect(),
             happened: self.happened(bench).len(),
         }
     }
@@ -234,9 +235,9 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
         .when(!needs.is_empty(), |view| {
             view.child(section("Needs you", needed, cx))
                 .children(NEEDS.iter().filter_map(|(need, name)| {
-                    let listed: Vec<&InboxItem> = needs
+                    let listed: Vec<&(InboxItem, String)> = needs
                         .iter()
-                        .filter(|item| item.need == Some(*need))
+                        .filter(|(item, _)| item.need == Some(*need))
                         .collect();
                     (!listed.is_empty()).then(|| {
                         div()
@@ -244,7 +245,10 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
                             .flex_col()
                             .pt(SPACE_2)
                             .child(ui::caps(name, cx))
-                            .children(listed.into_iter().map(|item| needs_row(pane, item, cx)))
+                            .children(
+                                (listed.into_iter())
+                                    .map(|(item, project)| needs_row(pane, item, project, cx)),
+                            )
                     })
                 }))
         })
@@ -274,9 +278,14 @@ fn need_icon(kind: InboxKind) -> Icon {
     }
 }
 
-/// One thing waiting on the person: what it needs, the goal or agent it is about, and how long
-/// it has waited.
-fn needs_row(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> AnyElement {
+/// One thing waiting on the person: what it needs, the goal or agent it is about, its project,
+/// and how long it has waited.
+fn needs_row(
+    pane: &GoalsPane,
+    item: &InboxItem,
+    project: &str,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let about = pane.goal_title(item).or_else(|| item.name.clone());
     let tint = match item.need {
@@ -295,6 +304,12 @@ fn needs_row(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) ->
                 .text_color(t.text_primary),
         )
         .children(about.map(|about| ui::meta(about, cx).flex_shrink_1().min_w_0().truncate()))
+        .child(
+            ui::meta(project.to_owned(), cx)
+                .flex_shrink_1()
+                .min_w_0()
+                .truncate(),
+        )
         .child(div().flex_1())
         .child(ui::meta(ui::time::age(item.at), cx))
         .into_any_element()
@@ -334,15 +349,11 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
         }))
         .child(ui::icon(Icon::Message, 14.).text_color(tint))
         .child(
-            ui::text(
-                format!("Waiting on you: {asked}"),
-                TEXT_SM,
-                FontWeight::MEDIUM,
-            )
-            .flex_shrink_1()
-            .min_w_0()
-            .truncate()
-            .text_color(t.text_primary),
+            ui::text(asked, TEXT_SM, FontWeight::MEDIUM)
+                .flex_shrink_1()
+                .min_w_0()
+                .truncate()
+                .text_color(t.text_primary),
         )
         .children(item.name.clone().map(|name| ui::meta(name, cx)))
         .child(
@@ -408,7 +419,10 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
     };
     let (happened, waiting) = {
         let bench = bench.read(cx);
-        (pane.happened(bench), pane.needs(bench).len())
+        (
+            pane.happened(bench),
+            bench.shown().map_or(0, |view| view.inbox.needed),
+        )
     };
     let finished = happened.iter().filter(|happened| happened.done).count();
     let failed = happened.len() - finished;

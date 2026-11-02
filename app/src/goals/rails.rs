@@ -55,12 +55,14 @@ pub fn goal_rows(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Vec<A
     let goals = shown(bench)?.clone();
     let t = Tokens::get(cx).clone();
     let pane = goals.read(cx);
-    let needs = pane.needs(bench);
+    let here = pane.here.as_deref();
+    let needs = GoalsPane::needs(bench);
     let cards = pane.cards();
     let rows = goals_of(cards).into_iter().map(|goal| {
         let id = goal.id;
         let waiting = (needs.iter())
             .filter_map(|item| item.card.as_ref())
+            .filter(|card| Some(card.project.as_str()) == here)
             .filter(|card| card.id == id || card.goal == Some(id))
             .count();
         let open = matches!(pane.at, At::Goal(at) | At::Slice(at)
