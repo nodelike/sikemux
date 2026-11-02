@@ -17,7 +17,7 @@ use super::goal::{count, crumb, row, section, strip};
 use super::{empty, goals_of, slices_of, At, GoalsPane};
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL,
+    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL, TEXT_XS,
 };
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
@@ -304,6 +304,11 @@ fn needs_row(
                 .truncate()
                 .text_color(t.text_primary),
         )
+        .children(
+            item.hold
+                .as_ref()
+                .map(|hold| held_action(&hold.id, &hold.what, cx)),
+        )
         .children(about.map(|about| ui::meta(about, cx).flex_shrink_1().min_w_0().truncate()))
         .child(
             ui::meta(project.to_owned(), cx)
@@ -370,6 +375,20 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
         .into_any_element()
 }
 
+/// The exact command or call a held action runs, which allowing it lets through once: clipped
+/// on the row, whole on hover.
+fn held_action(id: &str, what: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let t = Tokens::get(cx);
+    ui::mono(what.to_owned(), TEXT_XS, cx)
+        .id(SharedString::from(format!("held-action-{id}")))
+        .flex_shrink_1()
+        .min_w_0()
+        .truncate()
+        .text_color(t.text_secondary)
+        .tooltip(ui::tooltip(what.to_owned()))
+        .into_any_element()
+}
+
 /// Allows a held action once, or refuses it, without opening the agent.
 fn ship_buttons(hold: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
     let (allow, refuse) = (hold.to_owned(), hold.to_owned());
@@ -380,7 +399,7 @@ fn ship_buttons(hold: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
             Button::new(
                 SharedString::from(format!("ship-allow-{hold}")),
                 "Allow once",
-                Variant::Primary,
+                Variant::Outline,
             )
             .on_click(cx.listener(move |pane, _, _, cx| {
                 cx.stop_propagation();
