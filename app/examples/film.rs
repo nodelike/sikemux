@@ -15,9 +15,11 @@
 //!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
 //!   chat NAME                   opens a Claude chat named NAME in the last project
 //!   title "TEXT"                gives the last chat that title
+//!   page ID FILE                keeps FILE as the page a scripted page_show call names by ID
 //!   open FILE|terminal|git      opens FILE of the last project, a new terminal or Git in a tab
 //!   patch FILE                  applies FILE, a diff beside the scene, to the last project unstaged
-//!   prefer KEY VALUE            sets a preference, VALUE as JSON or else as text
+//!   prefer KEY [VALUE]          sets a preference, VALUE as JSON or else as text, or puts
+//!                               back the world's
 //!   settle S                    lets the core and the window catch up, unfilmed
 //!   hold S                      gives the core S real seconds with the film's time stopped, so
 //!                               an answer that takes a round trip lands between two frames
@@ -237,7 +239,38 @@ impl World {
         for folder in [&home, &claude, &work.join("data")] {
             std::fs::create_dir_all(folder)?;
         }
-        std::fs::write(home.join(".zshrc"), "PROMPT='%F{6}%1~%f %F{5}❯%f '\n")?;
+        let bin = work.join("bin");
+        std::fs::create_dir_all(&bin)?;
+        // ssh reads the config of the account's own home, not HOME, so the world's hosts are
+        // reached by a stand-in that says it connected and then waits: nothing leaves the Mac.
+        let ssh = bin.join("ssh");
+        std::fs::write(
+            &ssh,
+            "#!/bin/sh\nfor host; do :; done\nprintf '\\033]6973;ssh;connected\\007'\nprintf 'Last login: Mon Nov  2 09:12:44 2026\\r\\n%s ~ $ ' \"$host\"\nexec /bin/sleep 86400\n",
+        )?;
+        std::fs::set_permissions(&ssh, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+        std::fs::write(
+            home.join(".zshrc"),
+            format!(
+                "path=({} $path)\nPROMPT='%F{{6}}%1~%f %F{{5}}❯%f '\n",
+                bin.display()
+            ),
+        )?;
+        let ssh: String = args.world["sshHosts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|host| {
+                Some(format!(
+                    "Host {}\n  HostName {}\n  User {}\n\n",
+                    host["name"].as_str()?,
+                    host["hostName"].as_str()?,
+                    host["user"].as_str().unwrap_or("deploy"),
+                ))
+            })
+            .collect();
+        std::fs::create_dir_all(home.join(".ssh"))?;
+        std::fs::write(home.join(".ssh/config"), ssh)?;
         std::fs::write(
             claude.join("fake-account.json"),
             json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "edon@acme.dev", "subscriptionType": "max" })
@@ -251,6 +284,14 @@ impl World {
         let _ = std::fs::remove_file(&socket);
         let log = std::fs::File::create(work.join("core.log"))?;
         let mut command = sikemux_process::user_environment::command(&args.core);
+        let path = command
+            .get_envs()
+            .find(|(name, _)| *name == "PATH")
+            .and_then(|(_, value)| value)
+            .map(|value| value.to_string_lossy().into_owned())
+            .or_else(|| std::env::var("PATH").ok())
+            .unwrap_or_default();
+        command.env("PATH", format!("{}:{path}", bin.display()));
         command
             .arg("core")
             .arg("--socket")
@@ -410,6 +451,22 @@ impl World {
     fn populate(&self, project: &str, path: &Path) -> anyhow::Result<()> {
         let world = &self.world;
         let path = &path.canonicalize()?;
+        for other in world["projects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            self.add_project(other, None)?;
+        }
+        for host in world["sshHosts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|host| host["name"].as_str())
+        {
+            self.call("openSshTerminal", json!({ "host": host }))?;
+        }
         let transcripts = claude_project_dir(&self.claude, path);
         std::fs::create_dir_all(&transcripts)?;
         let mut pinned = Vec::new();
@@ -444,7 +501,7 @@ impl World {
         for agent in &agents {
             let (chat, _) = self.runtime.block_on(self.client.start_chat(
                 "claude:fake".into(),
-                project.to_owned(),
+                agent["project"].as_str().unwrap_or(project).to_owned(),
                 None,
             ))?;
             if let Some(name) = agent["name"].as_str() {
@@ -502,6 +559,49 @@ impl World {
         Ok(())
     }
 
+    /// Adds a git project called `name`, a copy of `from` or else a folder holding only a README.
+    fn add_project(&self, name: &str, from: Option<&Path>) -> anyhow::Result<PathBuf> {
+        let path = self.work.join("projects").join(name);
+        std::fs::create_dir_all(path.parent().unwrap_or(&self.work))?;
+        match from {
+            Some(from) => {
+                let copied = sikemux_process::user_environment::command("cp")
+                    .arg("-R")
+                    .arg(from)
+                    .arg(&path)
+                    .status()?;
+                if !copied.success() {
+                    bail!("could not copy {}", from.display());
+                }
+            }
+            None => {
+                std::fs::create_dir_all(&path)?;
+                std::fs::write(path.join("README.md"), format!("# {name}\n"))?;
+            }
+        }
+        let git = |words: &[&str]| -> anyhow::Result<()> {
+            let done = sikemux_process::user_environment::command("git")
+                .args(["-c", "user.name=edon", "-c", "user.email=edon@acme.dev"])
+                .args(words)
+                .current_dir(&path)
+                .env("HOME", &self.home)
+                .stdout(Stdio::null())
+                .status()?;
+            if !done.success() {
+                bail!("git {} failed", words.join(" "));
+            }
+            Ok(())
+        };
+        git(&["init", "-q", "-b", "main"])?;
+        git(&["add", "-A"])?;
+        git(&["commit", "-q", "-m", "Start"])?;
+        self.call(
+            "addProject",
+            json!({ "id": name, "name": name, "path": path }),
+        )?;
+        Ok(path)
+    }
+
     /// Opens a terminal, the Git tab, or a file of the project.
     fn open_tab(&self, project: &str, path: &Path, tab: &str) -> anyhow::Result<Value> {
         match tab {
@@ -532,37 +632,7 @@ impl World {
         match step.verb.as_str() {
             "project" => {
                 let name = step.text(0)?.to_owned();
-                let from = self.scenes.join(step.text(1)?);
-                let path = self.work.join("projects").join(&name);
-                std::fs::create_dir_all(path.parent().unwrap_or(&self.work))?;
-                let copied = sikemux_process::user_environment::command("cp")
-                    .arg("-R")
-                    .arg(&from)
-                    .arg(&path)
-                    .status()?;
-                if !copied.success() {
-                    bail!("could not copy {}", from.display());
-                }
-                let git = |words: &[&str]| -> anyhow::Result<()> {
-                    let done = sikemux_process::user_environment::command("git")
-                        .args(["-c", "user.name=edon", "-c", "user.email=edon@acme.dev"])
-                        .args(words)
-                        .current_dir(&path)
-                        .env("HOME", &self.home)
-                        .stdout(Stdio::null())
-                        .status()?;
-                    if !done.success() {
-                        bail!("git {} failed", words.join(" "));
-                    }
-                    Ok(())
-                };
-                git(&["init", "-q", "-b", "main"])?;
-                git(&["add", "-A"])?;
-                git(&["commit", "-q", "-m", "Start the shop"])?;
-                self.call(
-                    "addProject",
-                    json!({ "id": name, "name": name, "path": path }),
-                )?;
+                let path = self.add_project(&name, Some(&self.scenes.join(step.text(1)?)))?;
                 if self.project.is_none() {
                     self.populate(&name, &path)?;
                 }
@@ -595,14 +665,13 @@ impl World {
                 )?;
             }
             "prefer" => {
-                let value = match step.text(1)? {
-                    "null" => Value::Null,
-                    text => serde_json::from_str(text).unwrap_or_else(|_| json!(text)),
+                let key = step.text(0)?;
+                let value = match step.text(1) {
+                    Err(_) => expand_home(&self.world["preferences"][key]),
+                    Ok("null") => Value::Null,
+                    Ok(text) => serde_json::from_str(text).unwrap_or_else(|_| json!(text)),
                 };
-                self.call(
-                    "setPreference",
-                    json!({ "key": step.text(0)?, "value": value }),
-                )?;
+                self.call("setPreference", json!({ "key": key, "value": value }))?;
             }
             "patch" => {
                 let (_, path) = self.project()?.clone();
@@ -614,6 +683,14 @@ impl World {
                 if !applied.success() {
                     bail!("could not apply {}", step.text(0)?);
                 }
+            }
+            "page" => {
+                let pages = self.work.join("data").join(sikemux_core::pages::FOLDER);
+                std::fs::create_dir_all(&pages)?;
+                std::fs::copy(
+                    self.scenes.join(step.text(1)?),
+                    pages.join(format!("{}.html", step.text(0)?)),
+                )?;
             }
             "open" => {
                 let (project, path) = self.project()?.clone();
@@ -774,6 +851,12 @@ struct Director {
     next_id: u64,
     lens: Option<u64>,
     bench: Option<gpui::Entity<workbench::Workbench>>,
+    window_size: (f32, f32),
+    /// Where scripted pages are kept, and the Swift program that draws one.
+    pages: PathBuf,
+    page_drawer: PathBuf,
+    /// Who the rail shows as signed in, kept over whatever the core says.
+    signed_in: Option<sikemux_wire::protocol::AccountInfo>,
     compositor: Compositor,
     output: (u32, u32),
     sink: Sink,
@@ -893,6 +976,66 @@ impl Director {
         if std::fs::write(&fresh, format!("{ms:.1}")).is_ok() {
             let _ = std::fs::rename(&fresh, &self.clock);
         }
+    }
+
+    /// Lays each page a chat shows over the place the window keeps for it, drawn by WebKit as
+    /// the app's own view would draw it, since that view is not in the window's pictures.
+    fn lay_pages(&mut self, shot: &mut image::RgbaImage) -> anyhow::Result<()> {
+        let spots = sikemux_gpui::drive::spots();
+        let theme = self
+            .cx
+            .update(|cx| theme::page_rule(theme::Tokens::get(cx), None));
+        let density = shot.width() as f32 / self.window_size.0;
+        for (name, frame) in spots.as_object().into_iter().flatten() {
+            let Some(id) = name.strip_prefix("chat-page-") else {
+                continue;
+            };
+            let Some([left, top, width, height]) =
+                serde_json::from_value::<[f32; 4]>(frame.clone()).ok()
+            else {
+                continue;
+            };
+            let html = std::fs::read_to_string(self.pages.join(format!("{id}.html")))?;
+            let themed = self.pages.join(format!("{id}.themed.html"));
+            std::fs::write(&themed, sikemux_core::pages::themed(&html, &theme, None))?;
+            let drawn = self.pages.join(format!("{id}.png"));
+            let made = sikemux_process::user_environment::command("swift")
+                .arg(&self.page_drawer)
+                .arg(&themed)
+                .arg(width.to_string())
+                .arg(height.to_string())
+                .arg(density.to_string())
+                .arg(&drawn)
+                .status()?;
+            if !made.success() {
+                bail!("could not draw page {id}");
+            }
+            let page = image::open(&drawn)?.to_rgba8();
+            image::imageops::overlay(
+                shot,
+                &page,
+                (left * density).round() as i64,
+                (top * density).round() as i64,
+            );
+        }
+        Ok(())
+    }
+
+    /// Shows the world's account as signed in, over the core's view as each one arrives.
+    fn sign_in(&mut self) {
+        let (Some(account), Some(bench)) = (self.signed_in.clone(), self.bench.clone()) else {
+            return;
+        };
+        self.cx.update(|cx| {
+            bench.update(cx, |bench, cx| {
+                if let Some(view) = bench.view.as_mut() {
+                    if view.account.as_deref() != Some(&account) {
+                        view.account = Some(Box::new(account));
+                        cx.notify();
+                    }
+                }
+            })
+        });
     }
 
     fn apply(&mut self) -> anyhow::Result<()> {
@@ -1046,6 +1189,7 @@ impl Director {
             let drawing = Instant::now();
             self.ticks += 1;
             self.write_clock();
+            self.sign_in();
             self.apply()?;
             self.cx.advance_clock(step);
             self.pump();
@@ -1064,6 +1208,8 @@ impl Director {
                 let shot = self.cx.capture_screenshot(self.window)?;
                 self.spent[1] += reading.elapsed();
                 if let Some(path) = self.snap.take() {
+                    let mut shot = shot.clone();
+                    self.lay_pages(&mut shot)?;
                     shot.save(&path)?;
                     println!("film: saved {}", path.display());
                 }
@@ -1672,6 +1818,19 @@ fn main() -> anyhow::Result<()> {
         next_id: 0,
         lens: None,
         bench: bench.borrow().clone(),
+        window_size,
+        pages: args.work.join("data").join(sikemux_core::pages::FOLDER),
+        page_drawer: args.scene.parent().and_then(Path::parent).map_or_else(
+            || PathBuf::from("page.swift"),
+            |film| film.join("page.swift"),
+        ),
+        signed_in: args.world["signedIn"]["name"].as_str().map(|name| {
+            sikemux_wire::protocol::AccountInfo {
+                name: Some(name.into()),
+                email: args.world["signedIn"]["email"].as_str().map(Into::into),
+                picture_hash: None,
+            }
+        }),
         compositor,
         output: (output_width, output_height),
         sink,

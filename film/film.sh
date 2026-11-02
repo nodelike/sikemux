@@ -39,7 +39,7 @@ command -v ffmpeg >/dev/null || fail "ffmpeg is needed (brew install ffmpeg)"
 say "building the core, the stand-in Claude and the film"
 cargo build --quiet --manifest-path "$ROOT/Cargo.toml" \
   -p sikemux-host -p sikemux-core --bin sikemux-host --bin sikemux-fake-claude
-cargo build --quiet --manifest-path "$GPUI/Cargo.toml" --example film
+cargo build --quiet --manifest-path "$GPUI/Cargo.toml" --example film --features drive
 bin="$ROOT/target/debug"
 
 work="$(mktemp -d -t sxfilm)"

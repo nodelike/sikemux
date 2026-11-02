@@ -100,6 +100,24 @@
     "shape": "mixed",
     "motion": true
   },
+  "signedIn": {
+    "name": "Edon Ramos",
+    "email": "edon@acme.dev"
+  },
+  "projects": [
+    "payments-api",
+    "admin-dashboard",
+    "design-system",
+    "ios-app",
+    "infra"
+  ],
+  "sshHosts": [
+    { "name": "gpu-box", "hostName": "10.0.4.20", "user": "edon" },
+    { "name": "staging-bastion", "hostName": "bastion.staging.acme.dev" },
+    { "name": "build-runner", "hostName": "10.0.4.31" },
+    { "name": "db-replica", "hostName": "db-replica.acme.dev" },
+    { "name": "pi-hole", "hostName": "192.168.1.2", "user": "pi" }
+  ],
   "account": {
     "name": "edon",
     "usage": {
@@ -150,11 +168,13 @@
     {
       "name": "Brosh",
       "title": "Inventory sync job",
+      "project": "payments-api",
       "state": "done"
     },
     {
       "name": "Mayuri",
       "title": "Order emails in React Email",
+      "project": "admin-dashboard",
       "state": "done"
     },
     {
@@ -172,7 +192,8 @@
     },
     {
       "name": "Zeref",
-      "title": "Shipping rates API"
+      "title": "Shipping rates API",
+      "project": "admin-dashboard"
     }
   ],
   "recent": [
