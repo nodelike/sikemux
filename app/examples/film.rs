@@ -1217,6 +1217,7 @@ impl Director {
                 let shot = self.cx.capture_screenshot(self.window)?;
                 self.spent[1] += reading.elapsed();
                 if let Some(path) = self.snap.take() {
+                    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
                     let mut shot = shot.clone();
                     #[cfg(target_os = "macos")]
                     if let Some(stand_in) = &self.stand_in {
