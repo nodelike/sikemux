@@ -2,7 +2,10 @@
 import PackageDescription
 
 // The parts of facebook/idb (MIT) the helper drives the iOS Simulator with,
-// copied in under idb/ from commit 45e96c070ce62ee1df14ba21ccd8c07b720a8684. FBControlCore's Swift and Objective-C halves import
+// copied in under idb/ from commit 45e96c070ce62ee1df14ba21ccd8c07b720a8684. Two changes are ours, to keep when copying
+// it again, since a busy device otherwise takes long enough to time a read out: SimulatorAccessibilityCommands asks the
+// host whether a frontmost app's process is alive instead of running launchctl in the device, and AXTranslationDispatcher
+// ends a read at its first unanswered request. FBControlCore's Swift and Objective-C halves import
 // each other, which one SwiftPM target cannot hold, so build-sim-helper.mjs
 // builds it with XcodeGen into Frameworks/FBControlCore.xcframework first.
 let root = Context.packageDirectory
@@ -17,7 +20,7 @@ let simulatorFrameworks: SwiftSetting = .unsafeFlags(
         + privateModules.flatMap { ["-Xcc", "-fmodule-map-file=\(privateHeaders)/\($0)/module.modulemap"] }
 )
 
-/// idb's own code is kept as upstream wrote it, so its warnings are not ours to act on.
+/// idb's code is otherwise kept as upstream wrote it, so its warnings are not ours to act on.
 let upstream: SwiftSetting = .unsafeFlags(["-suppress-warnings"])
 
 let package = Package(

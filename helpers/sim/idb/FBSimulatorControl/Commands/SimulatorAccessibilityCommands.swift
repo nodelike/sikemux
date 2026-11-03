@@ -46,7 +46,6 @@ extension Simulator {
 final class SimulatorAccessibilityCommands: AccessibilityOperations {
 
   private static let coreSimulatorBridgeServiceName = "com.apple.CoreSimulator.bridge"
-  private static let springBoardServiceName = "com.apple.SpringBoard"
 
   private weak var simulator: Simulator?
 
@@ -146,20 +145,7 @@ final class SimulatorAccessibilityCommands: AccessibilityOperations {
     guard let dispatcher = resolvedDispatcher else {
       throw AccessibilityError.dispatcherUnavailable
     }
-    let element: AXWritableElement
-    do {
-      element = try await dispatcher.platformElement(withRequest: request, simulator: simulator)
-    } catch AccessibilityError.noTranslationObject where remediationPermitted {
-      // On the frontmost path a nil translation usually means SpringBoard (the provider of the
-      // frontmost application) is down. Re-label the error when we can confirm that; a probe
-      // failure or a live reading keeps the original .noTranslationObject (e.g. a genuine
-      // invalid point or a transient mid-respawn).
-      let springBoardRunning = (try? await resolvedLaunchCtl(simulator).serviceIsRunning(named: Self.springBoardServiceName)) ?? true
-      if !springBoardRunning {
-        throw AccessibilityError.springBoardNotRunning
-      }
-      throw AccessibilityError.noTranslationObject
-    }
+    let element = try await dispatcher.platformElement(withRequest: request, simulator: simulator)
     if !remediationPermitted {
       return AccessibilityElement(element: element, request: request, dispatcher: dispatcher, simulator: simulator)
     }
@@ -182,14 +168,13 @@ final class SimulatorAccessibilityCommands: AccessibilityOperations {
     if !frame.equalTo(.zero) {
       return false
     }
-    // A zero-framed root is stale unless its owning pid is still a live launchd service.
-    // A launchctl failure is treated as "not live" so recovery is still attempted.
+    // A zero-framed root is stale once its owning process has exited. Simulator processes are host
+    // processes, so the host answers that at once, where launchctl in a busy device takes seconds.
     let pid = element.axTranslationPid
-    let pidIsLive = (try? await resolvedLaunchCtl(simulator).processIsRunning(withProcessIdentifier: pid)) ?? false
-    if pidIsLive {
+    if pid > 0 && kill(pid, 0) == 0 {
       return false
     }
-    simulator.logger.log("Frontmost accessibility hierarchy is stale: the root element has a zero frame and its owning pid \(pid) is no longer a registered launchd service. SpringBoard has crashed and CoreSimulator's \(Self.coreSimulatorBridgeServiceName) is still bound to the dead pid; restarting \(Self.coreSimulatorBridgeServiceName) to recover.")
+    simulator.logger.log("Frontmost accessibility hierarchy is stale: the root element has a zero frame and its owning pid \(pid) has exited. SpringBoard has crashed and CoreSimulator's \(Self.coreSimulatorBridgeServiceName) is still bound to the dead pid; restarting \(Self.coreSimulatorBridgeServiceName) to recover.")
     return true
   }
 

@@ -174,9 +174,12 @@ final class AXTranslationDispatcher: NSObject, AXPTranslationTokenDelegateHelper
     let device = request.device
     let collector = request.collector
     let logger = request.logger
-    let timeoutSeconds = request.requestTimeoutSeconds
     let callbackQueue = self.callbackQueue
-    return { axRequest in
+    return { [weak request] axRequest in
+      let timeoutSeconds = request?.requestTimeoutSeconds ?? 0
+      if timeoutSeconds <= 0 {
+        return Self.emptyResponse()
+      }
       logger?.log("Sending Accessibility Request \(String(describing: axRequest))")
       let group = DispatchGroup()
       group.enter()
@@ -191,7 +194,10 @@ final class AXTranslationDispatcher: NSObject, AXPTranslationTokenDelegateHelper
       collector.addXPCCallDuration(CFAbsoluteTimeGetCurrent() - xpcStart)
 
       if waitResult == .timedOut {
-        logger?.log("Accessibility request \(String(describing: axRequest)) timed out after \(timeoutSeconds)s — returning empty response")
+        // What kept this answer back, such as an app leaving or still opening, keeps back the rest of the
+        // read too, so the read ends now rather than waiting this long again for each attribute.
+        request?.requestTimeoutSeconds = 0
+        logger?.log("Accessibility request \(String(describing: axRequest)) timed out after \(timeoutSeconds)s — returning empty responses for the rest of the read")
         return Self.emptyResponse()
       }
       logger?.log("Got Accessibility Response \(String(describing: box.response))")
