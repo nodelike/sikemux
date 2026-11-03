@@ -1002,8 +1002,12 @@ fn tracked(uri: &str) -> Option<(Icon, &str)> {
     })
 }
 
+/// What an answer the person gave to a question asked in an agent's reply goes by, when it
+/// went with a message of theirs.
+const ANSWER: &str = "sikemux://answer/";
+
 /// A context item's chip: `#12 Title` for an issue or pull request, its title for an
-/// earlier chat or anything else.
+/// earlier chat, an answer or anything else.
 fn context_chip(
     id: String,
     uri: &str,
@@ -1021,6 +1025,7 @@ fn context_chip(
         ),
         None if uri.starts_with("sikemux://earlier/") => (Icon::Message, title.to_owned()),
         None if uri.starts_with("sikemux://stash/") => (Icon::Text, title.to_owned()),
+        None if uri.starts_with(ANSWER) => (Icon::Message, title.to_owned()),
         None if web => (
             Icon::Globe,
             if title.is_empty() { uri } else { title }.to_owned(),
@@ -1031,7 +1036,10 @@ fn context_chip(
     Attachment::new()
         .id(SharedString::from(id))
         .with_size(gpui_kit::component::Size::Small)
-        .tooltip(uri.to_owned())
+        .tooltip(match uri.starts_with(ANSWER) {
+            true => title.clone(),
+            false => uri.to_owned(),
+        })
         .media(AttachmentMedia::new().child(site_icon(uri, web, icon, asks, t)))
         .content(AttachmentContent::new().title(AttachmentTitle::new(title)))
 }

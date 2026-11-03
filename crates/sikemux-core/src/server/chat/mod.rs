@@ -2368,6 +2368,7 @@ pub(crate) fn prompt(
     });
     super::workspace::retitle(core, agent_id, title, true);
     let chat = core.chats.running(agent_id)?;
+    context.extend(super::questions::held_answers(core, agent_id));
     // The agent reads it only once it has started, which takes seconds, so the person
     // sees it sent now.
     let shown = !chat.is_ready() && chat.history_in_place();

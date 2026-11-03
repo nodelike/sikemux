@@ -17,6 +17,7 @@ use sikemux_process::sync::Locked;
 use crate::cli::protocol::HarnessRequest;
 use crate::protocol::WindowCall;
 use crate::text::clipped;
+use sikemux_wire::protocol::ChatContext;
 use sikemux_wire::questions::{AgentQuestion, QuestionChoice, QuestionState};
 
 use super::activity::Activity;
@@ -1604,6 +1605,36 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
         }
     }
     Ok(())
+}
+
+/// The answers the person gave to what the agent asked in its last reply, each beside its
+/// question, when the person writes to it before answering every question: they go with what
+/// the person wrote, and the questions left unanswered no longer wait.
+pub(crate) fn held_answers(core: &Core, agent_id: &str) -> Vec<ChatContext> {
+    let questions = &core.harness.questions;
+    let theirs: Vec<ReplyQuestion> = {
+        let mut state = questions.state.locked();
+        let (theirs, rest) = std::mem::take(&mut state.reply_questions)
+            .into_iter()
+            .partition(|question| question.agent_id == agent_id);
+        state.reply_questions = rest;
+        if !theirs.is_empty() {
+            questions.shown_changed(&mut state);
+        }
+        theirs
+    };
+    (theirs.into_iter())
+        .filter_map(|question| {
+            let answered = format!("{}: {}", question.given?, question.text);
+            Some(ChatContext {
+                uri: format!("sikemux://answer/{}", question.id),
+                text: format!(
+                    "{answered}\n\nThe person gave this answer to what you asked as your last turn ended, then wrote to you; go on with both."
+                ),
+                title: answered,
+            })
+        })
+        .collect()
 }
 
 /// The person's answer, copied to the lead a question went to first.
