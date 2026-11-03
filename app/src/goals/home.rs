@@ -252,7 +252,9 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
         })
         .when(!questions.is_empty(), |view| {
             view.child(section("Waiting on you", questions.len(), cx))
-                .children((questions.iter()).map(|(item, project)| question_row(item, project, cx)))
+                .children(
+                    (questions.iter()).map(|(item, project)| question_row(pane, item, project, cx)),
+                )
         })
         .when(!needs.is_empty(), |view| {
             view.child(section("Needs you", needed, cx))
@@ -282,14 +284,17 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
                 .child(offer)
         }))
         .when(!moving.is_empty(), |view| {
-            view.child(section("Moving", moving.len(), cx))
-                .children(moving.iter().map(|(board, goal)| goal_row(board, goal, cx)))
+            view.child(section("Moving", moving.len(), cx)).children(
+                moving
+                    .iter()
+                    .map(|(board, goal)| goal_row(pane, board, goal, cx)),
+            )
         })
         .when(!finished.is_empty(), |view| {
             view.child(section("Done", finished.len(), cx)).children(
                 finished
                     .iter()
-                    .map(|(board, goal)| goal_row(board, goal, cx)),
+                    .map(|(board, goal)| goal_row(pane, board, goal, cx)),
             )
         })
         .into_any_element()
@@ -324,7 +329,7 @@ fn needs_row(
         _ => t.warn,
     };
     let opened = item.clone();
-    row(SharedString::from(format!("need-{}", item.id)), cx)
+    let line = row(SharedString::from(format!("need-{}", item.id)), cx)
         .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
         .child(ui::icon(need_icon(item.kind), 14.).text_color(tint))
         .child(
@@ -348,13 +353,18 @@ fn needs_row(
         )
         .child(div().flex_1())
         .children(item.hold.as_ref().map(|hold| ship_buttons(&hold.id, cx)))
-        .child(ui::meta(ui::time::age(item.at), cx))
-        .into_any_element()
+        .child(ui::meta(ui::time::age(item.at), cx));
+    super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
 }
 
 /// What an agent asked the person, on one line with the agent, its project, the answers it takes
 /// in one click and how long it has waited; it opens the agent's chat.
-fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
+fn question_row(
+    pane: &GoalsPane,
+    item: &InboxItem,
+    project: &str,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let tint = match item.need {
         Some(InboxNeed::Unblock) => t.danger,
@@ -378,7 +388,7 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
             })
             .collect()
     });
-    row(SharedString::from(format!("question-{}", item.id)), cx)
+    let line = row(SharedString::from(format!("question-{}", item.id)), cx)
         .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
         .child(ui::icon(Icon::Message, 14.).text_color(tint))
         .child(
@@ -397,8 +407,8 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
         )
         .child(div().flex_1())
         .children(answers)
-        .child(ui::meta(ui::time::age(item.at), cx))
-        .into_any_element()
+        .child(ui::meta(ui::time::age(item.at), cx));
+    super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
 }
 
 /// The exact command or call a held action runs, which allowing it lets through once: clipped
@@ -448,22 +458,23 @@ fn ship_buttons(hold: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
 
 /// A goal on one line: its title, how many slices are done, what comes next and
 /// what that waits on, and its strip. It opens the goal, or a lone slice's worker's chat.
-fn goal_row(board: &BoardView, goal: &CardView, cx: &mut Context<GoalsPane>) -> AnyElement {
+fn goal_row(
+    pane: &GoalsPane,
+    board: &BoardView,
+    goal: &CardView,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = goal.id;
     let slices = slices_of(&board.cards, id);
     let done = count(&slices, SliceState::Done);
     let worker = goal.slice.as_ref().and(goal.owner.clone());
-    row(
+    let line = row(
         SharedString::from(format!("goal-{}-{id}", board.project)),
         cx,
     )
     .on_click(cx.listener(move |pane, _, _, cx| match &worker {
-        Some(agent) => {
-            let _ = pane
-                .bench
-                .update(cx, |bench, cx| bench.open_agent(agent, cx));
-        }
+        Some(agent) => pane.open_agent(agent, cx),
         None => pane.go(At::Goal(id), cx),
     }))
     .child(
@@ -480,8 +491,8 @@ fn goal_row(board: &BoardView, goal: &CardView, cx: &mut Context<GoalsPane>) -> 
             .map(|next| ui::meta(next, cx).flex_shrink_1().min_w_0().truncate()),
     )
     .child(div().flex_1())
-    .child(strip(&slices, px(120.), cx))
-    .into_any_element()
+    .child(strip(&slices, px(120.), cx));
+    super::with_agent_menu(line, goal.owner.clone(), &pane.bench)
 }
 
 pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {

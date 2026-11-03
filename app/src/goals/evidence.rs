@@ -113,6 +113,11 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
         } => frame
             .child(
                 head_row(cx)
+                    .id("evidence-diff-head")
+                    .cursor_pointer()
+                    .hover(move |row| row.bg(t.surface_hover))
+                    .tooltip(ui::tooltip("Open Git"))
+                    .on_click(cx.listener(|pane, _, _, cx| pane.open_git(cx)))
                     .child(ui::mono(format!("+{added}"), TEXT_XS, cx).text_color(t.git_added))
                     .child(ui::mono(format!("−{removed}"), TEXT_XS, cx).text_color(t.git_deleted))
                     .child(div().flex_1())
@@ -123,7 +128,14 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
                     )),
             )
             .children(files.iter().map(|file| {
+                let opened = file.clone();
                 body_row()
+                    .id(SharedString::from(format!("evidence-file-{file}")))
+                    .cursor_pointer()
+                    .hover(move |row| row.bg(t.surface_hover))
+                    .on_click(
+                        cx.listener(move |pane, _, _, cx| pane.open_project_file(&opened, cx)),
+                    )
                     .child(crate::file_icons::glyph(file, 14., cx))
                     .child(
                         ui::text(file.clone(), TEXT_XS, FontWeight::NORMAL)
@@ -164,10 +176,14 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
             )
             .child(
                 div()
+                    .id(SharedString::from(format!(
+                        "evidence-output-{}",
+                        evidence.id
+                    )))
                     .px(SPACE_3)
                     .py(SPACE_2H)
                     .max_h(px(LARGE))
-                    .overflow_hidden()
+                    .overflow_y_scroll()
                     .bg(t.surface_sunken)
                     .font_family(theme::MONO)
                     .text_size(theme::ui_text(TEXT_2XS))

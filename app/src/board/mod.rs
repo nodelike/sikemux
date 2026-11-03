@@ -17,7 +17,7 @@ use serde_json::json;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::{
     AgentMessagesParams, BoardAddParams, BoardParams, BoardSettingsParams, BoardUpdateParams,
-    BoardView, CardRun, CardStatus, CardView, Column, MessageRow, Stage,
+    BoardView, CardRun, CardStatus, CardView, Column, MessageRow, Stage, Ticket,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -1076,6 +1076,26 @@ fn card_view(pane: &BoardPane, card: &CardView, cx: &mut Context<BoardPane>) -> 
 }
 
 /// The agent a card names, by its mark and name.
+/// A card's ticket: its key, what it is in its tracker, and a link to it there.
+pub(crate) fn ticket_line(ticket: &Ticket, cx: &gpui_kit::App) -> gpui_kit::Div {
+    let url = ticket.url.clone();
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(ui::mono(ticket.key.clone(), TEXT_2XS_H, cx))
+        .when_some(ticket.source.clone(), |head, source| {
+            head.child(ui::meta(source, cx))
+        })
+        .when_some(url, |head, url| {
+            head.child(
+                IconButton::new("ticket-open", Icon::Link, "Open the ticket in the browser")
+                    .small()
+                    .on_click(move |_, _, cx| cx.open_url(&url)),
+            )
+        })
+}
+
 pub(crate) fn owner(card: &CardView, cx: &gpui_kit::App) -> AnyElement {
     let t = Tokens::get(cx).clone();
     div()

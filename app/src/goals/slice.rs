@@ -3,7 +3,7 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, Context, FontWeight, IntoElement, ParentElement,
+    div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
 use sikemux_core::server::CardView;
@@ -68,9 +68,18 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
             )
         })
         .child(
-            ui::text(card.title.clone(), TEXT_XL, FontWeight::SEMIBOLD)
-                .whitespace_normal()
-                .text_color(t.text_primary),
+            div()
+                .flex()
+                .items_start()
+                .gap(SPACE_2)
+                .child(
+                    ui::text(card.title.clone(), TEXT_XL, FontWeight::SEMIBOLD)
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_normal()
+                        .text_color(t.text_primary),
+                )
+                .child(super::on_board(card.id, cx)),
         )
         .when(!slice.promise.is_empty(), |view| {
             view.child(
@@ -112,18 +121,26 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
         .into_any_element()
 }
 
+/// Who owns the slice, which opens their chat, and its ticket.
 fn owner_line(card: &CardView, cx: &Context<GoalsPane>) -> AnyElement {
     div()
         .pt(SPACE_1H)
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .when(card.owner.is_some(), |line| {
-            line.child(crate::board::owner(card, cx))
-                .child(ui::meta("owns it", cx))
+        .when_some(card.owner.clone(), |line, agent| {
+            line.child(
+                div()
+                    .id("slice-owner")
+                    .cursor_pointer()
+                    .hover(|owner| owner.opacity(0.8))
+                    .on_click(cx.listener(move |pane, _, _, cx| pane.open_agent(&agent, cx)))
+                    .child(crate::board::owner(card, cx)),
+            )
+            .child(ui::meta("owns it", cx))
         })
         .when_some(card.ticket.as_ref(), |line, ticket| {
-            line.child(ui::mono(ticket.key.clone(), TEXT_2XS, cx))
+            line.child(crate::board::ticket_line(ticket, cx))
         })
         .into_any_element()
 }

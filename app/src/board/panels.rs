@@ -4,7 +4,6 @@
 use std::rc::Rc;
 
 use gpui_kit::component::input::{Input, Textarea};
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
@@ -19,8 +18,8 @@ use crate::board::{owner, short_title, waits_on_person, BoardPane, Open};
 use crate::chat::model_picker;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_2XS_H,
-    TEXT_SM, TEXT_XS, TEXT_XS_H,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_SM,
+    TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, select, Button, IconButton, Pick, Toggle, Variant};
 
@@ -368,29 +367,7 @@ fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> 
     let t = Tokens::get(cx).clone();
     let id = card.id;
     let title = match &card.ticket {
-        Some(ticket) => {
-            let url = ticket.url.clone();
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_1H)
-                .child(ui::mono(ticket.key.clone(), TEXT_2XS_H, cx))
-                .when_some(ticket.source.clone(), |head, source| {
-                    head.child(ui::meta(source, cx))
-                })
-                .when_some(url, |head, url| {
-                    head.child(
-                        IconButton::new(
-                            "board-ticket-open",
-                            Icon::Link,
-                            "Open the ticket in the browser",
-                        )
-                        .small()
-                        .on_click(move |_, _, cx| cx.open_url(&url)),
-                    )
-                })
-                .into_any_element()
-        }
+        Some(ticket) => crate::board::ticket_line(ticket, cx).into_any_element(),
         None => ui::meta(
             format!(
                 "Added by {}",

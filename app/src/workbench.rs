@@ -3746,7 +3746,7 @@ impl Workbench {
     }
 
     /// Brings the project's Git tab to the front, opening one when it has none.
-    fn open_git(&mut self, cx: &mut App) {
+    pub fn open_git(&mut self, cx: &mut App) {
         self.take_keys_when_shown(TakesKeys::Git, cx);
         if let Some(project) = self.project() {
             self.call_in_front(

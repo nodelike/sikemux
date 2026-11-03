@@ -64,8 +64,9 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
                 )
                 .child(div().flex_1())
                 .when_some(goal.ticket.as_ref(), |head, ticket| {
-                    head.child(ui::mono(ticket.key.clone(), TEXT_2XS, cx))
-                }),
+                    head.child(crate::board::ticket_line(ticket, cx))
+                })
+                .child(super::on_board(goal.id, cx)),
         )
         .child(team(goal, &slices, cx))
         .child(
@@ -92,7 +93,7 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
         .children(
             slices
                 .iter()
-                .map(|(card, slice)| slice_row(card, slice, cx)),
+                .map(|(card, slice)| slice_row(pane, card, slice, cx)),
         )
         .children(landing(pane, cx))
         .child(super::rules::rules(pane, goal, cx))
@@ -170,17 +171,28 @@ fn team(
         .items_center()
         .gap(SPACE_2)
         .child(div().flex().gap(SPACE_0).children(marks))
-        .when_some(goal.owner_name.clone(), |line, lead| {
-            line.child(
-                div()
-                    .flex()
-                    .gap(px(3.))
-                    .child(
-                        ui::text(lead, TEXT_2XS, FontWeight::MEDIUM).text_color(t.text_secondary),
-                    )
-                    .child(ui::meta("leads", cx)),
-            )
-        })
+        .when_some(
+            goal.owner_name.clone().zip(goal.owner.clone()),
+            |line, (lead, agent)| {
+                line.child(
+                    div()
+                        .flex()
+                        .gap(px(3.))
+                        .child(
+                            div()
+                                .id("goal-lead")
+                                .cursor_pointer()
+                                .text_color(t.text_secondary)
+                                .hover(|name| name.underline())
+                                .on_click(
+                                    cx.listener(move |pane, _, _, cx| pane.open_agent(&agent, cx)),
+                                )
+                                .child(ui::text(lead, TEXT_2XS, FontWeight::MEDIUM)),
+                        )
+                        .child(ui::meta("leads", cx)),
+                )
+            },
+        )
         .when(!names.is_empty(), |line| {
             line.child(ui::meta(format!("with {}", names.join(", ")), cx))
         })
@@ -333,10 +345,15 @@ fn needs(card: &CardView, slice: &SliceView, cx: &mut Context<GoalsPane>) -> Any
 }
 
 /// One slice: its state, title and what it waits on, then its ticket and owner.
-fn slice_row(card: &CardView, slice: &SliceView, cx: &mut Context<GoalsPane>) -> AnyElement {
+fn slice_row(
+    pane: &GoalsPane,
+    card: &CardView,
+    slice: &SliceView,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = card.id;
-    row(SharedString::from(format!("slice-{id}")), cx)
+    let line = row(SharedString::from(format!("slice-{id}")), cx)
         .on_click(cx.listener(move |pane, _, _, cx| pane.go(At::Slice(id), cx)))
         .child(state_mark(slice.state, cx))
         .child(
@@ -356,8 +373,8 @@ fn slice_row(card: &CardView, slice: &SliceView, cx: &mut Context<GoalsPane>) ->
         })
         .when(card.owner.is_some(), |row| {
             row.child(crate::board::owner(card, cx))
-        })
-        .into_any_element()
+        });
+    super::with_agent_menu(line, card.owner.clone(), &pane.bench)
 }
 
 /// A line of a list that opens what it names.

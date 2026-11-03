@@ -7,6 +7,7 @@
 //! and asks.
 
 use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::menu::ContextMenuExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, AppContext, Context, Entity, FocusHandle, Focusable, FontWeight,
@@ -26,6 +27,7 @@ use sikemux_wire::slice::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::agents::menu::AgentMenu;
 use crate::chat::Composing;
 use crate::core::{self, Ask};
 use crate::theme::{Tokens, SPACE_1H, TEXT_SM};
@@ -524,6 +526,29 @@ impl GoalsPane {
         .detach();
     }
 
+    /// Opens agent `agent`'s chat, with the workbench in place of the goals.
+    fn open_agent(&self, agent: &str, cx: &mut Context<Self>) {
+        let _ = self
+            .bench
+            .update(cx, |bench, cx| bench.open_agent(agent, cx));
+    }
+
+    /// Opens card `card` of the project the view shows beside its board, where all of it can
+    /// be changed.
+    fn open_on_board(&self, card: u64, cx: &mut Context<Self>) {
+        if let Some(project) = self.here.clone() {
+            let _ = (self.bench).update(cx, |bench, cx| bench.open_board_card(&project, card, cx));
+        }
+    }
+
+    /// Opens the Git pane of the project the view shows.
+    fn open_git(&self, cx: &mut Context<Self>) {
+        let _ = self.bench.update(cx, |bench, cx| {
+            bench.show_workbench(cx);
+            bench.open_git(cx)
+        });
+    }
+
     /// Opens a file in its tab, with the workbench in place of the goals.
     fn open_file(&self, path: &str, cx: &mut Context<Self>) {
         let path = std::path::PathBuf::from(path);
@@ -531,6 +556,14 @@ impl GoalsPane {
             bench.show_workbench(cx);
             bench.open_file(&path, cx)
         });
+    }
+
+    /// Opens a file of the project the view shows, named from its folder.
+    fn open_project_file(&self, file: &str, cx: &mut Context<Self>) {
+        if let Some(folder) = &self.here {
+            let path = std::path::Path::new(folder).join(file);
+            self.open_file(&path.to_string_lossy(), cx);
+        }
     }
 
     /// Shows a picture full size over the goals.
@@ -590,6 +623,40 @@ impl Render for GoalsPane {
             .flex()
             .child(ui::pane(cx).flex_1().min_w_0().child(shown))
     }
+}
+
+/// A line about an agent, with the agent's own menu on a right-click, as its tab has.
+fn with_agent_menu(
+    line: gpui_kit::Stateful<gpui_kit::Div>,
+    agent: Option<String>,
+    bench: &WeakEntity<Workbench>,
+) -> AnyElement {
+    let Some(agent) = agent else {
+        return line.into_any_element();
+    };
+    let bench = bench.clone();
+    line.context_menu(ui::menu(move |popup, _, cx| {
+        let menu = (bench.update(cx, |bench, cx| AgentMenu::new(bench, &agent, cx)))
+            .ok()
+            .flatten();
+        match menu {
+            Some(menu) => menu.build(popup),
+            None => popup,
+        }
+    }))
+    .into_any_element()
+}
+
+/// A button that opens a goal or slice beside the agent board, where all of its card can be
+/// changed.
+fn on_board(card: u64, cx: &mut Context<GoalsPane>) -> impl IntoElement {
+    ui::IconButton::new(
+        gpui_kit::SharedString::from(format!("on-board-{card}")),
+        crate::icons::Icon::Board,
+        "Open on the agent board",
+    )
+    .small()
+    .on_click(cx.listener(move |pane, _, _, cx| pane.open_on_board(card, cx)))
 }
 
 /// The slices the core says goal `goal` holds among `cards`, in the board's order.
