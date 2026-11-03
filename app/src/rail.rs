@@ -168,9 +168,10 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                             None,
                             [
                                 IconButton::new("add-terminal", Icon::Plus, "New terminal")
-                                    .on_click(
-                                        cx.listener(|bench, _, _, cx| bench.new_loose_terminal(cx)),
-                                    ),
+                                    .on_click(cx.listener(|bench, _, _, cx| {
+                                        bench.show_workbench(cx);
+                                        bench.new_loose_terminal(cx)
+                                    })),
                             ],
                             cx,
                         ))
@@ -417,6 +418,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                                 .icon(Icon::Terminal)
                                 .on_click(move |_, _, cx| {
                                     let _ = bench.update(cx, |bench, cx| {
+                                        bench.show_workbench(cx);
                                         bench.open_ssh_terminal(&alias, cx)
                                     });
                                 }),
@@ -548,7 +550,10 @@ fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 .when(shown.problem.is_some(), |row| {
                     row.status(Some(ui::dot(Tone::Failed, cx)))
                 })
-                .on_click(cx.listener(move |bench, _, _, _| bench.open_mod(&id, &name)));
+                .on_click(cx.listener(move |bench, _, _, cx| {
+                    bench.show_workbench(cx);
+                    bench.open_mod(&id, &name)
+                }));
             let (bench, shown, project) = (cx.weak_entity(), shown.clone(), project.clone());
             with_menu(
                 SharedString::from(format!("mod-{}-menu", shown.id)),
@@ -613,7 +618,8 @@ fn terminals(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> 
                 session.rail_name.clone().unwrap_or_default(),
             )
             .chosen(!bench.settings.read(cx).is_open() && front.as_ref() == Some(&id))
-            .on_click(cx.listener(move |bench, _, _, _| {
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                bench.show_workbench(cx);
                 let params = json!({ "kind": PaneKind::Terminal, "target": id });
                 bench.call("openTab", Strip::Terminals.with(params));
             }))

@@ -334,6 +334,7 @@ impl Workbench {
     /// A new chat on the account host `host`, in the project in front there, with the agent the
     /// rail is set to, and the person moved there to see it.
     pub fn new_chat_on(&mut self, host: &str, cx: &mut Context<Self>) {
+        self.show_workbench(cx);
         let Some(view) = self.hosts.views.get(host) else {
             return;
         };
@@ -364,6 +365,7 @@ impl Workbench {
 
     /// A terminal of no project on the account host `host`, and the person moved there.
     pub fn new_terminal_on(&mut self, host: &str, cx: &mut Context<Self>) {
+        self.show_workbench(cx);
         self.take_keys_when_shown(crate::workbench::TakesKeys::Terminal, cx);
         core::Target::new(&self.asks, Place::Account(host.to_owned())).call(
             "newTerminal",
@@ -409,6 +411,7 @@ impl Workbench {
 
     /// Opens ~/.ssh/config on this host in the editor, at the `Host` line of `alias` when given.
     pub fn edit_ssh_config(&mut self, alias: Option<String>, cx: &mut Context<Self>) {
+        self.show_workbench(cx);
         let file = core::request(&self.asks, "sshConfigFile", json!({}));
         let hosts = alias
             .is_some()
@@ -504,6 +507,7 @@ impl Workbench {
 
     /// Puts the person on `choice`, which the rail and the tab list then follow.
     pub fn choose_host(&mut self, choice: HostChoice, cx: &mut Context<Self>) {
+        self.show_workbench(cx);
         self.call("chooseHost", json!({ "host": choice.key() }));
         cx.notify();
     }
