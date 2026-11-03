@@ -1034,8 +1034,10 @@ async fn steady(manager: &SimulatorManager, device: &Device) -> Result<Read, Str
 /// Reads the screen until two reads agree, so an animation has finished before
 /// the agent is told what is on screen. After an action it first waits for the
 /// screen to change from `before`, because an app can take a moment to start
-/// leaving and would otherwise read as settled on its way out. Near the call's
-/// deadline it answers with what it has.
+/// leaving and would otherwise read as settled on its way out. An app's blank
+/// launch screen is waited out for as long as the call allows, since a busy
+/// device can take most of that to open an app. Near the call's deadline it
+/// answers with what it has.
 async fn settled_state(
     manager: &SimulatorManager,
     agent_id: &str,
@@ -1053,15 +1055,15 @@ async fn settled_state(
             latest = read_screen(manager, &device).await?;
         }
     }
-    for _ in 1..SETTLE_READS {
-        if near_deadline() {
-            break;
-        }
+    let mut reads = 1;
+    while !near_deadline() {
         pause(SETTLE_STEP).await?;
         let next = read_screen(manager, &device).await?;
-        let settled = next == latest && !launching(&(next.app.clone(), next.elements.clone()));
+        let opening = launching(&(next.app.clone(), next.elements.clone()));
+        let settled = next == latest && !opening;
         latest = next;
-        if settled {
+        reads += 1;
+        if settled || (reads >= SETTLE_READS && !opening) {
             break;
         }
     }
