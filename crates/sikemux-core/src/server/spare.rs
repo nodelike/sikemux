@@ -297,10 +297,11 @@ pub(crate) async fn show_terminals(core: &Arc<Core>) -> CoreResult<()> {
 }
 
 async fn home_shell(core: &Arc<Core>) -> CoreResult<SessionId> {
-    shell_at_home(core, "terminals".into(), "Terminals".into(), None).await
+    shell_at_home(core, "terminals".into(), String::new(), None).await
 }
 
-/// A shell in the home folder, named for the strip it shows in, typing `startup` when given.
+/// A shell in the home folder typing `startup` when given. One with no name and no startup is
+/// plain, so the rail numbers it among the terminals.
 async fn shell_at_home(
     core: &Arc<Core>,
     session_id: String,
