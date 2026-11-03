@@ -723,7 +723,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         if waits
             && latest
                 .get(question.agent_id.as_str())
-                .is_none_or(|kept| kept.at <= question.at)
+                .is_none_or(|kept| kept.at < question.at)
         {
             latest.insert(&question.agent_id, question);
         }

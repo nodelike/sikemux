@@ -195,8 +195,9 @@ struct Answered {
     answer: Option<String>,
 }
 
-/// What an agent asked the person in the reply its turn ended with, rather than with a
-/// tool. Nothing holds the agent on it, and its next turn takes it back.
+/// One thing an agent asked the person in the reply its turn ended with, rather than with a
+/// tool; a reply that asks several things makes one of these for each. Nothing holds the
+/// agent on them, and its next turn takes them back.
 #[derive(Clone)]
 struct ReplyQuestion {
     id: String,
@@ -205,20 +206,27 @@ struct ReplyQuestion {
     cli: String,
     project: String,
     text: String,
-    /// It offers more work, so a yes or a no answers it.
-    offer: bool,
+    /// A yes or a no answers it, as it does an offer of more work.
+    polar: bool,
+    /// The person's answer, held until every question of the same reply has one, so the
+    /// agent hears them all in one message.
+    given: Option<String>,
     at: u64,
 }
 
-/// The answers an offer is given in one tap, in order.
-const OFFER_ANSWERS: [&str; 2] = ["Yes, go ahead", "No"];
+/// The answers a yes-or-no question is given in one tap, in order.
+const POLAR_ANSWERS: [&str; 2] = ["Yes", "No"];
 
 impl ReplyQuestion {
     fn answers(&self) -> Vec<String> {
-        match self.offer {
-            true => OFFER_ANSWERS.map(str::to_owned).to_vec(),
+        match self.polar {
+            true => POLAR_ANSWERS.map(str::to_owned).to_vec(),
             false => Vec::new(),
         }
+    }
+
+    fn waits(&self) -> bool {
+        self.given.is_none()
     }
 
     fn view(&self) -> AgentQuestion {
@@ -265,7 +273,7 @@ impl ReplyQuestion {
 #[derive(Default)]
 struct State {
     open: Vec<Question>,
-    /// One at most for each agent.
+    /// The questions of each agent's latest reply, in the order it asked them.
     reply_questions: Vec<ReplyQuestion>,
     /// Oldest first.
     answered: Vec<Answered>,
@@ -446,16 +454,18 @@ impl Questions {
                 },
                 at: question.at,
             });
-        let replied = state.reply_questions.iter().map(|question| ForPerson {
-            id: question.id.clone(),
-            agent_id: question.agent_id.clone(),
-            text: question.text.clone(),
-            blocked: true,
-            assumption: None,
-            secret: false,
-            answers: question.answers(),
-            at: question.at,
-        });
+        let replied = (state.reply_questions.iter())
+            .filter(|question| question.waits())
+            .map(|question| ForPerson {
+                id: question.id.clone(),
+                agent_id: question.agent_id.clone(),
+                text: question.text.clone(),
+                blocked: true,
+                assumption: None,
+                secret: false,
+                answers: question.answers(),
+                at: question.at,
+            });
         asked.chain(replied).collect()
     }
 
@@ -1111,12 +1121,12 @@ const OFFERS: [&str; 10] = [
     "if you'd like, i can ",
 ];
 
-/// What an agent's reply asks the person, in its own words, and whether that is an offer,
-/// which a yes or a no answers: one that gives a choice of two ways is not.
+/// What an agent's reply asks the person, in its own words, one ask for each paragraph or list
+/// item that asks, in order, each with whether a yes or a no answers it.
 /// A paragraph or list item counts when its last sentence ends in a question mark, so one
 /// answered in the same paragraph does not, or offers more as "If you want, I can…" does.
 /// Code, quotes, headings and table rows say nothing to the person.
-fn asked_in(reply: &str) -> Option<(String, bool)> {
+fn asked_in(reply: &str) -> Vec<(String, bool)> {
     let mut found: Vec<(String, bool)> = Vec::new();
     let mut block: Vec<&str> = Vec::new();
     let mut fenced = false;
@@ -1146,9 +1156,7 @@ fn asked_in(reply: &str) -> Option<(String, bool)> {
             block.push(line);
         }
     }
-    let offer = found.iter().any(|(_, offer)| *offer);
-    let text: Vec<String> = found.into_iter().map(|(text, _)| text).collect();
-    (!text.is_empty()).then(|| (text.join(" "), offer))
+    found
 }
 
 /// A list item's text without its marker.
@@ -1166,29 +1174,57 @@ fn list_item(line: &str) -> Option<&str> {
     })
 }
 
-/// The paragraph's last sentence, when it asks the person something or offers more, and
-/// whether it offers, read after a lead-in such as "Next step:". Inside backticks nothing
-/// ends a sentence or asks.
+/// How a question opens that a yes or a no cannot answer.
+const OPEN_ASKS: [&str; 9] = [
+    "what ", "which ", "who ", "whom ", "whose ", "where ", "when ", "why ", "how ",
+];
+
+/// The paragraph's last sentence, without its emphasis, when it asks the person something or
+/// offers more, and whether a yes or a no answers it, read after a lead-in such as "Next
+/// step:". No sentence ends inside backticks or emphasis, and inside backticks nothing asks.
 fn last_ask(paragraph: &str) -> Option<(String, bool)> {
     let paragraph = paragraph.trim();
-    let mut coded = false;
+    let (mut coded, mut strong, mut stressed) = (false, false, false);
     let mut ends: Vec<usize> = Vec::new();
+    let mut ending = false;
     let mut asks = false;
     let chars: Vec<(usize, char)> = paragraph.char_indices().collect();
-    for (at, &(index, c)) in chars.iter().enumerate() {
+    let mut at = 0;
+    while at < chars.len() {
+        let (index, c) = chars[at];
+        let before = at.checked_sub(1).map(|before| chars[before].1);
+        let next = chars.get(at + 1).map(|(_, next)| *next);
+        at += 1;
         if c == '`' {
             coded = !coded;
+            ending = false;
             continue;
         }
         if coded {
             continue;
         }
-        let next = chars.get(at + 1).map(|(_, next)| *next);
-        if matches!(c, '.' | '?' | '!') && next.is_some_and(char::is_whitespace) {
-            ends.push(index + c.len_utf8());
+        match c {
+            '*' | '_' if next == Some(c) => {
+                strong = !strong;
+                at += 1;
+                continue;
+            }
+            '*' => {
+                stressed = !stressed;
+                continue;
+            }
+            '_' if emphasis_underscore(before, next) => {
+                stressed = !stressed;
+                continue;
+            }
+            _ => {}
         }
+        if c.is_whitespace() && ending && !strong && !stressed {
+            ends.push(index);
+        }
+        ending = matches!(c, '.' | '?' | '!') || (ending && matches!(c, ')' | '"'));
         if c == '?'
-            && chars[at + 1..]
+            && chars[at..]
                 .iter()
                 .all(|(_, rest)| matches!(rest, '*' | '_' | ')'))
         {
@@ -1196,14 +1232,35 @@ fn last_ask(paragraph: &str) -> Option<(String, bool)> {
         }
     }
     let start = ends.last().copied().unwrap_or(0);
-    let sentence = paragraph[start..].trim().trim_matches(['*', '_']);
-    let plain = sentence.to_lowercase();
-    let asked = (plain.rsplit(": ").next())
-        .unwrap_or(&plain)
-        .trim_start_matches(['*', '_']);
-    let offer = OFFERS.iter().any(|opening| asked.starts_with(opening)) && !asked.contains(" or ");
+    let sentence = plain(paragraph[start..].trim());
+    let lower = sentence.to_lowercase();
+    let asked = (lower.rsplit(": ").next()).unwrap_or(&lower);
+    let either = asked.contains(" or ");
+    let offer = OFFERS.iter().any(|opening| asked.starts_with(opening)) && !either;
     let leaves = offer && asked.starts_with("if you");
-    (asks || leaves).then(|| (sentence.to_owned(), offer))
+    let polar = offer || !either && !OPEN_ASKS.iter().any(|opening| asked.starts_with(opening));
+    (asks || leaves).then_some((sentence, polar))
+}
+
+/// Whether an underscore marks emphasis rather than joining a word, as in `snake_case`.
+fn emphasis_underscore(before: Option<char>, next: Option<char>) -> bool {
+    !before.is_some_and(char::is_alphanumeric) || !next.is_some_and(char::is_alphanumeric)
+}
+
+/// Markdown text as the person reads it: without the backticks, asterisks and emphasis
+/// underscores that mark it up.
+fn plain(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let kept = chars.iter().enumerate().filter(|&(at, &c)| match c {
+        '`' | '*' => false,
+        '_' => !emphasis_underscore(
+            at.checked_sub(1).map(|before| chars[before]),
+            chars.get(at + 1).copied(),
+        ),
+        _ => true,
+    });
+    let text: String = kept.map(|(_, c)| *c).collect();
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// The chat's turn ended by itself, so what its reply asks the person waits on them as a
@@ -1226,23 +1283,25 @@ pub(crate) fn asked_in_reply(core: &Core, agent_id: &str) {
     let Some(reply) = chat.feed.last_answer() else {
         return;
     };
-    let Some((text, offer)) = asked_in(&reply) else {
+    let asks = asked_in(&reply);
+    if asks.is_empty() {
         return;
-    };
-    let question = ReplyQuestion {
+    }
+    let name = (named.as_ref()).map_or_else(|| agent_id.to_owned(), |named| named.name.clone());
+    let project = (named.map(|named| named.project))
+        .unwrap_or_else(|| core.workspaces.project_of(&chat.launch.cwd));
+    let at = epoch_ms();
+    let asked = (asks.into_iter().take(MAX_OPEN_PER_AGENT)).map(|(text, polar)| ReplyQuestion {
         id: format!("reply-{}", uuid::Uuid::new_v4().simple()),
         agent_id: agent_id.to_owned(),
-        name: named
-            .as_ref()
-            .map_or_else(|| agent_id.to_owned(), |named| named.name.clone()),
+        name: name.clone(),
         cli: chat.provider().to_owned(),
-        project: named
-            .map(|named| named.project)
-            .unwrap_or_else(|| core.workspaces.project_of(&chat.launch.cwd)),
+        project: project.clone(),
         text: clipped(&text, MAX_QUESTION_BYTES),
-        offer,
-        at: epoch_ms(),
-    };
+        polar,
+        given: None,
+        at,
+    });
     let questions = &core.harness.questions;
     let mut state = questions.state.locked();
     let asking = (state.open.iter())
@@ -1254,7 +1313,7 @@ pub(crate) fn asked_in_reply(core: &Core, agent_id: &str) {
     state
         .reply_questions
         .retain(|asked| asked.agent_id != agent_id);
-    state.reply_questions.push(question);
+    state.reply_questions.extend(asked);
     questions.shown_changed(&mut state);
 }
 
@@ -1287,7 +1346,11 @@ fn views_of(
         view
     });
     open.chain(answered)
-        .chain(reply_questions.iter().map(ReplyQuestion::view))
+        .chain(
+            (reply_questions.iter())
+                .filter(|question| question.waits())
+                .map(ReplyQuestion::view),
+        )
         .map(|mut view| {
             view.ticket = super::board::ticket_of_agent(core, &view.agent_id);
             view
@@ -1341,9 +1404,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
                 .any(|question| question.id == given.id)
         })
     };
-    for given in reply_questions {
-        answer_reply(core, given).await?;
-    }
+    answer_replies(core, reply_questions).await?;
     if answers.is_empty() {
         return Ok(());
     }
@@ -1468,41 +1529,79 @@ pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Resul
     }
 }
 
-/// The person's answer to what an agent asked in its reply, typed or one of its one-tap
-/// answers, which reaches it as their message.
-async fn answer_reply(core: &Arc<Core>, given: AnswerParams) -> Result<(), String> {
+/// The person's answers to what agents asked in their replies, typed or one of the one-tap
+/// answers. Each is held until every question of its reply has one; then the agent hears them
+/// all in one message, each answer with the question it answers.
+async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<(), String> {
+    if given.is_empty() {
+        return Ok(());
+    }
     let questions = &core.harness.questions;
-    let (question, text) = {
+    let ready: Vec<(String, Vec<ReplyQuestion>)> = {
         let mut state = questions.state.locked();
-        let at = (state.reply_questions.iter())
-            .position(|question| question.id == given.id)
-            .ok_or("That has been answered already")?;
-        let text = match given.choice {
-            Some(choice) => state.reply_questions[at]
-                .answers()
-                .get(choice)
-                .cloned()
-                .ok_or("That answer is not one of the question's")?,
-            None => reply_text(&given)?,
-        };
-        let question = state.reply_questions.remove(at);
-        questions.shown_changed(&mut state);
-        (question, text)
-    };
-    let note =
-        "The person answered what you asked as your last turn ended; go on with it.".to_owned();
-    let sent = vec![(question.answered(), text, note)];
-    if let Err(error) = messages::answer(core, question.agent_id.clone(), sent).await {
-        let mut state = questions.state.locked();
-        if state
-            .reply_questions
-            .iter()
-            .all(|kept| kept.agent_id != question.agent_id)
-        {
-            state.reply_questions.push(question);
-            questions.shown_changed(&mut state);
+        let mut answers: Vec<(String, String)> = Vec::with_capacity(given.len());
+        for given in &given {
+            let question = (state.reply_questions.iter())
+                .find(|question| question.id == given.id && question.waits())
+                .ok_or("That has been answered already")?;
+            let text = match given.choice {
+                Some(choice) => (question.answers().get(choice).cloned())
+                    .ok_or("That answer is not one of the question's")?,
+                None => reply_text(given)?,
+            };
+            answers.push((given.id.clone(), text));
         }
-        return Err(error);
+        let mut askers: Vec<String> = Vec::new();
+        for (id, text) in answers {
+            if let Some(question) = (state.reply_questions.iter_mut()).find(|kept| kept.id == id) {
+                question.given = Some(text);
+                if !askers.contains(&question.agent_id) {
+                    askers.push(question.agent_id.clone());
+                }
+            }
+        }
+        askers.retain(|asker| {
+            (state.reply_questions.iter())
+                .filter(|question| question.agent_id == *asker)
+                .all(|question| !question.waits())
+        });
+        let ready = askers
+            .into_iter()
+            .map(|asker| {
+                let (theirs, rest) = std::mem::take(&mut state.reply_questions)
+                    .into_iter()
+                    .partition(|question| question.agent_id == asker);
+                state.reply_questions = rest;
+                (asker, theirs)
+            })
+            .collect();
+        questions.shown_changed(&mut state);
+        ready
+    };
+    let note = "The person answered what you asked as your last turn ended; go on with it.";
+    for (asker, answered) in ready {
+        let sent = (answered.iter())
+            .map(|question| {
+                let text = question.given.clone().unwrap_or_default();
+                (question.answered(), text, note.to_owned())
+            })
+            .collect();
+        if let Err(error) = messages::answer(core, asker.clone(), sent).await {
+            let mut state = questions.state.locked();
+            if state
+                .reply_questions
+                .iter()
+                .all(|kept| kept.agent_id != asker)
+            {
+                let reopened = answered.into_iter().map(|question| ReplyQuestion {
+                    given: None,
+                    ..question
+                });
+                state.reply_questions.extend(reopened);
+                questions.shown_changed(&mut state);
+            }
+            return Err(error);
+        }
     }
     Ok(())
 }
@@ -1596,6 +1695,16 @@ fn reply_text(params: &AnswerParams) -> Result<String, String> {
         )),
         _ => Err("The answer is empty".into()),
     }
+}
+
+/// The first question of each agent's reply, which a phone is told of once for all of them.
+fn first_of_each_reply(asked: &[ReplyQuestion]) -> impl Iterator<Item = &ReplyQuestion> {
+    asked.iter().enumerate().filter_map(|(at, question)| {
+        let first = !asked[..at]
+            .iter()
+            .any(|earlier| earlier.agent_id == question.agent_id);
+        first.then_some(question)
+    })
 }
 
 /// Moves on questions their lead left, drops those of agents that are gone,
@@ -1896,6 +2005,7 @@ fn tell_phones(core: &Core) {
             .map(|question| (question.id.clone(), question.agent_id.clone()))
             .chain(
                 (state.reply_questions.iter())
+                    .filter(|question| question.waits())
                     .map(|question| (question.id.clone(), question.agent_id.clone())),
             )
             .collect();
@@ -1922,7 +2032,7 @@ fn tell_phones(core: &Core) {
                 );
                 (question.id.clone(), asking)
             })
-            .chain(state.reply_questions.iter().map(|question| {
+            .chain(first_of_each_reply(&state.reply_questions).map(|question| {
                 let asking = Asking::new(
                     &question.agent_id,
                     &question.name,
@@ -2016,4 +2126,48 @@ fn tell_window(core: &Arc<Core>) {
             core.window.forget(id);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::asked_in;
+
+    /// The shape of a reply whose three offers showed as one question, cut inside its bold.
+    const THREE_OFFERS: &str = "The claims read is the slow part now.\n\n\
+        - Text-ad Projects load in 1.8 s. **Ship it to dev now,** alongside the worker deploy \
+        that's still waiting on your approval?\n\
+        - Ship the speed fix to dev?\n\
+        - **Profile the claims read** to get text-ad Projects under a second?\n";
+
+    #[test]
+    fn each_ask_of_a_reply_is_a_question_of_its_own_in_plain_words() {
+        let asked = asked_in(THREE_OFFERS);
+        assert_eq!(
+            asked,
+            vec![
+                (
+                    "Ship it to dev now, alongside the worker deploy that's still waiting on \
+                     your approval?"
+                        .to_owned(),
+                    true
+                ),
+                ("Ship the speed fix to dev?".to_owned(), true),
+                (
+                    "Profile the claims read to get text-ad Projects under a second?".to_owned(),
+                    true
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_sentence_ends_inside_emphasis_or_code() {
+        let asked = asked_in("Tests pass. **Merged, then deployed.** Which of `a. b` or `c` next?");
+        assert_eq!(asked, vec![("Which of a. b or c next?".to_owned(), false)]);
+        let asked = asked_in("Tests pass. **Merged, then deployed. Check it?**");
+        assert_eq!(
+            asked,
+            vec![("Merged, then deployed. Check it?".to_owned(), true)]
+        );
+    }
 }
