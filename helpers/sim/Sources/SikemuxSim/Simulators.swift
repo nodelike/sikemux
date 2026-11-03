@@ -279,9 +279,13 @@ actor Simulators {
         return (shot.imageData, Int(shot.size.width), Int(shot.size.height))
     }
 
+    /// Only what the core reads from a tree. Each key is another round trip into the device for every
+    /// element, which a busy device answers slowly enough for a whole read to take a minute.
+    static let treeKeys: Set<AXKeys> = [.type, .label, .value, .uniqueID, .frameDict, .enabled, .traits, .pid]
+
     func tree(_ udid: String?) async throws -> Any {
         let response = try await booted(udid).uiAutomation(backend: .accessibility)
-            .describe(.frontmost, options: AccessibilityRequestOptions(format: .nested, enableLogging: false))
+            .describe(.frontmost, options: AccessibilityRequestOptions(format: .nested, keys: Self.treeKeys, enableLogging: false))
         return try JSONSerialization.jsonObject(with: JSONEncoder().encode(response.elements.elements))
     }
 
