@@ -81,11 +81,11 @@ async function processedBuild(appId, base, build) {
   for (;;) {
     const found = await call(`/v1/builds?${query}`);
     const candidate = found.data[0];
-    const state = candidate?.attributes.processingState;
-    if (state === 'VALID') {
-      const detail = found.included?.find((item) => item.type === 'buildBetaDetails');
-      return { id: candidate.id, external: detail?.attributes.externalBuildState };
-    }
+    const processing = candidate?.attributes.processingState;
+    const detail = found.included?.find((item) => item.type === 'buildBetaDetails');
+    // A build reads VALID a while before TestFlight knows it, and adding it to a group then fails.
+    const state = processing === 'VALID' && !detail ? 'VALID but not in TestFlight yet' : processing;
+    if (state === 'VALID') return { id: candidate.id, external: detail.attributes.externalBuildState };
     if (state === 'FAILED' || state === 'INVALID') throw new Error(`App Store Connect could not process build ${build}: ${state}`);
     if (Date.now() > deadline) throw new Error(`Build ${build} was still ${state ?? 'not listed'} after 40 minutes`);
     console.log(`TestFlight: build ${build} is ${state ?? 'not listed yet'}; checking again in 30 seconds`);
