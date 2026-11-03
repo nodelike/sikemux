@@ -184,12 +184,31 @@ impl Workbench {
 
     pub fn focus_board(&self, cx: &mut App) {
         if let Some(project) = self.project() {
-            self.take_keys_when_shown(crate::workbench::TakesKeys::Board, cx);
-            self.call_in_front(
-                "openTab",
-                json!({ "project": project.id, "kind": "board", "target": project.path.to_string_lossy() }),
-            );
+            self.open_board(project, cx);
         }
+    }
+
+    fn open_board(&self, project: &ProjectInfo, cx: &mut App) {
+        self.take_keys_when_shown(crate::workbench::TakesKeys::Board, cx);
+        self.call_in_front(
+            "openTab",
+            json!({ "project": project.id, "kind": "board", "target": project.path.to_string_lossy() }),
+        );
+    }
+
+    /// Opens card `card` beside the board of the project at `folder`, with the workbench in
+    /// place of the goals.
+    pub fn open_board_card(&mut self, folder: &str, card: u64, cx: &mut Context<Self>) {
+        let Some(project) = (self.projects().iter())
+            .find(|project| project.path.to_string_lossy() == folder)
+            .cloned()
+        else {
+            return;
+        };
+        self.show_workbench(cx);
+        self.activate_project(&project.id);
+        self.board_card = Some((folder.to_owned(), card));
+        self.open_board(&project, cx);
     }
 
     /// Closes the view in front: a desk's page, the focused view of a split tab, else the tab.

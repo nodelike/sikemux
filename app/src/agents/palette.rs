@@ -74,7 +74,7 @@ impl Workbench {
                 } else if let Some(launcher) = key.strip_prefix(INSTALL) {
                     install(bench, launcher, window, cx);
                 } else if let Some(agent) = key.strip_prefix(OPEN) {
-                    bench.open_agent(agent);
+                    bench.open_agent(agent, cx);
                 } else if let Some(id) = key.strip_prefix(RESUME) {
                     if let Some(recent) = bench.saved_chat(id).cloned() {
                         bench.resume_chat(&recent, cx);

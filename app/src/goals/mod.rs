@@ -299,39 +299,62 @@ impl GoalsPane {
             .find(|known| known.id == goal)
     }
 
-    /// Opens what an inbox item is about: its slice or goal, else its agent's chat.
+    /// Opens what an inbox item is about: an agent's question or assumption in its chat, a pull
+    /// request's page, else its slice or goal here or its card on the project's board, else its
+    /// agent's chat.
     fn open(&mut self, item: &InboxItem, cx: &mut Context<Self>) {
-        if item.kind == InboxKind::SeededRules {
-            return self.go(At::Home, cx);
-        }
-        let opens = item.card.as_ref().and_then(|inbox| {
-            let card = self
-                .board_of(&inbox.project)?
-                .cards
-                .iter()
-                .find(|card| card.id == inbox.id)?;
-            let at = match card.slice {
-                Some(_) => At::Slice(card.id),
-                None if self.goal_of(inbox).is_some_and(|goal| goal.id == card.id) => {
-                    At::Goal(card.id)
+        let agent = item.agent_id.clone();
+        let in_chat = matches!(
+            item.kind,
+            InboxKind::Question | InboxKind::Assumption | InboxKind::Permission | InboxKind::Input
+        );
+        match (item.kind, &item.card, &item.url) {
+            (InboxKind::SeededRules, ..) => return self.go(At::Home, cx),
+            (InboxKind::PullRequest, _, Some(url)) => return self.open_url(agent, url.clone(), cx),
+            (_, Some(inbox), _) if !in_chat || agent.is_none() => {
+                if let Some(card) = (self.board_of(&inbox.project))
+                    .and_then(|board| board.cards.iter().find(|card| card.id == inbox.id))
+                {
+                    let at = match card.slice {
+                        Some(_) => Some(At::Slice(card.id)),
+                        None if self.goal_of(inbox).is_some_and(|goal| goal.id == card.id) => {
+                            Some(At::Goal(card.id))
+                        }
+                        None => None,
+                    };
+                    let project = inbox.project.clone();
+                    let card = card.id;
+                    return match at {
+                        Some(at) => {
+                            if self.here.as_deref() != Some(project.as_str()) {
+                                self.bring(project, cx);
+                            }
+                            self.go(at, cx)
+                        }
+                        None => {
+                            let _ = (self.bench)
+                                .update(cx, |bench, cx| bench.open_board_card(&project, card, cx));
+                        }
+                    };
                 }
-                None => return None,
-            };
-            Some((inbox.project.clone(), at))
+            }
+            _ => {}
+        }
+        if let Some(agent) = agent {
+            let _ = self
+                .bench
+                .update(cx, |bench, cx| bench.open_agent(&agent, cx));
+        }
+    }
+
+    /// Opens a page on the desk of the agent it came from, else in the person's browser.
+    fn open_url(&mut self, agent: Option<String>, url: String, cx: &mut Context<Self>) {
+        let _ = self.bench.update(cx, |bench, cx| {
+            let on_desk = agent.is_some_and(|agent| bench.open_on_desk(&agent, &url, cx));
+            if !on_desk {
+                cx.open_url(&url);
+            }
         });
-        match opens {
-            Some((project, at)) => {
-                if self.here.as_deref() != Some(project.as_str()) {
-                    self.bring(project, cx);
-                }
-                self.go(at, cx)
-            }
-            None => {
-                if let Some(agent) = item.agent_id.clone() {
-                    let _ = self.bench.update(cx, |bench, _| bench.open_agent(&agent));
-                }
-            }
-        }
     }
 
     /// Shows the project at `folder`, bringing it to the front of the workbench too.
@@ -500,11 +523,19 @@ impl GoalsPane {
         .detach();
     }
 
+    /// Opens a file in its tab, with the workbench in place of the goals.
     fn open_file(&self, path: &str, cx: &mut Context<Self>) {
         let path = std::path::PathBuf::from(path);
-        let _ = self
-            .bench
-            .update(cx, |bench, cx| bench.open_file(&path, cx));
+        let _ = self.bench.update(cx, |bench, cx| {
+            bench.show_workbench(cx);
+            bench.open_file(&path, cx)
+        });
+    }
+
+    /// Shows a picture full size over the goals.
+    fn show_picture(&self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let path = std::path::PathBuf::from(path);
+        let _ = (self.bench).update(cx, |bench, cx| bench.show_picture(path, window, cx));
     }
 }
 

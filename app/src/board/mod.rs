@@ -352,6 +352,13 @@ impl BoardPane {
         cx.notify();
     }
 
+    /// Opens card `id` beside the board, once the board read holds it.
+    pub(crate) fn reveal(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.open = Some(Open::Card(id));
+        self.fields = None;
+        cx.notify();
+    }
+
     fn fields_for(
         &self,
         card: Option<&CardView>,

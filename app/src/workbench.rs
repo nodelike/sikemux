@@ -170,6 +170,8 @@ pub struct Workbench {
     /// The Search pane of the project whose Search tab was last in front.
     pub search: Option<Entity<SearchPane>>,
     pub board: Option<Entity<crate::board::BoardPane>>,
+    /// The card to open beside the board of the project at the folder named, once it shows.
+    pub(crate) board_card: Option<(String, u64)>,
     /// The goals, made the first time the window shows them, and the window hearing them move,
     /// which its rails show.
     pub goals: Option<Entity<crate::goals::GoalsPane>>,
@@ -642,6 +644,7 @@ impl Workbench {
             editors: cx.new(|_| crate::editor::Editors::default()),
             search: None,
             board: None,
+            board_card: None,
             goals: None,
             goals_moved: None,
             window_view: WindowView::default(),
@@ -1147,7 +1150,7 @@ impl Workbench {
             }
             Update::FocusAgent(agent) => {
                 cx.activate(true);
-                return self.open_agent(&agent);
+                return self.open_agent(&agent, cx);
             }
             Update::AccountDevice { key, name } => return self.new_account_device(key, name, cx),
             Update::Network(change) => {
@@ -3062,13 +3065,20 @@ impl Workbench {
         }
     }
 
+    /// Shows the workbench in place of the goals, as anything opened in one of its tabs needs.
+    pub fn show_workbench(&mut self, cx: &mut Context<Self>) {
+        if self.window_view == WindowView::Goals {
+            self.toggle_goals_view(cx);
+        }
+    }
+
     /// Switches the window between the workbench and the goals, which open on Home.
     pub fn toggle_goals_view(&mut self, cx: &mut Context<Self>) {
         self.window_view = match self.window_view {
             WindowView::Workbench => WindowView::Goals,
             WindowView::Goals => WindowView::Workbench,
         };
-        if let Some(goals) = &self.goals {
+        if let (WindowView::Goals, Some(goals)) = (self.window_view, &self.goals) {
             goals.update(cx, |goals, cx| goals.home(cx));
         }
         self.keep_rails(cx);
@@ -3623,15 +3633,19 @@ impl Workbench {
             return;
         };
         let folder = project.path.to_string_lossy().into_owned();
-        if self
-            .board
-            .as_ref()
-            .is_some_and(|pane| pane.read(cx).folder == folder)
-        {
-            return;
+        let pane = match self.board.clone() {
+            Some(pane) if pane.read(cx).folder == folder => pane,
+            _ => {
+                let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
+                let pane =
+                    cx.new(|cx| crate::board::BoardPane::new(asks, folder.clone(), bench, cx));
+                self.board = Some(pane.clone());
+                pane
+            }
+        };
+        if let Some((_, card)) = self.board_card.take_if(|(at, _)| *at == folder) {
+            pane.update(cx, |pane, cx| pane.reveal(card, cx));
         }
-        let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
-        self.board = Some(cx.new(|cx| crate::board::BoardPane::new(asks, folder, bench, cx)));
     }
 
     /// Brings the project's Search tab to the front with the keyboard in its find field,
@@ -3855,9 +3869,10 @@ impl Workbench {
         self.call("openSshTerminal", json!({ "host": alias }));
     }
 
-    /// Brings an agent's tab to the front.
-    /// Brings the tab of the agent `id` to the front, in its project.
-    pub fn open_agent(&self, id: &str) {
+    /// Brings the tab of the agent `id` to the front, in its project, opening one when none
+    /// shows it, with the workbench in place of the goals.
+    pub fn open_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.show_workbench(cx);
         let project_on = |view: &DeviceView| {
             view.workspace
                 .agents
@@ -3865,9 +3880,8 @@ impl Workbench {
                 .find(|agent| agent.id == id)
                 .map(|agent| agent.project.clone())
         };
+        let tab = |project: String| json!({ "project": project, "kind": "agent", "target": id });
         let Some(project) = self.shown().and_then(project_on) else {
-            let tab =
-                |project: String| json!({ "project": project, "kind": "agent", "target": id });
             // Opening a tab on a host's layout brings that host forward there.
             if let Some(project) = self.view.as_ref().and_then(project_on) {
                 return self.call("openTab", tab(project));
@@ -3888,13 +3902,15 @@ impl Workbench {
             return;
         };
         let strip = Strip::Project(project.clone());
-        if let Some(tab) = self
-            .tabs(&strip)
-            .iter()
+        let shown = (self.tabs(&strip).iter())
             .find(|tab| shows(tab, PaneKind::Agent).is_some_and(|shown| shown == id))
-        {
-            self.activate_project(&project);
-            self.activate_tab(&strip, &tab.id);
+            .map(|tab| tab.id.clone());
+        match shown {
+            Some(shown) => {
+                self.activate_project(&project);
+                self.activate_tab(&strip, &shown);
+            }
+            None => self.call_in_front("openTab", tab(project)),
         }
     }
 
@@ -4379,6 +4395,22 @@ impl Parts {
     }
 }
 
+/// A shortcut that opens a place of the workbench, which takes the goals' place first.
+fn opening<A, F>(cx: &Context<Workbench>, open: F) -> impl Fn(&A, &mut Window, &mut App) + use<A, F>
+where
+    A: gpui::Action,
+    F: Fn(&mut Workbench, &mut Window, &mut Context<Workbench>) + 'static,
+{
+    let this = cx.weak_entity();
+    move |_: &A, window: &mut Window, cx: &mut App| {
+        this.update(cx, |bench, cx| {
+            bench.show_workbench(cx);
+            open(bench, window, cx)
+        })
+        .ok();
+    }
+}
+
 impl Workbench {
     /// A docked rail and its handle, `tuck` of the way under the stage. It keeps its width as
     /// it goes, so nothing in it wraps again; the stage takes the room it gives up.
@@ -4528,22 +4560,22 @@ impl Render for Workbench {
                 cx.listener(|bench, _: &crate::places::NextGroup, _, cx| bench.next_group(cx)),
             )
             .on_action(cx.listener(|bench, _: &ToggleYolo, _, _| bench.toggle_yolo_in_front()))
-            .on_action(
-                cx.listener(|bench, _: &crate::places::FocusTerminals, _, _| {
-                    bench.call("showTerminals", json!({}))
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::places::FocusFiles, _, cx| bench.focus_files(cx)),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::places::FocusAgents, window, cx| {
-                    bench.focus_agents(window, cx)
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::places::FocusBoard, _, cx| bench.focus_board(cx)),
-            )
+            .on_action(opening::<crate::places::FocusTerminals, _>(
+                cx,
+                |bench, _, _| bench.call("showTerminals", json!({})),
+            ))
+            .on_action(opening::<crate::places::FocusFiles, _>(
+                cx,
+                |bench, _, cx| bench.focus_files(cx),
+            ))
+            .on_action(opening::<crate::places::FocusAgents, _>(
+                cx,
+                Workbench::focus_agents,
+            ))
+            .on_action(opening::<crate::places::FocusBoard, _>(
+                cx,
+                |bench, _, cx| bench.focus_board(cx),
+            ))
             .on_action(cx.listener(|bench, _: &crate::places::ToggleGoals, _, cx| {
                 bench.toggle_goals_view(cx)
             }))
@@ -4608,7 +4640,9 @@ impl Render for Workbench {
                 bench.toggle_finder(window, cx);
                 cx.notify();
             }))
-            .on_action(cx.listener(|bench, _: &NewTerminal, _, cx| bench.new_terminal(cx)))
+            .on_action(opening::<NewTerminal, _>(cx, |bench, _, cx| {
+                bench.new_terminal(cx)
+            }))
             .on_action(cx.listener(|bench, action: &RunProjectAction, _, cx| {
                 bench.run_command(json!({ "action": action.id }), action.label.clone(), cx)
             }))
@@ -4623,25 +4657,27 @@ impl Render for Workbench {
                 }),
             )
             .on_action(cx.listener(|bench, _: &TextSizeReset, _, _| bench.resize_front_text(None)))
-            .on_action(cx.listener(|bench, _: &FocusGit, _, cx| bench.open_git(cx)))
-            .on_action(
-                cx.listener(|bench, _: &FocusSearch, window, cx| bench.open_search(window, cx)),
-            )
-            .on_action(
-                cx.listener(|bench, _: &FocusSearchWindow, window, cx| {
-                    bench.open_search(window, cx)
-                }),
-            )
+            .on_action(opening::<FocusGit, _>(cx, |bench, _, cx| {
+                bench.open_git(cx)
+            }))
+            .on_action(opening::<FocusSearch, _>(cx, Workbench::open_search))
+            .on_action(opening::<FocusSearchWindow, _>(cx, Workbench::open_search))
             .on_action(
                 cx.listener(|bench, _: &crate::settings::ToggleSettings, window, cx| {
                     crate::settings::toggle(bench, window, cx)
                 }),
             )
-            .on_action(cx.listener(|bench, _: &NewChat, window, cx| bench.new_chat(window, cx)))
-            .on_action(cx.listener(|bench, _: &FocusTerminal, _, cx| bench.focus_terminal(cx)))
+            .on_action(opening::<NewChat, _>(cx, Workbench::new_chat))
+            .on_action(opening::<FocusTerminal, _>(cx, |bench, _, cx| {
+                bench.focus_terminal(cx)
+            }))
             .on_action(cx.listener(|bench, _: &ToggleDesk, _, cx| bench.toggle_front_desk(cx)))
-            .on_action(cx.listener(|bench, _: &NewPage, _, cx| bench.new_front_page(cx)))
-            .on_action(cx.listener(|bench, _: &ReopenPage, _, cx| bench.reopen_front_page(cx)))
+            .on_action(opening::<NewPage, _>(cx, |bench, _, cx| {
+                bench.new_front_page(cx)
+            }))
+            .on_action(opening::<ReopenPage, _>(cx, |bench, _, cx| {
+                bench.reopen_front_page(cx)
+            }))
             .on_action(cx.listener(|bench, _: &FocusAddress, _, cx| bench.focus_front_address(cx)))
             .on_action(cx.listener(|bench, _: &ReloadPage, _, cx| bench.reload_front_page(cx)))
             .on_action(cx.listener(|bench, _: &PageBack, _, cx| bench.step_front_page(-1, cx)))

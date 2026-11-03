@@ -202,7 +202,7 @@ impl AgentMenu {
             let (bench, row) = (self.bench.clone(), id.clone());
             popup = popup.item(PopupMenuItem::new("Resume").icon(Icon::Rotate).on_click(
                 move |_, _, cx| {
-                    let _ = bench.update(cx, |bench, _| bench.open_agent(&row));
+                    let _ = bench.update(cx, |bench, cx| bench.open_agent(&row, cx));
                 },
             ));
         } else if agent.resume_id.is_some() {

@@ -66,7 +66,7 @@ fn follow_clicks(cx: &mut Context<Workbench>) {
             let shown = bench.update(cx, |bench, cx| {
                 cx.activate(true);
                 if let Some(agent) = agent {
-                    bench.open_agent(&agent);
+                    bench.open_agent(&agent, cx);
                 }
             });
             if shown.is_err() {

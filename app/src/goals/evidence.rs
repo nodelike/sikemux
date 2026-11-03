@@ -62,12 +62,15 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
             opened: page,
             ..
         } => {
-            let opened = path.clone();
+            let (opened, still) = (path.clone(), seconds.is_none());
             let frame = frame
                 .h(px(LARGE))
                 .bg(t.surface_sunken)
                 .cursor_pointer()
-                .on_click(cx.listener(move |pane, _, _, cx| pane.open_file(&opened, cx)));
+                .on_click(cx.listener(move |pane, _, window, cx| match still {
+                    true => pane.show_picture(&opened, window, cx),
+                    false => pane.open_file(&opened, cx),
+                }));
             match seconds {
                 None => div()
                     .flex()

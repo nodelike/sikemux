@@ -146,7 +146,7 @@ impl Render for AgentReview {
             Button::new("review-show", "Show agent", Variant::Outline).on_click(cx.listener(
                 |review, _, window, cx| {
                     let agent = review.agent.clone();
-                    review.then(window, cx, move |bench, _, _| bench.open_agent(&agent));
+                    review.then(window, cx, move |bench, _, cx| bench.open_agent(&agent, cx));
                 },
             )),
         );

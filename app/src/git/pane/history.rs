@@ -706,7 +706,7 @@ impl CommitOwner {
     ) {
         if let Some(agent) = &self.open {
             if let Some(bench) = bench.upgrade() {
-                bench.read(cx).open_agent(agent);
+                bench.update(cx, |bench, cx| bench.open_agent(agent, cx));
             }
             return;
         }

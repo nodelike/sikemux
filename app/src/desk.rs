@@ -1270,11 +1270,11 @@ impl Workbench {
 
     /// Opens `url` in a new page on `agent`'s desk, bringing the agent and its desk to the
     /// front. Answers false when this window has no browser, so the caller can open it elsewhere.
-    pub fn open_on_desk(&mut self, agent: &str, url: &str, cx: &App) -> bool {
+    pub fn open_on_desk(&mut self, agent: &str, url: &str, cx: &mut Context<Self>) -> bool {
         if self.desks.read(cx).engine.is_none() {
             return false;
         }
-        self.open_agent(agent);
+        self.open_agent(agent, cx);
         self.show_on_desk(agent, url, cx)
     }
 

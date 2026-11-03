@@ -537,7 +537,9 @@ pub(super) fn letters(
                     .hover(|name| name.underline())
                     .child(letter.name.clone())
                     .on_click(move |_, _, cx| {
-                        bench.update(cx, |bench, _| bench.open_agent(&agent)).ok();
+                        bench
+                            .update(cx, |bench, cx| bench.open_agent(&agent, cx))
+                            .ok();
                     });
                 let from = div()
                     .mb(SPACE_2)

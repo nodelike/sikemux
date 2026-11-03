@@ -958,7 +958,7 @@ fn agent_row(
             }
             match event.click_count() {
                 2 => bench.retitle(&id, true, window, cx),
-                _ => bench.open_agent(&id),
+                _ => bench.open_agent(&id, cx),
             }
         }
     }))

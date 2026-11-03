@@ -107,7 +107,7 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
             .map(|chat| chat.agent_id.clone())
     });
     if let Some(agent) = open {
-        bench.open_agent(&agent);
+        bench.open_agent(&agent, cx);
         return;
     }
     let known = bench.view.as_ref().is_some_and(|view| {
@@ -167,7 +167,7 @@ fn take_up(bench: &mut Workbench, resume: Resume, add: bool, cx: &mut Context<Wo
         let _ = bench.update(cx, |bench, cx| match taken {
             Ok(taken) => {
                 if let Some(agent) = taken["agentId"].as_str() {
-                    bench.open_agent(agent);
+                    bench.open_agent(agent, cx);
                 }
             }
             Err(error) => bench.notify(toast::error(format!("The chat did not open: {error}")), cx),

@@ -339,7 +339,7 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
         _ => t.warn,
     };
     let asked = item.detail.clone().unwrap_or_default();
-    let agent = item.agent_id.clone();
+    let opened = item.clone();
     let answers: Vec<Button> = item.question_id.clone().map_or(Vec::new(), |question| {
         (item.answers.iter().enumerate())
             .map(|(choice, answer)| {
@@ -357,11 +357,7 @@ fn question_row(item: &InboxItem, project: &str, cx: &mut Context<GoalsPane>) ->
             .collect()
     });
     row(SharedString::from(format!("question-{}", item.id)), cx)
-        .on_click(cx.listener(move |pane, _, _, cx| {
-            if let Some(agent) = &agent {
-                let _ = pane.bench.update(cx, |bench, _| bench.open_agent(agent));
-            }
-        }))
+        .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
         .child(ui::icon(Icon::Message, 14.).text_color(tint))
         .child(
             ui::text(asked, TEXT_SM, FontWeight::MEDIUM)
@@ -442,7 +438,9 @@ fn goal_row(board: &BoardView, goal: &CardView, cx: &mut Context<GoalsPane>) -> 
     )
     .on_click(cx.listener(move |pane, _, _, cx| match &worker {
         Some(agent) => {
-            let _ = pane.bench.update(cx, |bench, _| bench.open_agent(agent));
+            let _ = pane
+                .bench
+                .update(cx, |bench, cx| bench.open_agent(agent, cx));
         }
         None => pane.go(At::Goal(id), cx),
     }))
