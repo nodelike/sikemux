@@ -1039,8 +1039,11 @@ impl Workbench {
         self.front_asks()
     }
 
-    /// The chat in front, while it shows a question its keys answer.
+    /// The chat in front, while it shows a question its keys answer; none behind the goals.
     pub fn front_asks(&self) -> Option<String> {
+        if self.window_view == sikemux_wire::protocol::WindowView::Goals {
+            return None;
+        }
         let agent = self.agent()?;
         let chat = self.chats.open.get(&agent.id)?;
         let open: Vec<&Question> = self

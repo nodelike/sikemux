@@ -15,6 +15,7 @@ use sikemux_wire::slice::SliceState;
 use super::evidence::minute;
 use super::goal::{count, crumb, row, section, strip};
 use super::{empty, goals_of, slices_of, At, GoalsPane};
+use crate::chat::{NewerPrompt, OlderPrompt, START};
 use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL, TEXT_XS,
@@ -155,20 +156,28 @@ impl GoalsPane {
 /// Home, laid out as a new chat opens: an agent asking what is being made in the project, over
 /// what needs the person and what is moving, with the composer that starts work at the bottom.
 pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let mark = pane.start_launcher(cx).map_or_else(
-        || ui::mark("claude", 32.),
-        |launcher| ui::mark(&launcher.provider, 32.),
-    );
-    let project = (pane.bench.upgrade())
-        .and_then(|bench| Some(bench.read(cx).project()?.name.clone()))
-        .unwrap_or_default();
+    let Some(bench) = pane.bench.upgrade() else {
+        return div().into_any_element();
+    };
+    let (mark, project, composer) = {
+        let bench = bench.read(cx);
+        let mark = pane.start_launcher(bench).map_or_else(
+            || ui::mark("claude", 32.),
+            |launcher| ui::mark(&launcher.provider, 32.),
+        );
+        let project = bench.project().map(|project| project.name.clone());
+        let composer = bench.composing(START).map(|start| start.view.clone());
+        (mark, project.unwrap_or_default(), composer)
+    };
     let welcome = crate::home::welcome_over(mark, project, lists(pane, cx), cx)
         .max_w(px(crate::chat::composer::WIDTH));
-    div()
+    let home = div()
         .size_full()
+        .relative()
         .p(px(ui::AGENT_INSET))
         .flex()
-        .flex_col()
+        .flex_col();
+    crate::chat::takes_drops(home, START, pane.bench.clone())
         .child(
             div()
                 .id("goals-home")
@@ -182,7 +191,20 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
                         .px(SPACE_4),
                 ),
         )
-        .child(super::start::start_box(pane, cx))
+        .children(composer.map(|composer| {
+            div()
+                .on_action(
+                    cx.listener(|pane, _: &OlderPrompt, window, cx| pane.recall(true, window, cx)),
+                )
+                .on_action(
+                    cx.listener(|pane, _: &NewerPrompt, window, cx| pane.recall(false, window, cx)),
+                )
+                .child(composer.into_element().isolated())
+        }))
+        .when(cx.has_active_drag(), |home| {
+            let hint = crate::chat::drop_hint("Drop files or folders to go with the work", cx);
+            home.child(gpui_kit::deferred(hint))
+        })
         .into_any_element()
 }
 

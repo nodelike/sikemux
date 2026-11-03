@@ -296,12 +296,7 @@ impl Workbench {
         if paths.is_empty() {
             return;
         }
-        let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        else {
+        let Some(composing) = self.composing_mut(agent) else {
             return;
         };
         composing.attach(paths, window, cx);
@@ -404,12 +399,7 @@ impl Workbench {
 
     /// Takes context item `index`, an earlier chat or an issue, off the message.
     pub fn forget(&mut self, agent: &str, index: usize, cx: &mut Context<Self>) {
-        if let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        {
+        if let Some(composing) = self.composing_mut(agent) {
             if index < composing.context.len() {
                 composing.context.remove(index);
                 self.typed_draft(agent, cx);
@@ -425,12 +415,7 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        {
+        if let Some(composing) = self.composing_mut(agent) {
             composing.detach(index, window, cx);
             self.typed_draft(agent, cx);
             cx.notify();
@@ -509,9 +494,10 @@ pub fn on_paste(
     }
 }
 
-/// Files dropped on a chat, from Finder or from the file tree, go with the next message.
-pub fn takes_drops(pane: Div, agent: &str, cx: &mut Context<Workbench>) -> Div {
-    let (agent, this) = (agent.to_owned(), cx.weak_entity());
+/// Files dropped on a composer's pane, from Finder or from the file tree, go with its next
+/// message.
+pub fn takes_drops(pane: Div, agent: &str, this: WeakEntity<Workbench>) -> Div {
+    let agent = agent.to_owned();
     let (from_tree, from_tree_agent) = (this.clone(), agent.clone());
     pane.on_drop(move |dropped: &ExternalPaths, window, cx| {
         this.update(cx, |bench, cx| {
@@ -528,8 +514,8 @@ pub fn takes_drops(pane: Div, agent: &str, cx: &mut Context<Workbench>) -> Div {
     })
 }
 
-/// What shows over a chat while files are dragged over it.
-pub fn drop_hint(cx: &App) -> Div {
+/// What shows over a composer's pane while files are dragged over it, saying where they go.
+pub fn drop_hint(words: &'static str, cx: &App) -> Div {
     let t = Tokens::get(cx).clone();
     div()
         .absolute()
@@ -548,14 +534,7 @@ pub fn drop_hint(cx: &App) -> Div {
         .invisible()
         .drag_over::<ExternalPaths>(|style, _, _, _| style.visible())
         .drag_over::<DraggedPath>(|style, _, _, _| style.visible())
-        .child(
-            ui::text(
-                "Drop files or folders into this session",
-                TEXT_SM,
-                FontWeight::MEDIUM,
-            )
-            .text_color(t.text_primary),
-        )
+        .child(ui::text(words, TEXT_SM, FontWeight::MEDIUM).text_color(t.text_primary))
 }
 
 /// A tag in the draft, set on the line like a word of it.

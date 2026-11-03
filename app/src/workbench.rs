@@ -27,7 +27,7 @@ use sikemux_wire::protocol::{
 use tokio::sync::mpsc;
 
 use crate::battery::Battery;
-use crate::chat::{Answering, Chat, ComposeStage, Composing, Question, Sent};
+use crate::chat::{Answering, Chat, ComposeStage, Composing, Question, Sent, START};
 use crate::core::{utc_offset_minutes, Ask, ChatAsk, ChatNews, Link, Target, Update, Watch};
 use crate::desk::{
     FocusAddress, NewPage, NewSimulator, PageBack, PageForward, ReloadPage, ReopenPage, ToggleDesk,
@@ -1008,7 +1008,7 @@ impl Workbench {
                     false => &self.reads.drafts,
                 };
                 if let Some(drafts) = drafts {
-                    crate::chat::draft::take(&mut self.chats.open, drafts, elsewhere, cx);
+                    crate::chat::draft::take(&mut self.chats, drafts, elsewhere, cx);
                 }
             }
             Update::Read("usage", value) => {
@@ -1313,19 +1313,58 @@ impl Workbench {
         }
     }
 
-    /// Makes the composer of the chat in front, which needs the window.
+    /// Makes the composer of the chat in front, or of the goals' Home while they show, which
+    /// needs the window.
     fn compose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.window_view == WindowView::Goals {
+            if self.chats.start.is_none() {
+                let mut composing = self.new_composing(START, window, cx);
+                composing.draft.update(cx, |draft, cx| {
+                    draft.set_placeholder("What should get done?", window, cx)
+                });
+                if let Some(drafts) = self.reads.drafts.as_ref() {
+                    composing.start_from(drafts, START, window, cx);
+                }
+                self.chats.start = Some(composing);
+                self.watch_drafts();
+            }
+            if let Some(start) = self.chats.start.as_mut() {
+                start.take_arrived(window, cx);
+            }
+            return;
+        }
         let Some(agent) = self.agent().map(|agent| agent.id) else {
             return;
         };
-        let Some(chat) = self
-            .chats
-            .open
-            .get_mut(&agent)
-            .filter(|chat| chat.composer.is_none())
-        else {
+        if !(self.chats.open.get(&agent)).is_some_and(|chat| chat.composer.is_none()) {
+            return;
+        }
+        let mut composing = self.new_composing(&agent, window, cx);
+        let Some(chat) = self.chats.open.get_mut(&agent) else {
             return;
         };
+        let drafts = match crate::chat::draft::is_elsewhere(chat) {
+            true => self.reads.host_drafts.as_ref(),
+            false => self.reads.drafts.as_ref(),
+        };
+        if let Some(drafts) = drafts {
+            composing.start_from(drafts, &agent, window, cx);
+        }
+        chat.composer = Some(composing);
+        self.watch_drafts();
+        if let Some(text) = self.chats.deliveries.remove(&agent) {
+            self.deliver(&agent, text, window, cx);
+        }
+    }
+
+    /// A composer for `owner`, an agent's chat or the goals' Home, sending what it holds on
+    /// Return and keeping it as the person types.
+    fn new_composing(
+        &mut self,
+        owner: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Composing {
         let draft = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 12)
@@ -1337,7 +1376,7 @@ impl Workbench {
                 .placeholder("Type the answer")
         });
         let sending = {
-            let agent = agent.clone();
+            let owner = owner.to_owned();
             let was_empty = Cell::new(true);
             cx.subscribe_in(
                 &draft,
@@ -1346,38 +1385,36 @@ impl Workbench {
                     InputEvent::PressEnter {
                         shift: false,
                         secondary,
-                    } => bench.send(&agent, *secondary, window, cx),
+                    } => bench.send(&owner, *secondary, window, cx),
                     InputEvent::Change => {
                         let empty = draft.read(cx).value().is_empty();
                         if was_empty.replace(empty) != empty {
-                            if !empty {
-                                bench.began_writing(&agent);
+                            if !empty && owner != START {
+                                bench.began_writing(&owner);
                             }
                             cx.notify();
                         }
-                        if let Some(composing) = bench
-                            .chats
-                            .open
-                            .get_mut(&agent)
-                            .and_then(|chat| chat.composer.as_mut())
-                        {
+                        if let Some(composing) = bench.composing_mut(&owner) {
                             composing.drop_untagged(window, cx);
                         }
-                        bench.offer(&agent, cx);
-                        bench.typed_draft(&agent, cx);
+                        bench.offer(&owner, cx);
+                        bench.typed_draft(&owner, cx);
+                        if owner == START {
+                            bench.start_typed(cx);
+                        }
                     }
                     _ => {}
                 },
             )
         };
         let keeping = {
-            let agent = agent.clone();
+            let owner = owner.to_owned();
             cx.subscribe_in(
                 &secret,
                 window,
                 move |bench, _, event: &InputEvent, window, cx| {
                     if let InputEvent::PressEnter { .. } = event {
-                        bench.keep_secret(&agent, window, cx);
+                        bench.keep_secret(&owner, window, cx);
                     }
                 },
             )
@@ -1385,18 +1422,21 @@ impl Workbench {
         let mic = {
             let (voice, toggle) = (
                 self.voice.clone(),
-                crate::chat::dictate(&agent, cx.weak_entity()),
+                crate::chat::dictate(owner, cx.weak_entity()),
             );
-            let agent = agent.clone();
-            cx.new(|cx| crate::voice::MicButton::new(voice, agent, toggle, cx))
+            let owner = owner.to_owned();
+            cx.new(|cx| crate::voice::MicButton::new(voice, owner, toggle, cx))
         };
         let bench = cx.weak_entity();
-        let view = cx.new(|_| crate::chat::ComposerView {
+        let goals = self.goals.clone().filter(|_| owner == START);
+        let view = cx.new(|cx| crate::chat::ComposerView {
             bench,
+            owner: owner.to_owned(),
             agent: None,
             covered: false,
+            _follows: goals.map(|goals| cx.observe(&goals, |_, _, cx| cx.notify())),
         });
-        chat.composer = Some(Composing {
+        Composing {
             draft,
             view,
             secret,
@@ -1415,17 +1455,6 @@ impl Workbench {
             arrived: None,
             _keeping: Task::ready(()),
             _heard: [sending, keeping],
-        });
-        let drafts = match crate::chat::draft::is_elsewhere(chat) {
-            true => self.reads.host_drafts.as_ref(),
-            false => self.reads.drafts.as_ref(),
-        };
-        if let (Some(composing), Some(drafts)) = (chat.composer.as_mut(), drafts) {
-            composing.start_from(drafts, &agent, window, cx);
-        }
-        self.watch_drafts();
-        if let Some(text) = self.chats.deliveries.remove(&agent) {
-            self.deliver(&agent, text, window, cx);
         }
     }
 
@@ -1596,6 +1625,9 @@ impl Workbench {
             .update(cx, |voice, cx| voice.send_after_words(agent, primary, cx));
         if waits {
             return;
+        }
+        if agent == START {
+            return self.start_from_home(window, cx);
         }
         let preparing = self
             .chats
@@ -2081,14 +2113,18 @@ impl Workbench {
     /// front, and every open chat's.
     fn watch_drafts(&self) {
         let keys = |elsewhere: bool| -> Vec<String> {
-            self.chats
-                .open
-                .iter()
+            let chats = (self.chats.open.iter())
                 .filter(|(_, chat)| {
                     chat.composer.is_some() && crate::chat::draft::is_elsewhere(chat) == elsewhere
                 })
-                .map(|(agent, _)| crate::chat::draft_key(agent))
-                .collect()
+                .map(|(agent, _)| agent.as_str());
+            let start = self
+                .chats
+                .start
+                .as_ref()
+                .filter(|_| !elsewhere)
+                .map(|_| START);
+            chats.chain(start).map(crate::chat::draft_key).collect()
         };
         let watch =
             |keys: Vec<String>| Watch::new("drafts", json!({ "keys": keys }), &[Topic::Drafts]);
@@ -2117,8 +2153,12 @@ impl Workbench {
         if let Some(id) = crate::terminal::focused(self) {
             return crate::terminal::take_dropped(self, id, paths);
         }
-        if let Some((agent, _)) = self.chats.focused.clone() {
-            self.attach(&agent, paths.to_vec(), window, cx);
+        let into = match self.window_view {
+            WindowView::Goals => Some(START.to_owned()),
+            WindowView::Workbench => self.chats.focused.clone().map(|(agent, _)| agent),
+        };
+        if let Some(into) = into {
+            self.attach(&into, paths.to_vec(), window, cx);
         }
     }
 
@@ -3394,8 +3434,16 @@ impl Workbench {
             }
             return;
         }
-        if let Some(view) = self.focused_view() {
-            self.focus_view(&view, window, cx);
+        match (self.window_view, &self.goals) {
+            (WindowView::Goals, Some(goals)) => {
+                let keys = goals.read(cx).keys_go_to(self.chats.start.as_ref(), cx);
+                keys.focus(window, cx);
+            }
+            _ => {
+                if let Some(view) = self.focused_view() {
+                    self.focus_view(&view, window, cx);
+                }
+            }
         }
         if window.focused(cx) == held {
             self.keys.focus.focus(window, cx);

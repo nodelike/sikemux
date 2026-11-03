@@ -26,6 +26,7 @@ use sikemux_wire::slice::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::chat::Composing;
 use crate::core::{self, Ask};
 use crate::theme::{Tokens, SPACE_1H, TEXT_SM};
 use crate::toast;
@@ -42,7 +43,7 @@ mod slice;
 mod start;
 
 pub use rails::{goal_rows, places};
-pub use start::START_DRAFT;
+pub use start::start_composer;
 
 /// The view moved to another place, or what it shows changed, which the window's rails show.
 pub struct Moved;
@@ -539,6 +540,16 @@ impl GoalsPane {
     }
 }
 
+impl GoalsPane {
+    /// Where the keys nothing else holds go: Home's composer on Home, else the pane.
+    pub fn keys_go_to(&self, start: Option<&Composing>, cx: &gpui_kit::App) -> FocusHandle {
+        match (self.at, start) {
+            (At::Home, Some(start)) => start.draft.read(cx).focus_handle(cx),
+            _ => self.focus.clone(),
+        }
+    }
+}
+
 impl Focusable for GoalsPane {
     fn focus_handle(&self, _: &gpui_kit::App) -> FocusHandle {
         self.focus.clone()
@@ -548,7 +559,6 @@ impl Focusable for GoalsPane {
 impl Render for GoalsPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_project(cx);
-        self.start_field(window, cx);
         self.assert_field(window, cx);
         let column = |body: AnyElement| {
             div()

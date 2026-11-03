@@ -1,37 +1,28 @@
-//! The composer at the top of Home that starts work: what should get done, and how. It is the
-//! chat's own composer, with the way to start in its bar. While the person types, the core's
-//! triage suggests one of three ways and says why; the person can always pick another. Sending
-//! starts the agent picked, adds the card that tracks the work, held by that agent, and sends
-//! the agent what was written with the files that go with it.
+//! The composer at the bottom of Home that starts work: what should get done, and how. It is the
+//! chat's own composer, made and kept as [`START`], with the way to start in its bar. While the
+//! person types, the core's triage suggests one of three ways and says why; the person can always
+//! pick another. Sending starts the agent picked, adds the card that tracks the work, held by that
+//! agent, and sends the agent what was written with the files and mentions that go with it.
 
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui_kit::component::input::{InputEvent, TextareaState};
-use gpui_kit::{
-    div, AnyElement, App, AppContext, ClipboardEntry, ClipboardItem, Context, Entity,
-    InteractiveElement, IntoElement, ParentElement, PathPromptOptions, SharedString, Subscription,
-    Task, WeakEntity, Window,
-};
+use gpui_kit::{div, AnyElement, App, Context, IntoElement, SharedString, Task, Window};
 use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::{BoardAddParams, BoardHandOffParams, TriageParams};
-use sikemux_wire::protocol::{LauncherInfo, ProjectInfo};
+use sikemux_wire::protocol::{ChatContext, LauncherInfo, ProjectInfo};
 use sikemux_wire::start::{Because, HardFact, StartMode};
 use tokio::sync::oneshot;
 
 use super::GoalsPane;
-use crate::chat::composer::{Act, Composer, Notice, Strip};
+use crate::chat::composer::{Act, Notice, Strip};
 use crate::chat::model_picker::{self, Moving, Picked};
-use crate::chat::{NewerPrompt, OlderPrompt};
+use crate::chat::START;
 use crate::core::{ChatAsk, Target};
 use crate::ui::Segmented;
-use crate::voice::MicButton;
 use crate::workbench::Workbench;
 
-/// What dictation names the start box's draft by, as it names a chat's by its agent.
-pub const START_DRAFT: &str = "goals-start";
 /// How long typing pauses before the core is asked to suggest a way.
 const SETTLE: Duration = Duration::from_millis(300);
 /// How long the line saying where a Hand off went stays under the composer.
@@ -66,12 +57,8 @@ struct Chosen {
     payer: Option<String>,
 }
 
-/// What the box holds.
+/// How Home's composer starts work; what it holds is the composer's own.
 pub(super) struct Start {
-    draft: Option<(Entity<TextareaState>, Subscription)>,
-    mic: Option<Entity<MicButton>>,
-    /// The files going with what is sent.
-    files: Vec<PathBuf>,
     mode: StartMode,
     /// The person picked the mode, so what the core suggests no longer moves it.
     picked: bool,
@@ -90,9 +77,6 @@ pub(super) struct Start {
 impl Default for Start {
     fn default() -> Self {
         Self {
-            draft: None,
-            mic: None,
-            files: Vec::new(),
             mode: StartMode::default(),
             picked: false,
             suggested: None,
@@ -107,11 +91,9 @@ impl Default for Start {
 }
 
 impl Start {
-    /// Back to empty after a start, keeping the draft, the mic, the agent picked and what was sent.
+    /// Back to the way the core suggests after a start, keeping the agent picked and what was sent.
     fn cleared(&mut self) {
         *self = Start {
-            draft: self.draft.take(),
-            mic: self.mic.take(),
             chosen: std::mem::take(&mut self.chosen),
             sent: std::mem::take(&mut self.sent),
             ..Start::default()
@@ -119,59 +101,44 @@ impl Start {
     }
 }
 
-impl GoalsPane {
-    /// Makes the box's draft and mic, which need the window.
-    pub(super) fn start_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.start.draft.is_some() {
-            return;
+impl Workbench {
+    /// Starts the work Home's composer holds, once the window is done with what sent it.
+    pub fn start_from_home(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(goals) = self.goals.clone() {
+            window.defer(cx, move |window, cx| {
+                goals.update(cx, |goals, cx| goals.start_work(window, cx))
+            });
         }
-        let draft = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .auto_grow(2, 12)
-                .submit_on_enter(true)
-        });
-        draft.update(cx, |draft, cx| {
-            draft.set_placeholder("What should get done?", window, cx)
-        });
-        let typing = cx.subscribe_in(&draft, window, |pane, _, event, window, cx| match event {
-            InputEvent::Change => pane.typed(cx),
-            InputEvent::PressEnter { shift: false, .. } => pane.start_work(window, cx),
-            _ => {}
-        });
-        self.start.draft = Some((draft, typing));
-        self.start.mic = self.bench.upgrade().map(|bench| {
-            let voice = bench.read(cx).voice.clone();
-            let toggle = crate::chat::dictate(START_DRAFT, bench.downgrade());
-            cx.new(|cx| MicButton::new(voice, START_DRAFT.to_owned(), toggle, cx))
-        });
     }
 
-    /// The start box's draft, when `key` names it.
-    pub fn start_draft(&self, key: &str) -> Option<Entity<TextareaState>> {
-        let (draft, _) = self.start.draft.as_ref().filter(|_| key == START_DRAFT)?;
-        Some(draft.clone())
+    /// Asks the core how to start what Home's composer holds, once the window is done with the
+    /// change.
+    pub fn start_typed(&self, cx: &mut Context<Self>) {
+        if let Some(goals) = self.goals.clone() {
+            cx.defer(move |cx| goals.update(cx, |goals, cx| goals.typed(cx)));
+        }
     }
+}
 
-    fn typed_text(&self, cx: &App) -> String {
-        self.start
-            .draft
-            .as_ref()
-            .map_or(String::new(), |(draft, _)| {
-                draft.read(cx).value().trim().to_owned()
-            })
-    }
-
-    /// The project work starts in: the one in front of the workbench.
-    fn start_project(&self, cx: &App) -> Option<ProjectInfo> {
+impl GoalsPane {
+    /// What Home's composer holds: its text, and the files and mentions going with it.
+    fn written(&self, cx: &App) -> Option<(String, Vec<String>, Vec<ChatContext>)> {
         let bench = self.bench.upgrade()?;
-        let project = bench.read(cx).project().cloned();
-        project
+        let composing = bench.read(cx).composing(START)?;
+        let text = composing.draft.read(cx).value().trim().to_owned();
+        let (paths, context) = composing.outgoing(cx);
+        Some((text, paths, context))
+    }
+
+    /// Empties Home's composer once what it held has started.
+    fn emptied(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = (self.bench).update(cx, |bench, cx| bench.emptied(START, window, cx));
+        self.start.sent.push(text);
+        self.start.cleared();
     }
 
     /// The agent work starts with: the one picked, else the one the rail starts with.
-    pub(super) fn start_launcher(&self, cx: &App) -> Option<LauncherInfo> {
-        let bench = self.bench.upgrade()?;
-        let bench = bench.read(cx);
+    pub(super) fn start_launcher(&self, bench: &Workbench) -> Option<LauncherInfo> {
         let picked = (self.start.chosen.launcher.as_deref())
             .and_then(|id| bench.launchers().iter().find(|known| known.id == id));
         picked.or_else(|| bench.launcher()).cloned()
@@ -179,7 +146,7 @@ impl GoalsPane {
 
     /// Asks the core to suggest a way once typing settles.
     fn typed(&mut self, cx: &mut Context<Self>) {
-        let text = self.typed_text(cx);
+        let text = self.written(cx).map(|(text, ..)| text).unwrap_or_default();
         if !text.is_empty() {
             self.start.handed = None;
         }
@@ -216,6 +183,13 @@ impl GoalsPane {
         });
     }
 
+    /// The project work starts in: the one in front of the workbench.
+    fn start_project(&self, cx: &App) -> Option<ProjectInfo> {
+        let bench = self.bench.upgrade()?;
+        let project = bench.read(cx).project().cloned();
+        project
+    }
+
     fn pick(&mut self, mode: StartMode, cx: &mut Context<Self>) {
         self.start.mode = mode;
         self.start.picked = true;
@@ -223,11 +197,13 @@ impl GoalsPane {
     }
 
     /// Brings an older or newer start back into the draft, as a chat's arrows do.
-    fn recall(&mut self, older: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((draft, _)) = self.start.draft.as_ref() else {
+    pub(super) fn recall(&mut self, older: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(bench) = self.bench.upgrade() else {
             return;
         };
-        let draft = draft.clone();
+        let Some(draft) = (bench.read(cx).composing(START)).map(|start| start.draft.clone()) else {
+            return;
+        };
         let typed = draft.read(cx).value().to_string();
         let start = &mut self.start;
         match crate::chat::step_prompts(&start.sent, &mut start.recalled, older, &typed) {
@@ -236,62 +212,17 @@ impl GoalsPane {
         }
     }
 
-    fn add_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: None,
-        });
-        cx.spawn_in(window, async move |pane, cx| {
-            if let Ok(Ok(Some(paths))) = picked.await {
-                let _ = pane.update(cx, |pane, cx| pane.attach(paths, cx));
-            }
-        })
-        .detach();
-    }
-
-    fn attach(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        let paths = paths.iter().map(|path| crate::chat::lasting(path));
-        self.start.files.extend(paths);
-        cx.notify();
-    }
-
-    /// Takes pictures and files pasted into the draft as files going with it.
-    fn pasted(&mut self, item: &ClipboardItem, cx: &mut Context<Self>) -> bool {
-        let mut taken = false;
-        for entry in item.entries() {
-            match entry {
-                ClipboardEntry::Image(image) => {
-                    let image = image.clone();
-                    let kept = cx.background_spawn(async move { kept_picture(image) });
-                    cx.spawn(async move |pane, cx| {
-                        if let Some(path) = kept.await {
-                            let _ = pane.update(cx, |pane, cx| pane.attach(vec![path], cx));
-                        }
-                    })
-                    .detach();
-                    taken = true;
-                }
-                ClipboardEntry::ExternalPaths(paths) => {
-                    self.attach(paths.paths().to_vec(), cx);
-                    taken = true;
-                }
-                ClipboardEntry::String(_) => {}
-            }
-        }
-        taken
-    }
-
     /// Starts the agent picked to take the work, adds the card that tracks it, held by that
     /// agent, then sends the agent what was written, saying which card is theirs and what to do.
     fn start_work(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.typed_text(cx);
+        let Some((text, paths, context)) = self.written(cx) else {
+            return;
+        };
         if text.is_empty() || self.busy {
             return;
         }
-        let (Some(launcher), Some(project)) = (self.start_launcher(cx), self.start_project(cx))
-        else {
+        let launcher = (self.bench.upgrade()).and_then(|bench| self.start_launcher(bench.read(cx)));
+        let (Some(launcher), Some(project)) = (launcher, self.start_project(cx)) else {
             self.said(
                 "No agent is set up to start; set one up from the agents rail",
                 cx,
@@ -299,14 +230,14 @@ impl GoalsPane {
             return;
         };
         if self.start.mode == StartMode::HandOff {
-            return self.hand_off(text, project, launcher, window, cx);
+            return self.hand_off(text, paths, project, launcher, window, cx);
         }
         let (started, agent) = oneshot::channel();
         let folder = project.path.to_string_lossy().into_owned();
         let here = Target::here(&self.asks);
         here.start_chat(launcher.id, project.id.clone(), None, Some(started));
         let (title, details) = titled(&text);
-        let (mode, files) = (self.start.mode, std::mem::take(&mut self.start.files));
+        let mode = self.start.mode;
         let Chosen { model, payer, .. } = self.start.chosen.clone();
         // An agent whose card could not be added would sit in an empty tab.
         let close = {
@@ -368,23 +299,18 @@ impl GoalsPane {
                 let Some(card) = card else {
                     return;
                 };
-                if let Some((draft, _)) = &pane.start.draft {
-                    draft.update(cx, |draft, cx| draft.set_value("", window, cx));
-                }
-                pane.start.sent.push(text.clone());
-                pane.start.cleared();
-                let _ = pane.bench.update(cx, |bench, _| {
+                pane.emptied(text.clone(), window, cx);
+                let _ = pane.bench.update(cx, |bench, cx| {
                     bench.call(
                         "openTab",
                         json!({ "project": project.id, "kind": "agent", "target": agent }),
                     );
+                    bench.show_workbench(cx);
                     bench.ask_chat(ChatAsk::Prompt {
                         agent: agent.clone(),
                         text: first_message(mode == StartMode::PlanFirst, card, &text),
-                        paths: (files.iter())
-                            .map(|path| path.to_string_lossy().into_owned())
-                            .collect(),
-                        context: Vec::new(),
+                        paths,
+                        context,
                         attach: false,
                     });
                 });
@@ -399,20 +325,18 @@ impl GoalsPane {
     fn hand_off(
         &mut self,
         text: String,
+        files: Vec<String>,
         project: ProjectInfo,
         launcher: LauncherInfo,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let files = std::mem::take(&mut self.start.files);
         let Chosen { model, payer, .. } = self.start.chosen.clone();
         let asked =
             Target::here(&self.asks).request_typed::<call::BoardHandOff>(BoardHandOffParams {
                 project: project.path.to_string_lossy().into_owned(),
                 text: text.clone(),
-                files: (files.iter())
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .collect(),
+                files,
                 launcher: Some(launcher.id),
                 model,
                 provider: payer,
@@ -426,11 +350,7 @@ impl GoalsPane {
                 match handed {
                     Ok(handed) => {
                         pane.take_one(handed.board);
-                        if let Some((draft, _)) = &pane.start.draft {
-                            draft.update(cx, |draft, cx| draft.set_value("", window, cx));
-                        }
-                        pane.start.sent.push(text);
-                        pane.start.cleared();
+                        pane.emptied(text, window, cx);
                         pane.start.handed = Some(handed.card);
                         pane.start._shown = cx.spawn(async move |pane, cx| {
                             cx.background_executor().timer(HANDED_SHOWN).await;
@@ -441,27 +361,13 @@ impl GoalsPane {
                         });
                         cx.emit(super::Moved);
                     }
-                    Err(error) => {
-                        pane.start.files = files;
-                        pane.said(&error, cx);
-                    }
+                    Err(error) => pane.said(&error, cx),
                 }
                 cx.notify();
             });
         })
         .detach();
     }
-}
-
-/// A pasted picture, written to the temporary folder so it can go with the message as a file.
-fn kept_picture(image: gpui_kit::Image) -> Option<PathBuf> {
-    let image = crate::pasted::readable(image);
-    let stamp = chrono::Local::now().format("pasted-%Y%m%d-%H%M%S%3f");
-    let folder = std::env::temp_dir().join("sikemux-drops");
-    std::fs::create_dir_all(&folder).ok()?;
-    let path = folder.join(format!("{stamp}.{}", image.format.extension()));
-    std::fs::write(&path, &image.bytes).ok()?;
-    Some(path)
 }
 
 /// A card title from what was typed: its first line, cut short, with the whole text as the
@@ -504,14 +410,14 @@ fn because_words(because: &Because) -> String {
 
 /// The line under the composer: the agent starting, or the card the last Hand off became, which
 /// opens it.
-fn notice(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> Option<Notice> {
+fn notice(pane: &GoalsPane, goals: &gpui_kit::WeakEntity<GoalsPane>) -> Option<Notice> {
     if pane.busy {
         return Some(Notice::Waiting("Starting the agent…".into()));
     }
     let card = pane.start.handed?;
-    let this = cx.weak_entity();
+    let goals = goals.clone();
     let open: Act = Rc::new(move |_, cx| {
-        let _ = this.update(cx, |pane, cx| pane.go(super::At::Slice(card), cx));
+        let _ = goals.update(cx, |pane, cx| pane.go(super::At::Slice(card), cx));
     });
     Some(Notice::Done(
         format!("Handed off as #{card}").into(),
@@ -521,19 +427,19 @@ fn notice(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> Option<Notice> {
 
 /// The agent menu of the composer, picking which agent, account, provider and model start.
 fn agent_menu(
-    pane: &GoalsPane,
+    chosen: &Chosen,
     shown: &LauncherInfo,
-    bench: &Entity<Workbench>,
-    cx: &mut Context<GoalsPane>,
+    bench: &Workbench,
+    goals: &gpui_kit::WeakEntity<GoalsPane>,
 ) -> Picked {
-    let launchers = bench.read(cx).launchers().to_vec();
+    let launchers = bench.launchers().to_vec();
     let mut model = shown.model.clone();
-    if let (Some(model), Some(chosen)) = (model.as_mut(), &pane.start.chosen.model) {
-        model.current = chosen.clone();
+    if let (Some(model), Some(picked)) = (model.as_mut(), &chosen.model) {
+        model.current = picked.clone();
     }
-    let this = cx.weak_entity();
+    let goals = goals.clone();
     let choose = move |cx: &mut App, change: &dyn Fn(&mut Chosen)| {
-        let _ = this.update(cx, |pane, cx| {
+        let _ = goals.update(cx, |pane, cx| {
             change(&mut pane.start.chosen);
             cx.notify();
         });
@@ -570,71 +476,55 @@ fn agent_menu(
             .split_once(':')
             .map(|(_, profile)| profile.to_owned()),
         model,
-        model_provider: pane.start.chosen.payer.clone(),
+        model_provider: chosen.payer.clone(),
         locked: false,
         pending: None,
         set,
         moving,
-        target: bench.read(cx).target(),
+        target: bench.target(),
     }
 }
 
-pub(super) fn start_box(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let (Some((draft, _)), Some(bench)) = (&pane.start.draft, pane.bench.upgrade()) else {
+/// Home's composer: the chat's, with where the work starts, the way it starts and the agent
+/// that takes it.
+pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> AnyElement {
+    let Some(goals) = bench.goals.clone() else {
         return div().into_any_element();
     };
-    let launcher = pane.start_launcher(cx);
+    let weak = goals.downgrade();
+    let (launcher, mode, suggested, chosen, notice) = {
+        let pane = goals.read(cx);
+        (
+            pane.start_launcher(bench),
+            pane.start.mode,
+            pane.start.suggested.clone(),
+            pane.start.chosen.clone(),
+            notice(pane, &weak),
+        )
+    };
     let provider = launcher.as_ref().map_or("", |launcher| &launcher.provider);
     let label = launcher.as_ref().map_or_else(
         || "No agent".to_owned(),
-        |launcher| bench.read(cx).agent_name(&launcher.provider).to_owned(),
+        |launcher| bench.agent_name(&launcher.provider).to_owned(),
     );
-    let this = cx.weak_entity();
-    let act = |this: &WeakEntity<GoalsPane>,
-               act: fn(&mut GoalsPane, &mut Window, &mut Context<GoalsPane>)|
-     -> Act {
-        let this = this.clone();
+    let on_send: Act = {
+        let this = cx.weak_entity();
         Rc::new(move |window, cx| {
-            let _ = this.update(cx, |pane, cx| act(pane, window, cx));
+            this.update(cx, |bench, cx| bench.send(START, false, window, cx))
+                .ok();
         })
     };
-    let on_send = act(&this, GoalsPane::start_work);
-    let on_add = act(&this, GoalsPane::add_files);
-    let on_paste = {
-        let this = this.clone();
-        Rc::new(move |item: &ClipboardItem, _: &mut Window, cx: &mut App| {
-            this.update(cx, |pane, cx| pane.pasted(item, cx))
-                .unwrap_or(false)
-        })
-    };
-    let remove = {
-        let this = this.clone();
-        move |index: usize, _: &mut Window, cx: &mut App| {
-            let _ = this.update(cx, |pane, cx| {
-                if index < pane.start.files.len() {
-                    pane.start.files.remove(index);
-                }
-                cx.notify();
-            });
-        }
-    };
-    let open = {
-        let bench = bench.downgrade();
-        move |path: PathBuf, window: &mut Window, cx: &mut App| {
-            let _ = bench.update(cx, |bench, cx| bench.show_picture(path, window, cx));
-        }
-    };
-    let tiles = crate::chat::tiles(
-        &pane.start.files,
-        &[],
-        remove,
-        |_, _, _| {},
-        open,
-        Some(&pane.asks),
+    let Some((mut composer, offering)) = crate::chat::drafting(
+        bench,
+        START,
+        provider,
+        label,
+        (on_send, Rc::new(|_, _| {})),
         cx,
-    )
-    .map(IntoElement::into_any_element);
-    let strip = pane.start_project(cx).map(|project| {
+    ) else {
+        return div().into_any_element();
+    };
+    let strip = bench.project().map(|project| {
         let folder = project.path.to_string_lossy().into_owned();
         Strip {
             host: None,
@@ -647,50 +537,37 @@ pub(super) fn start_box(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
             account: None,
         }
     });
-    let chosen = MODES
+    let at = MODES
         .iter()
-        .position(|(mode, ..)| *mode == pane.start.mode)
+        .position(|(each, ..)| *each == mode)
         .unwrap_or(0);
     let words = MODES
         .iter()
         .map(|(_, name, _)| (SharedString::from(*name), None))
         .collect();
     let tips = MODES.iter().map(|(.., tip)| SharedString::from(*tip));
-    let mut modes = Segmented::words("start-mode", words, chosen)
+    let picking = weak.clone();
+    let mut modes = Segmented::words("start-mode", words, at)
         .tooltips(tips)
-        .on_select(cx.listener(|pane, chosen: &usize, _, cx| {
+        .on_select(move |chosen: &usize, _, cx| {
             if let Some((mode, ..)) = MODES.get(*chosen) {
-                pane.pick(*mode, cx);
+                let _ = picking.update(cx, |pane, cx| pane.pick(*mode, cx));
             }
-        }));
-    if let Some((mode, because)) = &pane.start.suggested {
+        });
+    if let Some((mode, because)) = &suggested {
         let at = MODES.iter().position(|(each, ..)| each == mode);
         let why = because.as_ref().map(because_words);
         if let (Some(at), Some(why)) = (at, why) {
             modes = modes.suggested(at, why);
         }
     }
-    let mut composer = Composer::new(draft, provider, label, on_send, Rc::new(|_, _| {}))
-        .strip(strip)
-        .attachments(
-            tiles,
-            on_add,
-            on_paste,
-            crate::chat::chip(bench.downgrade()),
-        )
-        .aside(modes)
-        .notice(notice(pane, cx));
+    composer = composer.strip(strip).aside(modes);
+    if notice.is_some() {
+        composer = composer.notice(notice);
+    }
     if let Some(launcher) = &launcher {
-        composer = composer.model_menu(agent_menu(pane, launcher, &bench, cx), bench.clone());
+        let picked = agent_menu(&chosen, launcher, bench, &weak);
+        composer = composer.model_menu(picked, cx.entity());
     }
-    if let Some(mic) = &pane.start.mic {
-        let heard = bench.read(cx).voice.read(cx).heard_for(START_DRAFT);
-        composer = composer.dictation(mic.clone(), heard);
-    }
-    div()
-        .key_context("ChatComposer")
-        .on_action(cx.listener(|pane, _: &OlderPrompt, window, cx| pane.recall(true, window, cx)))
-        .on_action(cx.listener(|pane, _: &NewerPrompt, window, cx| pane.recall(false, window, cx)))
-        .child(composer)
-        .into_any_element()
+    crate::chat::mounted(START, composer, offering, cx).into_any_element()
 }

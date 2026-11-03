@@ -4,6 +4,48 @@
 use super::*;
 use sikemux_core::server::{call, QueuedMessage, QueuedParams};
 
+/// The composer at the bottom of the goals' Home, which starts work rather than writing to a
+/// chat; every other composer goes by the agent whose chat it writes to.
+pub const START: &str = "goals-start";
+
+impl Workbench {
+    /// The composer `owner` names: Home's, else the chat's of that agent.
+    pub fn composing(&self, owner: &str) -> Option<&Composing> {
+        match owner {
+            START => self.chats.start.as_ref(),
+            agent => self.chats.open.get(agent)?.composer.as_ref(),
+        }
+    }
+
+    pub fn composing_mut(&mut self, owner: &str) -> Option<&mut Composing> {
+        match owner {
+            START => self.chats.start.as_mut(),
+            agent => self.chats.open.get_mut(agent)?.composer.as_mut(),
+        }
+    }
+
+    /// Empties `owner`'s composer once what it held has gone, and keeps it so.
+    pub fn emptied(&mut self, owner: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(composing) = self.composing_mut(owner) else {
+            return;
+        };
+        composing.attachments.clear();
+        composing.context.clear();
+        composing.tracked_context.clear();
+        composing.menu = None;
+        let draft = composing.draft.clone();
+        draft.update(cx, |draft, cx| draft.set_value("", window, cx));
+        self.keep_draft(owner, cx);
+    }
+
+    /// Every composer made, with what names it.
+    pub fn composers(&self) -> impl Iterator<Item = (&str, &Composing)> {
+        let chats = (self.chats.open.iter())
+            .filter_map(|(agent, chat)| Some((agent.as_str(), chat.composer.as_ref()?)));
+        chats.chain(self.chats.start.as_ref().map(|start| (START, start)))
+    }
+}
+
 /// A card over the composer the agent waits on the person for.
 #[derive(Clone)]
 pub(super) enum Waiting {
@@ -107,18 +149,7 @@ pub(super) fn select_chip(
     let (agent, this) = (agent.to_owned(), cx.weak_entity());
     move |_, _, cx| {
         let draft = this
-            .update(cx, |bench, _| {
-                Some(
-                    bench
-                        .chats
-                        .open
-                        .get(&agent)?
-                        .composer
-                        .as_ref()?
-                        .draft
-                        .clone(),
-                )
-            })
+            .update(cx, |bench, _| Some(bench.composing(&agent)?.draft.clone()))
             .ok()
             .flatten();
         let Some(draft) = draft else {
@@ -204,14 +235,23 @@ pub(super) fn stop_turn(
 /// only it again rather than the chat around it.
 pub struct ComposerView {
     pub bench: WeakEntity<Workbench>,
+    /// The composer it draws, as [`Workbench::composing`] names it.
+    pub owner: String,
     /// The chat's agent as the stage last drew it.
     pub agent: Option<AgentRow>,
     /// Whether the stage docked questions, subagents, tasks or queued messages on the composer.
     pub covered: bool,
+    /// Draws it again as what it starts with changes, for Home's, which the goals hold.
+    pub _follows: Option<Subscription>,
 }
 
 impl gpui::Render for ComposerView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.owner == START {
+            return (self.bench)
+                .update(cx, crate::goals::start_composer)
+                .unwrap_or_else(|_| div().into_any_element());
+        }
         let Some(agent) = self.agent.clone() else {
             return div().into_any_element();
         };
@@ -236,63 +276,73 @@ pub(super) fn mounted_composer(
     covered: bool,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
-    let id = &agent.id;
-    composer(bench, agent, chat, cx)
-        .map(|(composer, offering)| {
-            let composer = composer.covered(covered);
-            div()
-                .key_context("ChatComposer")
-                .capture_action(select_chip(id, cx))
-                .on_action(recall::<OlderPrompt>(id, true, cx))
-                .on_action(recall::<NewerPrompt>(id, false, cx))
-                .on_action(stop_turn(id, cx))
-                .on_action({
-                    let (agent, this) = (id.clone(), cx.weak_entity());
-                    move |_: &StashPrompt, _: &mut Window, cx: &mut App| {
-                        this.update(cx, |bench, cx| bench.stash_prompt(&agent, cx))
-                            .ok();
-                    }
-                })
-                .child(
-                    div()
-                        .when(offering, |menu| {
-                            menu.key_context("ComposerMenu")
-                                .on_action(offered::<MenuUp>(
-                                    id,
-                                    |bench, agent, _, cx| bench.pick_choice(agent, -1, cx),
-                                    cx,
-                                ))
-                                .on_action(offered::<MenuDown>(
-                                    id,
-                                    |bench, agent, _, cx| bench.pick_choice(agent, 1, cx),
-                                    cx,
-                                ))
-                                .on_action(offered::<MenuPick>(
-                                    id,
-                                    |bench, agent, window, cx| {
-                                        bench.take_choice(agent, None, window, cx)
-                                    },
-                                    cx,
-                                ))
-                                .on_action(offered::<MenuClose>(
-                                    id,
-                                    |bench, agent, _, cx| bench.dismiss_menu(agent, cx),
-                                    cx,
-                                ))
-                        })
-                        .child(composer),
-                )
-        })
-        .map(IntoElement::into_any_element)
+    let (composer, offering) = composer(bench, agent, chat, cx)?;
+    Some(mounted(&agent.id, composer.covered(covered), offering, cx).into_any_element())
 }
 
-pub(super) fn composer(
+/// `owner`'s composer with the keys every composer takes: Backspace onto a chip, the arrows
+/// through sent prompts, Escape to stop the turn, ⌘S to stash, and the menu's keys while it
+/// offers something. Keys a composer has no use for go on to what holds it.
+pub fn mounted(
+    owner: &str,
+    composer: Composer,
+    offering: bool,
+    cx: &mut Context<Workbench>,
+) -> gpui_kit::Div {
+    div()
+        .key_context("ChatComposer")
+        .capture_action(select_chip(owner, cx))
+        .on_action(recall::<OlderPrompt>(owner, true, cx))
+        .on_action(recall::<NewerPrompt>(owner, false, cx))
+        .on_action(stop_turn(owner, cx))
+        .on_action({
+            let (owner, this) = (owner.to_owned(), cx.weak_entity());
+            move |_: &StashPrompt, _: &mut Window, cx: &mut App| {
+                this.update(cx, |bench, cx| bench.stash_prompt(&owner, cx))
+                    .ok();
+            }
+        })
+        .child(
+            div()
+                .when(offering, |menu| {
+                    menu.key_context("ComposerMenu")
+                        .on_action(offered::<MenuUp>(
+                            owner,
+                            |bench, owner, _, cx| bench.pick_choice(owner, -1, cx),
+                            cx,
+                        ))
+                        .on_action(offered::<MenuDown>(
+                            owner,
+                            |bench, owner, _, cx| bench.pick_choice(owner, 1, cx),
+                            cx,
+                        ))
+                        .on_action(offered::<MenuPick>(
+                            owner,
+                            |bench, owner, window, cx| bench.take_choice(owner, None, window, cx),
+                            cx,
+                        ))
+                        .on_action(offered::<MenuClose>(
+                            owner,
+                            |bench, owner, _, cx| bench.dismiss_menu(owner, cx),
+                            cx,
+                        ))
+                })
+                .child(composer),
+        )
+}
+
+/// What every composer offers, whatever it sends to: the files and chips going with the
+/// message, the menu over the word at the caret, dictation, and why the core turned the last
+/// message down or that it was just stashed; and whether the menu is open over it.
+pub fn drafting(
     bench: &Workbench,
-    agent: &AgentRow,
-    chat: &Chat,
+    owner: &str,
+    provider: &str,
+    label: String,
+    (on_send, on_stop): (Act, Act),
     cx: &mut Context<Workbench>,
 ) -> Option<(Composer, bool)> {
-    let composing = chat.composer.as_ref()?;
+    let composing = bench.composing(owner)?;
     let shown = composing
         .menu
         .as_ref()
@@ -301,62 +351,28 @@ pub(super) fn composer(
         let repo = (bench.project())
             .and_then(|project| project.code_host.as_ref())
             .map(|host| host.repo.clone());
-        mention::dock(bench, &agent.id, menu, repo.as_deref(), cx)
+        mention::dock(bench, owner, menu, repo.as_deref(), cx)
     });
-    let tray = shown
-        .and_then(|menu| menu.tray())
-        .map(|tray| crate::stash::tray(bench, &agent.id, &tray, cx));
-    let tray_open = tray.is_some();
-    let offering = dock.is_some() || tray_open;
-    let head = chat.state.as_ref();
-    let kind = bench.reads.catalog.kind(&agent.provider);
-    let label = bench.agent_name(&agent.provider).to_owned();
-    let reads_models = matches!(
-        kind.and_then(|kind| kind.chat),
-        Some(Driver::Claude | Driver::Codex)
-    );
+    let offering = dock.is_some();
     let this = cx.weak_entity();
-    let on_send = {
-        let (this, agent) = (this.clone(), agent.id.clone());
-        Rc::new(move |window: &mut Window, cx: &mut App| {
-            this.update(cx, |bench, cx| bench.send(&agent, false, window, cx))
-                .ok();
-        })
-    };
-    let on_stop = {
-        let (this, agent) = (this.clone(), agent.id.clone());
-        Rc::new(move |window: &mut Window, cx: &mut App| {
-            this.update(cx, |bench, cx| bench.stop(&agent, window, cx))
-                .ok();
-        })
-    };
-    let saved = bench.shown().and_then(|view| {
-        view.workspace
-            .agents
-            .iter()
-            .find(|saved| saved.id == agent.id)
-    });
-    let fresh = chat.is_empty(cx)
-        && saved.is_some_and(|saved| saved.resume_id.is_none() && saved.worktree.is_none());
-    let strip = saved.map(|saved| strip(bench, agent, saved, fresh, head, cx));
     let on_add = {
-        let (this, agent) = (this.clone(), agent.id.clone());
+        let (this, owner) = (this.clone(), owner.to_owned());
         Rc::new(move |window: &mut Window, cx: &mut App| {
-            this.update(cx, |bench, cx| bench.add_files(&agent, window, cx))
+            this.update(cx, |bench, cx| bench.add_files(&owner, window, cx))
                 .ok();
         })
     };
     let remove = {
-        let (this, agent) = (this.clone(), agent.id.clone());
+        let (this, owner) = (this.clone(), owner.to_owned());
         move |index: usize, window: &mut Window, cx: &mut App| {
-            this.update(cx, |bench, cx| bench.detach(&agent, index, window, cx))
+            this.update(cx, |bench, cx| bench.detach(&owner, index, window, cx))
                 .ok();
         }
     };
     let forget = {
-        let (this, agent) = (this.clone(), agent.id.clone());
+        let (this, owner) = (this.clone(), owner.to_owned());
         move |index: usize, _: &mut Window, cx: &mut App| {
-            this.update(cx, |bench, cx| bench.forget(&agent, index, cx))
+            this.update(cx, |bench, cx| bench.forget(&owner, index, cx))
                 .ok();
         }
     };
@@ -377,25 +393,89 @@ pub(super) fn composer(
         cx,
     )
     .map(IntoElement::into_any_element);
-    let mut composer = Composer::new(&composing.draft, &agent.provider, label, on_send, on_stop)
-        .notice(
-            installing::notice(bench, composing, &this)
-                .or_else(|| {
-                    composing
-                        .refusal
-                        .clone()
-                        .map(|refusal| Notice::Refused(refusal, None))
-                })
-                .or_else(|| {
-                    let id = composing.stashed.clone()?;
-                    let (this, agent) = (this.clone(), agent.id.clone());
-                    let undo: Act = Rc::new(move |_: &mut Window, cx: &mut App| {
-                        this.update(cx, |bench, cx| bench.unstash_prompt(&agent, &id, cx))
-                            .ok();
-                    });
-                    Some(Notice::Done("Stashed".into(), ("Undo".into(), undo)))
-                }),
+    let notice = composing
+        .refusal
+        .clone()
+        .map(|refusal| Notice::Refused(refusal, None))
+        .or_else(|| {
+            let id = composing.stashed.clone()?;
+            let (this, owner) = (this.clone(), owner.to_owned());
+            let undo: Act = Rc::new(move |_: &mut Window, cx: &mut App| {
+                this.update(cx, |bench, cx| bench.unstash_prompt(&owner, &id, cx))
+                    .ok();
+            });
+            Some(Notice::Done("Stashed".into(), ("Undo".into(), undo)))
+        });
+    let composer = Composer::new(&composing.draft, provider, label, on_send, on_stop)
+        .notice(notice)
+        .attachments(
+            tiles,
+            on_add,
+            Rc::new(attach::on_paste(owner, cx)),
+            attach::chip(cx.weak_entity()),
         )
+        .dictation(composing.mic.clone(), bench.voice.read(cx).heard_for(owner))
+        .menu(dock);
+    Some((composer, offering))
+}
+
+pub(super) fn composer(
+    bench: &Workbench,
+    agent: &AgentRow,
+    chat: &Chat,
+    cx: &mut Context<Workbench>,
+) -> Option<(Composer, bool)> {
+    let composing = chat.composer.as_ref()?;
+    let tray = composing
+        .menu
+        .as_ref()
+        .filter(|menu| menu.answers(composing.draft.read(cx)))
+        .and_then(|menu| menu.tray())
+        .map(|tray| crate::stash::tray(bench, &agent.id, &tray, cx));
+    let tray_open = tray.is_some();
+    let head = chat.state.as_ref();
+    let kind = bench.reads.catalog.kind(&agent.provider);
+    let label = bench.agent_name(&agent.provider).to_owned();
+    let reads_models = matches!(
+        kind.and_then(|kind| kind.chat),
+        Some(Driver::Claude | Driver::Codex)
+    );
+    let this = cx.weak_entity();
+    let on_send: Act = {
+        let (this, agent) = (this.clone(), agent.id.clone());
+        Rc::new(move |window: &mut Window, cx: &mut App| {
+            this.update(cx, |bench, cx| bench.send(&agent, false, window, cx))
+                .ok();
+        })
+    };
+    let on_stop: Act = {
+        let (this, agent) = (this.clone(), agent.id.clone());
+        Rc::new(move |window: &mut Window, cx: &mut App| {
+            this.update(cx, |bench, cx| bench.stop(&agent, window, cx))
+                .ok();
+        })
+    };
+    let (mut composer, offering) = drafting(
+        bench,
+        &agent.id,
+        &agent.provider,
+        label,
+        (on_send, on_stop),
+        cx,
+    )?;
+    let saved = bench.shown().and_then(|view| {
+        view.workspace
+            .agents
+            .iter()
+            .find(|saved| saved.id == agent.id)
+    });
+    let fresh = chat.is_empty(cx)
+        && saved.is_some_and(|saved| saved.resume_id.is_none() && saved.worktree.is_none());
+    let strip = saved.map(|saved| strip(bench, agent, saved, fresh, head, cx));
+    if let Some(installing) = installing::notice(bench, composing, &this) {
+        composer = composer.notice(Some(installing));
+    }
+    composer = composer
         .text_scale(chat.scale)
         .stash(crate::stash::Stash::of(bench).fresh_count(), tray_open, {
             let (this, agent) = (this.clone(), agent.id.clone());
@@ -405,17 +485,7 @@ pub(super) fn composer(
             })
         })
         .tray(tray)
-        .attachments(
-            tiles,
-            on_add,
-            Rc::new(attach::on_paste(&agent.id, cx)),
-            attach::chip(cx.weak_entity()),
-        )
         .strip(strip)
-        .dictation(
-            composing.mic.clone(),
-            bench.voice.read(cx).heard_for(&agent.id),
-        )
         .ready(head.is_some_and(|head| head.connection == ChatConnection::Ready))
         .running(chat.running())
         .steers(bench.preferences().mid_turn_send == MidTurnSend::Steer)
@@ -486,7 +556,7 @@ pub(super) fn composer(
             }),
         );
     }
-    Some((composer.menu(dock), offering))
+    Some((composer, offering || tray_open))
 }
 
 /// Where the chat runs, for the strip docked on its composer: its project, which names a

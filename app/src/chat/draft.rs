@@ -3,7 +3,6 @@
 //! A draft from elsewhere replaces this one only while nothing was typed here since the two
 //! last agreed, so the person's own words are never overwritten.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -131,29 +130,29 @@ fn rev(drafts: &Drafts, agent: &str) -> u64 {
     drafts.get(&key(agent)).map_or(0, |draft| draft.rev)
 }
 
-/// Takes the drafts the core keeps into every open composer, of chats on this host or
-/// `elsewhere`, that has not moved on.
+/// Takes the drafts the core keeps into every composer, of chats on this host or `elsewhere`,
+/// that has not moved on; Home's is this host's.
 pub fn take(
-    open: &mut HashMap<String, super::Chat>,
+    chats: &mut super::Chats,
     drafts: &Drafts,
     elsewhere: bool,
     cx: &mut Context<Workbench>,
 ) {
-    for (agent, chat) in open {
-        if is_elsewhere(chat) != elsewhere {
-            continue;
-        }
-        let Some(composing) = chat.composer.as_mut() else {
-            continue;
-        };
-        let draft = held(drafts, agent);
+    let open = (chats.open.iter_mut())
+        .filter(|(_, chat)| is_elsewhere(chat) == elsewhere)
+        .filter_map(|(agent, chat)| Some((agent.as_str(), chat.composer.as_mut()?)));
+    let start = (chats.start.as_mut())
+        .filter(|_| !elsewhere)
+        .map(|start| (super::START, start));
+    for (owner, composing) in open.chain(start) {
+        let draft = held(drafts, owner);
         if draft == composing.synced {
-            composing.read_rev = rev(drafts, agent);
+            composing.read_rev = rev(drafts, owner);
             continue;
         }
         let shown = kept(composing, cx);
         if shown == composing.synced {
-            composing.arrived = Some((restored(&draft), shown, rev(drafts, agent)));
+            composing.arrived = Some((restored(&draft), shown, rev(drafts, owner)));
             cx.notify();
         }
         composing.synced = draft;
@@ -178,12 +177,7 @@ impl Workbench {
 
     /// Keeps `agent`'s draft once the person pauses.
     pub fn typed_draft(&mut self, agent: &str, cx: &mut Context<Self>) {
-        let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        else {
+        let Some(composing) = self.composing_mut(agent) else {
             return;
         };
         let agent = agent.to_owned();
@@ -196,12 +190,7 @@ impl Workbench {
     }
 
     pub fn keep_draft(&mut self, agent: &str, cx: &mut Context<Self>) {
-        let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        else {
+        let Some(composing) = self.composing_mut(agent) else {
             return;
         };
         let draft = kept(composing, cx);
@@ -215,7 +204,11 @@ impl Workbench {
             extra: draft.get("extra").cloned(),
             rev: Some(composing.read_rev),
         };
-        self.chat_target(agent).call_typed::<call::SetDraft>(params);
+        let target = match agent {
+            super::START => crate::core::Target::here(&self.asks),
+            chat => self.chat_target(chat),
+        };
+        target.call_typed::<call::SetDraft>(params);
     }
 }
 

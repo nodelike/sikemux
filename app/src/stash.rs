@@ -10,7 +10,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, img, px, AnyElement, App, Bounds, Context, Div, FontWeight, InteractiveElement,
     IntoElement, ObjectFit, ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement,
-    Styled, StyledImage, Window,
+    Styled, StyledImage, WeakEntity, Window,
 };
 use serde_json::json;
 use sikemux_core::server::{
@@ -303,12 +303,7 @@ impl Workbench {
                 .update(cx, |bench, cx| match answer {
                     Ok(kept) => {
                         let id = Some(kept.id);
-                        if let Some(composing) = bench
-                            .chats
-                            .open
-                            .get_mut(&agent)
-                            .and_then(|chat| chat.composer.as_mut())
-                        {
+                        if let Some(composing) = bench.composing_mut(&agent) {
                             composing.stashed = id.clone();
                         }
                         cx.notify();
@@ -318,10 +313,7 @@ impl Workbench {
                             bench
                                 .update(cx, |bench, cx| {
                                     if let Some(composing) = bench
-                                        .chats
-                                        .open
-                                        .get_mut(&agent)
-                                        .and_then(|chat| chat.composer.as_mut())
+                                        .composing_mut(&agent)
                                         .filter(|composing| composing.stashed == id)
                                     {
                                         composing.stashed = None;
@@ -344,12 +336,7 @@ impl Workbench {
 
     /// Puts the prompt just stashed from `agent`'s draft back, and takes it off the Stash.
     pub fn unstash_prompt(&mut self, agent: &str, id: &str, cx: &mut Context<Self>) {
-        if let Some(composing) = self
-            .chats
-            .open
-            .get_mut(agent)
-            .and_then(|chat| chat.composer.as_mut())
-        {
+        if let Some(composing) = self.composing_mut(agent) {
             composing.stashed = None;
         }
         let target = self.chat_target(agent);
@@ -1744,8 +1731,8 @@ fn actions(
 }
 
 /// Takes stash items dropped on `agent`'s chat into its draft.
-pub fn takes_drops(pane: Div, agent: &str, cx: &mut Context<Workbench>) -> Div {
-    let (agent, this) = (agent.to_owned(), cx.weak_entity());
+pub fn takes_drops(pane: Div, agent: &str, this: WeakEntity<Workbench>) -> Div {
+    let agent = agent.to_owned();
     pane.on_drop(move |dropped: &DraggedStash, _: &mut Window, cx| {
         this.update(cx, |bench, cx| {
             bench.add_from_stash(&agent, vec![dropped.id.clone()], cx)

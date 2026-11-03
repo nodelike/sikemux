@@ -86,8 +86,10 @@ mod tools;
 pub(crate) use installing::installs_moved;
 mod worktree;
 
-pub use attach::{chip, lasting, tiles};
-pub use composing::{dictate, step_prompts, ComposeStage, ComposerView, Composing, Sent};
+pub use attach::{drop_hint, lasting, takes_drops};
+pub use composing::{
+    dictate, drafting, mounted, step_prompts, ComposeStage, ComposerView, Composing, Sent, START,
+};
 pub use draft::key as draft_key;
 pub use questions::{question_keys, Answering, Question};
 
@@ -483,6 +485,8 @@ impl Reading {
 pub struct Chats {
     /// The chats of the agents with a tab open, by agent id.
     pub open: HashMap<String, Chat>,
+    /// The goals' Home composer, made the first time they show.
+    pub start: Option<Composing>,
     /// The chat in front and whether its session was ready when its draft last took the keys.
     pub(crate) focused: Option<(String, bool)>,
     /// Text handed to agents whose composer is not made yet, put in once it is.
@@ -1563,7 +1567,8 @@ pub fn pane(
         .flex()
         .flex_col()
         .when(composing, |pane| {
-            crate::stash::takes_drops(attach::takes_drops(pane, id, cx), id, cx)
+            let bench = cx.weak_entity();
+            crate::stash::takes_drops(attach::takes_drops(pane, id, bench.clone()), id, bench)
         })
         .when(asking, |pane| {
             question_keys(pane, id, true, &cx.weak_entity())
@@ -1585,7 +1590,8 @@ pub fn pane(
             composing.view.clone().into_element().isolated()
         }))
         .when(composing && cx.has_active_drag(), |pane| {
-            pane.child(gpui_kit::deferred(attach::drop_hint(cx)))
+            let hint = attach::drop_hint("Drop files or folders into this session", cx);
+            pane.child(gpui_kit::deferred(hint))
         });
     let this = cx.weak_entity();
     let agent = id.to_owned();
