@@ -46,7 +46,7 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
         .when_some(goal.filter(|goal| goal.id != id), |view, goal| {
             let goal_id = goal.id;
             view.child(
-                crumb("slice-back", goal.title.clone(), cx)
+                crumb("slice-back", super::goal_name(goal), cx)
                     .on_click(cx.listener(move |pane, _, _, cx| pane.go(At::Goal(goal_id), cx))),
             )
         })

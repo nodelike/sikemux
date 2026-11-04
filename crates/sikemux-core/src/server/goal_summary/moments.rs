@@ -75,13 +75,33 @@ pub(super) struct Gap {
     pub sentence: String,
 }
 
+impl Gathered {
+    /// Puts `moment` where its time falls, with what a summary must say of it if the model
+    /// does not.
+    pub(super) fn insert(&mut self, moment: Moment, gap: Option<String>) {
+        let at = moment.source.at;
+        let place = self.moments.partition_point(|known| known.source.at <= at);
+        self.moments.insert(place, moment);
+        for gap in self.gaps.iter_mut().filter(|gap| gap.moment >= place) {
+            gap.moment += 1;
+        }
+        self.gaps.extend(gap.map(|sentence| Gap {
+            moment: place,
+            sentence,
+        }));
+    }
+}
+
 pub(super) struct Gathered {
+    pub card: u64,
     pub title: String,
     pub title_is_chopped: bool,
     pub moments: Vec<Moment>,
     pub gaps: Vec<Gap>,
     pub recorded: Vec<String>,
     pub left_out: Vec<LeftOut>,
+    /// The pull requests the goal's cards hold, with when each card last moved.
+    pub pulls: Vec<(u64, u64)>,
     /// The agent to ask and the account its goal runs on; none when no agent of the goal's
     /// vendor can be asked.
     pub asked: Option<(AgentKind, Option<String>)>,
@@ -106,7 +126,13 @@ fn source(kind: SourceKind, at: u64, who: Option<String>, text: String) -> Summa
     }
 }
 
-fn fact(kind: SourceKind, at: u64, who: Option<String>, text: &str, open: SourceLink) -> Moment {
+pub(super) fn fact(
+    kind: SourceKind,
+    at: u64,
+    who: Option<String>,
+    text: &str,
+    open: SourceLink,
+) -> Moment {
     let mut source = source(kind, at, who, clipped(&one_line(text), MAX_FACT_CHARS));
     source.open = Some(open);
     Moment {
@@ -746,6 +772,11 @@ fn bounded(moments: Vec<Moment>, gaps: Vec<(usize, String)>) -> (Vec<Moment>, Ve
     (kept, gaps)
 }
 
+/// Whether a card's title is only the start of its details, as one made from a prompt is.
+pub(crate) fn title_is_chopped(title: &str, details: &str) -> bool {
+    details.len() > title.len() && details.starts_with(title.trim_end_matches('…'))
+}
+
 /// The moments of goal `card` of `project`, or none when there is no such goal or no agent on it.
 pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> {
     let board = board::project_view(core, project);
@@ -820,11 +851,13 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
     goal_facts(core, goal, &cards, &mut moments, &mut gaps);
     held(core, &workers, &mut moments);
     let (moments, gaps) = bounded(moments, gaps);
-    let title_is_chopped = goal.details.len() > goal.title.len()
-        && goal.details.starts_with(goal.title.trim_end_matches('…'));
+    let pulls = (cards.iter())
+        .filter_map(|card| Some((card.auto.as_ref()?.pull.as_ref()?.number, card.updated_at)))
+        .collect();
     Some(Gathered {
+        card: goal.id,
         title: goal.title.clone(),
-        title_is_chopped,
+        title_is_chopped: title_is_chopped(&goal.title, &goal.details),
         moments,
         gaps,
         recorded: (goal.decisions.iter())
@@ -832,6 +865,7 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
             .map(|kept| kept.text.clone())
             .collect(),
         left_out,
+        pulls,
         asked: asked_kind.map(|kind| (kind, account)),
         lead_label,
     })

@@ -5,7 +5,7 @@
 use gpui_kit::{AnyElement, Context, IntoElement, SharedString, Styled};
 use sikemux_wire::protocol::WindowView;
 
-use super::{goal_mark, goals_of, state_mark, At, GoalsPane};
+use super::{goal_mark, goal_name, goals_of, state_mark, At, GoalsPane};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::ui::{self, Row};
@@ -69,7 +69,7 @@ pub fn goal_rows(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Vec<A
         let goals = goals.clone();
         Row::new(
             SharedString::from(format!("rail-goal-{id}")),
-            goal.title.clone(),
+            goal_name(goal),
         )
         .mark(16., state_mark(goal_mark(goal), cx))
         .chosen(open)

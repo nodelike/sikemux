@@ -7,6 +7,7 @@
 
 mod answer;
 mod moments;
+mod pulls;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::slice::{GoalSummary, GoalSummaryParams, GoalSummaryView};
 use tokio::sync::Semaphore;
 
+pub(crate) use self::moments::title_is_chopped;
 use self::moments::Gathered;
 use super::board;
 use super::changed::Topic;
@@ -25,6 +27,8 @@ use super::connection::blocking;
 use super::Core;
 
 const FOLDER: &str = "goal-summaries";
+/// The short names summaries gave their goals, read by every view of a board.
+const TITLES: &str = "titles.json";
 /// Summaries kept across every project; past this the longest unwritten goes.
 const MAX_FILES: usize = 128;
 /// Goals read and written at once.
@@ -37,6 +41,8 @@ pub(crate) struct Summaries {
     /// The goals being looked at now, and whether a model is writing for each.
     busy: Mutex<HashMap<Goal, bool>>,
     turns: Arc<Semaphore>,
+    /// The short name each goal's latest summary gave it, the longest unchanged first.
+    titles: Mutex<Vec<(Goal, String)>>,
 }
 
 /// What the file of one goal holds.
@@ -59,11 +65,44 @@ struct Failed {
 
 impl Summaries {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        let folder = data_dir.map(|dir| dir.join(FOLDER));
+        let titles = (folder.as_ref())
+            .and_then(|folder| std::fs::read(folder.join(TITLES)).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
         Self {
-            folder: data_dir.map(|dir| dir.join(FOLDER)),
+            folder,
             busy: Mutex::default(),
             turns: Arc::new(Semaphore::new(MAX_AT_ONCE)),
+            titles: Mutex::new(titles),
         }
+    }
+
+    /// The short name a summary gave goal `card` of `project`, when one has.
+    pub(crate) fn title(&self, project: &str, card: u64) -> Option<String> {
+        (self.titles.locked().iter())
+            .find(|((known, id), _)| *id == card && known == project)
+            .map(|(_, title)| title.clone())
+    }
+
+    /// Keeps the short name a summary gave `goal`; whether that changed it.
+    fn name(&self, goal: &Goal, title: String) -> bool {
+        let mut titles = self.titles.locked();
+        let known = titles.iter().position(|(named, _)| named == goal);
+        if known.is_some_and(|at| titles[at].1 == title) {
+            return false;
+        }
+        if let Some(at) = known {
+            titles.remove(at);
+        }
+        titles.push((goal.clone(), title));
+        if titles.len() > MAX_FILES {
+            titles.remove(0);
+        }
+        if let Some(folder) = &self.folder {
+            write_whole(&folder.join(TITLES), &*titles);
+        }
+        true
     }
 
     fn file(&self, (project, card): &Goal) -> Option<PathBuf> {
@@ -84,18 +123,25 @@ impl Summaries {
         let (Some(folder), Some(file)) = (self.folder.as_ref(), self.file(goal)) else {
             return;
         };
-        let saved = std::fs::create_dir_all(folder)
-            .map_err(|error| error.to_string())
-            .and_then(|()| serde_json::to_vec(written).map_err(|error| error.to_string()))
-            .and_then(|bytes| {
-                let writing = file.with_extension("writing");
-                std::fs::write(&writing, bytes).map_err(|error| error.to_string())?;
-                std::fs::rename(writing, &file).map_err(|error| error.to_string())
-            });
-        if let Err(error) = saved {
-            eprintln!("sikemux core: a goal's summary was not kept: {error}");
-        }
+        write_whole(&file, written);
         forget_oldest(folder);
+    }
+}
+
+/// Writes `value` to the file at `path`, which appears whole.
+fn write_whole(path: &Path, value: &impl Serialize) {
+    let saved = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .map_err(|error| error.to_string())
+        .and_then(|()| serde_json::to_vec(value).map_err(|error| error.to_string()))
+        .and_then(|bytes| {
+            let writing = path.with_extension("writing");
+            std::fs::write(&writing, bytes).map_err(|error| error.to_string())?;
+            std::fs::rename(writing, path).map_err(|error| error.to_string())
+        });
+    if let Err(error) = saved {
+        eprintln!("sikemux core: a goal's summary was not kept: {error}");
     }
 }
 
@@ -105,6 +151,7 @@ fn forget_oldest(folder: &Path) {
     };
     let mut files: Vec<_> = files
         .flatten()
+        .filter(|file| file.file_name() != TITLES)
         .filter_map(|file| Some((file.metadata().ok()?.modified().ok()?, file.path())))
         .collect();
     if files.len() <= MAX_FILES {
@@ -164,12 +211,21 @@ fn start(core: &Arc<Core>, goal: Goal, again: bool) {
     let core = core.clone();
     tokio::spawn(async move {
         let turn = core.goal_summaries.turns.clone().acquire_owned().await;
-        let (working, reading) = (core.clone(), goal.clone());
-        let done = blocking(move || {
-            refresh(&working, &reading, again);
-            Ok(())
-        })
-        .await;
+        let (reading, asked) = (core.clone(), goal.clone());
+        let gathered = blocking(move || Ok(moments::gather(&reading, &asked.0, asked.1))).await;
+        let done = match gathered {
+            Ok(Some(mut gathered)) => {
+                pulls::add(&core, &goal.0, &mut gathered).await;
+                let (working, reading) = (core.clone(), goal.clone());
+                blocking(move || {
+                    refresh(&working, &reading, &gathered, again);
+                    Ok(())
+                })
+                .await
+            }
+            Ok(None) => Ok(()),
+            Err(error) => Err(error),
+        };
         drop(turn);
         if let Err(error) = done {
             eprintln!("sikemux core: a goal's summary stopped: {error}");
@@ -181,15 +237,12 @@ fn start(core: &Arc<Core>, goal: Goal, again: bool) {
     });
 }
 
-/// Reads the goal's moments, and when they changed, or `again`, has a model write about them.
-fn refresh(core: &Core, goal: &Goal, again: bool) {
-    let Some(gathered) = moments::gather(core, &goal.0, goal.1) else {
-        return;
-    };
+/// When the goal's moments changed, or `again`, has a model write about them.
+fn refresh(core: &Core, goal: &Goal, gathered: &Gathered, again: bool) {
     if gathered.moments.is_empty() && gathered.left_out.is_empty() {
         return;
     }
-    let stamp = hex(answer::fingerprint(&gathered).as_bytes());
+    let stamp = hex(answer::fingerprint(gathered).as_bytes());
     let mut written = core.goal_summaries.written(goal);
     let tried = written.stamp.as_deref() == Some(stamp.as_str())
         || written
@@ -201,8 +254,11 @@ fn refresh(core: &Core, goal: &Goal, again: bool) {
     }
     core.goal_summaries.busy.locked().insert(goal.clone(), true);
     tell_clients(core, goal);
-    match write(core, &gathered) {
-        Ok(summary) => {
+    match write(core, gathered) {
+        Ok((summary, title)) => {
+            if title.is_some_and(|title| core.goal_summaries.name(goal, title)) {
+                core.changes.changed(Topic::Boards, Some(&goal.0), None);
+            }
             written.summary = Some(summary);
             written.stamp = Some(stamp);
             written.failed = None;
@@ -215,8 +271,9 @@ fn refresh(core: &Core, goal: &Goal, again: bool) {
     core.goal_summaries.keep(goal, &written);
 }
 
-/// What a model wrote about `gathered`, or why there is nothing to show.
-fn write(core: &Core, gathered: &Gathered) -> Result<GoalSummary, String> {
+/// What a model wrote about `gathered` and the short name it gave the goal, or why there is
+/// nothing to show.
+fn write(core: &Core, gathered: &Gathered) -> Result<(GoalSummary, Option<String>), String> {
     if gathered.moments.is_empty() {
         return Err("Sikemux couldn't read this goal's agents' sessions".into());
     }

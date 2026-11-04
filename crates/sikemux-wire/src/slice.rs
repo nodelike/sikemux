@@ -461,8 +461,6 @@ pub struct GoalSummary {
     pub at: u64,
     /// When the latest moment it was written from happened.
     pub through: u64,
-    /// A short name for the page, when the card's title is only its prompt cut short.
-    pub title: Option<String>,
     pub happened: Vec<SummaryLine>,
     /// Decisions a model found in what was said, which nobody recorded.
     pub extracted: Vec<SummaryLine>,
@@ -513,6 +511,8 @@ pub enum SourceKind {
     Assertion,
     /// What the person wrote about a slice.
     Note,
+    /// Where a pull request stands, as its code host says.
+    PullRequest,
     /// An agent's turn that ended in an error.
     TurnFailed,
 }
@@ -542,6 +542,9 @@ pub enum SourceLink {
     },
     Card {
         card: u64,
+    },
+    Url {
+        url: String,
     },
 }
 

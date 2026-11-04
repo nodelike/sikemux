@@ -29,9 +29,10 @@ title: at most eight plain words naming the work.
 happened: at most five short sentences a busy person can read in ten seconds, one fact each, the most important first, past tense, addressed to "you" where the person acted.
 - Say where the work stands and what changed, not what was said in turn. Never write "the agent"; name it only when who did it matters. Leave out small talk, passing trouble and anything the person already knows from having asked it.
 - Every sentence lists in "moments" the numbers that directly support it. A sentence you cannot support does not get written. Never use a number that is not in the list.
-- A moment of kind "answer" is an agent's own claim, and "ran" only shows a command started. Only kinds "evidence", "gate" and "commit" are things Sikemux itself recorded. When only an agent says something passed, write who reported it, as in "Nel reported the check passed", never just "the check passed".
+- A moment of kind "answer" is an agent's own claim, and "ran" only shows a command started. Only kinds "evidence", "gate", "commit" and "pull request" are things Sikemux itself recorded. When only an agent says something passed, write who reported it, as in "Nel reported the check passed", never just "the check passed".
 - State what failed, was skipped, was refused or is not proven as plainly as what passed, in its own sentence. Never call something done, working or fixed unless the moments show it.
 - Moments are in time order, and a later one overrides an earlier one. An agent's answer says what it knew when it wrote it: when a later moment or a commit "on the project's branch" shows that something it called pending or waiting happened, say it happened and cite that moment. Say something still waits only if nothing later contradicts it, and only as of the last moment.
+- A moment of kind "pull request" is the code host's own word on where that pull request stands now. It overrides anything any agent said about it, wherever it falls in the list, so never say a pull request it names as merged or closed is still open or waiting. When it says its state could not be read, say only what the other moments show, as of then.
 - Name commits, runs and numbers only when they appear in the moments you cite.
 
 decided: choices that later work must follow, made by the person or stated by an agent and not disputed, at most six. A task, a plan an agent announced, or how agents divided the work among themselves is not a decision. Write each as one sentence saying what was chosen. Leave out anything of kind "decision", which is recorded already. Each lists the moments it was decided in. Use [] when there are none.
@@ -62,6 +63,7 @@ fn kind_word(kind: SourceKind) -> &'static str {
         SourceKind::Decision => "decision",
         SourceKind::Assertion => "assertion",
         SourceKind::Note => "note",
+        SourceKind::PullRequest => "pull request",
         SourceKind::TurnFailed => "turn failed",
     }
 }
@@ -169,8 +171,12 @@ fn said_by_someone(line: &SummaryLine) -> bool {
 }
 
 /// What the core believes of the model's answer `said`: the sentences whose moments exist, then
-/// a sentence of its own for each gap no sentence mentioned. An error when no sentence is left.
-pub(super) fn read(said: &str, gathered: &Gathered) -> Result<GoalSummary, String> {
+/// a sentence of its own for each gap no sentence mentioned, and the short name it gave the goal.
+/// An error when no sentence is left.
+pub(super) fn read(
+    said: &str,
+    gathered: &Gathered,
+) -> Result<(GoalSummary, Option<String>), String> {
     let json = (said.find('{').zip(said.rfind('}')))
         .filter(|(start, end)| start < end)
         .map(|(start, end)| &said[start..=end])
@@ -218,16 +224,16 @@ pub(super) fn read(said: &str, gathered: &Gathered) -> Result<GoalSummary, Strin
     let title = (answer.title.as_deref().map(one_line))
         .filter(|title| gathered.title_is_chopped && !title.is_empty())
         .map(|title| clipped(&title, MAX_TITLE_CHARS));
-    Ok(GoalSummary {
+    let summary = GoalSummary {
         at: epoch_ms(),
         through: (moments.iter())
             .map(|moment| moment.source.at)
             .max()
             .unwrap_or(0),
-        title,
         happened,
         extracted,
         unchecked,
         left_out: gathered.left_out.clone(),
-    })
+    };
+    Ok((summary, title))
 }

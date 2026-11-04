@@ -19,6 +19,7 @@ use crate::tasks::config::ProjectCheck;
 use crate::text::clipped;
 
 use super::connection::blocking;
+use super::goal_summary::title_is_chopped;
 use super::kept;
 use super::messages;
 use super::wake::{sooner, Wake};
@@ -1259,6 +1260,9 @@ pub struct CardView {
     /// it, as a chat started from Home does.
     #[serde(default)]
     pub is_goal: bool,
+    /// A short name its summary gave a goal whose title is only its prompt cut short.
+    #[serde(default)]
+    pub display_title: Option<String>,
     /// For a goal, the gates its slices wait at, in the order they will be
     /// reached: a slice that waits on another comes after it.
     pub next: Vec<NextGate>,
@@ -1381,6 +1385,10 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
             .map(|held| held.id)
             .collect(),
         is_goal: board.is_goal(card),
+        display_title: (card.parent.is_none())
+            .then(|| core.goal_summaries.title(&board.project, card.id))
+            .flatten()
+            .filter(|_| title_is_chopped(&card.title, &card.details)),
         next: slice::next_gates(core, board, card, now),
         goal_state: slice::goal_state(board, card),
         goal_stalled: slice::goal_stalled(board, card),

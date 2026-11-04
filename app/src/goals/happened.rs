@@ -35,6 +35,7 @@ fn kind_words(kind: SourceKind) -> &'static str {
         SourceKind::Decision => "Decision",
         SourceKind::Assertion => "Assertion",
         SourceKind::Note => "Your note",
+        SourceKind::PullRequest => "Pull request",
         SourceKind::TurnFailed => "Turn failed",
     }
 }
@@ -45,6 +46,7 @@ fn open_words(link: &SourceLink) -> &'static str {
         SourceLink::Commit { .. } => "Open commit",
         SourceLink::Evidence { .. } => "Open evidence",
         SourceLink::Card { .. } => "Open card",
+        SourceLink::Url { .. } => "Open pull request",
     }
 }
 
@@ -68,6 +70,7 @@ impl GoalsPane {
                 Some(found) if found.slice.is_some() => self.go(At::Slice(*card), cx),
                 _ => self.open_on_board(*card, cx),
             },
+            SourceLink::Url { url } => self.open_url(None, url.clone(), cx),
         }
     }
 }

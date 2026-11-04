@@ -2288,6 +2288,8 @@ export interface BoardCard {
      * it, as a chat started from Home does.
      */
     isGoal?: boolean;
+    /** A short name its summary gave a goal whose title is only its prompt cut short. */
+    displayTitle?: string | null;
     /**
      * For a goal, the gates its slices wait at, in the order they will be
      * reached: a slice that waits on another comes after it.
@@ -3773,8 +3775,6 @@ export interface GoalSummary {
     at: number;
     /** When the latest moment it was written from happened. */
     through: number;
-    /** A short name for the page, when the card's title is only its prompt cut short. */
-    title: string | null;
     happened: SummaryLine[];
     /** Decisions a model found in what was said, which nobody recorded. */
     extracted: SummaryLine[];
@@ -3801,7 +3801,8 @@ export interface SummarySource {
 }
 
 /** The kinds of moment a summary is written from. */
-export type SourceKind = "person" | "answer" | "ran" | "commit" | "evidence" | "gate" | "held" | "decision" | "assertion" | "note" | "turnFailed";
+export type SourceKind =
+    "person" | "answer" | "ran" | "commit" | "evidence" | "gate" | "held" | "decision" | "assertion" | "note" | "pullRequest" | "turnFailed";
 
 /** Where a moment can be opened. */
 export type SourceLink =
@@ -3828,6 +3829,10 @@ export type SourceLink =
     | {
           kind: "card";
           card: number;
+      }
+    | {
+          kind: "url";
+          url: string;
       };
 
 /** A chat's session as its CLI saved it. */

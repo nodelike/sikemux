@@ -10,7 +10,9 @@ use gpui_kit::{
 use sikemux_core::server::{call, BoardSettingsParams, CardView};
 use sikemux_wire::slice::{Gate, NextGate, Passer, SliceState, SliceView};
 
-use super::{eta_words, state_count, state_mark, wait_words, waiting_words, At, GoalsPane};
+use super::{
+    eta_words, goal_name, state_count, state_mark, wait_words, waiting_words, At, GoalsPane,
+};
 use crate::board::panels::{landing_choice, landing_of, landing_picks};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_5, SPACE_6, TEXT_2XS, TEXT_SM,
@@ -34,10 +36,6 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
         return div().into_any_element();
     };
     let slices = pane.slices(id);
-    let title = (pane.summary_of(id))
-        .and_then(|view| view.summary.as_ref())
-        .and_then(|summary| summary.title.clone())
-        .unwrap_or_else(|| goal.title.clone());
     let needs_you = pane.needs_of(goal, cx);
     let kept_assertions = goal
         .assertions
@@ -57,7 +55,7 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
                 .items_center()
                 .gap(SPACE_2)
                 .child(
-                    ui::text(title, TEXT_XL, FontWeight::SEMIBOLD)
+                    ui::text(goal_name(goal), TEXT_XL, FontWeight::SEMIBOLD)
                         .flex_shrink_1()
                         .min_w_0()
                         .truncate()

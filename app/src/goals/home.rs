@@ -15,7 +15,7 @@ use sikemux_wire::slice::SliceState;
 
 use super::evidence::minute;
 use super::goal::{count, crumb, row, section, strip};
-use super::{empty, goals_of, slices_of, At, GoalsPane};
+use super::{empty, goal_name, goals_of, slices_of, At, GoalsPane};
 use crate::chat::{NewerPrompt, OlderPrompt, START};
 use crate::icons::Icon;
 use crate::theme::{
@@ -153,7 +153,7 @@ impl GoalsPane {
 
     /// The title of the goal an item is on, when it is on one here.
     fn goal_title(&self, item: &InboxItem) -> Option<String> {
-        Some(self.goal_of(item.card.as_ref()?)?.title.clone())
+        Some(goal_name(self.goal_of(item.card.as_ref()?)?))
     }
 }
 
@@ -547,7 +547,7 @@ fn goal_row(
     let worker = goal.slice.as_ref().and(goal.owner.clone());
     let says = row_says()
         .child(
-            ui::text(goal.title.clone(), TEXT_SM, FontWeight::MEDIUM)
+            ui::text(goal_name(goal), TEXT_SM, FontWeight::MEDIUM)
                 .flex_shrink_1()
                 .min_w_0()
                 .truncate()

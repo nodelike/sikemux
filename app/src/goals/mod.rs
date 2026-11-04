@@ -766,7 +766,7 @@ impl GoalsPane {
         let title = |id: u64| {
             let board = self.board_of(chat.from_project.as_deref()?)?;
             let card = board.cards.iter().find(|card| card.id == id)?;
-            Some(SharedString::from(card.title.clone()))
+            Some(SharedString::from(goal_name(card)))
         };
         match chat.from {
             At::Overnight => "Overnight".into(),
@@ -1051,6 +1051,13 @@ fn goal_mark(goal: &CardView) -> SliceState {
         Column::Progress => SliceState::Moving,
         Column::Open => SliceState::Waiting,
     })
+}
+
+/// What a goal goes by: the short name its summary gave it, else its card's title.
+fn goal_name(goal: &CardView) -> String {
+    goal.display_title
+        .clone()
+        .unwrap_or_else(|| goal.title.clone())
 }
 
 /// The cards the core says are goals.
