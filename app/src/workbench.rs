@@ -3469,8 +3469,9 @@ impl Workbench {
         }
         match (self.window_view, &self.goals) {
             (WindowView::Goals, Some(goals)) => {
-                let keys = goals.read(cx).keys_go_to(&self.chats, cx);
-                keys.focus(window, cx);
+                if let Some(keys) = goals.read(cx).keys_go_to(&self.chats, cx) {
+                    keys.focus(window, cx);
+                }
             }
             _ => {
                 if let Some(view) = self.focused_view() {

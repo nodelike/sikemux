@@ -635,8 +635,9 @@ impl GoalsPane {
     /// Puts the keys where the place on show wants them, away from whatever held them before.
     fn take_keys(&self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(bench) = self.bench.upgrade() {
-            let keys = self.keys_go_to(&bench.read(cx).chats, cx);
-            keys.focus(window, cx);
+            if let Some(keys) = self.keys_go_to(&bench.read(cx).chats, cx) {
+                keys.focus(window, cx);
+            }
         }
     }
 
@@ -731,19 +732,21 @@ impl GoalsPane {
 
 impl GoalsPane {
     /// Where the keys nothing else holds go: the composer of Home or of the chat showing, else
-    /// the pane.
-    pub fn keys_go_to(&self, chats: &Chats, cx: &gpui_kit::App) -> FocusHandle {
+    /// the pane, which a chat does not draw.
+    pub fn keys_go_to(&self, chats: &Chats, cx: &gpui_kit::App) -> Option<FocusHandle> {
         let composer = match self.at {
             At::Home => chats.start.as_ref(),
             At::Chat => {
-                (self.chat_shown()).and_then(|agent| chats.open.get(agent)?.composer.as_ref())
+                let agent = self.chat_shown()?;
+                let composer = chats.open.get(agent)?.composer.as_ref()?;
+                return Some(composer.draft.read(cx).focus_handle(cx));
             }
             _ => None,
         };
-        composer.map_or_else(
+        Some(composer.map_or_else(
             || self.focus.clone(),
             |composer| composer.draft.read(cx).focus_handle(cx),
-        )
+        ))
     }
 }
 
@@ -801,7 +804,7 @@ impl Render for GoalsPane {
         div()
             .id("goals")
             .key_context("Goals")
-            .track_focus(&self.focus)
+            .when(self.at != At::Chat, |goals| goals.track_focus(&self.focus))
             .when(self.at == At::Chat, |goals| {
                 goals.on_action(
                     cx.listener(|pane, _: &LeaveChat, window, cx| pane.leave_chat(window, cx)),
