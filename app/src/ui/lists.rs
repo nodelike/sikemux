@@ -249,7 +249,8 @@ impl RenderOnce for Row {
             .bg(tint)
             .on_hover(keep_over)
             .when_some(on_click, |row, handler| {
-                row.on_click(move |event, window, cx| handler(event, window, cx))
+                row.cursor_pointer()
+                    .on_click(move |event, window, cx| handler(event, window, cx))
             })
             .children(
                 self.mark.map(|mark| {
@@ -560,7 +561,8 @@ impl RenderOnce for Tab {
                     .justify_start()
                     .gap(SPACE_2)
                     .when_some(on_click, |tab, handler| {
-                        tab.on_click(move |event, window, cx| handler(event, window, cx))
+                        tab.cursor_pointer()
+                            .on_click(move |event, window, cx| handler(event, window, cx))
                     })
                     .children(self.mark.map(|mark| mark_box(22., mark)))
                     .child(

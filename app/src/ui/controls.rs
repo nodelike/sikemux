@@ -182,7 +182,9 @@ impl RenderOnce for IconButton {
             .bg(wash)
             .on_hover(keep_over)
             .when_some(on_click, |button, handler| {
-                button.on_click(move |event, window, cx| handler(event, window, cx))
+                button
+                    .cursor_pointer()
+                    .on_click(move |event, window, cx| handler(event, window, cx))
             })
             .child(crate::motion::animated(
                 ElementId::NamedChild(Arc::new(self.id), "turned".into()),
@@ -445,6 +447,7 @@ pub struct Segmented {
     suggested: Option<(usize, SharedString)>,
     /// What each choice does, in a line, shown over it.
     tooltips: Vec<SharedString>,
+    icons_only: bool,
 }
 
 impl Segmented {
@@ -467,6 +470,7 @@ impl Segmented {
             waiting: None,
             suggested: None,
             tooltips: Vec::new(),
+            icons_only: false,
         }
     }
 
@@ -490,6 +494,7 @@ impl Segmented {
             waiting: None,
             suggested: None,
             tooltips: Vec::new(),
+            icons_only: false,
         }
     }
 
@@ -512,6 +517,13 @@ impl Segmented {
 
     pub fn tooltips(mut self, tooltips: impl IntoIterator<Item = SharedString>) -> Self {
         self.tooltips = tooltips.into_iter().collect();
+        self
+    }
+
+    /// Draws each choice's icon without its label, which moves into its tooltip, for narrow
+    /// places.
+    pub fn icons_only(mut self, icons_only: bool) -> Self {
+        self.icons_only = icons_only;
         self
     }
 
@@ -589,7 +601,9 @@ impl Segmented {
                                 segment.hover(move |style| style.text_color(t.text_secondary))
                             })
                             .when_some(on_select, |segment, handler| {
-                                segment.on_click(move |_, window, cx| handler(&index, window, cx))
+                                segment
+                                    .cursor_pointer()
+                                    .on_click(move |_, window, cx| handler(&index, window, cx))
                             })
                             .children(glyph.map(|glyph| {
                                 icon(glyph, 12.).text_color(ink).when(!chosen, |glyph| {
@@ -613,6 +627,7 @@ impl RenderOnce for Segmented {
         let on_select = self.on_select.filter(|_| self.disabled.is_none());
         let waiting = self.waiting;
         let (suggested, tooltips) = (self.suggested, self.tooltips);
+        let icons_only = self.icons_only;
         div()
             .id(self.id)
             .flex()
@@ -638,6 +653,11 @@ impl RenderOnce for Segmented {
                             (Some(tip), Some(why)) => Some(format!("{tip}\n{why}").into()),
                             (tip, why) => tip.or(why.as_ref()).cloned(),
                         };
+                        let tip = match tip {
+                            Some(tip) if icons_only => Some(format!("{label}\n{tip}").into()),
+                            None if icons_only => Some(label.clone()),
+                            tip => tip,
+                        };
                         BaseButton::new(("segment", index))
                             .group(GROUP)
                             .selected(chosen)
@@ -658,7 +678,9 @@ impl RenderOnce for Segmented {
                             .when(chosen, |segment| segment.bg(t.surface_active))
                             .hover(move |style| style.text_color(t.text_primary))
                             .when_some(on_select, |segment, handler| {
-                                segment.on_click(move |_, window, cx| handler(&index, window, cx))
+                                segment
+                                    .cursor_pointer()
+                                    .on_click(move |_, window, cx| handler(&index, window, cx))
                             })
                             .when_some(tip, |segment, tip: SharedString| {
                                 segment.tooltip(super::tooltip(tip))
@@ -674,11 +696,13 @@ impl RenderOnce for Segmented {
                                         style.text_color(t.text_primary)
                                     })
                             }))
-                            .child(
-                                text(label, TEXT_2XS, FontWeight::NORMAL)
-                                    .overflow_hidden()
-                                    .text_ellipsis(),
-                            )
+                            .when(!icons_only, |segment| {
+                                segment.child(
+                                    text(label, TEXT_2XS, FontWeight::NORMAL)
+                                        .overflow_hidden()
+                                        .text_ellipsis(),
+                                )
+                            })
                             .children(why.map(|_| {
                                 div().flex_none().size(px(5.)).rounded_full().bg(t.accent)
                             }))

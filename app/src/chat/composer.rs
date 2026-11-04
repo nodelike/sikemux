@@ -92,7 +92,7 @@ pub struct Composer {
     dictation: Option<AnyView>,
     heard: Option<SharedString>,
     /// A control of the composer's owner at the end of the bar, before the mic and send.
-    aside: Option<AnyElement>,
+    aside: Option<Box<dyn FnOnce(bool) -> AnyElement>>,
     /// The chat's text size, as a share of its designed size.
     text_scale: f32,
     on_send: Act,
@@ -203,8 +203,8 @@ impl Composer {
         self
     }
 
-    pub fn aside(mut self, aside: impl IntoElement) -> Self {
-        self.aside = Some(aside.into_any_element());
+    pub fn aside<E: IntoElement>(mut self, aside: impl FnOnce(bool) -> E + 'static) -> Self {
+        self.aside = Some(Box::new(move |roomy| aside(roomy).into_any_element()));
         self
     }
 
@@ -362,7 +362,7 @@ impl RenderOnce for Composer {
                     .map(|usage| context_meter(usage, self.compactions, &self.provider, cx)),
             )
             .child(div().flex_1())
-            .children(self.aside)
+            .children(self.aside.map(|aside| aside(room == Room::Full)))
             .children(self.dictation)
             .child(send(
                 stopping,

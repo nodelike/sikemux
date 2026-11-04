@@ -20,6 +20,7 @@ use crate::chat::composer::{Act, Notice, Strip};
 use crate::chat::model_picker::{self, Moving, Picked};
 use crate::chat::START;
 use crate::core::{ChatAsk, Target};
+use crate::icons::Icon;
 use crate::ui::Segmented;
 use crate::workbench::Workbench;
 
@@ -30,20 +31,23 @@ const HANDED_SHOWN: Duration = Duration::from_secs(4);
 /// The longest card title the box makes; the rest of what was typed goes into its details.
 const TITLE_CHARS: usize = 80;
 
-/// Each way to start, with what it is called and what it does, in a line.
-const MODES: [(StartMode, &str, &str); 3] = [
+/// Each way to start, with its icon, what it is called and what it does, in a line.
+const MODES: [(StartMode, Icon, &str, &str); 3] = [
     (
         StartMode::HandOff,
+        Icon::Rocket,
         "Hand off",
         "An agent takes it and works on its own; you hear back only if it needs you.",
     ),
     (
         StartMode::PlanFirst,
+        Icon::Steps,
         "Plan first",
         "A lead talks it through with you, then works in slices you approve.",
     ),
     (
         StartMode::Chat,
+        Icon::Message,
         "Chat",
         "Work on it together, turn by turn.",
     ),
@@ -541,13 +545,13 @@ pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> Any
         .iter()
         .position(|(each, ..)| *each == mode)
         .unwrap_or(0);
-    let words = MODES
+    let choices = MODES
         .iter()
-        .map(|(_, name, _)| (SharedString::from(*name), None))
+        .map(|(_, glyph, name, _)| (*glyph, SharedString::from(*name)))
         .collect();
     let tips = MODES.iter().map(|(.., tip)| SharedString::from(*tip));
     let picking = weak.clone();
-    let mut modes = Segmented::words("start-mode", words, at)
+    let mut modes = Segmented::new("start-mode", choices, at)
         .tooltips(tips)
         .on_select(move |chosen: &usize, _, cx| {
             if let Some((mode, ..)) = MODES.get(*chosen) {
@@ -561,7 +565,9 @@ pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> Any
             modes = modes.suggested(at, why);
         }
     }
-    composer = composer.strip(strip).aside(modes);
+    composer = composer
+        .strip(strip)
+        .aside(move |roomy| modes.icons_only(!roomy));
     if notice.is_some() {
         composer = composer.notice(notice);
     }
