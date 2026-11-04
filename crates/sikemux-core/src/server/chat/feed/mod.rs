@@ -142,6 +142,7 @@ fn queued_view(queued: &[Queued]) -> Vec<QueuedMessage> {
             context: message
                 .context
                 .iter()
+                .filter(|item| !item.for_agent_only())
                 .map(|item| SentContext {
                     uri: item.uri.clone(),
                     title: item.title.clone(),
@@ -445,11 +446,12 @@ impl Feed {
         if let Some(message_id) = message_id {
             payload["messageId"] = json!(message_id);
         }
-        if !context.is_empty() {
-            payload["context"] = json!(context
-                .iter()
-                .map(|item| json!({ "uri": item.uri, "title": item.title }))
-                .collect::<Vec<_>>());
+        let shown: Vec<_> = (context.iter())
+            .filter(|item| !item.for_agent_only())
+            .map(|item| json!({ "uri": item.uri, "title": item.title }))
+            .collect();
+        if !shown.is_empty() {
+            payload["context"] = json!(shown);
         }
         self.emit(ChatEventKind::Prompt, payload);
     }

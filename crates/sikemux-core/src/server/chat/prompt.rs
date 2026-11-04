@@ -110,7 +110,7 @@ pub fn prompt_blocks(
             "a prompt can include at most {MAX_ATTACHMENTS} attachments"
         ));
     }
-    if context.len() > MAX_CONTEXT_ITEMS {
+    if context.iter().filter(|item| !item.for_agent_only()).count() > MAX_CONTEXT_ITEMS {
         return Err(format!(
             "a prompt can include at most {MAX_CONTEXT_ITEMS} context items"
         ));

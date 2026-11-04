@@ -102,6 +102,16 @@ pub struct ChatContext {
     pub text: String,
 }
 
+/// Starts the uri of a context item meant for the agent alone: it goes with the message, and no
+/// client shows it among what the person sent.
+pub const FOR_AGENT_URI: &str = "sikemux://for-agent/";
+
+impl ChatContext {
+    pub fn for_agent_only(&self) -> bool {
+        self.uri.starts_with(FOR_AGENT_URI)
+    }
+}
+
 /// The app's `acp_start` answer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -11,7 +11,7 @@ use gpui_kit::{div, AnyElement, App, Context, IntoElement, SharedString, Task, W
 use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::{BoardAddParams, BoardHandOffParams, TriageParams};
-use sikemux_wire::protocol::{ChatContext, LauncherInfo, ProjectInfo};
+use sikemux_wire::protocol::{ChatContext, LauncherInfo, ProjectInfo, FOR_AGENT_URI};
 use sikemux_wire::start::{Because, HardFact, StartMode};
 use tokio::sync::oneshot;
 
@@ -304,6 +304,8 @@ impl GoalsPane {
                     return;
                 };
                 pane.emptied(text.clone(), window, cx);
+                let mut context = context;
+                context.push(tracking(mode == StartMode::PlanFirst, card));
                 let _ = pane.bench.update(cx, |bench, _| {
                     bench.call(
                         "openTab",
@@ -311,7 +313,7 @@ impl GoalsPane {
                     );
                     bench.ask_chat(ChatAsk::Prompt {
                         agent: agent.clone(),
-                        text: first_message(mode == StartMode::PlanFirst, card, &text),
+                        text,
                         paths,
                         context,
                         attach: false,
@@ -382,20 +384,25 @@ fn titled(text: &str) -> (String, Option<String>) {
     (title, (!whole).then(|| text.to_owned()))
 }
 
-/// What the agent that takes the work is told first.
-fn first_message(plans_first: bool, card: u64, text: &str) -> String {
-    match plans_first {
+/// What the agent that takes the work is told with the person's first message, which the person
+/// wrote and the chat shows alone.
+fn tracking(plans_first: bool, card: u64) -> ChatContext {
+    let text = match plans_first {
         true => format!(
-            "{text}\n\nYou lead goal card #{card} on the project's board, which you hold. \
-             Before anything is built, talk it through with me: ask what you need to know, one \
-             question at a time, and record what I decide with board_decide. Then propose the \
-             slices as cards under #{card} with board_add, each with a promise, and wait for me \
-             to approve them before any work starts."
+            "You lead goal card #{card} on the project's board, which you hold. Before anything \
+             is built, talk it through with me: ask what you need to know, one question at a \
+             time, and record what I decide with board_decide. Then propose the slices as cards \
+             under #{card} with board_add, each with a promise, and wait for me to approve them \
+             before any work starts."
         ),
         false => format!(
-            "{text}\n\nSikemux tracks this as goal card #{card} on the project's board, which \
-             you hold."
+            "Sikemux tracks this as goal card #{card} on the project's board, which you hold."
         ),
+    };
+    ChatContext {
+        uri: format!("{FOR_AGENT_URI}card-{card}"),
+        title: format!("Goal card #{card}"),
+        text,
     }
 }
 
