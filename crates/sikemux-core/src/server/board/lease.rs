@@ -312,7 +312,7 @@ pub(crate) async fn person_hand_on(
         stalled.why.words()
     );
     let Some(agent) = params.to else {
-        hand_off::hand_on(core, &project, id, from).await?;
+        hand_off::hand_on(core, &project, id, params.launcher, from).await?;
         return Ok(project_view(core, &project));
     };
     if !core.open_agents().contains(&agent) {

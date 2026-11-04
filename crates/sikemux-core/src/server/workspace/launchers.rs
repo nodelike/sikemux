@@ -137,6 +137,14 @@ pub(crate) fn refresh_launchers(core: Arc<Core>) -> impl std::future::Future<Out
     async move { refresh(core, asked).await }
 }
 
+/// Answers once the core has looked for the agents it can start at least once, so one asked
+/// to start an agent just after it started doesn't take "not looked yet" for "none".
+pub(crate) async fn launchers_known(core: &Arc<Core>) {
+    if core.workspaces.applied.load(Ordering::SeqCst) == 0 {
+        refresh_launchers(core.clone()).await;
+    }
+}
+
 pub(super) async fn refresh(core: Arc<Core>, asked: u64) {
     let looking: Vec<_> = core
         .workspaces

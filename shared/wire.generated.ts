@@ -3665,6 +3665,8 @@ export interface HandOnParams {
     id: number;
     /** The agent that takes it; none starts a new one in a checkout of its own. */
     to?: string;
+    /** The app's launcher a new one starts with; none for the first that works. */
+    launcher?: string;
 }
 
 /**

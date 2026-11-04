@@ -53,7 +53,7 @@ impl AgentStatus {
         match self {
             Self::Missing => Some(format!("{label} is not installed on this host")),
             Self::SignedOut => Some(format!(
-                "{label} is signed out on this host; ask the person to sign in"
+                "{label} is signed out on this host and needs signing in first"
             )),
             Self::Broken { .. } => Some(format!("{label} does not start on this host")),
             Self::Ready { .. } | Self::Unknown => None,

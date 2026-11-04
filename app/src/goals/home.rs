@@ -378,12 +378,18 @@ pub(super) fn stall_buttons(item: &InboxItem, cx: &mut Context<GoalsPane>) -> Op
             for (label, to) in entries {
                 let (goals, project) = (goals.clone(), project.clone());
                 popup = popup.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                    let params = BoardHandOnParams {
-                        project: project.clone(),
-                        id,
-                        to: to.clone(),
-                    };
+                    let (project, to) = (project.clone(), to.clone());
                     let _ = goals.update(cx, |pane, cx| {
+                        let launcher = (pane.bench.upgrade())
+                            .and_then(|bench| pane.start_launcher(bench.read(cx)))
+                            .map(|launcher| launcher.id)
+                            .filter(|_| to.is_none());
+                        let params = BoardHandOnParams {
+                            project,
+                            id,
+                            to,
+                            launcher,
+                        };
                         pane.ask::<call::BoardHandOn>(params, |_| {}, cx)
                     });
                 }));

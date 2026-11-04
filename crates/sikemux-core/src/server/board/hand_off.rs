@@ -51,6 +51,9 @@ pub struct HandOnParams {
     /// The agent that takes it; none starts a new one in a checkout of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub to: Option<String>,
+    /// The app's launcher a new one starts with; none for the first that works.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launcher: Option<String>,
 }
 
 /// The slice that tracks the work, and the agent doing it.
@@ -118,6 +121,7 @@ pub(super) async fn hand_on(
     core: &Arc<Core>,
     project: &str,
     id: u64,
+    launcher: Option<String>,
     from: String,
 ) -> Result<(), String> {
     let text = {
@@ -133,7 +137,7 @@ pub(super) async fn hand_on(
     };
     let worker = Worker {
         project: project.to_owned(),
-        launcher: None,
+        launcher,
         provider: None,
         model: None,
     };
@@ -162,6 +166,7 @@ async fn start_worker(
     text: String,
     place: impl FnOnce(&Arc<Core>, &str, &str) -> Result<u64, String> + Send + 'static,
 ) -> Result<(String, Started), String> {
+    workspace::launchers_known(core).await;
     let agent = format!("agent-{}", uuid::Uuid::new_v4().simple());
     let started = {
         let (core, agent) = (core.clone(), agent.clone());

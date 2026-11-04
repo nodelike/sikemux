@@ -3,6 +3,9 @@
 
 use super::*;
 
+/// Why nothing can start when the core found no agent at all.
+const NO_AGENTS: &str = "Sikemux found no agent it can start on this host; install one first";
+
 /// How a lead runs, for an agent it starts to run the same way.
 pub(crate) struct Lead {
     pub provider: String,
@@ -92,8 +95,7 @@ impl Workspaces {
                 known.sort_unstable();
                 known.dedup();
                 if known.is_empty() {
-                    "Sikemux has not said which agents it can start; open Sikemux once so it can"
-                        .to_owned()
+                    NO_AGENTS.to_owned()
                 } else {
                     format!(
                         "{provider} is not set up on this host, so ask the person to install it or sign in to it; Sikemux can start {}",
@@ -153,9 +155,10 @@ impl Workspaces {
                     .ok_or_else(|| {
                         format!("Sikemux can no longer start {id}; pick another agent {picked_in}")
                     })?,
-                None => launchers.iter().find(usable).ok_or(
-                    "Sikemux has not said which agents it can start; open Sikemux once so it can",
-                )?,
+                None => launchers.iter().find(usable).ok_or_else(|| {
+                    (launchers.iter().find_map(Launcher::refusal))
+                        .unwrap_or_else(|| NO_AGENTS.to_owned())
+                })?,
             }
             .clone()
         };
