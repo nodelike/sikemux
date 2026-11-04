@@ -5,8 +5,8 @@
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, Context, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, Anchor, AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, Pixels, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
 };
 use sikemux_core::server::call;
 use sikemux_core::server::{AnswerParams, BoardCardParams, BoardHandOnParams, BoardView, CardView};
@@ -23,6 +23,9 @@ use crate::theme::{
 };
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
+
+/// The least a row's words keep before its end drops under them.
+const ROW_SAYS_MIN_W: Pixels = px(180.);
 
 /// Something that finished or failed while the person was away.
 #[derive(Clone, Copy)]
@@ -334,8 +337,7 @@ fn needs_row(
         _ => t.warn,
     };
     let opened = item.clone();
-    let line = row(SharedString::from(format!("need-{}", item.id)), cx)
-        .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
+    let says = row_says()
         .child(ui::icon(need_icon(item.kind), 14.).text_color(tint))
         .child(
             ui::text(item.what.clone(), TEXT_SM, FontWeight::MEDIUM)
@@ -355,12 +357,36 @@ fn needs_row(
                 .flex_shrink_1()
                 .min_w_0()
                 .truncate(),
-        )
-        .child(div().flex_1())
+        );
+    let does = row_does()
         .children(item.hold.as_ref().map(|hold| ship_buttons(&hold.id, cx)))
         .children(stall_buttons(item, cx))
         .child(ui::meta(ui::time::age(item.at), cx));
+    let line = wrapping(row(SharedString::from(format!("need-{}", item.id)), cx))
+        .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
+        .child(says)
+        .child(does);
     super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
+}
+
+/// A row whose end drops under what it says when the pane is too narrow for both.
+fn wrapping(line: Stateful<Div>) -> Stateful<Div> {
+    line.h_auto().min_h(px(34.)).py(px(3.)).flex_wrap()
+}
+
+/// What a wrapping row says, which keeps room to be read.
+fn row_says() -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .flex_1()
+        .min_w(ROW_SAYS_MIN_W)
+}
+
+/// The end of a wrapping row: what it does, and how it stands.
+fn row_does() -> Div {
+    div().flex().flex_none().items_center().gap(SPACE_2)
 }
 
 /// Starts a stalled owner again, or hands its slice to another agent or a new one.
@@ -464,8 +490,7 @@ fn question_row(
             })
             .collect()
     });
-    let line = row(SharedString::from(format!("question-{}", item.id)), cx)
-        .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
+    let says = row_says()
         .child(ui::icon(Icon::Message, 14.).text_color(tint))
         .child(
             ui::text(asked, TEXT_SM, FontWeight::MEDIUM)
@@ -480,10 +505,14 @@ fn question_row(
                 .flex_shrink_1()
                 .min_w_0()
                 .truncate(),
-        )
-        .child(div().flex_1())
+        );
+    let does = row_does()
         .children(answers)
         .child(ui::meta(ui::time::age(item.at), cx));
+    let line = wrapping(row(SharedString::from(format!("question-{}", item.id)), cx))
+        .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
+        .child(says)
+        .child(does);
     super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
 }
 
@@ -545,37 +574,40 @@ fn goal_row(
     let slices = slices_of(&board.cards, id);
     let done = count(&slices, SliceState::Done);
     let worker = goal.slice.as_ref().and(goal.owner.clone());
-    let line = row(
+    let says = row_says()
+        .child(
+            ui::text(goal.title.clone(), TEXT_SM, FontWeight::MEDIUM)
+                .flex_shrink_1()
+                .min_w_0()
+                .truncate()
+                .text_color(t.text_primary),
+        )
+        .child(ui::meta(format!("{done} of {} done", slices.len()), cx))
+        .children(
+            (goal.next.first())
+                .and_then(|next| super::goal::step(&board.cards, next))
+                .map(|next| ui::meta(next, cx).flex_shrink_1().min_w_0().truncate()),
+        );
+    let does = row_does()
+        .children(goal.eta.as_ref().and_then(|eta| {
+            let words = super::eta_words(eta)?;
+            let shown = ui::meta(words, cx).flex_none();
+            Some(match eta.slip {
+                Some(_) => shown.text_color(t.warn),
+                None => shown,
+            })
+        }))
+        .child(strip(&slices, px(120.), cx));
+    let line = wrapping(row(
         SharedString::from(format!("goal-{}-{id}", board.project)),
         cx,
-    )
+    ))
     .on_click(cx.listener(move |pane, _, _, cx| match &worker {
         Some(agent) => pane.open_agent(agent, cx),
         None => pane.go(At::Goal(id), cx),
     }))
-    .child(
-        ui::text(goal.title.clone(), TEXT_SM, FontWeight::MEDIUM)
-            .flex_shrink_1()
-            .min_w_0()
-            .truncate()
-            .text_color(t.text_primary),
-    )
-    .child(ui::meta(format!("{done} of {} done", slices.len()), cx))
-    .children(
-        (goal.next.first())
-            .and_then(|next| super::goal::step(&board.cards, next))
-            .map(|next| ui::meta(next, cx).flex_shrink_1().min_w_0().truncate()),
-    )
-    .child(div().flex_1())
-    .children(goal.eta.as_ref().and_then(|eta| {
-        let words = super::eta_words(eta)?;
-        let shown = ui::meta(words, cx).flex_none();
-        Some(match eta.slip {
-            Some(_) => shown.text_color(t.warn),
-            None => shown,
-        })
-    }))
-    .child(strip(&slices, px(120.), cx));
+    .child(says)
+    .child(does);
     super::with_agent_menu(line, goal.owner.clone(), &pane.bench)
 }
 
