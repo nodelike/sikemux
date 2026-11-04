@@ -1039,10 +1039,19 @@ fn name_of(core: &Core, agent_id: &str) -> String {
         .unwrap_or_else(|| agent_id.to_owned())
 }
 
-/// Whether `agent_id` may change a card `owner` holds: its own, or one held by
-/// an agent it started, or one nobody holds.
-fn may_change(core: &Core, agent_id: &str, owner: Option<&str>) -> bool {
-    match owner {
+/// The agent that answers for a card: its owner while that agent is open, here
+/// or on a linked host, or while Auto runs it. An owner that closed answers for
+/// nothing, so its card counts as nobody's and can't be left stuck.
+fn holder<'a>(core: &Core, card: &'a Card) -> Option<&'a str> {
+    card.owner_id().filter(|owner| {
+        card.kept_run().is_some() || core.names.open_with(core.open_agents()).contains(*owner)
+    })
+}
+
+/// Whether `agent_id` may change a card `holder` answers for: its own, one held by
+/// an agent it started, or one nobody answers for.
+fn may_change(core: &Core, agent_id: &str, holder: Option<&str>) -> bool {
+    match holder {
         None => true,
         Some(owner) => owner == agent_id || core.names.leads(agent_id, owner),
     }
@@ -1618,7 +1627,7 @@ fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value,
     if card.status == Status::Done {
         return Err(format!("#{id} is done already"));
     }
-    if let Some(owner) = card.owner_id().filter(|owner| *owner != agent) {
+    if let Some(owner) = holder(core, card).filter(|owner| *owner != agent) {
         return Err(format!(
             "{} has #{id} already; pick another card, or message {} about it",
             name_of(core, owner),
@@ -1705,8 +1714,9 @@ fn change_in(
     let before = board.card(id)?.clone();
     let landing = board.settings.landing;
     if let By::Agent(agent) = by {
-        if !may_change(core, agent, before.owner_id()) {
-            let owner = name_of(core, before.owner_id().unwrap_or_default());
+        let holder = holder(core, &before);
+        if !may_change(core, agent, holder) {
+            let owner = name_of(core, holder.unwrap_or_default());
             return Err(format!(
                 "#{id} is {owner}'s; message {owner} with agent_send to change it"
             ));
@@ -1970,7 +1980,7 @@ fn mark_done(
         });
     }
     card.status = Status::Done;
-    if let (None, By::Agent(agent)) = (&card.owner, by) {
+    if let (None, By::Agent(agent)) = (holder(core, card), by) {
         card.owner = Some(Owner::of(core, agent));
     }
 }
@@ -3257,5 +3267,44 @@ fn tell_clients(core: &Core) {
     let dirty = std::mem::take(&mut core.boards.state.locked().dirty);
     for project in dirty {
         core.changes.changed(Topic::Boards, Some(&project), None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PROJECT: &str = "/project";
+
+    fn done() -> Changes {
+        Changes {
+            status: Some(Status::Done),
+            ..Changes::default()
+        }
+    }
+
+    /// On 2026-11-01 a card stayed in progress after its owner closed: neither the owner's lead,
+    /// its reopened session nor the card's creator could mark it done.
+    #[test]
+    fn a_closed_owners_card_is_free_and_a_live_owners_is_not() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let creator = By::Agent("creator".to_owned());
+        let adding = Adding {
+            title: "Stuck".to_owned(),
+            ..Adding::default()
+        };
+        let (id, _) = add_card(&core, PROJECT, &creator, adding, None).unwrap();
+        core.names.pin(HashSet::from(["owner".to_owned()]));
+        claim_card(&core, PROJECT, "owner", id).unwrap();
+
+        let refused = change_card(&core, PROJECT, &creator, id, done()).map(|_| ());
+        assert!(refused.unwrap_err().contains("is owner's"));
+        let refused = claim_card(&core, PROJECT, "creator", id);
+        assert!(refused.unwrap_err().contains("has #"));
+
+        core.names.pin(HashSet::new());
+
+        let (view, _) = change_card(&core, PROJECT, &creator, id, done()).unwrap();
+        assert_eq!(view["status"], "done");
     }
 }

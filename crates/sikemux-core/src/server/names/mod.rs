@@ -210,7 +210,7 @@ impl Names {
     }
 
     /// The agents open here with those running on linked hosts.
-    fn open_with(&self, mut open: HashSet<String>) -> HashSet<String> {
+    pub(crate) fn open_with(&self, mut open: HashSet<String>) -> HashSet<String> {
         open.extend(self.pinned.locked().iter().cloned());
         open
     }

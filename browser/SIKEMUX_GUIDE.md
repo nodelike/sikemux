@@ -1334,7 +1334,8 @@ who has it or what it waits on. Then do the work, and finish with
 where, such as the files, commits or pull request. `status: "open"` gives a
 card back for someone else, and `parent: 0` takes a card out from under
 another. You may change your own cards, cards the agents you started own, and
-cards nobody owns.
+cards nobody owns, which include a card whose owner has closed: change it or
+claim it, so it never stays stuck.
 
 When a card is done, the cards waiting on it are free to claim, and their
 owners are told. When you were started by another agent and sit idle, the
