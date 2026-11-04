@@ -708,7 +708,7 @@ pub(super) fn mid_turn(core: &Core, agent_id: &str) -> bool {
 
 /// Whether an agent `lead` started, or one that agent started, other than
 /// `but`, is still at work or has messages on the way to it.
-fn workers_busy(core: &Core, lead: &str, but: &str) -> bool {
+pub(super) fn workers_busy(core: &Core, lead: &str, but: &str) -> bool {
     core.running_agents().iter().any(|agent| {
         agent != but
             && core.names.leads(lead, agent)

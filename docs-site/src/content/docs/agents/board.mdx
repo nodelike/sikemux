@@ -5,7 +5,7 @@ description: "Cards your agents work from, and slices that only pass on evidence
 
 Each project has a board of cards, open with `⌘⌥6`. You and your agents add cards, an agent claims one and works it, and a card can sit under another or wait on others. Agents use the `board_add`, `board_claim`, `board_update` and `board_list` tools.
 
-While an agent holds a card, only it and the agents above it can change it or take it. Once that agent closes, its card counts as nobody's, so any agent can finish it or claim it and it never stays stuck.
+While an agent holds a card, only it and the agents above it can change it or take it. Once that agent closes, its card counts as nobody's, so any agent can finish it or claim it and it never stays stuck. A slice goes further and tells you: see [when an owner stalls](/agents/goals/#when-an-owner-stalls).
 
 The same work never gets two cards. A Jira or Linear ticket you put on the board again, while its card is still open, goes to that card, and so does a board trigger that fires again, with what came with it, such as a webhook's request. The card keeps the last eight such arrivals, and the agent working it, or its team's lead, is told. A ticket put on the board again after its card is done gets a new card, and its open subtasks move under it.
 

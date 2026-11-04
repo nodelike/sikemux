@@ -7,9 +7,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::sync::Locked;
 
 use super::{
-    add_card, long_text, project_at, project_view, slice, title_of, Adding, BoardView, By,
+    add_card, lease, long_text, project_at, project_view, slice, title_of, Adding, BoardView, By,
 };
 use crate::protocol::Event;
 use crate::server::connection::blocking;
@@ -39,6 +40,17 @@ pub struct HandOffParams {
     /// The connected provider it runs on in place of its own account.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+}
+
+/// Where the person hands a slice whose owner stalled.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandOnParams {
+    pub project: String,
+    pub id: u64,
+    /// The agent that takes it; none starts a new one in a checkout of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
 }
 
 /// The slice that tracks the work, and the agent doing it.
@@ -82,25 +94,87 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> Result<
         promise: Some(promise),
         ..Adding::default()
     };
+    let worker = Worker {
+        project: params.project,
+        launcher: params.launcher,
+        provider: params.provider,
+        model: params.model,
+    };
+    let (agent, started) = start_worker(core, worker, text.clone(), move |core, project, agent| {
+        add_card(core, project, &By::Person, adding, Some(agent)).map(|(card, _)| card)
+    })
+    .await?;
+    let board = project_view(core, &started.project);
+    let card = started.card;
+    let core = core.clone();
+    let worker = agent.clone();
+    tokio::spawn(async move { hand_task(&core, &worker, started, text, params.files).await });
+    Ok(HandedOff { card, agent, board })
+}
+
+/// Starts a new agent on a slice whose owner stalled, the way Hand off starts one. `from` says
+/// whose it was.
+pub(super) async fn hand_on(
+    core: &Arc<Core>,
+    project: &str,
+    id: u64,
+    from: String,
+) -> Result<(), String> {
+    let text = {
+        let state = core.boards.state.locked();
+        let card = (state.boards.get(project))
+            .ok_or_else(|| format!("There is no card #{id} on this project's board"))?
+            .card(id)?;
+        let promise = (card.slice.as_ref()).map_or(card.title.as_str(), |slice| &slice.promise);
+        match card.details.as_str() {
+            "" => format!("{promise}\n\n{from}"),
+            details => format!("{promise}\n\n{details}\n\n{from}"),
+        }
+    };
+    let worker = Worker {
+        project: project.to_owned(),
+        launcher: None,
+        provider: None,
+        model: None,
+    };
+    let (agent, started) = start_worker(core, worker, text.clone(), move |core, project, agent| {
+        lease::give(core, project, id, agent).map(|()| id)
+    })
+    .await?;
+    let core = core.clone();
+    tokio::spawn(async move { hand_task(&core, &agent, started, text, Vec::new()).await });
+    Ok(())
+}
+
+/// The agent to start: in which project, and on what.
+struct Worker {
+    project: String,
+    launcher: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+}
+
+/// Starts an agent in a checkout of its own, cut from where the project is now, with the branch
+/// named after `text`, and puts it on the card `place` answers with. Answers with the agent.
+async fn start_worker(
+    core: &Arc<Core>,
+    worker: Worker,
+    text: String,
+    place: impl FnOnce(&Arc<Core>, &str, &str) -> Result<u64, String> + Send + 'static,
+) -> Result<(String, Started), String> {
     let agent = format!("agent-{}", uuid::Uuid::new_v4().simple());
     let started = {
-        let (core, agent, text) = (core.clone(), agent.clone(), text.clone());
-        let (project, launcher, provider, model) = (
-            params.project,
-            params.launcher,
-            params.provider,
-            params.model,
-        );
+        let (core, agent) = (core.clone(), agent.clone());
         blocking(move || {
-            let project = project_at(&core, &project)?;
+            let project = project_at(&core, &worker.project)?;
             let folder = Path::new(&project);
             let (checkout, cwd) = agent::cut_for(folder, folder, &worktree::branch_for(&text))?;
             let mut unclaimed = Unclaimed(Some(checkout.clone()));
             let (mut launch, launcher) = core.workspaces.board_launch(
-                launcher.as_deref(),
+                worker.launcher.as_deref(),
                 &cwd,
-                provider.as_deref(),
-                model,
+                worker.provider.as_deref(),
+                worker.model,
                 "in the start box's agent menu",
             )?;
             core.names.give(
@@ -119,9 +193,9 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> Result<
                 .workspaces
                 .edit_agent(&agent, |worker| worker.worktree = Some(checkout.clone()))
                 .map_err(|error| error.to_string())
-                .and_then(|_| add_card(&core, &project, &By::Person, adding, Some(&agent)));
+                .and_then(|_| place(&core, &project, &agent));
             let card = match placed {
-                Ok((card, _)) => card,
+                Ok(card) => card,
                 Err(error) => {
                     let _ = workspace::close_agent(&core, agent);
                     return Err(error.into());
@@ -141,12 +215,7 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> Result<
         .await
         .map_err(|error| error.to_string())?
     };
-    let board = project_view(core, &started.project);
-    let card = started.card;
-    let core = core.clone();
-    let worker = agent.clone();
-    tokio::spawn(async move { hand_task(&core, &worker, started, text, params.files).await });
-    Ok(HandedOff { card, agent, board })
+    Ok((agent, started))
 }
 
 /// Sets up the agent's checkout as the project asks, then sends it what the

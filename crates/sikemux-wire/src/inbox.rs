@@ -178,6 +178,26 @@ pub struct InboxItem {
     /// The linked host the agent runs on, when it is not this one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// What the person can do about the slice on `card` losing `agentId`: `boardResumeOwner`
+    /// or `boardHandOn`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled: Option<InboxStalled>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxStalled {
+    /// Whether the agent or its session is there to start again.
+    pub can_resume: bool,
+    /// The agents open in the project that could take the slice.
+    pub hand_to: Vec<InboxHandTo>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxHandTo {
+    pub agent_id: String,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

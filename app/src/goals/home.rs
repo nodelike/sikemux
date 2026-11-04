@@ -2,13 +2,14 @@
 //! way; and what happened while the person was away, by goal. The core ranks, sorts and counts
 //! both; the pane only groups them under the goal each item is on.
 
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled,
+    div, px, Anchor, AnyElement, Context, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use sikemux_core::server::call;
-use sikemux_core::server::{AnswerParams, BoardView, CardView};
+use sikemux_core::server::{AnswerParams, BoardCardParams, BoardHandOnParams, BoardView, CardView};
 use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
 use sikemux_wire::slice::SliceState;
 
@@ -323,7 +324,10 @@ fn needs_row(
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let about = pane.goal_title(item).or_else(|| item.name.clone());
+    let about = match (&item.stalled, &item.name) {
+        (Some(_), Some(name)) => Some(format!("@{name}")),
+        _ => pane.goal_title(item).or_else(|| item.name.clone()),
+    };
     let tint = match item.need {
         Some(InboxNeed::Fix) => t.danger,
         _ => t.warn,
@@ -353,8 +357,73 @@ fn needs_row(
         )
         .child(div().flex_1())
         .children(item.hold.as_ref().map(|hold| ship_buttons(&hold.id, cx)))
+        .children(stall_buttons(item, cx))
         .child(ui::meta(ui::time::age(item.at), cx));
     super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
+}
+
+/// Starts a stalled owner again, or hands its slice to another agent or a new one.
+pub(super) fn stall_buttons(item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<AnyElement> {
+    let stalled = item.stalled.as_ref()?;
+    let card = item.card.as_ref()?;
+    let (project, id) = (card.project.clone(), card.id);
+    let goals = cx.entity().downgrade();
+    let hand_to = stalled.hand_to.clone();
+    let menu = {
+        let project = project.clone();
+        move |mut popup: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
+            let entries = (hand_to.iter())
+                .map(|agent| (format!("@{}", agent.name), Some(agent.agent_id.clone())))
+                .chain([("New agent".to_owned(), None)]);
+            for (label, to) in entries {
+                let (goals, project) = (goals.clone(), project.clone());
+                popup = popup.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                    let params = BoardHandOnParams {
+                        project: project.clone(),
+                        id,
+                        to: to.clone(),
+                    };
+                    let _ = goals.update(cx, |pane, cx| {
+                        pane.ask::<call::BoardHandOn>(params, |_| {}, cx)
+                    });
+                }));
+            }
+            popup
+        }
+    };
+    Some(
+        div()
+            .flex()
+            .gap(SPACE_1)
+            .when(stalled.can_resume, |buttons| {
+                buttons.child(
+                    Button::new(
+                        SharedString::from(format!("stalled-resume-{id}")),
+                        "Resume",
+                        Variant::Outline,
+                    )
+                    .on_click(cx.listener(move |pane, _, _, cx| {
+                        cx.stop_propagation();
+                        let params = BoardCardParams {
+                            project: project.clone(),
+                            id,
+                        };
+                        pane.ask::<call::BoardResumeOwner>(params, |_| {}, cx)
+                    })),
+                )
+            })
+            .child(ui::menu_button(
+                SharedString::from(format!("stalled-hand-on-{id}")),
+                Anchor::TopRight,
+                Button::new(
+                    SharedString::from(format!("stalled-hand-on-button-{id}")),
+                    "Hand on",
+                    Variant::Outline,
+                ),
+                menu,
+            ))
+            .into_any_element(),
+    )
 }
 
 /// What an agent asked the person, on one line with the agent, its project, the answers it takes

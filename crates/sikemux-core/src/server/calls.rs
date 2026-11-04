@@ -590,6 +590,8 @@ calls! { core, client, params;
     "board" Board (board::BoardParams) -> board::BoardView: Watch, any_program => board::board(&core, params).await?,
     "boardAdd" BoardAdd (board::AddParams) -> board::BoardView: Full => board::person_add(&core, params).await?,
     "boardHandOff" BoardHandOff (board::HandOffParams) -> board::HandedOff: Full => board::hand_off(&core, params).await?,
+    "boardResumeOwner" BoardResumeOwner (board::CardParams) -> board::BoardView: Full => board::person_resume(&core, params).await?,
+    "boardHandOn" BoardHandOn (board::HandOnParams) -> board::BoardView: Full => board::person_hand_on(&core, params).await?,
     "boardAddTicket" BoardAddTicket (board::AddTicketParams) -> board::BoardView: Full => {
         board::person_add_ticket(&core, params).await?
     },

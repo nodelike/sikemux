@@ -13,8 +13,9 @@ use sikemux_process::sync::Locked;
 use crate::protocol::{AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, SessionInfo};
 use crate::text::{clipped, clipped_line};
 use sikemux_wire::inbox::{
-    AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandoff, InboxItem, InboxKind,
-    InboxNeed, InboxRecording, InboxTier, RemoteAgent, ShipHold, ShipKind, TeamLink,
+    AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandTo, InboxHandoff, InboxItem,
+    InboxKind, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent, ShipHold, ShipKind,
+    TeamLink,
 };
 
 use super::board::{self, Hold, Summary, Waits};
@@ -30,6 +31,8 @@ const MAX_TURN_RECORDINGS: usize = 8;
 const MAX_FILES: usize = 20;
 const MAX_ANSWER_CHARS: usize = 600;
 const MAX_LINE_CHARS: usize = 200;
+/// The agents a stalled slice's item offers to hand it to.
+const MAX_HAND_TO: usize = 12;
 
 /// How a turn failed, as far as the person is concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +66,8 @@ enum Case {
     /// The slice's ticket was closed in its tracker with nothing of it
     /// landed, where the person lands slices.
     TicketDone,
+    /// The slice lost its owner, which stalled.
+    Stalled,
     /// Two agents keep messaging each other and nothing else.
     Looping,
     /// Two agents keep changing the same lines.
@@ -106,7 +111,9 @@ impl Case {
             Case::Ship(_) => (InboxKind::Ship, Wants::Person(Decide)),
             Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
             Case::SeededRules => (InboxKind::SeededRules, Wants::Person(Decide)),
-            Case::HandedBack(Hold::Unblock) => (InboxKind::Held, Wants::Person(Unblock)),
+            Case::HandedBack(Hold::Unblock) | Case::Stalled => {
+                (InboxKind::Held, Wants::Person(Unblock))
+            }
             Case::HandedBack(Hold::Fix)
             | Case::Looping
             | Case::CheckFailing
@@ -286,6 +293,13 @@ impl Turns {
             said: said.to_owned(),
             fault: Some(fault),
         });
+    }
+
+    /// Whether the agent's driver saw its latest turn fail, which the person hears of by itself.
+    pub(crate) fn failing(&self, agent_id: &str) -> bool {
+        (self.turns.locked().get(agent_id))
+            .and_then(|turn| turn.problem.as_ref())
+            .is_some_and(|problem| problem.fault.is_some())
     }
 
     pub(crate) fn stopped(&self, agent_id: &str) {
@@ -503,6 +517,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
             _ => None,
         },
         request_id: None,
+        stalled: None,
         choices: None,
         question_id: None,
         answers: Vec::new(),
@@ -583,7 +598,7 @@ fn pair_id(one: &str, other: &str) -> String {
 
 /// The item for a card that waits on the person, unless what it waits for is
 /// an answer, which its question's item asks for.
-fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
+fn card_item(card: &Summary, waits: &Waits, agents: &[Agent]) -> Option<InboxItem> {
     let card_id = |state: &str| format!("{state}:{}:{}", card.project, card.id);
     let mut item = match waits {
         Waits::Review { url } => {
@@ -629,6 +644,43 @@ fn card_item(card: &Summary, waits: &Waits) -> Option<InboxItem> {
                 None => format!(
                     "{key} was closed in its tracker. Mark the slice done to close it as it stands, or reopen the ticket"
                 ),
+            });
+            item
+        }
+        Waits::Stalled {
+            agent,
+            name,
+            why,
+            can_resume,
+        } => {
+            let mut item = item(
+                card_id("stalled"),
+                Case::Stalled,
+                format!("Stalled on {}", card.title),
+                card.updated_at,
+            );
+            item.detail = Some(format!(
+                "{} Nobody holds it now: resume @{name} or hand it to someone else.",
+                why.words()
+            ));
+            item.agent_id = Some(agent.clone());
+            item.name = Some(name.clone());
+            item.stalled = Some(InboxStalled {
+                can_resume: *can_resume,
+                hand_to: (agents.iter())
+                    .filter(|other| {
+                        other.id != *agent
+                            && other.host.is_none()
+                            && other.project.as_deref() == Some(card.project.as_str())
+                    })
+                    .filter_map(|other| {
+                        Some(InboxHandTo {
+                            agent_id: other.id.clone(),
+                            name: other.name.clone()?,
+                        })
+                    })
+                    .take(MAX_HAND_TO)
+                    .collect(),
             });
             item
         }
@@ -1142,7 +1194,7 @@ fn waiting(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<Inbox
         if let Some(item) = card
             .waits
             .as_ref()
-            .and_then(|waits| card_item(&card, waits))
+            .and_then(|waits| card_item(&card, waits, agents))
         {
             items.push(item);
         }

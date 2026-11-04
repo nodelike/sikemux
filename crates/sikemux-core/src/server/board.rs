@@ -37,6 +37,7 @@ mod finish;
 pub(crate) mod git;
 pub(crate) mod goal;
 mod hand_off;
+mod lease;
 mod migrate;
 mod page;
 mod review;
@@ -55,7 +56,8 @@ pub(crate) use failing::ci_ruled;
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 pub use goal::AssertParams;
 pub(crate) use hand_off::hand_off;
-pub use hand_off::{HandOffParams, HandedOff};
+pub use hand_off::{HandOffParams, HandOnParams, HandedOff};
+pub(crate) use lease::{person_hand_on, person_resume};
 pub(crate) use slice::{
     follow, gate_key, gate_words, person_note, person_pass, screenshot_taken, wants_screenshot,
     SCREENSHOT_WIDTHS,
@@ -526,6 +528,9 @@ pub(crate) struct Boards {
     found_checks: Mutex<HashMap<String, Option<String>>>,
     /// Offers cards, runs Auto and keeps tickets and the window up to date.
     pub(crate) wake: Wake,
+    /// When this core started: an owner's lease runs from no earlier, since a restart
+    /// stopped it and what it last did before then was not seen.
+    born: u64,
 }
 
 /// The folder in the data folder that holds the screenshots kept as evidence.
@@ -684,6 +689,7 @@ impl Boards {
             footers: slice::Footers::default(),
             found_checks: Mutex::default(),
             wake: Wake::default(),
+            born: epoch_ms(),
         };
         {
             let mut state = boards.state.locked();
@@ -1449,6 +1455,9 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if asked || at_gate {
         fields.insert("waitingOnThePerson".into(), true.into());
     }
+    if let Some(stalled) = card.slice.as_ref().and_then(|slice| slice.stalled.as_ref()) {
+        fields.insert("stalledOwner".into(), stalled.name.clone().into());
+    }
     if full {
         let under: Vec<Value> = board
             .cards
@@ -1618,6 +1627,7 @@ fn take(core: &Core, card: &mut Card, agent: &str) {
     if let Some(slice) = &mut card.slice {
         slice.started = true;
         slice.started_at = Some(card.updated_at);
+        slice.stalled = None;
     }
 }
 
@@ -1992,6 +2002,9 @@ fn mark_done(
         });
     }
     card.status = Status::Done;
+    if let Some(slice) = &mut card.slice {
+        slice.stalled = None;
+    }
     if let (None, By::Agent(agent)) = (holder(core, card), by) {
         card.owner = Some(Owner::of(core, agent));
     }
@@ -2314,6 +2327,13 @@ pub(crate) enum Waits {
     /// Its ticket `key` was closed in its tracker with nothing of its slice
     /// landed, where the person lands slices, while the slice waits at `gate`.
     TicketDone { key: String, gate: Option<Gate> },
+    /// Its slice's owner stalled and lost it, for the person to resume or hand on.
+    Stalled {
+        agent: String,
+        name: String,
+        why: lease::Why,
+        can_resume: bool,
+    },
     /// Its owner asked the person something it waits on.
     Answer,
 }
@@ -2329,6 +2349,18 @@ fn waits(core: &Core, landing: Landing, card: &Card) -> Option<Waits> {
         return Some(Waits::Held {
             need,
             note: run.note.clone(),
+        });
+    }
+    if let Some(stalled) = (card.slice.as_ref())
+        .and_then(|slice| slice.stalled.as_ref())
+        .filter(|_| card.owner.is_none())
+    {
+        return Some(Waits::Stalled {
+            agent: stalled.agent.clone(),
+            name: stalled.name.clone(),
+            why: stalled.why,
+            can_resume: core.names.ran_session(&stalled.agent).is_some()
+                || core.workspaces.agent(&stalled.agent).is_some(),
         });
     }
     if let Some(ticket) = card.ticket_done_unlanded() {
@@ -2452,6 +2484,7 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
                         | Waits::Held { .. }
                         | Waits::Gate { .. }
                         | Waits::TicketDone { .. }
+                        | Waits::Stalled { .. }
                 )
             ) || done_since
                 .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)
@@ -3260,6 +3293,7 @@ pub(crate) fn reached_by_more_than_offer(core: &Core, agent_id: &str) {
 pub(crate) fn settle(core: &Arc<Core>) {
     let mut next = offer(core);
     finish::clear_dropped(core);
+    next = sooner(next, lease::settle(core));
     auto::start_free(core);
     next = sooner(next, finish::due(core));
     next = sooner(next, tickets::due(core));

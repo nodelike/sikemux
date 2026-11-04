@@ -678,6 +678,11 @@ export interface InboxItem {
     recordings: InboxRecording[];
     /** The linked host the agent runs on, when it is not this one. */
     host?: string;
+    /**
+     * What the person can do about the slice on `card` losing `agentId`: `boardResumeOwner`
+     * or `boardHandOn`.
+     */
+    stalled?: InboxStalled;
 }
 
 export type InboxTier = "needs" | "review" | "finished" | "progress";
@@ -747,6 +752,18 @@ export interface InboxRecording {
     /** The chat run and turn it was made in. */
     feed: string | null;
     turn: number | null;
+}
+
+export interface InboxStalled {
+    /** Whether the agent or its session is there to start again. */
+    canResume: boolean;
+    /** The agents open in the project that could take the slice. */
+    handTo: InboxHandTo[];
+}
+
+export interface InboxHandTo {
+    agentId: string;
+    name: string;
 }
 
 /** An agent on a linked host that works with agents here. */
@@ -3631,6 +3648,20 @@ export interface HandedOff {
     board: ProjectBoard;
 }
 
+/** One card on a project's board. */
+export interface BoardCardParams {
+    project: string;
+    id: number;
+}
+
+/** Where the person hands a slice whose owner stalled. */
+export interface HandOnParams {
+    project: string;
+    id: number;
+    /** The agent that takes it; none starts a new one in a checkout of its own. */
+    to?: string;
+}
+
 /**
  * A ticket the person puts on a project's board, with the tickets under it and the keys
  * of the tickets it waits on and holds up.
@@ -3672,12 +3703,6 @@ export interface BoardUpdateParams {
     dependsOn?: number[];
     /** The card it goes under, 0 for none. */
     parent?: number;
-}
-
-/** One card on a project's board. */
-export interface BoardCardParams {
-    project: string;
-    id: number;
 }
 
 /**
@@ -4035,6 +4060,8 @@ export interface CoreCalls {
     board: { params: BoardParams; answer: ProjectBoard };
     boardAdd: { params: BoardAddParams; answer: ProjectBoard };
     boardHandOff: { params: BoardHandOffParams; answer: HandedOff };
+    boardResumeOwner: { params: BoardCardParams; answer: ProjectBoard };
+    boardHandOn: { params: HandOnParams; answer: ProjectBoard };
     boardAddTicket: { params: BoardAddTicketParams; answer: ProjectBoard };
     boardUpdate: { params: BoardUpdateParams; answer: ProjectBoard };
     boardRemove: { params: BoardCardParams; answer: ProjectBoard };

@@ -200,6 +200,9 @@ pub(super) struct Slice {
     /// The card under it where a failed check is being fixed, while it is open.
     #[serde(default)]
     pub fix: Option<u64>,
+    /// The owner it lost, until someone takes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled: Option<super::lease::Stalled>,
 }
 
 /// An assertion of its goal a slice fulfils.
@@ -307,6 +310,7 @@ impl Slice {
             started: false,
             started_at: None,
             fix: None,
+            stalled: None,
         };
         for recording in &recordings {
             slice.picture(owner, recording);
@@ -868,6 +872,7 @@ impl Slice {
     pub(super) fn restart(&mut self) {
         self.passes.clear();
         self.done_said = false;
+        self.stalled = None;
     }
 
     /// Nobody holds it any more, so its work goes with the gates it passed.
@@ -1096,7 +1101,7 @@ impl Slice {
             .is_some_and(|check| check.gate == gate && check.verdict == Some(Verdict::Failed));
         if failed {
             SliceState::Failed
-        } else if self.waits_on_person(landing).is_some() {
+        } else if self.stalled.is_some() || self.waits_on_person(landing).is_some() {
             SliceState::NeedsYou
         } else if held_up {
             SliceState::Waiting
@@ -2146,6 +2151,7 @@ pub(super) fn auto_slice(card: &mut Card, merges: bool) {
     }
     slice.started = true;
     slice.started_at = Some(epoch_ms());
+    slice.stalled = None;
 }
 
 /// Auto's agent shipped `head`, made on `from`, which counts as its owner

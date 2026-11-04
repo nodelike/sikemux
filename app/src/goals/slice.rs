@@ -91,6 +91,7 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
             )
         })
         .child(owner_line(card, cx))
+        .children(stalled_line(pane, card.id, cx))
         .child(ladder(card, slice, cx))
         .children(goal.and_then(|goal| super::assertions::ticks(goal, slice, cx)))
         .when_some(shown, |view, shown| {
@@ -119,6 +120,37 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
             view.child(notes(card, slice, cx))
         })
         .into_any_element()
+}
+
+/// Who the slice lost and why, with what the person can do about it, as the inbox says.
+fn stalled_line(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> Option<AnyElement> {
+    let bench = pane.bench.upgrade()?;
+    let item = (bench.read(cx).shown())?.inbox.items.iter().find(|item| {
+        item.stalled.is_some()
+            && item
+                .card
+                .as_ref()
+                .is_some_and(|card| card.id == id && pane.here.as_deref() == Some(&card.project))
+    })?;
+    let item = item.clone();
+    let t = Tokens::get(cx).clone();
+    Some(
+        div()
+            .pt(SPACE_2)
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(theme::ui_text(TEXT_SM))
+                    .text_color(t.warn)
+                    .child(item.detail.clone().unwrap_or_else(|| item.what.clone())),
+            )
+            .children(super::home::stall_buttons(&item, cx))
+            .into_any_element(),
+    )
 }
 
 /// Who owns the slice, which opens their chat, and its ticket.

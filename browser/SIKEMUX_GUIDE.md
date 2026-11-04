@@ -1337,6 +1337,11 @@ another. You may change your own cards, cards the agents you started own, and
 cards nobody owns, which include a card whose owner has closed: change it or
 claim it, so it never stays stuck.
 
+Holding a slice is a lease. If your chat closes, or you run no turn and leave the
+slice untouched for 30 minutes while nothing you wait on can bring you back, the
+slice goes back to Open and the person is asked to resume you or hand it on.
+`board_list` shows the owner it lost as `stalledOwner`; claim it to carry it on.
+
 When a card is done, the cards waiting on it are free to claim, and their
 owners are told. When you were started by another agent and sit idle, the
 board tells you of your team's open cards nobody has taken, once each: claim
