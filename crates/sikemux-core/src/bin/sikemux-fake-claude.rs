@@ -264,6 +264,23 @@ impl Claude {
                 self.send(assistant);
                 self.finish(uuid, None);
             }
+            "shell" => {
+                // It runs as an agent does, on the PATH the core gave it, shim first.
+                #[allow(clippy::disallowed_methods)]
+                let ran = std::process::Command::new("sh")
+                    .args(["-c", text.trim_start()["shell".len()..].trim()])
+                    .output();
+                let said = match ran {
+                    Ok(ran) => format!(
+                        "{}{}",
+                        String::from_utf8_lossy(&ran.stdout),
+                        String::from_utf8_lossy(&ran.stderr)
+                    ),
+                    Err(error) => error.to_string(),
+                };
+                self.say(&message_id, &said);
+                self.finish(uuid, None);
+            }
             "ask" => {
                 let tool_id = format!("toolu-{uuid}");
                 let input = json!({ "command": "echo hi", "description": "Say hi" });
