@@ -104,7 +104,7 @@ impl Page {
             Account => "Your Sikemux account, which links your phone and hosts",
             General => "Where projects come from and how a session starts",
             Keyboard => "Every shortcut, and the keys you gave it",
-            Notifications => "How Sikemux tells you an agent needs you",
+            Notifications => "How Sikemux tells you an agent needs you or a goal moved",
             Theme => "One palette for the chrome, the editor and the terminal",
             Interface => "Text size, what shows behind each pane, and the window",
             Buddies => "Characters that stand in for agents' logos",
