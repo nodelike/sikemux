@@ -243,6 +243,7 @@ pub const ENTRIES: &[Entry] = &[
     section(Keyboard, "Shortcuts", "keybindings hotkeys keys keyboard remap"),
     section(Notifications, "Notifications", "notification alert badge dock permission finished"),
     row(Notifications, "Notifications", "Notify when an agent needs you", "notification alert badge dock permission finished"),
+    row(Notifications, "Notifications", "Notify when a goal moves", "notification goal slice landed finished eta slipped progress"),
     row(Notifications, "Notifications", "Test notification", "notification sound permission send try"),
     section(Theme, "Wearing", "colours colors palette dark light custom fork editor wallpaper customize"),
     section(Theme, "Themes", "colours colors palette dark light custom ghostty search"),

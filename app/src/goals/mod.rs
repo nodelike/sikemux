@@ -22,6 +22,7 @@ use sikemux_core::server::{
 };
 use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem, InboxKind};
 use sikemux_wire::memory::{MemoryView, Seeding};
+use sikemux_wire::protocol::NoticeGoal;
 use sikemux_wire::slice::{
     CheckRun, Gate, GateState, GateView, GoalEta, Need, Passer, SliceState, SliceView, Wait, WaitOn,
 };
@@ -291,6 +292,14 @@ impl GoalsPane {
     /// Shows the first screen, as switching the window to the goals does.
     pub fn home(&mut self, cx: &mut Context<Self>) {
         self.go(At::Home, cx);
+    }
+
+    /// Goes to `goal`, bringing its project to the front.
+    pub fn open_goal(&mut self, goal: &NoticeGoal, cx: &mut Context<Self>) {
+        if self.here.as_deref() != Some(goal.project.as_str()) {
+            self.bring(goal.project.clone(), cx);
+        }
+        self.go(At::Goal(goal.card), cx);
     }
 
     /// The goal an inbox item's card belongs to, as the core says, when it is a goal.

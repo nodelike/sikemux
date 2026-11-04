@@ -237,6 +237,9 @@ struct Board {
     /// What the core promised of each of its goals that has work under way.
     #[serde(skip)]
     promises: HashMap<u64, eta::Promise>,
+    /// What the person heard of as landed and finished; none until first looked at.
+    #[serde(skip)]
+    told_moved: Option<eta::Told>,
     /// The latest CI run that failed on the project's branch, while the core runs.
     #[serde(skip)]
     ci_failing: failing::Latest,
@@ -3298,9 +3301,13 @@ pub(crate) fn settle(core: &Arc<Core>) {
     next = sooner(next, finish::due(core));
     next = sooner(next, tickets::due(core));
     next = sooner(next, workflows::due(core));
-    next = sooner(next, wait::settle(core, &mut core.boards.state.locked()));
+    let (due, moved) = wait::settle(core, &mut core.boards.state.locked());
+    next = sooner(next, due);
     if let Some(next) = next {
         core.boards.wake.at(next);
+    }
+    if !moved.is_empty() {
+        core.notify.goals_moved(moved);
     }
     if !core.boards.state.locked().dirty.is_empty() {
         core.harness.questions.boards_changed();

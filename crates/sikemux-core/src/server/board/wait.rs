@@ -12,6 +12,7 @@ use sikemux_wire::slice::{CheckRun, Verdict, Wait, WaitOn};
 
 use super::auto::mid_turn;
 use super::{eta, Board, Card, State, Status};
+use crate::server::notify::GoalMoved;
 use crate::server::Core;
 
 /// Run times kept per project and kind of check.
@@ -156,10 +157,12 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
 }
 
 /// Notes which boards' waits and goals' ETAs changed since clients were last
-/// told, and answers when the next wait runs past its estimate or ETA comes due.
-pub(super) fn settle(core: &Core, state: &mut State) -> Option<u64> {
+/// told. Answers when the next wait runs past its estimate or ETA comes due,
+/// and how goals moved since the person last heard.
+pub(super) fn settle(core: &Core, state: &mut State) -> (Option<u64>, Vec<GoalMoved>) {
     let now = epoch_ms();
     let mut next: Option<u64> = None;
+    let mut moved_goals = Vec::new();
     let State { boards, dirty, .. } = state;
     for board in boards.values_mut() {
         board.took = eta::Took::of(board);
@@ -181,12 +184,13 @@ pub(super) fn settle(core: &Core, state: &mut State) -> Option<u64> {
         if promised.changed {
             dirty.insert(board.project.clone());
         }
+        moved_goals.extend(eta::moved(board, promised.slipped));
         if moved(&board.told_waits, &waits) {
             board.told_waits = waits;
             dirty.insert(board.project.clone());
         }
     }
-    next
+    (next, moved_goals)
 }
 
 /// Whether a wait began or ended, or what one is on, when it should end or

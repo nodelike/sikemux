@@ -24,8 +24,8 @@ use sikemux_wire::grid::{
 };
 use sikemux_wire::protocol::{
     ask, CallId, ChatAccount, ChatAttachment, ChatContext, ChatMark, DeviceAccess, DeviceView,
-    Event, LaunchIdentity, NetworkChange, PermissionMode, RemoteStatus, SessionId, SpawnTarget,
-    StreamId, TerminalSpawn, WindowAnswer, WindowCall,
+    Event, LaunchIdentity, NetworkChange, NoticeGoal, PermissionMode, RemoteStatus, SessionId,
+    SpawnTarget, StreamId, TerminalSpawn, WindowAnswer, WindowCall,
 };
 use sikemux_wire::pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnapshot};
 use tokio::sync::{mpsc, oneshot};
@@ -65,6 +65,7 @@ pub enum Update {
         title: String,
         body: String,
         agent: String,
+        goal: Option<NoticeGoal>,
     },
     /// A device or host joined the person's account.
     AccountDevice {
@@ -1184,8 +1185,8 @@ async fn run(
                             Some(ClientEvent::Event(Event::DeviceView { view })) => {
                                 let _ = updates.send(Update::View(view));
                             }
-                            Some(ClientEvent::Event(Event::Notice { title, body, agent_id })) => {
-                                let _ = updates.send(Update::Notice { title, body, agent: agent_id });
+                            Some(ClientEvent::Event(Event::Notice { title, body, agent_id, goal })) => {
+                                let _ = updates.send(Update::Notice { title, body, agent: agent_id, goal });
                             }
                             Some(ClientEvent::Event(Event::FocusAgent { agent_id })) => {
                                 let _ = updates.send(Update::FocusAgent(agent_id));

@@ -79,6 +79,9 @@ pub struct Preferences {
     pub restore_agent_tabs: bool,
     /// The desktop says when an agent needs the person.
     pub agent_notifications: bool,
+    /// The desktop and phones say when a slice lands, a goal finishes or its
+    /// ETA slips.
+    pub goal_notifications: bool,
     /// The folders the person keeps projects in.
     pub project_roots: Vec<ProjectRoot>,
     /// The repository a project's Git views open on, by the project's folder,
@@ -252,6 +255,7 @@ impl Default for Preferences {
             agent_worktree_defaults: BTreeMap::new(),
             restore_agent_tabs: true,
             agent_notifications: true,
+            goal_notifications: true,
             project_roots: Vec::new(),
             default_git_repos: BTreeMap::new(),
             language_server_trust: BTreeMap::new(),

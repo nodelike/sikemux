@@ -417,6 +417,11 @@ impl Slice {
         })
     }
 
+    /// Its Landed gate passed.
+    pub(super) fn landed(&self) -> bool {
+        self.pass_of(Gate::Landed).is_some()
+    }
+
     fn evidence(&self, id: u64) -> Option<&Evidence> {
         self.evidence.iter().find(|evidence| evidence.id == id)
     }

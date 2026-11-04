@@ -1818,6 +1818,11 @@ export interface Preferences {
     restoreAgentTabs: boolean;
     /** The desktop says when an agent needs the person. */
     agentNotifications: boolean;
+    /**
+     * The desktop and phones say when a slice lands, a goal finishes or its
+     * ETA slips.
+     */
+    goalNotifications: boolean;
     /** The folders the person keeps projects in. */
     projectRoots: ProjectRoot[];
     /**
@@ -4093,6 +4098,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     agentWorktreeDefaults: {},
     restoreAgentTabs: true,
     agentNotifications: true,
+    goalNotifications: true,
     projectRoots: [],
     defaultGitRepos: {},
     languageServerTrust: {},

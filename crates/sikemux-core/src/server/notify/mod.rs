@@ -1,10 +1,11 @@
 //! Tells the app's window, and paired phones through the account's push
 //! service, when an agent or anything else in the inbox needs the person,
-//! an agent finishes a long turn or runs into a problem, or when a device asks
-//! to pair. Each phone chose what it hears about and gave this
+//! an agent finishes a long turn or runs into a problem, a goal moves, or when
+//! a device asks to pair. Each phone chose what it hears about and gave this
 //! host a key to seal it with (see [`crate::push`]); the host decides
 //! everything else, since it knows most.
 
+mod goals;
 mod presence;
 #[cfg(test)]
 mod tests;
@@ -25,6 +26,7 @@ use crate::push::{self, Notification, NotificationCategory, NotificationKind, MA
 use crate::text::clipped_line;
 use sikemux_wire::inbox::InboxItem;
 
+pub(crate) use goals::GoalMoved;
 pub(crate) use presence::{Presence, SystemPresence};
 
 use super::access::{self, Needs, Peer};
@@ -105,6 +107,8 @@ pub(crate) struct Notifier {
     signals: Mutex<Option<mpsc::UnboundedSender<Signal>>>,
     /// Something the inbox is made from may have changed.
     inbox_moved: Notify,
+    /// A goal moved, and what it did is gathered in `state`.
+    goals_moved: Notify,
     state: Mutex<State>,
     presence: Mutex<Option<Arc<dyn Presence>>>,
     host_name: OnceLock<String>,
@@ -128,6 +132,8 @@ struct State {
     /// What each inbox item that needs the person told them, by item; none
     /// until the inbox was first looked at, which tells of nothing.
     inbox: Option<HashMap<String, Draft>>,
+    /// How goals moved since the person was last told, by project and goal.
+    goals: goals::Gathered,
 }
 
 impl Notifier {
@@ -182,13 +188,8 @@ pub(crate) async fn run(core: Arc<Core>) {
     let mut ticker = tokio::time::interval(TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut inbox_due: Option<tokio::time::Instant> = None;
+    let mut goals_due: Option<tokio::time::Instant> = None;
     loop {
-        let looked_at = async {
-            match inbox_due {
-                Some(at) => tokio::time::sleep_until(at).await,
-                None => std::future::pending().await,
-            }
-        };
         tokio::select! {
             signal = received.recv() => match signal {
                 Some(signal) => {
@@ -201,11 +202,26 @@ pub(crate) async fn run(core: Arc<Core>) {
             () = core.notify.inbox_moved.notified(), if inbox_due.is_none() => {
                 inbox_due = Some(tokio::time::Instant::now() + INBOX_GATHER);
             }
-            () = looked_at => {
+            () = when(inbox_due) => {
                 inbox_due = None;
                 inbox(&core, epoch_ms());
             }
+            () = core.notify.goals_moved.notified(), if goals_due.is_none() => {
+                goals_due = Some(tokio::time::Instant::now() + goals::GATHER);
+            }
+            () = when(goals_due) => {
+                goals_due = None;
+                goals::tell(&core, epoch_ms());
+            }
         }
+    }
+}
+
+/// Waits until `due`; forever when nothing is due.
+async fn when(due: Option<tokio::time::Instant>) {
+    match due {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -927,29 +943,35 @@ fn alert_all(core: &Core, draft: &Draft, now: u64) {
             title: draft.title.clone(),
             body: draft.body.clone(),
             agent_id: draft.agent_id.clone(),
+            goal: None,
         });
         if told {
             sent(core, APP, draft, now);
         }
     }
+    let phones = alert_phones(core, draft, now, |phone| {
+        (draft.kind != NotificationKind::Pairing || answers_pairing(core, phone))
+            && due(core, phone, draft, now)
+            && !watching(core, phone, draft)
+    });
+    for phone in phones {
+        sent(core, &phone, draft, now);
+    }
+}
+
+/// Posts `draft` to each phone that asked to hear of its kind and `also` lets
+/// through, and answers which they were.
+fn alert_phones(core: &Core, draft: &Draft, now: u64, also: impl Fn(&str) -> bool) -> Vec<String> {
     let Some((host, targets)) = core.remote.notify_targets() else {
-        return;
+        return Vec::new();
     };
     let away = core.notify.state.locked().away;
     let host_name = core.notify.host_name();
     let outbox = core.remote.outbox();
+    let mut posted = Vec::new();
     for target in targets {
         let phone = target.device_id.clone();
-        if !wants(&target.prefs, draft.kind, &draft.agent_id, away, now) {
-            continue;
-        }
-        if draft.kind == NotificationKind::Pairing && !answers_pairing(core, &phone) {
-            continue;
-        }
-        if !due(core, &phone, draft, now) {
-            continue;
-        }
-        if watching(core, &phone, draft) {
+        if !wants(&target.prefs, draft.kind, &draft.agent_id, away, now) || !also(&phone) {
             continue;
         }
         let Some(blob) = address(draft, &host, &host_name, &target) else {
@@ -962,8 +984,9 @@ fn alert_all(core: &Core, draft: &Draft, now: u64) {
             blob,
             expires_at: draft.expires_at,
         });
-        sent(core, &phone, draft, now);
+        posted.push(phone);
     }
+    posted
 }
 
 /// Whether `to` has not yet been told of this card, nor of the agent

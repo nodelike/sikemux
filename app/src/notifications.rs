@@ -1,13 +1,14 @@
 //! Tells the person, while Sikemux is in the background, when an agent needs them or
-//! finished: a system notification that brings the agent forward when clicked, and the
-//! Dock or launcher icon's bounce and badge.
+//! finished or a goal moved: a system notification that brings it forward when clicked, and
+//! the Dock or launcher icon's bounce and badge.
 
 use std::collections::HashSet;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use gpui_kit::Context;
-use sikemux_wire::protocol::{PaneKind, SessionKind};
+use serde::{Deserialize, Serialize};
+use sikemux_wire::protocol::{NoticeGoal, PaneKind, SessionKind};
 use tokio::sync::mpsc;
 
 use crate::toast;
@@ -29,24 +30,32 @@ const TEST: (&str, &str) = (
     "This is how an agent will tell you it needs you or has finished.",
 );
 
-/// Posts a notification; clicking it brings Sikemux forward on the agent it is about.
-pub fn post(title: String, body: String, agent: Option<String>, cx: &mut Context<Workbench>) {
+/// What clicking a notification brings forward, kept with it as text.
+#[derive(Serialize, Deserialize)]
+pub enum Opens {
+    Agent(String),
+    Goal(NoticeGoal),
+}
+
+/// Posts a notification; clicking it brings Sikemux forward on what it is about.
+pub fn post(title: String, body: String, opens: Option<Opens>, cx: &mut Context<Workbench>) {
     follow_clicks(cx);
+    let opens = opens.and_then(|opens| serde_json::to_string(&opens).ok());
     #[cfg(target_os = "macos")]
-    macos::post(&title, &body, agent.as_deref());
+    macos::post(&title, &body, opens.as_deref());
     #[cfg(not(target_os = "macos"))]
     cx.show_system_notification(gpui_kit::SystemNotification {
-        tag: agent.unwrap_or_default().into(),
+        tag: opens.unwrap_or_default().into(),
         title: title.into(),
         body: body.into(),
         actions: Vec::new(),
     });
 }
 
-/// Where a click on a notification goes, with the agent it is about.
+/// Where a click on a notification goes, with what it opens.
 static CLICKS: OnceLock<mpsc::UnboundedSender<Option<String>>> = OnceLock::new();
 
-/// Brings Sikemux forward on each clicked notification's agent, heard once for every one.
+/// Brings Sikemux forward on what each clicked notification opens, heard once for every one.
 fn follow_clicks(cx: &mut Context<Workbench>) {
     if CLICKS.get().is_some() {
         return;
@@ -58,15 +67,17 @@ fn follow_clicks(cx: &mut Context<Workbench>) {
     #[cfg(not(target_os = "macos"))]
     cx.on_system_notification_response(|clicked, _| {
         if let Some(clicks) = CLICKS.get() {
-            let _ = clicks.send(Some(clicked.tag.to_string()).filter(|agent| !agent.is_empty()));
+            let _ = clicks.send(Some(clicked.tag.to_string()).filter(|opens| !opens.is_empty()));
         }
     });
     cx.spawn(async move |bench, cx| {
-        while let Some(agent) = clicked.recv().await {
+        while let Some(opens) = clicked.recv().await {
             let shown = bench.update(cx, |bench, cx| {
                 cx.activate(true);
-                if let Some(agent) = agent {
-                    bench.open_agent(&agent, cx);
+                match opens.and_then(|opens| serde_json::from_str(&opens).ok()) {
+                    Some(Opens::Agent(agent)) => bench.open_agent(&agent, cx),
+                    Some(Opens::Goal(goal)) => bench.open_goal(&goal, cx),
+                    None => {}
                 }
             });
             if shown.is_err() {
@@ -112,13 +123,13 @@ mod macos {
                 notification: &NSUserNotification,
             ) {
                 center.removeDeliveredNotification(notification);
-                let agent = notification
+                let opens = notification
                     .userInfo()
-                    .and_then(|info| info.objectForKey(agent_key()))
-                    .and_then(|agent| agent.downcast::<NSString>().ok())
-                    .map(|agent| agent.to_string());
+                    .and_then(|info| info.objectForKey(opens_key()))
+                    .and_then(|opens| opens.downcast::<NSString>().ok())
+                    .map(|opens| opens.to_string());
                 if let Some(clicks) = super::CLICKS.get() {
-                    let _ = clicks.send(agent);
+                    let _ = clicks.send(opens);
                 }
             }
 
@@ -133,8 +144,8 @@ mod macos {
         }
     );
 
-    fn agent_key() -> &'static NSString {
-        ns_string!("agent")
+    fn opens_key() -> &'static NSString {
+        ns_string!("opens")
     }
 
     /// macOS gives an app with no bundle, such as a run from the build folder, no notification
@@ -149,7 +160,7 @@ mod macos {
         }
     }
 
-    pub(super) fn post(title: &str, body: &str, agent: Option<&str>) {
+    pub(super) fn post(title: &str, body: &str, opens: Option<&str>) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
@@ -172,9 +183,9 @@ mod macos {
         let notification = NSUserNotification::new();
         notification.setTitle(Some(&NSString::from_str(title)));
         notification.setInformativeText(Some(&NSString::from_str(body)));
-        if let Some(agent) = agent {
-            let agent = NSString::from_str(agent);
-            let info = NSDictionary::<NSString, AnyObject>::from_slices(&[agent_key()], &[&agent]);
+        if let Some(opens) = opens {
+            let opens = NSString::from_str(opens);
+            let info = NSDictionary::<NSString, AnyObject>::from_slices(&[opens_key()], &[&opens]);
             // SAFETY: the dictionary holds only strings, which the notification can store.
             unsafe { notification.setUserInfo(Some(&info)) };
         }
@@ -231,22 +242,34 @@ fn tone() -> Vec<u8> {
     wav
 }
 
-/// Posts what the core said about an agent, while the person is away from Sikemux and
-/// asked to hear.
+/// Posts what the core said about an agent or a goal, while the person is away from Sikemux and
+/// asked to hear. How a goal moved also shows as a toast over the workbench, where the goals
+/// are out of sight; over the goals the person sees it for themselves.
 pub fn notice(
     bench: &Workbench,
     title: String,
     body: String,
     agent: String,
+    goal: Option<NoticeGoal>,
     cx: &mut Context<Workbench>,
 ) {
-    if !bench.preferences().agent_notifications || cx.active_window().is_some() {
+    if !bench.preferences().agent_notifications {
+        return;
+    }
+    if cx.active_window().is_some() {
+        if goal.is_some() && !bench.showing_goals() {
+            bench.notify(crate::toast::info(format!("{title}: {body}")), cx);
+        }
         return;
     }
     if let Some(window) = cx.windows().first().copied() {
         let _ = window.update(cx, |_, window, _| window.request_attention());
     }
-    post(title, body, Some(agent), cx);
+    let opens = match goal {
+        Some(goal) => Opens::Goal(goal),
+        None => Opens::Agent(agent),
+    };
+    post(title, body, Some(opens), cx);
 }
 
 pub fn test(cx: &mut Context<Workbench>) {

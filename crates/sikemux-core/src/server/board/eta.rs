@@ -1,13 +1,16 @@
 //! When a goal's work should be through, promised only from what the core saw
 //! the same work take before, and why when that moves later. A promise lives
 //! while the goal has work under way and ends once only the person is left, so
-//! the time they take never counts against it.
+//! the time they take never counts against it. How goals moved is worked out
+//! here too, for the person to hear of once.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use sikemux_wire::slice::{Gate, GoalEta, Slip, Wait, WaitOn};
+use sikemux_wire::slice::{Gate, GoalEta, SliceState, Slip, Wait, WaitOn};
 
+use super::slice;
 use super::{Board, Card};
+use crate::server::notify::GoalMoved;
 
 /// A gate's times kept from the board's slices, the latest.
 const KEPT_TIMES: usize = 10;
@@ -86,10 +89,10 @@ impl Promise {
     }
 
     /// Takes what the core expects now: `at`, or no estimate and `floor` as the
-    /// soonest it could still be through. A slip is new when the estimate is later
-    /// than the person was last told, or the first time there is none and the
-    /// moment passed.
-    fn update(&mut self, at: Option<u64>, then_you: Option<bool>, floor: u64, why: Slip) {
+    /// soonest it could still be through. Whether that is news of a slip: an
+    /// estimate later than the person was last told, or the first time there
+    /// is none and the moment passed.
+    fn update(&mut self, at: Option<u64>, then_you: Option<bool>, floor: u64, why: Slip) -> bool {
         let margin = self.margin();
         let news = match at {
             Some(at) => at > self.told + margin,
@@ -105,6 +108,7 @@ impl Promise {
         self.slip = slipped.then_some(why);
         self.at = at;
         self.then_you = then_you.unwrap_or(self.then_you);
+        news
     }
 }
 
@@ -243,6 +247,8 @@ pub(super) struct Promised {
     pub due: Option<u64>,
     /// Clients have something new to show.
     pub changed: bool,
+    /// The goals whose ETA just slipped.
+    pub slipped: HashMap<u64, Slip>,
 }
 
 /// Holds each of the board's goals to what the core promised of it.
@@ -291,7 +297,9 @@ pub(super) fn settle(board: &mut Board, waits: &HashMap<u64, Wait>, now: u64) ->
             continue;
         };
         let shown = promise.view();
-        promise.update(at, then_you, now + again.unwrap_or(0), reason);
+        if promise.update(at, then_you, now + again.unwrap_or(0), reason) {
+            promised.slipped.insert(id, reason);
+        }
         promised.changed |= promise.view() != shown;
         if promise.at.is_none() && promise.slip.is_none() {
             let due = promise.told + promise.margin() + 1;
@@ -299,4 +307,50 @@ pub(super) fn settle(board: &mut Board, waits: &HashMap<u64, Wait>, now: u64) ->
         }
     }
     promised
+}
+
+/// What the person heard of as landed and finished, by card.
+#[derive(Default)]
+pub(super) struct Told {
+    landed: HashSet<u64>,
+    finished: HashSet<u64>,
+}
+
+/// How the board's goals moved since the person last heard: slices landed,
+/// goals finished and the ETAs that just slipped. What the first look finds
+/// was so before the core started, so it tells of nothing.
+pub(super) fn moved(board: &mut Board, mut slipped: HashMap<u64, Slip>) -> Vec<GoalMoved> {
+    let mut now = Told::default();
+    let mut moved = Vec::new();
+    let told = board.told_moved.as_ref();
+    for goal in (board.cards.iter()).filter(|goal| !board.held_by_goal(goal).is_empty()) {
+        let held = board.held_by_goal(goal);
+        let mut landed = Vec::new();
+        for card in &held {
+            if card.slice.as_ref().is_some_and(slice::Slice::landed) {
+                now.landed.insert(card.id);
+                if told.is_some_and(|told| !told.landed.contains(&card.id)) {
+                    landed.push(card.title.clone());
+                }
+            }
+        }
+        let done = slice::goal_state(board, goal) == Some(SliceState::Done);
+        if done {
+            now.finished.insert(goal.id);
+        }
+        let finished = done && told.is_some_and(|told| !told.finished.contains(&goal.id));
+        let slip = slipped.remove(&goal.id);
+        if finished || !landed.is_empty() || slip.is_some() {
+            moved.push(GoalMoved {
+                project: board.project.clone(),
+                goal: goal.id,
+                title: goal.title.clone(),
+                landed,
+                finished,
+                slip,
+            });
+        }
+    }
+    board.told_moved = Some(now);
+    moved
 }

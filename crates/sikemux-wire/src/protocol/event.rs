@@ -8,6 +8,14 @@ use super::{
     AgentStateEvent, Attention, ChatInfo, DeviceView, NetworkChange, RemoteStatus, SessionId,
 };
 
+/// The goal a notice is about, which clicking it opens.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticeGoal {
+    pub project: String,
+    pub card: u64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -85,6 +93,9 @@ pub enum Event {
         title: String,
         body: String,
         agent_id: String,
+        /// The goal it is about, for a notice about how goals moved.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        goal: Option<NoticeGoal>,
     },
     /// A device or host joined the person's account, which the app's window
     /// offers to remove (ADR 0018).

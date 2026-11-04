@@ -20,8 +20,8 @@ use gpui_kit::{
 };
 use serde_json::{json, Value};
 use sikemux_wire::protocol::{
-    AgentFace, AgentGroup, AgentStatus, DeviceView, LauncherInfo, MidTurnSend, PaneKind,
-    PermissionMode, Preferences, ProjectCodeHost, ProjectInfo, ProjectLayout, RecentInfo,
+    AgentFace, AgentGroup, AgentStatus, DeviceView, LauncherInfo, MidTurnSend, NoticeGoal,
+    PaneKind, PermissionMode, Preferences, ProjectCodeHost, ProjectInfo, ProjectLayout, RecentInfo,
     RemoteStatus, SessionId, SessionInfo, SpaceInfo, Tab, TabRailPage, TabRailScope, WindowView,
 };
 use tokio::sync::mpsc;
@@ -1145,8 +1145,13 @@ impl Workbench {
             Update::Stopped => self.connection.stop(),
             Update::Stuck(pid) => self.connection.hang(pid),
             Update::ShutDown => return cx.quit(),
-            Update::Notice { title, body, agent } => {
-                return crate::notifications::notice(self, title, body, agent, cx);
+            Update::Notice {
+                title,
+                body,
+                agent,
+                goal,
+            } => {
+                return crate::notifications::notice(self, title, body, agent, goal, cx);
             }
             Update::FocusAgent(agent) => {
                 cx.activate(true);
@@ -3123,6 +3128,20 @@ impl Workbench {
         }
         self.keep_rails(cx);
         cx.notify();
+    }
+
+    /// Shows `goal` in the goals view.
+    pub fn open_goal(&mut self, goal: &NoticeGoal, cx: &mut Context<Self>) {
+        if self.window_view != WindowView::Goals {
+            self.toggle_goals_view(cx);
+        }
+        self.goals_view(cx)
+            .update(cx, |goals, cx| goals.open_goal(goal, cx));
+    }
+
+    /// Whether the window shows the goals rather than the workbench.
+    pub fn showing_goals(&self) -> bool {
+        self.window_view == WindowView::Goals
     }
 
     /// The goals view, made the first time it shows.

@@ -267,6 +267,17 @@ pub fn notifications(
             cx,
         ))
         .child(rows::row(
+            "Notify when a goal moves",
+            Some("A short notification when slices land, a goal finishes or its ETA slips, and never for what you're looking at. What needs you always notifies."),
+            rows::switch(
+                "goal-notifications",
+                "goalNotifications",
+                preferences.goal_notifications,
+                this,
+            ),
+            cx,
+        ))
+        .child(rows::row(
             "Test notification",
             Some("Sends one now, with its sound. The first one also has macOS ask whether Sikemux may notify you."),
             {

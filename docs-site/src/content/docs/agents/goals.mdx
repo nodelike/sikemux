@@ -58,6 +58,10 @@ A goal and its line under **Moving** show when the work left in it should be thr
 
 When the ETA moves later than it first said, by more than two minutes or a tenth of how far off it was, the goal says why, such as "ETA slipped: CI failed, re-running, first said 16:40", and its time turns amber. The reason is one of a failed check, a new commit that has to be checked again, a slice added to the goal, another card or you holding a slice up, a slice with no owner, or work taking longer than it did before. When Sikemux has no new estimate, the goal says when it was due instead.
 
+## When a goal moves
+
+A goal also tells you when it moves, in one short notification: slices landed, the goal finished or its ETA slipped, the same reasons in the same words. It only says something when something changed, never on a timer and never to say nothing changed. What moves within about 20 seconds comes as one notification, such as "2 slices landed". On your Mac it shows while Sikemux isn't in front, and clicking it opens the goal; over the workbench, where the goals are out of sight, it shows as a toast, and over Goals not at all. A phone hears it as a finished notification, unless Sikemux is open on it. Turn these off with **Notify when a goal moves** in **Settings → Notifications**. What needs you still notifies either way.
+
 ## A slice
 
 Click a slice to open it, or right-click one with an owner for that agent's menu. Its owner's name opens their chat, and the button by its title opens it beside the agent board. Under its promise and owner, the ladder shows each gate with who passed it and when, or who may pass it and what it still needs. Under the ladder, each of the goal's assertions the slice fulfils is ticked once its evidence held up; an assertion it named that no longer stands on its goal, such as one retired, shows struck through as freed. Each thumbnail of evidence says which assertions it was collected for, by number.
