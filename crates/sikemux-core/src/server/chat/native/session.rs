@@ -1086,13 +1086,14 @@ impl<B: Backend> Running<'_, B> {
         message_id: String,
         text: String,
         paths: Vec<String>,
-        context: Vec<ChatContext>,
+        mut context: Vec<ChatContext>,
         reply: tokio::sync::oneshot::Sender<Result<(), String>>,
     ) {
         if self.chat.prompted() {
             let _ = reply.send(Err("Stop the current turn before editing a message".into()));
             return;
         }
+        context.extend(self.chat.feed.for_agent_of(&message_id));
         let moved = match self.backend.rewind(&message_id).await {
             Ok(moved) => moved,
             Err(error) => {

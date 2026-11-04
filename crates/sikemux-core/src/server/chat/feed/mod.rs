@@ -446,14 +446,23 @@ impl Feed {
         if let Some(message_id) = message_id {
             payload["messageId"] = json!(message_id);
         }
-        let shown: Vec<_> = (context.iter())
-            .filter(|item| !item.for_agent_only())
-            .map(|item| json!({ "uri": item.uri, "title": item.title }))
-            .collect();
+        let (for_agent, shown): (Vec<_>, Vec<_>) =
+            context.iter().partition(|item| item.for_agent_only());
         if !shown.is_empty() {
-            payload["context"] = json!(shown);
+            payload["context"] = json!(shown
+                .iter()
+                .map(|item| json!({ "uri": item.uri, "title": item.title }))
+                .collect::<Vec<_>>());
+        }
+        if !for_agent.is_empty() {
+            payload["forAgent"] = json!(for_agent);
         }
         self.emit(ChatEventKind::Prompt, payload);
+    }
+
+    /// What the person's message `message_id` told the agent alone, which an edit tells it again.
+    pub(crate) fn for_agent_of(&self, message_id: &str) -> Vec<ChatContext> {
+        self.inner.locked().replay.for_agent_of(message_id)
     }
 
     /// The person took the chat back to before their message `message_id`:

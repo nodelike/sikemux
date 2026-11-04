@@ -1,6 +1,7 @@
 //! The events a chat keeps for the clients that attach later: text streamed into one
 //! message joined up, written to the history on disk, paged back through and rewound.
 
+use crate::protocol::ChatContext;
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 
@@ -571,6 +572,26 @@ impl Replay {
     /// looking for it on disk when it is older than the replay. When neither
     /// holds it, it is gone only if the replay dropped events it never wrote
     /// down, and then everything kept came after it.
+    /// What the person's message `message_id` told the agent alone, to tell it again.
+    pub(crate) fn for_agent_of(&self, message_id: &str) -> Vec<ChatContext> {
+        let names = |event: &ChatEvent| names_message(event, message_id);
+        let held = (self.entries.iter())
+            .find(|entry| names(&entry.event))
+            .map(|entry| entry.event.clone());
+        let event = held.or_else(|| {
+            let history = self.history.as_ref()?;
+            let index = history.find(names)?;
+            let read = history.reader().ok()??.range(index, index + 1).ok()?;
+            read.into_iter().next().map(|(_, event)| event)
+        });
+        (event.as_ref())
+            .and_then(|event| {
+                (event.payload.get("forAgent")).or(event.payload.pointer("/update/forAgent"))
+            })
+            .and_then(|items| serde_json::from_value(items.clone()).ok())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn rewind(&mut self, message_id: &str) {
         let names = |event: &ChatEvent| names_message(event, message_id);
         let index = match self.entries.iter().find(|entry| names(&entry.event)) {

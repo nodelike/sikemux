@@ -985,15 +985,20 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
             None => replay.root.clone(),
         };
         let role = str_field(message, "role").unwrap_or_default();
+        let mut for_agent = Vec::new();
         if role == "user" {
             match strip_local_command_metadata(&content) {
                 Some(stripped) => content = stripped,
                 None => continue,
             }
+            for_agent = crate::server::chat::prompt::take_for_agent(&mut content);
         }
         let message_id = message_id_for_grouping(record);
         let at = str_field(record, "timestamp").and_then(crate::accounts::live::parse_rfc3339);
-        let updates = replay.convert(&content, role, message_id.as_deref());
+        let mut updates = replay.convert(&content, role, message_id.as_deref());
+        if let Some(first) = updates.first_mut().filter(|_| !for_agent.is_empty()) {
+            first["forAgent"] = json!(for_agent);
+        }
         let main_thread = parent.is_none();
         let wakes = main_thread && wakes_agent(record);
         let woken_by = wakes

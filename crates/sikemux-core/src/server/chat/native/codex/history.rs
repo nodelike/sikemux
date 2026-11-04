@@ -54,7 +54,7 @@ pub(super) fn thread_title(thread: &Value, turns: &[Value]) -> Option<String> {
                 .filter(|input| input["type"] == "text")
                 .filter_map(|input| input["text"].as_str())
                 .collect();
-            title(&said.join(" "))
+            title(&crate::server::chat::prompt::person_wrote(&said.join(" ")))
         })
         .or_else(|| thread["preview"].as_str().and_then(title))
 }
@@ -141,11 +141,14 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
                 if said {
                     let id = if first_message { turn.id } else { head.id };
                     first_message = false;
-                    for block in items::user_blocks(item) {
-                        self.out.push((
-                            session.clone(),
-                            json!({ "sessionUpdate": UpdateKind::UserMessageChunk, "messageId": id, "content": block }),
-                        ));
+                    let mut blocks = Value::Array(items::user_blocks(item).into_iter().collect());
+                    let mut for_agent = crate::server::chat::prompt::take_for_agent(&mut blocks);
+                    for block in blocks.as_array().into_iter().flatten() {
+                        let mut update = json!({ "sessionUpdate": UpdateKind::UserMessageChunk, "messageId": id, "content": block });
+                        if !for_agent.is_empty() {
+                            update["forAgent"] = json!(std::mem::take(&mut for_agent));
+                        }
+                        self.out.push((session.clone(), update));
                     }
                 } else {
                     opened = self.item(thread, item);

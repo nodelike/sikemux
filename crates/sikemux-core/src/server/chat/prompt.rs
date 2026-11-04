@@ -6,9 +6,10 @@ use std::path::PathBuf;
 use agent_client_protocol::schema::v1::{
     ContentBlock, EmbeddedResource, EmbeddedResourceResource, ResourceLink, TextResourceContents,
 };
+use serde_json::Value;
 use url::Url;
 
-use crate::protocol::ChatContext;
+use crate::protocol::{ChatContext, FOR_AGENT_URI};
 
 const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ATTACHMENTS: usize = 32;
@@ -97,6 +98,68 @@ fn split_at_images(text: &str, attachments: usize) -> (Vec<(&str, usize)>, &str)
         search = from;
     }
     (pieces, &text[from..])
+}
+
+/// Takes what a message told its agent alone out of the agent's own record of that message,
+/// which holds it beside what the person wrote, for a chat read back from that record.
+pub(crate) fn take_for_agent(content: &mut Value) -> Vec<ChatContext> {
+    let mut taken = Vec::new();
+    match content {
+        Value::String(text) => *text = without_for_agent(text, &mut taken),
+        Value::Array(blocks) => blocks.retain_mut(|block| {
+            let Some(text) = block["text"].as_str() else {
+                return true;
+            };
+            if !text.contains(FOR_AGENT_URI) {
+                return true;
+            }
+            let kept = without_for_agent(text, &mut taken);
+            let any = !kept.is_empty();
+            block["text"] = kept.into();
+            any
+        }),
+        _ => {}
+    }
+    taken
+}
+
+/// What the person wrote of `text`, from an agent's own record of their message.
+pub(crate) fn person_wrote(text: &str) -> String {
+    without_for_agent(text, &mut Vec::new())
+}
+
+/// `text` without the context meant for the agent alone, which goes in `taken`, or the links to it.
+fn without_for_agent(text: &str, taken: &mut Vec<ChatContext>) -> String {
+    const OPEN: &str = "<context ref=\"";
+    let opening = format!("{OPEN}{FOR_AGENT_URI}");
+    let mut left = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(&opening) {
+        let inner = &rest[at + OPEN.len()..];
+        let Some((uri, body, after)) = inner.split_once("\">\n").and_then(|(uri, body)| {
+            let (body, after) = body.split_once("\n</context>")?;
+            Some((uri, body, after))
+        }) else {
+            break;
+        };
+        left.push_str(&rest[..at]);
+        taken.push(ChatContext {
+            uri: uri.to_owned(),
+            title: uri.to_owned(),
+            text: body.to_owned(),
+        });
+        rest = after;
+    }
+    left.push_str(rest);
+    let mut kept = String::new();
+    let mut rest = left.as_str();
+    while let Some(at) = rest.find(FOR_AGENT_URI) {
+        kept.push_str(&rest[..at]);
+        let link = &rest[at..];
+        rest = &link[link.find(char::is_whitespace).unwrap_or(link.len())..];
+    }
+    kept.push_str(rest);
+    kept.trim_end().to_owned()
 }
 
 pub fn prompt_blocks(

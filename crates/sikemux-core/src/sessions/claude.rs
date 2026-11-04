@@ -213,7 +213,7 @@ fn scan_claude_line(line: &str, titles: &mut ClaudeTitles) {
                     .get("message")
                     .and_then(|m| m.get("content"))
                     .and_then(text_from_content)
-                    .and_then(|text| condense(&text));
+                    .and_then(|text| condense(&crate::server::chat::prompt::person_wrote(&text)));
                 if v.get("isMeta").and_then(Value::as_bool) == Some(true) {
                     titles.first_harness = titles.first_harness.take().or(text);
                 } else {
