@@ -1,8 +1,9 @@
 //! The composer at the bottom of Home that starts work: what should get done, and how. It is the
 //! chat's own composer, made and kept as [`START`], with the way to start in its bar. While the
 //! person types, the core's triage suggests one of three ways and says why; the person can always
-//! pick another. Sending starts the agent picked, adds the card that tracks the work, held by that
-//! agent, and sends the agent what was written with the files and mentions that go with it.
+//! pick another. Sending starts the agent picked and sends it what was written with the files and
+//! mentions that go with it. Hand off and Plan first also add a card that tracks the work, held by
+//! that agent; a Chat adds none.
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -216,8 +217,8 @@ impl GoalsPane {
         }
     }
 
-    /// Starts the agent picked to take the work, adds the card that tracks it, held by that
-    /// agent, then sends the agent what was written, saying which card is theirs and what to do.
+    /// Starts the agent picked and sends it what was written. Planning first also adds the card
+    /// that tracks the work, held by that agent, and tells it which card is theirs and what to do.
     fn start_work(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((text, paths, context)) = self.written(cx) else {
             return;
@@ -272,40 +273,46 @@ impl GoalsPane {
                     return;
                 }
             }
-            let added = here
-                .request_typed::<call::BoardAdd>(BoardAddParams {
-                    project: folder,
-                    title,
-                    details,
-                    acceptance: None,
-                    promise: None,
-                    asserts: Vec::new(),
-                    parent: None,
-                    depends_on: Vec::new(),
-                    ticket: None,
-                    owner: Some(agent.clone()),
-                })
-                .await;
+            let added = match mode {
+                StartMode::PlanFirst => Some(
+                    here.request_typed::<call::BoardAdd>(BoardAddParams {
+                        project: folder,
+                        title,
+                        details,
+                        acceptance: None,
+                        promise: None,
+                        asserts: Vec::new(),
+                        parent: None,
+                        depends_on: Vec::new(),
+                        ticket: None,
+                        owner: Some(agent.clone()),
+                    })
+                    .await,
+                ),
+                _ => None,
+            };
             let _ = pane.update_in(cx, |pane, window, cx| {
                 pane.busy = false;
-                let board = match added {
-                    Ok(board) => board,
-                    Err(error) => {
-                        close(&agent);
-                        return pane.said(&error, cx);
-                    }
-                };
-                let card = (board.cards.iter())
-                    .filter(|card| card.owner.as_deref() == Some(agent.as_str()))
-                    .map(|card| card.id)
-                    .max();
-                pane.take_one(board);
-                let Some(card) = card else {
-                    return;
-                };
-                pane.emptied(text.clone(), window, cx);
                 let mut context = context;
-                context.push(tracking(mode == StartMode::PlanFirst, card));
+                if let Some(added) = added {
+                    let board = match added {
+                        Ok(board) => board,
+                        Err(error) => {
+                            close(&agent);
+                            return pane.said(&error, cx);
+                        }
+                    };
+                    let card = (board.cards.iter())
+                        .filter(|card| card.owner.as_deref() == Some(agent.as_str()))
+                        .map(|card| card.id)
+                        .max();
+                    pane.take_one(board);
+                    let Some(card) = card else {
+                        return;
+                    };
+                    context.push(lead_brief(card));
+                }
+                pane.emptied(text.clone(), window, cx);
                 let _ = pane.bench.update(cx, |bench, _| {
                     bench.call(
                         "openTab",
@@ -384,25 +391,19 @@ fn titled(text: &str) -> (String, Option<String>) {
     (title, (!whole).then(|| text.to_owned()))
 }
 
-/// What the agent that takes the work is told with the person's first message, which the person
-/// wrote and the chat shows alone.
-fn tracking(plans_first: bool, card: u64) -> ChatContext {
-    let text = match plans_first {
-        true => format!(
+/// What a lead that plans first is told with the person's first message, which the person wrote
+/// and the chat shows alone.
+fn lead_brief(card: u64) -> ChatContext {
+    ChatContext {
+        uri: format!("{FOR_AGENT_URI}card-{card}"),
+        title: format!("Goal card #{card}"),
+        text: format!(
             "You lead goal card #{card} on the project's board, which you hold. Before anything \
              is built, talk it through with me: ask what you need to know, one question at a \
              time, and record what I decide with board_decide. Then propose the slices as cards \
              under #{card} with board_add, each with a promise, and wait for me to approve them \
              before any work starts."
         ),
-        false => format!(
-            "Sikemux tracks this as goal card #{card} on the project's board, which you hold."
-        ),
-    };
-    ChatContext {
-        uri: format!("{FOR_AGENT_URI}card-{card}"),
-        title: format!("Goal card #{card}"),
-        text,
     }
 }
 
