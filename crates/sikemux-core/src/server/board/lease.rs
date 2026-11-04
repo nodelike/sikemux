@@ -88,10 +88,11 @@ fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
     found
 }
 
-/// Whether the owner waits on something that brings it back by itself, or that the person has
-/// been told of already.
+/// Whether the owner waits on something that brings it back by itself, or that the person knows
+/// of already, such as having stopped everything themselves.
 fn waits_elsewhere(core: &Core, owner: &str, running: &HashSet<String>) -> bool {
-    core.harness.questions.waits_on_answer(owner)
+    core.workspaces.held(owner)
+        || core.harness.questions.waits_on_answer(owner)
         || core.harness.mailbox.has_waiting(owner)
         || core.seen.viewed(owner)
         || core.inbox.failing(owner)
