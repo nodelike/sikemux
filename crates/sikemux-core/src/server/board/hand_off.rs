@@ -12,7 +12,7 @@ use sikemux_process::sync::Locked;
 use super::{
     add_card, lease, long_text, project_at, project_view, slice, title_of, Adding, BoardView, By,
 };
-use crate::protocol::Event;
+use crate::protocol::{ChatContext, Event, FOR_AGENT_URI};
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
 use crate::server::worktree::agent::{self, Unclaimed};
@@ -224,7 +224,7 @@ async fn start_worker(
 }
 
 /// Sets up the agent's checkout as the project asks, then sends it what the
-/// person typed, as the person, with how its work is checked and landed.
+/// person typed, as the person, with how its work is checked and landed for it alone.
 async fn hand_task(
     core: &Arc<Core>,
     agent: &str,
@@ -248,7 +248,7 @@ async fn hand_task(
     };
     let base = checkout.base.as_deref().unwrap_or("the project's branch");
     let mut message = format!(
-        "{text}\n\nThis is card #{card} on the project's board, which you hold; what I wrote above is its promise. You work on it alone, in a checkout of your own on branch {} cut from {base}, and nobody watches this chat: if you need me, ask with ask.",
+        "This is card #{card} on the project's board, which you hold; what I wrote is its promise. You work on it alone, in a checkout of your own on branch {} cut from {base}, and nobody watches this chat: if you need me, ask with ask.",
         checkout.branch
     );
     if let Some(error) = set_up {
@@ -265,7 +265,12 @@ async fn hand_task(
             "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true. This project names no check, so nothing Sikemux runs can show the work Built yet: ask me how it is to be checked before you mark the card done."
         ),
     });
-    if let Err(error) = chat::prompt(core, agent, None, message, files, Vec::new()) {
+    let tracking = ChatContext {
+        uri: format!("{FOR_AGENT_URI}card-{card}"),
+        title: format!("Card #{card}"),
+        text: message,
+    };
+    if let Err(error) = chat::prompt(core, agent, None, text, files, vec![tracking]) {
         eprintln!("sikemux core: the agent handed card #{card} never got its task: {error}");
     }
 }
