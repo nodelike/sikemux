@@ -227,10 +227,11 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
                 .map(move |goal| (board, goal))
         })
         .collect();
-    let (moving, finished): (Vec<_>, Vec<_>) = goals.iter().partition(|(board, goal)| {
+    let (mut moving, finished): (Vec<_>, Vec<_>) = goals.iter().partition(|(board, goal)| {
         let slices = slices_of(&board.cards, goal.id);
         count(&slices, SliceState::Done) < slices.len()
     });
+    moving.retain(|(_, goal)| !goal.goal_stalled);
     div()
         .flex()
         .flex_col()

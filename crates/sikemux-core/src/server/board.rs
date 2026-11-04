@@ -1253,6 +1253,9 @@ pub struct CardView {
     /// slices under it.
     #[serde(default)]
     pub goal_state: Option<SliceState>,
+    /// Every slice left in the goal lost its owner, so it isn't moving: the person's inbox says so.
+    #[serde(default)]
+    pub goal_stalled: bool,
     /// For a goal, when its work should be through and whether that slipped.
     #[serde(default)]
     pub eta: Option<GoalEta>,
@@ -1366,6 +1369,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
             .collect(),
         next: slice::next_gates(core, board, card, now),
         goal_state: slice::goal_state(board, card),
+        goal_stalled: slice::goal_stalled(board, card),
         eta: board.promises.get(&card.id).and_then(eta::Promise::view),
         decisions: card.goal.decisions(),
         rules: card.goal.rules(),

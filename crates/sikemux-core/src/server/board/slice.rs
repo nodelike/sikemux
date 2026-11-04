@@ -1307,6 +1307,16 @@ fn proof_words(proof: &Proof) -> &'static str {
     }
 }
 
+/// Whether every slice left in the goal lost its owner, so nothing in it moves until the person
+/// or another agent takes one up.
+pub(super) fn goal_stalled(board: &Board, goal: &Card) -> bool {
+    let mut left = (board.held_by_goal(goal).into_iter())
+        .filter(|card| card.status != Status::Done)
+        .filter_map(|card| card.slice.as_ref())
+        .peekable();
+    left.peek().is_some() && left.all(|slice| slice.stalled.is_some())
+}
+
 /// How a goal's slices stand together, marked as one: failed when one
 /// failed, needing the person when one does, moving when one moves, done when
 /// every one is, else waiting. None for a card that is no goal.

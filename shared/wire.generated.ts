@@ -2204,6 +2204,8 @@ export interface BoardCard {
      * slices under it.
      */
     goalState?: SliceState | null;
+    /** Every slice left in the goal lost its owner, so it isn't moving: the person's inbox says so. */
+    goalStalled?: boolean;
     /** For a goal, when its work should be through and whether that slipped. */
     eta?: GoalEta | null;
     /** For a goal, what it decided, oldest first, retired ones too. */
