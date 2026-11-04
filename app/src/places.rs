@@ -211,11 +211,11 @@ impl Workbench {
         self.open_board(&project, cx);
     }
 
-    /// Closes the view in front: a desk's page, the focused view of a split tab, else the tab; a
-    /// chat the goals show only goes back, its tab staying open.
+    /// Closes the view in front: a desk's page, the focused view of a split tab, else the tab.
     /// It asks first when that would stop an agent mid-turn or lose a file's unsaved changes.
+    /// The goals show no tab to close, so there a chat only goes back, and nothing else happens.
     pub fn close_front(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.chat_in_goals(cx).is_some() {
+        if self.window_view == sikemux_wire::protocol::WindowView::Goals {
             if let Some(goals) = self.goals.clone() {
                 goals.update(cx, |goals, cx| goals.leave_chat(window, cx));
             }
