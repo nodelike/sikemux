@@ -4,8 +4,8 @@
 use chrono::TimeZone;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, img, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ObjectFit,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, StyledImage,
+    div, img, px, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
+    ObjectFit, ParentElement, SharedString, StatefulInteractiveElement, Styled, StyledImage,
 };
 use sikemux_wire::slice::{Evidence, Proof, Verdict};
 
@@ -30,10 +30,6 @@ pub(super) fn label(evidence: &Evidence) -> &'static str {
         Proof::Run { .. } => "Run",
         Proof::Timeline { .. } => "Timeline",
     }
-}
-
-pub(super) fn is_picture(evidence: &Evidence) -> bool {
-    matches!(evidence.proof, Proof::Picture { .. })
 }
 
 /// How a check went, as a run's mark; none for evidence the core did not rule on.
@@ -213,20 +209,14 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
     }
 }
 
-/// A piece of evidence in the strip, lifted while it is the one in front.
-/// `serves` names the assertions the evidence was collected for, by number.
-pub(super) fn thumb(
-    evidence: &Evidence,
-    chosen: bool,
-    serves: Option<String>,
-    cx: &mut Context<GoalsPane>,
-) -> AnyElement {
+/// A thumbnail of a piece of evidence, wherever it shows.
+pub(crate) fn thumb_face(evidence: &Evidence, chosen: bool, cx: &App) -> Div {
     let t = Tokens::get(cx).clone();
-    let id = evidence.id;
     let face = div()
         .w(px(THUMB.0))
         .h(px(THUMB.1))
         .flex()
+        .flex_none()
         .items_center()
         .justify_center()
         .gap(SPACE_1)
@@ -235,7 +225,7 @@ pub(super) fn thumb(
         .border_1()
         .border_color(if chosen { t.text_secondary } else { t.border })
         .bg(t.surface_sunken);
-    let face = match &evidence.proof {
+    match &evidence.proof {
         Proof::Picture {
             path,
             seconds: None,
@@ -272,7 +262,20 @@ pub(super) fn thumb(
         Proof::Timeline { moments } => face
             .child(ui::icon(Icon::LogLines, 14.).text_color(t.text_tertiary))
             .child(ui::mono(moments.len().to_string(), TEXT_2XS, cx)),
-    };
+    }
+}
+
+/// A piece of evidence in the strip, lifted while it is the one in front.
+/// `serves` names the assertions the evidence was collected for, by number.
+pub(super) fn thumb(
+    evidence: &Evidence,
+    chosen: bool,
+    serves: Option<String>,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let id = evidence.id;
+    let face = thumb_face(evidence, chosen, cx);
     div()
         .id(SharedString::from(format!("thumb-{id}")))
         .relative()

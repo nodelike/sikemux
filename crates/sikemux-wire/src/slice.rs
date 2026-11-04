@@ -187,6 +187,9 @@ pub struct SliceView {
     pub gates: Vec<GateView>,
     /// What the core collected itself to show its work, oldest first.
     pub evidence: Vec<Evidence>,
+    /// The piece of it the gate waiting leads with, by its id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leading: Option<u64>,
     pub notes: Vec<Note>,
     /// The goal's assertions it fulfils, each with whether its evidence is in.
     #[serde(default)]

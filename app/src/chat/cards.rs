@@ -120,6 +120,90 @@ pub(super) fn permission(
     )
 }
 
+/// What the inbox holds for the agent to approve, over the composer: an action that leaves this
+/// machine with its exact command, or a gate with the evidence it leads with.
+pub(super) fn approval(
+    workbench: &Workbench,
+    agent: &str,
+    item: &sikemux_wire::inbox::InboxItem,
+    busy: bool,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let (target, bench) = (workbench.chat_target(agent), cx.weak_entity());
+    let said = ui::text(item.what.clone(), TEXT_XS, FontWeight::SEMIBOLD)
+        .flex_shrink_1()
+        .min_w_0()
+        .truncate()
+        .text_color(t.text_primary);
+    let row = div().flex().items_center().gap(SPACE_2H);
+    let body = match &item.hold {
+        Some(hold) => div()
+            .flex()
+            .flex_col()
+            .gap(SPACE_1H)
+            .child(
+                row.child(ui::icon(Icon::Shield, 14.).flex_none().text_color(t.warn))
+                    .child(said)
+                    .child(div().flex_1())
+                    .child(crate::approvals::ship_buttons(
+                        &hold.id, busy, target, bench,
+                    )),
+            )
+            .child(
+                ui::mono(hold.what.clone(), TEXT_XS, cx)
+                    .whitespace_normal()
+                    .text_color(t.text_secondary),
+            ),
+        None => row
+            .children(item.evidence.as_ref().map(|evidence| {
+                let face = crate::goals::thumb_face(evidence, false, cx);
+                evidence_opens(evidence, face, cx)
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(SPACE_0)
+                    .child(said)
+                    .children(item.detail.clone().map(|detail| {
+                        ui::text(detail, TEXT_2XS, FontWeight::NORMAL)
+                            .truncate()
+                            .text_color(t.text_tertiary)
+                    })),
+            )
+            .children(crate::approvals::pass_button(item, busy, target, bench)),
+    };
+    div().p(SPACE_3).child(body).into_any_element()
+}
+
+/// A thumbnail that opens what it shows: a picture full size, a recording in its viewer.
+fn evidence_opens(
+    evidence: &sikemux_wire::slice::Evidence,
+    face: Div,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let sikemux_wire::slice::Proof::Picture { path, seconds, .. } = &evidence.proof else {
+        return face.into_any_element();
+    };
+    let (path, still) = (PathBuf::from(path), seconds.is_none());
+    face.id(SharedString::from(format!(
+        "approval-evidence-{}",
+        evidence.id
+    )))
+    .cursor_pointer()
+    .on_click(cx.listener(move |bench, _, window, cx| match still {
+        true => bench.show_picture(path.clone(), window, cx),
+        false => {
+            bench.show_workbench(cx);
+            bench.open_file(&path, cx);
+        }
+    }))
+    .into_any_element()
+}
+
 pub(super) fn kept(t: &Tokens) -> impl IntoElement {
     div()
         .px(SPACE_3)

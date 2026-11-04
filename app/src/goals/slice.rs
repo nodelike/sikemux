@@ -9,7 +9,7 @@ use gpui_kit::{
 use sikemux_core::server::CardView;
 use sikemux_wire::slice::{Evidence, GateState, GateView, Passer, Proof, SliceView, Verdict};
 
-use super::evidence::{self, is_picture};
+use super::evidence;
 use super::goal::crumb;
 use super::{gate_name, need_words, passer_name, waiting, At, GoalsPane};
 use crate::theme::{
@@ -23,25 +23,8 @@ impl GoalsPane {
     pub(super) fn shown_evidence<'a>(&self, slice: &'a SliceView) -> Option<&'a Evidence> {
         self.picked
             .and_then(|id| slice.evidence.iter().find(|evidence| evidence.id == id))
-            .or_else(|| leading(slice))
+            .or_else(|| (slice.evidence.iter()).find(|evidence| Some(evidence.id) == slice.leading))
     }
-}
-
-/// The evidence for the gate waiting, a picture first, the newest of each; the newest of all
-/// once nothing is toward that gate.
-fn leading(slice: &SliceView) -> Option<&Evidence> {
-    let gate = waiting(slice).map(|gate| gate.gate);
-    let toward = || {
-        slice
-            .evidence
-            .iter()
-            .filter(move |evidence| gate.is_none_or(|gate| evidence.gate == gate))
-    };
-    toward()
-        .filter(|evidence| is_picture(evidence))
-        .max_by_key(|evidence| evidence.at)
-        .or_else(|| toward().max_by_key(|evidence| evidence.at))
-        .or_else(|| slice.evidence.iter().max_by_key(|evidence| evidence.at))
 }
 
 pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> AnyElement {

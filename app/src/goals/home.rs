@@ -19,7 +19,7 @@ use super::{empty, goals_of, slices_of, At, GoalsPane};
 use crate::chat::{NewerPrompt, OlderPrompt, START};
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL, TEXT_XS,
+    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL,
 };
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
@@ -349,7 +349,7 @@ fn needs_row(
         .children(
             item.hold
                 .as_ref()
-                .map(|hold| held_action(&hold.id, &hold.what, cx)),
+                .map(|hold| crate::approvals::held_action(&hold.id, &hold.what, cx)),
         )
         .children(about.map(|about| ui::meta(about, cx).flex_shrink_1().min_w_0().truncate()))
         .child(
@@ -359,7 +359,10 @@ fn needs_row(
                 .truncate(),
         );
     let does = row_does()
-        .children(item.hold.as_ref().map(|hold| ship_buttons(&hold.id, cx)))
+        .children(item.hold.as_ref().map(|hold| {
+            let here = crate::core::Target::here(&pane.asks);
+            crate::approvals::ship_buttons(&hold.id, false, here, pane.bench.clone())
+        }))
         .children(stall_buttons(item, cx))
         .child(ui::meta(ui::time::age(item.at), cx));
     let line = wrapping(row(SharedString::from(format!("need-{}", item.id)), cx))
@@ -514,51 +517,6 @@ fn question_row(
         .child(says)
         .child(does);
     super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
-}
-
-/// The exact command or call a held action runs, which allowing it lets through once: clipped
-/// on the row, whole on hover.
-fn held_action(id: &str, what: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let t = Tokens::get(cx);
-    ui::mono(what.to_owned(), TEXT_XS, cx)
-        .id(SharedString::from(format!("held-action-{id}")))
-        .flex_shrink_1()
-        .min_w_0()
-        .truncate()
-        .text_color(t.text_secondary)
-        .tooltip(ui::tooltip(what.to_owned()))
-        .into_any_element()
-}
-
-/// Allows a held action once, or refuses it, without opening the agent.
-fn ship_buttons(hold: &str, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let (allow, refuse) = (hold.to_owned(), hold.to_owned());
-    div()
-        .flex()
-        .gap(SPACE_1)
-        .child(
-            Button::new(
-                SharedString::from(format!("ship-allow-{hold}")),
-                "Allow once",
-                Variant::Outline,
-            )
-            .on_click(cx.listener(move |pane, _, _, cx| {
-                cx.stop_propagation();
-                pane.answer_ship::<call::AllowShip>(allow.clone(), cx)
-            })),
-        )
-        .child(
-            Button::new(
-                SharedString::from(format!("ship-refuse-{hold}")),
-                "Refuse",
-                Variant::Outline,
-            )
-            .on_click(cx.listener(move |pane, _, _, cx| {
-                cx.stop_propagation();
-                pane.answer_ship::<call::RefuseShip>(refuse.clone(), cx)
-            })),
-        )
-        .into_any_element()
 }
 
 /// A goal on one line: its title, how many slices are done, what comes next and

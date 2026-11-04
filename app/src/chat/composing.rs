@@ -52,6 +52,7 @@ pub(super) enum Waiting {
     Questions(Vec<Question>),
     Answered(Vec<Question>),
     Permission(Box<PermissionAsk>),
+    Approval(Box<sikemux_wire::inbox::InboxItem>),
 }
 
 /// The draft, the masked field a secret answer is typed into, and what the draft last said while empty.

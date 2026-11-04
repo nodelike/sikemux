@@ -512,6 +512,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
             Case::Gate(gate) => Some(*gate),
             _ => None,
         },
+        evidence: None,
         hold: match case {
             Case::Ship(hold) => Some(hold),
             _ => None,
@@ -621,9 +622,15 @@ fn card_item(card: &Summary, waits: &Waits, agents: &[Agent]) -> Option<InboxIte
             item.detail = note.clone();
             item
         }
-        Waits::Gate { gate, promise, url } => {
+        Waits::Gate {
+            gate,
+            promise,
+            url,
+            evidence,
+        } => {
             let mut item = gate_item(card, *gate, promise);
             item.url = url.clone();
+            item.evidence = evidence.as_deref().cloned();
             item
         }
         Waits::TicketDone { key, gate } => {

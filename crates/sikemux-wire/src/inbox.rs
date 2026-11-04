@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::{AgentFace, AgentGroup, AgentStatus, PermissionChoices, SessionId};
-use crate::slice::Gate;
+use crate::slice::{Evidence, Gate};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,6 +161,9 @@ pub struct InboxItem {
     /// The gate the slice on `card` waits at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<Gate>,
+    /// The evidence the gate of a Gate item leads with, without what a run printed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<Evidence>,
     /// The action a Ship item holds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold: Option<ShipHold>,

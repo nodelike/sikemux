@@ -662,6 +662,8 @@ export interface InboxItem {
     card: InboxCard | null;
     /** The gate the slice on `card` waits at. */
     gate?: Gate;
+    /** The evidence the gate of a Gate item leads with, without what a run printed. */
+    evidence?: Evidence;
     /** The action a Ship item holds. */
     hold?: ShipHold;
     requestId: string | null;
@@ -718,6 +720,93 @@ export interface InboxCard {
  * the order it passes them.
  */
 export type Gate = "built" | "looksRight" | "landed";
+
+/**
+ * Something the core collected itself to show a slice's work, toward the
+ * gate the slice was at then. With a verdict it is a check.
+ */
+export interface Evidence {
+    /** The same for as long as the slice keeps it. */
+    id: number;
+    gate: Gate;
+    at: number;
+    /** The agent whose work it shows, which notes pinned to it go to. */
+    agent: string | null;
+    verdict: Verdict | null;
+    proof: Proof;
+    /** The commit the slice's work was at when it was collected. */
+    commit?: string | null;
+    /** The goal's assertions it was collected for. */
+    assertions?: number[];
+}
+
+/** Whether evidence held up when the core checked it. */
+export type Verdict = "passed" | "failed";
+
+/** The five kinds of evidence, each drawn one way. */
+export type Proof =
+    /** A screenshot, or a recording when it has a length. */
+    | {
+          kind: "picture";
+          path: string;
+          seconds: number | null;
+          /** The chat run and turn it was made in. */
+          feed: string | null;
+          turn: number | null;
+          /**
+           * The width the page was laid out at, in CSS pixels, for a screenshot
+           * the core took beside the agent's at a phone's or a tablet's width.
+           */
+          width?: number;
+          /**
+           * The page the core opened itself to take it, once the check passed
+           * on a change to the project's pages; none for the agent's own.
+           */
+          opened?: string;
+      }
+    /**
+     * The change from `base` to `head`, which are the ends of a run of the
+     * slice's own commits with nobody else's between them.
+     */
+    | {
+          kind: "diff";
+          base: string;
+          head: string;
+          /** The files it changes, the first few. */
+          files: string[];
+          added: number;
+          removed: number;
+      }
+    /** Measures before and after, such as seconds or cost. */
+    | {
+          kind: "numbers";
+          measures: Measure[];
+      }
+    /** A command and what it printed, such as the project's check. */
+    | {
+          kind: "run";
+          command: string;
+          /** The commit it ran on. */
+          sha: string | null;
+          /** The end of what it printed. */
+          output: string;
+      }
+    /** Logs and events in order. */
+    | {
+          kind: "timeline";
+          moments: Moment[];
+      };
+
+export interface Measure {
+    label: string;
+    before: string | null;
+    after: string;
+}
+
+export interface Moment {
+    at: number;
+    text: string;
+}
 
 /**
  * An action an agent wanted to take that leaves this machine, held until the
@@ -2295,6 +2384,8 @@ export interface SliceView {
     gates: GateView[];
     /** What the core collected itself to show its work, oldest first. */
     evidence: Evidence[];
+    /** The piece of it the gate waiting leads with, by its id. */
+    leading?: number;
     notes: Note[];
     /** The goal's assertions it fulfils, each with whether its evidence is in. */
     asserts?: Asserted[];
@@ -2335,93 +2426,6 @@ export type GateState = "passed" | "waiting" | "ahead";
 
 /** What a gate needs before it can pass, besides the gates before it. */
 export type Need = "passingCheck" | "onBranch" | "assertions";
-
-/**
- * Something the core collected itself to show a slice's work, toward the
- * gate the slice was at then. With a verdict it is a check.
- */
-export interface Evidence {
-    /** The same for as long as the slice keeps it. */
-    id: number;
-    gate: Gate;
-    at: number;
-    /** The agent whose work it shows, which notes pinned to it go to. */
-    agent: string | null;
-    verdict: Verdict | null;
-    proof: Proof;
-    /** The commit the slice's work was at when it was collected. */
-    commit?: string | null;
-    /** The goal's assertions it was collected for. */
-    assertions?: number[];
-}
-
-/** Whether evidence held up when the core checked it. */
-export type Verdict = "passed" | "failed";
-
-/** The five kinds of evidence, each drawn one way. */
-export type Proof =
-    /** A screenshot, or a recording when it has a length. */
-    | {
-          kind: "picture";
-          path: string;
-          seconds: number | null;
-          /** The chat run and turn it was made in. */
-          feed: string | null;
-          turn: number | null;
-          /**
-           * The width the page was laid out at, in CSS pixels, for a screenshot
-           * the core took beside the agent's at a phone's or a tablet's width.
-           */
-          width?: number;
-          /**
-           * The page the core opened itself to take it, once the check passed
-           * on a change to the project's pages; none for the agent's own.
-           */
-          opened?: string;
-      }
-    /**
-     * The change from `base` to `head`, which are the ends of a run of the
-     * slice's own commits with nobody else's between them.
-     */
-    | {
-          kind: "diff";
-          base: string;
-          head: string;
-          /** The files it changes, the first few. */
-          files: string[];
-          added: number;
-          removed: number;
-      }
-    /** Measures before and after, such as seconds or cost. */
-    | {
-          kind: "numbers";
-          measures: Measure[];
-      }
-    /** A command and what it printed, such as the project's check. */
-    | {
-          kind: "run";
-          command: string;
-          /** The commit it ran on. */
-          sha: string | null;
-          /** The end of what it printed. */
-          output: string;
-      }
-    /** Logs and events in order. */
-    | {
-          kind: "timeline";
-          moments: Moment[];
-      };
-
-export interface Measure {
-    label: string;
-    before: string | null;
-    after: string;
-}
-
-export interface Moment {
-    at: number;
-    text: string;
-}
 
 /**
  * What someone wrote about a slice, pinned to a piece of its evidence when

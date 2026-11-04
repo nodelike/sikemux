@@ -426,6 +426,30 @@ impl Slice {
         self.evidence.iter().find(|evidence| evidence.id == id)
     }
 
+    /// The evidence for the gate waiting, a picture first, the newest of each; the newest of all
+    /// once nothing is toward that gate.
+    fn leading(&self) -> Option<&Evidence> {
+        let gate = self.waiting();
+        let toward = || {
+            (self.evidence.iter())
+                .filter(move |evidence| gate.is_none_or(|gate| evidence.gate == gate))
+        };
+        toward()
+            .filter(|evidence| matches!(evidence.proof, Proof::Picture { .. }))
+            .max_by_key(|evidence| evidence.at)
+            .or_else(|| toward().max_by_key(|evidence| evidence.at))
+            .or_else(|| self.evidence.iter().max_by_key(|evidence| evidence.at))
+    }
+
+    /// The evidence its gate leads with, as much as a thumbnail of it needs.
+    pub(super) fn lead_in_short(&self) -> Option<Evidence> {
+        let mut lead = self.leading()?.clone();
+        if let Proof::Run { output, .. } = &mut lead.proof {
+            output.clear();
+        }
+        Some(lead)
+    }
+
     fn met(&self, need: Need) -> bool {
         let Some(work) = &self.work else {
             return false;
@@ -1159,6 +1183,7 @@ impl Slice {
             state: self.state(held_up, landing),
             gates,
             evidence: self.evidence.clone(),
+            leading: self.leading().map(|evidence| evidence.id),
             notes: self.notes.clone(),
             asserts: (self.asserts.iter())
                 .map(|named| Asserted {

@@ -2330,6 +2330,7 @@ pub(crate) enum Waits {
         gate: Gate,
         promise: String,
         url: Option<String>,
+        evidence: Option<Box<sikemux_wire::slice::Evidence>>,
     },
     /// Its ticket `key` was closed in its tracker with nothing of its slice
     /// landed, where the person lands slices, while the slice waits at `gate`.
@@ -2385,6 +2386,7 @@ fn waits(core: &Core, landing: Landing, card: &Card) -> Option<Waits> {
                 gate,
                 promise: slice.promise.clone(),
                 url,
+                evidence: slice.lead_in_short().map(Box::new),
             });
         }
     }

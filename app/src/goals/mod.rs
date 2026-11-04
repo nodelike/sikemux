@@ -18,8 +18,8 @@ use gpui_kit::{
 use serde::Serialize;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::{
-    BoardNoteParams, BoardPassParams, BoardView, CardView, HoldParams, KeepSeededParams,
-    MemoryEntryParams, MemoryParams, NoParams,
+    BoardNoteParams, BoardPassParams, BoardView, CardView, KeepSeededParams, MemoryEntryParams,
+    MemoryParams, NoParams,
 };
 use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem, InboxKind};
 use sikemux_wire::memory::{MemoryView, Seeding};
@@ -49,6 +49,7 @@ mod start;
 /// How wide the back link from a chat grows before its name is cut short.
 const CRUMB_MAX: f32 = 280.;
 
+pub(crate) use evidence::thumb_face;
 pub use rails::{goal_rows, places};
 pub use start::start_composer;
 
@@ -205,22 +206,6 @@ impl GoalsPane {
             None => boards.push(board),
         }
         self.take(boards);
-    }
-
-    /// Answers an action an agent took that leaves this machine: `C` allows it once or
-    /// refuses it. The inbox drops the item once the core has.
-    fn answer_ship<C: Call<Params = HoldParams, Answer = ()> + 'static>(
-        &mut self,
-        hold: String,
-        cx: &mut Context<Self>,
-    ) {
-        let asked = core::Target::here(&self.asks).request_typed::<C>(HoldParams { hold });
-        cx.spawn(async move |pane, cx| {
-            if let Err(error) = asked.await {
-                let _ = pane.update(cx, |pane, cx| pane.said(&error, cx));
-            }
-        })
-        .detach();
     }
 
     fn said(&self, error: &str, cx: &mut Context<Self>) {
@@ -889,7 +874,7 @@ pub(super) fn empty(
         .into_any_element()
 }
 
-fn gate_name(gate: Gate) -> &'static str {
+pub(crate) fn gate_name(gate: Gate) -> &'static str {
     match gate {
         Gate::Built => "Built",
         Gate::LooksRight => "Looks right",
