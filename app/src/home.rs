@@ -144,22 +144,44 @@ pub fn agent_view(
         .as_ref()
         .filter(|_| project.is_some())
         .map(|agent| pane_header(bench, agent, tab, view, cx));
-    if let Some((place, session)) = agent
+    let shown = agent_shown(bench, agent.as_ref(), cx);
+    under_header(header, shown, cx)
+}
+
+/// The agent in front as the goals show it: what its tab shows, under its header with a link
+/// back in place of the view switch and the desk, which belong to the workbench.
+pub fn agent_view_in_goals(
+    bench: &Workbench,
+    agent: &str,
+    back: AnyElement,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let agent = bench.agent().filter(|front| front.id == agent);
+    let header = agent
         .as_ref()
-        .and_then(|agent| bench.agent_terminal(&agent.id))
-    {
+        .map(|agent| agent_header(bench, agent, cx).back(back));
+    let shown = agent_shown(bench, agent.as_ref(), cx);
+    under_header(header, shown, cx)
+}
+
+/// What an agent's view shows under its header.
+fn agent_shown(
+    bench: &Workbench,
+    agent: Option<&AgentRow>,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    if let Some((place, session)) = agent.and_then(|agent| bench.agent_terminal(&agent.id)) {
         let terminal = terminal::pane(bench, &cx.entity(), &place, &session.to_string(), cx);
-        return under_header(header, div().size_full().child(terminal), cx);
+        return div().size_full().child(terminal).into_any_element();
     }
-    if let Some(agent) = agent.as_ref().filter(|agent| bench.in_terminal(&agent.id)) {
+    if let Some(agent) = agent.filter(|agent| bench.in_terminal(&agent.id)) {
         let asleep = bench
             .terminal_asleep(&agent.id)
             .then(|| asleep_in_terminal(bench, agent, cx));
-        return under_header(header, div().size_full().children(asleep), cx);
+        return div().size_full().children(asleep).into_any_element();
     }
-    if let Some((agent, chat)) = agent
-        .as_ref()
-        .and_then(|agent| Some((agent, bench.chats.open.get(&agent.id)?)))
+    if let Some((agent, chat)) =
+        agent.and_then(|agent| Some((agent, bench.chats.open.get(&agent.id)?)))
     {
         let resumes = bench.shown().is_some_and(|view| {
             view.workspace
@@ -171,13 +193,11 @@ pub fn agent_view(
             chat::connection_note(agent, chat, resumes, cx)
                 .unwrap_or_else(|| welcome(bench, Some(agent), cx).into_any_element())
         });
-        return under_header(header, chat::pane(bench, agent, chat, welcome, cx), cx);
+        return chat::pane(bench, agent, chat, welcome, cx).into_any_element();
     }
-    under_header(
-        header,
-        centred(welcome(bench, agent.as_ref(), cx)).size_full(),
-        cx,
-    )
+    centred(welcome(bench, agent, cx))
+        .size_full()
+        .into_any_element()
 }
 
 /// An agent pane: its header across the top, and what it shows below it.
@@ -412,6 +432,60 @@ fn pane_header(
     view: &str,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
+    let desk_open = bench
+        .desk_of(tab, &agent.id)
+        .is_some_and(|desk| !bench.panes.desk_shutting(&desk));
+    let (tab, view, agent_id) = (tab.to_owned(), view.to_owned(), agent.id.clone());
+    let views = vec![
+        (Icon::Agent, SharedString::from("GUI")),
+        (Icon::Terminal, SharedString::from("TUI")),
+    ];
+    let in_terminal = bench.in_terminal(&agent.id);
+    let working = agent.busy;
+    let has_chat = bench.has_chat(&agent.provider);
+    let switched = agent.id.clone();
+    agent_header(bench, agent, cx)
+        .controls(
+            Segmented::new("agent-view", views, usize::from(in_terminal))
+                .slide()
+                .disabled_because(match (has_chat, working) {
+                    (false, _) => Some("This agent has no built-in chat".to_owned()),
+                    (true, true) => {
+                        let other = if in_terminal { "GUI" } else { "TUI" };
+                        Some(format!(
+                            "Wait for the agent to finish before opening {other}"
+                        ))
+                    }
+                    (true, false) => None,
+                })
+                .on_select(cx.listener(move |bench, picked: &usize, _, _| {
+                    let terminal = *picked == 1;
+                    if terminal != in_terminal {
+                        bench.switch_view(&switched, terminal);
+                    }
+                })),
+        )
+        .side(
+            IconButton::new(
+                "agent-desk",
+                Icon::PanelRight,
+                if desk_open {
+                    "Close the desk"
+                } else {
+                    "Open the desk"
+                },
+            )
+            .compact()
+            .pressed(desk_open)
+            .on_click(
+                cx.listener(move |bench, _, _, cx| bench.toggle_desk(&tab, &view, &agent_id, cx)),
+            ),
+        )
+}
+
+/// What says which agent a view shows, wherever it shows: its mark, title and name, and what
+/// can be done to it from anywhere.
+fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>) -> PaneHeader {
     let t = Tokens::get(cx).clone();
     let menu = AgentMenu::new(bench, &agent.id, cx);
     let more = KitButton::new("agent-more")
@@ -428,18 +502,8 @@ fn pane_header(
                 None => popup,
             }),
         );
-    let desk_open = bench
-        .desk_of(tab, &agent.id)
-        .is_some_and(|desk| !bench.panes.desk_shutting(&desk));
-    let (tab, view, agent_id) = (tab.to_owned(), view.to_owned(), agent.id.clone());
-    let views = vec![
-        (Icon::Agent, SharedString::from("GUI")),
-        (Icon::Terminal, SharedString::from("TUI")),
-    ];
     let in_terminal = bench.in_terminal(&agent.id);
-    let working = agent.busy;
     let has_chat = bench.has_chat(&agent.provider);
-    let switched = agent.id.clone();
     let shared = agent.id.clone();
     let open_share = cx.listener(move |bench, _, window, cx| bench.open_share(&shared, window, cx));
     let share = match bench.share_of(&agent.id) {
@@ -509,42 +573,6 @@ fn pane_header(
         )
         .when(has_chat, |header| header.action(share))
         .action(more)
-        .controls(
-            Segmented::new("agent-view", views, usize::from(in_terminal))
-                .slide()
-                .disabled_because(match (has_chat, working) {
-                    (false, _) => Some("This agent has no built-in chat".to_owned()),
-                    (true, true) => {
-                        let other = if in_terminal { "GUI" } else { "TUI" };
-                        Some(format!(
-                            "Wait for the agent to finish before opening {other}"
-                        ))
-                    }
-                    (true, false) => None,
-                })
-                .on_select(cx.listener(move |bench, picked: &usize, _, _| {
-                    let terminal = *picked == 1;
-                    if terminal != in_terminal {
-                        bench.switch_view(&switched, terminal);
-                    }
-                })),
-        )
-        .side(
-            IconButton::new(
-                "agent-desk",
-                Icon::PanelRight,
-                if desk_open {
-                    "Close the desk"
-                } else {
-                    "Open the desk"
-                },
-            )
-            .compact()
-            .pressed(desk_open)
-            .on_click(
-                cx.listener(move |bench, _, _, cx| bench.toggle_desk(&tab, &view, &agent_id, cx)),
-            ),
-        )
 }
 
 pub(crate) fn is_empty(totals: &ActivityTotals) -> bool {

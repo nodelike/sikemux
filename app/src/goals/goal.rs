@@ -434,6 +434,10 @@ pub(super) fn crumb(
         .cursor_pointer()
         .text_color(t.text_tertiary)
         .hover(move |style| style.text_color(t.text_secondary))
-        .child(ui::text(name, TEXT_2XS, FontWeight::NORMAL))
-        .child(ui::text("/", TEXT_2XS, FontWeight::NORMAL))
+        .child(
+            ui::text(name, TEXT_2XS, FontWeight::NORMAL)
+                .min_w_0()
+                .truncate(),
+        )
+        .child(ui::text("/", TEXT_2XS, FontWeight::NORMAL).flex_none())
 }

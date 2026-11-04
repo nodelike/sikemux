@@ -3,6 +3,7 @@
 //! a goal, a card with slices under it, or a slice on its ladder of gates with the evidence the
 //! core collected for it. The person reads what a goal waits on, looks at a slice's evidence and
 //! passes its gate or pins a note to what needs work, and moves a project's rule into AGENTS.md.
+//! An agent's chat opens here too: the one its tab holds, with that tab in front behind the goals.
 //! The core keeps the boards and the rules and says where each slice stands; the view only draws
 //! and asks.
 
@@ -10,9 +11,9 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::menu::ContextMenuExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, AppContext, Context, Entity, FocusHandle, Focusable, FontWeight,
-    InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled,
-    Subscription, Task, WeakEntity, Window,
+    actions, div, px, AnyElement, AppContext, Context, Entity, FocusHandle, Focusable, FontWeight,
+    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window,
 };
 use serde::Serialize;
 use sikemux_core::server::call::{self, Call};
@@ -29,7 +30,7 @@ use sikemux_wire::slice::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::agents::menu::AgentMenu;
-use crate::chat::Composing;
+use crate::chat::Chats;
 use crate::core::{self, Ask};
 use crate::theme::{Tokens, SPACE_1H, TEXT_SM};
 use crate::toast;
@@ -45,6 +46,9 @@ mod rules;
 mod slice;
 mod start;
 
+/// How wide the back link from a chat grows before its name is cut short.
+const CRUMB_MAX: f32 = 280.;
+
 pub use rails::{goal_rows, places};
 pub use start::start_composer;
 
@@ -52,6 +56,13 @@ pub use start::start_composer;
 pub struct Moved;
 
 impl gpui_kit::EventEmitter<Moved> for GoalsPane {}
+
+actions!(goals, [LeaveChat]);
+
+/// Binds the key that leaves a chat open in the goals. A chat with a turn to stop takes it first.
+pub fn bind_keys(cx: &mut gpui_kit::App) {
+    cx.bind_keys([KeyBinding::new("escape", LeaveChat, Some("Goals"))]);
+}
 
 /// Where in the goals the pane is.
 #[derive(Clone, Copy, PartialEq)]
@@ -61,6 +72,17 @@ enum At {
     Overnight,
     Goal(u64),
     Slice(u64),
+    /// The chat [`GoalsPane::chat`] names.
+    Chat,
+}
+
+/// A chat opened from the goals: the agent's own, which draws here once its tab is in front.
+struct OpenChat {
+    agent: String,
+    /// Where the back link returns to, and the project that was in front there.
+    from: At,
+    from_project: Option<String>,
+    in_front: bool,
 }
 
 pub struct GoalsPane {
@@ -80,6 +102,7 @@ pub struct GoalsPane {
     /// What finished, failed and waits since the person last left.
     digest: Option<InboxDigest>,
     at: At,
+    chat: Option<OpenChat>,
     /// The evidence of the open slice the person picked, in place of the one the gate leads with.
     picked: Option<u64>,
     /// The note being written on what needs work, while it is open.
@@ -110,6 +133,7 @@ impl GoalsPane {
             unticked: Default::default(),
             digest: None,
             at: At::Home,
+            chat: None,
             picked: None,
             note: None,
             busy: false,
@@ -163,7 +187,7 @@ impl GoalsPane {
     fn take(&mut self, boards: Vec<BoardView>) {
         self.boards = Some(boards);
         let gone = match self.at {
-            At::Home | At::Overnight => false,
+            At::Home | At::Overnight | At::Chat => false,
             At::Goal(id) | At::Slice(id) => self.card(id).is_none(),
         };
         if gone {
@@ -353,9 +377,7 @@ impl GoalsPane {
             _ => {}
         }
         if let Some(agent) = agent {
-            let _ = self
-                .bench
-                .update(cx, |bench, cx| bench.open_agent(&agent, cx));
+            self.open_agent(&agent, cx);
         }
     }
 
@@ -391,6 +413,7 @@ impl GoalsPane {
             self.note = None;
         }
         self.at = at;
+        self.chat = None;
         cx.emit(Moved);
         cx.notify();
     }
@@ -535,11 +558,135 @@ impl GoalsPane {
         .detach();
     }
 
-    /// Opens agent `agent`'s chat, with the workbench in place of the goals.
-    fn open_agent(&self, agent: &str, cx: &mut Context<Self>) {
-        let _ = self
-            .bench
-            .update(cx, |bench, cx| bench.open_agent(agent, cx));
+    /// Opens agent `agent`'s chat here, bringing its tab to the front behind the goals. An agent
+    /// that runs in a terminal has no chat, so its tab shows with the workbench in their place.
+    fn open_agent(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let Some(bench) = self.bench.upgrade() else {
+            return;
+        };
+        if bench.read(cx).in_terminal(agent) {
+            return bench.update(cx, |bench, cx| bench.open_agent(agent, cx));
+        }
+        bench.update(cx, |bench, _| bench.bring_agent(agent));
+        self.expect_chat(agent.to_owned(), cx);
+    }
+
+    /// Shows agent `agent`'s chat as soon as its tab is in front.
+    fn expect_chat(&mut self, agent: String, cx: &mut Context<Self>) {
+        self.chat = Some(OpenChat {
+            agent,
+            from: self.at,
+            from_project: self.here.clone(),
+            in_front: false,
+        });
+        cx.notify();
+    }
+
+    /// Follows the agent in front of the workbench: the chat expected shows once its tab is there,
+    /// taking the keys, and a chat showing gives way to Home when its tab no longer is.
+    fn follow_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(bench) = self.bench.upgrade() else {
+            return;
+        };
+        let Some(chat) = self.chat.as_mut() else {
+            return;
+        };
+        let in_front = bench.read(cx).front_tab_agent() == Some(chat.agent.as_str());
+        match (chat.in_front, in_front) {
+            (false, true) => {
+                chat.in_front = true;
+                self.at = At::Chat;
+                self.picked = None;
+                self.note = None;
+                cx.defer_in(window, |pane, window, cx| pane.take_keys(window, cx));
+            }
+            (true, false) => {
+                self.at = At::Home;
+                self.chat = None;
+                cx.emit(Moved);
+            }
+            _ => {}
+        }
+    }
+
+    /// Goes back from a chat to where it was opened from, its tab staying open behind the goals.
+    pub fn leave_chat(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let Some(chat) = self.chat.take() else {
+            return;
+        };
+        let known = |bench: &Workbench, folder: &str| {
+            (bench.projects().iter()).any(|project| project.path.to_string_lossy() == folder)
+        };
+        let project = chat.from_project.filter(|folder| {
+            self.here.as_ref() != Some(folder)
+                && (self.bench.upgrade()).is_some_and(|bench| known(bench.read(cx), folder))
+        });
+        if let Some(project) = project {
+            self.bring(project, cx);
+        }
+        let gone = match chat.from {
+            At::Goal(id) | At::Slice(id) => self.card(id).is_none(),
+            _ => false,
+        };
+        self.go(if gone { At::Home } else { chat.from }, cx);
+        cx.defer_in(window, |pane, window, cx| pane.take_keys(window, cx));
+    }
+
+    /// Puts the keys where the place on show wants them, away from whatever held them before.
+    fn take_keys(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(bench) = self.bench.upgrade() {
+            let keys = self.keys_go_to(&bench.read(cx).chats, cx);
+            keys.focus(window, cx);
+        }
+    }
+
+    /// Whether agent `agent`'s chat shows here, or will once its tab is in front.
+    pub fn wants_chat(&self, agent: &str) -> bool {
+        self.chat.as_ref().is_some_and(|chat| chat.agent == agent)
+    }
+
+    /// The agent whose chat shows here.
+    pub fn chat_shown(&self) -> Option<&str> {
+        let chat = self.chat.as_ref().filter(|_| self.at == At::Chat)?;
+        Some(chat.agent.as_str())
+    }
+
+    /// The place the rails light: where a chat was opened from, while it shows.
+    fn lit(&self) -> At {
+        match (self.at, &self.chat) {
+            (At::Chat, Some(chat)) => chat.from,
+            (at, _) => at,
+        }
+    }
+
+    /// What the back link from `chat` calls the place it was opened from.
+    fn place_name(&self, chat: &OpenChat) -> SharedString {
+        let title = |id: u64| {
+            let board = self.board_of(chat.from_project.as_deref()?)?;
+            let card = board.cards.iter().find(|card| card.id == id)?;
+            Some(SharedString::from(card.title.clone()))
+        };
+        match chat.from {
+            At::Overnight => "Overnight".into(),
+            At::Goal(id) | At::Slice(id) => title(id).unwrap_or_else(|| "Home".into()),
+            At::Home | At::Chat => "Home".into(),
+        }
+    }
+
+    /// The chat showing here, drawn by the workbench as its tab draws it, under its back link.
+    fn chat_view(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let chat = self.chat.as_ref().filter(|_| self.at == At::Chat)?;
+        let agent = chat.agent.clone();
+        let back = goal::crumb("chat-back", self.place_name(chat), cx)
+            .pb_0()
+            .flex_none()
+            .max_w(px(CRUMB_MAX))
+            .on_click(cx.listener(|pane, _, window, cx| pane.leave_chat(window, cx)));
+        (self.bench)
+            .update(cx, |bench, cx| {
+                crate::home::agent_view_in_goals(bench, &agent, back.into_any_element(), cx)
+            })
+            .ok()
     }
 
     /// Opens card `card` of the project the view shows beside its board, where all of it can
@@ -583,12 +730,20 @@ impl GoalsPane {
 }
 
 impl GoalsPane {
-    /// Where the keys nothing else holds go: Home's composer on Home, else the pane.
-    pub fn keys_go_to(&self, start: Option<&Composing>, cx: &gpui_kit::App) -> FocusHandle {
-        match (self.at, start) {
-            (At::Home, Some(start)) => start.draft.read(cx).focus_handle(cx),
-            _ => self.focus.clone(),
-        }
+    /// Where the keys nothing else holds go: the composer of Home or of the chat showing, else
+    /// the pane.
+    pub fn keys_go_to(&self, chats: &Chats, cx: &gpui_kit::App) -> FocusHandle {
+        let composer = match self.at {
+            At::Home => chats.start.as_ref(),
+            At::Chat => {
+                (self.chat_shown()).and_then(|agent| chats.open.get(agent)?.composer.as_ref())
+            }
+            _ => None,
+        };
+        composer.map_or_else(
+            || self.focus.clone(),
+            |composer| composer.draft.read(cx).focus_handle(cx),
+        )
     }
 }
 
@@ -600,8 +755,10 @@ impl Focusable for GoalsPane {
 
 impl Render for GoalsPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.follow_chat(window, cx);
         self.follow_project(cx);
         self.assert_field(window, cx);
+        let chat = self.chat_view(cx);
         let column = |body: AnyElement| {
             div()
                 .id("goals-column")
@@ -617,20 +774,42 @@ impl Render for GoalsPane {
                         .child(body),
                 )
         };
-        let shown = match (self.boards.is_some(), self.at) {
-            (false, _) => column(empty(None, "reading the goals…", cx)).into_any_element(),
-            (true, At::Home) => home::home(self, cx),
-            (true, At::Overnight) => column(home::overnight(self, cx)).into_any_element(),
-            (true, At::Goal(id)) => column(goal::goal(self, id, cx)).into_any_element(),
-            (true, At::Slice(id)) => column(slice::slice(self, id, cx)).into_any_element(),
+        let framed = |shown: AnyElement, cx: &mut Context<Self>| {
+            ui::pane(cx)
+                .flex_1()
+                .min_w_0()
+                .child(shown)
+                .into_any_element()
+        };
+        let shown = match (self.boards.is_some(), self.at, chat) {
+            (_, At::Chat, Some(chat)) => chat,
+            (false, ..) => framed(
+                column(empty(None, "reading the goals…", cx)).into_any_element(),
+                cx,
+            ),
+            (true, At::Home | At::Chat, _) => framed(home::home(self, cx), cx),
+            (true, At::Overnight, _) => {
+                framed(column(home::overnight(self, cx)).into_any_element(), cx)
+            }
+            (true, At::Goal(id), _) => {
+                framed(column(goal::goal(self, id, cx)).into_any_element(), cx)
+            }
+            (true, At::Slice(id), _) => {
+                framed(column(slice::slice(self, id, cx)).into_any_element(), cx)
+            }
         };
         div()
             .id("goals")
             .key_context("Goals")
             .track_focus(&self.focus)
+            .when(self.at == At::Chat, |goals| {
+                goals.on_action(
+                    cx.listener(|pane, _: &LeaveChat, window, cx| pane.leave_chat(window, cx)),
+                )
+            })
             .size_full()
             .flex()
-            .child(ui::pane(cx).flex_1().min_w_0().child(shown))
+            .child(shown)
     }
 }
 

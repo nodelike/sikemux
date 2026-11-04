@@ -1318,8 +1318,8 @@ impl Workbench {
         }
     }
 
-    /// Makes the composer of the chat in front, or of the goals' Home while they show, which
-    /// needs the window.
+    /// Makes the composer of the chat in front, unless the goals cover it, and of the goals' Home
+    /// while they show, which needs the window.
     fn compose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.window_view == WindowView::Goals {
             if self.chats.start.is_none() {
@@ -1336,11 +1336,15 @@ impl Workbench {
             if let Some(start) = self.chats.start.as_mut() {
                 start.take_arrived(window, cx);
             }
-            return;
         }
         let Some(agent) = self.agent().map(|agent| agent.id) else {
             return;
         };
+        let covered = self.window_view == WindowView::Goals
+            && !(self.goals.as_ref()).is_some_and(|goals| goals.read(cx).wants_chat(&agent));
+        if covered {
+            return;
+        }
         if !(self.chats.open.get(&agent)).is_some_and(|chat| chat.composer.is_none()) {
             return;
         }
@@ -2159,7 +2163,10 @@ impl Workbench {
             return crate::terminal::take_dropped(self, id, paths);
         }
         let into = match self.window_view {
-            WindowView::Goals => Some(START.to_owned()),
+            WindowView::Goals => match self.chat_in_goals(cx) {
+                Some(agent) => Some(agent),
+                None => Some(START.to_owned()),
+            },
             WindowView::Workbench => self.chats.focused.clone().map(|(agent, _)| agent),
         };
         if let Some(into) = into {
@@ -3117,6 +3124,13 @@ impl Workbench {
         }
     }
 
+    /// The agent whose chat the goals show, while they do.
+    pub fn chat_in_goals(&self, cx: &App) -> Option<String> {
+        let goals = self.goals.as_ref()?;
+        let chat = goals.read(cx).chat_shown()?.to_owned();
+        (self.window_view == WindowView::Goals).then_some(chat)
+    }
+
     /// Switches the window between the workbench and the goals, which open on Home.
     pub fn toggle_goals_view(&mut self, cx: &mut Context<Self>) {
         self.window_view = match self.window_view {
@@ -3444,7 +3458,7 @@ impl Workbench {
         let held = window.focused(cx);
         let kept = self.settings.read(cx).is_open()
             || self.overlays.take_keys()
-            || self.front_asks().is_some()
+            || self.front_asks(cx).is_some()
             || self.waits_for_keys();
         if kept {
             // What holds them may be a field not drawn yet, which takes them once it is.
@@ -3455,7 +3469,7 @@ impl Workbench {
         }
         match (self.window_view, &self.goals) {
             (WindowView::Goals, Some(goals)) => {
-                let keys = goals.read(cx).keys_go_to(self.chats.start.as_ref(), cx);
+                let keys = goals.read(cx).keys_go_to(&self.chats, cx);
                 keys.focus(window, cx);
             }
             _ => {
@@ -3940,6 +3954,12 @@ impl Workbench {
     /// shows it, with the workbench in place of the goals.
     pub fn open_agent(&mut self, id: &str, cx: &mut Context<Self>) {
         self.show_workbench(cx);
+        self.bring_agent(id);
+    }
+
+    /// Brings the tab of the agent `id` to the front, in its project, opening one when none
+    /// shows it.
+    pub fn bring_agent(&mut self, id: &str) {
         let project_on = |view: &DeviceView| {
             view.workspace
                 .agents
@@ -3979,6 +3999,11 @@ impl Workbench {
             }
             None => self.call_in_front("openTab", tab(project)),
         }
+    }
+
+    /// The id of the agent the tab in front shows.
+    pub fn front_tab_agent(&self) -> Option<&str> {
+        shows(self.tab()?, PaneKind::Agent).map(String::as_str)
     }
 
     /// Tells this host's core which of its agents the person is looking at, so the ones read
@@ -4579,7 +4604,7 @@ impl Render for Workbench {
         if asked.is_some() {
             crate::drive::trace(format_args!("question drawn"));
         }
-        let asking = self.asking_freely(window);
+        let asking = self.asking_freely(window, cx);
         let this = cx.weak_entity();
         crate::see_through::follow(window, cx);
         let [side_tuck, tab_tuck] = [

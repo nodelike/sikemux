@@ -380,6 +380,7 @@ pub struct Choose(pub usize);
 /// question's come last, so they win over the composer's while it asks.
 pub fn install(cx: &mut App) {
     gpui_transcript::init(cx);
+    crate::goals::bind_keys(cx);
     crate::ui::find_bar::install(cx);
     let find = if cfg!(target_os = "macos") {
         "cmd-f"

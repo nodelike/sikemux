@@ -27,7 +27,7 @@ pub fn places(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Vec<AnyE
     let t = Tokens::get(cx).clone();
     let pane = goals.read(cx);
     let needed = bench.shown().map_or(0, |view| view.inbox.needed);
-    let (at, happened) = (pane.at, pane.happened(bench).len());
+    let (at, happened) = (pane.lit(), pane.happened(bench).len());
     let place = |id: &'static str, title: &'static str, icon: Icon, to: At, count: usize| {
         let goals = goals.clone();
         Row::new(id, title)
@@ -65,7 +65,7 @@ pub fn goal_rows(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Vec<A
             .filter(|card| Some(card.project.as_str()) == here)
             .filter(|card| card.id == id || card.goal == Some(id))
             .count();
-        let open = matches!(pane.at, At::Goal(at) | At::Slice(at)
+        let open = matches!(pane.lit(), At::Goal(at) | At::Slice(at)
             if at == id || goal.goal_slices.contains(&at));
         let goals = goals.clone();
         Row::new(

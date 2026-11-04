@@ -304,12 +304,11 @@ impl GoalsPane {
                     return;
                 };
                 pane.emptied(text.clone(), window, cx);
-                let _ = pane.bench.update(cx, |bench, cx| {
+                let _ = pane.bench.update(cx, |bench, _| {
                     bench.call(
                         "openTab",
                         json!({ "project": project.id, "kind": "agent", "target": agent }),
                     );
-                    bench.show_workbench(cx);
                     bench.ask_chat(ChatAsk::Prompt {
                         agent: agent.clone(),
                         text: first_message(mode == StartMode::PlanFirst, card, &text),
@@ -318,7 +317,7 @@ impl GoalsPane {
                         attach: false,
                     });
                 });
-                cx.notify();
+                pane.expect_chat(agent, cx);
             });
         })
         .detach();

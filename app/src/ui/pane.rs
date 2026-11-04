@@ -30,6 +30,7 @@ pub fn pane(cx: &App) -> Div {
 /// nothing passes underneath.
 #[derive(IntoElement)]
 pub struct PaneHeader {
+    back: Option<AnyElement>,
     mark: Option<AnyElement>,
     title: SharedString,
     /// What shows in the title's place, such as a field editing it.
@@ -44,6 +45,7 @@ pub struct PaneHeader {
 impl PaneHeader {
     pub fn new(title: impl Into<SharedString>) -> Self {
         Self {
+            back: None,
             mark: None,
             title: title.into(),
             title_view: None,
@@ -65,6 +67,12 @@ impl PaneHeader {
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_title_double_click = Some(Rc::new(handler));
+        self
+    }
+
+    /// A link back to where the pane was opened from, before all else.
+    pub fn back(mut self, back: impl IntoElement) -> Self {
+        self.back = Some(back.into_any_element());
         self
     }
 
@@ -117,6 +125,7 @@ impl RenderOnce for PaneHeader {
             .gap(SPACE_2)
             .pl(px(18.))
             .pr(SPACE_3H)
+            .children(self.back)
             .children(self.mark.map(|mark| mark_box(18., mark).flex_none()))
             .children(self.title_view.or_else(|| {
                 let double_click = self.on_title_double_click;

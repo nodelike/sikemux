@@ -211,9 +211,16 @@ impl Workbench {
         self.open_board(&project, cx);
     }
 
-    /// Closes the view in front: a desk's page, the focused view of a split tab, else the tab.
+    /// Closes the view in front: a desk's page, the focused view of a split tab, else the tab; a
+    /// chat the goals show only goes back, its tab staying open.
     /// It asks first when that would stop an agent mid-turn or lose a file's unsaved changes.
     pub fn close_front(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.chat_in_goals(cx).is_some() {
+            if let Some(goals) = self.goals.clone() {
+                goals.update(cx, |goals, cx| goals.leave_chat(window, cx));
+            }
+            return;
+        }
         if self.close_shown_page(window, cx) {
             return self.parts.redraw_stage(cx);
         }

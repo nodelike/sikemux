@@ -1032,16 +1032,19 @@ impl Chat {
 impl Workbench {
     /// The chat in front while its question asks and nothing else holds the keys, as when the
     /// person clicked away from every field, so the question takes its keys from anywhere.
-    pub fn asking_freely(&self, window: &Window) -> Option<String> {
+    pub fn asking_freely(&self, window: &Window, cx: &App) -> Option<String> {
         if !self.keys.focus.is_focused(window) {
             return None;
         }
-        self.front_asks()
+        self.front_asks(cx)
     }
 
-    /// The chat in front, while it shows a question its keys answer; none behind the goals.
-    pub fn front_asks(&self) -> Option<String> {
-        if self.window_view == sikemux_wire::protocol::WindowView::Goals {
+    /// The chat in front, while it shows a question its keys answer; none behind the goals, which
+    /// show it only as their chat.
+    pub fn front_asks(&self, cx: &App) -> Option<String> {
+        if self.window_view == sikemux_wire::protocol::WindowView::Goals
+            && self.chat_in_goals(cx).is_none()
+        {
             return None;
         }
         let agent = self.agent()?;
