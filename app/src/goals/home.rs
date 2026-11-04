@@ -355,6 +355,7 @@ fn needs_row(
         .child(
             ui::text(item.what.clone(), TEXT_SM, FontWeight::MEDIUM)
                 .flex_shrink_1()
+                .when(item.hold.is_some(), |what| what.flex_none())
                 .min_w_0()
                 .truncate()
                 .text_color(t.text_primary),
@@ -381,7 +382,18 @@ fn needs_row(
     let line = wrapping(row(SharedString::from(format!("need-{}", item.id)), cx))
         .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
         .child(says)
-        .child(does);
+        .child(does)
+        .when_some(
+            item.hold.as_ref().and_then(|hold| hold.why.clone()),
+            |line, why| {
+                line.child(
+                    div()
+                        .w_full()
+                        .pl(px(22.))
+                        .child(ui::meta(why, cx).whitespace_normal()),
+                )
+            },
+        );
     super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
 }
 
@@ -528,7 +540,18 @@ fn question_row(
     let line = wrapping(row(SharedString::from(format!("question-{}", item.id)), cx))
         .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
         .child(says)
-        .child(does);
+        .child(does)
+        .when_some(
+            item.hold.as_ref().and_then(|hold| hold.why.clone()),
+            |line, why| {
+                line.child(
+                    div()
+                        .w_full()
+                        .pl(px(22.))
+                        .child(ui::meta(why, cx).whitespace_normal()),
+                )
+            },
+        );
     super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
 }
 

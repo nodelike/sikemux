@@ -154,7 +154,10 @@ pub(super) fn approval(
                 ui::mono(hold.what.clone(), TEXT_XS, cx)
                     .whitespace_normal()
                     .text_color(t.text_secondary),
-            ),
+            )
+            .children(hold.why.clone().map(|why| {
+                ui::text(why, TEXT_2XS, FontWeight::NORMAL).text_color(t.text_tertiary)
+            })),
         None => row
             .children(item.evidence.as_ref().map(|evidence| {
                 let face = crate::goals::thumb_face(evidence, false, cx);
