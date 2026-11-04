@@ -27,6 +27,8 @@ pub(crate) fn locate(kind: AgentKind, home: Option<&Path>, session: &str) -> Opt
 pub(crate) struct Excerpt {
     /// Each with the offset of its line, and whether a turn starts there.
     pub said: Vec<(u64, bool, Said)>,
+    /// The offset of each line that said something, oldest first, and when it was written.
+    pub times: Vec<(u64, u64)>,
     /// Where reading on starts.
     pub next: u64,
     /// Everything the file holds has been read.
@@ -88,12 +90,16 @@ pub(crate) fn read(
         rest = &rest[cut..];
     }
     let mut said: Vec<(u64, bool, Said)> = Vec::new();
+    let mut times = Vec::new();
     while let Some(at) = rest.iter().position(|byte| *byte == b'\n') {
         let line = &rest[..at];
         if let Ok(value) = serde_json::from_slice::<Value>(line) {
             let mut items = Vec::new();
             if let Some(said) = cli.ops().transcript_said() {
                 said(&value, &mut items);
+            }
+            if !items.is_empty() {
+                times.extend(written_at(&value).map(|at| (offset, at)));
             }
             for (starts, item) in items {
                 push(&mut said, cli, offset, starts, item);
@@ -119,10 +125,18 @@ pub(crate) fn read(
     }
     Ok(Excerpt {
         said,
+        times,
         next: offset,
         whole: offset == len,
         restarted,
     })
+}
+
+/// When a record of a session file was written, in milliseconds since the epoch.
+fn written_at(record: &Value) -> Option<u64> {
+    let stamp = record.get("timestamp")?.as_str()?;
+    let at = time::OffsetDateTime::parse(stamp, &time::format_description::well_known::Rfc3339);
+    u64::try_from(at.ok()?.unix_timestamp_nanos() / 1_000_000).ok()
 }
 
 /// Adds `item`, unless it repeats the one before it: a Codex rollout can

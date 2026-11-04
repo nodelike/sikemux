@@ -87,22 +87,42 @@ impl Hear for Typed {
 /// `text` on one line, cut to what is kept, when the person said it rather
 /// than pasted it and it holds nothing that may be a secret.
 fn said(text: &str) -> Option<String> {
-    let text = text.trim();
-    let pasted = text.starts_with('<')
-        || text.contains("```")
-        || text.chars().count() > MAX_SAID_CHARS
-        || text.lines().count() > MAX_SAID_LINES;
-    if pasted || text.split_whitespace().count() < MIN_WORDS || may_hold_secret(text) {
+    let text = said_at_length(text)?;
+    if may_hold_secret(text) {
         return None;
     }
     let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
     Some(clipped(&line, MAX_MESSAGE_CHARS))
 }
 
+/// `text`, trimmed, when the person said it rather than pasted it and it says more than go ahead.
+fn said_at_length(text: &str) -> Option<&str> {
+    let text = text.trim();
+    let pasted = text.starts_with('<')
+        || text.contains("```")
+        || text.chars().count() > MAX_SAID_CHARS
+        || text.lines().count() > MAX_SAID_LINES;
+    (!pasted && text.split_whitespace().count() >= MIN_WORDS).then_some(text)
+}
+
+/// What the person said, as prose that is safe to pass on: nothing when they pasted it or it
+/// hands over a secret, and with long runs of letters and digits cut down.
+pub(crate) fn person_prose(text: &str) -> Option<String> {
+    let text = said_at_length(text)?;
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let prose = prose_of(&line);
+    (!prose.is_empty()).then_some(prose)
+}
+
 /// Whether `text` may hold a secret: a private key, a token of a known kind, a
 /// value given to a name that says it is secret, a line of an environment
 /// file, an address with a password in it, or a long run of letters and digits.
-fn may_hold_secret(text: &str) -> bool {
+pub(crate) fn may_hold_secret(text: &str) -> bool {
+    gives_secret(text) || tokens(text).any(|token| known_key(token) || long_key(token))
+}
+
+/// Whether `text` hands over a secret in a way that leaves no word of it safe to keep.
+fn gives_secret(text: &str) -> bool {
     if text.contains("-----BEGIN") || text.contains("://") && text.contains('@') {
         return true;
     }
@@ -116,18 +136,84 @@ fn may_hold_secret(text: &str) -> bool {
             after.starts_with(['=', ':'])
         })
     };
-    if SECRET_NAMES.iter().any(|name| gives_value(name)) {
-        return true;
+    SECRET_NAMES.iter().any(|name| gives_value(name))
+}
+
+fn is_token_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "_-+/=".contains(c)
+}
+
+fn tokens(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !is_token_char(c))
+}
+
+fn known_key(token: &str) -> bool {
+    token.len() >= 16 && SECRET_STARTS.iter().any(|start| token.starts_with(start))
+}
+
+fn long_key(token: &str) -> bool {
+    token.len() >= MIN_KEY_CHARS
+        && token.chars().any(|c| c.is_ascii_digit())
+        && token.chars().any(|c| c.is_ascii_alphabetic())
+}
+
+/// What an agent wrote, as prose that is safe to pass on: without code blocks or any line that
+/// hands over a secret, and with each long run of letters and digits reduced to what a reader
+/// needs of it: a path's last part, a commit's first nine characters, or nothing.
+pub(crate) fn prose_of(text: &str) -> String {
+    let mut fenced = false;
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if !fenced && !gives_secret(line) && !tokens(line).any(known_key) {
+            lines.push(without_long_keys(line));
+        }
     }
-    text.split(|c: char| !(c.is_ascii_alphanumeric() || "_-+/=".contains(c)))
-        .any(|token| {
-            let known =
-                token.len() >= 16 && SECRET_STARTS.iter().any(|start| token.starts_with(start));
-            let long = token.len() >= MIN_KEY_CHARS
-                && token.chars().any(|c| c.is_ascii_digit())
-                && token.chars().any(|c| c.is_ascii_alphabetic());
-            known || long
+    lines.join("\n")
+}
+
+fn without_long_keys(line: &str) -> String {
+    line.split(' ')
+        .map(|word| match tokens(word).any(long_key) {
+            true => shortened(word.trim_end_matches([',', '.', ';', ':', ')', '`', '"'])),
+            false => word.to_owned(),
         })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shortened(token: &str) -> String {
+    if token.chars().all(|c| c.is_ascii_hexdigit()) && token.len() <= 64 {
+        return token.chars().take(9).collect();
+    }
+    let last = token
+        .rsplit('/')
+        .find(|part| !part.is_empty())
+        .unwrap_or(token);
+    let parts = token.split('/').filter(|part| !part.is_empty()).count();
+    let safe = |part: &str| !long_key(part) || is_named_in_words(part);
+    if (parts > 1 && token.split('/').all(safe)) || is_named_in_words(last) {
+        return last.to_owned();
+    }
+    "[…]".to_owned()
+}
+
+/// Whether a long run reads as a file's or a branch's name, in words split by dashes, rather
+/// than as a key.
+fn is_named_in_words(name: &str) -> bool {
+    let words: Vec<&str> = name
+        .split(['-', '_', '.', '+'])
+        .filter(|word| !word.is_empty())
+        .collect();
+    let plain = |word: &&str| {
+        word.len() >= 3
+            && word.chars().all(|c| c.is_ascii_alphabetic())
+            && !word.chars().all(|c| c.is_ascii_hexdigit())
+    };
+    words.len() >= 3 && words.iter().all(|word| word.len() < 16) && words.iter().any(plain)
 }
 
 /// A line such as `export API_URL=...`, as an environment file holds.

@@ -359,12 +359,14 @@ fn run_codex_app_server_candidate(
     repo: &str,
     model: &str,
     prompt: &str,
+    account: Option<&str>,
 ) -> Result<String, String> {
     let repo = Path::new(repo)
         .canonicalize()
         .map_err(|error| format!("Could not resolve repository path: {error}"))?;
     let repo = repo.to_string_lossy().into_owned();
     let mut command = sikemux_process::user_environment::agent_command(bin);
+    on_account(&mut command, "codex", account);
     command
         .current_dir(&repo)
         .arg("app-server")
@@ -529,9 +531,10 @@ pub(crate) fn run_codex_app_server(
     repo: &str,
     model: &str,
     prompt: &str,
+    account: Option<&str>,
 ) -> Result<String, String> {
     for bin in command_candidates("codex") {
-        match run_codex_app_server_candidate(&bin, repo, model, prompt) {
+        match run_codex_app_server_candidate(&bin, repo, model, prompt, account) {
             Err(error) if error.starts_with("codex failed to start: No such file") => continue,
             result => return result,
         }
@@ -698,7 +701,7 @@ pub(super) fn run_ai_commit_model(
         model.trim()
     };
     match provider.kind.ops().ask_once() {
-        Some(write) => write(repo, model, prompt),
+        Some(write) => write(repo, model, prompt, None),
         None => Err(format!(
             "{} cannot write commit messages",
             provider.kind.entry().label
@@ -706,10 +709,25 @@ pub(super) fn run_ai_commit_model(
     }
 }
 
+/// Puts `command` on the account kept in `account`, when one is named.
+fn on_account(command: &mut Command, provider: &str, account: Option<&str>) {
+    if account.is_some() {
+        if let Some((variable, folder)) = crate::launch::account_environment(provider, account) {
+            command.env(variable, folder);
+        }
+    }
+}
+
 /// Hermes's answer, asked once without a session.
-pub(crate) fn hermes_once(repo: &str, model: &str, prompt: &str) -> Result<String, String> {
+pub(crate) fn hermes_once(
+    repo: &str,
+    model: &str,
+    prompt: &str,
+    account: Option<&str>,
+) -> Result<String, String> {
     run_ai_candidate(AgentKind::Hermes.entry().command, |bin| {
         let mut command = sikemux_process::user_environment::agent_command(bin);
+        on_account(&mut command, "hermes", account);
         command
             .current_dir(repo)
             .args(["chat", "-Q", "-m", model, "-t", "safe", "-q", prompt]);
@@ -718,9 +736,15 @@ pub(crate) fn hermes_once(repo: &str, model: &str, prompt: &str) -> Result<Strin
 }
 
 /// Claude Code's answer, printed once without tools, hooks or a saved session.
-pub(crate) fn claude_once(repo: &str, model: &str, prompt: &str) -> Result<String, String> {
+pub(crate) fn claude_once(
+    repo: &str,
+    model: &str,
+    prompt: &str,
+    account: Option<&str>,
+) -> Result<String, String> {
     run_ai_candidate(AgentKind::Claude.entry().command, |bin| {
         let mut command = sikemux_process::user_environment::agent_command(bin);
+        on_account(&mut command, "claude", account);
         let (entrypoint, caller) = sikemux_process::vars::CLAUDE_ENTRYPOINT;
         command.current_dir(repo).env(entrypoint, caller).args([
             "--print",

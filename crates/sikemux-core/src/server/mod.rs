@@ -33,6 +33,7 @@ mod follow;
 mod from_app;
 mod gestures;
 mod git;
+mod goal_summary;
 mod handover;
 mod harness;
 mod hooks;
@@ -105,6 +106,7 @@ pub use activity_log::{
     ActivityTotals, PriceOverride, PricingInfo,
 };
 pub use agent_accounts::{AccountUsage, Resuming};
+pub use board::goal::DecideParams as BoardDecideParams;
 pub use board::{
     AddParams as BoardAddParams, AddTicketParams as BoardAddTicketParams,
     AssertParams as BoardAssertParams, BoardParams, BoardView, CardParams as BoardCardParams,
@@ -357,6 +359,7 @@ pub(crate) struct Core {
     pub(crate) device_view: device_view::DeviceViews,
     pub(crate) names: names::Names,
     pub(crate) boards: board::Boards,
+    pub(crate) goal_summaries: goal_summary::Summaries,
     pub(crate) repo_events: repo_events::RepoEvents,
     pub(crate) memory: memory::Memory,
     pub(crate) triggers: triggers::Triggers,
@@ -483,6 +486,7 @@ impl Core {
             device_view: device_view::DeviceViews::default(),
             names,
             boards: board::Boards::new(data_dir),
+            goal_summaries: goal_summary::Summaries::new(data_dir),
             repo_events: repo_events::RepoEvents::default(),
             memory: memory::Memory::new(data_dir),
             triggers: triggers::Triggers::new(data_dir),

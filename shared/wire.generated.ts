@@ -1880,6 +1880,7 @@ export type CoreChangeTopic =
     | "update"
     | "stash"
     | "memory"
+    | "goalSummary"
     | "mods"
     | "stopping";
 
@@ -2279,10 +2280,14 @@ export interface BoardCard {
     slice: SliceView | null;
     /**
      * For a goal, its slices' cards in board order: those right under it,
-     * and its own card when it is a slice itself. Empty for a card that is no
-     * goal; the one way a client tells which cards are goals.
+     * and its own card when it is a slice itself.
      */
     goalSlices?: number[];
+    /**
+     * It sits at the top of the board with slices, or with an agent working it or a card under
+     * it, as a chat started from Home does.
+     */
+    isGoal?: boolean;
     /**
      * For a goal, the gates its slices wait at, in the order they will be
      * reached: a slice that waits on another comes after it.
@@ -3740,6 +3745,103 @@ export interface BoardReviewerParams {
     model?: string;
 }
 
+/**
+ * Which goal's summary a client reads. `refresh` looks at the goal again and writes a new one
+ * if it changed, as when its page opens; `again` also tries once more after a failed attempt.
+ */
+export interface GoalSummaryParams {
+    project: string;
+    card: number;
+    refresh?: boolean;
+    again?: boolean;
+}
+
+/** A goal's summary as the core last wrote it, and how writing the next one goes. */
+export interface GoalSummaryView {
+    summary: GoalSummary | null;
+    /** A model is writing a newer one now. */
+    writing: boolean;
+    /** Why the latest attempt wrote nothing; a summary from before it may still stand. */
+    failed: string | null;
+}
+
+/**
+ * What happened on a goal and what was decided, from what its agents really did. Every line
+ * comes with the moments behind it.
+ */
+export interface GoalSummary {
+    at: number;
+    /** A short name for the page, when the card's title is only its prompt cut short. */
+    title: string | null;
+    happened: SummaryLine[];
+    /** Decisions a model found in what was said, which nobody recorded. */
+    extracted: SummaryLine[];
+    /** Sikemux ran no check of its own among these moments, so they rest on what agents said. */
+    unchecked: boolean;
+    /** Agents whose transcripts were not read, each with why. */
+    leftOut?: LeftOut[];
+}
+
+/** One sentence of a summary and the moments it rests on. */
+export interface SummaryLine {
+    text: string;
+    sources: SummarySource[];
+}
+
+/** A moment a sentence rests on. */
+export interface SummarySource {
+    kind: SourceKind;
+    at: number;
+    /** The agent it comes from; none for the person and for the core. */
+    who: string | null;
+    text: string;
+    open: SourceLink | null;
+}
+
+/** The kinds of moment a summary is written from. */
+export type SourceKind = "person" | "answer" | "ran" | "commit" | "evidence" | "gate" | "held" | "decision" | "assertion" | "note" | "turnFailed";
+
+/** Where a moment can be opened. */
+export type SourceLink =
+    /**
+     * The agent's chat; `feed` and `index` place it when the core could. Once the agent has
+     * closed, `saved` names the session that opens it again.
+     */
+    | {
+          kind: "chat";
+          agent: string;
+          feed: string | null;
+          index: number | null;
+          saved: SavedChat | null;
+      }
+    | {
+          kind: "commit";
+          sha: string;
+      }
+    | {
+          kind: "evidence";
+          card: number;
+          evidence: number;
+      }
+    | {
+          kind: "card";
+          card: number;
+      };
+
+/** A chat's session as its CLI saved it. */
+export interface SavedChat {
+    provider: string;
+    session: string;
+}
+
+/** An agent of a goal whose transcript no model was given. */
+export interface LeftOut {
+    name: string;
+    why: LeftOutWhy;
+}
+
+export type LeftOutWhy = "otherVendor" | "noSession";
+
 export interface AssertParams {
     project: string;
     /** The goal's card. */
@@ -4079,6 +4181,7 @@ export interface CoreCalls {
     boardUpdate: { params: BoardUpdateParams; answer: ProjectBoard };
     boardRemove: { params: BoardCardParams; answer: ProjectBoard };
     boardSettings: { params: BoardSettingsParams; answer: ProjectBoard };
+    goalSummary: { params: GoalSummaryParams; answer: GoalSummaryView };
     boardAssert: { params: AssertParams; answer: ProjectBoard };
     boardDecide: { params: DecideParams; answer: ProjectBoard };
     triage: { params: TriageParams; answer: Triage };

@@ -428,3 +428,142 @@ pub struct GoalRule {
     /// first.
     pub retired: Option<Learned>,
 }
+
+/// Which goal's summary a client reads. `refresh` looks at the goal again and writes a new one
+/// if it changed, as when its page opens; `again` also tries once more after a failed attempt.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSummaryParams {
+    pub project: String,
+    pub card: u64,
+    #[serde(default)]
+    pub refresh: bool,
+    #[serde(default)]
+    pub again: bool,
+}
+
+/// A goal's summary as the core last wrote it, and how writing the next one goes.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSummaryView {
+    pub summary: Option<GoalSummary>,
+    /// A model is writing a newer one now.
+    pub writing: bool,
+    /// Why the latest attempt wrote nothing; a summary from before it may still stand.
+    pub failed: Option<String>,
+}
+
+/// What happened on a goal and what was decided, from what its agents really did. Every line
+/// comes with the moments behind it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSummary {
+    pub at: u64,
+    /// A short name for the page, when the card's title is only its prompt cut short.
+    pub title: Option<String>,
+    pub happened: Vec<SummaryLine>,
+    /// Decisions a model found in what was said, which nobody recorded.
+    pub extracted: Vec<SummaryLine>,
+    /// Sikemux ran no check of its own among these moments, so they rest on what agents said.
+    pub unchecked: bool,
+    /// Agents whose transcripts were not read, each with why.
+    #[serde(default)]
+    pub left_out: Vec<LeftOut>,
+}
+
+/// One sentence of a summary and the moments it rests on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryLine {
+    pub text: String,
+    pub sources: Vec<SummarySource>,
+}
+
+/// A moment a sentence rests on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummarySource {
+    pub kind: SourceKind,
+    pub at: u64,
+    /// The agent it comes from; none for the person and for the core.
+    pub who: Option<String>,
+    pub text: String,
+    pub open: Option<SourceLink>,
+}
+
+/// The kinds of moment a summary is written from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SourceKind {
+    /// What the person typed or answered.
+    Person,
+    /// What an agent said when its turn ended.
+    Answer,
+    /// A check an agent ran with its own tools, which only it reported on.
+    Ran,
+    Commit,
+    /// Evidence the core collected itself.
+    Evidence,
+    Gate,
+    /// An action that leaves this machine, held for the person.
+    Held,
+    Decision,
+    Assertion,
+    /// What the person wrote about a slice.
+    Note,
+    /// An agent's turn that ended in an error.
+    TurnFailed,
+}
+
+/// Where a moment can be opened.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum SourceLink {
+    /// The agent's chat; `feed` and `index` place it when the core could. Once the agent has
+    /// closed, `saved` names the session that opens it again.
+    Chat {
+        agent: String,
+        feed: Option<String>,
+        index: Option<u64>,
+        saved: Option<SavedChat>,
+    },
+    Commit {
+        sha: String,
+    },
+    Evidence {
+        card: u64,
+        evidence: u64,
+    },
+    Card {
+        card: u64,
+    },
+}
+
+/// A chat's session as its CLI saved it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedChat {
+    pub provider: String,
+    pub session: String,
+}
+
+/// An agent of a goal whose transcript no model was given.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeftOut {
+    pub name: String,
+    pub why: LeftOutWhy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LeftOutWhy {
+    /// It runs on another vendor's agent than the one asked, and its words stay with its own.
+    OtherVendor,
+    /// No session file of it could be read.
+    NoSession,
+}

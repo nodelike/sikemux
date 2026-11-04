@@ -16,8 +16,8 @@ use super::edits::{self, Edit, Filter, Owners};
 use super::names::{AgentName, ClosedAgent, NameTheme};
 use super::workspace;
 use super::{
-    agent_accounts, agent_sign_in, board, inbox, memory, messages, model_providers, plugins,
-    questions, remote, saved, saved_sessions, share, ship, skill_library, who_wrote, Core,
+    agent_accounts, agent_sign_in, board, goal_summary, inbox, memory, messages, model_providers,
+    plugins, questions, remote, saved, saved_sessions, share, ship, skill_library, who_wrote, Core,
     CoreError, CoreResult,
 };
 use crate::protocol::{AgentBuddy, Preferences, RemoteStatus};
@@ -599,6 +599,9 @@ calls! { core, client, params;
     "boardRemove" BoardRemove (board::CardParams) -> board::BoardView: Full => board::person_remove(&core, params).await?,
     "boardSettings" BoardSettings (board::SettingsParams) -> board::BoardView: Full => {
         board::person_settings(&core, params).await?
+    },
+    "goalSummary" GoalSummary (sikemux_wire::slice::GoalSummaryParams) -> sikemux_wire::slice::GoalSummaryView: Full => {
+        goal_summary::read(&core, params).await?
     },
     "boardAssert" BoardAssert (board::goal::AssertParams) -> board::BoardView: Full => {
         board::goal::person_assert(&core, params).await?

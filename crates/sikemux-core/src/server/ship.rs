@@ -4,6 +4,7 @@
 //! action run once, until the end of the turn in which the agent hears of it.
 //! Where the person lets agents land work, pushes and merges go through.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -20,6 +21,8 @@ use crate::ship::{Ship, ToolShip};
 
 /// More than an agent waits on at once; past this its oldest hold goes.
 const MAX_HOLDS_PER_AGENT: usize = 16;
+/// The person's answers remembered, across every agent, while the core runs.
+const MAX_ANSWERED: usize = 256;
 const DATABASE: &str = "sikemux.database";
 
 #[derive(Default)]
@@ -32,6 +35,16 @@ struct State {
     next: u64,
     holds: Vec<Hold>,
     allowed: Vec<Allowed>,
+    answered: VecDeque<Answered>,
+}
+
+/// A held action the person answered.
+#[derive(Clone)]
+pub(crate) struct Answered {
+    pub agent_id: String,
+    pub what: String,
+    pub allowed: bool,
+    pub at: u64,
 }
 
 /// An agent's action waiting on the person.
@@ -76,6 +89,24 @@ impl Ships {
                 at: hold.at,
             })
             .collect()
+    }
+
+    /// What the person answered of the actions held since the core started, oldest first.
+    pub(crate) fn answered(&self) -> Vec<Answered> {
+        self.state.locked().answered.iter().cloned().collect()
+    }
+
+    fn remember(&self, hold: &Hold, allowed: bool) {
+        let mut state = self.state.locked();
+        if state.answered.len() >= MAX_ANSWERED {
+            state.answered.pop_front();
+        }
+        state.answered.push_back(Answered {
+            agent_id: hold.agent_id.clone(),
+            what: hold.ship.what.clone(),
+            allowed,
+            at: epoch_ms(),
+        });
     }
 
     /// The agent began a turn, in which what it heard it may do holds.
@@ -225,6 +256,7 @@ pub struct HoldParams {
 /// again, which then runs until the end of the turn in which it hears this.
 pub(crate) async fn allow(core: &Arc<Core>, params: HoldParams) -> CoreResult<()> {
     let hold = take(core, &params.hold)?;
+    core.ship.remember(&hold, true);
     let text = format!(
         "The person allowed `{}` once. Run exactly that again now; it may run once, until this turn ends.",
         hold.ship.what
@@ -247,6 +279,7 @@ pub(crate) async fn allow(core: &Arc<Core>, params: HoldParams) -> CoreResult<()
 /// The person refuses the held action, and the agent is told not to take it.
 pub(crate) async fn refuse(core: &Arc<Core>, params: HoldParams) -> CoreResult<()> {
     let hold = take(core, &params.hold)?;
+    core.ship.remember(&hold, false);
     let text = format!(
         "The person did not allow `{}`. Do not run it; if your work needed it, say so in your answer.",
         hold.ship.what

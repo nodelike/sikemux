@@ -265,6 +265,8 @@ enum CoreChangeTopic: String, Codable, Hashable {
     case stash
     /// The rules and knowledge the core keeps for a project or a folder above it.
     case memory
+    /// A goal's summary, or how writing the next one goes.
+    case goalSummary
     /// The mods in the person's mods folder; `paths` names those whose files moved.
     case mods
     /// The core is stopping on purpose, so its clients do not start it again.

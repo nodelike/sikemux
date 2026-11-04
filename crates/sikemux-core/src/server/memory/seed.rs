@@ -102,7 +102,7 @@ fn find(core: &Core, project: &str) -> Vec<SeededRule> {
     let answer = ASKED.iter().find_map(|agent| {
         let ask = agent.ops().ask_once()?;
         let model = agent.entry().commit_models.first()?;
-        match ask(&dir.to_string_lossy(), model, &prompt) {
+        match ask(&dir.to_string_lossy(), model, &prompt, None) {
             Ok(answer) => Some(answer),
             Err(error) => {
                 eprintln!(

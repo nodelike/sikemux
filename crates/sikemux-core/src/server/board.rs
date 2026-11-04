@@ -303,6 +303,16 @@ impl Board {
         }
     }
 
+    /// Whether `card` is a goal: at the top of the board, with slices or with an agent on it.
+    fn is_goal(&self, card: &Card) -> bool {
+        card.parent.is_none()
+            && (card.owner.is_some()
+                || card.slice.is_some()
+                || (self.cards.iter())
+                    .filter(|under| under.parent == Some(card.id))
+                    .any(|under| under.owner.is_some() || under.slice.is_some()))
+    }
+
     /// Whether `card` waits on another card, or nobody holds it.
     fn held_up(&self, card: &Card) -> bool {
         card.owner.is_none() || !self.waits_on(card).is_empty()
@@ -1242,10 +1252,13 @@ pub struct CardView {
     /// For a slice of a goal: its promise, gates, evidence and notes.
     pub slice: Option<SliceView>,
     /// For a goal, its slices' cards in board order: those right under it,
-    /// and its own card when it is a slice itself. Empty for a card that is no
-    /// goal; the one way a client tells which cards are goals.
+    /// and its own card when it is a slice itself.
     #[serde(default)]
     pub goal_slices: Vec<u64>,
+    /// It sits at the top of the board with slices, or with an agent working it or a card under
+    /// it, as a chat started from Home does.
+    #[serde(default)]
+    pub is_goal: bool,
     /// For a goal, the gates its slices wait at, in the order they will be
     /// reached: a slice that waits on another comes after it.
     pub next: Vec<NextGate>,
@@ -1367,6 +1380,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
             .filter(|held| held.slice.is_some())
             .map(|held| held.id)
             .collect(),
+        is_goal: board.is_goal(card),
         next: slice::next_gates(core, board, card, now),
         goal_state: slice::goal_state(board, card),
         goal_stalled: slice::goal_stalled(board, card),
@@ -2593,7 +2607,7 @@ pub(crate) fn boards(core: &Core) -> Vec<BoardView> {
         .collect()
 }
 
-fn project_view(core: &Core, project: &str) -> BoardView {
+pub(crate) fn project_view(core: &Core, project: &str) -> BoardView {
     let state = core.boards.state.locked();
     match state.boards.get(project) {
         Some(board) => board_view(core, board),

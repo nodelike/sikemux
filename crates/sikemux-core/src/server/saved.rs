@@ -96,6 +96,27 @@ fn scope_of(core: &Core, projects: Vec<String>) -> Scope {
     })
 }
 
+/// The file of `session`, a session of `agent`, on whichever of the person's accounts keeps it,
+/// with that account.
+pub(crate) fn session_file(
+    core: &Core,
+    agent: AgentKind,
+    session: &str,
+    project: &str,
+) -> Option<(PathBuf, Option<String>)> {
+    providers(core)
+        .into_iter()
+        .filter(|provider| provider.agent == agent)
+        .find_map(|provider| {
+            let root = crate::agent_accounts::folders::root(
+                agent.as_str(),
+                provider.config_path.as_deref(),
+            )?;
+            crate::sessions::transcript::find(agent, &root, Some(project), session)
+                .map(|file| (file, provider.config_path))
+        })
+}
+
 /// What the person typed in `project`'s saved sessions, a list per session,
 /// newest session first.
 pub(crate) fn typed_in(core: &Core, project: &str, budget: Duration) -> Vec<Vec<String>> {
