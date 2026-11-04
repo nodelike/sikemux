@@ -7,7 +7,7 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui_kit::{div, AnyElement, App, Context, IntoElement, SharedString, Task, Window};
+use gpui_kit::{div, AnyElement, App, Context, Focusable, IntoElement, SharedString, Task, Window};
 use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::{BoardAddParams, BoardHandOffParams, TriageParams};
@@ -557,11 +557,15 @@ pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> Any
         .collect();
     let tips = MODES.iter().map(|(.., tip)| SharedString::from(*tip));
     let picking = weak.clone();
+    let draft = (bench.composing(START)).map(|start| start.draft.read(cx).focus_handle(cx));
     let mut modes = Segmented::new("start-mode", choices, at)
         .tooltips(tips)
-        .on_select(move |chosen: &usize, _, cx| {
+        .on_select(move |chosen: &usize, window, cx| {
             if let Some((mode, ..)) = MODES.get(*chosen) {
                 let _ = picking.update(cx, |pane, cx| pane.pick(*mode, cx));
+            }
+            if let Some(draft) = &draft {
+                draft.focus(window, cx);
             }
         });
     if let Some((mode, because)) = &suggested {
