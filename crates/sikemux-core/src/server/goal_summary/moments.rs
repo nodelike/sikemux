@@ -132,7 +132,7 @@ fn top_of<'a>(cards: &'a [CardView], card: &'a CardView) -> &'a CardView {
 }
 
 /// The cards of goal `id`: its own, and those under it at any depth.
-fn family<'a>(cards: &'a [CardView], id: u64) -> Vec<&'a CardView> {
+fn family(cards: &[CardView], id: u64) -> Vec<&CardView> {
     (cards.iter())
         .filter(|card| top_of(cards, card).id == id)
         .collect()
@@ -197,7 +197,7 @@ fn person_said(text: &str) -> Option<String> {
 
 /// The start and end of a long answer, which are where it says what it did and what is left.
 fn answer_text(text: &str) -> String {
-    let line = one_line(&prose_of(text));
+    let line = one_line(&sikemux_markdown::words(&prose_of(text)));
     let count = line.chars().count();
     if count <= MAX_ANSWER_CHARS {
         return line;
@@ -347,10 +347,7 @@ fn read_session(
     let since = worker.since.saturating_sub(START_SLACK_MS);
     let until = worker.until.unwrap_or(u64::MAX);
     let mut at = since;
-    loop {
-        let Ok(excerpt) = transcript::read(kind, path, Some(from), 0) else {
-            break;
-        };
+    while let Ok(excerpt) = transcript::read(kind, path, Some(from), 0) {
         for (offset, _, said) in excerpt.said {
             at = time_at(&excerpt.times, offset).unwrap_or(at);
             if at >= since && at < until {
@@ -586,7 +583,12 @@ fn card_facts(cards: &[&CardView], moments: &mut Vec<Moment>, gaps: &mut Vec<(us
                 });
             let words = evidence_words(evidence, &card.title);
             if failing {
-                gaps.push((moments.len(), format!("Still failing: {words}")));
+                let what = match &evidence.proof {
+                    Proof::Run { command, .. } => format!("`{command}`"),
+                    _ => "Its evidence".to_owned(),
+                };
+                let sentence = format!("{what} still fails on \"{}\".", card.title);
+                gaps.push((moments.len(), sentence));
             }
             moments.push(fact(
                 SourceKind::Evidence,

@@ -209,14 +209,19 @@ fn aside(text: impl Into<SharedString>, cx: &Context<GoalsPane>) -> impl IntoEle
         .child(text.into())
 }
 
-/// The heading's meta: how old the summary is and whether a newer one is on its way.
+/// The heading's meta: how old what the summary knows is, when it was written, and whether a
+/// newer one is on its way.
 fn age_words(view: &GoalSummaryView) -> Option<String> {
-    let age = (view.summary.as_ref()).map(|summary| ui::time::age(summary.at).to_string());
-    match (age, view.writing) {
-        (Some(age), true) => Some(format!("{age} · writing a newer one")),
-        (Some(age), false) => Some(age),
-        (None, _) => None,
-    }
+    let summary = view.summary.as_ref()?;
+    let ages = format!(
+        "last moment {} · written {}",
+        ui::time::age(summary.through),
+        ui::time::age(summary.at)
+    );
+    Some(match view.writing {
+        true => format!("{ages} · writing a newer one"),
+        false => ages,
+    })
 }
 
 /// Says the summary failed, why, and offers to try again.

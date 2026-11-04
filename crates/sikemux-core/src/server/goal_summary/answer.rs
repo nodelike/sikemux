@@ -31,6 +31,7 @@ happened: at most five short sentences a busy person can read in ten seconds, on
 - Every sentence lists in "moments" the numbers that directly support it. A sentence you cannot support does not get written. Never use a number that is not in the list.
 - A moment of kind "answer" is an agent's own claim, and "ran" only shows a command started. Only kinds "evidence", "gate" and "commit" are things Sikemux itself recorded. When only an agent says something passed, write who reported it, as in "Nel reported the check passed", never just "the check passed".
 - State what failed, was skipped, was refused or is not proven as plainly as what passed, in its own sentence. Never call something done, working or fixed unless the moments show it.
+- Moments are in time order, and a later one overrides an earlier one. An agent's answer says what it knew when it wrote it: when a later moment or a commit "on the project's branch" shows that something it called pending or waiting happened, say it happened and cite that moment. Say something still waits only if nothing later contradicts it, and only as of the last moment.
 - Name commits, runs and numbers only when they appear in the moments you cite.
 
 decided: choices that later work must follow, made by the person or stated by an agent and not disputed, at most six. A task, a plan an agent announced, or how agents divided the work among themselves is not a decision. Write each as one sentence saying what was chosen. Leave out anything of kind "decision", which is recorded already. Each lists the moments it was decided in. Use [] when there are none.
@@ -219,6 +220,10 @@ pub(super) fn read(said: &str, gathered: &Gathered) -> Result<GoalSummary, Strin
         .map(|title| clipped(&title, MAX_TITLE_CHARS));
     Ok(GoalSummary {
         at: epoch_ms(),
+        through: (moments.iter())
+            .map(|moment| moment.source.at)
+            .max()
+            .unwrap_or(0),
         title,
         happened,
         extracted,

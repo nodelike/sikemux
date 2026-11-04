@@ -130,7 +130,7 @@ fn running_line(mark: AnyElement, words: String, cx: &Context<GoalsPane>) -> Any
     div()
         .py(SPACE_1)
         .flex()
-        .items_baseline()
+        .items_center()
         .gap(SPACE_2)
         .child(mark)
         .child(

@@ -325,16 +325,14 @@ pub(super) fn need_line(
     item: &InboxItem,
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
-    match item.kind {
-        InboxKind::Question => question_row(pane, item, "", cx),
-        _ => needs_row(
-            pane,
-            item,
-            "",
-            item.name.clone().map(|name| format!("@{name}")),
-            cx,
-        ),
+    if item.kind == InboxKind::Question {
+        return question_row(pane, item, "", cx);
     }
+    let slice = (item.card.as_ref())
+        .filter(|card| card.goal.is_some() && item.stalled.is_none())
+        .map(|card| card.title.clone());
+    let about = slice.or_else(|| item.name.as_ref().map(|name| format!("@{name}")));
+    needs_row(pane, item, "", about, cx)
 }
 
 /// One thing waiting on the person: what it needs, what it is about, its project, and how long it

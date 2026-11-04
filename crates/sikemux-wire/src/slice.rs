@@ -459,6 +459,8 @@ pub struct GoalSummaryView {
 #[serde(rename_all = "camelCase")]
 pub struct GoalSummary {
     pub at: u64,
+    /// When the latest moment it was written from happened.
+    pub through: u64,
     /// A short name for the page, when the card's title is only its prompt cut short.
     pub title: Option<String>,
     pub happened: Vec<SummaryLine>,

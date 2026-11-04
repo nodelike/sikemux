@@ -3771,6 +3771,8 @@ export interface GoalSummaryView {
  */
 export interface GoalSummary {
     at: number;
+    /** When the latest moment it was written from happened. */
+    through: number;
     /** A short name for the page, when the card's title is only its prompt cut short. */
     title: string | null;
     happened: SummaryLine[];
