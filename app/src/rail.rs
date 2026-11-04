@@ -1260,6 +1260,12 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             act(|bench, window, cx| bench.open_settings(Page::Devices, window, cx)),
         ),
         (
+            "Connectors",
+            Icon::Plug,
+            None,
+            act(|bench, window, cx| bench.open_settings(Page::Connectors, window, cx)),
+        ),
+        (
             "Settings",
             Icon::Settings,
             settings_keys,
