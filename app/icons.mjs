@@ -14,6 +14,7 @@ const root = resolve(crate, "..");
 const out = resolve(crate, "assets/icons");
 
 const ICONS = "/shared/ui/Icons.tsx";
+const BATTERY_BOLT = "M14.6 -1.6 L8.4 7.4 H12.6 L11.4 14.6 L17.6 5.6 H13.4 Z";
 
 /** File name → the module, its export and the props it is drawn with. */
 const DRAWN = {
@@ -191,7 +192,6 @@ try {
   }
   for (const [file, path] of Object.entries(PICTURES))
     await writeFile(resolve(out, `${file}.svg`), (await readFile(resolve(root, path), "utf8")).replace(OKLCH, (_, l, c, h) => oklchToHex(+l, +c, +h)));
-  const { BATTERY_BOLT } = await server.ssrLoadModule(ICONS);
   const bolt = (extra) =>
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="7 -3 12 19" fill="currentColor"><path d="${BATTERY_BOLT}"${extra}></path></svg>\n`;
   const chevron = await readFile(resolve(out, "chevron.svg"), "utf8");
