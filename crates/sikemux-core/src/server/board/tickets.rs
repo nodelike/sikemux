@@ -306,8 +306,9 @@ async fn close(core: &Arc<Core>, project: &str, id: u64, key: &str) {
             let Ok(card) = board.card_mut(id) else {
                 return Ok(Vec::new());
             };
-            let unlanded = landing == Landing::Person
-                && (card.slice.as_ref()).is_some_and(|slice| slice.waiting().is_some());
+            let unlanded = (card.slice.as_ref())
+                .and_then(|slice| slice.waiting())
+                .is_some_and(|step| landing == Landing::Person || step.environment().is_some());
             let open = card.status != Status::Done;
             let Some(ticket) = card.ticket.as_mut().filter(|ticket| ticket.key == key) else {
                 return Ok(Vec::new());

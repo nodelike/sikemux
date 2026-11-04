@@ -116,15 +116,18 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
             now,
         ));
     }
-    if slice.waits_on_person(board.settings.landing).is_some() {
+    if slice.waits_on_person(&board.settings).is_some() {
         return Some(wait(
-            WaitOn::Person { gate },
+            WaitOn::Person {
+                gate: gate.gate(),
+                environment: gate.environment().map(str::to_owned),
+            },
             slice.waiting_since(),
             None,
             now,
         ));
     }
-    if let Some(sha) = slice.awaits_check() {
+    if let Some(sha) = slice.awaits_check(&board.settings) {
         let running = (board.checking.running.as_ref())
             .filter(|running| running.covered.iter().any(|covered| covered == sha));
         let (run, since) = match running {

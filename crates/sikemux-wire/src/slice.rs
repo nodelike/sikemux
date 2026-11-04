@@ -57,6 +57,13 @@ pub struct GateView {
     pub at: Option<u64>,
     /// What is not so yet that it needs before it can pass.
     pub needs: Vec<Need>,
+    /// The project's environment this step is, by name. A client that knows no
+    /// environments reads such a step's `gate` as Landed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    /// Who an environment's step waits on, in the core's few words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
 
 /// What a gate needs before it can pass, besides the gates before it.
@@ -99,6 +106,9 @@ pub struct Evidence {
     /// The goal's assertions it was collected for.
     #[serde(default)]
     pub assertions: Vec<u64>,
+    /// The project's environment it was collected toward, as `GateView` names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
 }
 
 /// The five kinds of evidence, each drawn one way.
@@ -298,8 +308,12 @@ pub enum WaitOn {
     Check { sha: String, run: CheckRun },
     /// Another card it waits on, not done yet.
     Card { card: u64 },
-    /// The person, to pass `gate`.
-    Person { gate: Gate },
+    /// The person, to pass `gate`, or the environment it stands for.
+    Person {
+        gate: Gate,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        environment: Option<String>,
+    },
     /// Its owner, in the middle of a turn.
     Agent { agent: String },
 }
@@ -349,6 +363,9 @@ pub struct NextGate {
     /// What that gate waits on now.
     #[serde(default)]
     pub wait: Option<Wait>,
+    /// The project's environment this step is, as `GateView` names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
 }
 
 /// What a goal decided, kept on its card.

@@ -11,7 +11,7 @@ use sikemux_wire::slice::{Evidence, GateState, GateView, Passer, Proof, SliceVie
 
 use super::evidence;
 use super::goal::crumb;
-use super::{gate_name, need_words, passer_name, waiting, At, GoalsPane};
+use super::{need_words, passer_name, step_name, waiting, At, GoalsPane};
 use crate::theme::{
     self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, SPACE_5, TEXT_2XS,
     TEXT_SM, TEXT_XL, TEXT_XS_H,
@@ -39,7 +39,9 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
         .into_iter()
         .find(|goal| goal.goal_slices.contains(&id));
     let shown = pane.shown_evidence(slice);
-    let gate = waiting(slice).filter(|gate| gate.passer == Passer::Person);
+    let gate = waiting(slice).filter(|gate| {
+        gate.passer == Passer::Person || (gate.environment.is_some() && gate.needs.is_empty())
+    });
     div()
         .flex()
         .flex_col()
@@ -194,7 +196,7 @@ fn ladder(card: &CardView, slice: &SliceView, cx: &Context<GoalsPane>) -> AnyEle
                         .collect::<Vec<_>>()
                         .join(" and ")
                 ),
-                _ => passer_name(gate, card),
+                _ => gate.why.clone().unwrap_or_else(|| passer_name(gate, card)),
             };
             div()
                 .flex_1()
@@ -221,7 +223,7 @@ fn ladder(card: &CardView, slice: &SliceView, cx: &Context<GoalsPane>) -> AnyEle
                         .flex_col()
                         .gap(px(1.))
                         .child(
-                            ui::text(gate_name(gate.gate), TEXT_SM, FontWeight::MEDIUM)
+                            ui::text(step_name(gate).to_owned(), TEXT_SM, FontWeight::MEDIUM)
                                 .text_color(if you { t.warn } else { t.text_primary }),
                         )
                         .child(ui::meta(under, cx).truncate()),
@@ -288,7 +290,7 @@ fn decide(
     shown: Option<&Evidence>,
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
-    let (id, passing) = (card.id, gate.gate);
+    let (id, passing, environment) = (card.id, gate.gate, gate.environment.clone());
     let pinned = shown.map(|shown| {
         format!(
             "A note pins to the {}",
@@ -301,9 +303,11 @@ fn decide(
         .items_center()
         .gap(SPACE_2)
         .child(
-            Button::new("slice-pass", gate_name(passing), Variant::Primary)
+            Button::new("slice-pass", pass_words(gate), Variant::Primary)
                 .disabled(pane.busy)
-                .on_click(cx.listener(move |pane, _, _, cx| pane.pass(id, passing, cx))),
+                .on_click(cx.listener(move |pane, _, _, cx| {
+                    pane.pass(id, passing, environment.clone(), cx)
+                })),
         )
         .child(
             Button::new("slice-needs-work", "Needs work", Variant::Outline)
@@ -319,6 +323,14 @@ fn decide(
         .child(div().flex_1())
         .children(pinned.map(|pinned| ui::meta(pinned, cx)))
         .into_any_element()
+}
+
+/// What passing a step says: its gate's word, or that it passes an environment by name.
+fn pass_words(gate: &GateView) -> String {
+    match &gate.environment {
+        Some(environment) => format!("Pass {environment}"),
+        None => step_name(gate).to_owned(),
+    }
 }
 
 /// What was written about the slice, newest first, each with the evidence it is pinned to.

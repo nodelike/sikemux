@@ -15,7 +15,7 @@ use crate::text::{clipped, clipped_line};
 use sikemux_wire::inbox::{
     AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandTo, InboxHandoff, InboxItem,
     InboxKind, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent, ShipHold, ShipKind,
-    TeamLink,
+    TeamLink, PROPOSED_ENVIRONMENTS_ITEM,
 };
 
 use super::board::{self, Hold, Summary, Waits};
@@ -24,6 +24,8 @@ use super::notify::provider_name;
 use super::questions::ForPerson;
 use super::Core;
 use sikemux_wire::slice::Gate;
+
+use super::board::environments::Step;
 
 /// Agents whose latest turn is kept; the longest-finished go first.
 const MAX_TURNS: usize = 512;
@@ -56,10 +58,12 @@ enum Case {
     },
     Assumption,
     Input,
-    /// The slice waits for the person to pass this gate.
-    Gate(Gate),
+    /// The slice waits for the person to pass this step.
+    Gate(Step),
     /// An agent's action that leaves this machine waits for the person to allow it.
     Ship(ShipHold),
+    /// An agent proposed the project's environments, for the person to accept.
+    ProposedEnvironments,
     PullRequest,
     /// Auto handed the card back, for the person to fix something or unblock it.
     HandedBack(Hold),
@@ -118,7 +122,9 @@ impl Case {
             | Case::Looping
             | Case::CheckFailing
             | Case::StaleMemory => (InboxKind::Held, Wants::Person(Fix)),
-            Case::Colliding | Case::TicketDone => (InboxKind::Held, Wants::Person(Decide)),
+            Case::Colliding | Case::TicketDone | Case::ProposedEnvironments => {
+                (InboxKind::Held, Wants::Person(Decide))
+            }
             Case::Failed(Some(Fault::Account)) => (InboxKind::Failed, Wants::Person(Unblock)),
             Case::Failed(Some(Fault::Broke)) => (InboxKind::Failed, Wants::Person(Fix)),
             Case::Failed(Some(Fault::Retrying) | None) => {
@@ -509,7 +515,12 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         turn: None,
         card: None,
         gate: match &case {
-            Case::Gate(gate) => Some(*gate),
+            Case::Gate(gate) => Some(gate.gate()),
+            _ => None,
+        },
+        environment: match &case {
+            Case::Gate(gate) => gate.environment().map(str::to_owned),
+            Case::Ship(hold) => hold.environment.clone(),
             _ => None,
         },
         evidence: None,
@@ -597,6 +608,23 @@ fn pair_id(one: &str, other: &str) -> String {
     }
 }
 
+/// A deploy held for the environment `card` waits at already asks the person,
+/// in place of its gate.
+fn deploy_asks_instead(core: &Core, card: &Summary, waits: &Waits) -> bool {
+    let Waits::Gate {
+        gate: Step::Environment(environment),
+        ..
+    } = waits
+    else {
+        return false;
+    };
+    core.ship.waiting().iter().any(|waiting| {
+        waiting.project == card.project
+            && Some(&waiting.agent_id) == card.owner.as_ref()
+            && waiting.hold.environment.as_ref() == Some(environment)
+    })
+}
+
 /// The item for a card that waits on the person, unless what it waits for is
 /// an answer, which its question's item asks for.
 fn card_item(card: &Summary, waits: &Waits, agents: &[Agent]) -> Option<InboxItem> {
@@ -628,7 +656,7 @@ fn card_item(card: &Summary, waits: &Waits, agents: &[Agent]) -> Option<InboxIte
             url,
             evidence,
         } => {
-            let mut item = gate_item(card, *gate, promise);
+            let mut item = gate_item(card, gate, promise);
             item.url = url.clone();
             item.evidence = evidence.as_deref().cloned();
             item
@@ -641,12 +669,12 @@ fn card_item(card: &Summary, waits: &Waits, agents: &[Agent]) -> Option<InboxIte
                 card.updated_at,
             );
             item.detail = Some(match gate {
-                Some(Gate::Landed) => format!(
+                Some(Step::Gate(Gate::Landed)) => format!(
                     "{key} was closed in its tracker. Pass Landed once its work is in, mark the slice done to close it as it stands, or reopen the ticket"
                 ),
                 Some(gate) => format!(
                     "{key} was closed in its tracker while the slice waits at {}. Mark the slice done to close it as it stands, or reopen the ticket",
-                    board::gate_words(*gate)
+                    board::gate_words(gate)
                 ),
                 None => format!(
                     "{key} was closed in its tracker. Mark the slice done to close it as it stands, or reopen the ticket"
@@ -698,7 +726,7 @@ fn card_item(card: &Summary, waits: &Waits, agents: &[Agent]) -> Option<InboxIte
 }
 
 /// A slice waiting for the person to pass `gate`: the one way a Gate item is made.
-fn gate_item(card: &Summary, gate: Gate, promise: &str) -> InboxItem {
+fn gate_item(card: &Summary, gate: &Step, promise: &str) -> InboxItem {
     let mut item = item(
         format!(
             "gate:{}:{}:{}",
@@ -706,7 +734,7 @@ fn gate_item(card: &Summary, gate: Gate, promise: &str) -> InboxItem {
             card.id,
             board::gate_key(gate)
         ),
-        Case::Gate(gate),
+        Case::Gate(gate.clone()),
         format!("Waits for you at {}", board::gate_words(gate)),
         card.updated_at,
     );
@@ -829,16 +857,40 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
             ShipKind::Publish => "Wants to publish",
             ShipKind::ProductionWrite => "Wants to write to a production database",
         };
-        let detail = clipped_line(&waiting.hold.what, MAX_LINE_CHARS);
+        let what = match &waiting.hold.environment {
+            Some(environment) => format!("{what} to {environment}"),
+            None => what.to_owned(),
+        };
+        let detail = match &waiting.hold.why {
+            Some(why) => clipped_line(&format!("{why} `{}`", waiting.hold.what), MAX_LINE_CHARS),
+            None => clipped_line(&waiting.hold.what, MAX_LINE_CHARS),
+        };
         let mut item = item(
             format!("ship:{}", waiting.hold.id),
             Case::Ship(waiting.hold),
-            what.into(),
+            what,
             waiting.at,
         )
         .by(&waiting.agent_id, find(&waiting.agent_id));
         item.project.get_or_insert(waiting.project);
         item.detail = Some(detail);
+        items.push(item);
+    }
+    for (project, proposal) in board::proposals(core) {
+        let mut item = item(
+            format!("{PROPOSED_ENVIRONMENTS_ITEM}{project}"),
+            Case::ProposedEnvironments,
+            format!("{} proposes this project's environments", proposal.by),
+            proposal.at,
+        );
+        let steps: Vec<String> = (proposal.environments.iter())
+            .map(board::environments::Environment::passes_words)
+            .collect();
+        item.project = Some(project);
+        item.detail = Some(clipped_line(
+            &format!("{} {}.", proposal.why, steps.join("; ")),
+            MAX_LINE_CHARS,
+        ));
         items.push(item);
     }
     for looped in core.harness.mailbox.loops() {
@@ -1201,6 +1253,7 @@ fn waiting(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<Inbox
         if let Some(item) = card
             .waits
             .as_ref()
+            .filter(|waits| !deploy_asks_instead(core, &card, waits))
             .and_then(|waits| card_item(&card, waits, agents))
         {
             items.push(item);

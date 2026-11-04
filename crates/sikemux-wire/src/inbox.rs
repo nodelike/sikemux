@@ -58,7 +58,16 @@ pub struct ShipHold {
     pub kind: ShipKind,
     /// The exact command or tool call, which allowing it lets run once.
     pub what: String,
+    /// The project's environment it lands in, when the core recognised one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    /// Why it waits, in the core's words, in a project with environments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
+
+/// What the id of an item begins with when it asks about environments an agent proposed.
+pub const PROPOSED_ENVIRONMENTS_ITEM: &str = "environments:";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,6 +170,9 @@ pub struct InboxItem {
     /// The gate the slice on `card` waits at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<Gate>,
+    /// The project's environment `gate` stands for, by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
     /// The evidence the gate of a Gate item leads with, without what a run printed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<Evidence>,

@@ -21,6 +21,8 @@ A card that makes a **promise**, one sentence saying what it changes, is a slice
 | **Looks right** | You | Built |
 | **Landed** | Sikemux, or you when the project says so | Looks right, and the slice's commits on the branch |
 
+A project with [environments](/agents/goals/#environments) has a different ladder: Built, then a step for each environment.
+
 An agent saying a slice is done passes nothing by itself. When it marks the card done, Sikemux looks at the latest check run on the agent's latest commit. If that run failed, or the agent committed nothing, the card stays in progress and the agent is told why. If the check has not run on that commit yet, Built passes by itself once it does, and the agent hears. Sikemux reads the agent's latest commit from git each time before Built passes, so a commit it didn't hear about can't slip through. In the project's own checkout with commit attribution off, git can't tell whose a commit is, so Sikemux goes by the latest commit it saw the agent make with `git_commit`. A project whose `sikemux.json` names no `check` can't pass Built. The check is a command Sikemux runs, or the project's CI, which counts only once the agent's commit is on the project's branch and pushed; see [the project's check](/getting-started/projects/#the-projects-check).
 
 A check command runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass; so does CI, once the project's branch is pushed. Work can land before you look at it; Landed passes as soon as you pass Looks right, unless the project lands only when you say.

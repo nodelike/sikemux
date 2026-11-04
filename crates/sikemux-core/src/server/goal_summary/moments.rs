@@ -596,7 +596,12 @@ fn card_facts(cards: &[&CardView], moments: &mut Vec<Moment>, gaps: &mut Vec<(us
                 SourceKind::Gate,
                 at,
                 None,
-                &format!("\"{}\" passed {:?}, by {by}", card.title, gate.gate),
+                &match &gate.environment {
+                    Some(environment) => {
+                        format!("\"{}\" passed {environment}, by {by}", card.title)
+                    }
+                    None => format!("\"{}\" passed {:?}, by {by}", card.title, gate.gate),
+                },
                 SourceLink::Card { card: card.id },
             ));
         }

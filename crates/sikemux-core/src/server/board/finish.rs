@@ -926,9 +926,10 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &Pull, head: &str
 /// and the card is done, its agent stops and its worktree goes.
 async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
     let url = step.pull_url();
+    let mut all_passed = true;
     let kept = change_run(core, &step.project, step.id, step.agent(), |card, run| {
         if let Some(slice) = card.slice.as_mut() {
-            slice.merged(by_person, step.settings.landing);
+            all_passed = slice.merged(by_person, &step.settings);
         }
         run.note = Some("Merged".to_owned());
     });
@@ -941,7 +942,7 @@ async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
         None => format!("Merged in {url}"),
     };
     let changes = Changes {
-        status: Some(Status::Done),
+        status: all_passed.then_some(Status::Done),
         result: Some(result),
         ..Changes::default()
     };
@@ -954,6 +955,18 @@ async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
     .await
     .unwrap_or_default();
     send_notices(core, notices);
+    if !all_passed {
+        // Auto's part ended at the merge; what it deploys next is for whoever takes the card.
+        let mut state = core.boards.state.locked();
+        if let Some(card) =
+            (state.boards.get_mut(&step.project)).and_then(|board| board.card_mut(step.id).ok())
+        {
+            card.auto = None;
+            card.owner = None;
+            card.team = None;
+        }
+        core.boards.save(&mut state, &step.project);
+    }
     if core.chats.stop(step.agent()) {
         core.note_agent_gone(step.agent());
     }

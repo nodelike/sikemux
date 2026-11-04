@@ -4,6 +4,9 @@
 //! shim that stands in for those programs, by the hook that checks a shell
 //! command before it runs, and by the core for its own tools.
 
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
 use sikemux_wire::inbox::ShipKind;
 
 use crate::git_guard::{base_name, command_words, git_args, segments, shell_script};
@@ -14,6 +17,150 @@ use crate::git_guard::{base_name, command_words, git_args, segments, shell_scrip
 pub struct Ship {
     pub kind: ShipKind,
     pub what: String,
+    /// Where it lands, when hard facts say; none counts as production.
+    pub target: Option<Target>,
+}
+
+/// Where an action lands, read from what it really runs with, never a guess.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Target {
+    /// A Rundeck job by its group/name path; `production` when Rundeck's own
+    /// settings say its folder or project is.
+    RundeckJob {
+        path: String,
+        production: bool,
+    },
+    Vercel {
+        production: bool,
+    },
+    AwsProfile {
+        name: String,
+    },
+    KubeContext {
+        name: String,
+    },
+    TerraformWorkspace {
+        name: String,
+    },
+}
+
+impl Target {
+    /// It is production whatever the project calls it.
+    pub(crate) fn production(&self) -> bool {
+        match self {
+            Self::RundeckJob { production, .. } | Self::Vercel { production } => *production,
+            Self::AwsProfile { .. }
+            | Self::KubeContext { .. }
+            | Self::TerraformWorkspace { .. } => false,
+        }
+    }
+}
+
+/// The value of a flag among `args`, as `--flag value` or `--flag=value`. None
+/// when it is not given or given twice with different values.
+fn flag_value(args: &[String], names: &[&str]) -> Option<String> {
+    let mut found: Option<String> = None;
+    for (at, arg) in args.iter().enumerate() {
+        let value = names.iter().find_map(|name| {
+            if arg == name {
+                return args.get(at + 1).cloned();
+            }
+            arg.strip_prefix(name)?.strip_prefix('=').map(str::to_owned)
+        });
+        match (&found, value) {
+            (Some(kept), Some(value)) if *kept != value => return None,
+            (_, Some(value)) => found = Some(value),
+            _ => {}
+        }
+    }
+    found
+}
+
+fn has_flag(args: &[String], names: &[&str]) -> bool {
+    args.iter().any(|arg| {
+        names.iter().any(|name| {
+            arg == name
+                || arg
+                    .strip_prefix(name)
+                    .is_some_and(|rest| rest.starts_with('='))
+        })
+    })
+}
+
+/// The current context of the only kube config the program would read.
+fn current_kube_context(env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    let file = match env("KUBECONFIG") {
+        Some(listed) if listed.contains(':') => return None,
+        Some(file) => std::path::PathBuf::from(file),
+        None => Path::new(&env("HOME")?).join(".kube/config"),
+    };
+    let config = std::fs::read_to_string(file).ok()?;
+    config.lines().find_map(|line| {
+        let name = line
+            .strip_prefix("current-context:")?
+            .trim()
+            .trim_matches(['"', '\'']);
+        (!name.is_empty()).then(|| name.to_owned())
+    })
+}
+
+/// Where `program`, run with `args` from `cwd` under `env`, lands. None when
+/// its own flags or environment leave that open, or could point it elsewhere,
+/// as another config or credentials given beside the name.
+pub(crate) fn target_of(
+    program: &str,
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+    cwd: &Path,
+) -> Option<Target> {
+    match base_name(program) {
+        "vercel" => has_flag(args, &["--prod"])
+            .then_some(())
+            .or_else(|| args.iter().any(|arg| arg == "promote").then_some(()))
+            .map(|()| Target::Vercel { production: true }),
+        "aws" => {
+            let name = match flag_value(args, &["--profile"]) {
+                Some(name) => name,
+                None if env("AWS_ACCESS_KEY_ID").is_some() => return None,
+                None => env("AWS_PROFILE")?,
+            };
+            Some(Target::AwsProfile { name })
+        }
+        "kubectl" | "helm" => {
+            let elsewhere = [
+                "--kubeconfig",
+                "--server",
+                "-s",
+                "--cluster",
+                "--user",
+                "--token",
+                "--kube-apiserver",
+                "--kube-token",
+            ];
+            if has_flag(args, &elsewhere) {
+                return None;
+            }
+            let name = flag_value(args, &["--context", "--kube-context"])
+                .or_else(|| current_kube_context(env))?;
+            Some(Target::KubeContext { name })
+        }
+        "terraform" => {
+            let dir =
+                flag_value(args, &["-chdir"]).map_or_else(|| cwd.to_owned(), |dir| cwd.join(dir));
+            let name = env("TF_WORKSPACE").or_else(|| {
+                std::fs::read_to_string(dir.join(".terraform/environment"))
+                    .ok()
+                    .map(|name| name.trim().to_owned())
+            })?;
+            Some(Target::TerraformWorkspace { name })
+        }
+        _ => None,
+    }
 }
 
 /// The programs besides git the shim stands in for, so their actions that
@@ -200,7 +347,8 @@ pub(crate) fn of_program(
             sub if !GIT_COMMANDS.contains(&sub) => {
                 let stands_for = alias(sub)?;
                 match stands_for.strip_prefix('!') {
-                    Some(shell) => of_command(shell, &[], Looks::Every).map(|ship| ship.kind),
+                    Some(shell) => (of_command(shell, &[], Looks::Every, Path::new("")).first())
+                        .map(|ship| ship.kind),
                     None => (stands_for.split_whitespace().next() == Some("push"))
                         .then_some(ShipKind::Push),
                 }
@@ -236,38 +384,63 @@ pub(crate) enum Looks {
     PastTheShim,
 }
 
-/// What a shell command line does that leaves this machine, its first such
-/// command if any. `extra` are the project's own commands that do, such as
-/// `make deploy`, each matched by its leading words.
-pub(crate) fn of_command(line: &str, extra: &[String], looks: Looks) -> Option<Ship> {
-    segments(line).iter().find_map(|words| {
-        let words = command_words(words)?;
-        if let Some(script) = shell_script(words) {
-            return of_command(script, extra, looks);
-        }
-        let (program, args) = words.split_first()?;
-        let shimmed =
-            !program.contains('/') && (program == "git" || PROGRAMS.contains(&program.as_str()));
-        let known = match looks == Looks::PastTheShim && shimmed {
-            true => None,
-            false => of_program(program, args, &|_| None),
-        };
-        let kind = known.or_else(|| {
-            extra
-                .iter()
-                .any(|listed| leads(listed, words))
-                .then_some(ShipKind::Deploy)
-        })?;
-        Some(Ship {
-            kind,
-            what: words.join(" "),
+/// Every command of a shell command line that leaves this machine, in order,
+/// as each is checked by itself. `extra` are the project's own commands that
+/// do, such as `make deploy`, each matched by its leading words. A `cd` earlier
+/// on the line leaves where a command lands open.
+pub(crate) fn of_command(line: &str, extra: &[String], looks: Looks, cwd: &Path) -> Vec<Ship> {
+    let lines = segments(line);
+    let moved = lines
+        .iter()
+        .any(|words| matches!(words.first().map(String::as_str), Some("cd" | "pushd")));
+    lines
+        .iter()
+        .flat_map(|all| {
+            let Some(words) = command_words(all) else {
+                return Vec::new();
+            };
+            if let Some(script) = shell_script(words) {
+                return of_command(script, extra, looks, cwd);
+            }
+            let Some((program, args)) = words.split_first() else {
+                return Vec::new();
+            };
+            let shimmed = !program.contains('/')
+                && (program == "git" || PROGRAMS.contains(&program.as_str()));
+            let known = match looks == Looks::PastTheShim && shimmed {
+                true => None,
+                false => of_program(program, args, &|_| None),
+            };
+            let Some(kind) = known.or_else(|| {
+                extra
+                    .iter()
+                    .any(|listed| leads(listed, words))
+                    .then_some(ShipKind::Deploy)
+            }) else {
+                return Vec::new();
+            };
+            let set_before = &all[..all.len() - words.len()];
+            let env = |name: &str| {
+                let said = (set_before.iter())
+                    .filter_map(|word| word.strip_prefix(name)?.strip_prefix('='))
+                    .next_back();
+                said.map(str::to_owned).or_else(|| std::env::var(name).ok())
+            };
+            let target = (!moved)
+                .then(|| target_of(program, args, &env, cwd))
+                .flatten();
+            vec![Ship {
+                kind,
+                what: words.join(" "),
+                target,
+            }]
         })
-    })
+        .collect()
 }
 
 /// Whether `words` begin with the words of `listed`, a path such as
 /// `./scripts/deploy.sh` matching one written `scripts/deploy.sh`.
-fn leads(listed: &str, words: &[String]) -> bool {
+pub(crate) fn leads(listed: &str, words: &[String]) -> bool {
     let plain = |word: &str| word.trim_start_matches("./").to_owned();
     let listed: Vec<String> = listed.split_whitespace().map(plain).collect();
     !listed.is_empty()
@@ -375,3 +548,92 @@ const GIT_COMMANDS: &[&str] = &[
     "worktree",
     "write-tree",
 ];
+
+#[cfg(test)]
+mod environment_tests {
+    use super::*;
+
+    fn words(line: &str) -> Vec<String> {
+        line.split_whitespace().map(str::to_owned).collect()
+    }
+
+    fn target(program: &str, line: &str, env: &[(&str, &str)], cwd: &Path) -> Option<Target> {
+        let env = |name: &str| {
+            (env.iter())
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| (*value).to_owned())
+        };
+        target_of(program, &words(line), &env, cwd)
+    }
+
+    #[test]
+    fn a_kube_context_is_read_only_when_nothing_can_point_it_elsewhere() {
+        let cwd = Path::new("/nowhere");
+        assert_eq!(
+            target("kubectl", "--context dev apply -f x", &[], cwd),
+            Some(Target::KubeContext { name: "dev".into() })
+        );
+        assert_eq!(
+            target("kubectl", "--context dev --kubeconfig prod apply", &[], cwd),
+            None
+        );
+        assert_eq!(
+            target("kubectl", "--context dev --context prod apply", &[], cwd),
+            None
+        );
+        assert_eq!(
+            target("kubectl", "apply -f x", &[("HOME", "/nowhere")], cwd),
+            None
+        );
+    }
+
+    #[test]
+    fn an_aws_profile_given_beside_credentials_is_not_trusted() {
+        let cwd = Path::new("/nowhere");
+        assert_eq!(
+            target("aws", "ecs update-service --profile dev", &[], cwd),
+            Some(Target::AwsProfile { name: "dev".into() })
+        );
+        assert_eq!(
+            target("aws", "ecs update-service", &[("AWS_PROFILE", "dev")], cwd),
+            Some(Target::AwsProfile { name: "dev".into() })
+        );
+        let keyed = [("AWS_PROFILE", "dev"), ("AWS_ACCESS_KEY_ID", "x")];
+        assert_eq!(target("aws", "ecs update-service", &keyed, cwd), None);
+        assert_eq!(target("aws", "ecs update-service", &[], cwd), None);
+    }
+
+    #[test]
+    fn terraform_says_where_only_from_its_workspace() {
+        let cwd = Path::new("/nowhere");
+        assert_eq!(target("terraform", "apply", &[], cwd), None);
+        assert_eq!(
+            target("terraform", "apply", &[("TF_WORKSPACE", "dev")], cwd),
+            Some(Target::TerraformWorkspace { name: "dev".into() })
+        );
+    }
+
+    #[test]
+    fn every_command_on_a_line_is_judged_by_itself() {
+        let line = "kubectl --context dev apply -f a && kubectl --context prod apply -f b";
+        let ships = of_command(line, &[], Looks::Every, Path::new("/nowhere"));
+        let names: Vec<_> = ships.into_iter().map(|ship| ship.target).collect();
+        assert_eq!(
+            names,
+            [
+                Some(Target::KubeContext { name: "dev".into() }),
+                Some(Target::KubeContext {
+                    name: "prod".into()
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_change_of_folder_on_the_line_leaves_where_it_lands_open() {
+        let line = "cd infra && TF_WORKSPACE=dev terraform apply";
+        let ships = of_command(line, &[], Looks::Every, Path::new("/nowhere"));
+        assert_eq!(ships.len(), 1);
+        assert_eq!(ships[0].target, None);
+    }
+}

@@ -110,8 +110,10 @@ pub use board::goal::DecideParams as BoardDecideParams;
 pub use board::{
     AddParams as BoardAddParams, AddTicketParams as BoardAddTicketParams,
     AssertParams as BoardAssertParams, BoardParams, BoardView, CardParams as BoardCardParams,
-    CardView, Column, HandOffParams as BoardHandOffParams, HandOnParams as BoardHandOnParams,
-    HandedOff, Landing, NoteParams as BoardNoteParams, PassParams as BoardPassParams, PullView,
+    CardView, Column, Environment, EnvironmentsProposal, HandOffParams as BoardHandOffParams,
+    HandOnParams as BoardHandOnParams, HandedOff, Landing, NoteParams as BoardNoteParams,
+    PassParams as BoardPassParams, Passes as EnvironmentPasses,
+    ProposalParams as BoardProposalParams, PullView, Recognise as EnvironmentRecognise,
     ReviewerChoice, ReviewerParams as BoardReviewerParams, RunView as CardRun,
     Settings as BoardSettings, SettingsParams as BoardSettingsParams, Stage, Status as CardStatus,
     Ticket, TicketCard, TicketParams as BoardTicketParams, Tracker,

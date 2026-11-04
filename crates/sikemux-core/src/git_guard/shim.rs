@@ -281,7 +281,14 @@ fn run_hook(ship_only: bool) -> i32 {
         true => crate::ship::Looks::PastTheShim,
         false => crate::ship::Looks::Every,
     };
-    match crate::ship::of_command(command, &extra, looks).and_then(|ship| held(&ship, &cwd)) {
+    let ships = crate::ship::of_command(command, &extra, looks, &cwd);
+    let held = ships
+        .iter()
+        .find_map(|ship| match asked(ship, &cwd, false) {
+            Asked::Held(said) => Some(said),
+            Asked::Goes { .. } => None,
+        });
+    match held {
         Some(held) => {
             eprintln!("{held}");
             2
@@ -302,25 +309,51 @@ fn project_ships(cwd: &Path) -> Vec<String> {
     }
 }
 
-/// What the agent is told when the core holds `ship`, run in `cwd`, for the
-/// person to allow first. None when it may run now.
-fn held(ship: &crate::ship::Ship, cwd: &Path) -> Option<String> {
-    let endpoint = footer::endpoint()?;
-    let asked = crate::cli::client::attempt(
+/// What the core says of `ship`, run in `cwd`.
+enum Asked {
+    /// It may run now; the core wants to hear how it ended when it names a `went`.
+    Goes { went: Option<String> },
+    /// What the agent is told when it holds it for the person to allow first.
+    Held(String),
+}
+
+/// Asks the core about `ship`. `follows` when this program sees it end and can
+/// say how it went.
+fn asked(ship: &crate::ship::Ship, cwd: &Path, follows: bool) -> Asked {
+    let Some(endpoint) = footer::endpoint() else {
+        return Asked::Goes { went: None };
+    };
+    let answer = crate::cli::client::attempt(
         &endpoint,
         &cwd.to_string_lossy(),
         None,
         crate::cli::protocol::SHIP_CHECK_METHOD,
-        &json!({ "kind": ship.kind, "what": ship.what }),
+        &json!({ "kind": ship.kind, "what": ship.what, "target": ship.target, "follows": follows }),
         GUARD_WAIT,
     );
-    match asked {
-        Ok(answer) if answer["allowed"] == true => None,
-        Ok(answer) => Some(answer["said"].as_str().unwrap_or_default().to_owned()),
-        Err(_) => Some(format!(
+    match answer {
+        Ok(answer) if answer["allowed"] == true => Asked::Goes {
+            went: answer["went"].as_str().map(str::to_owned),
+        },
+        Ok(answer) => Asked::Held(answer["said"].as_str().unwrap_or_default().to_owned()),
+        Err(_) => Asked::Held(format!(
             "Sikemux could not ask whether `{}` may leave this machine. Run it again in a moment.",
             ship.what
         )),
+    }
+}
+
+/// Tells the core how the deploy it named `went` ended.
+fn tell_ran(went: &str, cwd: &Path, exit: Option<i32>) {
+    if let Some(endpoint) = footer::endpoint() {
+        let _ = crate::cli::client::attempt(
+            &endpoint,
+            &cwd.to_string_lossy(),
+            None,
+            crate::cli::protocol::SHIP_RAN_METHOD,
+            &json!({ "went": went, "exit": exit }),
+            GUARD_WAIT,
+        );
     }
 }
 
@@ -331,24 +364,41 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
+    let mut watched = None;
     if let Some(kind) = crate::ship::of_program(program, &words, &|_| None) {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let env = |name: &str| std::env::var(name).ok();
         let ship = crate::ship::Ship {
             kind,
+            target: crate::ship::target_of(program, &words, &env, &cwd),
             what: std::iter::once(program.to_owned())
                 .chain(words)
                 .collect::<Vec<_>>()
                 .join(" "),
         };
-        let cwd = std::env::current_dir().unwrap_or_default();
-        if let Some(held) = held(&ship, &cwd) {
-            eprintln!("{held}");
-            return 1;
+        match asked(&ship, &cwd, true) {
+            Asked::Held(said) => {
+                eprintln!("{said}");
+                return 1;
+            }
+            Asked::Goes { went } => watched = went.map(|went| (went, cwd)),
         }
     }
     let Some(real) = real(program) else {
         eprintln!("{program}: Sikemux found no {program} to run on PATH");
         return 127;
     };
+    if let Some((went, cwd)) = watched {
+        let status = sikemux_process::user_environment::command(&real)
+            .args(&args)
+            .status();
+        let code = status
+            .as_ref()
+            .ok()
+            .and_then(std::process::ExitStatus::code);
+        tell_ran(&went, &cwd, code);
+        return code.unwrap_or(1);
+    }
     let error = sikemux_process::user_environment::command(&real)
         .args(&args)
         .exec();
@@ -379,10 +429,11 @@ fn run(args: Vec<OsString>) -> i32 {
                 .chain(words.iter().cloned())
                 .collect::<Vec<_>>()
                 .join(" "),
+            target: None,
         };
         let cwd = std::env::current_dir().unwrap_or_default();
-        if let Some(held) = held(&ship, &cwd) {
-            eprintln!("{held}");
+        if let Asked::Held(said) = asked(&ship, &cwd, false) {
+            eprintln!("{said}");
             return 1;
         }
     }

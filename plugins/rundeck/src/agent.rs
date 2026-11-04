@@ -474,6 +474,25 @@ fn check_options(detail: &JobDetail, given: &HashMap<String, String>) -> Rundeck
     Ok(())
 }
 
+/// Where a job asked to run lands, read as the run itself reads it.
+#[derive(Serialize)]
+pub struct Place {
+    path: String,
+    production: bool,
+}
+
+pub async fn place(session: &Session, ask: RunAsk, prod_envs: &[String]) -> RundeckResult<Place> {
+    let detail = resolve(session, &ask.job, ask.project.as_deref()).await?;
+    Ok(Place {
+        production: crate::shape::is_production(
+            &detail.project,
+            detail.group.as_deref(),
+            prod_envs,
+        ),
+        path: path_of(&detail),
+    })
+}
+
 pub async fn run(session: &Session, ask: RunAsk, prod_envs: &[String]) -> RundeckResult<Outcome> {
     let deadline = Instant::now() + WAIT_LIMIT;
     let detail = resolve(session, &ask.job, ask.project.as_deref()).await?;

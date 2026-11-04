@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use sikemux_wire::slice::{Gate, GoalEta, SliceState, Slip, Wait, WaitOn};
 
+use super::environments::Step;
 use super::slice;
 use super::{Board, Card};
 use crate::server::notify::GoalMoved;
@@ -32,13 +33,15 @@ pub(super) fn middle(mut times: Vec<u64>) -> Option<u64> {
 pub(super) struct Took {
     built: Option<u64>,
     landed: Option<u64>,
+    /// By environment, for the steps the project has now.
+    environments: HashMap<String, u64>,
 }
 
 impl Took {
     pub(super) fn of(board: &Board) -> Self {
-        let took = |gate: Gate| {
+        let took = |gate: Step| {
             let mut times: Vec<(u64, u64)> = (board.cards.iter())
-                .filter_map(|card| card.slice.as_ref()?.took(gate))
+                .filter_map(|card| card.slice.as_ref()?.took(&gate))
                 .collect();
             times.sort_unstable_by_key(|(at, _)| std::cmp::Reverse(*at));
             times.truncate(KEPT_TIMES);
@@ -47,16 +50,23 @@ impl Took {
                 .flatten()
         };
         Self {
-            built: took(Gate::Built),
-            landed: took(Gate::Landed),
+            built: took(Step::Gate(Gate::Built)),
+            landed: took(Step::Gate(Gate::Landed)),
+            environments: (board.settings.environments.iter())
+                .filter_map(|environment| {
+                    let step = Step::Environment(environment.name.clone());
+                    Some((environment.name.clone(), took(step)?))
+                })
+                .collect(),
         }
     }
 
-    pub(super) fn of_gate(&self, gate: Gate) -> Option<u64> {
+    pub(super) fn of_gate(&self, gate: &Step) -> Option<u64> {
         match gate {
-            Gate::Built => self.built,
-            Gate::Landed => self.landed,
-            Gate::LooksRight => None,
+            Step::Gate(Gate::Built) => self.built,
+            Step::Gate(Gate::Landed) => self.landed,
+            Step::Gate(Gate::LooksRight) => None,
+            Step::Environment(name) => self.environments.get(name).copied(),
         }
     }
 }
@@ -136,9 +146,8 @@ fn reach(board: &Board, waits: &HashMap<u64, Wait>, card: &Card, behind: &mut Ve
     let Some(gate) = slice.waiting() else {
         return Reach::Done;
     };
-    let landing = board.settings.landing;
-    let (ahead, then_you) = slice.ahead(gate, landing);
-    let left: Option<u64> = ahead.iter().map(|gate| board.took.of_gate(*gate)).sum();
+    let (ahead, then_you) = slice.ahead(gate, &board.settings);
+    let left: Option<u64> = ahead.iter().map(|gate| board.took.of_gate(gate)).sum();
     let Some(wait) = waits.get(&card.id) else {
         return Reach::Unknown;
     };
@@ -211,7 +220,9 @@ fn why(board: &Board, goal: &Card, waits: &HashMap<u64, Wait>, made: u64) -> Sli
     let held = board.held_by_goal(goal);
     let slices = || (held.iter()).filter_map(|card| Some((*card, card.slice.as_ref()?)));
     let unfinished = || slices().filter(|(_, slice)| slice.waiting().is_some());
-    if let Some(rerunning) = unfinished().find_map(|(_, slice)| slice.failed_since(made)) {
+    if let Some(rerunning) =
+        unfinished().find_map(|(_, slice)| slice.failed_since(made, &board.settings))
+    {
         return Slip::CheckFailed {
             ci: board.checking.in_ci(),
             rerunning,
@@ -223,12 +234,11 @@ fn why(board: &Board, goal: &Card, waits: &HashMap<u64, Wait>, made: u64) -> Sli
     if unfinished().any(|(_, slice)| slice.reworked_since(made)) {
         return Slip::NewCommit;
     }
-    let landing = board.settings.landing;
     for (card, _) in unfinished() {
         if let Some(WaitOn::Card { card: other }) = waits.get(&card.id).map(|wait| &wait.on) {
             let on_person = (board.card(*other).ok())
                 .and_then(|other| other.slice.as_ref())
-                .is_some_and(|other| other.waits_on_person(landing).is_some());
+                .is_some_and(|other| other.waits_on_person(&board.settings).is_some());
             return match on_person {
                 true => Slip::OnPerson,
                 false => Slip::OnCard { card: *other },

@@ -427,14 +427,19 @@ pub(crate) async fn call_agent_tool(
     let Some(Provided(plugins)) = core.plugins else {
         return Err("plugins are not loaded".into());
     };
-    super::ship::check_tool(core, request, name, &arguments).await?;
+    let deploy = super::ship::check_tool(core, request, name, &arguments).await?;
     if let Some(gated) = plugins.gated(name) {
         return super::approvals::propose(core, request, gated, arguments).await;
     }
     let answer = plugins
         .call_agent_tool(name, arguments)
         .await
-        .map_err(|failure| explain(&failure))?;
+        .map_err(|failure| explain(&failure));
+    if let Some(deploy) = deploy {
+        let answered = answer.as_ref().map_err(String::as_str);
+        super::ship::tool_ran(core, deploy, name, answered);
+    }
+    let answer = answer?;
     tool_ran(core, name);
     Ok(answer)
 }

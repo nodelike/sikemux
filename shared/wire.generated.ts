@@ -662,6 +662,8 @@ export interface InboxItem {
     card: InboxCard | null;
     /** The gate the slice on `card` waits at. */
     gate?: Gate;
+    /** The project's environment `gate` stands for, by name. */
+    environment?: string;
     /** The evidence the gate of a Gate item leads with, without what a run printed. */
     evidence?: Evidence;
     /** The action a Ship item holds. */
@@ -738,6 +740,8 @@ export interface Evidence {
     commit?: string | null;
     /** The goal's assertions it was collected for. */
     assertions?: number[];
+    /** The project's environment it was collected toward, as `GateView` names it. */
+    environment?: string;
 }
 
 /** Whether evidence held up when the core checked it. */
@@ -817,6 +821,10 @@ export interface ShipHold {
     kind: ShipKind;
     /** The exact command or tool call, which allowing it lets run once. */
     what: string;
+    /** The project's environment it lands in, when the core recognised one. */
+    environment?: string;
+    /** Why it waits, in the core's words, in a project with environments. */
+    why?: string;
 }
 
 /** What an agent's action does once it leaves this machine. */
@@ -2240,6 +2248,8 @@ export interface ProjectBoard {
     project: string;
     cards: BoardCard[];
     settings: BoardSettings;
+    /** Environments an agent proposed, waiting for the person's answer. */
+    environmentsProposal?: EnvironmentsProposal;
     /** How many of its cards have an agent of Auto's at work. */
     running: number;
     autoNote: string | null;
@@ -2423,6 +2433,13 @@ export interface GateView {
     at: number | null;
     /** What is not so yet that it needs before it can pass. */
     needs: Need[];
+    /**
+     * The project's environment this step is, by name. A client that knows no
+     * environments reads such a step's `gate` as Landed.
+     */
+    environment?: string;
+    /** Who an environment's step waits on, in the core's few words. */
+    why?: string;
 }
 
 /** Who may pass a gate. */
@@ -2479,10 +2496,11 @@ export type WaitOn =
           kind: "card";
           card: number;
       }
-    /** The person, to pass `gate`. */
+    /** The person, to pass `gate`, or the environment it stands for. */
     | {
           kind: "person";
           gate: Gate;
+          environment?: string;
       }
     /** Its owner, in the middle of a turn. */
     | {
@@ -2515,6 +2533,8 @@ export interface NextGate {
     passer: Passer;
     /** What that gate waits on now. */
     wait?: Wait | null;
+    /** The project's environment this step is, as `GateView` names it. */
+    environment?: string;
 }
 
 /**
@@ -2691,6 +2711,11 @@ export interface BoardSettings {
      * agent on another CLI than its builder's.
      */
     reviewer: ReviewerChoice | null;
+    /**
+     * Where the project deploys, in the order its slices reach them. None
+     * gives slices the usual ladder and holds every deploy for the person.
+     */
+    environments?: Environment[];
 }
 
 /**
@@ -2708,6 +2733,57 @@ export interface ReviewerChoice {
     launcher: string;
     provider: string | null;
     model: string | null;
+}
+
+/** One environment of a project, in the order its ladder reaches them. */
+export interface Environment {
+    /** What its step is called and named by, one per project. */
+    name: string;
+    passes: Passes;
+    recognise: Recognise[];
+    /** An address that answers once a deploy there is healthy. */
+    health?: string;
+}
+
+/** Who a deploy to an environment waits on. */
+export type Passes = "nobody" | "check" | "person" | "production";
+
+/** A hard fact that says a deploy lands in an environment. */
+export type Recognise =
+    /** A Rundeck job's group/name path, where `*` stands for anything, such as `dev/*`. */
+    | {
+          kind: "rundeckJob";
+          path: string;
+      }
+    | {
+          kind: "vercelTarget";
+          production: boolean;
+      }
+    | {
+          kind: "awsProfile";
+          name: string;
+      }
+    | {
+          kind: "kubeContext";
+          name: string;
+      }
+    | {
+          kind: "terraformWorkspace";
+          name: string;
+      }
+    /** A command of the project's own that lands there, by its leading words. */
+    | {
+          kind: "command";
+          words: string;
+      };
+
+/** Environments an agent proposed, for the person to accept or turn down. */
+export interface EnvironmentsProposal {
+    environments: Environment[];
+    why: string;
+    /** The agent that proposed them, by name. */
+    by: string;
+    at: number;
 }
 
 /** The computer a core runs on, as a person would recognise it. */
@@ -3738,6 +3814,7 @@ export interface BoardSettingsParams {
     model?: string | null;
     reviewer?: BoardReviewerParams | null;
     landing?: Landing;
+    environments?: Environment[];
 }
 
 /** The agent the person picks to review each change. */
@@ -3745,6 +3822,12 @@ export interface BoardReviewerParams {
     launcher?: string;
     provider?: string;
     model?: string;
+}
+
+/** The person answers the environments an agent proposed. */
+export interface BoardProposalParams {
+    project: string;
+    accept: boolean;
 }
 
 /**
@@ -4130,6 +4213,8 @@ export interface BoardPassParams {
     project: string;
     card: number;
     gate: Gate;
+    /** The project's environment `gate` stands for; a step that is one passes only by this name. */
+    environment?: string;
 }
 
 /** What the person writes on a slice, on a piece of its evidence when given. */
@@ -4188,6 +4273,7 @@ export interface CoreCalls {
     boardUpdate: { params: BoardUpdateParams; answer: ProjectBoard };
     boardRemove: { params: BoardCardParams; answer: ProjectBoard };
     boardSettings: { params: BoardSettingsParams; answer: ProjectBoard };
+    boardAnswerProposal: { params: BoardProposalParams; answer: ProjectBoard };
     goalSummary: { params: GoalSummaryParams; answer: GoalSummaryView };
     boardAssert: { params: AssertParams; answer: ProjectBoard };
     boardDecide: { params: DecideParams; answer: ProjectBoard };

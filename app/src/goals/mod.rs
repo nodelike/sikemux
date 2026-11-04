@@ -21,7 +21,9 @@ use sikemux_core::server::{
     BoardDecideParams, BoardNoteParams, BoardPassParams, BoardView, CardView, Column,
     KeepSeededParams, MemoryEntryParams, MemoryParams, NoParams,
 };
-use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem, InboxKind};
+use sikemux_wire::inbox::{
+    InboxCard, InboxDigest, InboxItem, InboxKind, PROPOSED_ENVIRONMENTS_ITEM,
+};
 use sikemux_wire::memory::{MemoryView, Seeding};
 use sikemux_wire::protocol::NoticeGoal;
 use sikemux_wire::slice::{
@@ -39,6 +41,7 @@ use crate::ui;
 use crate::workbench::Workbench;
 
 mod assertions;
+mod environments;
 mod evidence;
 mod goal;
 mod happened;
@@ -73,6 +76,8 @@ enum At {
     Home,
     /// What happened while the person was away.
     Overnight,
+    /// Where the project in front deploys.
+    Environments,
     Goal(u64),
     Slice(u64),
     /// The chat [`GoalsPane::chat`] names.
@@ -115,6 +120,8 @@ pub struct GoalsPane {
     start: start::Start,
     /// The line on a goal that writes a new assertion.
     asserting: Option<assertions::Asserting>,
+    /// The project's environments while the person changes them.
+    environments: Option<environments::Editing>,
     /// The summary of the goal open, as the core last answered, with the goal's card.
     summary: Option<(u64, GoalSummaryView)>,
     /// The sentences of a summary the person opened to see their sources.
@@ -147,6 +154,7 @@ impl GoalsPane {
             busy: false,
             start: start::Start::default(),
             asserting: None,
+            environments: None,
             summary: None,
             unfolded: Default::default(),
             focus: cx.focus_handle(),
@@ -198,7 +206,7 @@ impl GoalsPane {
     fn take(&mut self, boards: Vec<BoardView>) {
         self.boards = Some(boards);
         let gone = match self.at {
-            At::Home | At::Overnight | At::Chat => false,
+            At::Home | At::Overnight | At::Environments | At::Chat => false,
             At::Goal(id) | At::Slice(id) => self.card(id).is_none(),
         };
         if gone {
@@ -341,6 +349,9 @@ impl GoalsPane {
         );
         match (item.kind, &item.card, &item.url) {
             (InboxKind::SeededRules, ..) => return self.go(At::Home, cx),
+            (InboxKind::Held, None, _) if item.id.starts_with(PROPOSED_ENVIRONMENTS_ITEM) => {
+                return self.go(At::Environments, cx)
+            }
             (InboxKind::PullRequest, _, Some(url)) => return self.open_url(agent, url.clone(), cx),
             (_, Some(inbox), _) if !in_chat || agent.is_none() => {
                 if let Some(card) = (self.board_of(&inbox.project))
@@ -520,7 +531,7 @@ impl GoalsPane {
     }
 
     /// Passes the gate slice `card` waits at, as the person.
-    fn pass(&mut self, card: u64, gate: Gate, cx: &mut Context<Self>) {
+    fn pass(&mut self, card: u64, gate: Gate, environment: Option<String>, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
@@ -531,6 +542,7 @@ impl GoalsPane {
             project,
             card,
             gate,
+            environment,
         };
         self.ask::<call::BoardPass>(params, |_| {}, cx);
     }
@@ -770,6 +782,7 @@ impl GoalsPane {
         };
         match chat.from {
             At::Overnight => "Overnight".into(),
+            At::Environments => "Environments".into(),
             At::Goal(id) | At::Slice(id) => title(id).unwrap_or_else(|| "Home".into()),
             At::Home | At::Chat => "Home".into(),
         }
@@ -972,6 +985,9 @@ impl Render for GoalsPane {
                 cx,
             ),
             (true, At::Home | At::Chat, _) => framed(home::home(self, cx), cx),
+            (true, At::Environments, _) => {
+                framed(column(environments::page(self, cx)).into_any_element(), cx)
+            }
             (true, At::Overnight, _) => {
                 framed(column(home::overnight(self, cx)).into_any_element(), cx)
             }
@@ -1092,6 +1108,11 @@ pub(crate) fn gate_name(gate: Gate) -> &'static str {
     }
 }
 
+/// What a step of a ladder is called: its environment's name, or its gate's.
+pub(crate) fn step_name(gate: &GateView) -> &str {
+    gate.environment.as_deref().unwrap_or(gate_name(gate.gate))
+}
+
 fn need_words(need: Need) -> &'static str {
     match need {
         Need::PassingCheck => "a passing check",
@@ -1126,16 +1147,16 @@ fn waiting(slice: &SliceView) -> Option<&GateView> {
 fn waiting_words(card: &CardView, slice: &SliceView) -> Option<String> {
     let gate = waiting(slice)?;
     if let Some(wait) = slice.wait.as_ref().and_then(|wait| wait_words(wait, card)) {
-        return Some(format!("{} · {wait}", gate_name(gate.gate)));
+        return Some(format!("{} · {wait}", step_name(gate)));
     }
     Some(match gate.needs.as_slice() {
         [] if gate.passer == Passer::Person => {
-            format!("{} · waiting for you", gate_name(gate.gate))
+            format!("{} · waiting for you", step_name(gate))
         }
-        [] => format!("{} · {}", gate_name(gate.gate), passer_name(gate, card)),
+        [] => format!("{} · {}", step_name(gate), passer_name(gate, card)),
         needs => format!(
             "{} · needs {}",
-            gate_name(gate.gate),
+            step_name(gate),
             needs
                 .iter()
                 .map(|need| need_words(*need))

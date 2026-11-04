@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
+use super::environments::{Environment, Passes};
 use super::review::Review;
 use super::{blind, finish, Board, Card, Owner, Status, Team};
 use crate::protocol::Event;
@@ -68,6 +69,40 @@ pub struct Settings {
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     pub reviewer: Option<ReviewerChoice>,
+    /// Where the project deploys, in the order its slices reach them. None
+    /// gives slices the usual ladder and holds every deploy for the person.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub environments: Vec<Environment>,
+}
+
+impl Settings {
+    fn environment(&self, name: &str) -> Option<&Environment> {
+        self.environments.iter().find(|known| known.name == name)
+    }
+
+    /// Who passes the environment called `name`, while the project has it.
+    pub(super) fn passes(&self, name: &str) -> Option<Passes> {
+        self.environment(name).map(|environment| environment.passes)
+    }
+
+    /// What it means for the environment called `name`, in the core's words.
+    pub(super) fn passes_words(&self, name: &str) -> String {
+        match self.environment(name) {
+            Some(environment) => environment.passes_words(),
+            None => format!("{name} is no longer one of the project's, so it waits for a person"),
+        }
+    }
+
+    /// Who passes the environment called `name`, under its step on a ladder.
+    pub(super) fn step_words(&self, name: &str) -> &'static str {
+        self.environment(name)
+            .map_or("A person", Environment::step_words)
+    }
+
+    /// Where a deploy's health is read after it, for the environment called `name`.
+    pub(crate) fn health(&self, name: &str) -> Option<String> {
+        self.environment(name)?.health.clone()
+    }
 }
 
 impl Default for Settings {
@@ -80,6 +115,7 @@ impl Default for Settings {
             model: None,
             landing: Landing::Core,
             reviewer: None,
+            environments: Vec::new(),
         }
     }
 }
@@ -130,6 +166,8 @@ pub struct SettingsParams {
     pub reviewer: Option<Option<ReviewerParams>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landing: Option<Landing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environments: Option<Vec<Environment>>,
 }
 
 /// The agent the person picks to review each change.
@@ -198,6 +236,9 @@ impl Settings {
         }
         if let Some(landing) = params.landing {
             settings.landing = landing;
+        }
+        if let Some(environments) = params.environments {
+            settings.environments = super::environments::checked(environments)?;
         }
         Ok(settings)
     }
@@ -465,7 +506,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
             if picks.is_empty() {
                 continue;
             }
-            let merges = board.settings.landing == Landing::Core;
+            let settings = board.settings.clone();
             for id in picks {
                 let agent = format!("agent-{}", uuid::Uuid::new_v4().simple());
                 if let Ok(card) = board.card_mut(id) {
@@ -473,7 +514,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     card.team = None;
                     card.status = Status::Progress;
                     card.auto = Some(Run::starting(agent.clone()));
-                    super::slice::auto_slice(card, merges);
+                    super::slice::auto_slice(card, &settings);
                     card.updated_at = now;
                     card.acted_at = now;
                     starts.push((project.clone(), id, agent));

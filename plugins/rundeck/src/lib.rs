@@ -122,6 +122,14 @@ impl Plugin for Rundeck {
                     let FindJobsParams { project, filter } = params(input)?;
                     answer(agent::find_jobs(session, project, filter)).await
                 }
+                "agentJobPlace" => {
+                    answer(agent::place(
+                        session,
+                        params(input)?,
+                        &saved.settings.prod_envs,
+                    ))
+                    .await
+                }
                 "agentRun" => {
                     answer(agent::run(
                         session,

@@ -26,12 +26,13 @@ use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_wire::inbox::InboxRecording;
 use sikemux_wire::slice::{
-    Assertion, Collect, Decision, Gate, GoalEta, GoalRule, NextGate, SliceState, SliceView, Wait,
+    Assertion, Collect, Decision, GoalEta, GoalRule, NextGate, SliceState, SliceView, Wait,
 };
 
 mod arrival;
 pub(crate) mod auto;
 mod blind;
+pub(crate) mod environments;
 mod eta;
 mod failing;
 mod finish;
@@ -53,15 +54,18 @@ pub use auto::{
     Hold, Landing, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams,
     Stage,
 };
+use environments::Step;
+pub use environments::{Environment, EnvironmentsProposal, Passes, ProposalParams, Recognise};
 pub(crate) use failing::ci_ruled;
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 pub use goal::AssertParams;
 pub(crate) use hand_off::hand_off;
 pub use hand_off::{HandOffParams, HandOnParams, HandedOff};
 pub(crate) use lease::{person_hand_on, person_resume};
+pub(crate) use slice::DeployRan;
 pub(crate) use slice::{
-    follow, gate_key, gate_words, person_note, person_pass, screenshot_taken, wants_screenshot,
-    SCREENSHOT_WIDTHS,
+    check_stands, deployed, follow, gate_key, gate_words, person_note, person_pass,
+    screenshot_taken, wants_screenshot, SCREENSHOT_WIDTHS,
 };
 pub use slice::{NoteParams, PassParams};
 
@@ -220,6 +224,9 @@ struct Board {
     cards: Vec<Card>,
     #[serde(default)]
     settings: Settings,
+    /// Environments an agent proposed, until the person answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    environments_proposal: Option<environments::EnvironmentsProposal>,
     /// Why Auto cannot start anything here now.
     #[serde(skip)]
     auto_note: Option<String>,
@@ -265,6 +272,7 @@ impl Board {
             next: self.next,
             cards: self.cards.clone(),
             settings: self.settings.clone(),
+            environments_proposal: self.environments_proposal.clone(),
             ..Self::default()
         }
     }
@@ -941,8 +949,8 @@ struct Changes {
     result: Option<String>,
     depends_on: Option<Vec<u64>>,
     parent: Option<Option<u64>>,
-    /// The gate of its slice the person passes.
-    pass: Option<Gate>,
+    /// The step of its slice the person passes.
+    pass: Option<Step>,
 }
 
 impl Changes {
@@ -1302,10 +1310,10 @@ pub enum Column {
 
 /// The column a card shows in: done once done, else waiting on the person
 /// while anything on it does.
-fn column_of(core: &Core, landing: Landing, card: &Card) -> Column {
+fn column_of(core: &Core, settings: &Settings, card: &Card) -> Column {
     match card.status {
         Status::Done => Column::Done,
-        _ if waits(core, landing, card).is_some() => Column::Needs,
+        _ if waits(core, settings, card).is_some() => Column::Needs,
         Status::Open => Column::Open,
         Status::Progress => Column::Progress,
     }
@@ -1331,6 +1339,9 @@ pub struct BoardView {
     pub project: String,
     pub cards: Vec<CardView>,
     pub settings: Settings,
+    /// Environments an agent proposed, waiting for the person's answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environments_proposal: Option<EnvironmentsProposal>,
     /// How many of its cards have an agent of Auto's at work.
     pub running: usize,
     pub auto_note: Option<String>,
@@ -1367,7 +1378,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         result: card.result.clone(),
         ticket: card.ticket.clone(),
         ticket_above: ticket_above(board, card),
-        column: column_of(core, board.settings.landing, card),
+        column: column_of(core, &board.settings, card),
         auto: card.auto.as_ref().map(Run::view),
         recordings: card.recordings.clone(),
         slice: card.slice.as_ref().map(|slice| {
@@ -1377,7 +1388,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
                 board.held_up(card),
                 |agent| name_of(core, agent),
                 wait,
-                board.settings.landing,
+                &board.settings,
             )
         }),
         goal_slices: (board.held_by_goal(card).iter())
@@ -1411,6 +1422,7 @@ fn board_view(core: &Core, board: &Board) -> BoardView {
             .map(|card| card_view(core, board, card))
             .collect(),
         settings: board.settings.clone(),
+        environments_proposal: board.environments_proposal.clone(),
         running: auto::running(core, board),
         auto_note: board.auto_note.clone(),
         problems: Vec::new(),
@@ -1456,7 +1468,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         }
     }
     if let Some(slice) = &card.slice {
-        slice.list_into(fields);
+        slice.list_into(fields, &board.settings);
     }
     let assertions: Vec<Value> = (card.goal.assertions().iter())
         .filter(|assertion| assertion.retired.is_none())
@@ -1479,7 +1491,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         .owner_id()
         .is_some_and(|owner| core.harness.questions.blocks_on_person(owner));
     let at_gate = card.slice.as_ref().is_some_and(|slice| {
-        card.status != Status::Done && slice.waits_on_person(board.settings.landing).is_some()
+        card.status != Status::Done && slice.waits_on_person(&board.settings).is_some()
     });
     if asked || at_gate {
         fields.insert("waitingOnThePerson".into(), true.into());
@@ -1507,11 +1519,17 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
 }
 
 /// A card added as `adding` asks, by `maker`, or the person or Sikemux when none.
-fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card {
+fn new_card(
+    core: &Core,
+    id: u64,
+    adding: Adding,
+    maker: Option<String>,
+    settings: &Settings,
+) -> Card {
     let now = epoch_ms();
     let mut slice = adding
         .promise
-        .map(|promise| slice::Slice::new(promise, Vec::new(), None));
+        .map(|promise| slice::Slice::new(promise, Vec::new(), None, settings));
     if let (Some(slice), Some(broke)) = (&mut slice, &adding.ci) {
         slice.failed_run(broke.checks(), &broke.sha, broke.output.clone());
     }
@@ -1590,7 +1608,7 @@ fn add_card(
         By::Person | By::Auto(_) => None,
         By::Agent(agent) => Some(agent.clone()),
     };
-    let mut card = new_card(core, id, adding, maker);
+    let mut card = new_card(core, id, adding, maker, &board.settings);
     if let Some(slice) = &mut card.slice {
         slice.name(named);
     }
@@ -1763,7 +1781,7 @@ fn change_in(
         .get_mut(project)
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let before = board.card(id)?.clone();
-    let landing = board.settings.landing;
+    let settings = board.settings.clone();
     if let By::Agent(agent) = by {
         let holder = holder(core, &before);
         if !may_change(core, agent, holder) {
@@ -1823,7 +1841,7 @@ fn change_in(
     let mut later = slice::Later::default();
     if let (Some(Status::Done), By::Agent(agent), Some(slice)) = (status, by, card.slice.as_mut()) {
         later = slice::Later::look_again(project);
-        match slice.say_done(&label, seen.checking, confirmed, landing) {
+        match slice.say_done(&label, seen.checking, confirmed, &settings) {
             Ok(slice::Said::Pending { note, recheck }) => {
                 pending = Some(note);
                 if let Some(sha) = recheck {
@@ -1845,11 +1863,11 @@ fn change_in(
         }
         status = None;
     }
-    if let Some(gate) = changes.pass {
+    if let Some(gate) = &changes.pass {
         card.slice
             .as_mut()
             .ok_or_else(|| format!("{label} has no gates to pass"))?
-            .pass_by_person(gate, &label, landing)?;
+            .pass_by_person(gate, &label, &settings)?;
     }
     if let Some(title) = changes.title {
         card.title = title;
@@ -1865,7 +1883,12 @@ fn change_in(
             Some(slice) => slice.promise = promise,
             None => {
                 let recordings = std::mem::take(&mut card.recordings);
-                card.slice = Some(slice::Slice::new(promise, recordings, card.owner_id()));
+                card.slice = Some(slice::Slice::new(
+                    promise,
+                    recordings,
+                    card.owner_id(),
+                    &settings,
+                ));
             }
         }
     }
@@ -1881,7 +1904,7 @@ fn change_in(
     if let Some(parent) = changes.parent {
         card.parent = parent;
     }
-    let mut passed: Vec<Gate> = changes.pass.into_iter().collect();
+    let mut passed: Vec<Step> = changes.pass.into_iter().collect();
     match status {
         Some(Status::Open) => {
             if let Some(run) = card.auto.take().filter(|_| before.status != Status::Done) {
@@ -1916,7 +1939,7 @@ fn change_in(
         .slice
         .as_ref()
         .is_some_and(|slice| slice.waiting().is_none());
-    let moved = slice::progress(project, card, passed, landing);
+    let moved = slice::progress(project, card, passed, &settings);
     if moved.done && card.status != Status::Done {
         mark_done(core, card, by, project, dropped, landed_before);
     }
@@ -1957,7 +1980,7 @@ fn change_in(
     };
     let by_owner = matches!(by, By::Agent(agent) if after.owner_id() == Some(agent.as_str()));
     let mut note = pending;
-    match slice::passed_notice(&after, &moved.passed, landing) {
+    match slice::passed_notice(&after, &moved.passed, &settings) {
         Some(passed) if by_owner => note = Some(passed.text),
         Some(passed) => notices.push(passed),
         None => {
@@ -2349,14 +2372,14 @@ pub(crate) enum Waits {
     Held { need: Hold, note: Option<String> },
     /// Its slice waits at a gate only the person passes, with its pull request.
     Gate {
-        gate: Gate,
+        gate: Step,
         promise: String,
         url: Option<String>,
         evidence: Option<Box<sikemux_wire::slice::Evidence>>,
     },
     /// Its ticket `key` was closed in its tracker with nothing of its slice
     /// landed, where the person lands slices, while the slice waits at `gate`.
-    TicketDone { key: String, gate: Option<Gate> },
+    TicketDone { key: String, gate: Option<Step> },
     /// Its slice's owner stalled and lost it, for the person to resume or hand on.
     Stalled {
         agent: String,
@@ -2370,7 +2393,7 @@ pub(crate) enum Waits {
 
 /// What `card` waits on the person for, if anything: the one place every
 /// view of a card reads it from.
-fn waits(core: &Core, landing: Landing, card: &Card) -> Option<Waits> {
+fn waits(core: &Core, settings: &Settings, card: &Card) -> Option<Waits> {
     if card.status == Status::Done {
         return None;
     }
@@ -2396,16 +2419,16 @@ fn waits(core: &Core, landing: Landing, card: &Card) -> Option<Waits> {
     if let Some(ticket) = card.ticket_done_unlanded() {
         return Some(Waits::TicketDone {
             key: ticket.key.clone(),
-            gate: card.slice.as_ref().and_then(slice::Slice::waiting),
+            gate: card.slice.as_ref().and_then(slice::Slice::waiting).cloned(),
         });
     }
     let url = run
         .and_then(|run| run.pull.as_ref())
         .map(|pull| pull.url.clone());
     if let Some(slice) = &card.slice {
-        if let Some(gate) = slice.waits_on_person(landing) {
+        if let Some(gate) = slice.waits_on_person(settings) {
             return Some(Waits::Gate {
-                gate,
+                gate: gate.clone(),
                 promise: slice.promise.clone(),
                 url,
                 evidence: slice.lead_in_short().map(Box::new),
@@ -2458,7 +2481,7 @@ impl Card {
             owner_name: self.owner_name(core),
             result: self.result.clone(),
             recordings: self.recorded(),
-            waits: waits(core, board.settings.landing, self),
+            waits: waits(core, &board.settings, self),
             updated_at: self.updated_at,
         }
     }
@@ -2509,7 +2532,7 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
         .filter(|(board, card)| {
             matches!(
-                waits(core, board.settings.landing, card),
+                waits(core, &board.settings, card),
                 Some(
                     Waits::Review { .. }
                         | Waits::Held { .. }
@@ -3036,19 +3059,106 @@ pub(crate) async fn person_settings(
                 return Err("The reviewer must run another CLI than Auto's agents, so it does not share their blind spots".into());
             }
         }
-        {
+        let settled = {
             let mut state = core.boards.state.locked();
             let board = state
                 .boards
                 .entry(project.clone())
                 .or_insert_with(|| Board::empty(&project));
+            let ladders_moved = board.settings.environments != settings.environments
+                || (!settings.environments.is_empty()
+                    && board.settings.landing != settings.landing);
             board.settings = settings;
+            let mut settled = environments::Settled::default();
+            if ladders_moved {
+                slice::settle_ladders(board);
+                settled = environments::settle_cards(&core, &mut state, &project);
+            }
             core.boards.save(&mut state, &project);
-        }
+            settled
+        };
+        settled.later.run(&core);
+        send_notices(&core, settled.notices);
         Ok(project_view(&core, &project))
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// The person accepts or turns down the environments an agent proposed.
+pub(crate) async fn person_answer_proposal(
+    core: &Arc<Core>,
+    params: ProposalParams,
+) -> Result<BoardView, String> {
+    let core = core.clone();
+    blocking(move || {
+        let project = project_at(&core, &params.project)?;
+        let settled = {
+            let mut state = core.boards.state.locked();
+            let settled =
+                environments::answer_proposal(&core, &mut state, &project, params.accept)?;
+            core.boards.save(&mut state, &project);
+            settled
+        };
+        settled.later.run(&core);
+        send_notices(&core, settled.notices);
+        Ok(project_view(&core, &project))
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+/// An agent proposes the project's environments for the person to accept; it
+/// can't set them.
+pub(crate) fn propose_environments(
+    core: &Core,
+    project: &str,
+    agent: &str,
+    environments: Vec<Environment>,
+    why: &str,
+) -> Result<Value, String> {
+    let project = project_at(core, project)?;
+    let by = name_of(core, agent);
+    let mut state = core.boards.state.locked();
+    let board = state
+        .boards
+        .entry(project.clone())
+        .or_insert_with(|| Board::empty(&project));
+    environments::propose(board, environments, why, by)?;
+    core.boards.save(&mut state, &project);
+    Ok(
+        json!({ "note": "The person sees this in Needs you. Nothing changes until they accept it." }),
+    )
+}
+
+/// The environments an agent proposed that wait for the person, by project.
+pub(crate) fn proposals(core: &Core) -> Vec<(String, EnvironmentsProposal)> {
+    (core.boards.state.locked().boards.iter())
+        .filter_map(|(project, board)| {
+            Some((project.clone(), board.environments_proposal.clone()?))
+        })
+        .collect()
+}
+
+/// How a deploy to `project` is judged now, by its environments.
+pub(crate) fn judge_ship(
+    core: &Core,
+    project: &str,
+    ship: &crate::ship::Ship,
+) -> environments::Judged {
+    let state = core.boards.state.locked();
+    let none = Vec::new();
+    let known = state
+        .boards
+        .get(project)
+        .map_or(&none, |board| &board.settings.environments);
+    environments::judged(known, ship)
+}
+
+/// The address a deploy to `environment` of `project` is read healthy at.
+pub(crate) fn health_of(core: &Core, project: &str, environment: &str) -> Option<String> {
+    let state = core.boards.state.locked();
+    state.boards.get(project)?.settings.health(environment)
 }
 
 /// What proves a change sound in a project.

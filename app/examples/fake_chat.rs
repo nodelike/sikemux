@@ -10,8 +10,9 @@
 //! with a permission request, `stream N` with N words, and anything else by
 //! echoing it, markdown and all. `FAKE_PROVIDER=claude` with
 //! `sikemux-fake-claude` in its place also answers `question` with three
-//! questions for the person, one of them secret, and `delegate` with a
-//! subagent that reads a file. `FAKE_MODE=workspace-write`
+//! questions for the person, one of them secret, `delegate` with a
+//! subagent that reads a file, and `shell <command>` by running it as an agent
+//! would, shim and all, so point PATH at fake deploy tools first. `FAKE_MODE=workspace-write`
 //! has the agent ask before it acts, and `FAKE_MENTION=<agent id>` names that
 //! agent with `@` in every prompt, for the core to describe. `FAKE_PROJECT=<folder>`
 //! opens the chat in that folder's project rather than the temporary folder's.

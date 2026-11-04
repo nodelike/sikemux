@@ -1395,6 +1395,15 @@ long as the goal. Pass
 `decision` with its number to correct it with new `text` or `why`, or with
 `retire: true` when it no longer stands.
 
+`board_decide` with `environments` and `why` proposes where the project deploys,
+in order, for the person to accept; only they can set it. Each has a `name`; `passes`, one of `nobody`, `check`, `person` or `production`; `recognise`,
+a list of `{kind: rundeckJob, path}` such as `dev/*`, `{kind: vercelTarget,
+production}`, `{kind: awsProfile, name}`, `{kind: kubeContext, name}`, `{kind:
+terraformWorkspace, name}` or `{kind: command, words}`; and `health`, an address
+that answers once a deploy there is healthy. Anything that reads as production
+must pass `production`. Deploy to pass a slice's environment step: the deploy goes,
+waits on the check or waits on the person, as the project set.
+
 `board_assert` writes what must hold once the goal is done, with `text` and
 the `evidence` that shows it, which Sikemux collects on each slice's latest
 commit: `check`, `recording`, `screenshot`, or `workflow` with the CI

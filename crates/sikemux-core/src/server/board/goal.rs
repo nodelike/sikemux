@@ -468,16 +468,30 @@ struct ToolDecide {
     why: Option<String>,
     #[serde(default)]
     retire: bool,
+    /// Not a decision of a goal: where the project deploys, for the person to accept.
+    #[serde(default)]
+    environments: Option<Vec<super::Environment>>,
 }
 
 /// `board_decide`: records, corrects or retires a decision of the goal the
-/// agent's live card sits under.
+/// agent's live card sits under, or proposes the project's environments.
 pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = caller(request, "board_decide")?;
     let given: ToolDecide =
         serde_json::from_value(request.params.clone()).map_err(|error| error.to_string())?;
     let core = core.clone();
+    let project = request.project.clone();
     blocking(move || {
+        if let Some(environments) = given.environments {
+            let why = given.why.as_deref().unwrap_or_default();
+            return Ok(super::propose_environments(
+                &core,
+                &project,
+                &agent,
+                environments,
+                why,
+            )?);
+        }
         let deciding = Change::of(
             List::Decisions,
             given.decision,

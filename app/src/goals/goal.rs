@@ -375,7 +375,11 @@ pub(super) fn step(cards: &[CardView], next: &NextGate) -> Option<String> {
             None => return Some(format!("{} waits for an owner", card.title)),
         },
     };
-    let step = format!("{who} {verb} {}", card.title);
+    let step = match &next.environment {
+        Some(environment) if you => format!("you pass {environment} on {}", card.title),
+        Some(environment) => format!("{who} deploys {} to {environment}", card.title),
+        None => format!("{who} {verb} {}", card.title),
+    };
     Some(
         match next.wait.as_ref().and_then(|wait| wait_words(wait, card)) {
             Some(wait) => format!("{step} ({wait})"),

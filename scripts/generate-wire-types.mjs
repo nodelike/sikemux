@@ -64,6 +64,7 @@ const SOURCES = [
   `${WIRE}/changed.rs`,
   `${CORE}/server/board.rs`,
   `${CORE}/server/board/auto.rs`,
+  `${CORE}/server/board/environments.rs`,
   `${CORE}/server/board/slice.rs`,
   `${CORE}/server/board/goal.rs`,
   `${CORE}/server/board/arrival.rs`,
@@ -155,6 +156,9 @@ const RENAMES = {
     CardParams: "BoardCardParams",
   },
   [`${CORE}/server/board/hand_off.rs`]: { HandOffParams: "BoardHandOffParams" },
+  [`${CORE}/server/board/environments.rs`]: {
+    ProposalParams: "BoardProposalParams",
+  },
   [`${CORE}/server/board/slice.rs`]: {
     PassParams: "BoardPassParams",
     NoteParams: "BoardNoteParams",
@@ -1449,7 +1453,7 @@ const gateTable = await readFile(
   "utf8",
 );
 const gateKeys = [
-  ...gateTable.matchAll(/Gate::(\w+) => Rule \{[^}]*?key: "(\w+)"/gu),
+  ...gateTable.matchAll(/Gate::(\w+)\) => Rule \{[^}]*?key: "(\w+)"/gu),
 ];
 if (gateKeys.length === 0)
   fail("the gate table in board/slice.rs names no gate's key");

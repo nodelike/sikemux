@@ -174,6 +174,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         let ship = crate::ship::Ship {
             kind: sikemux_wire::inbox::ShipKind::Push,
             what: "git_commit push".to_owned(),
+            target: None,
         };
         let not_pushed = push
             .then(|| super::super::ship::check(&core, &agent_id, ship, from).err())

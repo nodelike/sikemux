@@ -5,7 +5,7 @@ description: "A goal's slices at a glance, and the evidence for the gate waiting
 
 A goal is a card at the top of the [agent board](/agents/board/) with an agent working it or slices under it, including a chat you start from Home. A slice at the top, with no goal above it, such as a card Auto runs, is a goal of its own with one slice. **Goals** is a view of its own in the middle of the window: it puts what needs you first, then each goal and its slices, for the project you pick. Switch to it with the goals button at the top right of the window, after the clock and beside focus mode, or press `⌘⌥7`; press either again to go back to the workbench. The window keeps whichever you left it on.
 
-Both rails stay. The side rail keeps your projects, hosts and the rest, with **Home** and **Overnight** at its top, each with how many things need you or happened while you were away; picking a project there shows that project's goals. The rail on the right lists only that project's goals, each with the mark of where it stands and how many things in it need you; click one to open it.
+Both rails stay. The side rail keeps your projects, hosts and the rest, with **Home**, **Overnight** and **[Environments](#environments)** at its top, the first two with how many things need you or happened while you were away; picking a project there shows that project's goals. The rail on the right lists only that project's goals, each with the mark of where it stands and how many things in it need you; click one to open it.
 
 ## Starting work
 
@@ -75,10 +75,33 @@ When the ETA moves later than it first said, by more than two minutes or a tenth
 
 A goal also tells you when it moves, in one short notification: slices landed, the goal finished or its ETA slipped, the same reasons in the same words. It only says something when something changed, never on a timer and never to say nothing changed. What moves within about 20 seconds comes as one notification, such as "2 slices landed". On your Mac it shows while Sikemux isn't in front, and clicking it opens the goal; over the workbench, where the goals are out of sight, it shows as a toast, and over Goals not at all. A phone hears it as a finished notification, unless Sikemux is open on it. Turn these off with **Notify when a goal moves** in **Settings → Notifications**. What needs you still notifies either way.
 
+## Environments
+
+**Environments**, in the side rail, is where you say where this project deploys and who a deploy waits on. Only you can set them, since agents can write to the repository; they live in the core with the project's other board settings, not in `sikemux.json`. An agent can propose them, which shows under **Decide** and opens here for you to **Accept** or **Turn down**.
+
+Each environment has a name, what Sikemux recognises it by, and who passes it:
+
+| Passes | What happens |
+| --- | --- |
+| **Goes freely** | The deploy just goes. |
+| **After the check** | It goes once the project's [check](/getting-started/projects/#the-projects-check) has passed; until then the agent is told to wait, and you aren't asked. |
+| **A person** | It waits for you. |
+| **Production** | It waits for you, always. |
+
+Sikemux recognises an environment from hard facts, never a guess: a Rundeck job's path such as `dev/*`, Vercel's preview or production target, an AWS profile, a Kubernetes context, a Terraform workspace, or a command of the project's own by its first words. When several match, the strictest wins. **Set environments** starts with Dev, and **Add environment** goes on to Staging and Production, which you can rename, reorder or change.
+
+What Sikemux can't recognise counts as production, and so does a command with something that could point it elsewhere, such as another kube config or credentials beside a profile. Nothing that reads as production can be marked to go without asking: not a name such as `prod-eu`, a Rundeck folder such as `prod/*`, or Vercel's production target. A project with none set keeps Built, Looks right and Landed, and every deploy waits for you.
+
+With environments set, the project's slices go **Built**, then a step for each environment in order, such as Dev, Staging, Production. Where you land slices yourself, **Landed** stays after Built. No slice or agent can add, skip or remove a step. A step passes when a deploy there has gone well on the slice's latest commit, and a new commit starts them over. A step that needs the check still needs it. Slices already done stay done.
+
+Each deploy goes on the slice as evidence: what ran, where, why it did or didn't wait, and how it ended, with Rundeck's last log lines or Vercel's state. Give an environment a health address and Sikemux asks it once the deploy ends; a deploy whose health check fails counts as failed. A deploy that fails marks the slice failed and passes nothing. Where Sikemux can't see the end, as with a command that is only your project's own, it says so and the step passes on the deploy having gone.
+
+At a step that waits for you, **Allow once** on the deploy, or **Pass Production** on the slice, lets it go, and the step passes once it has gone well. With no deploy waiting, passing it lets the agent deploy there once, and also serves for a deploy that happened elsewhere. You can also pass any waiting step whose needs are met yourself, for a project whose CI deploys on merge. An app too old to know environments shows these steps as Landed; **Allow once** still works there, and passing one asks you to update.
+
 ## A slice
 
 Click a slice to open it, or right-click one with an owner for that agent's menu. Its owner's name opens their chat, and the button by its title opens it beside the agent board. Under its promise and owner, the ladder shows each gate with who passed it and when, or who may pass it and what it still needs. Under the ladder, each of the goal's assertions the slice fulfils is ticked once its evidence held up; an assertion it named that no longer stands on its goal, such as one retired, shows struck through as freed. Each thumbnail of evidence says which assertions it was collected for, by number.
 
 The evidence for the gate waiting leads, large, a picture first when there is one; the rest sit as thumbnails under it, and clicking one brings it to the front. Clicking a picture shows it full size over Goals, and clicking a recording opens it in the workbench's viewer. A change lists the files it touches; click one to open it, or the line above them to open Git. A run's output scrolls. The checks Sikemux ran fold into one line. When a slice's change touches a web page, Sikemux takes [the changed page](/getting-started/projects/#the-changed-page) itself once the slice passes **Built**, and those pictures name the address they opened.
 
-When the slice waits on you, **Looks right** passes the gate. **Needs work** opens a line to say what is wrong; the note is pinned to the evidence in front and goes to the agent whose work it shows. Notes are listed under the buttons, newest first.
+When the slice waits on you, the gate's own button passes it, such as **Looks right** or **Pass Production**. **Needs work** opens a line to say what is wrong; the note is pinned to the evidence in front and goes to the agent whose work it shows. Notes are listed under the buttons, newest first.

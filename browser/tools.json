@@ -1950,6 +1950,7 @@
       "method": "board.decide",
       "description": "Keep a goal's decisions.",
       "properties": {
+        "environments": { "type": "array", "items": { "type": "object" }, "description": "Instead: propose the project's, in order, with why; see the guide" },
         "decision": {
           "description": "The decision to correct or retire; leave out to record one",
           "type": "integer",

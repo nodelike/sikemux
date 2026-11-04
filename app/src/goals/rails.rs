@@ -1,5 +1,5 @@
-//! What the window's rails show while it is on the goals: Home and Overnight at the top of the
-//! side rail, and the goals of the project in front on the tab rail, each with its state's mark
+//! What the window's rails show while it is on the goals: Home, Overnight and Environments at the
+//! top of the side rail, and the goals of the project in front on the tab rail, each with its state's mark
 //! and how many things in it wait on the person.
 
 use gpui_kit::{AnyElement, Context, IntoElement, SharedString, Styled};
@@ -44,6 +44,13 @@ pub fn places(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Vec<AnyE
             Icon::Clock,
             At::Overnight,
             happened,
+        ),
+        place(
+            "goals-environments",
+            "Environments",
+            Icon::Rocket,
+            At::Environments,
+            pane.environments_set(),
         ),
     ])
 }

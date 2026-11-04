@@ -106,9 +106,14 @@ pub fn pass_button(
     bench: WeakEntity<Workbench>,
 ) -> Option<AnyElement> {
     let (gate, card) = (item.gate?, item.card.clone()?);
+    let environment = item.environment.clone();
+    let words = environment.as_ref().map_or_else(
+        || crate::goals::gate_name(gate).to_owned(),
+        |environment| format!("Pass {environment}"),
+    );
     let id = SharedString::from(format!("pass-{}", item.id));
     Some(
-        Button::new(id, crate::goals::gate_name(gate), Variant::Primary)
+        Button::new(id, words, Variant::Primary)
             .disabled(busy)
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
@@ -116,6 +121,7 @@ pub fn pass_button(
                     project: card.project.clone(),
                     card: card.id,
                     gate,
+                    environment: environment.clone(),
                 };
                 answer::<call::BoardPass>(&target, params, bench.clone(), cx);
             })

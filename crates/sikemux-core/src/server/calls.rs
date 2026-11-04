@@ -600,6 +600,9 @@ calls! { core, client, params;
     "boardSettings" BoardSettings (board::SettingsParams) -> board::BoardView: Full => {
         board::person_settings(&core, params).await?
     },
+    "boardAnswerProposal" BoardAnswerProposal (board::ProposalParams) -> board::BoardView: Full => {
+        board::person_answer_proposal(&core, params).await?
+    },
     "goalSummary" GoalSummary (sikemux_wire::slice::GoalSummaryParams) -> sikemux_wire::slice::GoalSummaryView: Full => {
         goal_summary::read(&core, params).await?
     },
