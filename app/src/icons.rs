@@ -82,6 +82,7 @@ icons!(
     Github => "github",
     Gitlab => "gitlab",
     Globe => "globe",
+    HandOff => "hand-off",
     Heart => "heart",
     Highlighter => "highlighter",
     Home => "home",

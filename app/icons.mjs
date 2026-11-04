@@ -112,6 +112,7 @@ const DRAWN = {
   record: [ICONS, "IconRecord"],
   resize: [ICONS, "IconResize"],
   rocket: [ICONS, "IconRocket"],
+  "hand-off": [ICONS, "IconHandOff"],
   rotate: [ICONS, "IconRotate"],
   pin: [ICONS, "IconPin"],
   power: [ICONS, "IconPower"],

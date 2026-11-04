@@ -450,6 +450,14 @@ export const IconRocket = makeSvgIcon(
         <path d="M4.4 11.6 3 13" />
     </>,
 );
+export const IconHandOff = makeSvgIcon(
+    <>
+        <circle cx="11" cy="5" r="2.2" />
+        <path d="M7.4 13.2c0-2.2 1.6-3.4 3.6-3.4s3.6 1.2 3.6 3.4" />
+        <path d="M1.8 8h4.2" />
+        <path d="M4.2 6l2 2-2 2" />
+    </>,
+);
 export const IconStar = makeSvgIcon(<path d="M8 2.6l1.6 3.4 3.7.5-2.7 2.6.7 3.7L8 11l-3.3 1.8.7-3.7-2.7-2.6 3.7-.5Z" />);
 export const IconHeart = makeSvgIcon(<path d="M8 13.2S2.6 10 2.6 6.4A2.8 2.8 0 0 1 8 5a2.8 2.8 0 0 1 5.4 1.4C13.4 10 8 13.2 8 13.2Z" />);
 export const IconBook = makeSvgIcon(
