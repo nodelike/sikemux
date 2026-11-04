@@ -482,7 +482,7 @@ pub(crate) fn discard(core: &Arc<Core>) {
     }
 }
 
-fn stop(core: &Arc<Core>, id: SessionId) {
+pub(crate) fn stop(core: &Arc<Core>, id: SessionId) {
     if let Some(target) = core.take_session_for_kill(id) {
         let core = core.clone();
         tokio::task::spawn_blocking(move || session::kill(&core, &target));

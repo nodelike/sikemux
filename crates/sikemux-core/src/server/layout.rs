@@ -426,15 +426,36 @@ fn find_view<'a>(pane: &'a Pane, view: &str) -> Option<&'a Pane> {
     }
 }
 
-fn agents_in(pane: &Pane, found: &mut Vec<String>) {
+fn targets_in(pane: &Pane, kind: PaneKind, found: &mut Vec<String>) {
     match pane {
         Pane::View {
-            kind: PaneKind::Agent,
-            target,
-            ..
-        } => found.push(target.clone()),
+            kind: held, target, ..
+        } if *held == kind => found.push(target.clone()),
         Pane::View { .. } => {}
-        Pane::Split { panes, .. } => panes.iter().for_each(|pane| agents_in(pane, found)),
+        Pane::Split { panes, .. } => panes.iter().for_each(|pane| targets_in(pane, kind, found)),
+    }
+}
+
+fn terminal_shown(layout: &Layout, target: &str) -> bool {
+    layout
+        .projects
+        .values()
+        .chain(layout.hosts.values())
+        .chain(std::iter::once(&layout.terminals))
+        .flat_map(|strip| &strip.tabs)
+        .any(|tab| holds(&tab.pane, PaneKind::Terminal, target))
+}
+
+/// Ends the shells of terminals whose last view closed. A process's output and an agent's
+/// terminal keep running without a view.
+fn stop_shells(core: &Arc<Core>, terminals: &[String]) {
+    for id in terminals.iter().filter_map(|target| target.parse().ok()) {
+        let plain = core
+            .session(id)
+            .is_some_and(|session| !session.is_task() && session.agent.is_none());
+        if plain {
+            super::spare::stop(core, id);
+        }
     }
 }
 
@@ -717,7 +738,7 @@ pub(crate) struct TabParams {
 
 /// Closes a tab. Agents it shows close with it, since an agent always has a
 /// tab; terminals keep running until a client ends them.
-pub(crate) fn close_tab(core: &Core, params: TabParams) -> CoreResult<()> {
+pub(crate) fn close_tab(core: &Arc<Core>, params: TabParams) -> CoreResult<()> {
     close(core, &params.at, &[params.tab])
 }
 
@@ -730,31 +751,33 @@ pub(crate) struct TabsParams {
 }
 
 /// Closes several tabs of one strip at once, as `closeTab` closes one.
-pub(crate) fn close_tabs(core: &Core, params: TabsParams) -> CoreResult<()> {
+pub(crate) fn close_tabs(core: &Arc<Core>, params: TabsParams) -> CoreResult<()> {
     close(core, &params.at, &params.tabs)
 }
 
 /// A tab already gone, such as one closed twice before the window heard of the first, is
 /// closed already, so closing it does nothing.
-fn close(core: &Core, at: &At, tabs: &[String]) -> CoreResult<()> {
-    let agents = edit(core, |layout| {
+fn close(core: &Arc<Core>, at: &At, tabs: &[String]) -> CoreResult<()> {
+    let (agents, terminals) = edit(core, |layout| {
         let Ok(strip) = strip_at(layout, at) else {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         };
         let closing = |tab: &Tab| tabs.contains(&tab.id);
         if !strip.tabs.iter().any(closing) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
         let active = strip
             .active
             .as_ref()
             .and_then(|active| strip.tabs.iter().position(|tab| &tab.id == active));
         let mut agents = Vec::new();
+        let mut terminals = Vec::new();
         let mut kept_before_active = 0;
         let mut active_closed = false;
         for (at, tab) in std::mem::take(&mut strip.tabs).into_iter().enumerate() {
             if closing(&tab) {
-                agents_in(&tab.pane, &mut agents);
+                targets_in(&tab.pane, PaneKind::Agent, &mut agents);
+                targets_in(&tab.pane, PaneKind::Terminal, &mut terminals);
                 active_closed |= Some(at) == active;
             } else {
                 kept_before_active += usize::from(active.is_some_and(|active| at < active));
@@ -767,8 +790,10 @@ fn close(core: &Core, at: &At, tabs: &[String]) -> CoreResult<()> {
                 .get(kept_before_active.min(strip.tabs.len().saturating_sub(1)))
                 .map(|tab| tab.id.clone());
         }
-        Ok(agents)
+        terminals.retain(|target| !terminal_shown(layout, target));
+        Ok((agents, terminals))
     })?;
+    stop_shells(core, &terminals);
     if !agents.is_empty() {
         super::workspace::close(core, &agents)?;
     }
@@ -820,7 +845,7 @@ pub(crate) async fn duplicate_tab(core: &Arc<Core>, params: TabParams) -> CoreRe
         .cloned()
         .ok_or("that tab is not open")?;
     let mut agents = Vec::new();
-    agents_in(&source.pane, &mut agents);
+    targets_in(&source.pane, PaneKind::Agent, &mut agents);
     if !agents.is_empty() {
         return Err("an agent's tab is not copied".into());
     }
@@ -1262,7 +1287,7 @@ pub(crate) struct PaneParams {
 
 /// Closes one view of a tab; a tab left with nothing closes as `closeTab` does.
 /// An agent shown in it closes with it. A view already gone is closed already.
-pub(crate) fn close_pane(core: &Core, params: PaneParams) -> CoreResult<()> {
+pub(crate) fn close_pane(core: &Arc<Core>, params: PaneParams) -> CoreResult<()> {
     let closed = edit(core, |layout| {
         let Some(tab) = strip_at(layout, &params.at)
             .ok()
@@ -1275,11 +1300,14 @@ pub(crate) fn close_pane(core: &Core, params: PaneParams) -> CoreResult<()> {
         };
         let keep = |pane: &Pane| !matches!(pane, Pane::View { id, .. } if id == &params.pane);
         let left = keep(&tab.pane) && prune(&mut tab.pane, &keep);
-        Ok(Some((view, left)))
+        let mut terminals = Vec::new();
+        targets_in(&view, PaneKind::Terminal, &mut terminals);
+        terminals.retain(|target| !terminal_shown(layout, target));
+        Ok(Some((view, left, terminals)))
     })?;
     match closed {
         None => Ok(()),
-        Some((_, false)) => close_tab(
+        Some((_, false, _)) => close_tab(
             core,
             TabParams {
                 at: params.at,
@@ -1288,9 +1316,10 @@ pub(crate) fn close_pane(core: &Core, params: PaneParams) -> CoreResult<()> {
                 title: None,
             },
         ),
-        Some((view, true)) => {
+        Some((view, true, terminals)) => {
+            stop_shells(core, &terminals);
             let mut agents = Vec::new();
-            agents_in(&view, &mut agents);
+            targets_in(&view, PaneKind::Agent, &mut agents);
             if !agents.is_empty() {
                 super::workspace::close(core, &agents)?;
             }
