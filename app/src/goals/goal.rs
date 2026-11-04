@@ -1,5 +1,6 @@
-//! One goal: who leads it, how far its slices are, what comes next, what needs the person, a
-//! line for each slice, how the project's slices land and the rules its agents follow.
+//! One goal: who leads it, what needs the person, what happened and what was decided, what runs
+//! and comes next. Under that, quieter and only where a goal has them, its slices and assertions,
+//! how the project's slices land and the rules its agents follow.
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -9,14 +10,11 @@ use gpui_kit::{
 use sikemux_core::server::{call, BoardSettingsParams, CardView};
 use sikemux_wire::slice::{Gate, NextGate, Passer, SliceState, SliceView};
 
-use super::{
-    eta_words, gate_name, state_count, state_mark, wait_words, waiting, waiting_words, At,
-    GoalsPane,
-};
+use super::{eta_words, state_count, state_mark, wait_words, waiting_words, At, GoalsPane};
 use crate::board::panels::{landing_choice, landing_of, landing_picks};
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_5, TEXT_2XS,
-    TEXT_SM, TEXT_XL, TEXT_XS_H,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_5, SPACE_6, TEXT_2XS, TEXT_SM,
+    TEXT_XL, TEXT_XS,
 };
 use crate::ui;
 
@@ -28,36 +26,24 @@ const STATES: [SliceState; 5] = [
     SliceState::Waiting,
 ];
 
-/// Goal `id`: its title and team, a strip of its slices, what comes next, what needs the
-/// person and every slice.
+/// Goal `id`: its title and team, what needs the person, what happened, what was decided, what
+/// runs and comes next, and then whatever slices and assertions it has.
 pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let Some(goal) = pane.card(id) else {
         return div().into_any_element();
     };
     let slices = pane.slices(id);
-    let needs_you: Vec<_> = slices
+    let title = (pane.summary_of(id))
+        .and_then(|view| view.summary.as_ref())
+        .and_then(|summary| summary.title.clone())
+        .unwrap_or_else(|| goal.title.clone());
+    let needs_you = pane.needs_of(goal, cx);
+    let kept_assertions = goal
+        .assertions
         .iter()
-        .filter(|(_, slice)| waiting(slice).is_some_and(|gate| gate.passer == Passer::Person))
-        .collect();
-    let counts = STATES
-        .iter()
-        .map(|state| (count(&slices, *state), *state))
-        .filter(|(count, _)| *count > 0)
-        .map(|(count, state)| state_count(count, state))
-        .chain(goal.eta.as_ref().and_then(eta_words))
-        .collect::<Vec<_>>()
-        .join(" · ");
-    let slip = goal.eta.as_ref().and_then(|eta| {
-        let slip = eta.slip?.words();
-        Some(match eta.at {
-            Some(_) => format!(
-                "ETA slipped: {slip}, first said {}",
-                ui::time::clock(eta.promised)
-            ),
-            None => format!("ETA slipped: {slip}"),
-        })
-    });
+        .any(|assertion| assertion.retired.is_none());
+    let below = !slices.is_empty() || kept_assertions;
     div()
         .flex()
         .flex_col()
@@ -71,7 +57,10 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
                 .items_center()
                 .gap(SPACE_2)
                 .child(
-                    ui::text(goal.title.clone(), TEXT_XL, FontWeight::SEMIBOLD)
+                    ui::text(title, TEXT_XL, FontWeight::SEMIBOLD)
+                        .flex_shrink_1()
+                        .min_w_0()
+                        .truncate()
                         .text_color(t.text_primary),
                 )
                 .child(div().flex_1())
@@ -81,35 +70,163 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
                 .child(super::on_board(goal.id, cx)),
         )
         .child(team(goal, &slices, cx))
-        .child(
-            div()
-                .pt(SPACE_3)
-                .flex()
-                .flex_col()
-                .gap(SPACE_1H)
-                .child(strip(&slices, gpui_kit::relative(1.), cx))
-                .child(ui::meta(counts, cx))
-                .children(slip.map(|slip| ui::meta(slip, cx).text_color(t.warn))),
-        )
-        .children(next(pane, goal, cx))
         .when(!needs_you.is_empty(), |view| {
-            view.child(section("Needs you", needs_you.len(), cx)).child(
+            view.child(heading("Needs you", Some(needs_you.len()), None, cx))
+                .children((needs_you.iter()).map(|item| super::home::need_line(pane, item, cx)))
+        })
+        .children(super::happened::what_happened(pane, id, cx))
+        .children(super::happened::decided(pane, goal, cx))
+        .children(running_and_next(pane, goal, &slices, cx))
+        .when(below, |view| view.child(quieter(pane, goal, &slices, cx)))
+        .into_any_element()
+}
+
+/// What the goal also keeps: its slices and assertions, how they land and the rules its agents
+/// follow, below what the person reads first.
+fn quieter(
+    pane: &GoalsPane,
+    goal: &CardView,
+    slices: &[(&CardView, &SliceView)],
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
+    let counts = STATES
+        .iter()
+        .map(|state| (count(slices, *state), *state))
+        .filter(|(count, _)| *count > 0)
+        .map(|(count, state)| state_count(count, state))
+        .collect::<Vec<_>>()
+        .join(" · ");
+    div()
+        .mt(SPACE_6)
+        .flex()
+        .flex_col()
+        .when(!slices.is_empty(), |view| {
+            view.child(
                 div()
                     .flex()
                     .flex_col()
                     .gap(SPACE_1H)
-                    .children(needs_you.iter().map(|(card, slice)| needs(card, slice, cx))),
+                    .child(strip(slices, gpui_kit::relative(1.), cx))
+                    .child(ui::meta(counts, cx)),
             )
         })
         .child(super::assertions::section_of(pane, goal, cx))
-        .child(section("Slices", slices.len(), cx))
-        .children(
-            slices
-                .iter()
-                .map(|(card, slice)| slice_row(pane, card, slice, cx)),
-        )
+        .when(!slices.is_empty(), |view| {
+            view.child(quiet_section("Slices", slices.len(), cx))
+                .children(
+                    slices
+                        .iter()
+                        .map(|(card, slice)| slice_row(pane, card, slice, cx)),
+                )
+        })
         .children(landing(pane, cx))
         .child(super::rules::rules(pane, goal, cx))
+        .into_any_element()
+}
+
+/// One line of what runs or comes next, with its mark.
+fn running_line(mark: AnyElement, words: String, cx: &Context<GoalsPane>) -> AnyElement {
+    let t = Tokens::get(cx);
+    div()
+        .py(SPACE_1)
+        .flex()
+        .items_baseline()
+        .gap(SPACE_2)
+        .child(mark)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(theme::ui_text(TEXT_SM))
+                .text_color(t.text_secondary)
+                .child(words),
+        )
+        .into_any_element()
+}
+
+/// What moves now and what it waits on, then the gates its slices reach next in order; nothing
+/// when nothing runs and nothing is next.
+fn running_and_next(
+    pane: &GoalsPane,
+    goal: &CardView,
+    slices: &[(&CardView, &SliceView)],
+    cx: &mut Context<GoalsPane>,
+) -> Option<AnyElement> {
+    let mut lines: Vec<AnyElement> = Vec::new();
+    if let Some(name) = pane.working_on(goal, cx) {
+        lines.push(running_line(
+            state_mark(SliceState::Moving, cx),
+            format!("{name} is working"),
+            cx,
+        ));
+    }
+    for (card, slice) in slices
+        .iter()
+        .filter(|(_, slice)| slice.state == SliceState::Moving)
+    {
+        let words = match waiting_words(card, slice) {
+            Some(waits) => format!("{}: {waits}", card.title),
+            None => card.title.clone(),
+        };
+        lines.push(running_line(state_mark(SliceState::Moving, cx), words, cx));
+    }
+    let steps: Vec<String> = goal
+        .next
+        .iter()
+        .take(3)
+        .filter_map(|next| step(pane.cards(), next))
+        .collect();
+    for step in steps {
+        lines.push(running_line(state_mark(SliceState::Waiting, cx), step, cx));
+    }
+    let slip = goal.eta.as_ref().and_then(|eta| {
+        let slip = eta.slip?.words();
+        Some(match eta.at {
+            Some(_) => format!(
+                "ETA slipped: {slip}, first said {}",
+                ui::time::clock(eta.promised)
+            ),
+            None => format!("ETA slipped: {slip}"),
+        })
+    });
+    let t = Tokens::get(cx).clone();
+    (!lines.is_empty()).then(|| {
+        let eta = goal.eta.as_ref().and_then(eta_words);
+        div()
+            .flex()
+            .flex_col()
+            .child(heading("Running and next", None, eta, cx))
+            .children(lines)
+            .children(slip.map(|slip| ui::meta(slip, cx).text_color(t.warn)))
+            .into_any_element()
+    })
+}
+
+/// The name over a part of the goal page: spaced capitals on a hairline, with how many it holds
+/// and something about it at the far end.
+pub(super) fn heading(
+    title: &str,
+    count: Option<usize>,
+    about: Option<String>,
+    cx: &Context<GoalsPane>,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let title = match count {
+        Some(count) => format!("{title} · {count}"),
+        None => title.to_owned(),
+    };
+    div()
+        .mt(SPACE_6)
+        .mb(SPACE_1H)
+        .pb(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .border_b_1()
+        .border_color(t.border)
+        .child(ui::caps(&title, cx))
+        .child(div().flex_1())
+        .children(about.map(|about| ui::meta(about, cx)))
         .into_any_element()
 }
 
@@ -240,41 +357,6 @@ pub(super) fn strip(
         .into_any_element()
 }
 
-/// The gates the goal's slices wait at next, in the order the core expects them reached.
-fn next(pane: &GoalsPane, goal: &CardView, cx: &Context<GoalsPane>) -> Option<AnyElement> {
-    let t = Tokens::get(cx);
-    let steps: Vec<String> = goal
-        .next
-        .iter()
-        .take(3)
-        .filter_map(|next| step(pane.cards(), next))
-        .collect();
-    if steps.is_empty() {
-        return None;
-    }
-    Some(
-        div()
-            .mt(SPACE_3)
-            .px(SPACE_3)
-            .py(SPACE_2H)
-            .flex()
-            .items_start()
-            .gap(SPACE_3)
-            .rounded(theme::RADIUS_2)
-            .bg(t.surface_sunken)
-            .child(div().pt(px(1.)).child(ui::caps("Next", cx)))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(theme::ui_text(TEXT_XS_H))
-                    .text_color(t.text_secondary)
-                    .child(steps.join(", then ")),
-            )
-            .into_any_element(),
-    )
-}
-
 /// A gate a slice waits at, as a short sentence: who does what to which slice.
 pub(super) fn step(cards: &[CardView], next: &NextGate) -> Option<String> {
     let card = cards.iter().find(|card| card.id == next.card)?;
@@ -304,59 +386,6 @@ pub(super) fn step(cards: &[CardView], next: &NextGate) -> Option<String> {
     )
 }
 
-/// A slice waiting on the person: its title, what it promises, and how long it has waited.
-fn needs(card: &CardView, slice: &SliceView, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let id = card.id;
-    let gate = waiting(slice);
-    let since = slice
-        .gates
-        .iter()
-        .filter_map(|gate| gate.at)
-        .max()
-        .map(ui::time::age);
-    div()
-        .id(SharedString::from(format!("needs-{id}")))
-        .px(SPACE_3)
-        .py(SPACE_2H)
-        .flex()
-        .flex_col()
-        .gap(SPACE_1)
-        .rounded(theme::RADIUS_2)
-        .border_1()
-        .border_color(t.border)
-        .cursor_pointer()
-        .hover(move |style| style.border_color(t.border_strong))
-        .on_click(cx.listener(move |pane, _, _, cx| pane.go(At::Slice(id), cx)))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_2)
-                .child(
-                    ui::text(card.title.clone(), TEXT_SM, FontWeight::MEDIUM)
-                        .text_color(t.text_primary),
-                )
-                .when_some(gate, |line, gate| {
-                    line.child(
-                        ui::text(gate_name(gate.gate), TEXT_2XS, FontWeight::MEDIUM)
-                            .text_color(t.warn),
-                    )
-                })
-                .child(div().flex_1())
-                .children(since.map(|since| ui::meta(since, cx))),
-        )
-        .when(!slice.promise.is_empty(), |item| {
-            item.child(
-                div()
-                    .text_size(theme::ui_text(TEXT_XS_H))
-                    .text_color(t.text_secondary)
-                    .child(slice.promise.clone()),
-            )
-        })
-        .into_any_element()
-}
-
 /// One slice: its state, title and what it waits on, then its ticket and owner.
 fn slice_row(
     pane: &GoalsPane,
@@ -370,11 +399,11 @@ fn slice_row(
         .on_click(cx.listener(move |pane, _, _, cx| pane.go(At::Slice(id), cx)))
         .child(state_mark(slice.state, cx))
         .child(
-            ui::text(card.title.clone(), TEXT_SM, FontWeight::MEDIUM)
+            ui::text(card.title.clone(), TEXT_XS, FontWeight::NORMAL)
                 .flex_shrink_1()
                 .min_w_0()
                 .truncate()
-                .text_color(t.text_primary),
+                .text_color(t.text_secondary),
         )
         .children(
             waiting_words(card, slice)
@@ -404,6 +433,23 @@ pub(super) fn row(id: SharedString, cx: &Context<GoalsPane>) -> gpui_kit::Statef
         .rounded(theme::RADIUS_2)
         .cursor_pointer()
         .hover(move |style| style.bg(t.surface_hover))
+}
+
+/// A part of the goal page below what is read first, named more quietly than it.
+pub(super) fn quiet_section(
+    title: &'static str,
+    count: usize,
+    cx: &Context<GoalsPane>,
+) -> AnyElement {
+    div()
+        .pt(SPACE_5)
+        .pb(SPACE_1)
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(ui::caps(title, cx))
+        .child(ui::meta(count.to_string(), cx))
+        .into_any_element()
 }
 
 pub(super) fn section(title: &'static str, count: usize, cx: &Context<GoalsPane>) -> AnyElement {

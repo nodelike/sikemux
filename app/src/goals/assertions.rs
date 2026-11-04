@@ -12,7 +12,7 @@ use gpui_kit::{
 use sikemux_core::server::{call, BoardAssertParams, CardView};
 use sikemux_wire::slice::{Assertion, Collect, SliceView};
 
-use super::goal::section;
+use super::goal::quiet_section;
 use super::GoalsPane;
 use crate::core::Target;
 use crate::icons::Icon;
@@ -209,7 +209,7 @@ pub(super) fn section_of(
     div()
         .flex()
         .flex_col()
-        .child(section("Assertions", kept.len(), cx))
+        .child(quiet_section("Assertions", kept.len(), cx))
         .children(kept.into_iter().map(|assertion| {
             let id = assertion.id;
             let fulfilling: Vec<bool> = slices

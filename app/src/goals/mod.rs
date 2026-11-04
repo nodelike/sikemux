@@ -18,14 +18,15 @@ use gpui_kit::{
 use serde::Serialize;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::{
-    BoardNoteParams, BoardPassParams, BoardView, CardView, KeepSeededParams, MemoryEntryParams,
-    MemoryParams, NoParams,
+    BoardDecideParams, BoardNoteParams, BoardPassParams, BoardView, CardView, Column,
+    KeepSeededParams, MemoryEntryParams, MemoryParams, NoParams,
 };
 use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem, InboxKind};
 use sikemux_wire::memory::{MemoryView, Seeding};
 use sikemux_wire::protocol::NoticeGoal;
 use sikemux_wire::slice::{
-    CheckRun, Gate, GateState, GateView, GoalEta, Need, Passer, SliceState, SliceView, Wait, WaitOn,
+    CheckRun, Gate, GateState, GateView, GoalEta, GoalSummaryParams, GoalSummaryView, Need, Passer,
+    SavedChat, SliceState, SliceView, Wait, WaitOn,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -40,6 +41,7 @@ use crate::workbench::Workbench;
 mod assertions;
 mod evidence;
 mod goal;
+mod happened;
 mod home;
 mod rails;
 mod rules;
@@ -113,8 +115,13 @@ pub struct GoalsPane {
     start: start::Start,
     /// The line on a goal that writes a new assertion.
     asserting: Option<assertions::Asserting>,
+    /// The summary of the goal open, as the core last answered, with the goal's card.
+    summary: Option<(u64, GoalSummaryView)>,
+    /// The sentences of a summary the person opened to see their sources.
+    unfolded: std::collections::HashSet<String>,
     focus: FocusHandle,
     _reading: Task<()>,
+    _reading_summary: Task<()>,
 }
 
 impl GoalsPane {
@@ -140,8 +147,11 @@ impl GoalsPane {
             busy: false,
             start: start::Start::default(),
             asserting: None,
+            summary: None,
+            unfolded: Default::default(),
             focus: cx.focus_handle(),
             _reading: Task::ready(()),
+            _reading_summary: Task::ready(()),
         };
         pane.changed(cx);
         pane
@@ -396,11 +406,117 @@ impl GoalsPane {
         if self.at != at {
             self.picked = None;
             self.note = None;
+            if let At::Goal(card) = at {
+                self.unfolded.clear();
+                self.at = at;
+                self.read_summary(card, true, false, cx);
+            }
         }
         self.at = at;
         self.chat = None;
         cx.emit(Moved);
         cx.notify();
+    }
+
+    /// Reads what the core keeps as goal `card`'s summary, which never waits on a model. With
+    /// `refresh` the core also looks at the goal again, and clients hear when that changes this;
+    /// with `again`, it tries once more after an attempt that failed.
+    fn read_summary(&mut self, card: u64, refresh: bool, again: bool, cx: &mut Context<Self>) {
+        let Some(project) = self.here.clone() else {
+            return;
+        };
+        let params = GoalSummaryParams {
+            project,
+            card,
+            refresh,
+            again,
+        };
+        let asked = core::Target::here(&self.asks).request_typed::<call::GoalSummary>(params);
+        self._reading_summary = cx.spawn(async move |pane, cx| {
+            let answer = asked.await;
+            let _ = pane.update(cx, |pane, cx| {
+                match answer {
+                    Ok(view) => pane.summary = Some((card, view)),
+                    Err(error) => pane.said(&format!("Couldn't read the summary: {error}"), cx),
+                }
+                cx.notify();
+            });
+        });
+    }
+
+    /// The core says a goal's summary moved: shows the goal open as it stands, without looking
+    /// at the goal again.
+    pub fn summary_moved(&mut self, cx: &mut Context<Self>) {
+        if let At::Goal(card) = self.at {
+            self.read_summary(card, false, false, cx);
+        }
+    }
+
+    fn summary_of(&self, card: u64) -> Option<&GoalSummaryView> {
+        (self.summary.as_ref())
+            .filter(|(known, _)| *known == card)
+            .map(|(_, view)| view)
+    }
+
+    /// What waits on the person about goal `goal`: on a card of it, or from an agent holding one.
+    fn needs_of(&self, goal: &CardView, cx: &Context<Self>) -> Vec<InboxItem> {
+        let Some(bench) = self.bench.upgrade() else {
+            return Vec::new();
+        };
+        let mut items = Self::needs(bench.read(cx));
+        items.extend(Self::questions(bench.read(cx)));
+        let cards: Vec<&CardView> = (self.cards().iter())
+            .filter(|card| card.id == goal.id || card.parent == Some(goal.id))
+            .collect();
+        items.retain(|item| match &item.card {
+            Some(card) => {
+                (self.here.as_deref() == Some(card.project.as_str()))
+                    && (card.goal.unwrap_or(card.id) == goal.id)
+            }
+            None => (item.agent_id.as_deref()).is_some_and(|agent| {
+                cards
+                    .iter()
+                    .any(|card| card.owner.as_deref() == Some(agent))
+            }),
+        });
+        items
+    }
+
+    /// The name of the agent holding goal `goal` while it is at work, for a goal with no slices
+    /// to say what moves.
+    fn working_on(&self, goal: &CardView, cx: &Context<Self>) -> Option<String> {
+        if !goal.goal_slices.is_empty() {
+            return None;
+        }
+        let bench = self.bench.upgrade()?;
+        let owner = goal.owner.as_deref()?;
+        let bench = bench.read(cx);
+        let project = bench.project()?.id.clone();
+        let working = bench.agents_of(&project).iter().any(|agent| {
+            agent.id == owner
+                && matches!(
+                    agent.status,
+                    sikemux_wire::protocol::AgentStatus::Working
+                        | sikemux_wire::protocol::AgentStatus::Starting
+                )
+        });
+        working.then(|| goal.owner_name.clone()).flatten()
+    }
+
+    /// Keeps a decision the summary found as one of the goal's own, as the person.
+    fn keep_decision(&mut self, text: String, cx: &mut Context<Self>) {
+        let (At::Goal(card), Some(project)) = (self.at, self.here.clone()) else {
+            return;
+        };
+        let params = BoardDecideParams {
+            project,
+            card,
+            decision: None,
+            text: Some(text),
+            why: None,
+            retire: false,
+        };
+        self.ask::<call::BoardDecide>(params, |_| {}, cx);
     }
 
     /// Passes the gate slice `card` waits at, as the person.
@@ -675,6 +791,86 @@ impl GoalsPane {
             .ok()
     }
 
+    /// Opens agent `agent`'s chat here, at a moment the core placed in it or at its latest rows.
+    /// Once the agent has closed, its saved session opens again instead.
+    fn open_chat_at(
+        &mut self,
+        agent: &str,
+        feed: Option<&str>,
+        index: Option<u64>,
+        saved: Option<&SavedChat>,
+        cx: &mut Context<Self>,
+    ) {
+        let open = self.bench.upgrade().is_some_and(|bench| {
+            let bench = bench.read(cx);
+            (bench.projects().iter()).any(|project| {
+                bench
+                    .agents_of(&project.id)
+                    .iter()
+                    .any(|row| row.id == agent)
+            })
+        });
+        if !open {
+            if let Some(saved) = saved {
+                self.reopen(saved, cx);
+            }
+            return;
+        }
+        self.open_agent(agent, cx);
+        if let (Some(feed), Some(around)) = (feed, index) {
+            let _ = self.bench.update(cx, |bench, _| {
+                bench.ask_chat(crate::core::ChatAsk::Around {
+                    agent: agent.to_owned(),
+                    feed: feed.to_owned(),
+                    around,
+                });
+            });
+        }
+    }
+
+    /// Opens a saved session again in the project the view shows, as a chat here.
+    fn reopen(&mut self, saved: &SavedChat, cx: &mut Context<Self>) {
+        let Some(project) = self.here.clone() else {
+            return;
+        };
+        let target = core::Target::here(&self.asks);
+        let taken = target.request(
+            "resumeSession",
+            serde_json::json!({
+                "provider": saved.provider,
+                "sessionId": saved.session,
+                "project": project,
+                "cwd": project,
+                "title": "",
+            }),
+        );
+        cx.spawn(async move |pane, cx| {
+            let taken = taken.await;
+            let _ = pane.update(cx, |pane, cx| match taken {
+                Ok(taken) => {
+                    let agent = taken["agentId"].as_str().unwrap_or_default().to_owned();
+                    let tab = serde_json::json!({
+                        "project": taken["project"],
+                        "kind": "agent",
+                        "target": agent,
+                    });
+                    target.call("openTab", tab);
+                    pane.expect_chat(agent, cx);
+                }
+                Err(error) => pane.said(&format!("The chat did not open: {error}"), cx),
+            });
+        })
+        .detach();
+    }
+
+    /// Opens the Git pane of the project the view shows at commit `sha`.
+    fn open_commit(&self, sha: &str, cx: &mut Context<Self>) {
+        let _ = self.bench.update(cx, |bench, cx| {
+            bench.show_workbench(cx);
+            bench.open_commit(sha, cx)
+        });
+    }
+
     /// Opens card `card` of the project the view shows beside its board, where all of it can
     /// be changed.
     fn open_on_board(&self, card: u64, cx: &mut Context<Self>) {
@@ -847,12 +1043,19 @@ fn slices_of(cards: &[CardView], goal: u64) -> Vec<(&CardView, &SliceView)> {
         .collect()
 }
 
+/// Where a goal stands: as its slices do together, or for one with none, as its card does.
+fn goal_mark(goal: &CardView) -> SliceState {
+    goal.goal_state.unwrap_or(match goal.column {
+        Column::Done => SliceState::Done,
+        Column::Needs => SliceState::NeedsYou,
+        Column::Progress => SliceState::Moving,
+        Column::Open => SliceState::Waiting,
+    })
+}
+
 /// The cards the core says are goals.
 fn goals_of(cards: &[CardView]) -> Vec<&CardView> {
-    cards
-        .iter()
-        .filter(|card| !card.goal_slices.is_empty())
-        .collect()
+    cards.iter().filter(|card| card.is_goal).collect()
 }
 
 pub(super) fn empty(

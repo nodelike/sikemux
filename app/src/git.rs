@@ -37,6 +37,8 @@ pub struct GitTab {
     /// The repository changed while the Git pane was out of sight, so it reads it and its
     /// review again once it shows rather than on every change.
     pub(crate) behind: bool,
+    /// The commit to show once the pane exists.
+    pub(crate) wanted_commit: Option<String>,
 }
 
 impl GitTab {

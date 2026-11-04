@@ -699,6 +699,17 @@ impl GitPane {
         cx.notify();
     }
 
+    /// Turns to the history with commit `sha` chosen, when the history lists it.
+    pub fn show_commit(&mut self, sha: &str, cx: &mut Context<Self>) {
+        self.show_page(Page::History, cx);
+        if let Some(at) = self.hashes.iter().position(|hash| hash == sha) {
+            self.commit = at;
+            self.commit_rows.scroll_to_reveal_item(at);
+            self.follow(cx);
+        }
+        cx.notify();
+    }
+
     fn step_commit(&mut self, step: isize, cx: &mut Context<Self>) {
         if self.hashes.is_empty() {
             return;

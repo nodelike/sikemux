@@ -82,7 +82,7 @@ impl GoalsPane {
     }
 
     /// What agents in every project asked the person and wait on, one per agent.
-    fn questions(bench: &Workbench) -> Vec<InboxItem> {
+    pub(super) fn questions(bench: &Workbench) -> Vec<InboxItem> {
         Self::waiting(bench, |item| item.kind == InboxKind::Question)
     }
 
@@ -230,10 +230,9 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
                 .map(move |goal| (board, goal))
         })
         .collect();
-    let (mut moving, finished): (Vec<_>, Vec<_>) = goals.iter().partition(|(board, goal)| {
-        let slices = slices_of(&board.cards, goal.id);
-        count(&slices, SliceState::Done) < slices.len()
-    });
+    let (mut moving, finished): (Vec<_>, Vec<_>) = goals
+        .iter()
+        .partition(|(_, goal)| super::goal_mark(goal) != SliceState::Done);
     moving.retain(|(_, goal)| !goal.goal_stalled);
     div()
         .flex()
@@ -274,10 +273,10 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
                             .flex_col()
                             .pt(SPACE_2)
                             .child(ui::caps(name, cx))
-                            .children(
-                                (listed.into_iter())
-                                    .map(|(item, project)| needs_row(pane, item, project, cx)),
-                            )
+                            .children((listed.into_iter()).map(|(item, project)| {
+                                let about = pane.goal_title(item).or_else(|| item.name.clone());
+                                needs_row(pane, item, project, about, cx)
+                            }))
                     })
                 }))
         })
@@ -319,19 +318,35 @@ fn need_icon(kind: InboxKind) -> Icon {
     }
 }
 
-/// One thing waiting on the person: what it needs, the goal or agent it is about, its project,
-/// and how long it has waited.
+/// Something on one goal's page that waits on the person: an agent's question with its answers,
+/// or anything else as its line, without the goal or project the page already names.
+pub(super) fn need_line(
+    pane: &GoalsPane,
+    item: &InboxItem,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
+    match item.kind {
+        InboxKind::Question => question_row(pane, item, "", cx),
+        _ => needs_row(
+            pane,
+            item,
+            "",
+            item.name.clone().map(|name| format!("@{name}")),
+            cx,
+        ),
+    }
+}
+
+/// One thing waiting on the person: what it needs, what it is about, its project, and how long it
+/// has waited.
 fn needs_row(
     pane: &GoalsPane,
     item: &InboxItem,
     project: &str,
+    about: Option<String>,
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let about = match (&item.stalled, &item.name) {
-        (Some(_), Some(name)) => Some(format!("@{name}")),
-        _ => pane.goal_title(item).or_else(|| item.name.clone()),
-    };
     let tint = match item.need {
         Some(InboxNeed::Fix) => t.danger,
         _ => t.warn,
@@ -540,7 +555,9 @@ fn goal_row(
                 .truncate()
                 .text_color(t.text_primary),
         )
-        .child(ui::meta(format!("{done} of {} done", slices.len()), cx))
+        .when(!slices.is_empty(), |says| {
+            says.child(ui::meta(format!("{done} of {} done", slices.len()), cx))
+        })
         .children(
             (goal.next.first())
                 .and_then(|next| super::goal::step(&board.cards, next))

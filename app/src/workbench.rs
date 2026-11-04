@@ -475,6 +475,7 @@ impl Workbench {
         let _ = asks.send(Ask::Follow(Topic::Lsp));
         let _ = asks.send(Ask::Follow(Topic::Boards));
         let _ = asks.send(Ask::Follow(Topic::Memory));
+        let _ = asks.send(Ask::Follow(Topic::GoalSummary));
         let _ = asks.send(Ask::Follow(Topic::AgentSignIn));
         let _ = asks.send(Ask::Follow(Topic::AgentStatus));
         let _ = asks.send(Ask::Follow(Topic::AgentAccounts));
@@ -625,6 +626,7 @@ impl Workbench {
                 picked: None,
                 listing: false,
                 behind: false,
+                wanted_commit: None,
             },
             run_clock: cx.new(|_| crate::tabs::RunClock::default()),
             files: FileTree::default(),
@@ -1196,6 +1198,11 @@ impl Workbench {
                 if matches!(topic, Topic::Boards | Topic::Memory) {
                     if let Some(goals) = &self.goals {
                         goals.update(cx, |goals, cx| goals.changed(cx));
+                    }
+                }
+                if topic == Topic::GoalSummary {
+                    if let Some(goals) = &self.goals {
+                        goals.update(cx, |goals, cx| goals.summary_moved(cx));
                     }
                 }
                 if topic == Topic::Mods {
@@ -3613,6 +3620,9 @@ impl Workbench {
         if let Some(drafts) = self.reads.git_draft.as_ref() {
             pane.update(cx, |pane, cx| pane.drafts(drafts, cx));
         }
+        if let Some(sha) = self.git.wanted_commit.take() {
+            pane.update(cx, |pane, cx| pane.show_commit(&sha, cx));
+        }
         self.git.pane = Some(pane);
     }
 
@@ -3787,6 +3797,15 @@ impl Workbench {
                 "openTab",
                 json!({ "project": project.id, "kind": "git", "target": project.path.to_string_lossy() }),
             );
+        }
+    }
+
+    /// Opens the Git tab of the project in front at commit `sha`.
+    pub fn open_commit(&mut self, sha: &str, cx: &mut Context<Self>) {
+        self.open_git(cx);
+        match self.git.pane.clone() {
+            Some(pane) => pane.update(cx, |pane, cx| pane.show_commit(sha, cx)),
+            None => self.git.wanted_commit = Some(sha.to_owned()),
         }
     }
 

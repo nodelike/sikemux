@@ -9,7 +9,7 @@ use gpui_kit::{div, AnyElement, Context, IntoElement, ParentElement, SharedStrin
 use sikemux_core::server::CardView;
 use sikemux_wire::memory::Seeding;
 
-use super::goal::section;
+use super::goal::quiet_section;
 use super::GoalsPane;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, TEXT_XS_H};
 use crate::ui::{self, Button, Variant};
@@ -69,7 +69,7 @@ pub(super) fn rules(pane: &GoalsPane, goal: &CardView, cx: &mut Context<GoalsPan
     div()
         .flex()
         .flex_col()
-        .child(section("Rules", listed.len(), cx))
+        .child(quiet_section("Rules", listed.len(), cx))
         .children(offer(pane, true, cx))
         .children(listed.into_iter().map(|rule| {
             div()
