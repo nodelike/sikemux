@@ -1126,16 +1126,50 @@ const OFFERS: [&str; 10] = [
 /// item that asks, in order, each with whether a yes or a no answers it.
 /// A paragraph or list item counts when its last sentence ends in a question mark, so one
 /// answered in the same paragraph does not, or offers more as "If you want, I can…" does.
-/// Code, quotes, headings and table rows say nothing to the person.
+/// A last sentence that means nothing alone, such as "Yes or no?", stands for the latest real
+/// question before it, anywhere in the reply.
 fn asked_in(reply: &str) -> Vec<(String, bool)> {
     let mut found: Vec<(String, bool)> = Vec::new();
+    let mut earlier: Vec<String> = Vec::new();
+    for paragraph in paragraphs(reply) {
+        let mut sentences = sentences_of(&paragraph);
+        sentences.pop();
+        earlier.extend(sentences.into_iter().filter(|sentence| {
+            sentence.trim_end_matches([')', '"']).ends_with('?') && bare_ask(sentence).is_none()
+        }));
+        let Some((sentence, polar)) = last_ask(&paragraph) else {
+            continue;
+        };
+        let Some(takes_yes_or_no) = bare_ask(&sentence) else {
+            earlier.push(sentence.clone());
+            found.push((sentence, polar));
+            continue;
+        };
+        let meant =
+            (earlier.iter()).rfind(|question| !takes_yes_or_no || answers_yes_or_no(question));
+        match meant {
+            Some(question) => {
+                found.retain(|(asked, _)| asked != question);
+                let polar = takes_yes_or_no || answers_yes_or_no(question);
+                found.push((question.clone(), polar));
+            }
+            None => found.push((sentence, takes_yes_or_no)),
+        }
+    }
+    found
+}
+
+/// The reply's paragraphs and list items, as one line each. Code, quotes, headings and table
+/// rows say nothing to the person.
+fn paragraphs(reply: &str) -> Vec<String> {
+    let mut paragraphs = Vec::new();
     let mut block: Vec<&str> = Vec::new();
     let mut fenced = false;
     for line in reply.lines().chain(std::iter::once("")) {
         let line = line.trim();
         if line.starts_with("```") || line.starts_with("~~~") {
             fenced = !fenced;
-            found.extend(last_ask(&block.join(" ")));
+            paragraphs.push(block.join(" "));
             block.clear();
             continue;
         }
@@ -1148,7 +1182,7 @@ fn asked_in(reply: &str) -> Vec<(String, bool)> {
             || line.starts_with('>')
             || line.starts_with('|');
         if apart || item.is_some() {
-            found.extend(last_ask(&block.join(" ")));
+            paragraphs.push(block.join(" "));
             block.clear();
         }
         if let Some(item) = item {
@@ -1157,7 +1191,8 @@ fn asked_in(reply: &str) -> Vec<(String, bool)> {
             block.push(line);
         }
     }
-    found
+    paragraphs.retain(|paragraph| !paragraph.trim().is_empty());
+    paragraphs
 }
 
 /// A list item's text without its marker.
@@ -1182,9 +1217,38 @@ const OPEN_ASKS: [&str; 9] = [
 
 /// The paragraph's last sentence, without its emphasis, when it asks the person something or
 /// offers more, and whether a yes or a no answers it, read after a lead-in such as "Next
-/// step:". No sentence ends inside backticks or emphasis, and inside backticks nothing asks.
+/// step:".
 fn last_ask(paragraph: &str) -> Option<(String, bool)> {
     let paragraph = paragraph.trim();
+    let (ends, asks) = sentence_ends(paragraph);
+    let start = ends.last().copied().unwrap_or(0);
+    let sentence = plain(paragraph[start..].trim());
+    let lower = sentence.to_lowercase();
+    let asked = after_lead_in(&lower);
+    let leaves = asked.starts_with("if you")
+        && !asked.contains(" or ")
+        && OFFERS.iter().any(|opening| asked.starts_with(opening));
+    (asks || leaves).then(|| {
+        let polar = answers_yes_or_no(&sentence);
+        (sentence, polar)
+    })
+}
+
+/// The paragraph's sentences, without their emphasis.
+fn sentences_of(paragraph: &str) -> Vec<String> {
+    let paragraph = paragraph.trim();
+    let (ends, _) = sentence_ends(paragraph);
+    let starts = std::iter::once(0).chain(ends.iter().copied());
+    let stops = ends.iter().copied().chain(std::iter::once(paragraph.len()));
+    starts
+        .zip(stops)
+        .map(|(start, stop)| plain(paragraph[start..stop].trim()))
+        .collect()
+}
+
+/// Where the paragraph's sentences end, and whether its last ends in a question mark. No
+/// sentence ends inside backticks or emphasis, and inside backticks nothing asks.
+fn sentence_ends(paragraph: &str) -> (Vec<usize>, bool) {
     let (mut coded, mut strong, mut stressed) = (false, false, false);
     let mut ends: Vec<usize> = Vec::new();
     let mut ending = false;
@@ -1232,15 +1296,31 @@ fn last_ask(paragraph: &str) -> Option<(String, bool)> {
             asks = true;
         }
     }
-    let start = ends.last().copied().unwrap_or(0);
-    let sentence = plain(paragraph[start..].trim());
+    (ends, asks)
+}
+
+fn after_lead_in(lower: &str) -> &str {
+    lower.rsplit(": ").next().unwrap_or(lower)
+}
+
+fn answers_yes_or_no(sentence: &str) -> bool {
     let lower = sentence.to_lowercase();
-    let asked = (lower.rsplit(": ").next()).unwrap_or(&lower);
-    let either = asked.contains(" or ");
-    let offer = OFFERS.iter().any(|opening| asked.starts_with(opening)) && !either;
-    let leaves = offer && asked.starts_with("if you");
-    let polar = offer || !either && !OPEN_ASKS.iter().any(|opening| asked.starts_with(opening));
-    (asks || leaves).then_some((sentence, polar))
+    let asked = after_lead_in(&lower);
+    !asked.contains(" or ") && !OPEN_ASKS.iter().any(|opening| asked.starts_with(opening))
+}
+
+/// For a question that means nothing without what came before it, whether it takes a yes or a
+/// no; none for any other sentence.
+fn bare_ask(sentence: &str) -> Option<bool> {
+    let lower = sentence.to_lowercase();
+    match after_lead_in(&lower).trim_end_matches(['?', '!', '.']) {
+        "yes or no" | "yes/no" | "y/n" | "ok" | "okay" | "right" | "agreed" | "sound good"
+        | "sounds good" | "good to go" | "go ahead" => Some(true),
+        "thoughts" | "your thoughts" | "your call" | "what do you think" | "what do you say" => {
+            Some(false)
+        }
+        _ => None,
+    }
 }
 
 /// Whether an underscore marks emphasis rather than joining a word, as in `snake_case`.
@@ -2199,6 +2279,27 @@ mod tests {
         assert_eq!(
             asked,
             vec![("Merged, then deployed. Check it?".to_owned(), true)]
+        );
+    }
+
+    /// The shape of a reply whose question showed as "Yes or no?", with no Yes or No to tap.
+    const BARE_LAST_SENTENCE: &str = "**Your call: fix the repeated number now?** It prints \
+        twice on any shape with a big number.\n\n\
+        The catch is the cost of recomposing. This is the cheapest time to do it. Yes or no?\n";
+
+    #[test]
+    fn a_last_sentence_that_means_nothing_alone_shows_the_question_it_stands_for() {
+        assert_eq!(
+            asked_in(BARE_LAST_SENTENCE),
+            vec![("Your call: fix the repeated number now?".to_owned(), true)]
+        );
+        assert_eq!(
+            asked_in("Should I fix it?\n\nYes or no?"),
+            vec![("Should I fix it?".to_owned(), true)]
+        );
+        assert_eq!(
+            asked_in("It's fixed. Yes or no?"),
+            vec![("Yes or no?".to_owned(), true)]
         );
     }
 }
