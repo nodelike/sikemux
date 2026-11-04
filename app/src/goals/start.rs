@@ -36,7 +36,7 @@ const TITLE_CHARS: usize = 80;
 const MODES: [(StartMode, Icon, &str, &str); 3] = [
     (
         StartMode::HandOff,
-        Icon::Rocket,
+        Icon::HandOff,
         "Hand off",
         "An agent takes it and works on its own; you hear back only if it needs you.",
     ),
