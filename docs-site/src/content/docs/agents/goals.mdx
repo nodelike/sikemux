@@ -35,14 +35,20 @@ Every slice wears the same mark: solid green when done, a green ring while it mo
 
 ## What a slice waits on
 
-You never have to ask an agent for its status. Next and each slice's row say what the slice waits on now, and roughly how long that takes:
+You never have to ask an agent for its status. Next and each slice's row say what the slice waits on now and, when Sikemux has an estimate, the time it should end by on your clock:
 
-- **the project's check** on its owner's latest commit, here or in CI: queued, then running, such as "check · ~3 min" or "CI Release · ~6 min"
+- **the project's check** on its owner's latest commit, here or in CI: queued, then running, such as "check · ETA 16:40" or "CI Release · ETA 16:46"
 - **another card** it waits on, such as "waits for #4"
 - **you**, at a gate only you pass
-- **its owner**, in the middle of a turn
+- **its owner**, in the middle of a turn, such as "Otter at work · ETA 17:10"
 
-A check's estimate comes from how long the project's last few checks took since Sikemux last started; there is none until one has run. A wait that runs past its estimate says "over" instead, such as "check · over 3 min". The pane changes the moment a wait starts, ends or runs over.
+A check's estimate comes from how long the project's last few checks took since Sikemux last started; there is none until one has run. An owner's comes from how long the project's last slices took at that gate, once at least three have passed it. A wait that runs past its time says so, such as "check · was due 16:40". The pane changes the moment a wait starts, ends or runs over.
+
+## When a goal should be through
+
+A goal and its line under **Moving** show when the work left in it should be through, such as "ETA 16:40". Sikemux works it out from its slices and shows one only when it has an estimate for all of them, so a slice nobody holds, or one whose owner isn't working on it, means no ETA. The time you take at your own gates doesn't count: "ETA 16:40, then you" means a gate only you pass comes after it, and once only you are left the ETA goes away.
+
+When the ETA moves later than it first said, by more than two minutes or a tenth of how far off it was, the goal says why, such as "ETA slipped: CI failed, re-running, first said 16:40", and its time turns amber. The reason is one of a failed check, a new commit that has to be checked again, a slice added to the goal, another card or you holding a slice up, a slice with no owner, or work taking longer than it did before. When Sikemux has no new estimate, the goal says when it was due instead.
 
 ## A slice
 

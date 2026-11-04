@@ -194,6 +194,9 @@ pub(super) struct Slice {
     /// Someone claimed it once: from then on only the person frees it of an assertion.
     #[serde(default)]
     pub started: bool,
+    /// When someone last claimed it.
+    #[serde(default)]
+    pub started_at: Option<u64>,
     /// The card under it where a failed check is being fixed, while it is open.
     #[serde(default)]
     pub fix: Option<u64>,
@@ -302,6 +305,7 @@ impl Slice {
             asserts: Vec::new(),
             detached: Vec::new(),
             started: false,
+            started_at: None,
             fix: None,
         };
         for recording in &recordings {
@@ -347,6 +351,66 @@ impl Slice {
         let work = self.work.as_ref()?;
         (rule(gate).needs.contains(&Need::PassingCheck) && work.check.is_none())
             .then_some(work.head.as_str())
+    }
+
+    /// How long passing `gate` took, for a slice that passed it: from the claim
+    /// for its first gate, from the gate before for the rest. None when several
+    /// passed at once, as closing a slice does, which says nothing of the work.
+    pub(super) fn took(&self, gate: Gate) -> Option<(u64, u64)> {
+        let at = self.pass_of(gate)?.at;
+        let place = self.ladder.iter().position(|known| *known == gate)?;
+        let from = match place.checked_sub(1) {
+            None => self.started_at?,
+            Some(before) => self.pass_of(self.ladder[before])?.at,
+        };
+        (at > from).then(|| (at, at - from))
+    }
+
+    /// The gates after `gate` until the next only the person passes, and whether
+    /// there is one.
+    pub(super) fn ahead(&self, gate: Gate, landing: Landing) -> (Vec<Gate>, bool) {
+        let mut gates = Vec::new();
+        for next in self
+            .ladder
+            .iter()
+            .skip_while(|known| **known != gate)
+            .skip(1)
+        {
+            if passer(*next, landing) == Passer::Person {
+                return (gates, true);
+            }
+            gates.push(*next);
+        }
+        (gates, false)
+    }
+
+    /// When someone claimed it, or the gate before `gate` passed, as work on
+    /// that gate began.
+    pub(super) fn working_on_since(&self, gate: Gate) -> Option<u64> {
+        match self.ladder.first() == Some(&gate) {
+            true => self.started_at,
+            false => Some(self.waiting_since()),
+        }
+    }
+
+    /// A check toward the gate it waits at failed since `since`, and whether
+    /// its latest commit's check is on its way.
+    pub(super) fn failed_since(&self, since: u64) -> Option<bool> {
+        let gate = self.waiting()?;
+        let latest = (self.evidence.iter().rev())
+            .find(|evidence| evidence.gate == gate && evidence.verdict.is_some())?;
+        (latest.verdict == Some(Verdict::Failed) && latest.at >= since)
+            .then(|| self.awaits_check().is_some())
+    }
+
+    /// Its latest commit came after `since`, replacing one the check had a say on.
+    pub(super) fn reworked_since(&self, since: u64) -> bool {
+        self.work.as_ref().is_some_and(|work| {
+            work.at > since
+                && (self.evidence.iter()).any(|evidence| {
+                    evidence.verdict.is_some() && evidence.commit.as_ref() != Some(&work.head)
+                })
+        })
     }
 
     fn evidence(&self, id: u64) -> Option<&Evidence> {
@@ -2081,6 +2145,7 @@ pub(super) fn auto_slice(card: &mut Card, merges: bool) {
         slice.ladder = ladder;
     }
     slice.started = true;
+    slice.started_at = Some(epoch_ms());
 }
 
 /// Auto's agent shipped `head`, made on `from`, which counts as its owner

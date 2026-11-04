@@ -77,6 +77,50 @@ pub fn ago_written(at: &str) -> String {
         )
 }
 
+/// A moment as the person's clock reads it, in their 24 or 12-hour format: `16:40` or
+/// `4:40 PM`, with the day once it isn't today.
+pub fn clock(at: u64) -> String {
+    use chrono::TimeZone;
+    let Some(at) = chrono::Local.timestamp_millis_opt(at as i64).single() else {
+        return String::new();
+    };
+    let time = at.format(if twelve_hour() { "%-I:%M %p" } else { "%H:%M" });
+    match at.date_naive() == chrono::Local::now().date_naive() {
+        true => time.to_string(),
+        false => format!("{} {time}", at.format("%a")),
+    }
+}
+
+/// Whether the person's Mac writes times with AM and PM, as its locale and Language & Region
+/// settings say.
+#[cfg(target_os = "macos")]
+fn twelve_hour() -> bool {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_foundation::{ns_string, NSString};
+    static TWELVE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TWELVE.get_or_init(|| {
+        // SAFETY: both are class methods taking and returning objects of these kinds, and the
+        // format's template and the locale outlive the call.
+        let format: Option<Retained<NSString>> = unsafe {
+            let locale: Retained<AnyObject> = msg_send![class!(NSLocale), currentLocale];
+            msg_send![
+                class!(NSDateFormatter),
+                dateFormatFromTemplate: ns_string!("j"),
+                options: 0usize,
+                locale: &*locale
+            ]
+        };
+        format.is_some_and(|format| format.to_string().contains('a'))
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn twelve_hour() -> bool {
+    false
+}
+
 /// How long until, in the same tight column as [`age`], rounded up: `now`, `1m`, `3h`, `4d`.
 pub fn until(at: u64) -> String {
     let seconds = at.saturating_sub(now_ms()) / 1000;

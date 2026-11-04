@@ -215,6 +215,74 @@ pub struct Wait {
     pub overdue: bool,
 }
 
+impl Wait {
+    /// The moment it should end by, when the core has an idea.
+    pub fn eta(&self) -> Option<u64> {
+        self.estimate_ms.map(|estimate| self.since + estimate)
+    }
+}
+
+/// When the work left in a goal should be through, not counting the time the
+/// person takes at their own gates. The core promises one only from what it
+/// saw the same work take before.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalEta {
+    /// When it should be through now; none once the core has no estimate left.
+    pub at: Option<u64>,
+    /// When the core first said it would be.
+    pub promised: u64,
+    /// A gate only the person passes is left once it is through.
+    pub then_you: bool,
+    /// Why it runs noticeably later than promised; none while it does not.
+    pub slip: Option<Slip>,
+}
+
+/// Why a goal runs later than the core promised.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Slip {
+    /// The check on a slice's latest commit failed; `rerunning` once the next
+    /// commit's check is on its way.
+    CheckFailed { ci: bool, rerunning: bool },
+    /// The goal got another slice.
+    NewSlice,
+    /// A slice whose work was checked got a new commit, which the check has to
+    /// pass again.
+    NewCommit,
+    /// A slice waits on another card, which has no end in sight.
+    OnCard { card: u64 },
+    /// A slice waits on one the person has to pass first.
+    OnPerson,
+    /// A slice has nobody working on it.
+    NoOwner,
+    /// Something under way is taking longer than the same work did before.
+    TakingLonger,
+}
+
+impl Slip {
+    /// Why, as the end of "ETA slipped: …".
+    pub fn words(self) -> String {
+        match self {
+            Self::CheckFailed { ci, rerunning } => {
+                let check = if ci { "CI" } else { "the check" };
+                let then = if rerunning { ", re-running" } else { "" };
+                format!("{check} failed{then}")
+            }
+            Self::NewSlice => "a slice was added".to_owned(),
+            Self::NewCommit => "a new commit needs checking again".to_owned(),
+            Self::OnCard { card } => format!("waiting on #{card}"),
+            Self::OnPerson => "waiting on you".to_owned(),
+            Self::NoOwner => "a slice has no owner".to_owned(),
+            Self::TakingLonger => "taking longer than it has before".to_owned(),
+        }
+    }
+}
+
 /// The kinds of thing a slice waits on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(

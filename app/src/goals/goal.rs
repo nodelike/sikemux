@@ -10,7 +10,8 @@ use sikemux_core::server::{call, BoardSettingsParams, CardView};
 use sikemux_wire::slice::{Gate, NextGate, Passer, SliceState, SliceView};
 
 use super::{
-    gate_name, state_count, state_mark, wait_words, waiting, waiting_words, At, GoalsPane,
+    eta_words, gate_name, state_count, state_mark, wait_words, waiting, waiting_words, At,
+    GoalsPane,
 };
 use crate::board::panels::{landing_choice, landing_of, landing_picks};
 use crate::theme::{
@@ -44,8 +45,19 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
         .map(|state| (count(&slices, *state), *state))
         .filter(|(count, _)| *count > 0)
         .map(|(count, state)| state_count(count, state))
+        .chain(goal.eta.as_ref().and_then(eta_words))
         .collect::<Vec<_>>()
         .join(" · ");
+    let slip = goal.eta.as_ref().and_then(|eta| {
+        let slip = eta.slip?.words();
+        Some(match eta.at {
+            Some(_) => format!(
+                "ETA slipped: {slip}, first said {}",
+                ui::time::clock(eta.promised)
+            ),
+            None => format!("ETA slipped: {slip}"),
+        })
+    });
     div()
         .flex()
         .flex_col()
@@ -76,7 +88,8 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
                 .flex_col()
                 .gap(SPACE_1H)
                 .child(strip(&slices, gpui_kit::relative(1.), cx))
-                .child(ui::meta(counts, cx)),
+                .child(ui::meta(counts, cx))
+                .children(slip.map(|slip| ui::meta(slip, cx).text_color(t.warn))),
         )
         .children(next(pane, goal, cx))
         .when(!needs_you.is_empty(), |view| {

@@ -1,7 +1,8 @@
 //! What a slice waits on now and roughly how long that takes, worked out here
 //! so nobody has to ask: the project's check, another card, the person, or its
 //! owner mid-turn. A check's estimate comes from how long the project's last
-//! few checks took, kept while the core runs. The board tells clients again
+//! few checks took, kept while the core runs; an owner's from how long the
+//! board's slices took at that gate before. The board tells clients again
 //! whenever a wait starts, ends, or runs past its estimate.
 
 use std::collections::{HashMap, VecDeque};
@@ -10,7 +11,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_wire::slice::{CheckRun, Verdict, Wait, WaitOn};
 
 use super::auto::mid_turn;
-use super::{Board, Card, State, Status};
+use super::{eta, Board, Card, State, Status};
 use crate::server::Core;
 
 /// Run times kept per project and kind of check.
@@ -23,6 +24,8 @@ pub(super) struct Checking {
     running: Option<Running>,
     local: VecDeque<u64>,
     ci: VecDeque<u64>,
+    /// Its latest check ran in CI.
+    in_ci: bool,
 }
 
 struct Running {
@@ -33,6 +36,7 @@ struct Running {
 
 impl Checking {
     pub(super) fn started(&mut self, covered: Vec<String>, run: CheckRun) {
+        self.in_ci = matches!(run, CheckRun::Ci { .. });
         self.running = Some(Running {
             covered,
             at: epoch_ms(),
@@ -68,18 +72,31 @@ impl Checking {
             CheckRun::Ci { .. } => &self.ci,
             CheckRun::Local | CheckRun::Queued => &self.local,
         };
-        let mut sorted: Vec<u64> = times.iter().copied().collect();
-        sorted.sort_unstable();
-        sorted.get(sorted.len() / 2).copied()
+        eta::middle(times.iter().copied().collect())
+    }
+
+    /// How long the check its latest run was of usually takes.
+    pub(super) fn usual(&self) -> Option<u64> {
+        match self.in_ci {
+            true => self.took(&CheckRun::Ci {
+                workflow: String::new(),
+                url: None,
+            }),
+            false => self.took(&CheckRun::Local),
+        }
+    }
+
+    pub(super) fn in_ci(&self) -> bool {
+        self.in_ci
     }
 }
 
-fn wait(on: WaitOn, since: u64, estimate_ms: Option<u64>, now: u64) -> Wait {
+fn wait(on: WaitOn, since: u64, ends: Option<u64>, now: u64) -> Wait {
     Wait {
         on,
         since,
-        estimate_ms,
-        overdue: estimate_ms.is_some_and(|estimate| since + estimate < now),
+        estimate_ms: ends.map(|ends| ends.saturating_sub(since)),
+        overdue: ends.is_some_and(|ends| ends < now),
     }
 }
 
@@ -113,34 +130,39 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
             Some(running) => (running.run.clone(), running.at),
             None => (CheckRun::Queued, slice.waiting_since()),
         };
-        let estimate = board.checking.took(&run);
+        let ends = board.checking.took(&run).map(|took| since + took);
         let on = WaitOn::Check {
             sha: sha.to_owned(),
             run,
         };
-        return Some(wait(on, since, estimate, now));
+        return Some(wait(on, since, ends, now));
     }
     let owner = card.owner_id().filter(|owner| mid_turn(core, owner))?;
     let since = (core.seen.started_at(owner))
         .or_else(|| core.seen.active_at(owner))
         .unwrap_or_else(|| slice.waiting_since());
+    let ends = (slice.working_on_since(gate))
+        .zip(board.took.of_gate(gate))
+        .map(|(from, took)| from + took)
+        .filter(|ends| *ends >= since);
     Some(wait(
         WaitOn::Agent {
             agent: owner.to_owned(),
         },
         since,
-        None,
+        ends,
         now,
     ))
 }
 
-/// Notes which boards' waits changed since clients were last told, and
-/// answers when the next one runs past its estimate.
+/// Notes which boards' waits and goals' ETAs changed since clients were last
+/// told, and answers when the next wait runs past its estimate or ETA comes due.
 pub(super) fn settle(core: &Core, state: &mut State) -> Option<u64> {
     let now = epoch_ms();
     let mut next: Option<u64> = None;
     let State { boards, dirty, .. } = state;
     for board in boards.values_mut() {
+        board.took = eta::Took::of(board);
         let waits: HashMap<u64, Wait> = board
             .cards
             .iter()
@@ -152,6 +174,13 @@ pub(super) fn settle(core: &Core, state: &mut State) -> Option<u64> {
                 next = Some(next.map_or(due, |next| next.min(due)));
             }
         }
+        let promised = eta::settle(board, &waits, now);
+        if let Some(due) = promised.due {
+            next = Some(next.map_or(due, |next| next.min(due)));
+        }
+        if promised.changed {
+            dirty.insert(board.project.clone());
+        }
         if moved(&board.told_waits, &waits) {
             board.told_waits = waits;
             dirty.insert(board.project.clone());
@@ -160,15 +189,13 @@ pub(super) fn settle(core: &Core, state: &mut State) -> Option<u64> {
     next
 }
 
-/// Whether a wait began or ended, or what one is on, its estimate or whether
-/// it is overdue changed; when one started alone never tells clients again.
+/// Whether a wait began or ended, or what one is on, when it should end or
+/// whether it is overdue changed.
 fn moved(told: &HashMap<u64, Wait>, now: &HashMap<u64, Wait>) -> bool {
     told.len() != now.len()
         || now.iter().any(|(card, wait)| {
             told.get(card).is_none_or(|told| {
-                told.on != wait.on
-                    || told.estimate_ms != wait.estimate_ms
-                    || told.overdue != wait.overdue
+                told.on != wait.on || told.eta() != wait.eta() || told.overdue != wait.overdue
             })
         })
 }

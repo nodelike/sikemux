@@ -23,7 +23,7 @@ use sikemux_core::server::{
 use sikemux_wire::inbox::{InboxCard, InboxDigest, InboxItem, InboxKind};
 use sikemux_wire::memory::{MemoryView, Seeding};
 use sikemux_wire::slice::{
-    CheckRun, Gate, GateState, GateView, Need, Passer, SliceState, SliceView, Wait, WaitOn,
+    CheckRun, Gate, GateState, GateView, GoalEta, Need, Passer, SliceState, SliceView, Wait, WaitOn,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -759,17 +759,17 @@ fn waiting_words(card: &CardView, slice: &SliceView) -> Option<String> {
     })
 }
 
-/// What is under way that a slice waits on, such as "check · ~3 min" or "waits for #4"; none
+/// What is under way that a slice waits on, such as "check · ETA 16:40" or "waits for #4"; none
 /// for the person, whom the gate already names.
 fn wait_words(wait: &Wait, card: &CardView) -> Option<String> {
     let what = match &wait.on {
         WaitOn::Person { .. } => return None,
         WaitOn::Card { card } => return Some(format!("waits for #{card}")),
         WaitOn::Agent { .. } => {
-            return Some(format!(
+            format!(
                 "{} at work",
                 card.owner_name.as_deref().unwrap_or("its owner")
-            ))
+            )
         }
         WaitOn::Check {
             run: CheckRun::Queued,
@@ -784,12 +784,22 @@ fn wait_words(wait: &Wait, card: &CardView) -> Option<String> {
             ..
         } => format!("CI {workflow}"),
     };
-    let minutes = |ms: u64| ms.div_ceil(60_000);
-    Some(match (wait.estimate_ms, wait.overdue) {
-        (Some(ms), false) => format!("{what} · ~{} min", minutes(ms)),
-        (Some(ms), true) => format!("{what} · over {} min", minutes(ms)),
-        (None, _) => what,
+    Some(match wait.eta() {
+        Some(at) if wait.overdue => format!("{what} · was due {}", ui::time::clock(at)),
+        Some(at) => format!("{what} · ETA {}", ui::time::clock(at)),
+        None => what,
     })
+}
+
+/// When a goal should be through, such as "ETA 16:40, then you", or when it was due once
+/// the core has no estimate left.
+fn eta_words(eta: &GoalEta) -> Option<String> {
+    match (eta.at, eta.slip) {
+        (Some(at), _) if eta.then_you => Some(format!("ETA {}, then you", ui::time::clock(at))),
+        (Some(at), _) => Some(format!("ETA {}", ui::time::clock(at))),
+        (None, Some(_)) => Some(format!("was due {}", ui::time::clock(eta.promised))),
+        (None, None) => None,
+    }
 }
 
 /// A slice's mark, the same everywhere: solid green done, a green ring moving, a dashed grey

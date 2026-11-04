@@ -491,6 +491,14 @@ fn goal_row(
             .map(|next| ui::meta(next, cx).flex_shrink_1().min_w_0().truncate()),
     )
     .child(div().flex_1())
+    .children(goal.eta.as_ref().and_then(|eta| {
+        let words = super::eta_words(eta)?;
+        let shown = ui::meta(words, cx).flex_none();
+        Some(match eta.slip {
+            Some(_) => shown.text_color(t.warn),
+            None => shown,
+        })
+    }))
     .child(strip(&slices, px(120.), cx));
     super::with_agent_menu(line, goal.owner.clone(), &pane.bench)
 }

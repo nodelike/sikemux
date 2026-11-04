@@ -2182,6 +2182,8 @@ export interface BoardCard {
      * slices under it.
      */
     goalState?: SliceState | null;
+    /** For a goal, when its work should be through and whether that slipped. */
+    eta?: GoalEta | null;
     /** For a goal, what it decided, oldest first, retired ones too. */
     decisions: Decision[];
     /**
@@ -2479,6 +2481,62 @@ export interface NextGate {
     /** What that gate waits on now. */
     wait?: Wait | null;
 }
+
+/**
+ * When the work left in a goal should be through, not counting the time the
+ * person takes at their own gates. The core promises one only from what it
+ * saw the same work take before.
+ */
+export interface GoalEta {
+    /** When it should be through now; none once the core has no estimate left. */
+    at: number | null;
+    /** When the core first said it would be. */
+    promised: number;
+    /** A gate only the person passes is left once it is through. */
+    thenYou: boolean;
+    /** Why it runs noticeably later than promised; none while it does not. */
+    slip: Slip | null;
+}
+
+/** Why a goal runs later than the core promised. */
+export type Slip =
+    /**
+     * The check on a slice's latest commit failed; `rerunning` once the next
+     * commit's check is on its way.
+     */
+    | {
+          kind: "checkFailed";
+          ci: boolean;
+          rerunning: boolean;
+      }
+    /** The goal got another slice. */
+    | {
+          kind: "newSlice";
+      }
+    /**
+     * A slice whose work was checked got a new commit, which the check has to
+     * pass again.
+     */
+    | {
+          kind: "newCommit";
+      }
+    /** A slice waits on another card, which has no end in sight. */
+    | {
+          kind: "onCard";
+          card: number;
+      }
+    /** A slice waits on one the person has to pass first. */
+    | {
+          kind: "onPerson";
+      }
+    /** A slice has nobody working on it. */
+    | {
+          kind: "noOwner";
+      }
+    /** Something under way is taking longer than the same work did before. */
+    | {
+          kind: "takingLonger";
+      };
 
 /** What a goal decided, kept on its card. */
 export interface Decision {

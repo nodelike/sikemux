@@ -25,12 +25,13 @@ use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_wire::inbox::InboxRecording;
 use sikemux_wire::slice::{
-    Assertion, Collect, Decision, Gate, GoalRule, NextGate, SliceState, SliceView, Wait,
+    Assertion, Collect, Decision, Gate, GoalEta, GoalRule, NextGate, SliceState, SliceView, Wait,
 };
 
 mod arrival;
 pub(crate) mod auto;
 mod blind;
+mod eta;
 mod failing;
 mod finish;
 pub(crate) mod git;
@@ -228,6 +229,12 @@ struct Board {
     /// What each of its slices waited on when clients were last told.
     #[serde(skip)]
     told_waits: HashMap<u64, Wait>,
+    /// How long its slices' gates took before.
+    #[serde(skip)]
+    took: eta::Took,
+    /// What the core promised of each of its goals that has work under way.
+    #[serde(skip)]
+    promises: HashMap<u64, eta::Promise>,
     /// The latest CI run that failed on the project's branch, while the core runs.
     #[serde(skip)]
     ci_failing: failing::Latest,
@@ -1237,6 +1244,9 @@ pub struct CardView {
     /// slices under it.
     #[serde(default)]
     pub goal_state: Option<SliceState>,
+    /// For a goal, when its work should be through and whether that slipped.
+    #[serde(default)]
+    pub eta: Option<GoalEta>,
     /// For a goal, what it decided, oldest first, retired ones too.
     pub decisions: Vec<Decision>,
     /// For a goal, rules only its own agents follow, oldest first, retired
@@ -1347,6 +1357,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
             .collect(),
         next: slice::next_gates(core, board, card, now),
         goal_state: slice::goal_state(board, card),
+        eta: board.promises.get(&card.id).and_then(eta::Promise::view),
         decisions: card.goal.decisions(),
         rules: card.goal.rules(),
         arrivals: card.arrivals.clone(),
@@ -1606,6 +1617,7 @@ fn take(core: &Core, card: &mut Card, agent: &str) {
     card.acted_at = card.updated_at;
     if let Some(slice) = &mut card.slice {
         slice.started = true;
+        slice.started_at = Some(card.updated_at);
     }
 }
 
