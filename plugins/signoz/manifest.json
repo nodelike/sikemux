@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "sikemux": ">=0.4",
   "environment": ["SIGNOZ_URL", "SIGNOZ_API_KEY"],
-  "accountMethods": ["signIn", "signOut"],
+  "accountMethods": ["signIn", "useApiKey", "signOut"],
   "tokenForm": {
     "method": "useApiKey",
     "lede": "Tools for your agents to search logs and traces and read service health and dashboards.",
@@ -20,7 +20,31 @@
         "placeholder": "Your SigNoz API key",
         "secret": true
       }
-    ]
+    ],
+    "otherWay": {
+      "method": "signIn",
+      "offer": "Use an email and password instead",
+      "back": "Use an API key instead",
+      "fields": [
+        {
+          "name": "url",
+          "label": "SigNoz address",
+          "placeholder": "https://signoz.example.com"
+        },
+        {
+          "name": "email",
+          "label": "Email",
+          "placeholder": "you@example.com"
+        },
+        {
+          "name": "password",
+          "label": "Password",
+          "placeholder": "Your SigNoz password",
+          "secret": true,
+          "exact": true
+        }
+      ]
+    }
   },
   "tools": [
     {

@@ -57,6 +57,12 @@ pub struct TokenForm {
     pub token_page: Option<String>,
     #[serde(default)]
     pub default_server: Option<String>,
+    /// Boxes to tick, sent as true or false under each one's name whichever way is used.
+    #[serde(default)]
+    pub checks: Vec<FormCheck>,
+    /// A second way in beside the token, such as a password.
+    #[serde(default)]
+    pub other_way: Option<OtherWay>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,9 +73,39 @@ pub struct FormField {
     pub placeholder: String,
     #[serde(default)]
     pub secret: bool,
+    /// Sent just as typed, spaces at its ends included, as a password must be.
+    #[serde(default)]
+    pub exact: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FormCheck {
+    pub name: String,
+    pub label: String,
+}
+
+/// A form's second way in. A field named as one of the form's own keeps what was typed in it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OtherWay {
+    pub method: String,
+    /// The link that switches to this way.
+    pub offer: String,
+    /// The link that switches back.
+    pub back: String,
+    pub fields: Vec<FormField>,
 }
 
 impl TokenForm {
+    /// The method to call and the fields to show, for the second way in or the first.
+    pub fn way(&self, other: bool) -> (&str, &[FormField]) {
+        match self.other_way.as_ref().filter(|_| other) {
+            Some(way) => (&way.method, &way.fields),
+            None => (&self.method, &self.fields),
+        }
+    }
+
     /// Where a token is made for the server typed in, if the service says.
     pub fn token_page(&self, server: &str) -> Option<String> {
         let server = server.trim().trim_start_matches("https://");

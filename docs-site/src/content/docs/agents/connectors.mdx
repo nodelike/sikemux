@@ -13,6 +13,8 @@ Connectors give your agents tools for the services you work with: GitHub, GitLab
 - **Sign out** forgets it.
 - The switch turns a connector off. Agents lose its tools, and it costs nothing until you turn it back on.
 
+Rundeck and SigNoz sign in with a token or a key, or switch the form to a password: a username and password for Rundeck, an email and password for SigNoz. Rundeck's **Allow plain HTTP on a private network** lets it reach a server without HTTPS, and only while every address that server resolves to is private or loopback.
+
 A few connectors keep settings that only you change, never an agent:
 
 - **AWS** has no token form. Pick the profile from `~/.aws/config` to sign in with, and Sikemux opens its single sign-on in your browser, or in the browser **Settings → Single sign-on** names. **Profile agents start on** sets `AWS_PROFILE` for every agent, unless your own shell sets one.

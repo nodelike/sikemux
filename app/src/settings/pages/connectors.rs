@@ -2,12 +2,14 @@
 //! signed in and as whom, its switch and its sign-in, and the few settings its tools read that
 //! only the person changes.
 
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, ClickEvent, Context, Entity, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, Task, Window,
+    div, px, AnyElement, App, AppContext, ClickEvent, Context, Div, Entity, FontWeight,
+    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, Task, Window,
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -16,7 +18,7 @@ use sikemux_plugin_api::Listed;
 use crate::core::{outcome, Ask, Target};
 use crate::icons::Icon;
 use crate::settings::rows;
-use crate::theme::{Tokens, SPACE_2};
+use crate::theme::{self, Tokens, SPACE_0, SPACE_2, SPACE_3, SPACE_4, SPACE_5, TEXT_SM, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, dialog, sign_in};
 use crate::workbench::Workbench;
@@ -32,6 +34,8 @@ pub struct Fields {
     /// The plugins moved since the settings below were read, so they are read again.
     pub(super) stale: bool,
     signing: Option<Signing>,
+    /// The connector whose settings are open over the page.
+    configuring: Option<String>,
     aws: Option<Aws>,
     rundeck: Option<Lists>,
     databases: Vec<Database>,
@@ -40,8 +44,13 @@ pub struct Fields {
 /// A sign-in on its way: the token form's boxes, and the browser's, while it runs.
 struct Signing {
     plugin: String,
-    fields: Vec<Entity<InputState>>,
+    /// The boxes of every way in, each under its field's name.
+    fields: Vec<(String, Entity<InputState>)>,
     _typing: Vec<Subscription>,
+    /// The form's second way in is showing.
+    other_way: bool,
+    /// The names of the form's ticked boxes.
+    ticked: Vec<String>,
     /// The AWS profile to sign in with.
     profile: Option<String>,
     busy: bool,
@@ -285,17 +294,14 @@ pub fn render(
         true => rows::note("No connectors in this build.", cx),
         false => div()
             .children(plugins.all().map(|plugin| {
-                let entry = rows::row_with(
+                rows::row_with(
                     Some(ui::picture(mark(&plugin.id), 16., ink).into_any_element()),
                     plugin.name.clone(),
                     Some(standing(plugin, fields)),
-                    controls(plugin, this),
+                    controls(plugin, fields, this),
                     cx,
-                );
-                div()
-                    .child(entry)
-                    .children(settings(plugin, fields, this, cx))
-                    .into_any_element()
+                )
+                .into_any_element()
             }))
             .into_any_element(),
     };
@@ -309,9 +315,35 @@ pub fn render(
     )]
 }
 
-/// The connector's Sign in or Sign out, and its switch.
-fn controls(plugin: &Listed, this: &Entity<Workbench>) -> AnyElement {
+/// The connector has settings of its own to open, read since the page opened.
+fn has_settings(plugin: &Listed, fields: &Fields) -> bool {
+    plugin.enabled
+        && match plugin.id.as_str() {
+            AWS => fields.aws.is_some(),
+            RUNDECK => fields.rundeck.is_some(),
+            DATABASE => !fields.databases.is_empty(),
+            _ => false,
+        }
+}
+
+/// The connector's settings button, Sign in or Sign out, and its switch.
+fn controls(plugin: &Listed, fields: &Fields, this: &Entity<Workbench>) -> AnyElement {
     let id = plugin.id.clone();
+    let configure = has_settings(plugin, fields).then(|| {
+        let this = this.clone();
+        let id = id.clone();
+        ui::IconButton::new(
+            SharedString::from(format!("connector-settings-{id}")),
+            Icon::Settings,
+            "Settings",
+        )
+        .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+            let id = id.clone();
+            this.update(cx, |bench, cx| {
+                change_fields(bench, cx, |fields, _| fields.configuring = Some(id));
+            })
+        })
+    });
     let signed_in = plugin.signed_in == Some(true);
     let button = (plugin.enabled && has_sign_in(plugin)).then(|| {
         let (label, signing_out) = match signed_in && plugin.sign_out {
@@ -346,42 +378,60 @@ fn controls(plugin: &Listed, this: &Entity<Workbench>) -> AnyElement {
         .flex()
         .items_center()
         .gap(SPACE_2)
+        .children(configure)
         .children(button)
         .child(toggle)
         .into_any_element()
 }
 
-/// A row under a connector's own, lined up with its name.
+/// One setting in a connector's settings: its name and what it does, then its control.
 fn setting(
     label: impl Into<SharedString>,
     about: Option<SharedString>,
     control: impl IntoElement,
     cx: &App,
 ) -> AnyElement {
-    rows::row_with(
-        Some(div().w(px(16.)).flex_none().into_any_element()),
-        label,
-        about,
-        control,
-        cx,
-    )
-    .into_any_element()
+    let t = Tokens::get(cx);
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_2)
+        .child(heading(label.into(), about, t))
+        .child(control)
+        .into_any_element()
 }
 
-/// The rows of the settings a connector's tools read, while it is on.
+fn heading(label: SharedString, about: Option<SharedString>, t: &Tokens) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_0)
+        .child(
+            div()
+                .text_size(theme::ui_text(TEXT_SM))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(t.text_primary)
+                .child(label),
+        )
+        .children(about.map(|about| {
+            div()
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(t.text_tertiary)
+                .child(about)
+        }))
+}
+
+/// The settings a connector's tools read.
 fn settings(
     plugin: &Listed,
     fields: &Fields,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> Vec<AnyElement> {
-    if !plugin.enabled {
-        return Vec::new();
-    }
     match plugin.id.as_str() {
         AWS => aws_settings(fields, this, cx),
         RUNDECK => fields.rundeck.as_ref().map_or_else(Vec::new, |lists| {
-            let wide = |input: &Entity<InputState>| div().w(px(260.)).child(ui::Field::new(input));
+            let wide = |input: &Entity<InputState>| div().w_full().child(ui::Field::new(input));
             vec![
                 setting(
                     "Production words",
@@ -506,32 +556,47 @@ fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyE
             })
         })
     };
-    setting(
-        database.name.clone(),
-        Some(format!("{} · {}", database.engine, database.address).into()),
-        div()
-            .flex()
-            .items_center()
-            .gap(SPACE_2)
-            .child(database_switch(
-                &name,
-                "Agents may change data",
-                database.writable,
-                "setAgentWrites",
-                this,
-                cx,
-            ))
-            .child(database_switch(
-                &name,
-                "Production",
-                database.production,
-                "setProduction",
-                this,
-                cx,
-            ))
-            .child(remove),
-        cx,
-    )
+    let t = Tokens::get(cx);
+    let about = format!("{} · {}", database.engine, database.address);
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_2)
+        .child(
+            div()
+                .flex()
+                .items_start()
+                .gap(SPACE_2)
+                .child(
+                    heading(database.name.clone().into(), Some(about.into()), t)
+                        .flex_1()
+                        .min_w_0(),
+                )
+                .child(remove),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_4)
+                .child(database_switch(
+                    &name,
+                    "Agents may change data",
+                    database.writable,
+                    "setAgentWrites",
+                    this,
+                    cx,
+                ))
+                .child(database_switch(
+                    &name,
+                    "Production",
+                    database.production,
+                    "setProduction",
+                    this,
+                    cx,
+                )),
+        )
+        .into_any_element()
 }
 
 /// One of a saved database's switches, labelled, which `method` sets.
@@ -611,17 +676,21 @@ fn open_sign_in(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut C
     };
     let form = plugin.token_form.clone();
     let mut typing = Vec::new();
-    let fields = (form.iter().flat_map(|form| &form.fields))
-        .map(|field| {
+    let mut fields: Vec<(String, Entity<InputState>)> = Vec::new();
+    let other_fields = form.iter().flat_map(|form| &form.other_way);
+    for field in
+        (form.iter().flat_map(|form| &form.fields)).chain(other_fields.flat_map(|way| &way.fields))
+    {
+        if typed_in(&fields, &field.name).is_none() {
             let input = cx.new(|cx| {
                 InputState::new(window, cx)
                     .placeholder(field.placeholder.clone())
                     .masked(field.secret)
             });
             typing.push(super::follow_typing(bench, &input, cx));
-            input
-        })
-        .collect();
+            fields.push((field.name.clone(), input));
+        }
+    }
     let profile = (plugin.id == AWS)
         .then(|| {
             super::state(bench, cx)?
@@ -637,6 +706,8 @@ fn open_sign_in(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut C
         plugin: plugin.id,
         fields,
         _typing: typing,
+        other_way: false,
+        ticked: Vec::new(),
         profile,
         busy: false,
         refused: None,
@@ -649,7 +720,36 @@ fn close_sign_in(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.signing = None);
 }
 
-/// Sends what the token form holds to the method it names.
+/// The box a field of the form is typed in.
+fn typed_in<'a>(
+    fields: &'a [(String, Entity<InputState>)],
+    name: &str,
+) -> Option<&'a Entity<InputState>> {
+    let (_, input) = fields.iter().find(|(field, _)| field == name)?;
+    Some(input)
+}
+
+fn switch_way(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    change_fields(bench, cx, |fields, _| {
+        if let Some(signing) = &mut fields.signing {
+            signing.other_way = !signing.other_way;
+            signing.refused = None;
+        }
+    });
+}
+
+fn tick(bench: &mut Workbench, name: String, on: bool, cx: &mut Context<Workbench>) {
+    change_fields(bench, cx, |fields, _| {
+        if let Some(signing) = &mut fields.signing {
+            signing.ticked.retain(|ticked| *ticked != name);
+            if on {
+                signing.ticked.push(name);
+            }
+        }
+    });
+}
+
+/// Sends what the way in showing holds to the method it names.
 fn sign_in_with_token(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(fields) = super::state(bench, cx).and_then(|pages| pages.connectors.as_ref()) else {
         return;
@@ -660,17 +760,24 @@ fn sign_in_with_token(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(form) = bench.reads.plugins.token_form(&signing.plugin) else {
         return;
     };
-    let typed: Map<String, Value> = form
-        .fields
+    let (method, way) = form.way(signing.other_way);
+    let mut typed: Map<String, Value> = way
         .iter()
-        .zip(&signing.fields)
-        .map(|(field, input)| {
-            let value = input.read(cx).value().trim().to_owned();
+        .filter_map(|field| {
+            let typed = typed_in(&signing.fields, &field.name)?.read(cx).value();
+            let value = match field.exact {
+                true => typed.to_string(),
+                false => typed.trim().to_owned(),
+            };
             let value = (!value.is_empty()).then_some(Value::String(value));
-            (field.name.clone(), value.unwrap_or(Value::Null))
+            Some((field.name.clone(), value.unwrap_or(Value::Null)))
         })
         .collect();
-    let signed = ask::<Value>(bench, &signing.plugin, &form.method, typed.into());
+    for check in &form.checks {
+        let on = signing.ticked.contains(&check.name);
+        typed.insert(check.name.clone(), Value::Bool(on));
+    }
+    let signed = ask::<Value>(bench, &signing.plugin, method, typed.into());
     change_fields(bench, cx, |fields, _| {
         if let Some(signing) = &mut fields.signing {
             signing.busy = true;
@@ -784,7 +891,9 @@ fn stop_browser(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 /// What the open sign-in shows, read out of the page's state before it is drawn.
 struct Shown {
     plugin: String,
-    fields: Vec<Entity<InputState>>,
+    fields: Vec<(String, Entity<InputState>)>,
+    other_way: bool,
+    ticked: Vec<String>,
     profile: Option<String>,
     busy: bool,
     refused: Option<SharedString>,
@@ -809,12 +918,16 @@ pub fn dialog(
 ) -> Option<AnyElement> {
     let (signing, profiles) = {
         let fields = super::state(bench, cx)?.connectors.as_ref()?;
-        let signing = fields.signing.as_ref()?;
+        let Some(signing) = fields.signing.as_ref() else {
+            return settings_dialog(bench, this, cx);
+        };
         let profiles = fields.aws.as_ref().map(|aws| aws.profiles.clone());
         (
             Shown {
                 plugin: signing.plugin.clone(),
                 fields: signing.fields.clone(),
+                other_way: signing.other_way,
+                ticked: signing.ticked.clone(),
                 profile: signing.profile.clone(),
                 busy: signing.busy,
                 refused: signing.refused.clone(),
@@ -895,14 +1008,36 @@ pub fn dialog(
         if browser {
             screen = screen.child(sign_in::or("or paste a token", cx));
         }
-        for (field, input) in form.fields.iter().zip(&signing.fields) {
+        let (_, way) = form.way(signing.other_way);
+        let boxes: Vec<_> = way
+            .iter()
+            .filter_map(|field| Some((field, typed_in(&signing.fields, &field.name)?)))
+            .collect();
+        for (field, input) in &boxes {
             let typed = sign_in::Field::new(field.label.clone(), input);
             screen = screen.child(if field.secret { typed.mono() } else { typed });
         }
-        let filled = signing
-            .fields
+        for check in &form.checks {
+            let name = check.name.clone();
+            let this = this.clone();
+            screen = screen.child(
+                div().w_full().flex().child(
+                    Checkbox::new(SharedString::from(format!(
+                        "connector-check-{}",
+                        check.name
+                    )))
+                    .label(check.label.clone())
+                    .checked(signing.ticked.contains(&check.name))
+                    .on_click(move |on: &bool, _, cx| {
+                        let (name, on) = (name.clone(), *on);
+                        this.update(cx, |bench, cx| tick(bench, name, on, cx))
+                    }),
+                ),
+            );
+        }
+        let filled = boxes
             .iter()
-            .all(|input| !input.read(cx).value().trim().is_empty());
+            .all(|(_, input)| !input.read(cx).value().trim().is_empty());
         screen = screen.child(
             ui::Button::new(
                 "connector-token",
@@ -926,18 +1061,23 @@ pub fn dialog(
         (None, Some(problem)) => screen = screen.child(sign_in::note(problem.clone(), cx)),
         (None, None) => {}
     }
-    let server = form
-        .and_then(|form| {
-            form.fields
-                .iter()
-                .zip(&signing.fields)
-                .find(|(field, _)| field.name == "host")
-        })
-        .map(|(_, input)| input.read(cx).value().to_string())
+    let server = typed_in(&signing.fields, "host")
+        .map(|input| input.read(cx).value().to_string())
         .unwrap_or_default();
     let page = form.and_then(|form| form.token_page(&server));
+    let switch = form
+        .and_then(|form| form.other_way.as_ref())
+        .map(|way| match signing.other_way {
+            true => way.back.clone(),
+            false => way.offer.clone(),
+        });
     screen = screen.child(
         sign_in::links()
+            .when_some(switch, |links, words| {
+                links.child(
+                    sign_in::link("connector-other-way", words, cx).on_click(on(this, switch_way)),
+                )
+            })
             .when_some(page, |links, page| {
                 links.child(
                     sign_in::link("connector-token-page", "Create a token", cx)
@@ -958,4 +1098,68 @@ pub fn dialog(
     };
     let body = div().px(px(4.)).pt(px(4.)).child(screen);
     Some(dialog::floating(px(440.), body, go, close, cx).into_any_element())
+}
+
+fn close_settings(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    change_fields(bench, cx, |fields, _| fields.configuring = None);
+}
+
+/// The open connector's settings, over the page.
+fn settings_dialog(
+    bench: &Workbench,
+    this: &Entity<Workbench>,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let (plugin, items) = {
+        let fields = super::state(bench, cx)?.connectors.as_ref()?;
+        let id = fields.configuring.as_deref()?;
+        let plugin = bench.reads.plugins.all().find(|plugin| plugin.id == id)?;
+        if !has_settings(plugin, fields) {
+            return None;
+        }
+        (plugin, settings(plugin, fields, this, cx))
+    };
+    let t = Tokens::get(cx).clone();
+    let count = items.len();
+    let body = div()
+        .id("connector-settings")
+        .max_h(px(480.))
+        .overflow_y_scroll()
+        .pl(px(dialog::GLYPH_INSET))
+        .pr(SPACE_5)
+        .pb(SPACE_2)
+        .flex()
+        .flex_col()
+        .children(items.into_iter().enumerate().map(|(at, item)| {
+            div()
+                .py(SPACE_3)
+                .when(at + 1 < count, |item| {
+                    item.border_b_1().border_color(t.line_soft)
+                })
+                .child(item)
+        }))
+        .into_any_element();
+    let close: dialog::Answer = {
+        let this = this.clone();
+        std::rc::Rc::new(move |_, cx| this.update(cx, close_settings))
+    };
+    let foot = dialog::hinted_foot(dialog::escape("close", cx), cx).child(dialog::button(
+        "connector-settings-done",
+        "Done".into(),
+        Some(t.accent),
+        close.clone(),
+        cx,
+    ));
+    Some(
+        dialog::marked_sheet(
+            mark(&plugin.id),
+            format!("{} settings", plugin.name).into(),
+            body,
+            foot,
+            close.clone(),
+            close,
+            cx,
+        )
+        .into_any_element(),
+    )
 }

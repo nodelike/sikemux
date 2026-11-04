@@ -20,7 +20,37 @@
         "placeholder": "Your Rundeck API token",
         "secret": true
       }
-    ]
+    ],
+    "checks": [
+      {
+        "name": "allow_insecure_private_http",
+        "label": "Allow plain HTTP on a private network"
+      }
+    ],
+    "otherWay": {
+      "method": "login",
+      "offer": "Use a username and password instead",
+      "back": "Use an API token instead",
+      "fields": [
+        {
+          "name": "url",
+          "label": "Rundeck server",
+          "placeholder": "https://rundeck.example.com"
+        },
+        {
+          "name": "user",
+          "label": "Username",
+          "placeholder": "Your Rundeck username"
+        },
+        {
+          "name": "password",
+          "label": "Password",
+          "placeholder": "Your Rundeck password",
+          "secret": true,
+          "exact": true
+        }
+      ]
+    }
   },
   "tools": [
     {
