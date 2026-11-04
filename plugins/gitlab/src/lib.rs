@@ -77,13 +77,10 @@ async fn signed_in(data_dir: &Path, outcome: GitlabResult<String>) -> Result<Val
     reply(as_account(Some(id), auth::status(data_dir)).await)
 }
 
-/// Whether the repository has a remote on a GitLab server an account is signed in to.
-fn works_in(data_dir: &Path, remotes: &[String]) -> bool {
-    let config = config::load(data_dir).unwrap_or_default();
-    remotes
-        .iter()
-        .filter_map(|remote| repo::from_remote(remote))
-        .any(|repo| config.account_on(&repo.host).is_some())
+/// Whether an account is signed in. Its tools name the project they act on, so they work from
+/// any folder, and a person who connected GitLab expects their agents to have them.
+fn has_account(data_dir: &Path) -> bool {
+    config::load(data_dir).is_ok_and(|config| !config.accounts.is_empty())
 }
 
 /// Which account a call is for: the one it names, or else the first on the
@@ -122,9 +119,9 @@ impl Plugin for Gitlab {
     fn offers_agent_tools<'a>(
         &'a self,
         ctx: &'a PluginContext,
-        remotes: &'a [String],
+        _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(works_in(ctx.data_dir(), remotes)) })
+        Box::pin(async move { Ok(has_account(ctx.data_dir())) })
     }
 }
 
@@ -413,13 +410,11 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_is_offered_gitlab_only_when_signed_in_to_the_remotes_server() {
+    fn an_agent_is_offered_gitlab_whenever_signed_in() {
         let dir = temp("offer");
-        let remote = ["https://gitlab.acme.dev/platform/api.git".to_string()];
-        assert!(!works_in(&dir, &remote));
+        assert!(!has_account(&dir));
         signed_in_to(&dir, "gitlab.acme.dev");
-        assert!(works_in(&dir, &remote));
-        assert!(!works_in(&dir, &["git@gitlab.com:x/y.git".to_string()]));
+        assert!(has_account(&dir));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -428,7 +423,6 @@ mod tests {
         let dir = temp("port");
         signed_in_to(&dir, "git.acme.dev:8443");
         let remote = ["ssh://git@git.acme.dev:2222/platform/api.git".to_string()];
-        assert!(works_in(&dir, &remote));
         let resolved = resolve(
             &dir,
             RemoteQuery {

@@ -78,13 +78,10 @@ async fn signed_in(
     reply(as_account(Some(id), auth::status(data_dir)).await)
 }
 
-/// Whether the repository has a remote on Bitbucket, and an account is signed in.
-fn works_in(data_dir: &Path, remotes: &[String]) -> bool {
-    let on_bitbucket = remotes
-        .iter()
-        .filter_map(|remote| repo::from_remote(remote))
-        .any(|repo| repo.host == repo::HOST);
-    on_bitbucket && config::load(data_dir).is_ok_and(|config| !config.accounts.is_empty())
+/// Whether an account is signed in. Its tools name the repository they act on, so they work
+/// from any folder, and a person who connected Bitbucket expects their agents to have them.
+fn has_account(data_dir: &Path) -> bool {
+    config::load(data_dir).is_ok_and(|config| !config.accounts.is_empty())
 }
 
 /// Which account a call is for; with none named, the default one.
@@ -125,9 +122,9 @@ impl Plugin for Bitbucket {
     fn offers_agent_tools<'a>(
         &'a self,
         ctx: &'a PluginContext,
-        remotes: &'a [String],
+        _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(works_in(ctx.data_dir(), remotes)) })
+        Box::pin(async move { Ok(has_account(ctx.data_dir())) })
     }
 }
 
@@ -432,10 +429,9 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_is_offered_bitbucket_only_when_signed_in_with_a_remote_there() {
+    fn an_agent_is_offered_bitbucket_whenever_signed_in() {
         let dir = std::env::temp_dir().join(format!("sikemux-bb-offer-{}", std::process::id()));
-        let remote = ["https://bitbucket.org/swishx/api-docs.git".to_string()];
-        assert!(!works_in(&dir, &remote));
+        assert!(!has_account(&dir));
 
         let mut config = config::BitbucketConfig::default();
         config.upsert(config::Account {
@@ -447,11 +443,7 @@ mod tests {
             email: None,
         });
         sikemux_plugin_api::store::save(&dir, &config).expect("saves");
-        assert!(works_in(&dir, &remote));
-        assert!(!works_in(
-            &dir,
-            &["git@github.com:nodelike/sikemux.git".to_string()]
-        ));
+        assert!(has_account(&dir));
         std::fs::remove_dir_all(dir).ok();
     }
 
