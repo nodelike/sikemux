@@ -378,3 +378,9 @@ pub(super) async fn serve(core: Arc<Core>) {
         built = tokio::time::Instant::now();
     }
 }
+
+impl super::part::Part for DeviceViews {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![super::part::serving(core, serve)]
+    }
+}

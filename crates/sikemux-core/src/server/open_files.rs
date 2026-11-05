@@ -66,9 +66,7 @@ pub(crate) fn show(core: &Arc<Core>, client: ClientId, shown: ShowFiles) -> Core
         }
         open.insert(on_disk(Path::new(&path)), path);
     }
-    let connected: HashSet<ClientId> = core.clients().iter().map(|client| client.id).collect();
     let mut state = core.open_files.state.locked();
-    state.by_client.retain(|id, _| connected.contains(id));
     if open.is_empty() {
         state.by_client.remove(&client);
     } else {
@@ -151,4 +149,17 @@ fn start(core: Weak<Core>) -> CoreResult<RecommendedWatcher> {
         }
     });
     Ok(watcher)
+}
+
+impl super::part::Part for OpenFiles {
+    fn client_gone(&self, core: &Arc<Core>, client: ClientId) {
+        let mut state = self.state.locked();
+        if state.by_client.remove(&client).is_some() {
+            if let Err(error) = rewatch(core, &mut state) {
+                eprintln!(
+                    "sikemux core: the folders of open files were not watched again: {error}"
+                );
+            }
+        }
+    }
 }

@@ -693,3 +693,13 @@ fn not_linked(core: &Core, host: &str) -> CoreError {
         name_of(core, host)
     ))
 }
+
+impl crate::server::part::Part for Hosts {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        use crate::server::part::on_wake;
+        vec![
+            on_wake(core, |core| &core.hosts.wake, settle),
+            on_wake(core, |core| &core.hosts.relink, account::relink),
+        ]
+    }
+}

@@ -429,12 +429,6 @@ impl Workspaces {
         workspaces
     }
 
-    /// Waits until every change so far is on disk, for a core about to stop
-    /// or hand over to another.
-    pub(crate) fn flush(&self) {
-        self.file.flush();
-    }
-
     /// Changes what is saved, keeps it, and tells the core when anything
     /// changed.
     fn change<T>(&self, change: impl FnOnce(&mut Saved) -> CoreResult<T>) -> CoreResult<T> {
@@ -1440,6 +1434,19 @@ pub(crate) fn settle(core: &Arc<Core>) {
     core.names.settle(core.open_agents());
     super::session_watch::follow(core);
     core.agents_changed();
+}
+
+impl super::part::Part for Workspaces {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![
+            super::part::on_wake(core, |core| &core.workspaces.wake, settle),
+            tokio::spawn(recents(core.clone())),
+        ]
+    }
+
+    fn flush(&self) {
+        self.file.flush();
+    }
 }
 
 #[cfg(test)]

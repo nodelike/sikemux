@@ -256,3 +256,9 @@ impl Window {
         self.inner.locked().calls.remove(&id);
     }
 }
+
+impl super::part::Part for Window {
+    fn client_gone(&self, _core: &std::sync::Arc<super::Core>, client: ClientId) {
+        self.unregister(client);
+    }
+}

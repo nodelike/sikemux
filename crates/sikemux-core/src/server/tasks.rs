@@ -1463,3 +1463,9 @@ pub(crate) fn answer_trust_for(
 ) -> CoreResult<()> {
     answer_trust(core, &params.id, params.trust, answered_by(core, peer))
 }
+
+impl super::part::Part for Tasks {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![super::part::serving(core, publish_runs)]
+    }
+}

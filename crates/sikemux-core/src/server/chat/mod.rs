@@ -2768,3 +2768,9 @@ fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
         eprintln!("sikemux core: the agent's model choice was not kept: {error}");
     }
 }
+
+impl crate::server::part::Part for Chats {
+    fn client_gone(&self, _core: &Arc<Core>, client: ClientId) {
+        self.forget_client(client);
+    }
+}

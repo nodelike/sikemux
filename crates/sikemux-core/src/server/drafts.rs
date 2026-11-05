@@ -5,8 +5,8 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -118,7 +118,7 @@ pub(crate) fn changed(core: &Core, keys: Vec<String>) {
     core.changes.changed(Topic::Drafts, None, Some(keys));
 }
 
-pub(crate) struct Drafts(Arc<Held>);
+pub(crate) struct Drafts(Held);
 
 struct Held {
     drafts: Mutex<BTreeMap<String, Stored>>,
@@ -127,23 +127,17 @@ struct Held {
     /// The last revision given; it starts at the time so it keeps growing across restarts.
     rev: AtomicU64,
     kept: Kept,
-    /// A save is on its way and will write what `drafts` holds by then.
-    saving: AtomicBool,
-    /// Taken for each save, so a later one never writes before an earlier.
-    writing: Mutex<()>,
 }
 
 impl Drafts {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let kept = Kept::new(data_dir, FILE);
-        Self(Arc::new(Held {
+        Self(Held {
             drafts: Mutex::new(kept.load()),
             delivered: Mutex::default(),
             rev: AtomicU64::new(epoch_ms()),
             kept,
-            saving: AtomicBool::new(false),
-            writing: Mutex::new(()),
-        }))
+        })
     }
 
     /// The text of the draft under `key`, taken out of it; whatever the draft
@@ -307,23 +301,14 @@ impl Drafts {
         forgotten
     }
 
-    /// Saves off the caller's thread; a burst of keystrokes is written once each save
-    /// has finished.
     fn save_soon(&self) {
-        if self.0.saving.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let held = self.0.clone();
-        let save = move || {
-            let _writing = held.writing.locked();
-            held.saving.store(false, Ordering::Release);
-            let drafts = held.drafts.locked().clone();
-            held.kept.save(&drafts);
-        };
-        match tokio::runtime::Handle::try_current() {
-            Ok(runtime) => drop(runtime.spawn_blocking(save)),
-            Err(_) => save(),
-        }
+        self.0.kept.save_soon(&*self.0.drafts.locked());
+    }
+}
+
+impl super::part::Part for Drafts {
+    fn flush(&self) {
+        self.0.kept.flush();
     }
 }
 

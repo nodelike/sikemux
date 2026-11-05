@@ -760,12 +760,6 @@ impl Boards {
         Some(data.join(EVIDENCE).join(name))
     }
 
-    /// Waits until every board saved so far is on disk, for a core about to
-    /// stop or hand over to another.
-    pub(crate) fn flush(&self) {
-        self.writer.flush();
-    }
-
     /// A step Auto took on the card is over.
     fn end_job(&self, project: &str, id: u64) {
         self.state
@@ -3464,6 +3458,24 @@ fn tell_clients(core: &Core) {
     let dirty = std::mem::take(&mut core.boards.state.locked().dirty);
     for project in dirty {
         core.changes.changed(Topic::Boards, Some(&project), None);
+    }
+}
+
+impl super::part::Part for Boards {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![
+            super::part::on_wake(core, |core| &core.boards.wake, settle),
+            tokio::spawn(follow(core.clone())),
+        ]
+    }
+
+    fn flush(&self) {
+        self.writer.flush();
+        self.chat_goals.flush();
+    }
+
+    fn has_work(&self) -> bool {
+        auto::has_work(self)
     }
 }
 

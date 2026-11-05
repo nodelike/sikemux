@@ -1690,6 +1690,24 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
     Ok(PageHtml { html })
 }
 
+impl super::part::Part for Harness {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        use super::part::on_wake;
+        vec![
+            on_wake(
+                core,
+                |core| &core.harness.mailbox.wake,
+                super::messages::settle,
+            ),
+            on_wake(
+                core,
+                |core| &core.harness.questions.wake,
+                super::questions::settle,
+            ),
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

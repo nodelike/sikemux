@@ -712,3 +712,9 @@ pub(crate) fn swap(bundle: &Path, archive: &Path) -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&staging);
     Ok(())
 }
+
+impl super::part::Part for Updates {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![super::part::serving(core, serve)]
+    }
+}

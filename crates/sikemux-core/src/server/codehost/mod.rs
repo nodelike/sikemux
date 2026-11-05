@@ -578,6 +578,12 @@ fn tracked_items(pulls: Vec<Pull>, issues: Vec<Issue>) -> Vec<TrackedItem> {
     items
 }
 
+impl super::part::Part for Lists {
+    fn client_gone(&self, _core: &Arc<Core>, client: ClientId) {
+        self.lists.client_gone(client);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

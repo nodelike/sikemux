@@ -1569,3 +1569,13 @@ fn names_file(command: &str, place: &Path) -> bool {
             })
         })
 }
+
+impl crate::server::part::Part for Collisions {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![crate::server::part::on_wake(
+            core,
+            |core| &core.collisions.wake,
+            settle,
+        )]
+    }
+}

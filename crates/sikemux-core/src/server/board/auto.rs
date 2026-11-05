@@ -446,8 +446,8 @@ fn takes(board: &Board, card: &Card) -> bool {
 
 /// Whether some board has Auto on with work it could still do, which keeps
 /// the core running with nothing else open.
-pub(crate) fn has_work(core: &Core) -> bool {
-    let state = core.boards.state.locked();
+pub(crate) fn has_work(boards: &super::Boards) -> bool {
+    let state = boards.state.locked();
     state.boards.values().any(|board| {
         board.settings.auto
             && board

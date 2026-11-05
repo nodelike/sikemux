@@ -399,9 +399,7 @@ async fn hand_over(core: &Arc<Core>, binary: PathBuf) -> String {
     let replacing = core.clone();
     let replaced = blocking(move || {
         let mut chats = chats;
-        replacing.workspaces.flush();
-        replacing.boards.flush();
-        replacing.memory.flush();
+        replacing.flush_parts();
         let error = handover::replace_process(&replacing, &binary, &mut chats);
         Ok((error, chats))
     })

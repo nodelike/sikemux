@@ -104,3 +104,9 @@ pub(crate) fn set_layout(core: &Core, params: DiagramParams) -> CoreResult<Value
     core.diagrams.set(&params.key, params.layout)?;
     Ok(json!({}))
 }
+
+impl super::part::Part for Diagrams {
+    fn flush(&self) {
+        self.kept.flush();
+    }
+}

@@ -574,3 +574,9 @@ pub(crate) fn watch(core: &Arc<Core>) {
         })
         .ok();
 }
+
+impl super::part::Part for Mods {
+    fn flush(&self) {
+        self.kept.flush();
+    }
+}

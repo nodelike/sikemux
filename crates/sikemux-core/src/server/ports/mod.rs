@@ -141,10 +141,7 @@ impl Ports {
 
 /// Whether a client that asked is still connected.
 fn watched(core: &Core) -> bool {
-    let connected: HashSet<ClientId> = core.clients().iter().map(|client| client.id).collect();
-    let mut state = core.ports.state.locked();
-    state.watchers.retain(|id| connected.contains(id));
-    !state.watchers.is_empty()
+    !core.ports.state.locked().watchers.is_empty()
 }
 
 fn address_rank(address: &IpAddr) -> u8 {
@@ -451,6 +448,20 @@ pub(crate) fn in_use(port: u16) -> bool {
 #[derive(Deserialize)]
 pub(crate) struct PortsParams {
     pub(crate) project: Option<String>,
+}
+
+impl crate::server::part::Part for Ports {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![crate::server::part::on_wake(
+            core,
+            |core| &core.ports.wake,
+            settle,
+        )]
+    }
+
+    fn client_gone(&self, _core: &Arc<Core>, client: ClientId) {
+        self.state.locked().watchers.remove(&client);
+    }
 }
 
 #[cfg(test)]

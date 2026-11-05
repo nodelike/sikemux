@@ -20,12 +20,23 @@ const HELLO: Duration = Duration::from_secs(5);
 const LINGER: Duration = Duration::from_secs(2);
 pub(super) const NAME_LIMIT: usize = 64;
 pub(super) const PLATFORM_LIMIT: usize = 16;
-/// Connections whose ticket is still being read. Past this, more are turned
-/// away before they cost anything.
-static READING: Semaphore = Semaphore::const_new(32);
-/// Phones with a good ticket waiting for the person, who adds one at a time.
-/// Only a ticket the account issued for this host takes one of these.
-static WAITING: Semaphore = Semaphore::const_new(4);
+pub(crate) struct Joins {
+    /// Connections whose ticket is still being read. Past this, more are turned
+    /// away before they cost anything.
+    reading: Semaphore,
+    /// Phones with a good ticket waiting for the person, who adds one at a time.
+    /// Only a ticket the account issued for this host takes one of these.
+    waiting: Semaphore,
+}
+
+impl Default for Joins {
+    fn default() -> Self {
+        Self {
+            reading: Semaphore::const_new(32),
+            waiting: Semaphore::const_new(4),
+        }
+    }
+}
 
 pub(super) fn clean(text: &str, limit: usize) -> String {
     let kept: String = text
@@ -57,7 +68,7 @@ async fn refuse(writer: &mut SendStream, connection: &Connection, phone: &str, r
 pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
     let phone = connection.remote_id().to_string();
     let (mut writer, hello) = {
-        let Ok(_reading) = READING.try_acquire() else {
+        let Ok(_reading) = core.joins.reading.try_acquire() else {
             connection.close(0u32.into(), b"busy");
             return;
         };
@@ -106,7 +117,7 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         finish(&mut writer, &connection, &reply).await;
         return;
     }
-    let Ok(_waiting) = WAITING.try_acquire() else {
+    let Ok(_waiting) = core.joins.waiting.try_acquire() else {
         connection.close(0u32.into(), b"busy");
         return;
     };
@@ -149,16 +160,11 @@ mod tests {
     const ACCOUNT: &str = "user_2vectorTest";
     const WAIT: Duration = Duration::from_secs(30);
 
-    /// The core takes only a few joins at once, which these tests would exceed side by side.
-    static ONE_HOST_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
     struct Host {
         core: Arc<Core>,
-        _turn: tokio::sync::MutexGuard<'static, ()>,
     }
 
     async fn host(vector: &Vector) -> Host {
-        let turn = ONE_HOST_AT_A_TIME.lock().await;
         let core = Core::new(BuildIdentity::default(), None).unwrap();
         core.remote
             .stand_in(SecretKey::generate(), Some(ACCOUNT), Vec::new());
@@ -166,7 +172,7 @@ mod tests {
         core.remote
             .trust_join_key(&vector.ticket.key_id, vector.public);
         remote::set_enabled(&core, true).await.unwrap();
-        Host { core, _turn: turn }
+        Host { core }
     }
 
     /// A host whose person asked to approve each new device.

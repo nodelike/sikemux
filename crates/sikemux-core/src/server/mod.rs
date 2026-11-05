@@ -60,6 +60,7 @@ mod network_watch;
 mod notch;
 mod notify;
 mod open_files;
+mod part;
 pub mod plugins;
 mod ports;
 mod preferences;
@@ -413,6 +414,7 @@ pub(crate) struct Core {
     pub(crate) collisions: collisions::Collisions,
     pub(crate) notify: notify::Notifier,
     pub(crate) inbox: inbox::Turns,
+    pub(crate) joins: join::Joins,
     /// Hosts linked with this one, and the agents of teams shared with them.
     pub(crate) hosts: hosts::Hosts,
     /// The faces agents wear, and the style the person picked for them.
@@ -554,6 +556,7 @@ impl Core {
             collisions: collisions::Collisions::new(me.clone()),
             notify: notify::Notifier::default(),
             inbox: inbox::Turns::default(),
+            joins: Default::default(),
             hosts,
             faces: faces::Faces::new(data_dir),
             preferences: preferences::Prefs::new(data_dir),
@@ -765,7 +768,7 @@ impl Core {
             && self.clients.locked().is_empty()
             && self.running_sessions() == 0
             && self.chats.count() == 0
-            && !board::auto::has_work(self)
+            && !self.parts_have_work()
     }
 
     pub(crate) fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>> {
@@ -777,12 +780,9 @@ impl Core {
         self.view_watched();
     }
 
-    fn unregister_client(&self, client: &ClientConn) {
+    fn unregister_client(self: &Arc<Self>, client: &ClientConn) {
         client.close();
-        self.window.unregister(client.id);
-        self.chats.forget_client(client.id);
-        self.seen.client_gone(client.id);
-        lsp::orphan(client.id);
+        self.tell_parts_client_gone(client.id);
         self.clients.locked().remove(&client.id);
         for (stream, id) in client.take_streams() {
             if let Some(session) = self.session(id) {
@@ -1150,75 +1150,13 @@ pub(crate) async fn run_core(
     }
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-    let background = [
+    let mut background = core.start_parts();
+    background.extend([
         tokio::spawn(poll_sessions(core.clone())),
         tokio::spawn(sweep(core.clone())),
-        tokio::spawn(device_view::serve(core.clone())),
         tokio::spawn(load::watch(core.clone())),
-        tokio::spawn(lifecycle::serve(core.clone())),
-        tokio::spawn(updates::serve(core.clone())),
-        tokio::spawn(changed::serve(core.clone())),
-        tokio::spawn(tasks::publish_runs(core.clone())),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.harness.mailbox.wake,
-            messages::settle,
-        )),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.harness.questions.wake,
-            questions::settle,
-        )),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.boards.wake,
-            board::settle,
-        )),
-        tokio::spawn(board::follow(core.clone())),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.memory.wake,
-            memory::settle,
-        )),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.triggers.wake,
-            triggers::settle,
-        )),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.collisions.wake,
-            collisions::settle,
-        )),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.workspaces.wake,
-            workspace::settle,
-        )),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.hosts.wake,
-            hosts::settle,
-        )),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.hosts.relink,
-            hosts::account::relink,
-        )),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.ports.wake,
-            ports::settle,
-        )),
-        tokio::spawn(wake::serve(
-            core.clone(),
-            |core| &core.spares.wake,
-            spare::settle,
-        )),
-        tokio::spawn(workspace::recents(core.clone())),
-        tokio::spawn(notify::run(core.clone())),
         tokio::spawn(network_watch::run(core.clone())),
-    ];
+    ]);
     let mut shutdown = core.shutdown.subscribe();
     let mut frozen = core.updating.watch();
     crate::waiting::wake(&config.socket);
@@ -1271,9 +1209,7 @@ pub(crate) async fn run_core(
     for task in background {
         task.abort();
     }
-    core.workspaces.flush();
-    core.boards.flush();
-    core.memory.flush();
+    core.flush_parts();
     remote::stop_network(&core);
     within_stop_limit("remote access", remote::stop(&core)).await;
     remote::stop_live(&core);

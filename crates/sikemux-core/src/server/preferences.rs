@@ -5,8 +5,7 @@ use super::changed::Topic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use serde_json::{Map, Value};
 use sikemux_process::sync::Locked;
@@ -20,15 +19,9 @@ use crate::protocol::{
 
 const FILE: &str = "preferences.json";
 
-pub(crate) struct Prefs(Arc<Held>);
-
-struct Held {
+pub(crate) struct Prefs {
     values: Mutex<Map<String, Value>>,
     kept: Kept,
-    /// A save is on its way and will write what `values` holds by then.
-    saving: AtomicBool,
-    /// Taken for each save, so a later one never writes before an earlier.
-    writing: Mutex<()>,
 }
 
 impl Prefs {
@@ -39,43 +32,29 @@ impl Prefs {
         for (key, value) in saved.as_object().into_iter().flatten() {
             let _ = put(&mut values, key, value.clone());
         }
-        Self(Arc::new(Held {
+        Self {
             values: Mutex::new(values),
             kept,
-            saving: AtomicBool::new(false),
-            writing: Mutex::new(()),
-        }))
+        }
     }
 
     pub(crate) fn get(&self) -> Preferences {
-        read(&self.0.values.locked())
+        read(&self.values.locked())
     }
 
     /// Keeps the preference `key`, refusing a key there is none of or a value it cannot hold.
     /// A running core goes through [`set`], for what follows from it.
     pub(super) fn store(&self, key: &str, value: Value) -> CoreResult<Preferences> {
-        let preferences = put(&mut self.0.values.locked(), key, value)?;
-        self.save_soon();
+        let mut values = self.values.locked();
+        let preferences = put(&mut values, key, value)?;
+        self.kept.save_soon(&*values);
         Ok(preferences)
     }
+}
 
-    /// Saves off the caller's thread; a burst of changes, such as a pinch's,
-    /// is written once each save has finished.
-    fn save_soon(&self) {
-        if self.0.saving.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let held = self.0.clone();
-        let save = move || {
-            let _writing = held.writing.locked();
-            held.saving.store(false, Ordering::Release);
-            let values = held.values.locked().clone();
-            held.kept.save(&values);
-        };
-        match tokio::runtime::Handle::try_current() {
-            Ok(runtime) => drop(runtime.spawn_blocking(save)),
-            Err(_) => save(),
-        }
+impl super::part::Part for Prefs {
+    fn flush(&self) {
+        self.kept.flush();
     }
 }
 

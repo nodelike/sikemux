@@ -100,6 +100,14 @@ impl<S: Shows> Default for ShownCache<S> {
 }
 
 impl<S: Shows> ShownCache<S> {
+    /// Stops counting what a connection that has gone showed.
+    pub(crate) fn client_gone(&self, client: ClientId) {
+        self.state
+            .locked()
+            .shown
+            .retain(|(shown_by, _), _| *shown_by != client);
+    }
+
     /// `client` shows `key` at `slot` now; what was read of it lately, when it
     /// is fresh enough to answer with.
     pub(crate) fn show(&self, client: ClientId, slot: S::Slot, key: &S::Key) -> Option<Value> {
@@ -185,14 +193,9 @@ fn follow<S: Shows>(core: &Arc<Core>) {
                 () = wake.notified() => {}
             }
             let Some(core) = weak.upgrade() else { return };
-            let connected: HashSet<ClientId> =
-                core.clients().iter().map(|client| client.id).collect();
             let cache = S::cache(&core);
             let (due, slots) = {
                 let mut state = cache.state.locked();
-                state
-                    .shown
-                    .retain(|(client, _), _| connected.contains(client));
                 let shown: HashSet<S::Key> = state.shown.values().cloned().collect();
                 state
                     .kept

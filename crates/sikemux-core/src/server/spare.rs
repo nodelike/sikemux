@@ -488,3 +488,9 @@ pub(crate) fn stop(core: &Arc<Core>, id: SessionId) {
         tokio::task::spawn_blocking(move || session::kill(&core, &target));
     }
 }
+
+impl super::part::Part for Spares {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![super::part::on_wake(core, |core| &core.spares.wake, settle)]
+    }
+}

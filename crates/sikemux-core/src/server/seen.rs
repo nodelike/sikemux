@@ -126,7 +126,7 @@ impl Seen {
         self.state.locked().show(client, view)
     }
 
-    pub(crate) fn client_gone(&self, client: ClientId) {
+    fn forget_client(&self, client: ClientId) {
         self.state.locked().show(client, View::default());
     }
 
@@ -167,6 +167,12 @@ impl Seen {
     /// When the agent began the turn it is on or last ran.
     pub(crate) fn started_at(&self, agent_id: &str) -> Option<u64> {
         self.state.locked().started_at.get(agent_id).copied()
+    }
+}
+
+impl super::part::Part for Seen {
+    fn client_gone(&self, _core: &std::sync::Arc<super::Core>, client: ClientId) {
+        self.forget_client(client);
     }
 }
 
@@ -220,10 +226,10 @@ mod tests {
         let seen = Seen::default();
         assert_eq!(shows(&seen, 1, &["a"]), vec!["a".to_owned()]);
         assert!(shows(&seen, 2, &["a"]).is_empty());
-        seen.client_gone(1);
+        seen.forget_client(1);
         seen.wants_a_look("a");
         assert!(!seen.unread("a"));
-        seen.client_gone(2);
+        seen.forget_client(2);
         seen.wants_a_look("a");
         assert!(seen.unread("a"));
     }

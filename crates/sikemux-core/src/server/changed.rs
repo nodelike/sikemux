@@ -63,3 +63,9 @@ pub(crate) async fn serve(core: Arc<Core>) {
         }
     }
 }
+
+impl super::part::Part for Changes {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![super::part::serving(core, serve)]
+    }
+}

@@ -717,3 +717,13 @@ fn fired_request(delivery: HookDelivery) -> FiredRequest {
 pub(crate) struct TriggerParams {
     pub(crate) trigger: u64,
 }
+
+impl super::part::Part for Triggers {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![super::part::on_wake(
+            core,
+            |core| &core.triggers.wake,
+            settle,
+        )]
+    }
+}

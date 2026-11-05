@@ -140,7 +140,7 @@ pub(crate) fn sleep_all(core: &Core) {
         core.chats.rest(&chat);
         core.workspaces.set_asleep(chat.agent_id(), true);
     }
-    core.workspaces.flush();
+    super::part::Part::flush(&core.workspaces);
 }
 
 /// Puts the agent to sleep at the person's word: a chat as [`sleep`] does, and
@@ -342,6 +342,12 @@ fn idle(core: &Core, agent_id: &str) -> bool {
     core.chats
         .get(agent_id)
         .is_some_and(|chat| chat.state_now() == AgentState::Idle)
+}
+
+impl super::part::Part for Lifecycle {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![super::part::serving(core, serve)]
+    }
 }
 
 #[cfg(test)]

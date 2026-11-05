@@ -176,10 +176,18 @@ impl Memory {
         }
         Some(file.clone())
     }
+}
 
-    /// Waits until every change so far is on disk, before the core stops or
-    /// is replaced.
-    pub(crate) fn flush(&self) {
+impl crate::server::part::Part for Memory {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![crate::server::part::on_wake(
+            core,
+            |core| &core.memory.wake,
+            settle,
+        )]
+    }
+
+    fn flush(&self) {
         let files: Vec<Arc<Kept>> = self.state.locked().files.values().cloned().collect();
         for file in files {
             file.flush();

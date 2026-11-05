@@ -763,3 +763,9 @@ pub(super) fn plain_stalled(core: &Core, card: &Card) -> Option<lease::Stalled> 
 pub struct ChatGoalParams {
     pub agent_id: String,
 }
+
+impl ChatGoals {
+    pub(super) fn flush(&self) {
+        self.kept.flush();
+    }
+}
