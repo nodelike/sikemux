@@ -22,13 +22,13 @@ mod services;
 mod traces;
 
 use std::path::Path;
-use std::sync::Arc;
 
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, SignInStatus,
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, SignInStatus,
+    SignedInAs,
 };
 
 use crate::config::AuthMode;
@@ -45,14 +45,15 @@ pub struct Where {
     pub version: Option<String>,
 }
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Signoz {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
+sikemux_plugin_api::plugin!(Signoz);
 
-struct Signoz {
-    manifest: Manifest,
+impl SignedInAs for Where {
+    fn signed_in_as(&self) -> Option<String> {
+        Some(match self.email.is_empty() {
+            true => self.url.clone(),
+            false => self.email.clone(),
+        })
+    }
 }
 
 type Status = SignInStatus<Where>;
@@ -60,7 +61,7 @@ type Status = SignInStatus<Where>;
 async fn status(data_dir: &Path) -> Status {
     let config = match auth::load(data_dir).await {
         Ok(config) => config,
-        Err(error) => return status_of(false, Where::default(), Some(error)),
+        Err(error) => return Status::checked(false, Where::default(), &Err::<(), _>(error)),
     };
     let mut found = Where {
         url: config.url.clone(),
@@ -70,7 +71,7 @@ async fn status(data_dir: &Path) -> Status {
         version: None,
     };
     if config.url.is_empty() {
-        return status_of(false, found, None);
+        return Status::checked(false, found, &Err::<(), _>(SignozError::Unconfigured));
     }
     found.version = client::send(
         &auth::Credentials::anonymous(&config.url),
@@ -90,26 +91,8 @@ async fn status(data_dir: &Path) -> Status {
         query::window(Some(1)),
         json!({ "signal": "logs", "limit": 1 }),
     );
-    let check = client::query_range(data_dir, &probe).await.err();
-    status_of(true, found, check)
-}
-
-/// A credential that is missing or that SigNoz turns down needs signing in again.
-fn status_of(configured: bool, found: Where, error: Option<SignozError>) -> Status {
-    Status {
-        configured,
-        ok: configured && error.is_none(),
-        auth_failed: matches!(
-            error,
-            Some(SignozError::Unconfigured | SignozError::Auth(_) | SignozError::Forbidden(_))
-        ),
-        message: error.map(|error| error.to_string()),
-        signed_in_as: configured.then(|| match found.email.is_empty() {
-            true => found.url.clone(),
-            false => found.email.clone(),
-        }),
-        details: found,
-    }
+    let check = client::query_range(data_dir, &probe).await;
+    Status::checked(true, found, &check)
 }
 
 /// Whether a call could find a credential, judged without the Keychain.
@@ -123,10 +106,6 @@ async fn signed_in(data_dir: &Path, outcome: SignozResult<()>) -> Result<Value, 
 }
 
 impl Plugin for Signoz {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -216,7 +195,7 @@ mod live {
         (PluginContext::new(dir.clone()), dir)
     }
 
-    async fn reads_everything(plugin: &Arc<dyn Plugin>, ctx: &PluginContext) {
+    async fn reads_everything(plugin: &std::sync::Arc<dyn Plugin>, ctx: &PluginContext) {
         let services = plugin
             .call(ctx, "services", json!({ "minutes": 15 }))
             .await

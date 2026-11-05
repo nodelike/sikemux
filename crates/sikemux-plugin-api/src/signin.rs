@@ -27,19 +27,24 @@ pub trait SignedInAs {
 
 impl<D: SignedInAs> SignInStatus<D> {
     /// What asking the service as the signed-in account found. A spent rate
-    /// limit still means the sign-in works.
+    /// limit or a refusal of that one request still means the sign-in works,
+    /// and a sign-in with its secret gone needs doing again.
     pub fn checked<T, S: Service>(
         configured: bool,
         details: D,
         check: &Result<T, ServiceError<S>>,
     ) -> Self {
         let (ok, auth_failed) = match check {
-            Ok(_) | Err(ServiceError::RateLimited { .. }) => (true, false),
+            Ok(_) | Err(ServiceError::RateLimited { .. } | ServiceError::Forbidden(_)) => {
+                (true, false)
+            }
             Err(ServiceError::Auth(_)) => (false, true),
+            Err(ServiceError::Unconfigured) => (false, configured),
             Err(_) => (false, false),
         };
         let message = match check {
-            Ok(_) | Err(ServiceError::Unconfigured) => None,
+            Ok(_) => None,
+            Err(ServiceError::Unconfigured) if !configured => None,
             Err(error) => Some(error.to_string()),
         };
         Self {
@@ -51,4 +56,12 @@ impl<D: SignedInAs> SignInStatus<D> {
             details,
         }
     }
+}
+
+/// `ankit in Acme, ankit in Side`, for a service with workspaces.
+pub fn people_in<'a>(workspaces: impl Iterator<Item = (&'a str, &'a str)>) -> Option<String> {
+    let named: Vec<String> = workspaces
+        .map(|(person, workspace)| format!("{person} in {workspace}"))
+        .collect();
+    (!named.is_empty()).then(|| named.join(", "))
 }

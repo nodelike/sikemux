@@ -14,28 +14,15 @@ mod error;
 mod issues;
 mod oauth;
 
-use std::sync::Arc;
-
 use serde_json::Value;
+use sikemux_plugin_api::store;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Linear {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Linear {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Linear);
 
 impl Plugin for Linear {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -86,7 +73,7 @@ impl Plugin for Linear {
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(!config::load(ctx.data_dir())?.workspaces.is_empty()) })
+        Box::pin(async move { Ok(store::has_account::<config::LinearConfig>(ctx.data_dir())) })
     }
 }
 

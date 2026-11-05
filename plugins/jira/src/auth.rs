@@ -4,8 +4,8 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_plugin_api::oauth::Tokens;
-use sikemux_plugin_api::store::{self, Accounts};
-use sikemux_plugin_api::{SignInStatus, StreamSink};
+use sikemux_plugin_api::store::{self, Accounts, Held};
+use sikemux_plugin_api::{SignInStatus, SignedInAs, StreamSink};
 
 use crate::client::{self, Auth, Credentials};
 use crate::config::{self, normalise_host, JiraConfig, SignIn as SiteSignIn, Site};
@@ -30,15 +30,39 @@ pub struct Sites {
     pub browser_sign_in: bool,
 }
 
+impl Sites {
+    fn of(sites: Vec<SiteStatus>) -> Self {
+        Self {
+            sites,
+            browser_sign_in: oauth::APP.available(),
+        }
+    }
+}
+
+impl SignedInAs for Sites {
+    fn signed_in_as(&self) -> Option<String> {
+        let named: Vec<String> = self
+            .sites
+            .iter()
+            .map(|site| match &site.display_name {
+                Some(name) => format!("{name} on {}", site.host),
+                None => site.host.clone(),
+            })
+            .collect();
+        Some(named.join(", "))
+    }
+}
+
+/// The token read lately for each site, under `Site::keychain_account`.
+static TOKENS: Held<String> = Held::secrets();
+
 /// Who is asking, on the site named or the default one.
 pub async fn credentials(data_dir: &Path, host: Option<&str>) -> JiraResult<(Site, Credentials)> {
     let site = config::load(data_dir)?.site(host)?.clone();
     let credentials = match &site.sign_in {
         SiteSignIn::Token { email } => {
             let kept = site.keychain_account();
-            let token = store::blocking(move || Ok(config::KEYCHAIN.read(&kept)?))
-                .await?
-                .ok_or(JiraError::Unconfigured)?;
+            let token = TOKENS.secret(config::KEYCHAIN, &kept, kept.clone()).await?;
             Credentials {
                 url: format!("https://{}", site.host),
                 auth: Auth::Basic {
@@ -52,7 +76,7 @@ pub async fn credentials(data_dir: &Path, host: Option<&str>) -> JiraResult<(Sit
             auth: Auth::Atlassian {
                 site: site.clone(),
                 token: oauth::ACCESS
-                    .access(&site.account_id, oauth::entry(&site))
+                    .access(&site.account_id, site.keychain_account())
                     .await?
                     .token,
             },
@@ -114,12 +138,16 @@ pub async fn sign_in(data_dir: &Path, request: SignIn) -> JiraResult<()> {
         display_name: me.display_name,
         sign_in: SiteSignIn::Token { email },
     };
+    let entry = site.keychain_account();
+    let forgotten = entry.clone();
     store::update(data_dir, move |config: &mut JiraConfig| {
-        config::KEYCHAIN.write(&site.keychain_account(), &token)?;
+        config::KEYCHAIN.write(&entry, &token)?;
         config.upsert(site);
         Ok(())
     })
-    .await
+    .await?;
+    TOKENS.forget(Some(&forgotten));
+    Ok(())
 }
 
 /// Opens Atlassian's sign-in in the browser, through the URL sent down the stream, and
@@ -193,6 +221,7 @@ pub async fn sign_out(data_dir: &Path, request: SignOut) -> JiraResult<()> {
         Ok(Some(site.account_id))
     })
     .await?;
+    TOKENS.forget(None);
     if let Some(account_id) = unused {
         oauth::ACCESS.forget(Some(&account_id)).await;
     }
@@ -205,7 +234,7 @@ pub type Status = SignInStatus<Sites>;
 pub async fn status(data_dir: &Path) -> Status {
     let saved = match config::load(data_dir) {
         Ok(saved) => saved,
-        Err(error) => return status_of(Vec::new(), Some(error)),
+        Err(error) => return Status::checked(false, Sites::of(Vec::new()), &Err::<(), _>(error)),
     };
     let sites = saved
         .sites
@@ -220,34 +249,5 @@ pub async fn status(data_dir: &Path) -> Status {
         Ok((_, credentials)) => who_is(&credentials).await.map(|_| ()),
         Err(error) => Err(error),
     };
-    status_of(sites, probe.err())
-}
-
-/// A site whose token is gone from the Keychain, or that Jira refuses, needs signing in again.
-fn status_of(sites: Vec<SiteStatus>, error: Option<JiraError>) -> Status {
-    let auth_failed = matches!(
-        error,
-        Some(JiraError::Unconfigured | JiraError::Auth(_) | JiraError::Forbidden(_))
-    );
-    let configured = !sites.is_empty();
-    let named: Vec<String> = sites
-        .iter()
-        .map(|site| match &site.display_name {
-            Some(name) => format!("{name} on {}", site.host),
-            None => site.host.clone(),
-        })
-        .collect();
-    Status {
-        configured,
-        ok: error.is_none(),
-        auth_failed,
-        message: error
-            .filter(|error| configured || !matches!(error, JiraError::Unconfigured))
-            .map(|error| error.to_string()),
-        signed_in_as: configured.then(|| named.join(", ")),
-        details: Sites {
-            sites,
-            browser_sign_in: oauth::APP.available(),
-        },
-    }
+    Status::checked(!sites.is_empty(), Sites::of(sites), &probe)
 }

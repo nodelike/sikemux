@@ -14,28 +14,13 @@ mod error;
 mod slack;
 mod text;
 
-use std::sync::Arc;
-
 use serde_json::Value;
-use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
-};
+use sikemux_plugin_api::store;
+use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture};
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Slack {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Slack {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Slack);
 
 impl Plugin for Slack {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -60,23 +45,13 @@ impl Plugin for Slack {
         })
     }
 
-    fn stream<'a>(
-        &'a self,
-        _ctx: &'a PluginContext,
-        method: &'a str,
-        _input: Value,
-        _sink: StreamSink,
-    ) -> PluginFuture<'a, ()> {
-        Box::pin(async move { Err(PluginError::unknown_method(method)) })
-    }
-
     /// Slack is not tied to a repository, so its tools are offered wherever a workspace is signed in.
     fn offers_agent_tools<'a>(
         &'a self,
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(!config::load(ctx.data_dir())?.workspaces.is_empty()) })
+        Box::pin(async move { Ok(store::has_account::<config::SlackConfig>(ctx.data_dir())) })
     }
 }
 

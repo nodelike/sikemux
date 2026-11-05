@@ -1,12 +1,10 @@
 use std::path::Path;
-use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
 
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sikemux_plugin_api::process::sync::Locked;
-use sikemux_plugin_api::store;
+use sikemux_plugin_api::store::{self, Held};
 use tokio::sync::Mutex;
 
 use crate::client;
@@ -49,7 +47,7 @@ struct Access {
 /// One renewal at a time: a refresh token is spent when it is used, so two
 /// requests renewing together would sign the second one out.
 static ACCESS: Mutex<Option<Access>> = Mutex::const_new(None);
-static API_KEY: StdMutex<Option<(String, String)>> = StdMutex::new(None);
+static HELD_KEYS: Held<String> = Held::secrets();
 
 pub async fn load(data_dir: &Path) -> SignozResult<SignozConfig> {
     let data_dir = data_dir.to_path_buf();
@@ -77,19 +75,9 @@ pub async fn credentials(data_dir: &Path) -> SignozResult<Credentials> {
 }
 
 async fn api_key(config: SignozConfig) -> SignozResult<Credentials> {
-    if let Some((account, key)) = API_KEY.locked().clone() {
-        if account == config.account {
-            return Ok(Credentials {
-                url: config.url,
-                auth: Auth::ApiKey(key),
-            });
-        }
-    }
-    let account = config.account.clone();
-    let key = store::blocking(move || Ok(API_KEYS.read(&account)?))
-        .await?
-        .ok_or(SignozError::Unconfigured)?;
-    *API_KEY.locked() = Some((config.account.clone(), key.clone()));
+    let key = HELD_KEYS
+        .secret(API_KEYS, &config.account, config.account.clone())
+        .await?;
     Ok(Credentials {
         url: config.url,
         auth: Auth::ApiKey(key),
@@ -209,7 +197,7 @@ async fn remember(
         config.account.clone(),
         pack(&tokens.access_token, &tokens.refresh_token),
     );
-    store::blocking(move || config::keychain_write(SESSIONS, &account, &saved)).await?;
+    store::blocking(move || Ok(SESSIONS.write(&account, &saved)?)).await?;
     let lifetime = if tokens.expires_in == 0 {
         ASSUMED_LIFETIME
     } else {
@@ -233,7 +221,7 @@ pub async fn expire_access() {
 }
 
 pub fn forget_api_key() {
-    *API_KEY.locked() = None;
+    HELD_KEYS.forget(None);
 }
 
 #[derive(Deserialize)]
@@ -428,7 +416,7 @@ pub async fn use_api_key(data_dir: &Path, request: UseApiKey) -> SignozResult<()
         .map(str::trim)
         .filter(|account| !account.is_empty())
     {
-        Some(account) => config::validate_account(account)?,
+        Some(account) => account.to_string(),
         None => config::account_for(&url),
     };
     let given = request
@@ -456,7 +444,7 @@ pub async fn use_api_key(data_dir: &Path, request: UseApiKey) -> SignozResult<()
     .await?;
     if given.is_some() {
         let (account, key) = (account.clone(), key.clone());
-        store::blocking(move || config::keychain_write(API_KEYS, &account, &key)).await?;
+        store::blocking(move || Ok(API_KEYS.write(&account, &key)?)).await?;
     }
     forget_api_key();
     let config = SignozConfig {

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use sikemux_plugin_api::store::{self, Accounts};
-use sikemux_plugin_api::{SignInStatus, SignedInAs};
+use sikemux_plugin_api::{signin, SignInStatus, SignedInAs};
 
 use crate::client::{self, Session};
 use crate::config::{self, SlackConfig, Workspace};
@@ -55,12 +55,11 @@ pub type Status = SignInStatus<Signed>;
 
 impl SignedInAs for Signed {
     fn signed_in_as(&self) -> Option<String> {
-        let named: Vec<String> = self
-            .workspaces
-            .iter()
-            .map(|workspace| format!("{} in {}", workspace.user, workspace.name))
-            .collect();
-        (!named.is_empty()).then(|| named.join(", "))
+        signin::people_in(
+            self.workspaces
+                .iter()
+                .map(|workspace| (workspace.user.as_str(), workspace.name.as_str())),
+        )
     }
 }
 
@@ -130,21 +129,11 @@ pub struct WorkspaceRef {
 
 /// Signs out the workspace named, or the default one.
 pub async fn sign_out(data_dir: &Path, input: WorkspaceRef) -> SlackResult<()> {
-    let removed = store::update(data_dir, move |config: &mut SlackConfig| {
-        let Some(id) = config
-            .account(input.workspace.as_deref())
-            .map(|workspace| workspace.id.clone())
-        else {
-            return Ok(None);
-        };
-        let removed = config.remove(&id);
-        if let Some(workspace) = &removed {
-            config::KEYCHAIN.delete(&workspace.id)?;
-        }
-        Ok(removed)
+    let removed = store::sign_out::<SlackConfig, _, _>(data_dir, input.workspace, |workspace| {
+        Ok(config::KEYCHAIN.delete(&workspace.id)?)
     })
     .await?;
-    if let Some(workspace) = removed {
+    if let Some((workspace, ())) = removed {
         client::forget(&workspace.id);
     }
     Ok(())

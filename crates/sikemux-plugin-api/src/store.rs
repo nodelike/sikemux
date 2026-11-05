@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use crate::service::ServiceError;
@@ -123,6 +123,9 @@ pub fn save<T: Serialize>(data_dir: &Path, settings: &T) -> Result<(), SettingsE
     write_file(&settings_path(data_dir), settings)
 }
 
+/// One settings change at a time, so one is never written over by another.
+static CHANGING: Mutex<()> = Mutex::new(());
+
 /// Reads the settings, changes them and saves them, all on a blocking thread,
 /// so a change made meanwhile by another call is never written over.
 pub async fn update<C, T, S>(
@@ -136,6 +139,7 @@ where
 {
     let data_dir = data_dir.to_path_buf();
     blocking(move || {
+        let _turn = CHANGING.locked();
         let mut settings: C = load(&data_dir)?;
         let changed = change(&mut settings)?;
         save(&data_dir, &settings)?;
@@ -152,6 +156,26 @@ const SECRET_LIFE: Duration = Duration::from_secs(60);
 pub struct Held<V> {
     values: Mutex<BTreeMap<String, (V, Instant)>>,
     life: Duration,
+}
+
+impl Held<String> {
+    /// The secret kept in the Keychain under `entry`, held here by `key`. No
+    /// secret there means nobody is signed in.
+    pub async fn secret<S: 'static>(
+        &self,
+        secrets: Secrets,
+        key: &str,
+        entry: String,
+    ) -> Result<String, ServiceError<S>> {
+        if let Some(secret) = self.get(key) {
+            return Ok(secret);
+        }
+        let secret = blocking(move || Ok(secrets.read(&entry)?))
+            .await?
+            .ok_or(ServiceError::Unconfigured)?;
+        self.put(key, secret.clone());
+        Ok(secret)
+    }
 }
 
 impl<V: Clone> Held<V> {
@@ -294,6 +318,60 @@ pub trait Accounts {
         ordered.sort_by_key(|account| Some(account.id()) != self.default_id());
         ordered
     }
+}
+
+/// Whether any account is signed in. A file that cannot be read counts as none.
+pub fn has_account<C: Accounts + DeserializeOwned + Default>(data_dir: &Path) -> bool {
+    load::<C>(data_dir).is_ok_and(|config| !config.accounts().is_empty())
+}
+
+/// Takes the account named, or with none named the default one, out of the
+/// settings, along with its secrets by `forget_secrets` in the same change.
+pub async fn sign_out<C, T, S>(
+    data_dir: &Path,
+    name: Option<String>,
+    forget_secrets: impl FnOnce(&C::Account) -> Result<T, ServiceError<S>> + Send + 'static,
+) -> Result<Option<(C::Account, T)>, ServiceError<S>>
+where
+    C: Accounts + Serialize + DeserializeOwned + Default,
+    C::Account: Send + 'static,
+    T: Send + 'static,
+    S: 'static,
+{
+    update(data_dir, move |config: &mut C| {
+        let Some(id) = config
+            .account(name.as_deref())
+            .map(|account| account.id().to_owned())
+        else {
+            return Ok(None);
+        };
+        let Some(account) = config.remove(&id) else {
+            return Ok(None);
+        };
+        let forgotten = forget_secrets(&account)?;
+        Ok(Some((account, forgotten)))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+pub struct DefaultChoice {
+    pub id: String,
+}
+
+/// Makes a signed-in account the one used when a call names none.
+pub async fn set_default<C, S>(
+    data_dir: &Path,
+    choice: DefaultChoice,
+) -> Result<(), ServiceError<S>>
+where
+    C: Accounts + Serialize + DeserializeOwned + Default,
+    S: 'static,
+{
+    update(data_dir, move |config: &mut C| {
+        config.set_default(&choice.id)
+    })
+    .await
 }
 
 #[cfg(test)]

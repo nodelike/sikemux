@@ -194,37 +194,14 @@ pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> Bitbuck
 
 /// Signs out the account the call named, or the default one.
 pub async fn sign_out(data_dir: &Path) -> BitbucketResult<()> {
-    let chosen = chosen();
-    let removed = store::update(data_dir, move |config: &mut BitbucketConfig| {
-        let Some(id) = config
-            .account(chosen.as_deref())
-            .map(|account| account.id.clone())
-        else {
-            return Ok(None);
-        };
-        let removed = config.remove(&id);
-        if let Some(account) = &removed {
-            config::KEYCHAIN.delete(&account.keychain_account())?;
-        }
-        Ok(removed)
+    let removed = store::sign_out::<BitbucketConfig, _, _>(data_dir, chosen(), |account| {
+        Ok(config::KEYCHAIN.delete(&account.keychain_account())?)
     })
     .await?;
-    if let Some(account) = removed {
+    if let Some((account, ())) = removed {
         client::forget(Some(&account.id)).await;
     }
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub struct DefaultChoice {
-    pub id: String,
-}
-
-pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> BitbucketResult<()> {
-    store::update(data_dir, move |config: &mut BitbucketConfig| {
-        config.set_default(&input.id)
-    })
-    .await
 }
 
 /// The first account, default first, that can see the repository, so a

@@ -182,37 +182,14 @@ pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> GitlabRe
 
 /// Signs out the account the call named, or the default one.
 pub async fn sign_out(data_dir: &Path) -> GitlabResult<()> {
-    let chosen = chosen();
-    let removed = store::update(data_dir, move |config: &mut GitlabConfig| {
-        let Some(id) = config
-            .account(chosen.as_deref())
-            .map(|account| account.id.clone())
-        else {
-            return Ok(None);
-        };
-        let removed = config.remove(&id);
-        if let Some(account) = &removed {
-            config::KEYCHAIN.delete(&account.keychain_account())?;
-        }
-        Ok(removed)
+    let removed = store::sign_out::<GitlabConfig, _, _>(data_dir, chosen(), |account| {
+        Ok(config::KEYCHAIN.delete(&account.keychain_account())?)
     })
     .await?;
-    if let Some(account) = removed {
+    if let Some((account, ())) = removed {
         client::forget(Some(&account.id));
     }
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub struct DefaultChoice {
-    pub id: String,
-}
-
-pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> GitlabResult<()> {
-    store::update(data_dir, move |config: &mut GitlabConfig| {
-        config.set_default(&input.id)
-    })
-    .await
 }
 
 /// The first account, default first, on the project's server that can see it,

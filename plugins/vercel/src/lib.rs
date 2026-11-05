@@ -16,28 +16,14 @@ mod error;
 mod oauth;
 mod projects;
 
-use std::sync::Arc;
-
 use serde_json::Value;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Vercel {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Vercel {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Vercel);
 
 impl Plugin for Vercel {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -92,7 +78,9 @@ impl Plugin for Vercel {
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(config::load(ctx.data_dir())?.account.is_some()) })
+        Box::pin(async move {
+            Ok(config::load(ctx.data_dir()).is_ok_and(|config| config.account.is_some()))
+        })
     }
 }
 

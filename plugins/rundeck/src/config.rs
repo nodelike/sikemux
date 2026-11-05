@@ -4,12 +4,10 @@
 
 use std::net::IpAddr;
 use std::path::Path;
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use sikemux_plugin_api::keychain_service;
-use sikemux_plugin_api::process::sync::Locked;
-use sikemux_plugin_api::store::{self, Secrets};
+use sikemux_plugin_api::store::{self, Held, Secrets};
 
 use crate::error::{RundeckError, RundeckResult};
 
@@ -69,49 +67,52 @@ impl Saved {
 }
 
 /// Reading the Keychain starts a process, so the sign-in is kept in memory once read.
-static SAVED: Mutex<Option<Saved>> = Mutex::new(None);
+/// The token read lately.
+static TOKEN: Held<String> = Held::secrets();
 
 pub async fn load(data_dir: &Path) -> RundeckResult<Saved> {
-    if let Some(saved) = SAVED.locked().clone() {
-        return Ok(saved);
-    }
     let dir = data_dir.to_path_buf();
-    let saved = store::blocking(move || {
-        Ok(Saved {
-            settings: store::load(&dir)?,
-            token: KEYCHAIN.read(TOKEN_ACCOUNT)?,
-        })
-    })
-    .await?;
-    *SAVED.locked() = Some(saved.clone());
-    Ok(saved)
+    let settings = store::blocking(move || Ok(store::load(&dir)?)).await?;
+    let token = match TOKEN
+        .secret(KEYCHAIN, TOKEN_ACCOUNT, TOKEN_ACCOUNT.to_owned())
+        .await
+    {
+        Ok(token) => Some(token),
+        Err(RundeckError::Unconfigured) => None,
+        Err(error) => return Err(error),
+    };
+    Ok(Saved { settings, token })
 }
 
-/// Saves the settings and puts the token in the Keychain, or takes it out when there is none.
-pub async fn save(data_dir: &Path, saved: Saved) -> RundeckResult<()> {
-    let dir = data_dir.to_path_buf();
-    let kept = saved.clone();
-    store::blocking(move || {
-        match &kept.token {
+/// Changes the settings and puts the token in the Keychain, or takes it out when there is none.
+pub async fn sign(
+    data_dir: &Path,
+    token: Option<String>,
+    change: impl FnOnce(&mut Settings) + Send + 'static,
+) -> RundeckResult<()> {
+    store::update(data_dir, move |settings: &mut Settings| {
+        match &token {
             Some(token) => KEYCHAIN.write(TOKEN_ACCOUNT, token),
             None => KEYCHAIN.delete(TOKEN_ACCOUNT),
         }?;
-        Ok(store::save(&dir, &kept.settings)?)
+        change(settings);
+        Ok(())
     })
     .await?;
-    *SAVED.locked() = Some(saved);
+    TOKEN.forget(None);
     Ok(())
 }
 
-/// Saves the settings alone, leaving the token where it is.
-pub async fn save_settings(data_dir: &Path, settings: Settings) -> RundeckResult<()> {
-    let mut saved = load(data_dir).await?;
-    let dir = data_dir.to_path_buf();
-    let written = settings.clone();
-    store::blocking(move || Ok(store::save(&dir, &written)?)).await?;
-    saved.settings = settings;
-    *SAVED.locked() = Some(saved);
-    Ok(())
+/// Changes the settings alone, leaving the token where it is.
+pub async fn change_settings(
+    data_dir: &Path,
+    change: impl FnOnce(&mut Settings) + Send + 'static,
+) -> RundeckResult<()> {
+    store::update(data_dir, move |settings: &mut Settings| {
+        change(settings);
+        Ok(())
+    })
+    .await
 }
 
 #[cfg(test)]

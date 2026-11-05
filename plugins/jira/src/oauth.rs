@@ -5,12 +5,10 @@
 
 use serde::Deserialize;
 use sikemux_plugin_api::http::Read;
-use sikemux_plugin_api::oauth::{
-    Authorize, KeychainEntry, OAuthApp, Refreshing, Secret, TokenRequest,
-};
+use sikemux_plugin_api::oauth::{Authorize, OAuthApp, Refreshing, Secret, TokenRequest};
 
 use crate::client;
-use crate::config::{self, Site};
+use crate::config;
 use crate::error::{Jira, JiraError, JiraResult};
 
 const SITES_URL: &str = "https://api.atlassian.com/oauth/token/accessible-resources";
@@ -41,14 +39,7 @@ pub static APP: OAuthApp = OAuthApp {
 };
 
 /// Every site one Atlassian account reaches shares its sign-in, so access is kept by account.
-pub static ACCESS: Refreshing<Jira> = Refreshing::new(&APP, &client::HTTP);
-
-pub fn entry(site: &Site) -> KeychainEntry {
-    KeychainEntry {
-        secrets: config::KEYCHAIN,
-        account: site.keychain_account(),
-    }
-}
+pub static ACCESS: Refreshing<Jira> = Refreshing::new(&APP, &client::HTTP, config::KEYCHAIN);
 
 /// A Jira site the signed-in account may use.
 #[derive(Deserialize)]

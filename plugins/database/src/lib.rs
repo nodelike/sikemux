@@ -20,30 +20,12 @@ mod queries;
 mod schema;
 mod values;
 
-use std::sync::Arc;
-
 use serde_json::Value;
-use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
-};
+use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture};
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Database {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-        pool: connections::Pool::default(),
-    }))
-}
-
-struct Database {
-    manifest: Manifest,
-    pool: connections::Pool,
-}
+sikemux_plugin_api::plugin!(Database, pool: connections::Pool = connections::Pool::default());
 
 impl Plugin for Database {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -108,6 +90,7 @@ impl Plugin for Database {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::Arc;
 
     fn scratch(name: &str) -> PluginContext {
         let dir = std::env::temp_dir().join(format!(

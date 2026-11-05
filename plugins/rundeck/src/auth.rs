@@ -12,12 +12,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_plugin_api::http::{self, Deadline, Redirects};
 use sikemux_plugin_api::process;
-use sikemux_plugin_api::SignInStatus;
+use sikemux_plugin_api::{SignInStatus, SignedInAs};
 
 use crate::error::{Rundeck, RundeckError, RundeckResult};
 
 use crate::client::{get_json, request_as, seg, Session, API_VERSION};
-use crate::config::{self, Saved, Settings};
+use crate::config::{self, Saved};
 
 /// Which Rundeck the plugin is signed in to, and as whom.
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
@@ -193,54 +193,39 @@ async fn perform_login(req: &LoginRequest) -> RundeckResult<MintedToken> {
 
 pub type RundeckStatus = SignInStatus<Connection>;
 
-fn is_auth_failure(e: &RundeckError) -> bool {
-    matches!(
-        e,
-        RundeckError::Auth(_) | RundeckError::Unconfigured | RundeckError::Http { status: 401, .. }
-    )
-}
-
 /// A token that may not read the system info still signs in.
 pub async fn status(data_dir: &Path) -> RundeckStatus {
-    let (saved, problem) = match config::load(data_dir).await {
-        Ok(saved) => (saved, None),
-        Err(error) => (Saved::default(), Some(error.to_string())),
-    };
-    let settings = saved.settings.clone();
+    let saved = config::load(data_dir).await;
+    let settings = saved
+        .as_ref()
+        .map(|saved| saved.settings.clone())
+        .unwrap_or_default();
+    let configured = saved.as_ref().is_ok_and(Saved::is_signed_in);
     let mut connection = Connection {
         url: settings.url.clone(),
         user: settings.user.clone(),
-        token_present: saved.token.is_some(),
+        token_present: saved.as_ref().is_ok_and(|saved| saved.token.is_some()),
         rundeck_version: None,
         allow_insecure_private_http: settings.allow_insecure_private_http,
     };
-    let (ok, auth_failed, message) = match Session::of(&saved) {
-        Err(_) => (false, false, problem),
-        Ok(session) => match get_json::<Value>(&session, "/system/info", &[]).await {
-            Ok(info) => {
-                connection.rundeck_version = rundeck_version(&info);
-                (true, false, None)
-            }
-            Err(RundeckError::Forbidden(message)) => (true, false, Some(message)),
-            Err(error) => (false, is_auth_failure(&error), Some(error.to_string())),
-        },
+    let check = match saved.and_then(|saved| Session::of(&saved)) {
+        Ok(session) => get_json::<Value>(&session, "/system/info", &[]).await,
+        Err(error) => Err(error),
     };
-    let configured = saved.is_signed_in();
-    let server = connection
-        .url
-        .trim_start_matches("https://")
-        .trim_start_matches("http://");
-    let signed_in_as = configured.then(|| match connection.user.is_empty() {
-        true => server.to_owned(),
-        false => format!("{} on {server}", connection.user),
-    });
-    SignInStatus {
-        configured,
-        ok,
-        auth_failed,
-        message,
-        signed_in_as,
-        details: connection,
+    connection.rundeck_version = check.as_ref().ok().and_then(rundeck_version);
+    SignInStatus::checked(configured, connection, &check)
+}
+
+impl SignedInAs for Connection {
+    fn signed_in_as(&self) -> Option<String> {
+        let server = self
+            .url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://");
+        Some(match self.user.is_empty() {
+            true => server.to_owned(),
+            false => format!("{} on {server}", self.user),
+        })
     }
 }
 
@@ -282,19 +267,17 @@ pub async fn login(data_dir: &Path, req: LoginRequest) -> RundeckResult<LoginRes
     if !previous.token_id.is_empty() && previous.url == url && previous.token_id != minted.id {
         revoke(&session, &previous.token_id).await;
     }
-    config::save(
-        data_dir,
-        Saved {
-            settings: Settings {
-                url: url.clone(),
-                user: req.user.clone(),
-                token_id: minted.id,
-                allow_insecure_private_http: req.allow_insecure_private_http,
-                ..previous
-            },
-            token: Some(minted.token),
-        },
-    )
+    let (signed_url, user, allow_insecure_private_http) = (
+        url.clone(),
+        req.user.clone(),
+        req.allow_insecure_private_http,
+    );
+    config::sign(data_dir, Some(minted.token), move |settings| {
+        settings.url = signed_url;
+        settings.user = user;
+        settings.token_id = minted.id;
+        settings.allow_insecure_private_http = allow_insecure_private_http;
+    })
     .await?;
 
     let version = request_as::<Value>(&session, Method::GET, "/system/info", None, &[])
@@ -348,20 +331,14 @@ pub async fn login_with_token(
         Err(RundeckError::Forbidden(_)) => None,
         Err(error) => return Err(error),
     };
-    let previous = config::load(data_dir).await.unwrap_or_default().settings;
-    config::save(
-        data_dir,
-        Saved {
-            settings: Settings {
-                url: url.clone(),
-                user: user.clone(),
-                token_id: String::new(),
-                allow_insecure_private_http: req.allow_insecure_private_http,
-                ..previous
-            },
-            token: Some(token),
-        },
-    )
+    let (signed_url, signed_user, allow_insecure_private_http) =
+        (url.clone(), user.clone(), req.allow_insecure_private_http);
+    config::sign(data_dir, Some(token), move |settings| {
+        settings.url = signed_url;
+        settings.user = signed_user;
+        settings.token_id.clear();
+        settings.allow_insecure_private_http = allow_insecure_private_http;
+    })
     .await?;
     Ok(LoginResult {
         url,
@@ -372,13 +349,11 @@ pub async fn login_with_token(
 }
 
 pub async fn logout(data_dir: &Path) -> RundeckResult<()> {
-    let mut saved = config::load(data_dir).await?;
+    let saved = config::load(data_dir).await?;
     if let (Ok(session), false) = (Session::of(&saved), saved.settings.token_id.is_empty()) {
         revoke(&session, &saved.settings.token_id).await;
     }
-    saved.token = None;
-    saved.settings.token_id.clear();
-    config::save(data_dir, saved).await
+    config::sign(data_dir, None, |settings| settings.token_id.clear()).await
 }
 
 /// The lists people edit in the plugin's settings.
@@ -418,14 +393,15 @@ pub async fn set_lists(data_dir: &Path, lists: ListChanges) -> RundeckResult<()>
             names
         }
     }
-    let mut settings = config::load(data_dir).await?.settings;
-    if let Some(names) = lists.branch_options {
-        settings.branch_options = tidy(names, config::default_branch_options);
-    }
-    if let Some(names) = lists.prod_envs {
-        settings.prod_envs = tidy(names, config::default_prod_envs);
-    }
-    config::save_settings(data_dir, settings).await
+    config::change_settings(data_dir, move |settings| {
+        if let Some(names) = lists.branch_options {
+            settings.branch_options = tidy(names, config::default_branch_options);
+        }
+        if let Some(names) = lists.prod_envs {
+            settings.prod_envs = tidy(names, config::default_prod_envs);
+        }
+    })
+    .await
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ use serde_json::Value;
 use sikemux_plugin_api::account::chosen;
 use sikemux_plugin_api::http::{self, Api, Calls, Http, Redirects};
 use sikemux_plugin_api::ratelimit::LimitHeaders;
-use sikemux_plugin_api::store::{self, Accounts, Held};
+use sikemux_plugin_api::store::{Accounts, Held};
 
 use crate::config::{self, Account, Method as AuthMethod};
 use crate::error::{Bitbucket, BitbucketError, BitbucketResult};
@@ -74,7 +74,9 @@ impl Session {
     pub async fn of(account: Account) -> BitbucketResult<Session> {
         match account.method {
             AuthMethod::Token => {
-                let token = api_token(&account).await?;
+                let token = API_TOKENS
+                    .secret(config::KEYCHAIN, &account.id, account.keychain_account())
+                    .await?;
                 let credential = match account.email.clone().filter(|email| !email.is_empty()) {
                     Some(email) => Credential::Basic { email, token },
                     None => Credential::Bearer(token),
@@ -87,7 +89,7 @@ impl Session {
             }
             AuthMethod::Oauth => {
                 let access = oauth::ACCESS
-                    .access(&account.id, oauth::entry(&account))
+                    .access(&account.id, account.keychain_account())
                     .await?;
                 Ok(Session {
                     account,
@@ -97,18 +99,6 @@ impl Session {
             }
         }
     }
-}
-
-async fn api_token(account: &Account) -> BitbucketResult<String> {
-    if let Some(token) = API_TOKENS.get(&account.id) {
-        return Ok(token);
-    }
-    let reading = account.keychain_account();
-    let token = store::blocking(move || Ok(config::KEYCHAIN.read(&reading)?))
-        .await?
-        .ok_or(BitbucketError::Unconfigured)?;
-    API_TOKENS.put(&account.id, token.clone());
-    Ok(token)
 }
 
 #[derive(Deserialize)]

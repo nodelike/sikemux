@@ -2,12 +2,10 @@
 // keep a secret, so the client secret is compiled in, as every desktop
 // Bitbucket client does.
 
-use sikemux_plugin_api::oauth::{
-    Authorize, KeychainEntry, OAuthApp, Refreshing, Secret, TokenRequest,
-};
+use sikemux_plugin_api::oauth::{Authorize, OAuthApp, Refreshing, Secret, TokenRequest};
 
 use crate::client::HTTP;
-use crate::config::{self, Account};
+use crate::config;
 use crate::error::Bitbucket;
 
 pub static APP: OAuthApp = OAuthApp {
@@ -24,14 +22,7 @@ pub static APP: OAuthApp = OAuthApp {
     token_request: TokenRequest::BasicAuthForm,
 };
 
-pub static ACCESS: Refreshing<Bitbucket> = Refreshing::new(&APP, &HTTP);
-
-pub fn entry(account: &Account) -> KeychainEntry {
-    KeychainEntry {
-        secrets: config::KEYCHAIN,
-        account: account.keychain_account(),
-    }
-}
+pub static ACCESS: Refreshing<Bitbucket> = Refreshing::new(&APP, &HTTP, config::KEYCHAIN);
 
 #[cfg(test)]
 mod tests {

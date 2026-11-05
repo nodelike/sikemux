@@ -16,24 +16,16 @@ mod issues;
 mod oauth;
 
 use std::path::Path;
-use std::sync::Arc;
 
 use serde_json::Value;
+use sikemux_plugin_api::store;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
 use crate::error::JiraResult;
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Jira {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Jira {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Jira);
 
 async fn signed_in(data_dir: &Path, outcome: JiraResult<()>) -> Result<Value, PluginError> {
     outcome?;
@@ -56,10 +48,6 @@ fn for_agent(value: Value) -> Value {
 }
 
 impl Plugin for Jira {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -116,9 +104,7 @@ impl Plugin for Jira {
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move {
-            Ok(config::load(ctx.data_dir()).is_ok_and(|config| !config.sites.is_empty()))
-        })
+        Box::pin(async move { Ok(store::has_account::<config::JiraConfig>(ctx.data_dir())) })
     }
 }
 

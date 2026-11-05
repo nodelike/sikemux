@@ -95,22 +95,6 @@ pub fn account_for(url: &str) -> String {
         .unwrap_or_else(|| "signoz".into())
 }
 
-pub fn validate_account(raw: &str) -> SignozResult<String> {
-    let account = raw.trim();
-    let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-');
-    if account.is_empty() || account.len() > 128 || !account.chars().all(allowed) {
-        return Err(SignozError::BadArg(
-            "the Keychain account is letters, digits, dots, dashes and underscores".into(),
-        ));
-    }
-    Ok(account.to_string())
-}
-
-pub fn keychain_write(secrets: Secrets, account: &str, secret: &str) -> SignozResult<()> {
-    let account = validate_account(account)?;
-    Ok(secrets.write(&account, secret)?)
-}
-
 pub fn env_api_key() -> Option<String> {
     process::user_environment::var("SIGNOZ_API_KEY")
         .map(|key| key.trim().to_string())
@@ -137,12 +121,6 @@ mod tests {
     fn names_keychain_entries_after_the_host() {
         assert_eq!(account_for("https://logs.example.com"), "logs.example.com");
         assert_eq!(account_for("http://localhost:3301"), "localhost");
-    }
-
-    #[test]
-    fn keeps_keychain_arguments_to_safe_characters() {
-        assert!(validate_account("work").is_ok());
-        assert!(validate_account("a b").is_err());
     }
 
     #[test]

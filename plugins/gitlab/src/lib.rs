@@ -26,7 +26,6 @@ mod repo;
 mod review;
 
 use std::path::Path;
-use std::sync::Arc;
 
 use serde_json::Value;
 use sikemux_plugin_api::account::as_account;
@@ -37,21 +36,12 @@ use sikemux_plugin_api::codehost::{
     Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming,
     TimelineItem, Workflow, WorkflowFile,
 };
-use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
-};
+use sikemux_plugin_api::store;
+use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture};
 
 use crate::error::GitlabResult;
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Gitlab {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Gitlab {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Gitlab);
 
 /// A remote is GitLab's when it is on gitlab.com or on a server an account is signed in to.
 fn resolve(data_dir: &Path, query: RemoteQuery) -> Resolved {
@@ -99,10 +89,6 @@ fn account_of(data_dir: &Path, input: &Value) -> Option<String> {
 }
 
 impl Plugin for Gitlab {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -131,7 +117,13 @@ async fn dispatch(
     let data_dir = ctx.data_dir();
     match method {
         "status" => reply(auth::status(data_dir).await),
-        "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
+        "setDefaultAccount" => {
+            answer(store::set_default::<config::GitlabConfig, error::Gitlab>(
+                data_dir,
+                params(input)?,
+            ))
+            .await
+        }
         "signInWithToken" => {
             signed_in(
                 data_dir,

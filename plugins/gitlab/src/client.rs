@@ -11,7 +11,7 @@ use serde_json::Value;
 use sikemux_plugin_api::account::chosen;
 use sikemux_plugin_api::http::{self, Api, Calls, Http, Redirects};
 use sikemux_plugin_api::ratelimit::LimitHeaders;
-use sikemux_plugin_api::store::{self, Accounts, Held};
+use sikemux_plugin_api::store::{Accounts, Held};
 
 use crate::config::{self, Account};
 use crate::error::{Gitlab, GitlabError, GitlabResult};
@@ -52,25 +52,15 @@ impl Session {
             .account(chosen().as_deref())
             .cloned()
             .ok_or(GitlabError::Unconfigured)?;
-        let token = token_of(&account).await?;
+        let token = TOKENS
+            .secret(config::KEYCHAIN, &account.id, account.keychain_account())
+            .await?;
         Ok(Session { account, token })
     }
 
     pub fn base(&self) -> String {
         api_base(&self.account.host)
     }
-}
-
-async fn token_of(account: &Account) -> GitlabResult<String> {
-    if let Some(token) = TOKENS.get(&account.id) {
-        return Ok(token);
-    }
-    let reading = account.keychain_account();
-    let token = store::blocking(move || Ok(config::KEYCHAIN.read(&reading)?))
-        .await?
-        .ok_or(GitlabError::Unconfigured)?;
-    TOKENS.put(&account.id, token.clone());
-    Ok(token)
 }
 
 /// GitLab says what went wrong as `message` (a sentence, a list, or a field

@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use sikemux_plugin_api::keychain_service;
 use sikemux_plugin_api::process::sync::Locked;
-use sikemux_plugin_api::store::Secrets;
+use sikemux_plugin_api::store::{self, Secrets};
 
 use crate::error::{DatabaseError, DatabaseResult};
 
@@ -247,26 +247,11 @@ static WRITING: Mutex<()> = Mutex::new(());
 /// The saved databases; none when nothing was saved yet. A file that cannot be read is an error, so a save
 /// never writes over connections it could not read.
 pub fn load(data_dir: &Path) -> DatabaseResult<Profiles> {
-    let path = profiles_path(data_dir);
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Profiles::default())
-        }
-        Err(error) => return Err(error.into()),
-    };
-    serde_json::from_slice(&bytes).map_err(|error| {
-        DatabaseError::Storage(format!("{} could not be read: {error}", path.display()))
-    })
+    Ok(store::read_file(&profiles_path(data_dir))?)
 }
 
-fn store(data_dir: &Path, profiles: &Profiles) -> DatabaseResult<()> {
-    std::fs::create_dir_all(data_dir)?;
-    let path = profiles_path(data_dir);
-    let staged = path.with_extension("json.tmp");
-    std::fs::write(&staged, serde_json::to_vec_pretty(profiles)?)?;
-    std::fs::rename(&staged, &path)?;
-    Ok(())
+fn write_profiles(data_dir: &Path, profiles: &Profiles) -> DatabaseResult<()> {
+    Ok(store::write_file(&profiles_path(data_dir), profiles)?)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -334,7 +319,7 @@ pub fn save(data_dir: &Path, request: SaveRequest) -> DatabaseResult<Profile> {
         target,
     };
     profiles.upsert(saved.clone());
-    store(data_dir, &profiles)?;
+    write_profiles(data_dir, &profiles)?;
     Ok(saved)
 }
 
@@ -346,7 +331,7 @@ pub fn set_agent_writes(data_dir: &Path, id: &str, on: bool) -> DatabaseResult<(
     changed.read_only = !on;
     changed.agent_writes = on;
     profiles.upsert(changed);
-    store(data_dir, &profiles)
+    write_profiles(data_dir, &profiles)
 }
 
 /// Marks the database as production, whose changes by agents wait for the person, or not.
@@ -356,14 +341,14 @@ pub fn set_production(data_dir: &Path, id: &str, on: bool) -> DatabaseResult<()>
     let mut changed = profiles.get(id)?.clone();
     changed.production = on;
     profiles.upsert(changed);
-    store(data_dir, &profiles)
+    write_profiles(data_dir, &profiles)
 }
 
 pub fn remove(data_dir: &Path, id: &str) -> DatabaseResult<()> {
     let _turn = WRITING.locked();
     let mut profiles = load(data_dir)?;
     if let Some(removed) = profiles.remove(id) {
-        store(data_dir, &profiles)?;
+        write_profiles(data_dir, &profiles)?;
         if removed.has_password {
             password_delete(&removed.id)?;
         }

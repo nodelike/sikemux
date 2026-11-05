@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sikemux_plugin_api::http::{self, Http, Read, Redirects};
 use sikemux_plugin_api::ratelimit::LimitHeaders;
-use sikemux_plugin_api::store::{self, Accounts, Held};
+use sikemux_plugin_api::store::{Accounts, Held};
 
 use crate::config::{self, Workspace};
 use crate::error::{Slack, SlackError, SlackResult};
@@ -42,21 +42,11 @@ impl Session {
             .account(workspace)
             .cloned()
             .ok_or(SlackError::Unconfigured)?;
-        let token = token_of(&workspace).await?;
+        let token = TOKENS
+            .secret(config::KEYCHAIN, &workspace.id, workspace.id.clone())
+            .await?;
         Ok(Session { workspace, token })
     }
-}
-
-async fn token_of(workspace: &Workspace) -> SlackResult<String> {
-    if let Some(token) = TOKENS.get(&workspace.id) {
-        return Ok(token);
-    }
-    let reading = workspace.id.clone();
-    let token = store::blocking(move || Ok(config::KEYCHAIN.read(&reading)?))
-        .await?
-        .ok_or(SlackError::Unconfigured)?;
-    TOKENS.put(&workspace.id, token.clone());
-    Ok(token)
 }
 
 /// Slack says a call failed in the body: `ok: false` and an error code.

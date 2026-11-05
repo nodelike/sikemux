@@ -2,12 +2,10 @@
 // for the code with PKCE, so no client secret is compiled in.
 
 use sikemux_plugin_api::http;
-use sikemux_plugin_api::oauth::{
-    Authorize, KeychainEntry, OAuthApp, Refreshing, Secret, TokenRequest,
-};
+use sikemux_plugin_api::oauth::{Authorize, OAuthApp, Refreshing, Secret, TokenRequest};
 
 use crate::client::HTTP;
-use crate::config::{self, Workspace};
+use crate::config;
 use crate::error::{Linear, LinearResult};
 
 const REVOKE_URL: &str = "https://api.linear.app/oauth/revoke";
@@ -23,14 +21,7 @@ pub static APP: OAuthApp = OAuthApp {
     token_request: TokenRequest::Form,
 };
 
-pub static ACCESS: Refreshing<Linear> = Refreshing::new(&APP, &HTTP);
-
-pub fn entry(workspace: &Workspace) -> KeychainEntry {
-    KeychainEntry {
-        secrets: config::KEYCHAIN,
-        account: workspace.id.clone(),
-    }
-}
+pub static ACCESS: Refreshing<Linear> = Refreshing::new(&APP, &HTTP, config::KEYCHAIN);
 
 pub fn bearer(access_token: &str) -> String {
     format!("Bearer {access_token}")

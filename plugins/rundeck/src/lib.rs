@@ -26,27 +26,15 @@ mod projects;
 mod shape;
 mod watch;
 
-use std::sync::Arc;
-
 use serde::Deserialize;
 use serde_json::Value;
-use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
-};
+use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture};
 
 use crate::client::Session;
 use crate::config::Saved;
 use crate::error::RundeckResult;
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Rundeck {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Rundeck {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Rundeck);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,10 +74,6 @@ async fn signed_in(ctx: &PluginContext) -> RundeckResult<(Session, Saved)> {
 }
 
 impl Plugin for Rundeck {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -170,7 +154,11 @@ impl Plugin for Rundeck {
         ctx: &'a PluginContext,
         _remotes: &'a [String],
     ) -> PluginFuture<'a, bool> {
-        Box::pin(async move { Ok(config::load(ctx.data_dir()).await?.is_signed_in()) })
+        Box::pin(async move {
+            Ok(config::load(ctx.data_dir())
+                .await
+                .is_ok_and(|saved| saved.is_signed_in()))
+        })
     }
 }
 

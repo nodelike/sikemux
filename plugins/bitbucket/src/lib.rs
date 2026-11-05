@@ -26,7 +26,6 @@ mod repo;
 mod review;
 
 use std::path::Path;
-use std::sync::Arc;
 
 use serde_json::Value;
 use sikemux_plugin_api::account::as_account;
@@ -41,21 +40,14 @@ use sikemux_plugin_api::codehost::{
     Notification, Pull, PullCommit, Release, RepoListing, Resolved, Review, ReviewFeedback,
     RunDetail, RunPage, RunTiming, TimelineItem, Workflow, WorkflowFile,
 };
+use sikemux_plugin_api::store;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
 use crate::error::BitbucketResult;
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Bitbucket {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Bitbucket {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Bitbucket);
 
 fn resolve(query: RemoteQuery) -> Resolved {
     let found = repo::from_remote(&query.url);
@@ -78,7 +70,7 @@ async fn signed_in(
 /// Whether an account is signed in. Its tools name the repository they act on, so they work
 /// from any folder, and a person who connected Bitbucket expects their agents to have them.
 fn has_account(data_dir: &Path) -> bool {
-    config::load(data_dir).is_ok_and(|config| !config.accounts.is_empty())
+    store::has_account::<config::BitbucketConfig>(data_dir)
 }
 
 /// Which account a call is for; with none named, the default one.
@@ -91,10 +83,6 @@ fn account_of(input: &Value) -> Option<String> {
 }
 
 impl Plugin for Bitbucket {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -134,7 +122,13 @@ async fn dispatch(
     let data_dir = ctx.data_dir();
     match method {
         "status" => reply(auth::status(data_dir).await),
-        "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
+        "setDefaultAccount" => {
+            answer(store::set_default::<
+                config::BitbucketConfig,
+                error::Bitbucket,
+            >(data_dir, params(input)?))
+            .await
+        }
         "signInWithToken" => {
             signed_in(
                 data_dir,

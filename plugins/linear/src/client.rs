@@ -6,7 +6,7 @@ use std::path::Path;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
 use sikemux_plugin_api::http::{Http, Read, Redirects};
-use sikemux_plugin_api::store::{self, Accounts, Held};
+use sikemux_plugin_api::store::{Accounts, Held};
 use sikemux_plugin_api::Service;
 
 use crate::config::{self, SignIn, Workspace};
@@ -41,7 +41,10 @@ impl Session {
             .cloned()
             .ok_or(LinearError::Unconfigured)?;
         let key = match workspace.sign_in {
-            SignIn::Key => Some(key_of(&workspace).await?),
+            SignIn::Key => Some(
+                KEYS.secret(config::KEYCHAIN, &workspace.id, workspace.id.clone())
+                    .await?,
+            ),
             SignIn::Browser => None,
         };
         Ok(Session { workspace, key })
@@ -54,7 +57,7 @@ impl Session {
                 oauth::ACCESS
                     .with_access(
                         &self.workspace.id,
-                        || oauth::entry(&self.workspace),
+                        || self.workspace.id.clone(),
                         |access| {
                             let variables = variables.clone();
                             async move {
@@ -66,18 +69,6 @@ impl Session {
             }
         }
     }
-}
-
-async fn key_of(workspace: &Workspace) -> LinearResult<String> {
-    if let Some(key) = KEYS.get(&workspace.id) {
-        return Ok(key);
-    }
-    let reading = workspace.id.clone();
-    let key = store::blocking(move || Ok(config::KEYCHAIN.read(&reading)?))
-        .await?
-        .ok_or(LinearError::Unconfigured)?;
-    KEYS.put(&workspace.id, key.clone());
-    Ok(key)
 }
 
 /// Linear says a query failed in the body's `errors`, often with a 400.

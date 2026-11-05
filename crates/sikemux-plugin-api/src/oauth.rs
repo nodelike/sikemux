@@ -234,12 +234,6 @@ impl OAuthApp {
     }
 }
 
-/// Where a sign-in's refresh token is kept.
-pub struct KeychainEntry {
-    pub secrets: Secrets,
-    pub account: String,
-}
-
 #[derive(Clone)]
 pub struct Access {
     pub token: String,
@@ -266,14 +260,17 @@ impl Access {
 pub struct Refreshing<S: 'static> {
     app: &'static OAuthApp,
     http: &'static Http<S>,
+    /// Where each sign-in's refresh token is kept.
+    secrets: Secrets,
     held: tokio::sync::Mutex<BTreeMap<String, Access>>,
 }
 
 impl<S: Service> Refreshing<S> {
-    pub const fn new(app: &'static OAuthApp, http: &'static Http<S>) -> Self {
+    pub const fn new(app: &'static OAuthApp, http: &'static Http<S>, secrets: Secrets) -> Self {
         Self {
             app,
             http,
+            secrets,
             held: tokio::sync::Mutex::const_new(BTreeMap::new()),
         }
     }
@@ -297,11 +294,7 @@ impl<S: Service> Refreshing<S> {
 
     /// One refresh at a time: the lock is held across it, because spending a
     /// refresh token twice would sign the account out.
-    pub async fn access(
-        &self,
-        account: &str,
-        entry: KeychainEntry,
-    ) -> Result<Access, ServiceError<S>> {
+    pub async fn access(&self, account: &str, entry: String) -> Result<Access, ServiceError<S>> {
         let mut held = self.held.lock().await;
         if let Some(access) = held
             .get(account)
@@ -309,18 +302,15 @@ impl<S: Service> Refreshing<S> {
         {
             return Ok(access.clone());
         }
-        let KeychainEntry {
-            secrets,
-            account: entry_account,
-        } = entry;
-        let reading = entry_account.clone();
+        let secrets = self.secrets;
+        let reading = entry.clone();
         let refresh_token = blocking(move || Ok(secrets.read(&reading)?))
             .await?
             .ok_or(ServiceError::Unconfigured)?;
         let tokens = self.app.refresh(self.http, &refresh_token).await?;
         if tokens.refresh_token != refresh_token {
             let replacement = tokens.refresh_token.clone();
-            blocking(move || Ok(secrets.write(&entry_account, &replacement)?)).await?;
+            blocking(move || Ok(secrets.write(&entry, &replacement)?)).await?;
         }
         let access = Access::of(&tokens);
         held.insert(account.to_owned(), access.clone());
@@ -334,7 +324,7 @@ impl<S: Service> Refreshing<S> {
         &self,
         account: &str,
         rejected: &str,
-        entry: KeychainEntry,
+        entry: String,
     ) -> Result<Access, ServiceError<S>> {
         {
             let mut held = self.held.lock().await;
@@ -353,7 +343,7 @@ impl<S: Service> Refreshing<S> {
     pub async fn with_access<T, F, Fut>(
         &self,
         account: &str,
-        entry: impl Fn() -> KeychainEntry,
+        entry: impl Fn() -> String,
         send: F,
     ) -> Result<T, ServiceError<S>>
     where

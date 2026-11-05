@@ -39,7 +39,6 @@ mod runs;
 mod workflows;
 
 use std::path::Path;
-use std::sync::Arc;
 
 use serde_json::Value;
 use sikemux_plugin_api::account::as_account;
@@ -51,21 +50,12 @@ use sikemux_plugin_api::codehost::{
     RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming, TimelineItem,
     Workflow, WorkflowFile,
 };
-use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
-};
+use sikemux_plugin_api::store;
+use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture};
 
 use crate::error::GithubResult;
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Github {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Github {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Github);
 
 /// What a git remote points at, and whether it is the GitHub this is signed in
 /// to. A repository on another host is still described, so the view can say so
@@ -96,10 +86,6 @@ fn account_of(input: &Value) -> Option<String> {
 }
 
 impl Plugin for Github {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,
@@ -121,7 +107,13 @@ impl Github {
         let data_dir = ctx.data_dir();
         match method {
             "status" => reply(auth::status(data_dir).await),
-            "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
+            "setDefaultAccount" => {
+                answer(store::set_default::<config::GithubConfig, error::Github>(
+                    data_dir,
+                    params(input)?,
+                ))
+                .await
+            }
             "signIn" => signed_in(data_dir, auth::sign_in(data_dir, params(input)?).await).await,
             "signOut" => answer(auth::sign_out(data_dir)).await,
             _ => codehost::dispatch(self, data_dir, method, input).await,

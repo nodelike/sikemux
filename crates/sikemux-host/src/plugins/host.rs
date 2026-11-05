@@ -354,7 +354,7 @@ impl Drop for PluginHost {
 mod tests {
     use super::*;
     use serde_json::json;
-    use sikemux_plugin_api::PluginFuture;
+    use sikemux_plugin_api::{Manifested, PluginFuture};
 
     struct Echo(Manifest);
 
@@ -366,11 +366,13 @@ mod tests {
         }
     }
 
-    impl Plugin for Echo {
+    impl Manifested for Echo {
         fn manifest(&self) -> &Manifest {
             &self.0
         }
+    }
 
+    impl Plugin for Echo {
         fn call<'a>(
             &'a self,
             _ctx: &'a PluginContext,
@@ -530,11 +532,13 @@ mod tests {
         }
     }
 
-    impl Plugin for Picky {
+    impl Manifested for Picky {
         fn manifest(&self) -> &Manifest {
             &self.manifest
         }
+    }
 
+    impl Plugin for Picky {
         fn call<'a>(
             &'a self,
             _ctx: &'a PluginContext,

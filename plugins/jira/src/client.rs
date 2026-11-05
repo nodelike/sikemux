@@ -64,7 +64,7 @@ pub async fn send(
     if answer.status == StatusCode::UNAUTHORIZED {
         if let Auth::Atlassian { site, token } = &credentials.auth {
             let renewed = oauth::ACCESS
-                .renew(&site.account_id, token, oauth::entry(site))
+                .renew(&site.account_id, token, site.keychain_account())
                 .await?
                 .token;
             answer = send_once(credentials, Some(&renewed), &method, path, query, body).await?;

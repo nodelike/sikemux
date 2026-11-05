@@ -120,8 +120,7 @@ pub async fn status(data_dir: &Path) -> Status {
     let configured =
         signed.token_source.is_some() && !matches!(check, Err(GithubError::Unconfigured));
     let mut status = Status::checked(configured, signed, &check);
-    status.auth_failed |= matches!(check, Err(GithubError::Forbidden(_)));
-    status.details.can_write_ci = status.ok && can_write(&status.details.scopes);
+    status.details.can_write_ci = check.is_ok() && can_write(&status.details.scopes);
     status
 }
 
@@ -213,18 +212,6 @@ pub async fn sign_out(data_dir: &Path) -> GithubResult<()> {
     .await?;
     config::forget_token(removed.as_ref().map(|account| account.id.as_str()));
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub struct DefaultChoice {
-    pub id: String,
-}
-
-pub async fn set_default(data_dir: &Path, input: DefaultChoice) -> GithubResult<()> {
-    store::update(data_dir, move |config: &mut GithubConfig| {
-        config.set_default(&input.id)
-    })
-    .await
 }
 
 /// The first account, default first, that can see the repository, so a

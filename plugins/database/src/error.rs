@@ -1,6 +1,6 @@
 use std::fmt;
 
-use sikemux_plugin_api::store::KeychainError;
+use sikemux_plugin_api::store::{KeychainError, SettingsError};
 use sikemux_plugin_api::{Category, PluginError};
 
 #[derive(Debug)]
@@ -34,6 +34,12 @@ impl From<KeychainError> for DatabaseError {
             KeychainError::Invalid(message) => Self::BadArg(message),
             KeychainError::Failed(message) => Self::Keychain(message),
         }
+    }
+}
+
+impl From<SettingsError> for DatabaseError {
+    fn from(error: SettingsError) -> Self {
+        Self::Storage(error.to_string())
     }
 }
 

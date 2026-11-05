@@ -32,9 +32,37 @@ pub use signin::{SignInStatus, SignedInAs};
 
 pub type PluginFuture<'a, T> = Pin<Box<dyn Future<Output = PluginResult<T>> + Send + 'a>>;
 
-pub trait Plugin: Send + Sync {
+/// What `plugin!` writes for a plugin.
+pub trait Manifested {
     fn manifest(&self) -> &Manifest;
+}
 
+/// A plugin's entry point and its struct, from the `manifest.json` beside its
+/// sources, with any fields it keeps of its own.
+#[macro_export]
+macro_rules! plugin {
+    ($name:ident $(, $field:ident: $kind:ty = $value:expr)* $(,)?) => {
+        pub fn plugin() -> Result<std::sync::Arc<dyn $crate::Plugin>, $crate::PluginError> {
+            Ok(std::sync::Arc::new($name {
+                manifest: $crate::Manifest::from_json(include_str!("../manifest.json"))?,
+                $($field: $value,)*
+            }))
+        }
+
+        struct $name {
+            manifest: $crate::Manifest,
+            $($field: $kind,)*
+        }
+
+        impl $crate::Manifested for $name {
+            fn manifest(&self) -> &$crate::Manifest {
+                &self.manifest
+            }
+        }
+    };
+}
+
+pub trait Plugin: Manifested + Send + Sync {
     fn call<'a>(
         &'a self,
         ctx: &'a PluginContext,

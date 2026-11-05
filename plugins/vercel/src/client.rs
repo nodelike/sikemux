@@ -6,7 +6,7 @@ use std::path::Path;
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 use sikemux_plugin_api::http::{self, Http, Read, Redirects};
-use sikemux_plugin_api::store::{self, Held};
+use sikemux_plugin_api::store::Held;
 
 use crate::config::{self, Account, SignIn};
 use crate::error::{Vercel, VercelError, VercelResult};
@@ -44,15 +44,7 @@ pub fn forget() {
 /// The token kept for the account, or for its install on `team`.
 async fn token_of(account: &Account, team: Option<&str>) -> VercelResult<String> {
     let entry = config::entry(account, team);
-    if let Some(token) = TOKENS.get(&entry) {
-        return Ok(token);
-    }
-    let reading = entry.clone();
-    let token = store::blocking(move || Ok(config::KEYCHAIN.read(&reading)?))
-        .await?
-        .ok_or(VercelError::Unconfigured)?;
-    TOKENS.put(&entry, token.clone());
-    Ok(token)
+    TOKENS.secret(config::KEYCHAIN, &entry, entry.clone()).await
 }
 
 /// The query parameter that points a call at a team: its id, or its slug.

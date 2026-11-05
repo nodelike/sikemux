@@ -17,23 +17,14 @@ mod metrics;
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_plugin_api::{
-    params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
-pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
-    Ok(Arc::new(Aws {
-        manifest: Manifest::from_json(include_str!("../manifest.json"))?,
-    }))
-}
-
-struct Aws {
-    manifest: Manifest,
-}
+sikemux_plugin_api::plugin!(Aws);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,10 +39,6 @@ struct Account {
 }
 
 impl Plugin for Aws {
-    fn manifest(&self) -> &Manifest {
-        &self.manifest
-    }
-
     fn agent_environment(&self, ctx: &PluginContext, project: &Path) -> BTreeMap<String, String> {
         agent_profile::environment(ctx, project)
     }
