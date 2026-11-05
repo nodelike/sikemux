@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type ReactNode,
 } from "react";
 import { agentLabel } from "@shared/agents/catalog";
 import {
@@ -33,6 +32,7 @@ import {
   type ShareSession,
   type ShareSnapshot,
 } from "@shared/share/session";
+import { appShareLink, type ShareLink } from "@shared/share/link";
 import "../chat/styles/chat.css";
 import "../chat/styles/share.css";
 import { formatTimeLeft } from "@shared/lib/format";
@@ -58,12 +58,10 @@ function endedText(snapshot: ShareSnapshot): string {
  */
 export function SharedChat({
   session,
-  visible,
-  actions,
+  link,
 }: {
   session: ShareSession;
-  visible: boolean;
-  actions?: ReactNode;
+  link: ShareLink;
 }) {
   const snapshot = useSyncExternalStore(session.subscribe, session.snapshot);
   const { agent: state, chat } = snapshot;
@@ -75,7 +73,6 @@ export function SharedChat({
   const { atBottom, onScroll, jumpToBottom } = useStickToBottom({
     scrollRef,
     contentRef,
-    visible,
   });
   const scrollByReader = useCallback(
     (deltaY: number) => scrollRef.current?.scrollBy({ top: deltaY }),
@@ -175,7 +172,15 @@ export function SharedChat({
                         <IconEye size={13} />
                         <span>Read-only</span>
                       </span>
-                      {actions}
+                      <div className="agent-view-switch">
+                        <button
+                          type="button"
+                          aria-pressed="false"
+                          onClick={() => location.assign(appShareLink(link))}
+                        >
+                          Open in Sikemux
+                        </button>
+                      </div>
                     </div>
                   </header>
                   <div className="agent-surface-body">

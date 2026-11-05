@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconCheck, IconCopy } from "@shared/ui/Icons";
-import { copyText } from "./clipboard";
 import { Tooltip } from "./Tooltip";
 
 const FEEDBACK_MS = 1100;
@@ -25,7 +24,7 @@ export function CopyButton({
 
   const copy = useCallback(() => {
     if (!value) return;
-    copyText(value).then(
+    navigator.clipboard.writeText(value).then(
       () => {
         setCopied(true);
         window.clearTimeout(timerRef.current);

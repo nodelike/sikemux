@@ -31,11 +31,9 @@ const distanceFromBottom = (scroller: HTMLElement) =>
 export function useStickToBottom({
   scrollRef,
   contentRef,
-  visible,
 }: {
   scrollRef: RefObject<HTMLDivElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
-  visible: boolean;
 }) {
   const [atBottom, setAtBottom] = useState(true);
   const atBottomRef = useRef(true);
@@ -85,13 +83,6 @@ export function useStickToBottom({
     resized.observe(content);
     return () => resized.disconnect();
   }, [contentRef, scrollRef]);
-
-  /* A pane coming back into view keeps the place it was left at, unless that
-       was the bottom, which may have moved while it was hidden. */
-  useLayoutEffect(() => {
-    const scroller = scrollRef.current;
-    if (visible && scroller && atBottomRef.current) scroller.scrollTop = 0;
-  }, [visible, scrollRef]);
 
   const settle = useCallback((next: boolean) => {
     if (next === atBottomRef.current) return;

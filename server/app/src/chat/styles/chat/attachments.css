@@ -1,6 +1,6 @@
 .chat-resource,
 .chat-message-attachments,
-.chat-message-attachments > span {
+.chat-message-attachments > span:not(.chat-attachment-file) {
   display: flex;
   align-items: center;
 }
@@ -143,7 +143,7 @@
   justify-content: flex-end;
 }
 
-.chat-message-attachments > span {
+.chat-message-attachments > span:not(.chat-attachment-file) {
   gap: 5px;
   max-width: 260px;
   padding: 3px 7px;
@@ -188,12 +188,4 @@
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--void) 48%, transparent);
-  transition:
-    border-color var(--dur-1) var(--ease-out),
-    background-color var(--dur-1) var(--ease-out);
-}
-
-.chat-attachment-file:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
 }

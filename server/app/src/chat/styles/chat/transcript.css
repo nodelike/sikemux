@@ -104,19 +104,9 @@
 }
 
 .chat-letter-name {
-  padding: 0;
-  border: 0;
-  background: none;
   color: var(--acc);
-  font: inherit;
   font-weight: var(--weight-semibold);
-  cursor: pointer;
-}
-
-.chat-letter-name:hover,
-.chat-letter-name:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  letter-spacing: normal;
 }
 
 .chat-ask-who {
@@ -457,6 +447,7 @@
 .chat-file-ref {
   display: inline-block;
   max-width: 100%;
+  letter-spacing: normal;
   text-align: left;
   vertical-align: baseline;
 }
@@ -475,10 +466,6 @@
    now is. */
 .chat-file-ref.link {
   color: var(--acc);
-}
-
-.chat-file-ref:hover .chat-file-ref-name {
-  text-decoration: underline;
 }
 
 /* The tree gives its glyphs a column to line up in. Beside words the glyph is

@@ -10,10 +10,10 @@ export const ChatSubagentsContext = createContext<{
   rows: Readonly<Record<string, ChatMessage[]>>;
 }>({ cards: new Map(), rows: {} });
 
-/** Fetches what a tool call did, line by line, for a row opened to show it; none where nothing can be asked. */
+/** Fetches what a tool call did, line by line, for a row opened to show it. */
 export const ToolDetailContext = createContext<
-  ((toolCallId: string) => Promise<ToolDetail>) | null
->(null);
+  (toolCallId: string) => Promise<ToolDetail>
+>(() => Promise.resolve({}));
 
 /** Scrolls the transcript as the reader asked, for a wheel turned over a page, which the transcript never sees. */
 export const ReaderScrollContext = createContext<(deltaY: number) => void>(

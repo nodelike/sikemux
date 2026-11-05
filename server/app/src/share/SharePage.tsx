@@ -1,11 +1,7 @@
 import { useAuth } from "@clerk/react";
 import { lazy, Suspense, useEffect, useMemo } from "react";
 import { webCipher } from "@shared/share/cipher";
-import {
-  appShareLink,
-  parseShareLink,
-  type ShareLink,
-} from "@shared/share/link";
+import { parseShareLink, type ShareLink } from "@shared/share/link";
 import { ShareSession } from "@shared/share/session";
 import { SharedChat } from "./SharedChat.tsx";
 import { wearPicked } from "../chat/themes/bus.ts";
@@ -72,21 +68,7 @@ function Watching({ link }: { link: ShareLink }) {
 
   return (
     <div className="shell share-page">
-      <SharedChat
-        session={session}
-        visible
-        actions={
-          <div className="agent-view-switch">
-            <button
-              type="button"
-              aria-pressed="false"
-              onClick={() => location.assign(appShareLink(link))}
-            >
-              Open in Sikemux
-            </button>
-          </div>
-        }
-      />
+      <SharedChat session={session} link={link} />
     </div>
   );
 }

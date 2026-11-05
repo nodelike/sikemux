@@ -47,29 +47,13 @@ export function sharedChatTitle(snapshot: ShareSnapshot): string | null {
     return words ? (words.length > 80 ? `${words.slice(0, 79)}…` : words) : null;
 }
 
-/** The one thing a socket must do for a share session; the browser's WebSocket does it. */
-export interface ShareSocket {
-    onopen: (() => void) | null;
-    onmessage: ((event: { data: unknown }) => void) | null;
-    onclose: ((event: { code: number }) => void) | null;
-    onerror: (() => void) | null;
-    send(text: string): void;
-    close(): void;
-}
-
 export interface ShareSessionOptions {
     link: ShareLink;
     /** The share socket, such as `wss://api.sikemux.com/v1/share`. */
     url: string;
     cipher: ShareCipher;
     /** A sign-in token, or null when signed out. `fresh` asks past any cache for a newer one. */
-    token?(fresh: boolean): Promise<string | null>;
-    /** A Mac watches with its host's key instead of a token: this signs the server's challenge with it. */
-    signHello?(nonce: string): Promise<{ key: string; signature: string }>;
-    connect?: (url: string) => ShareSocket;
-    /** Runs once before the next frame is drawn; returns how to call that off. */
-    frame?: (run: () => void) => () => void;
-    now?: () => number;
+    token(fresh: boolean): Promise<string | null>;
 }
 
 /** Whose catalog a share's agents are named from: the host that shared it, not one this client is on. */
@@ -89,15 +73,6 @@ const IMAGE_TYPES: Record<string, string> = {
     heic: "image/heic",
     svg: "image/svg+xml",
 };
-
-function animationFrame(run: () => void): () => void {
-    if (typeof requestAnimationFrame !== "function") {
-        const timer = setTimeout(run, 16);
-        return () => clearTimeout(timer);
-    }
-    const frame = requestAnimationFrame(run);
-    return () => cancelAnimationFrame(frame);
-}
 
 /** When a sign-in token expires, in milliseconds since the epoch, or 0 when it cannot be read. */
 function expiresAt(token: string): number {
@@ -130,7 +105,7 @@ export class ShareSession {
     private earlier: ShareSnapshot["earlier"] = "idle";
     private snap: ShareSnapshot;
 
-    private socket: ShareSocket | null = null;
+    private socket: WebSocket | null = null;
     private stopped = true;
     private failures = 0;
     private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -140,7 +115,7 @@ export class ShareSession {
     /** Frames are unsealed one after another, so they apply in the order they came. */
     private unsealing: Promise<void> = Promise.resolve();
     private pending: ChatChange[] = [];
-    private cancelFrame: (() => void) | undefined;
+    private drawing: number | undefined;
     private asked = 0;
     private answers = new Map<number, (answer: ShareReply | null) => void>();
     private images = new Map<string, Promise<string | null>>();
@@ -216,10 +191,6 @@ export class ShareSession {
         return read;
     };
 
-    private now() {
-        return (this.options.now ?? Date.now)();
-    }
-
     private emit() {
         this.snap = this.build();
         this.listeners.forEach((listener) => listener());
@@ -245,8 +216,7 @@ export class ShareSession {
     }
 
     private open() {
-        const connect = this.options.connect ?? ((url: string) => new WebSocket(url) as unknown as ShareSocket);
-        const socket = connect(this.options.url);
+        const socket = new WebSocket(this.options.url);
         this.socket = socket;
         socket.onmessage = (event) => {
             if (this.socket !== socket || typeof event.data !== "string") return;
@@ -263,10 +233,9 @@ export class ShareSession {
             this.socket = null;
             this.closed(event.code);
         };
-        socket.onerror = () => undefined;
     }
 
-    private send(socket: ShareSocket, message: ShareClientMessage) {
+    private send(socket: WebSocket, message: ShareClientMessage) {
         if (this.socket === socket) socket.send(JSON.stringify(message));
     }
 
@@ -289,16 +258,16 @@ export class ShareSession {
         }, wait);
     }
 
-    private async handle(socket: ShareSocket, message: ShareServerMessage) {
+    private async handle(socket: WebSocket, message: ShareServerMessage) {
         switch (message.type) {
             case "challenge": {
-                const [signIn, proof] = await Promise.all([this.signIn(message.nonce), this.options.cipher.viewerProof()]);
+                const [token, proof] = await Promise.all([this.options.token(false), this.options.cipher.viewerProof()]);
                 if (this.socket !== socket) return;
-                if (!signIn) return this.finished("signedOut");
+                if (!token) return this.finished("signedOut");
                 this.send(socket, {
                     type: "hello",
                     role: "viewer",
-                    ...signIn,
+                    token,
                     share: this.options.link.id,
                     proof,
                     ...(this.seq === undefined ? {} : { since: this.seq }),
@@ -344,28 +313,21 @@ export class ShareSession {
         }
     }
 
-    private async signIn(nonce: string): Promise<{ token: string } | { key: string; signature: string } | null> {
-        const { signHello, token } = this.options;
-        if (signHello) return signHello(nonce).catch(() => null);
-        const current = await token?.(false);
-        return current ? { token: current } : null;
-    }
-
-    private refreshAuth(socket: ShareSocket, expiry: number) {
+    private refreshAuth(socket: WebSocket, expiry: number) {
         if (this.authTimer) clearTimeout(this.authTimer);
         this.authTimer = setTimeout(
             () => {
                 this.authTimer = null;
                 void this.refresh(socket, expiry);
             },
-            Math.max(1_000, expiry - this.now() - AUTH_AHEAD_MS),
+            Math.max(1_000, expiry - Date.now() - AUTH_AHEAD_MS),
         );
     }
 
     /** The sign-in may still hand out the token the server already has; it is asked past its cache then. */
-    private async refresh(socket: ShareSocket, expiry: number) {
-        let token = (await this.options.token?.(false)) ?? null;
-        if (token && expiresAt(token) <= expiry) token = (await this.options.token?.(true)) ?? null;
+    private async refresh(socket: WebSocket, expiry: number) {
+        let token = await this.options.token(false);
+        if (token && expiresAt(token) <= expiry) token = await this.options.token(true);
         if (!token || this.socket !== socket) return;
         this.send(socket, { type: "auth", token });
         this.refreshAuth(socket, expiresAt(token));
@@ -380,11 +342,11 @@ export class ShareSession {
         if (event.kind !== "chat" || event.agentId !== this.chat?.agentId || event.seq <= this.chatSeq) return;
         this.chatSeq = event.seq;
         this.pending.push(...event.changes);
-        this.cancelFrame ??= (this.options.frame ?? animationFrame)(this.flush);
+        this.drawing ??= requestAnimationFrame(this.flush);
     }
 
     private flush = () => {
-        this.cancelFrame = undefined;
+        this.drawing = undefined;
         if (!this.pending.length) return;
         const batch = this.pending;
         this.pending = [];
@@ -393,8 +355,8 @@ export class ShareSession {
     };
 
     private replace({ chat, attachment }: Extract<ShareFrame, { type: "snapshot" }>) {
-        this.cancelFrame?.();
-        this.cancelFrame = undefined;
+        if (this.drawing !== undefined) cancelAnimationFrame(this.drawing);
+        this.drawing = undefined;
         this.pending = [];
         this.chat = chat;
         setAgentCatalog(SHARING_CORE, chat.agents ?? []);

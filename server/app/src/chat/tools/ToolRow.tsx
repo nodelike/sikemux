@@ -269,7 +269,7 @@ function useToolDetail(
   const wanted = open && (part.diff !== undefined || part.output !== undefined);
   const id = part.tool.toolCallId;
   useEffect(() => {
-    if (!wanted || !fetch) return;
+    if (!wanted) return;
     let live = true;
     fetch(id).then(
       (fetched) => {
