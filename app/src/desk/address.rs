@@ -6,8 +6,8 @@ use std::ops::Range;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, deferred, div, px, relative, AnyElement, App, AppContext, Context, Entity, FontWeight,
-    HighlightStyle, InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement,
+    deferred, div, px, relative, AnyElement, App, AppContext, Context, Entity, FontWeight,
+    HighlightStyle, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, StyledText, Subscription, Task, Window,
 };
 use sikemux_browser::history::{AddressSuggestions, Suggestion};
@@ -17,9 +17,8 @@ use crate::theme::{
     ui_text, Tokens, RADIUS_2, SPACE_0, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XL, TEXT_XS,
 };
 use crate::ui;
+use crate::ui::list_picker::{self, Choose, Close, Next, Previous};
 use crate::workbench::Workbench;
-
-actions!(address, [Next, Previous, Go, Close]);
 
 const MAX_WIDTH: f32 = 680.;
 const MARGIN: f32 = 16.;
@@ -29,13 +28,7 @@ const FIELD_AT: f32 = 0.36;
 const UNDER_DIM: f32 = 0.2;
 
 pub fn install(cx: &mut App) {
-    let context = Some("FloatingAddress > Input");
-    cx.bind_keys([
-        KeyBinding::new("down", Next, context),
-        KeyBinding::new("up", Previous, context),
-        KeyBinding::new("enter", Go, context),
-        KeyBinding::new("escape", Close, context),
-    ]);
+    list_picker::bind("FloatingAddress > Input", list_picker::Tab::Nothing, cx);
 }
 
 /// The open address and what it offers.
@@ -401,7 +394,7 @@ pub(super) fn overlay(
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_action(cx.listener(|bench, _: &Next, _, cx| bench.step_address(1, cx)))
         .on_action(cx.listener(|bench, _: &Previous, _, cx| bench.step_address(-1, cx)))
-        .on_action(cx.listener(|bench, _: &Go, window, cx| bench.go_address(None, window, cx)))
+        .on_action(cx.listener(|bench, _: &Choose, window, cx| bench.go_address(None, window, cx)))
         .on_action(
             cx.listener(|bench, _: &Close, window, cx| bench.close_address(true, window, cx)),
         )

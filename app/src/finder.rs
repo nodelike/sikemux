@@ -7,8 +7,8 @@ use std::sync::Arc;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, px, uniform_list, AnyElement, App, AppContext, Context, Entity, FocusHandle,
-    Hsla, InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement, ScrollStrategy,
+    div, px, uniform_list, AnyElement, App, AppContext, Context, Entity, FocusHandle,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, ScrollStrategy,
     StatefulInteractiveElement, Styled, Subscription, Task, UniformListScrollHandle, Window,
 };
 use serde_json::{json, Value};
@@ -17,21 +17,13 @@ use crate::core::Target;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_MD, TEXT_SM};
 use crate::ui;
+use crate::ui::list_picker::{self, Choose, Close, Next, Previous};
 use crate::workbench::Workbench;
-
-actions!(finder, [Next, Previous, Choose, Close]);
 
 const SHOWN: usize = 200;
 
 pub fn install(cx: &mut App) {
-    cx.bind_keys([
-        KeyBinding::new("down", Next, Some("Finder > Input")),
-        KeyBinding::new("tab", Next, Some("Finder > Input")),
-        KeyBinding::new("up", Previous, Some("Finder > Input")),
-        KeyBinding::new("shift-tab", Previous, Some("Finder > Input")),
-        KeyBinding::new("enter", Choose, Some("Finder > Input")),
-        KeyBinding::new("escape", Close, Some("Finder > Input")),
-    ]);
+    list_picker::bind("Finder > Input", list_picker::Tab::Steps, cx);
 }
 
 /// Every file of one project as the core last listed it, relative and byte-sorted.
@@ -161,9 +153,9 @@ impl Finder {
     }
 
     fn step(&mut self, by: isize) {
-        let count = self.shown.len() as isize;
+        let count = self.shown.len();
         if count > 0 {
-            self.select((self.selected as isize + by).rem_euclid(count) as usize);
+            self.select(list_picker::stepped(self.selected, by, count));
         }
     }
 
@@ -275,11 +267,8 @@ pub fn overlay(
             .flex()
             .justify_center()
             .items_start()
-            .pt(window.viewport_size().height * 0.13)
-            .bg(Hsla {
-                a: 0.68,
-                ..t.surface_sunken
-            })
+            .pt(window.viewport_size().height * list_picker::BACKDROP_TOP)
+            .bg(list_picker::backdrop_color(&t))
             .occlude()
             .on_mouse_down(MouseButton::Left, close)
             .child(

@@ -8,8 +8,8 @@ use std::rc::Rc;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, list, px, AnyElement, App, AppContext, Context, Entity, FocusHandle, FontWeight,
-    Hsla, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, ListAlignment, ListState,
+    div, list, px, AnyElement, App, AppContext, Context, Entity, FocusHandle, FontWeight, Hsla,
+    InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, ListAlignment, ListState,
     MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription,
     Window,
 };
@@ -20,9 +20,8 @@ use crate::theme::{
     TEXT_SM, TEXT_XL,
 };
 use crate::ui;
+use crate::ui::list_picker::{self, Choose, Close, Next, PageDown, PageUp, Previous};
 use crate::workbench::Workbench;
-
-actions!(palette, [Next, Previous, PageDown, PageUp, Choose, Close]);
 
 const ROW_HEIGHT: f32 = 30.;
 pub(crate) const HEAD_HEIGHT: f32 = 54.;
@@ -33,16 +32,11 @@ const SHOWN: usize = 200;
 const PAGE: isize = 8;
 
 pub fn install(cx: &mut App) {
-    let context = Some("Palette > Input");
+    let context = "Palette > Input";
+    list_picker::bind(context, list_picker::Tab::Steps, cx);
     cx.bind_keys([
-        KeyBinding::new("down", Next, context),
-        KeyBinding::new("tab", Next, context),
-        KeyBinding::new("up", Previous, context),
-        KeyBinding::new("shift-tab", Previous, context),
-        KeyBinding::new("pagedown", PageDown, context),
-        KeyBinding::new("pageup", PageUp, context),
-        KeyBinding::new("enter", Choose, context),
-        KeyBinding::new("escape", Close, context),
+        KeyBinding::new("pagedown", PageDown, Some(context)),
+        KeyBinding::new("pageup", PageUp, Some(context)),
     ]);
 }
 
@@ -158,7 +152,6 @@ impl Row {
 
 type Pick = Rc<dyn Fn(&Row, &mut Workbench, &mut Window, &mut Context<Workbench>)>;
 type Leave = Rc<dyn Fn(&mut Workbench, &mut Window, &mut Context<Workbench>)>;
-type Typed = Rc<dyn Fn(&str) -> Option<Row>>;
 
 /// One palette as its opener describes it.
 pub struct Spec {
@@ -177,8 +170,6 @@ pub struct Spec {
     pub cancel: Option<Leave>,
     /// The row highlighted while nothing is typed, such as the theme worn now.
     pub start: Option<SharedString>,
-    /// A row made of what is typed, offered first when no row has its key.
-    pub typed: Option<Typed>,
     /// A choice beside the field that the pick reads, such as the mode an agent starts in.
     pub choice: Option<Choice>,
     /// A button beside the field that does something the rows cannot, such as opening a folder.
@@ -233,7 +224,6 @@ impl Spec {
             browse: None,
             cancel: None,
             start: None,
-            typed: None,
             choice: None,
             aside: None,
             deck: false,
@@ -261,11 +251,6 @@ impl Spec {
     pub fn deck(mut self) -> Self {
         self.deck = true;
         self.width = 680.;
-        self
-    }
-
-    pub fn typed(mut self, typed: impl Fn(&str) -> Option<Row> + 'static) -> Self {
-        self.typed = Some(Rc::new(typed));
         self
     }
 
@@ -346,8 +331,6 @@ pub struct Palette {
     list: ListState,
     /// What had focus before the palette took it, to hand it back.
     before: Option<FocusHandle>,
-    /// The last row is the one made of what was typed.
-    typed_shown: bool,
     _typing: Subscription,
 }
 
@@ -373,16 +356,6 @@ impl Palette {
     }
 
     fn filter(&mut self, query: &str) {
-        if self.typed_shown {
-            self.spec.rows.pop();
-            self.typed_shown = false;
-        }
-        let typed = self
-            .spec
-            .typed
-            .as_ref()
-            .and_then(|typed| typed(query.trim()))
-            .filter(|row| !self.spec.rows.iter().any(|kept| kept.key == row.key));
         let rows = &self.spec.rows;
         self.lines = if self.spec.ruled {
             ruled(rows, query.trim())
@@ -403,11 +376,6 @@ impl Palette {
                 .map(Line::Row)
                 .collect()
         };
-        if let Some(row) = typed {
-            self.spec.rows.push(row);
-            self.lines.insert(0, Line::Row(self.spec.rows.len() - 1));
-            self.typed_shown = true;
-        }
         self.list.reset(self.lines.len());
         let start = self
             .spec
@@ -437,7 +405,6 @@ impl Palette {
     pub fn refill(&mut self, rows: Vec<Row>, cx: &App) {
         let reached = self.highlighted();
         self.spec.rows = rows;
-        self.typed_shown = false;
         let query = self.input.read(cx).value().to_string();
         self.filter(&query);
         if let Some(line) = reached.and_then(|key| self.line_of(&key)) {
@@ -553,7 +520,6 @@ impl Workbench {
             selected: None,
             list: ListState::new(0, ListAlignment::Top, px(ROW_HEIGHT * 8.)),
             before,
-            typed_shown: false,
             _typing: typing,
         };
         palette.filter("");
@@ -686,11 +652,8 @@ pub fn overlay(
             .flex()
             .justify_center()
             .items_start()
-            .pt(viewport.height * 0.13)
-            .bg(Hsla {
-                a: 0.68,
-                ..t.surface_sunken
-            })
+            .pt(viewport.height * list_picker::BACKDROP_TOP)
+            .bg(list_picker::backdrop_color(&t))
             .occlude()
             .on_mouse_down(MouseButton::Left, close)
             .child(

@@ -644,9 +644,9 @@ impl Workbench {
             .composing_mut(agent)
             .and_then(|composing| composing.menu.as_mut())
         {
-            let count = menu.choices.len() as isize;
+            let count = menu.choices.len();
             if count > 0 {
-                menu.selected = (menu.selected as isize + by).rem_euclid(count) as usize;
+                menu.selected = crate::ui::list_picker::stepped(menu.selected, by, count);
                 menu.scroll.scroll_to_item(menu.selected);
                 cx.notify();
             }

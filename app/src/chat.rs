@@ -359,17 +359,7 @@ actions!(
 actions!(chat, [FindInChat]);
 actions!(
     composer,
-    [
-        OlderPrompt,
-        NewerPrompt,
-        StopTurn,
-        MenuUp,
-        MenuDown,
-        MenuPick,
-        MenuClose,
-        CancelEdit,
-        StashPrompt
-    ]
+    [OlderPrompt, NewerPrompt, StopTurn, CancelEdit, StashPrompt]
 );
 
 /// Picks the choice at this index of the question on show, from its number key.
@@ -420,15 +410,17 @@ pub fn install(cx: &mut App) {
             KeyBinding::new("enter", Confirm, Some(context)),
         ]);
     }
-    bindings.extend([
-        KeyBinding::new("up", MenuUp, Some("ComposerMenu > Input")),
-        KeyBinding::new("down", MenuDown, Some("ComposerMenu > Input")),
-        KeyBinding::new("tab", MenuPick, Some("ComposerMenu > Input")),
-        KeyBinding::new("enter", MenuPick, Some("ComposerMenu > Input")),
-        KeyBinding::new("escape", MenuClose, Some("ComposerMenu > Input")),
-        KeyBinding::new("escape", CancelEdit, Some("MessageEditor > Input")),
-    ]);
+    bindings.extend([KeyBinding::new(
+        "escape",
+        CancelEdit,
+        Some("MessageEditor > Input"),
+    )]);
     cx.bind_keys(bindings);
+    crate::ui::list_picker::bind(
+        "ComposerMenu > Input",
+        crate::ui::list_picker::Tab::Chooses,
+        cx,
+    );
 }
 
 /// What a key asks of the question on show.

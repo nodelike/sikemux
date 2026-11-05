@@ -85,8 +85,8 @@ impl Workbench {
     /// hosts among hosts: in the switcher while a modifier is held, else at once.
     pub fn step_place(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(switcher) = self.overlays.switcher.as_mut() {
-            let count = switcher.places.len() as isize;
-            switcher.at = (switcher.at as isize + by).rem_euclid(count) as usize;
+            let count = switcher.places.len();
+            switcher.at = crate::ui::list_picker::stepped(switcher.at, by, count);
             return self.parts.redraw(&self.parts.finder, cx);
         }
         let front = self.strip();
@@ -102,12 +102,11 @@ impl Workbench {
         if places.len() < 2 {
             return;
         }
-        let count = places.len() as isize;
         let here = self
             .strip()
             .and_then(|strip| places.iter().position(|place| *place == strip))
             .unwrap_or(0);
-        let at = (here as isize + by).rem_euclid(count) as usize;
+        let at = crate::ui::list_picker::stepped(here, by, places.len());
         match Held::of(&window.modifiers()) {
             Some(held) => {
                 self.overlays.switcher = Some(Switcher { places, at, held });

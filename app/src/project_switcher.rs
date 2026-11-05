@@ -5,9 +5,9 @@ use gpui_kit::base::{Popover, Selectable};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, px, Anchor, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
-    KeyBinding, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window,
+    div, px, Anchor, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Subscription,
+    WeakEntity, Window,
 };
 use serde_json::json;
 
@@ -17,27 +17,17 @@ use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_2, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui;
+use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::ui::path::tilde;
 use crate::workbench::Workbench;
 
-actions!(project_switcher, [Up, Down, Pick, Close]);
-
 const CONTEXT: &str = "ProjectSwitcher";
-
-/// Closes the popover the switcher is in.
-type Dismiss = std::rc::Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// What picking a project does with it, by its id, once a folder found on disk is one.
 pub type OnPick = std::rc::Rc<dyn Fn(String, &mut App)>;
 
 pub fn install(cx: &mut App) {
-    let context = Some("ProjectSwitcher > Input");
-    cx.bind_keys([
-        KeyBinding::new("up", Up, context),
-        KeyBinding::new("down", Down, context),
-        KeyBinding::new("enter", Pick, context),
-        KeyBinding::new("escape", Close, context),
-    ]);
+    list_picker::bind("ProjectSwitcher > Input", list_picker::Tab::Nothing, cx);
 }
 
 /// A place the chat can move to.
@@ -211,9 +201,9 @@ impl Switcher {
     }
 
     fn step(&mut self, by: isize, cx: &mut Context<Self>) {
-        let count = self.choices(cx).len() as isize;
+        let count = self.choices(cx).len();
         if count > 0 {
-            self.chosen = (self.chosen as isize + by).rem_euclid(count) as usize;
+            self.chosen = list_picker::stepped(self.chosen, by, count);
         }
         cx.notify();
     }
@@ -255,16 +245,8 @@ impl Render for Switcher {
                     .rounded(theme::RADIUS_2)
                     .cursor_pointer()
                     .when(at == self.chosen, |row| row.bg(t.surface_hover))
-                    .on_hover({
-                        let this = this.clone();
-                        move |over: &bool, _, cx| {
-                            if *over {
-                                this.update(cx, |switcher, cx| {
-                                    switcher.chosen = at;
-                                    cx.notify();
-                                });
-                            }
-                        }
+                    .map(|row| {
+                        list_picker::hover_chooses(row, at, &this, |list, at| list.chosen = at)
                     })
                     .on_click(move |_, window, cx| {
                         let picked = picked.clone();
@@ -299,9 +281,9 @@ impl Render for Switcher {
         let empty = choices.is_empty();
         div()
             .key_context(format!("{CONTEXT} Modal").as_str())
-            .on_action(cx.listener(|switcher, _: &Up, _, cx| switcher.step(-1, cx)))
-            .on_action(cx.listener(|switcher, _: &Down, _, cx| switcher.step(1, cx)))
-            .on_action(cx.listener(|switcher, _: &Pick, window, cx| {
+            .on_action(cx.listener(|switcher, _: &Previous, _, cx| switcher.step(-1, cx)))
+            .on_action(cx.listener(|switcher, _: &Next, _, cx| switcher.step(1, cx)))
+            .on_action(cx.listener(|switcher, _: &Choose, window, cx| {
                 if let Some(choice) = switcher.choices(cx).get(switcher.chosen).cloned() {
                     switcher.pick(choice, window, cx);
                 }
@@ -386,9 +368,7 @@ pub fn picker(
         .trigger(trigger)
         .content(move |_, window, cx| {
             let popover = cx.entity();
-            let close: Dismiss = std::rc::Rc::new(move |window, cx| {
-                popover.update(cx, |popover, cx| popover.dismiss(window, cx));
-            });
+            let close = list_picker::dismiss(popover);
             let (on_pick, folder) = (on_pick.clone(), folder.clone());
             window.use_keyed_state(key.clone(), cx, |window, cx| {
                 Switcher::new(&this, on_pick, folder, close, window, cx)

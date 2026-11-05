@@ -2,6 +2,7 @@
 //! and the prompts and steering it sends.
 
 use super::*;
+use crate::ui::list_picker::{Choose, Close, Next, Previous};
 use sikemux_core::server::{call, QueuedMessage, QueuedParams};
 
 /// The composer at the bottom of the goals' Home, which starts work rather than writing to a
@@ -307,22 +308,22 @@ pub fn mounted(
             div()
                 .when(offering, |menu| {
                     menu.key_context("ComposerMenu")
-                        .on_action(offered::<MenuUp>(
+                        .on_action(offered::<Previous>(
                             owner,
                             |bench, owner, _, cx| bench.pick_choice(owner, -1, cx),
                             cx,
                         ))
-                        .on_action(offered::<MenuDown>(
+                        .on_action(offered::<Next>(
                             owner,
                             |bench, owner, _, cx| bench.pick_choice(owner, 1, cx),
                             cx,
                         ))
-                        .on_action(offered::<MenuPick>(
+                        .on_action(offered::<Choose>(
                             owner,
                             |bench, owner, window, cx| bench.take_choice(owner, None, window, cx),
                             cx,
                         ))
-                        .on_action(offered::<MenuClose>(
+                        .on_action(offered::<Close>(
                             owner,
                             |bench, owner, _, cx| bench.dismiss_menu(owner, cx),
                             cx,

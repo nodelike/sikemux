@@ -9,9 +9,9 @@ use gpui_kit::base::{Popover, Selectable};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, px, Anchor, AnyElement, App, AppContext, Context, Entity, FontWeight,
-    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
+    div, px, Anchor, AnyElement, App, AppContext, Context, Entity, FontWeight, InteractiveElement,
+    IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, WeakEntity, Window,
 };
 use serde_json::{json, Value};
 use sikemux_wire::protocol::ConfigPicker;
@@ -24,20 +24,13 @@ use crate::theme::{
     TEXT_XS_H,
 };
 use crate::ui;
+use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::workbench::Workbench;
-
-actions!(model_picker, [Up, Down, Pick, Close]);
 
 const CONTEXT: &str = "ModelPicker";
 
 pub fn install(cx: &mut App) {
-    let context = Some("ModelPicker > Input");
-    cx.bind_keys([
-        KeyBinding::new("up", Up, context),
-        KeyBinding::new("down", Down, context),
-        KeyBinding::new("enter", Pick, context),
-        KeyBinding::new("escape", Close, context),
-    ]);
+    list_picker::bind("ModelPicker > Input", list_picker::Tab::Nothing, cx);
 }
 
 /// Where a chat that has not started moves to: an agent, the account it runs on, and the
@@ -142,7 +135,6 @@ pub struct Menu {
 }
 
 /// Closes the popover the menu is in.
-type Dismiss = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// Context, price per million tokens and tool calls, in a few words, as Settings words them.
 fn facts(route: &Route, model: &str) -> Vec<String> {
@@ -435,9 +427,9 @@ impl Menu {
     }
 
     fn step(&mut self, by: isize, cx: &mut Context<Self>) {
-        let count = self.options(cx).1.len() as isize;
+        let count = self.options(cx).1.len();
         if count > 0 {
-            self.chosen = (self.chosen as isize + by).rem_euclid(count) as usize;
+            self.chosen = list_picker::stepped(self.chosen, by, count);
             self.follow = true;
         }
         cx.notify();
@@ -559,17 +551,7 @@ impl Menu {
                 t.text_primary
             })
             .when(at == self.chosen, |row| row.bg(t.surface_hover))
-            .on_hover({
-                let menu = menu.clone();
-                move |over: &bool, _, cx| {
-                    if *over {
-                        menu.update(cx, |menu, cx| {
-                            menu.chosen = at;
-                            cx.notify();
-                        });
-                    }
-                }
-            })
+            .map(|row| list_picker::hover_chooses(row, at, &menu, |list, at| list.chosen = at))
             .on_click(move |_, window, cx| {
                 let act = act.clone();
                 menu.update(cx, |menu, cx| menu.pick(act, window, cx))
@@ -734,9 +716,9 @@ impl Render for Menu {
         }
         div()
             .key_context(format!("{CONTEXT} Modal").as_str())
-            .on_action(cx.listener(|menu, _: &Up, _, cx| menu.step(-1, cx)))
-            .on_action(cx.listener(|menu, _: &Down, _, cx| menu.step(1, cx)))
-            .on_action(cx.listener(|menu, _: &Pick, window, cx| {
+            .on_action(cx.listener(|menu, _: &Previous, _, cx| menu.step(-1, cx)))
+            .on_action(cx.listener(|menu, _: &Next, _, cx| menu.step(1, cx)))
+            .on_action(cx.listener(|menu, _: &Choose, window, cx| {
                 if let Some(option) = menu.options(cx).1.get(menu.chosen).cloned() {
                     menu.pick(option.act, window, cx);
                 }
@@ -808,9 +790,7 @@ pub fn around(
         .trigger(trigger)
         .content(move |_, window, cx| {
             let popover = cx.entity();
-            let close: Dismiss = Rc::new(move |window, cx| {
-                popover.update(cx, |popover, cx| popover.dismiss(window, cx));
-            });
+            let close = list_picker::dismiss(popover);
             let shown = picked.clone();
             let menu = window.use_keyed_state(key, cx, |window, cx| {
                 Menu::new(&this, picked, close, window, cx)

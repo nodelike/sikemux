@@ -9,6 +9,7 @@ mod file_card;
 pub mod find_bar;
 mod floats;
 pub mod grain;
+pub mod list_picker;
 mod lists;
 pub mod moving_face;
 mod pane;
