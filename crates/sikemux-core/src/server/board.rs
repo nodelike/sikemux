@@ -256,6 +256,21 @@ struct Board {
 }
 
 impl Board {
+    /// The card `agent` works now: the one in progress it claimed last, else the one it last
+    /// claimed, finished or not.
+    pub(crate) fn working_card(&self, agent: &str) -> Option<&Card> {
+        (self.cards.iter())
+            .filter(|card| card.owner_id() == Some(agent))
+            .max_by_key(|card| card.work_rank())
+    }
+
+    /// The card `agent` works now among those not done.
+    pub(crate) fn open_working_card(&self, agent: &str) -> Option<&Card> {
+        (self.cards.iter())
+            .filter(|card| card.owner_id() == Some(agent) && card.status != Status::Done)
+            .max_by_key(|card| card.work_rank())
+    }
+
     fn empty(project: &str) -> Self {
         Self {
             version: VERSION,
@@ -1109,6 +1124,11 @@ struct Maker {
 }
 
 impl Card {
+    /// Which of an agent's cards it works now: the highest of these.
+    fn work_rank(&self) -> (bool, u64) {
+        (self.status == Status::Progress, self.acted_at)
+    }
+
     /// Its ticket, when its tracker closed it with nothing of its slice
     /// landed, which leaves the card to the person.
     fn ticket_done_unlanded(&self) -> Option<&Ticket> {
@@ -1469,13 +1489,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if let Some(result) = &card.result {
         fields.insert("result".into(), text(result).into());
     }
-    let asked = card
-        .owner_id()
-        .is_some_and(|owner| core.harness.questions.blocks_on_person(owner));
-    let at_gate = card.slice.as_ref().is_some_and(|slice| {
-        card.status != Status::Done && slice.waits_on_person(&board.settings).is_some()
-    });
-    if asked || at_gate {
+    if waits(core, &board.settings, card).is_some() {
         fields.insert("waitingOnThePerson".into(), true.into());
     }
     if let Some(stalled) = card.slice.as_ref().and_then(|slice| slice.stalled.as_ref()) {
@@ -2292,14 +2306,14 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     .map_err(|error| error.to_string())
 }
 
-/// The card the agent works, else the one it touched last.
+/// The card the agent works, on whichever board, else the one it touched last.
 fn held_card<'a>(state: &'a mut State, agent_id: &str) -> Option<(&'a String, &'a mut Card)> {
     state
         .boards
         .iter_mut()
         .flat_map(|(project, board)| board.cards.iter_mut().map(move |card| (project, card)))
         .filter(|(_, card)| card.owner_id() == Some(agent_id))
-        .max_by_key(|(_, card)| (card.status == Status::Progress, card.acted_at))
+        .max_by_key(|(_, card)| card.work_rank())
 }
 
 /// A line naming the agent's card, for the report its lead gets when its
@@ -2318,11 +2332,7 @@ pub(crate) fn card_line(core: &Core, agent_id: &str) -> Option<String> {
 pub(crate) fn ticket_of_agent(core: &Core, agent_id: &str) -> Option<String> {
     let state = core.boards.state.locked();
     state.boards.values().find_map(|board| {
-        let card = board
-            .cards
-            .iter()
-            .filter(|card| card.owner_id() == Some(agent_id) && card.status != Status::Done)
-            .max_by_key(|card| card.updated_at)?;
+        let card = board.open_working_card(agent_id)?;
         let mut current = Some(card);
         let mut steps = 0;
         while let Some(card) = current {
@@ -2503,17 +2513,9 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
         .values()
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
         .filter(|(board, card)| {
-            matches!(
-                waits(core, &board.settings, card),
-                Some(
-                    Waits::Review { .. }
-                        | Waits::Held { .. }
-                        | Waits::Gate { .. }
-                        | Waits::TicketDone { .. }
-                        | Waits::Stalled { .. }
-                )
-            ) || done_since
-                .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)
+            waits(core, &board.settings, card).is_some_and(|waits| !matches!(waits, Waits::Answer))
+                || done_since
+                    .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)
         })
         .map(|(board, card)| card.summary(core, board))
         .collect()
@@ -2576,11 +2578,7 @@ pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
     let project = core.names.get(agent_id)?.project;
     let state = core.boards.state.locked();
     let board = state.boards.get(&project)?;
-    let live = board
-        .cards
-        .iter()
-        .filter(|card| card.owner_id() == Some(agent_id) && card.status != Status::Done)
-        .max_by_key(|card| (card.status == Status::Progress, card.updated_at))?;
+    let live = board.open_working_card(agent_id)?;
     let goal = board.goal_above(live);
     let promise = live.slice.as_ref().map(|slice| slice.promise.as_str());
     let text = [

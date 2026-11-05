@@ -573,7 +573,7 @@ fn goals_held<'a>(
                             .and_then(|slice| slice.stalled.as_ref())
                             .is_some_and(|stalled| stalled.agent == agent))
             })
-            .max_by_key(|card| (card.status == Status::Progress, card.updated_at));
+            .max_by_key(|card| card.work_rank());
         let Some(goal) = held.map(|card| board.goal_above(card)) else {
             continue;
         };

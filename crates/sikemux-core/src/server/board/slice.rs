@@ -1863,7 +1863,7 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, check: Option<&Checker>)
             let card = board.card(id).ok()?;
             let owner = card.owner_id()?.to_owned();
             let work = card.slice.as_ref()?.work.clone()?;
-            let current = current_card(board, &owner) == Some(id);
+            let current = board.working_card(&owner).map(|card| card.id) == Some(id);
             Some((owner, work, current, card.updated_at))
         })
     };
@@ -1990,24 +1990,13 @@ pub(super) fn earlier_work(
     })
 }
 
-/// The card `agent` works now on `board`: the one it last claimed or changed.
-fn current_card(board: &Board, agent: &str) -> Option<u64> {
-    board
-        .cards
-        .iter()
-        .filter(|card| card.owner_id() == Some(agent))
-        .max_by_key(|card| (card.status == Status::Progress, card.acted_at))
-        .map(|card| card.id)
-}
-
 /// The card `agent` works now on `board`, when that is a slice in progress.
 pub(super) fn working_slice(board: &Board, agent: &str) -> Option<u64> {
-    let id = current_card(board, agent)?;
-    let card = board.card(id).ok()?;
+    let card = board.working_card(agent)?;
     let slice = match &card.slice {
         Some(_) => card,
         None => (board.cards.iter())
-            .find(|slice| (slice.slice.as_ref()).is_some_and(|slice| slice.fix == Some(id)))?,
+            .find(|slice| (slice.slice.as_ref()).is_some_and(|slice| slice.fix == Some(card.id)))?,
     };
     (slice.status == Status::Progress && slice.owner_id() == Some(agent)).then_some(slice.id)
 }
@@ -2229,7 +2218,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
             let known = {
                 let state = core.boards.state.locked();
                 state.boards.get(project).and_then(|board| {
-                    let card = board.card(current_card(board, agent)?).ok()?;
+                    let card = board.working_card(agent)?;
                     card.slice.as_ref()?.head().map(str::to_owned)
                 })
             };
@@ -2673,7 +2662,7 @@ pub(crate) fn deployed(core: &Arc<Core>, project: &str, agent: &str, ran: Deploy
     let card = {
         let state = core.boards.state.locked();
         (state.boards.get(project)).and_then(|board| {
-            let id = current_card(board, agent)?;
+            let id = board.working_card(agent)?.id;
             let card = board.card(id).ok()?;
             let slice = card.slice.as_ref()?;
             Some((
