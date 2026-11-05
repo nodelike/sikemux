@@ -677,6 +677,27 @@
           "body": "ApiError"
         }
       }
+    },
+    {
+      "method": "get",
+      "path": "/v1/share",
+      "operationId": "openShare",
+      "summary": "One connection per host publishing shared chats, and one per viewer watching one",
+      "auth": "sessionOrHost",
+      "upgrade": "websocket",
+      "messages": {
+        "send": "ShareClientMessage",
+        "receive": "ShareServerMessage"
+      },
+      "responses": {
+        "101": {
+          "description": "The connection is open. The server sends a challenge; the client answers with hello within 10 seconds. Its close codes are ShareCloseCode."
+        },
+        "429": {
+          "description": "Too many connections from this address.",
+          "body": "ApiError"
+        }
+      }
     }
   ]
 }

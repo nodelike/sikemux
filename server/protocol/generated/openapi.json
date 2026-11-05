@@ -1521,6 +1521,39 @@
           }
         }
       }
+    },
+    "/v1/share": {
+      "get": {
+        "operationId": "openShare",
+        "summary": "One connection per host publishing shared chats, and one per viewer watching one",
+        "security": [{ "session": [] }, { "host": [] }],
+        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
+        "x-websocket": {
+          "send": { "$ref": "#/components/schemas/ShareClientMessage" },
+          "receive": { "$ref": "#/components/schemas/ShareServerMessage" }
+        },
+        "responses": {
+          "101": {
+            "description": "The connection is open. The server sends a challenge; the client answers with hello within 10 seconds. Its close codes are ShareCloseCode."
+          },
+          "429": {
+            "description": "Too many connections from this address.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
