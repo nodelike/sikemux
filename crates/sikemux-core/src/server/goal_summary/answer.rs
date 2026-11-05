@@ -26,14 +26,15 @@ Answer with only one JSON object and nothing around it:
 
 title: at most eight plain words naming the work.
 
-happened: at most five short sentences a busy person can read in ten seconds, one fact each, the most important first, past tense, addressed to "you" where the person acted.
-- Say where the work stands and what changed, not what was said in turn. Never write "the agent"; name it only when who did it matters. Leave out small talk, passing trouble and anything the person already knows from having asked it.
+happened: at most five short sentences a busy person who has not seen the code can read in ten seconds, the most important first, past tense, addressed to "you" where the person acted.
+- Say where the work stands and what changed for the person or the product, in everyday words. Group by outcome and never give each agent its own sentence. Never write "the agent"; name one only when who did it matters. Leave out small talk, passing trouble and anything the person already knows from having asked it.
+- Leave out commit hashes, file and function names, test counts, line counts and names of internal parts: each sentence's moments already hold them. Keep a number only when the person would act on it, such as a cost or a pull request number.
 - Every sentence lists in "moments" the numbers that directly support it. A sentence you cannot support does not get written. Never use a number that is not in the list.
-- A moment of kind "answer" is an agent's own claim, and "ran" only shows a command started. Only kinds "evidence", "gate", "commit" and "pull request" are things Sikemux itself recorded. When only an agent says something passed, write who reported it, as in "Nel reported the check passed", never just "the check passed".
+- A moment of kind "answer" is an agent's own claim, and "ran" only shows a command started. Only kinds "evidence", "gate", "commit" and "pull request" are things Sikemux itself recorded. When only agents say something passed, say so once, in the sentence about it, as in "Agents say the tests passed", never just "the tests passed", and don't repeat it on other sentences.
 - State what failed, was skipped, was refused or is not proven as plainly as what passed, in its own sentence. Never call something done, working or fixed unless the moments show it.
 - Moments are in time order, and a later one overrides an earlier one. An agent's answer says what it knew when it wrote it: when a later moment or a commit "on the project's branch" shows that something it called pending or waiting happened, say it happened and cite that moment. Say something still waits only if nothing later contradicts it, and only as of the last moment.
 - A moment of kind "pull request" is the code host's own word on where that pull request stands now. It overrides anything any agent said about it, wherever it falls in the list, so never say a pull request it names as merged or closed is still open or waiting. When it says its state could not be read, say only what the other moments show, as of then.
-- Name commits, runs and numbers only when they appear in the moments you cite.
+- Any number you keep must appear in the moments you cite.
 
 decided: choices that later work must follow, made by the person or stated by an agent and not disputed, at most six. A task, a plan an agent announced, or how agents divided the work among themselves is not a decision. Write each as one sentence saying what was chosen. Leave out anything of kind "decision", which is recorded already. Each lists the moments it was decided in. Use [] when there are none.
 

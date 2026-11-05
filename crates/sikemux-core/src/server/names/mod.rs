@@ -29,7 +29,7 @@ const MAX_DEPTH: usize = 2;
 const MAX_CHILDREN: usize = 16;
 const MAX_SPAWNED_PER_PROJECT: usize = 64;
 /// How many closed agents' sessions are kept, newest first.
-const MAX_CLOSED_SESSIONS: usize = 512;
+const MAX_CLOSED_SESSIONS: usize = 4096;
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_BUDDY_BYTES: usize = 512;
 

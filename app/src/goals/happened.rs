@@ -188,17 +188,21 @@ fn left_out_words(left_out: &[LeftOut]) -> Option<String> {
             .join(", ")
     };
     let other = names(LeftOutWhy::OtherVendor);
-    let none = names(LeftOutWhy::NoSession);
+    let unread = (left_out.iter())
+        .filter(|left| left.why == LeftOutWhy::NoSession)
+        .count();
     let mut words = Vec::new();
     if !other.is_empty() {
         words.push(format!(
             "Not read: {other}, who run on another vendor's agent, so their chats aren't sent to this one."
         ));
     }
-    if !none.is_empty() {
-        words.push(format!(
-            "Not read: {none}, whose sessions couldn't be found."
-        ));
+    match unread {
+        0 => {}
+        1 => words.push("Written without one agent's chat, which is no longer on record.".into()),
+        many => words.push(format!(
+            "Written without {many} agents' chats, which are no longer on record."
+        )),
     }
     (!words.is_empty()).then(|| words.join(" "))
 }
