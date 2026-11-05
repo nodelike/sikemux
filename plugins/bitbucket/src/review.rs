@@ -80,7 +80,7 @@ pub async fn feedback(
     let pull_path = pull_path(&input.pull, "")?;
     let (comments, pull) = futures::try_join!(
         client::get_all::<CommentRow>(data_dir, &comments_path, &query, 10),
-        client::get::<PullRow>(data_dir, &pull_path, &[]),
+        client::API.get::<PullRow>(data_dir, &pull_path, &[]),
     )?;
     let comments = comments
         .into_iter()
@@ -151,7 +151,9 @@ pub async fn answer(data_dir: &Path, input: Answers) -> BitbucketResult<()> {
             Some(parent) => json!({ "content": { "raw": reply.body }, "parent": { "id": parent } }),
             None => json!({ "content": { "raw": reply.body } }),
         };
-        let _: Value = client::send_json(data_dir, Method::POST, &path, &body).await?;
+        let _: Value = client::API
+            .send_json(data_dir, Method::POST, &path, &body)
+            .await?;
     }
     Ok(())
 }

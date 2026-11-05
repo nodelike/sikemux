@@ -6,10 +6,10 @@ use std::path::Path;
 
 use reqwest::Url;
 use sikemux_plugin_api::codehost::asks::ImageRef;
-use sikemux_plugin_api::images;
+use sikemux_plugin_api::{images, Service};
 
 use crate::client::{self, Session};
-use crate::error::{BitbucketError, BitbucketResult};
+use crate::error::{Bitbucket, BitbucketError, BitbucketResult};
 
 /// Whether an image may be fetched, and if so whether it gets the credential.
 /// Avatars live on Atlassian's and Gravatar's hosts, which need none.
@@ -41,7 +41,7 @@ pub async fn image(data_dir: &Path, input: ImageRef) -> BitbucketResult<String> 
     .await?;
     let status = response.status();
     if !status.is_success() {
-        return Err(client::classify(status, &[]));
+        return Err(Bitbucket::refused(status, &[], None));
     }
     images::read_image(response).await
 }

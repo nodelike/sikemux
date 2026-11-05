@@ -5,35 +5,33 @@
 use std::path::Path;
 
 use reqwest::header::HeaderMap;
-use reqwest::{Method, RequestBuilder, StatusCode};
+use reqwest::{Client, Method, RequestBuilder};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sikemux_plugin_api::account::chosen;
-use sikemux_plugin_api::http::{self, Deadline, Http, Redirects};
-use sikemux_plugin_api::ratelimit::{LimitHeaders, RateLimits};
+use sikemux_plugin_api::http::{self, Api, Calls, Http, Redirects};
+use sikemux_plugin_api::ratelimit::LimitHeaders;
 use sikemux_plugin_api::store::{self, Accounts, Held};
 
 use crate::config::{self, Account};
 use crate::error::{Gitlab, GitlabError, GitlabResult};
 
-pub const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const PER_PAGE: u32 = 100;
 
-pub static HTTP: Http<Gitlab> = Http::new(Redirects::SameHost, Deadline::WholeAnswer, 8);
-pub static LIMITS: RateLimits = RateLimits::new(LimitHeaders {
-    remaining: Some("ratelimit-remaining"),
-    reset: Some("ratelimit-reset"),
-});
+pub static HTTP: Http<Gitlab> = Http::with_limits(
+    Redirects::SameHost,
+    8,
+    LimitHeaders {
+        remaining: Some("ratelimit-remaining"),
+        reset: Some("ratelimit-reset"),
+    },
+);
+pub static API: Calls<Gitlab> = Calls::new();
 static TOKENS: Held<String> = Held::secrets();
 
 /// Where a server's API lives.
 pub fn api_base(host: &str) -> String {
     format!("https://{host}/api/v4")
-}
-
-/// A token sent the way GitLab reads personal, group and project access tokens alike.
-pub fn authorize(request: RequestBuilder, token: &str) -> RequestBuilder {
-    request.bearer_auth(token)
 }
 
 /// Drops the token held in memory for one account, or for all of them, so the
@@ -122,140 +120,30 @@ pub fn error_message(bytes: &[u8]) -> Option<String> {
     )
 }
 
-pub fn classify(status: StatusCode, bytes: &[u8]) -> GitlabError {
-    http::classify::<Gitlab>(
-        status,
-        error_message(bytes),
-        (status == StatusCode::TOO_MANY_REQUESTS).then(|| LIMITS.latest_wait()),
-    )
-}
+impl Api for Gitlab {
+    type Session = Session;
 
-/// An answer: its status, headers, body, and whether the body's start was cut.
-pub struct Answer {
-    pub status: StatusCode,
-    pub headers: HeaderMap,
-    pub bytes: Vec<u8>,
-    pub cut: bool,
-}
-
-/// A request to the API of the call's account, waiting out a short rate-limit pause once.
-pub async fn send_limited(
-    data_dir: &Path,
-    method: Method,
-    path: &str,
-    query: &[(&str, String)],
-    body: Option<&Value>,
-    limit: usize,
-    keep_tail: bool,
-) -> GitlabResult<Answer> {
-    let mut waited = false;
-    loop {
-        let session = Session::current(data_dir).await?;
-        let account = session.account.id.as_str();
-        LIMITS.check(account)?;
-        let mut request = authorize(
-            HTTP.client()?
-                .request(method.clone(), format!("{}{path}", session.base())),
-            &session.token,
-        );
-        if !query.is_empty() {
-            request = request.query(query);
-        }
-        if let Some(body) = body {
-            request = request.json(body);
-        }
-        let response = HTTP.send(request).await?;
-        let status = response.status();
-        let headers = response.headers().clone();
-        if status == StatusCode::UNAUTHORIZED {
-            forget(Some(account));
-        }
-        if let Some(pause) = LIMITS
-            .short_wait(account, status, &headers, b"")
-            .filter(|_| !waited)
-        {
-            waited = true;
-            tokio::time::sleep(pause).await;
-            continue;
-        }
-        LIMITS.observe(account, status, &headers, b"");
-        let (bytes, cut) = if keep_tail {
-            http::read_tail(response, limit).await?
-        } else {
-            (http::read_body(response, limit).await?, false)
-        };
-        return Ok(Answer {
-            status,
-            headers,
-            bytes,
-            cut,
-        });
+    fn http() -> &'static Http<Self> {
+        &HTTP
     }
-}
 
-async fn fetch(
-    data_dir: &Path,
-    method: Method,
-    path: &str,
-    query: &[(&str, String)],
-    body: Option<&Value>,
-) -> GitlabResult<Answer> {
-    let answer = send_limited(
-        data_dir,
-        method,
-        path,
-        query,
-        body,
-        MAX_RESPONSE_BYTES,
-        false,
-    )
-    .await?;
-    if !answer.status.is_success() {
-        return Err(classify(answer.status, &answer.bytes));
+    async fn session(data_dir: &Path) -> GitlabResult<Session> {
+        Session::current(data_dir).await
     }
-    Ok(answer)
-}
 
-pub fn parse<T: DeserializeOwned>(bytes: &[u8]) -> GitlabResult<T> {
-    Ok(http::parse(bytes)?)
-}
+    fn account(session: &Session) -> &str {
+        &session.account.id
+    }
 
-pub async fn get<T: DeserializeOwned>(
-    data_dir: &Path,
-    path: &str,
-    query: &[(&str, String)],
-) -> GitlabResult<T> {
-    parse(&fetch(data_dir, Method::GET, path, query, None).await?.bytes)
-}
+    fn request(session: &Session, client: &Client, method: Method, path: &str) -> RequestBuilder {
+        client
+            .request(method, format!("{}{path}", session.base()))
+            .bearer_auth(&session.token)
+    }
 
-/// Logs and files, which come back as plain text rather than JSON.
-pub async fn get_text(
-    data_dir: &Path,
-    path: &str,
-    query: &[(&str, String)],
-) -> GitlabResult<String> {
-    let answer = fetch(data_dir, Method::GET, path, query, None).await?;
-    Ok(String::from_utf8_lossy(&answer.bytes).into_owned())
-}
-
-pub async fn send_json<T: DeserializeOwned>(
-    data_dir: &Path,
-    method: Method,
-    path: &str,
-    body: &Value,
-) -> GitlabResult<T> {
-    parse(&fetch(data_dir, method, path, &[], Some(body)).await?.bytes)
-}
-
-/// A write whose answer nobody reads, such as approving or cancelling something.
-pub async fn write(
-    data_dir: &Path,
-    method: Method,
-    path: &str,
-    body: Option<&Value>,
-) -> GitlabResult<()> {
-    fetch(data_dir, method, path, &[], body).await?;
-    Ok(())
+    async fn turned_down(session: &Session) {
+        forget(Some(&session.account.id));
+    }
 }
 
 fn header_number(headers: &HeaderMap, name: &str) -> Option<u64> {
@@ -279,9 +167,9 @@ pub async fn get_page<T: DeserializeOwned>(
     let mut query = query.to_vec();
     query.push(("page", page.max(1).to_string()));
     query.push(("per_page", per_page.clamp(1, PER_PAGE).to_string()));
-    let answer = fetch(data_dir, Method::GET, path, &query, None).await?;
+    let answer = API.fetch(data_dir, Method::GET, path, &query, None).await?;
     Ok(Page {
-        items: parse(&answer.bytes)?,
+        items: answer.parsed()?,
         next: header_number(&answer.headers, "x-next-page").map(|next| next as u32),
         total: header_number(&answer.headers, "x-total"),
     })
@@ -325,25 +213,5 @@ mod tests {
             Some("insufficient_scope: The request requires higher privileges")
         );
         assert!(error_message(b"<html>").is_none());
-    }
-
-    #[test]
-    fn the_token_goes_in_the_authorization_header() -> GitlabResult<()> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let request = authorize(
-            HTTP.client()?.get("https://gitlab.com/api/v4/user"),
-            "glpat-x",
-        )
-        .build()
-        .map_err(|error| GitlabError::Transport(error.to_string()))?;
-        assert_eq!(
-            request
-                .headers()
-                .get("authorization")
-                .and_then(|value| value.to_str().ok()),
-            Some("Bearer glpat-x")
-        );
-        assert!(request.headers().get("private-token").is_none());
-        Ok(())
     }
 }

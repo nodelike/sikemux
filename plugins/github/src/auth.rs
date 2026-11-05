@@ -10,6 +10,7 @@ use serde::Deserialize;
 use sikemux_plugin_api::account::{as_account, chosen};
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::Signed;
+use sikemux_plugin_api::http::Read;
 use sikemux_plugin_api::store::{self, Accounts};
 use sikemux_plugin_api::SignInStatus;
 
@@ -31,17 +32,13 @@ pub struct Identity {
 }
 
 pub async fn identify(session: &Session) -> GithubResult<Identity> {
-    let (status, headers, bytes) = client::send(session, Method::GET, "/user", &[], None).await?;
-    if !status.is_success() {
-        return Err(client::classify(
-            &session.account.id,
-            status,
-            &headers,
-            &bytes,
-        ));
-    }
-    let viewer: Viewer = serde_json::from_slice(&bytes)?;
-    let scopes = headers
+    let answer = client::API
+        .send_as(session, Method::GET, "/user", &[], None, Read::ALL)
+        .await?
+        .succeeded()?;
+    let viewer: Viewer = answer.parsed()?;
+    let scopes = answer
+        .headers
         .get("x-oauth-scopes")
         .and_then(|value| value.to_str().ok())
         .map(|value| {
@@ -237,7 +234,7 @@ pub async fn account_for(data_dir: &Path, repo: RepoRef) -> GithubResult<Option<
     for account in config::load(data_dir)?.in_order() {
         let id = account.id.clone();
         let seen: GithubResult<serde_json::Value> =
-            as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
+            as_account(Some(id.clone()), client::API.get(data_dir, &path, &[])).await;
         match seen {
             Ok(_) => return Ok(Some(id)),
             Err(GithubError::Unconfigured) => return Ok(None),

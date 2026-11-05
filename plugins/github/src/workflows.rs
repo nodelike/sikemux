@@ -2,10 +2,12 @@
 
 use std::path::Path;
 
+use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_plugin_api::codehost::asks::{Dispatch, FileAt, RepoRef, WorkflowRef};
 use sikemux_plugin_api::codehost::{Workflow, WorkflowFile};
+use sikemux_plugin_api::http::Read;
 
 use crate::client;
 use crate::common::LIST_PAGES;
@@ -92,7 +94,9 @@ pub async fn dispatch(data_dir: &Path, input: Dispatch) -> GithubResult<()> {
         .repo
         .path(&format!("/actions/workflows/{workflow_id}/dispatches"))?;
     let body = json!({ "ref": git_ref, "inputs": as_strings(input.inputs) });
-    client::post_empty(data_dir, &path, Some(&body)).await
+    client::API
+        .write(data_dir, Method::POST, &path, Some(&body))
+        .await
 }
 
 /// A workflow somebody wrote lives under `.github`. GitHub's own, such as code
@@ -119,14 +123,15 @@ pub(crate) fn encode_path(path: &str) -> String {
 /// record carries the path, so the file is fetched in two steps.
 pub async fn file(data_dir: &Path, input: WorkflowRef) -> GithubResult<WorkflowFile> {
     let workflow_id = workflow_id(input.workflow_id)?;
-    let row: WorkflowRow = client::get(
-        data_dir,
-        &input
-            .repo
-            .path(&format!("/actions/workflows/{workflow_id}"))?,
-        &[],
-    )
-    .await?;
+    let row: WorkflowRow = client::API
+        .get(
+            data_dir,
+            &input
+                .repo
+                .path(&format!("/actions/workflows/{workflow_id}"))?,
+            &[],
+        )
+        .await?;
     if !is_in_repository(&row.path) {
         return Err(GithubError::NotFound(
             "GitHub runs this workflow itself, so the repository has no file for it".into(),
@@ -163,7 +168,7 @@ pub async fn file_at(data_dir: &Path, input: FileAt) -> GithubResult<WorkflowFil
 
 async fn read(data_dir: &Path, contents: &str, path: String) -> GithubResult<WorkflowFile> {
     let (bytes, _) =
-        client::download_as(data_dir, contents, "application/vnd.github.raw", false).await?;
+        client::download_as(data_dir, contents, "application/vnd.github.raw", Read::ALL).await?;
     let text = String::from_utf8_lossy(&bytes).into_owned();
     Ok(WorkflowFile { path, text })
 }

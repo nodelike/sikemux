@@ -9,7 +9,7 @@ use serde::Deserialize;
 use sikemux_plugin_api::account::{as_account, chosen};
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::Signed;
-use sikemux_plugin_api::http;
+use sikemux_plugin_api::http::Read;
 use sikemux_plugin_api::oauth::Tokens;
 use sikemux_plugin_api::store::{self, Accounts};
 use sikemux_plugin_api::{SignInStatus, StreamSink};
@@ -23,14 +23,12 @@ use crate::repo::{Place, User};
 const PIPELINE_WRITE: &str = "pipeline:write";
 
 async fn identify(credential: &Credential) -> BitbucketResult<User> {
-    let request = credential.apply(client::HTTP.client()?.get(format!("{}/user", client::API)));
-    let response = client::HTTP.send(request).await?;
-    let status = response.status();
-    let bytes = http::read_body(response, 1024 * 1024).await?;
-    if !status.is_success() {
-        return Err(client::classify(status, &bytes));
-    }
-    Ok(serde_json::from_slice(&bytes)?)
+    let request = credential.apply(client::HTTP.client()?.get(format!("{}/user", client::BASE)));
+    client::HTTP
+        .ask(request, Read::IDENTITY)
+        .await?
+        .succeeded()?
+        .parsed()
 }
 
 pub type Status = SignInStatus<Signed>;
@@ -236,7 +234,7 @@ pub async fn account_for(data_dir: &Path, repo: RepoRef) -> BitbucketResult<Opti
     for account in config::load(data_dir)?.in_order() {
         let id = account.id.clone();
         let seen: BitbucketResult<serde_json::Value> =
-            as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
+            as_account(Some(id.clone()), client::API.get(data_dir, &path, &[])).await;
         match seen {
             Ok(_) => return Ok(Some(id)),
             Err(BitbucketError::Unconfigured) => return Ok(None),

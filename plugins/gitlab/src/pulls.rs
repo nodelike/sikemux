@@ -213,12 +213,13 @@ pub async fn of_commit(data_dir: &Path, input: CommitRef) -> GitlabResult<Vec<Pu
 }
 
 pub async fn get(data_dir: &Path, input: PullRef) -> GitlabResult<Pull> {
-    let row: MergeRequestRow = client::get(
-        data_dir,
-        &input.path("")?,
-        &[("with_labels_details", "true".into())],
-    )
-    .await?;
+    let row: MergeRequestRow = client::API
+        .get(
+            data_dir,
+            &input.path("")?,
+            &[("with_labels_details", "true".into())],
+        )
+        .await?;
     Ok(pull_of(row))
 }
 
@@ -417,7 +418,9 @@ struct Approvals {
 }
 
 pub async fn reviews(data_dir: &Path, input: PullRef) -> GitlabResult<Vec<Review>> {
-    let approvals: Approvals = client::get(data_dir, &input.path("/approvals")?, &[]).await?;
+    let approvals: Approvals = client::API
+        .get(data_dir, &input.path("/approvals")?, &[])
+        .await?;
     Ok(approvals
         .approved_by
         .into_iter()
@@ -454,13 +457,14 @@ pub async fn merge(data_dir: &Path, input: Merge) -> GitlabResult<()> {
         .method
         .ok_or_else(|| GitlabError::BadArg("missing field `method`".into()))?;
     let body = merge_body(&method, input.sha.as_deref())?;
-    client::write(
-        data_dir,
-        Method::PUT,
-        &input.pull.path("/merge")?,
-        Some(&body),
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::PUT,
+            &input.pull.path("/merge")?,
+            Some(&body),
+        )
+        .await
 }
 
 /// GitLab marks a draft by its title.
@@ -483,13 +487,14 @@ pub async fn create(data_dir: &Path, input: NewPull) -> GitlabResult<Pull> {
         "title": titled(&input.title, input.draft),
         "description": input.body,
     });
-    let row: MergeRequestRow = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/merge_requests")?,
-        &body,
-    )
-    .await?;
+    let row: MergeRequestRow = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/merge_requests")?,
+            &body,
+        )
+        .await?;
     Ok(pull_of(row))
 }
 
@@ -499,13 +504,14 @@ pub async fn set_state(data_dir: &Path, input: SetPullState) -> GitlabResult<()>
     } else {
         "close"
     };
-    client::write(
-        data_dir,
-        Method::PUT,
-        &input.pull.path("")?,
-        Some(&json!({ "state_event": event })),
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::PUT,
+            &input.pull.path("")?,
+            Some(&json!({ "state_event": event })),
+        )
+        .await
 }
 
 /// Approving is GitLab's approval; a written verdict goes on as a comment
@@ -514,7 +520,9 @@ pub async fn review(data_dir: &Path, input: NewReview) -> GitlabResult<()> {
     let body = input.body.trim();
     match input.event.as_str() {
         "APPROVE" => {
-            client::write(data_dir, Method::POST, &input.pull.path("/approve")?, None).await?
+            client::API
+                .write(data_dir, Method::POST, &input.pull.path("/approve")?, None)
+                .await?
         }
         "COMMENT" if !body.is_empty() => {}
         "COMMENT" => return Err(GitlabError::BadArg("a comment needs some text".into())),
@@ -527,13 +535,14 @@ pub async fn review(data_dir: &Path, input: NewReview) -> GitlabResult<()> {
     if body.is_empty() {
         return Ok(());
     }
-    client::write(
-        data_dir,
-        Method::POST,
-        &input.pull.path("/notes")?,
-        Some(&json!({ "body": body })),
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::POST,
+            &input.pull.path("/notes")?,
+            Some(&json!({ "body": body })),
+        )
+        .await
 }
 
 #[cfg(test)]

@@ -118,18 +118,19 @@ pub async fn list(data_dir: &Path, input: IssueQuery) -> GithubResult<IssuePage>
         .unwrap_or(DEFAULT_PER_PAGE)
         .clamp(1, MAX_PER_PAGE);
     let page = input.page.unwrap_or(1).max(1);
-    let found: SearchPage = client::get(
-        data_dir,
-        "/search/issues",
-        &[
-            ("q", search_terms(&input, &state)?),
-            ("sort", "updated".to_string()),
-            ("order", "desc".to_string()),
-            ("per_page", per_page.to_string()),
-            ("page", page.to_string()),
-        ],
-    )
-    .await?;
+    let found: SearchPage = client::API
+        .get(
+            data_dir,
+            "/search/issues",
+            &[
+                ("q", search_terms(&input, &state)?),
+                ("sort", "updated".to_string()),
+                ("order", "desc".to_string()),
+                ("per_page", per_page.to_string()),
+                ("page", page.to_string()),
+            ],
+        )
+        .await?;
     let seen = u64::from(page - 1) * u64::from(per_page) + found.items.len() as u64;
     Ok(IssuePage {
         next_page: (seen < found.total_count && !found.items.is_empty()).then_some(page + 1),
@@ -140,7 +141,7 @@ pub async fn list(data_dir: &Path, input: IssueQuery) -> GithubResult<IssuePage>
 
 pub async fn get(data_dir: &Path, input: IssueRef) -> GithubResult<Issue> {
     let path = input.repo.path(&format!("/issues/{}", input.number))?;
-    let row: IssueRow = client::get(data_dir, &path, &[]).await?;
+    let row: IssueRow = client::API.get(data_dir, &path, &[]).await?;
     Ok(Issue::from(row))
 }
 
@@ -156,7 +157,9 @@ pub async fn set_state(data_dir: &Path, input: SetIssueState) -> GithubResult<()
         .repo
         .path(&format!("/issues/{}", input.issue.number))?;
     let body = json!({ "state": input.state });
-    client::act(data_dir, reqwest::Method::PATCH, &path, Some(&body)).await
+    client::API
+        .write(data_dir, reqwest::Method::PATCH, &path, Some(&body))
+        .await
 }
 
 pub async fn create(data_dir: &Path, input: NewIssue) -> GithubResult<Issue> {
@@ -165,13 +168,14 @@ pub async fn create(data_dir: &Path, input: NewIssue) -> GithubResult<Issue> {
         return Err(GithubError::BadArg("an issue needs a title".into()));
     }
     let body = json!({ "title": title, "body": input.body });
-    let row: IssueRow = client::send_json(
-        data_dir,
-        reqwest::Method::POST,
-        &input.repo.path("/issues")?,
-        &body,
-    )
-    .await?;
+    let row: IssueRow = client::API
+        .send_json(
+            data_dir,
+            reqwest::Method::POST,
+            &input.repo.path("/issues")?,
+            &body,
+        )
+        .await?;
     Ok(Issue::from(row))
 }
 

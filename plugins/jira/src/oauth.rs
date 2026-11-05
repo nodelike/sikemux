@@ -4,6 +4,7 @@
 // traded by anyone else.
 
 use serde::Deserialize;
+use sikemux_plugin_api::http::Read;
 use sikemux_plugin_api::oauth::{
     Authorize, KeychainEntry, OAuthApp, Refreshing, Secret, TokenRequest,
 };
@@ -66,15 +67,14 @@ pub async fn sites(access_token: &str) -> JiraResult<Vec<CloudSite>> {
         .get(SITES_URL)
         .bearer_auth(access_token)
         .header("Accept", "application/json");
-    let response = client::HTTP.send(request).await?;
-    let status = response.status();
-    let bytes = client::read_limited(response).await?;
-    if !status.is_success() {
+    let answer = client::HTTP.ask(request, Read::ALL).await?;
+    if !answer.status.is_success() {
         return Err(JiraError::Auth(format!(
-            "Atlassian would not list the sites (http {status})"
+            "Atlassian would not list the sites (http {})",
+            answer.status
         )));
     }
-    Ok(jira_sites(serde_json::from_slice(&bytes)?))
+    Ok(jira_sites(answer.parsed()?))
 }
 
 fn jira_sites(all: Vec<CloudSite>) -> Vec<CloudSite> {

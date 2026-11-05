@@ -218,7 +218,7 @@ pub async fn list(data_dir: &Path, input: RunQuery) -> GithubResult<RunPage> {
         Some(id) => input.repo.path(&format!("/actions/workflows/{id}/runs"))?,
         None => input.repo.path("/actions/runs")?,
     };
-    let list: RunList = client::get(data_dir, &path, &query).await?;
+    let list: RunList = client::API.get(data_dir, &path, &query).await?;
     let runs: Vec<Run> = list.workflow_runs.into_iter().map(Run::from).collect();
     let seen = u64::from(page.saturating_sub(1)) * u64::from(per_page) + runs.len() as u64;
     Ok(RunPage {
@@ -409,22 +409,28 @@ pub async fn rerun(data_dir: &Path, input: Rerun) -> GithubResult<()> {
     };
     let path = run_path(&input.run, &format!("/{tail}"))?;
     let body = json!({ "enable_debug_logging": input.debug });
-    client::post_empty(data_dir, &path, Some(&body)).await
+    client::API
+        .write(data_dir, Method::POST, &path, Some(&body))
+        .await
 }
 
 pub async fn cancel(data_dir: &Path, input: RunRef) -> GithubResult<()> {
     let path = run_path(&input, "/cancel")?;
-    client::post_empty(data_dir, &path, None).await
+    client::API.write(data_dir, Method::POST, &path, None).await
 }
 
 pub async fn delete_logs(data_dir: &Path, input: RunRef) -> GithubResult<()> {
     let path = run_path(&input, "/logs")?;
-    client::act(data_dir, Method::DELETE, &path, None).await
+    client::API
+        .write(data_dir, Method::DELETE, &path, None)
+        .await
 }
 
 pub async fn delete(data_dir: &Path, input: RunRef) -> GithubResult<()> {
     let path = run_path(&input, "")?;
-    client::act(data_dir, Method::DELETE, &path, None).await
+    client::API
+        .write(data_dir, Method::DELETE, &path, None)
+        .await
 }
 
 #[derive(Deserialize)]
@@ -442,7 +448,7 @@ struct TimingRow {
 
 pub async fn timing(data_dir: &Path, input: RunRef) -> GithubResult<RunTiming> {
     let path = run_path(&input, "/timing")?;
-    let row: TimingRow = client::get(data_dir, &path, &[]).await?;
+    let row: TimingRow = client::API.get(data_dir, &path, &[]).await?;
     Ok(RunTiming {
         run_duration_ms: row.run_duration_ms,
         billable: row
@@ -459,14 +465,16 @@ pub async fn timing(data_dir: &Path, input: RunRef) -> GithubResult<RunTiming> {
 
 pub async fn job_status(data_dir: &Path, input: JobRef) -> GithubResult<String> {
     let path = job_path(&input, "")?;
-    let row: JobRow = client::get(data_dir, &path, &[]).await?;
+    let row: JobRow = client::API.get(data_dir, &path, &[]).await?;
     Ok(row.status.unwrap_or_else(|| "queued".into()))
 }
 
 pub async fn rerun_job(data_dir: &Path, input: RerunJob) -> GithubResult<()> {
     let path = job_path(&input.job, "/rerun")?;
     let body = json!({ "enable_debug_logging": input.debug });
-    client::post_empty(data_dir, &path, Some(&body)).await
+    client::API
+        .write(data_dir, Method::POST, &path, Some(&body))
+        .await
 }
 
 /// An earlier try of the same run, which GitHub keeps whole.
@@ -476,7 +484,7 @@ pub async fn attempt(data_dir: &Path, input: AttemptRef) -> GithubResult<RunDeta
     // the current attempt's are.
     let jobs_path = run_path(&input.run, &format!("{base}/jobs"))?;
     let (run, jobs): (GithubResult<RunRow>, _) = futures::future::join(
-        client::get(data_dir, &run_path(&input.run, &base)?, &[]),
+        client::API.get(data_dir, &run_path(&input.run, &base)?, &[]),
         job_rows(data_dir, &jobs_path, &[]),
     )
     .await;

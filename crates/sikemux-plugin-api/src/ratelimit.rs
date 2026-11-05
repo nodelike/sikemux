@@ -4,7 +4,6 @@
 //! the account back for longer.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -40,8 +39,6 @@ struct State {
 pub struct RateLimits {
     headers: LimitHeaders,
     states: Mutex<BTreeMap<String, State>>,
-    /// The wait set by the latest refusal, for the error that reports it.
-    latest_wait: AtomicU64,
 }
 
 fn number(headers: &HeaderMap, name: &str) -> Option<u64> {
@@ -59,7 +56,6 @@ impl RateLimits {
         Self {
             headers,
             states: Mutex::new(BTreeMap::new()),
-            latest_wait: AtomicU64::new(FIRST_WAIT_SECS),
         }
     }
 
@@ -138,24 +134,29 @@ impl RateLimits {
         }
     }
 
-    /// Keeps what an answer says about the limit, and holds requests back if it is spent.
-    pub fn observe(&self, account: &str, status: StatusCode, headers: &HeaderMap, body: &[u8]) {
+    /// Keeps what an answer says about the limit, and holds requests back if
+    /// it is spent, saying for how long.
+    pub fn observe(
+        &self,
+        account: &str,
+        status: StatusCode,
+        headers: &HeaderMap,
+        body: &[u8],
+    ) -> Option<u64> {
         let mut states = self.states.locked();
         let state = states.entry(account.to_owned()).or_default();
-        match self.spent(status, headers, body, state.strikes) {
+        let spent = self
+            .spent(status, headers, body, state.strikes)
+            .map(|wait| wait.max(1));
+        match spent {
             Some(wait) => {
-                let wait = wait.max(1);
                 state.strikes = state.strikes.saturating_add(1);
                 state.held_until = Some(epoch_secs() + wait);
-                self.latest_wait.store(wait, Ordering::Relaxed);
             }
             None if status.is_success() => state.strikes = 0,
             None => {}
         }
-    }
-
-    pub fn latest_wait(&self) -> u64 {
-        self.latest_wait.load(Ordering::Relaxed)
+        spent
     }
 }
 
@@ -244,8 +245,10 @@ mod tests {
             Err(ServiceError::RateLimited { resets_in_secs: Some(secs) }) if (59..=60).contains(&secs)
         ));
         assert!(limits.check::<Test>("another").is_ok());
-        limits.observe("a", StatusCode::TOO_MANY_REQUESTS, &HeaderMap::new(), b"");
-        assert_eq!(limits.latest_wait(), 120);
+        assert_eq!(
+            limits.observe("a", StatusCode::TOO_MANY_REQUESTS, &HeaderMap::new(), b""),
+            Some(120)
+        );
         assert_eq!(backoff(20), LONGEST_WAIT_SECS);
         Ok(())
     }

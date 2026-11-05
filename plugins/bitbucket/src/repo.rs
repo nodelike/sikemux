@@ -203,7 +203,7 @@ struct RepoDetail {
 }
 
 pub async fn default_branch(data_dir: &Path, repo: &RepoRef) -> BitbucketResult<String> {
-    let detail: RepoDetail = client::get(data_dir, &repo.path("")?, &[]).await?;
+    let detail: RepoDetail = client::API.get(data_dir, &repo.path("")?, &[]).await?;
     detail
         .mainbranch
         .map(|branch| branch.name)

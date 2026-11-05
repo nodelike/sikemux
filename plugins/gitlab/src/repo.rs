@@ -167,7 +167,7 @@ struct ProjectDetail {
 }
 
 pub async fn default_branch(data_dir: &Path, repo: &RepoRef) -> GitlabResult<String> {
-    let detail: ProjectDetail = client::get(data_dir, &repo.path("")?, &[]).await?;
+    let detail: ProjectDetail = client::API.get(data_dir, &repo.path("")?, &[]).await?;
     detail
         .default_branch
         .ok_or_else(|| GitlabError::NotFound("the project has no default branch yet".into()))

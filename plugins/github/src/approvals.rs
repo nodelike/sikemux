@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use reqwest::Method;
 use serde::Deserialize;
 use serde_json::json;
 use sikemux_plugin_api::codehost::asks::{DeploymentReview, RunRef};
@@ -57,7 +58,7 @@ fn reviewer_name(row: &ReviewerRow) -> Option<String> {
 
 pub async fn pending(data_dir: &Path, input: RunRef) -> GithubResult<Vec<PendingApproval>> {
     let path = run_path(&input, "/pending_deployments")?;
-    let rows: Vec<PendingRow> = client::get(data_dir, &path, &[]).await?;
+    let rows: Vec<PendingRow> = client::API.get(data_dir, &path, &[]).await?;
     Ok(rows
         .into_iter()
         .map(|row| PendingApproval {
@@ -89,7 +90,9 @@ pub async fn review(data_dir: &Path, input: DeploymentReview) -> GithubResult<()
         "state": input.state,
         "comment": input.comment,
     });
-    client::post_empty(data_dir, &path, Some(&body)).await
+    client::API
+        .write(data_dir, Method::POST, &path, Some(&body))
+        .await
 }
 
 #[cfg(test)]

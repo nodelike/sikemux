@@ -1,29 +1,17 @@
 use std::path::Path;
 
-use reqwest::{Method, Response};
+use reqwest::Method;
 use serde_json::Value;
-use sikemux_plugin_api::http::{self, BodyError, Deadline, Http, Redirects};
+use sikemux_plugin_api::http::{Http, Read, Redirects};
+use sikemux_plugin_api::Service;
 
 use crate::auth::{self, Auth, Credentials};
 use crate::error::{Signoz, SignozError, SignozResult};
 use crate::query;
 
-const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+static HTTP: Http<Signoz> = Http::new(Redirects::Refuse, 16);
 
-static HTTP: Http<Signoz> = Http::new(Redirects::Refuse, Deadline::WholeAnswer, 16);
-
-async fn read_limited(response: Response) -> SignozResult<Vec<u8>> {
-    http::read_body(response, MAX_RESPONSE_BYTES)
-        .await
-        .map_err(|error| match error {
-            BodyError::TooBig(_) => {
-                SignozError::Response("more than 16 MiB came back; narrow the query".into())
-            }
-            error => error.into(),
-        })
-}
-
-fn error_message(body: &Value) -> Option<String> {
+pub fn error_message(body: &Value) -> Option<String> {
     let error = body.get("error")?;
     error
         .get("message")
@@ -51,29 +39,20 @@ pub async fn send(
     if let Some(body) = body {
         request = request.json(body);
     }
-    let response = HTTP.send(request).await?;
-    let status = response.status();
-    let bytes = read_limited(response).await?;
-    if !status.is_success() {
-        let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-        let message = error_message(&parsed)
-            .unwrap_or_else(|| String::from_utf8_lossy(&bytes).chars().take(400).collect());
-        if matches!(status.as_u16(), 401 | 403) && matches!(credentials.auth, Auth::ApiKey(_)) {
+    let answer = HTTP.ask(request, Read::ALL).await?;
+    if !answer.status.is_success() {
+        if matches!(answer.status.as_u16(), 401 | 403)
+            && matches!(credentials.auth, Auth::ApiKey(_))
+        {
             auth::forget_api_key();
             return Err(SignozError::Auth(format!(
-                "SigNoz turned down the API key: {message}"
+                "SigNoz turned down the API key: {}",
+                Signoz::said(&answer.bytes).unwrap_or_default()
             )));
         }
-        return Err(SignozError::Http {
-            status: status.as_u16(),
-            message,
-        });
+        return Err(answer.refused());
     }
-    let parsed: Value = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes)?
-    };
+    let parsed: Value = answer.parsed()?;
     if parsed
         .get("status")
         .and_then(Value::as_str)
@@ -99,7 +78,7 @@ pub async fn request(
         send(&credentials, method.clone(), path, body).await,
         &credentials.auth,
     ) {
-        (Err(SignozError::Http { status: 401, .. }), Auth::Bearer(refused)) => {
+        (Err(SignozError::Auth(_)), Auth::Bearer(refused)) => {
             let renewed = auth::renew(data_dir, refused).await?;
             send(&renewed, method, path, body).await
         }

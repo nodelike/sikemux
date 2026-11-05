@@ -6,6 +6,7 @@ use std::path::Path;
 
 use sikemux_plugin_api::codehost::asks::{ExcerptQuery, JobRef};
 use sikemux_plugin_api::codehost::{JobLog, LogExcerpt, LogLine};
+use sikemux_plugin_api::http::{Read, MAX_ANSWER};
 
 use crate::client;
 use crate::error::{GithubError, GithubResult};
@@ -64,7 +65,14 @@ fn parse(text: &str) -> Vec<LogLine> {
 
 pub async fn job(data_dir: &Path, input: JobRef) -> GithubResult<JobLog> {
     let path = runs::job_path(&input, "/logs")?;
-    match client::download_as(data_dir, &path, "application/vnd.github+json", true).await {
+    match client::download_as(
+        data_dir,
+        &path,
+        "application/vnd.github+json",
+        Read::Tail(MAX_ANSWER),
+    )
+    .await
+    {
         Ok((bytes, truncated)) => Ok(JobLog {
             lines: parse(&text_of(&bytes, truncated)),
             expired: false,

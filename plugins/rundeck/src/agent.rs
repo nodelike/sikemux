@@ -11,7 +11,7 @@ use tokio::time::Instant;
 
 use sikemux_plugin_api::process;
 
-use crate::client::{get_json, seg, Session, HTTP};
+use crate::client::{get_json, seg, Session};
 use crate::error::{RundeckError, RundeckResult};
 use crate::executions::{self, branch_from_options, Execution, ExecutionList, RunRequest};
 use crate::jobs::{self, JobDetail, JobOption};
@@ -108,7 +108,7 @@ async fn definitions(session: &Session, project: Option<&str>) -> RundeckResult<
     let fetched = join_all(
         projects
             .iter()
-            .map(|project| HTTP.limited(jobs::definitions(session, &project.name))),
+            .map(|project| jobs::definitions(session, &project.name)),
     )
     .await;
     let mut found = Vec::new();

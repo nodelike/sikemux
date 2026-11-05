@@ -9,7 +9,7 @@ use serde::Deserialize;
 use sikemux_plugin_api::account::{as_account, chosen};
 use sikemux_plugin_api::codehost::asks::AccountQuery;
 use sikemux_plugin_api::codehost::Signed;
-use sikemux_plugin_api::http;
+use sikemux_plugin_api::http::Read;
 use sikemux_plugin_api::store::{self, Accounts};
 use sikemux_plugin_api::SignInStatus;
 
@@ -56,19 +56,15 @@ pub fn host_of(typed: &str) -> GitlabResult<String> {
 }
 
 async fn get_with(host: &str, token: &str, path: &str) -> GitlabResult<serde_json::Value> {
-    let request = client::authorize(
-        client::HTTP
-            .client()?
-            .get(format!("{}{path}", client::api_base(host))),
-        token,
-    );
-    let response = client::HTTP.send(request).await?;
-    let status = response.status();
-    let bytes = http::read_body(response, 1024 * 1024).await?;
-    if !status.is_success() {
-        return Err(client::classify(status, &bytes));
-    }
-    client::parse(&bytes)
+    let request = client::HTTP
+        .client()?
+        .get(format!("{}{path}", client::api_base(host)))
+        .bearer_auth(token);
+    client::HTTP
+        .ask(request, Read::IDENTITY)
+        .await?
+        .succeeded()?
+        .parsed()
 }
 
 async fn identify(host: &str, token: &str) -> GitlabResult<User> {
@@ -238,7 +234,7 @@ pub async fn account_for(data_dir: &Path, input: AccountQuery) -> GitlabResult<O
     for account in &on_server {
         let id = account.id.clone();
         let seen: GitlabResult<serde_json::Value> =
-            as_account(Some(id.clone()), client::get(data_dir, &path, &[])).await;
+            as_account(Some(id.clone()), client::API.get(data_dir, &path, &[])).await;
         match seen {
             Ok(_) => return Ok(Some(id)),
             Err(GitlabError::Unconfigured) => return Ok(None),

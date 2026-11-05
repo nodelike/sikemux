@@ -81,7 +81,8 @@ struct ReleasePage {
 /// by tag, so the release is looked up once to find where it lives.
 async fn release_page(data_dir: &Path, api_url: &str) -> Option<String> {
     let (_, tail) = api_url.split_once("/repos/")?;
-    let release: ReleasePage = client::get(data_dir, &format!("/repos/{tail}"), &[])
+    let release: ReleasePage = client::API
+        .get(data_dir, &format!("/repos/{tail}"), &[])
         .await
         .ok()?;
     Some(release.html_url)
@@ -89,22 +90,23 @@ async fn release_page(data_dir: &Path, api_url: &str) -> Option<String> {
 
 pub async fn list(data_dir: &Path, input: InboxQuery) -> GithubResult<Vec<Notification>> {
     let host = crate::config::load(data_dir)?.host_of(chosen().as_deref());
-    let rows: Vec<NotificationRow> = client::get(
-        data_dir,
-        "/notifications",
-        &[
-            ("all", input.all.to_string()),
-            (
-                "per_page",
-                input
-                    .per_page
-                    .unwrap_or(50)
-                    .clamp(1, MAX_PER_PAGE)
-                    .to_string(),
-            ),
-        ],
-    )
-    .await?;
+    let rows: Vec<NotificationRow> = client::API
+        .get(
+            data_dir,
+            "/notifications",
+            &[
+                ("all", input.all.to_string()),
+                (
+                    "per_page",
+                    input
+                        .per_page
+                        .unwrap_or(50)
+                        .clamp(1, MAX_PER_PAGE)
+                        .to_string(),
+                ),
+            ],
+        )
+        .await?;
     // Every request waits for one of the plugin's few request slots, so these
     // go out together without flooding GitHub.
     let pages = futures::future::join_all(rows.iter().map(|row| async {

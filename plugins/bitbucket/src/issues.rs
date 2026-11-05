@@ -129,7 +129,8 @@ pub async fn list(data_dir: &Path, input: IssueQuery) -> BitbucketResult<IssuePa
     if let Some(filter) = state_filter(input.state.as_deref().unwrap_or_default()) {
         query.push(("q", filter));
     }
-    let found: IssueRows = client::get(data_dir, &input.repo.path("/issues")?, &query)
+    let found: IssueRows = client::API
+        .get(data_dir, &input.repo.path("/issues")?, &query)
         .await
         .map_err(no_tracker)?;
     let issues: Vec<Issue> = found
@@ -149,7 +150,8 @@ fn issue_path(issue: &IssueRef, rest: &str) -> BitbucketResult<String> {
 }
 
 pub async fn get(data_dir: &Path, input: IssueRef) -> BitbucketResult<Issue> {
-    let row: IssueRow = client::get(data_dir, &issue_path(&input, "")?, &[])
+    let row: IssueRow = client::API
+        .get(data_dir, &issue_path(&input, "")?, &[])
         .await
         .map_err(no_tracker)?;
     let mut issue = issue_of(&input.repo, row);
@@ -161,14 +163,15 @@ pub async fn create(data_dir: &Path, input: NewIssue) -> BitbucketResult<Issue> 
     if input.title.trim().is_empty() {
         return Err(BitbucketError::BadArg("an issue needs a title".into()));
     }
-    let row: IssueRow = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/issues")?,
-        &json!({ "title": input.title.trim(), "content": { "raw": input.body } }),
-    )
-    .await
-    .map_err(no_tracker)?;
+    let row: IssueRow = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/issues")?,
+            &json!({ "title": input.title.trim(), "content": { "raw": input.body } }),
+        )
+        .await
+        .map_err(no_tracker)?;
     Ok(issue_of(&input.repo, row))
 }
 
@@ -180,14 +183,15 @@ pub async fn set_state(data_dir: &Path, input: SetIssueState) -> BitbucketResult
     } else {
         "resolved"
     };
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &issue_path(&input.issue, "/changes")?,
-        &json!({ "changes": { "state": { "new": state } } }),
-    )
-    .await
-    .map_err(no_tracker)?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &issue_path(&input.issue, "/changes")?,
+            &json!({ "changes": { "state": { "new": state } } }),
+        )
+        .await
+        .map_err(no_tracker)?;
     Ok(())
 }
 
@@ -245,14 +249,15 @@ pub async fn add_comment(data_dir: &Path, issue: &IssueRef, body: &str) -> Bitbu
     if body.is_empty() {
         return Err(BitbucketError::BadArg("a comment needs some text".into()));
     }
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &issue_path(issue, "/comments")?,
-        &json!({ "content": { "raw": body } }),
-    )
-    .await
-    .map_err(no_tracker)?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &issue_path(issue, "/comments")?,
+            &json!({ "content": { "raw": body } }),
+        )
+        .await
+        .map_err(no_tracker)?;
     Ok(())
 }
 
@@ -432,15 +437,20 @@ pub async fn inbox(data_dir: &Path) -> BitbucketResult<Vec<Notification>> {
     let asks = futures::future::join_all(repos.iter().map(|repo| {
         let path = format!("/repositories/{}/{}/pullrequests", repo.owner, repo.name);
         let query = [("q", wanted.clone()), ("pagelen", "20".to_string())];
-        async move { client::get::<client::Page<WaitingRow>>(data_dir, &path, &query).await }
+        async move {
+            client::API
+                .get::<client::Page<WaitingRow>>(data_dir, &path, &query)
+                .await
+        }
     }))
     .await;
-    let mine: client::Page<WaitingRow> = client::get(
-        data_dir,
-        &format!("/pullrequests/{me}"),
-        &[("state", "OPEN".into()), ("pagelen", "30".into())],
-    )
-    .await?;
+    let mine: client::Page<WaitingRow> = client::API
+        .get(
+            data_dir,
+            &format!("/pullrequests/{me}"),
+            &[("state", "OPEN".into()), ("pagelen", "30".into())],
+        )
+        .await?;
     let mut found: Vec<Notification> = asks
         .into_iter()
         .filter_map(Result::ok)

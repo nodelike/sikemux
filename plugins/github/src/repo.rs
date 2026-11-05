@@ -131,19 +131,20 @@ struct RepoRow {
 /// The repositories the signed-in account can reach, most recently pushed
 /// first, so the ones somebody is actually working on come up.
 pub async fn mine(data_dir: &Path, limit: u32) -> GithubResult<Vec<RepoListing>> {
-    let rows: Vec<RepoRow> = client::get(
-        data_dir,
-        "/user/repos",
-        &[
-            ("per_page", limit.clamp(1, 100).to_string()),
-            ("sort", "pushed".to_string()),
-            (
-                "affiliation",
-                "owner,collaborator,organization_member".to_string(),
-            ),
-        ],
-    )
-    .await?;
+    let rows: Vec<RepoRow> = client::API
+        .get(
+            data_dir,
+            "/user/repos",
+            &[
+                ("per_page", limit.clamp(1, 100).to_string()),
+                ("sort", "pushed".to_string()),
+                (
+                    "affiliation",
+                    "owner,collaborator,organization_member".to_string(),
+                ),
+            ],
+        )
+        .await?;
     Ok(rows
         .into_iter()
         .map(|row| RepoListing {

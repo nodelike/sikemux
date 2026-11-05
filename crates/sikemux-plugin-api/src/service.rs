@@ -5,11 +5,13 @@ use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
 
+use reqwest::StatusCode;
+
 use crate::network::{self, Unreachable};
-use crate::{Category, PluginError};
+use crate::{http, Category, PluginError};
 
 /// The service a plugin talks to, named once for every message it gives.
-pub trait Service: 'static {
+pub trait Service: Sized + 'static {
     /// The lowercase name its messages start with, and the category of what only it says.
     const ID: &'static str;
     /// Its name as people know it.
@@ -19,6 +21,16 @@ pub trait Service: 'static {
     /// What to tell someone when the request never reached the service at `host`.
     fn unreachable(kind: Unreachable, _host: Option<&str>) -> String {
         network::unreachable_message(kind, Self::NAME)
+    }
+
+    /// What a refused answer's body says, in the shape the service's errors take.
+    fn said(_body: &[u8]) -> Option<String> {
+        None
+    }
+
+    /// What a refused answer means, for a service with a status rule of its own.
+    fn refused(status: StatusCode, body: &[u8], spent: Option<u64>) -> ServiceError<Self> {
+        http::classify(status, Self::said(body), spent)
     }
 }
 

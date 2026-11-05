@@ -100,7 +100,7 @@ pub async fn list(data_dir: &Path, input: ChecksQuery) -> GithubResult<Vec<Check
             CHECK_PAGES,
             |page: CheckRunPage| page.check_runs
         ),
-        client::get::<CombinedStatus>(data_dir, &status_path, &[]),
+        client::API.get::<CombinedStatus>(data_dir, &status_path, &[]),
         required(data_dir, &input),
     );
     let mut checks: Vec<Check> = runs?
@@ -168,8 +168,8 @@ async fn required(data_dir: &Path, input: &ChecksQuery) -> HashSet<String> {
         return HashSet::new();
     };
     let (rules, protected) = futures::join!(
-        client::get::<Vec<RuleRow>>(data_dir, &rules_path, &[]),
-        client::get::<BranchRow>(data_dir, &branch_path, &[]),
+        client::API.get::<Vec<RuleRow>>(data_dir, &rules_path, &[]),
+        client::API.get::<BranchRow>(data_dir, &branch_path, &[]),
     );
     let from_rules = rules
         .unwrap_or_default()

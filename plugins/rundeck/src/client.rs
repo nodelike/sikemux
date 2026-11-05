@@ -6,11 +6,11 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
-use reqwest::{Client, Method, Response, StatusCode};
+use reqwest::{Client, Method, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
-use sikemux_plugin_api::http::{self, Deadline, Http, Redirects};
+use sikemux_plugin_api::http::{self, Answer, Deadline, Http, Read, Redirects};
 use sikemux_plugin_api::process::sync::Locked;
 
 use crate::error::{Rundeck, RundeckError, RundeckResult};
@@ -20,7 +20,6 @@ use crate::config;
 pub const API_VERSION: u32 = 41;
 /// Job definitions are only served as JSON from API v44 on.
 pub const JOB_DEFINITION_API_VERSION: u32 = 44;
-const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_REQUESTS_IN_FLIGHT: usize = 12;
 const ITEM_UNAUTHORIZED: &str = "api.error.item.unauthorized";
 const REDIRECTED: &str = "Rundeck redirected the API call — a proxy or SSO login is in front of it";
@@ -28,11 +27,7 @@ const NOT_API_DATA: &str =
     "Rundeck answered with a web page instead of API data — a proxy or SSO login is in front of it";
 
 /// Every Rundeck call shares one bound on how many run at once.
-pub static HTTP: Http<Rundeck> = Http::new(
-    Redirects::Refuse,
-    Deadline::WholeAnswer,
-    MAX_REQUESTS_IN_FLIGHT,
-);
+static HTTP: Http<Rundeck> = Http::new(Redirects::Refuse, MAX_REQUESTS_IN_FLIGHT);
 
 const PATH_SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
@@ -111,7 +106,7 @@ async fn send(
     endpoint: &str,
     body: Option<&Value>,
     query: &[(&str, String)],
-) -> RundeckResult<Response> {
+) -> RundeckResult<Answer> {
     let transport =
         config::validate_transport(&session.url, session.allow_insecure_private_http).await?;
 
@@ -137,7 +132,7 @@ async fn send(
     if let Some(b) = body {
         req = req.json(b);
     }
-    Ok(req.send().await?)
+    HTTP.ask(req, Read::ALL).await
 }
 
 pub async fn request_as<T: DeserializeOwned>(
@@ -147,8 +142,7 @@ pub async fn request_as<T: DeserializeOwned>(
     body: Option<&Value>,
     query: &[(&str, String)],
 ) -> RundeckResult<T> {
-    let resp = send(session, API_VERSION, method, endpoint, body, query).await?;
-    decode(resp).await
+    decode(send(session, API_VERSION, method, endpoint, body, query).await?)
 }
 
 pub async fn get_json<T: DeserializeOwned>(
@@ -165,8 +159,7 @@ pub async fn get_json_at_version<T: DeserializeOwned>(
     endpoint: &str,
     query: &[(&str, String)],
 ) -> RundeckResult<T> {
-    let resp = send(session, version, Method::GET, endpoint, None, query).await?;
-    decode(resp).await
+    decode(send(session, version, Method::GET, endpoint, None, query).await?)
 }
 
 pub async fn post_json<B: Serialize, T: DeserializeOwned>(
@@ -185,10 +178,8 @@ pub async fn post_empty_json<T: DeserializeOwned>(
     request_as(session, Method::POST, endpoint, None, &[]).await
 }
 
-async fn decode<T: DeserializeOwned>(resp: Response) -> RundeckResult<T> {
-    let status = resp.status();
-    let bytes = http::read_body(resp, MAX_RESPONSE_BYTES).await?;
-    let value = classify(status, &bytes)?;
+fn decode<T: DeserializeOwned>(answer: Answer) -> RundeckResult<T> {
+    let value = classify(answer.status, &answer.bytes)?;
     serde_json::from_value::<T>(value).map_err(RundeckError::from)
 }
 

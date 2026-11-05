@@ -1,14 +1,12 @@
-use reqwest::{Method, RequestBuilder, Response, StatusCode};
+use reqwest::{Method, RequestBuilder, StatusCode};
 use serde_json::Value;
-use sikemux_plugin_api::http::{self, BodyError, Deadline, Http, Redirects};
+use sikemux_plugin_api::http::{Answer, Http, Read, Redirects};
 
 use crate::config::Site;
-use crate::error::{Jira, JiraError, JiraResult};
+use crate::error::{Jira, JiraResult};
 use crate::oauth;
 
-const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
-
-pub static HTTP: Http<Jira> = Http::new(Redirects::Refuse, Deadline::WholeAnswer, 16);
+pub static HTTP: Http<Jira> = Http::new(Redirects::Refuse, 16);
 
 /// Where a request goes and who it is from: the site itself with an email and its API
 /// token, or Atlassian's API for the site with a browser sign-in's access token.
@@ -28,17 +26,6 @@ pub enum Auth {
         site: Site,
         token: String,
     },
-}
-
-pub async fn read_limited(response: Response) -> JiraResult<Vec<u8>> {
-    http::read_body(response, MAX_RESPONSE_BYTES)
-        .await
-        .map_err(|error| match error {
-            BodyError::TooBig(_) => {
-                JiraError::Response("more than 16 MiB came back; narrow the query".into())
-            }
-            error => error.into(),
-        })
 }
 
 /// Jira's error body: `errorMessages` for the request and `errors` per field.
@@ -73,37 +60,17 @@ pub async fn send(
     query: &[(&str, String)],
     body: Option<&Value>,
 ) -> JiraResult<Value> {
-    let (mut status, mut bytes) = send_once(credentials, None, &method, path, query, body).await?;
-    if status == StatusCode::UNAUTHORIZED {
+    let mut answer = send_once(credentials, None, &method, path, query, body).await?;
+    if answer.status == StatusCode::UNAUTHORIZED {
         if let Auth::Atlassian { site, token } = &credentials.auth {
             let renewed = oauth::ACCESS
                 .renew(&site.account_id, token, oauth::entry(site))
                 .await?
                 .token;
-            (status, bytes) =
-                send_once(credentials, Some(&renewed), &method, path, query, body).await?;
+            answer = send_once(credentials, Some(&renewed), &method, path, query, body).await?;
         }
     }
-    if status.is_success() {
-        if bytes.is_empty() {
-            return Ok(Value::Null);
-        }
-        return Ok(serde_json::from_slice(&bytes)?);
-    }
-    let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    let message = error_message(&parsed)
-        .unwrap_or_else(|| String::from_utf8_lossy(&bytes).chars().take(400).collect());
-    if matches!(status.as_u16(), 401) {
-        return Err(JiraError::Auth(if message.is_empty() {
-            "Jira did not accept the sign-in".into()
-        } else {
-            message
-        }));
-    }
-    Err(JiraError::Http {
-        status: status.as_u16(),
-        message,
-    })
+    answer.succeeded()?.parsed()
 }
 
 fn signed(
@@ -127,7 +94,7 @@ async fn send_once(
     path: &str,
     query: &[(&str, String)],
     body: Option<&Value>,
-) -> JiraResult<(StatusCode, Vec<u8>)> {
+) -> JiraResult<Answer> {
     let request = HTTP
         .client()
         .map(|client| client.request(method.clone(), format!("{}{path}", credentials.url)));
@@ -137,9 +104,7 @@ async fn send_once(
     if let Some(body) = body {
         request = request.json(body);
     }
-    let response = HTTP.send(request).await?;
-    let status = response.status();
-    Ok((status, read_limited(response).await?))
+    HTTP.ask(request, Read::ALL).await
 }
 
 #[cfg(test)]

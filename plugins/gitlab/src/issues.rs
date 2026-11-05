@@ -88,12 +88,13 @@ pub async fn list(data_dir: &Path, input: IssueQuery) -> GitlabResult<IssuePage>
 }
 
 pub async fn get(data_dir: &Path, input: IssueRef) -> GitlabResult<Issue> {
-    let row: IssueRow = client::get(
-        data_dir,
-        &input.path("")?,
-        &[("with_labels_details", "true".into())],
-    )
-    .await?;
+    let row: IssueRow = client::API
+        .get(
+            data_dir,
+            &input.path("")?,
+            &[("with_labels_details", "true".into())],
+        )
+        .await?;
     Ok(issue_of(row))
 }
 
@@ -101,13 +102,14 @@ pub async fn create(data_dir: &Path, input: NewIssue) -> GitlabResult<Issue> {
     if input.title.trim().is_empty() {
         return Err(GitlabError::BadArg("an issue needs a title".into()));
     }
-    let row: IssueRow = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/issues")?,
-        &json!({ "title": input.title.trim(), "description": input.body }),
-    )
-    .await?;
+    let row: IssueRow = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/issues")?,
+            &json!({ "title": input.title.trim(), "description": input.body }),
+        )
+        .await?;
     Ok(issue_of(row))
 }
 
@@ -117,13 +119,14 @@ pub async fn set_state(data_dir: &Path, input: SetIssueState) -> GitlabResult<()
     } else {
         "close"
     };
-    client::write(
-        data_dir,
-        Method::PUT,
-        &input.issue.path("")?,
-        Some(&json!({ "state_event": event })),
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::PUT,
+            &input.issue.path("")?,
+            Some(&json!({ "state_event": event })),
+        )
+        .await
 }
 
 #[derive(Deserialize)]

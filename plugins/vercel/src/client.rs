@@ -3,18 +3,17 @@
 
 use std::path::Path;
 
-use reqwest::Method;
+use reqwest::{Method, StatusCode};
 use serde_json::Value;
-use sikemux_plugin_api::http::{self, Deadline, Http, Redirects};
+use sikemux_plugin_api::http::{self, Http, Read, Redirects};
 use sikemux_plugin_api::store::{self, Held};
 
 use crate::config::{self, Account, SignIn};
 use crate::error::{Vercel, VercelError, VercelResult};
 
 const API: &str = "https://api.vercel.com";
-pub const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
-pub static HTTP: Http<Vercel> = Http::new(Redirects::Follow, Deadline::WholeAnswer, 8);
+pub static HTTP: Http<Vercel> = Http::new(Redirects::Follow, 8);
 static TOKENS: Held<String> = Held::secrets();
 
 /// The value at `path` in `value`, or null when there is none.
@@ -121,10 +120,8 @@ impl Session {
 }
 
 /// Vercel says a call failed with a status and an `error` holding a code and message.
-pub fn checked(status: u16, body: Value) -> VercelResult<Value> {
-    if (200..300).contains(&status) {
-        return Ok(body);
-    }
+pub fn refused(status: StatusCode, body: &[u8], spent: Option<u64>) -> VercelError {
+    let body: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     let error = at(&body, "/error");
     let message = at(error, "/message")
         .as_str()
@@ -132,20 +129,11 @@ pub fn checked(status: u16, body: Value) -> VercelResult<Value> {
         .to_string();
     let invalid_token = at(error, "/invalidToken").as_bool() == Some(true)
         || at(error, "/code").as_str() == Some("invalid_token");
-    Err(match status {
-        401 => VercelError::Auth(message),
+    match status.as_u16() {
         403 if invalid_token => VercelError::Auth(message),
-        403 => VercelError::Api(format!("not allowed: {message}")),
-        404 => VercelError::NotFound(message),
-        429 => VercelError::RateLimited {
-            resets_in_secs: None,
-        },
         400 | 409 | 422 => VercelError::Api(message),
-        _ => VercelError::Http {
-            status,
-            message: message.chars().take(200).collect(),
-        },
-    })
+        _ => http::classify(status, Some(message), spent),
+    }
 }
 
 /// Calls Vercel with `token`, answering with the JSON it sent, or null for an empty answer.
@@ -164,18 +152,7 @@ pub async fn request(
     if let Some(body) = body {
         builder = builder.json(&body);
     }
-    let response = HTTP.send(builder).await?;
-    let status = response.status().as_u16();
-    let bytes = http::read_body(response, MAX_RESPONSE_BYTES).await?;
-    let body = if bytes.iter().all(u8::is_ascii_whitespace) {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).map_err(|_| VercelError::Http {
-            status,
-            message: String::from_utf8_lossy(&bytes).chars().take(200).collect(),
-        })?
-    };
-    checked(status, body)
+    HTTP.ask(builder, Read::ALL).await?.succeeded()?.parsed()
 }
 
 #[cfg(test)]
@@ -185,31 +162,34 @@ mod tests {
 
     #[test]
     fn vercels_errors_read_in_words() {
+        let refusal = |status: u16, body: Value| {
+            refused(
+                StatusCode::from_u16(status).expect("a status"),
+                body.to_string().as_bytes(),
+                None,
+            )
+        };
         let bad_token = json!({ "error": { "code": "forbidden", "message": "Not authorized", "invalidToken": true } });
-        assert!(matches!(checked(403, bad_token), Err(VercelError::Auth(_))));
+        assert!(matches!(refusal(403, bad_token), VercelError::Auth(_)));
         let forbidden =
             json!({ "error": { "code": "forbidden", "message": "You don't have permission" } });
         assert!(
-            matches!(checked(403, forbidden), Err(VercelError::Api(message)) if message.contains("permission"))
+            matches!(refusal(403, forbidden), VercelError::Forbidden(message) if message.contains("permission"))
         );
         let missing = json!({ "error": { "code": "not_found", "message": "Project not found" } });
         assert!(
-            matches!(checked(404, missing), Err(VercelError::NotFound(message)) if message == "Project not found")
+            matches!(refusal(404, missing), VercelError::NotFound(message) if message == "Project not found")
         );
         assert!(matches!(
-            checked(429, json!({})),
-            Err(VercelError::RateLimited {
+            refusal(429, json!({})),
+            VercelError::RateLimited {
                 resets_in_secs: None
-            })
+            }
         ));
         assert!(matches!(
-            checked(502, json!({})),
-            Err(VercelError::Http { status: 502, .. })
+            refusal(502, json!({})),
+            VercelError::Http { status: 502, .. }
         ));
-        assert_eq!(
-            checked(200, json!({ "id": 1 })).ok(),
-            Some(json!({ "id": 1 }))
-        );
     }
 
     #[test]

@@ -3,23 +3,27 @@
 // into ours.
 
 use std::path::Path;
-use std::time::Duration;
 
-use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sikemux_plugin_api::http::{self, Deadline, Http, Redirects};
+use sikemux_plugin_api::http::{self, Http, Read, Redirects};
+use sikemux_plugin_api::ratelimit::LimitHeaders;
 use sikemux_plugin_api::store::{self, Accounts, Held};
 
 use crate::config::{self, Workspace};
 use crate::error::{Slack, SlackError, SlackResult};
 
 pub const API: &str = "https://slack.com/api";
-const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
-/// A wait this short is sat out and the call tried again, rather than failing it.
-const SHORT_WAIT_SECS: u64 = 3;
 
-static HTTP: Http<Slack> = Http::new(Redirects::Follow, Deadline::WholeAnswer, 8);
+/// Slack says how long to hold off in `retry-after` alone.
+static HTTP: Http<Slack> = Http::with_limits(
+    Redirects::Follow,
+    8,
+    LimitHeaders {
+        remaining: None,
+        reset: None,
+    },
+);
 static TOKENS: Held<String> = Held::secrets();
 
 pub fn forget(workspace: &str) {
@@ -86,56 +90,27 @@ enum Body<'a> {
     Json(&'a Value),
 }
 
-async fn send(token: &str, method: &str, body: Body<'_>) -> SlackResult<Value> {
-    let mut waited = false;
-    loop {
-        let address = format!("{API}/{method}");
-        let request = match &body {
-            Body::Query(query) => HTTP.client()?.get(&address).query(query),
-            Body::Json(json) => HTTP.client()?.post(&address).json(json),
-        };
-        let response = HTTP.send(request.bearer_auth(token)).await?;
-        let status = response.status();
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            let wait = response
-                .headers()
-                .get("retry-after")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.trim().parse::<u64>().ok())
-                .unwrap_or(30);
-            if wait <= SHORT_WAIT_SECS && !waited {
-                waited = true;
-                tokio::time::sleep(Duration::from_secs(wait.max(1))).await;
-                continue;
-            }
-            return Err(SlackError::RateLimited {
-                resets_in_secs: Some(wait),
-            });
-        }
-        let bytes = http::read_body(response, MAX_RESPONSE_BYTES).await?;
-        if !status.is_success() {
-            return Err(SlackError::Http {
-                status: status.as_u16(),
-                message: String::from_utf8_lossy(&bytes).chars().take(200).collect(),
-            });
-        }
-        return checked(serde_json::from_slice(&bytes)?);
-    }
+async fn send(workspace: &str, token: &str, method: &str, body: Body<'_>) -> SlackResult<Value> {
+    let address = format!("{API}/{method}");
+    let request = match &body {
+        Body::Query(query) => HTTP.client()?.get(&address).query(query),
+        Body::Json(json) => HTTP.client()?.post(&address).json(json),
+    };
+    let answer = HTTP
+        .exchange(workspace, request.bearer_auth(token), Read::ALL)
+        .await?
+        .succeeded()?;
+    checked(answer.parsed()?)
 }
 
-/// A read, with its arguments in the address.
+/// A read with a token that belongs to no workspace yet.
 pub async fn get_with(token: &str, method: &str, query: &[(&str, String)]) -> SlackResult<Value> {
-    send(token, method, Body::Query(query)).await
-}
-
-/// A write, with its arguments as JSON.
-pub async fn post_with(token: &str, method: &str, body: &Value) -> SlackResult<Value> {
-    send(token, method, Body::Json(body)).await
+    send("", token, method, Body::Query(query)).await
 }
 
 impl Session {
     pub async fn get(&self, method: &str, query: &[(&str, String)]) -> SlackResult<Value> {
-        let answer = get_with(&self.token, method, query).await;
+        let answer = send(&self.workspace.id, &self.token, method, Body::Query(query)).await;
         if matches!(answer, Err(SlackError::Auth(_))) {
             forget(&self.workspace.id);
         }
@@ -143,7 +118,7 @@ impl Session {
     }
 
     pub async fn post(&self, method: &str, body: &Value) -> SlackResult<Value> {
-        let answer = post_with(&self.token, method, body).await;
+        let answer = send(&self.workspace.id, &self.token, method, Body::Json(body)).await;
         if matches!(answer, Err(SlackError::Auth(_))) {
             forget(&self.workspace.id);
         }

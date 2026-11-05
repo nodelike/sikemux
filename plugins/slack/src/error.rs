@@ -1,4 +1,4 @@
-use sikemux_plugin_api::{Service, ServiceError};
+use sikemux_plugin_api::{http, Service, ServiceError};
 
 pub struct Slack;
 
@@ -6,6 +6,10 @@ impl Service for Slack {
     const ID: &'static str = "slack";
     const NAME: &'static str = "Slack";
     const SIGNED_OUT: &'static str = "no workspace is signed in";
+
+    fn said(body: &[u8]) -> Option<String> {
+        http::quoted(body)
+    }
 }
 
 pub type SlackError = ServiceError<Slack>;

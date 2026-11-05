@@ -227,14 +227,7 @@ pub async fn status(data_dir: &Path) -> Status {
 fn status_of(sites: Vec<SiteStatus>, error: Option<JiraError>) -> Status {
     let auth_failed = matches!(
         error,
-        Some(
-            JiraError::Unconfigured
-                | JiraError::Auth(_)
-                | JiraError::Http {
-                    status: 401 | 403,
-                    ..
-                }
-        )
+        Some(JiraError::Unconfigured | JiraError::Auth(_) | JiraError::Forbidden(_))
     );
     let configured = !sites.is_empty();
     let named: Vec<String> = sites

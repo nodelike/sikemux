@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_plugin_api::codehost::asks::{Answers, FeedbackQuery, PullRef, Reply};
@@ -123,12 +124,21 @@ pub async fn answer(data_dir: &Path, input: Answers) -> GithubResult<()> {
                 quoted(reply),
             )
         };
-        client::post_empty(data_dir, &path, Some(&json!({ "body": body }))).await?;
+        client::API
+            .write(
+                data_dir,
+                Method::POST,
+                &path,
+                Some(&json!({ "body": body })),
+            )
+            .await?;
     }
     if input.reviewers.is_empty() {
         return Ok(());
     }
-    let pull: Value = client::get(data_dir, &repo.path(&format!("/pulls/{number}"))?, &[]).await?;
+    let pull: Value = client::API
+        .get(data_dir, &repo.path(&format!("/pulls/{number}"))?, &[])
+        .await?;
     let author = pull.pointer("/user/login").and_then(Value::as_str);
     let reviewers: Vec<&String> = input
         .reviewers
@@ -139,5 +149,12 @@ pub async fn answer(data_dir: &Path, input: Answers) -> GithubResult<()> {
         return Ok(());
     }
     let path = repo.path(&format!("/pulls/{number}/requested_reviewers"))?;
-    client::post_empty(data_dir, &path, Some(&json!({ "reviewers": reviewers }))).await
+    client::API
+        .write(
+            data_dir,
+            Method::POST,
+            &path,
+            Some(&json!({ "reviewers": reviewers })),
+        )
+        .await
 }

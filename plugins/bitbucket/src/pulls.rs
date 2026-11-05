@@ -269,13 +269,16 @@ async fn full_hash(data_dir: &Path, repo: &RepoRef, short: &str) -> BitbucketRes
     if short.len() >= 40 || !short.chars().all(|c| c.is_ascii_hexdigit()) {
         return Ok(short.to_string());
     }
-    let commit: Commit =
-        client::get(data_dir, &repo.path(&format!("/commit/{short}"))?, &[]).await?;
+    let commit: Commit = client::API
+        .get(data_dir, &repo.path(&format!("/commit/{short}"))?, &[])
+        .await?;
     Ok(commit.hash.unwrap_or_else(|| short.to_string()))
 }
 
 async fn row(data_dir: &Path, repo: &RepoRef, number: u64) -> BitbucketResult<PullRow> {
-    client::get(data_dir, &pull_path(repo, number, "")?, &[]).await
+    client::API
+        .get(data_dir, &pull_path(repo, number, "")?, &[])
+        .await
 }
 
 pub async fn get(data_dir: &Path, input: PullRef) -> BitbucketResult<PullWithBuilds> {
@@ -481,7 +484,7 @@ pub async fn files(data_dir: &Path, input: FilesQuery) -> BitbucketResult<Vec<Ch
     let diff_path = pull_path(&pull.repo, pull.number, "/diff")?;
     let (stats, diff) = futures::try_join!(
         diffstat(data_dir, &pull.repo, pull.number),
-        client::get_text(data_dir, &diff_path, &[])
+        client::API.get_text(data_dir, &diff_path, &[])
     )?;
     let mut patches = patches_of(&diff);
     let files = stats
@@ -672,13 +675,14 @@ pub async fn comments(data_dir: &Path, input: PullRef) -> BitbucketResult<Vec<Co
 
 pub async fn add_comment(data_dir: &Path, pull: &PullRef, body: &str) -> BitbucketResult<()> {
     let path = pull_path(&pull.repo, pull.number, "/comments")?;
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &path,
-        &json!({ "content": { "raw": body } }),
-    )
-    .await?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &path,
+            &json!({ "content": { "raw": body } }),
+        )
+        .await?;
     Ok(())
 }
 
@@ -842,7 +846,10 @@ pub async fn merge(data_dir: &Path, input: Merge) -> BitbucketResult<()> {
         });
     }
     let path = pull_path(&input.pull.repo, input.pull.number, "/merge")?;
-    match client::post_empty(data_dir, &path, Some(&body)).await {
+    match client::API
+        .write(data_dir, Method::POST, &path, Some(&body))
+        .await
+    {
         Err(BitbucketError::Http {
             status: 400,
             message,
@@ -862,13 +869,14 @@ pub async fn create(data_dir: &Path, input: NewPull) -> BitbucketResult<Pull> {
         "draft": input.draft,
         "close_source_branch": input.close_branch,
     });
-    let row: PullRow = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/pullrequests")?,
-        &body,
-    )
-    .await?;
+    let row: PullRow = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/pullrequests")?,
+            &body,
+        )
+        .await?;
     Ok(pull_of(&input.repo, row))
 }
 
@@ -893,7 +901,9 @@ pub async fn edit(data_dir: &Path, input: PullEdit) -> BitbucketResult<Pull> {
     }
     let body = Value::Object(body);
     let path = pull_path(&input.pull.repo, input.pull.number, "")?;
-    let row: PullRow = client::send_json(data_dir, Method::PUT, &path, &body).await?;
+    let row: PullRow = client::API
+        .send_json(data_dir, Method::PUT, &path, &body)
+        .await?;
     Ok(pull_of(&input.pull.repo, row))
 }
 
@@ -905,7 +915,7 @@ pub async fn set_state(data_dir: &Path, input: SetPullState) -> BitbucketResult<
         ));
     }
     let path = pull_path(&input.pull.repo, input.pull.number, "/decline")?;
-    client::post_empty(data_dir, &path, None).await
+    client::API.write(data_dir, Method::POST, &path, None).await
 }
 
 /// A verdict and a comment are separate things on Bitbucket, so a review
@@ -923,7 +933,9 @@ pub async fn review(data_dir: &Path, input: NewReview) -> BitbucketResult<()> {
     };
     if let Some(action) = action {
         let path = pull_path(&input.pull.repo, input.pull.number, action)?;
-        client::post_empty(data_dir, &path, None).await?;
+        client::API
+            .write(data_dir, Method::POST, &path, None)
+            .await?;
     }
     if !input.body.trim().is_empty() {
         add_comment(data_dir, &input.pull, &input.body).await?;

@@ -101,14 +101,7 @@ fn status_of(configured: bool, found: Where, error: Option<SignozError>) -> Stat
         ok: configured && error.is_none(),
         auth_failed: matches!(
             error,
-            Some(
-                SignozError::Unconfigured
-                    | SignozError::Auth(_)
-                    | SignozError::Http {
-                        status: 401 | 403,
-                        ..
-                    }
-            )
+            Some(SignozError::Unconfigured | SignozError::Auth(_) | SignozError::Forbidden(_))
         ),
         message: error.map(|error| error.to_string()),
         signed_in_as: configured.then(|| match found.email.is_empty() {

@@ -160,9 +160,9 @@ async fn rotate(
     )
     .await
     .map_err(|error| match error {
-        SignozError::Http {
-            status: 401 | 403, ..
-        } => SignozError::Auth("your SigNoz session ended; sign in again".into()),
+        SignozError::Auth(_) | SignozError::Forbidden(_) => {
+            SignozError::Auth("your SigNoz session ended; sign in again".into())
+        }
         other => other,
     })?;
     let tokens = Tokens::from_answer(&renewed)?;
@@ -391,9 +391,10 @@ pub async fn sign_in(data_dir: &Path, request: SignIn) -> SignozResult<()> {
     .await
     .map_err(|error| match error {
         SignozError::Http {
-            status: 400 | 401 | 403,
+            status: 400,
             message,
-        } => SignozError::Auth(message),
+        }
+        | SignozError::Forbidden(message) => SignozError::Auth(message),
         other => other,
     })?;
     let tokens = Tokens::from_answer(&answer)?;

@@ -217,13 +217,14 @@ pub async fn add_comment(data_dir: &Path, input: NewComment) -> GitlabResult<()>
     if body.is_empty() {
         return Err(GitlabError::BadArg("a comment needs some text".into()));
     }
-    client::write(
-        data_dir,
-        Method::POST,
-        &input.thread.path("/notes")?,
-        Some(&json!({ "body": body })),
-    )
-    .await
+    client::API
+        .write(
+            data_dir,
+            Method::POST,
+            &input.thread.path("/notes")?,
+            Some(&json!({ "body": body })),
+        )
+        .await
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_plugin_api::codehost::asks::{NewComment, ThreadRef};
@@ -163,7 +164,14 @@ pub async fn add_comment(data_dir: &Path, input: NewComment) -> GithubResult<()>
     let path = thread
         .repo
         .path(&format!("/issues/{}/comments", thread.number))?;
-    client::post_empty(data_dir, &path, Some(&json!({ "body": body }))).await
+    client::API
+        .write(
+            data_dir,
+            Method::POST,
+            &path,
+            Some(&json!({ "body": body })),
+        )
+        .await
 }
 
 #[cfg(test)]

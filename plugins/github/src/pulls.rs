@@ -143,18 +143,19 @@ pub async fn list(data_dir: &Path, input: PullQuery) -> GithubResult<Vec<Pull>> 
         .unwrap_or(DEFAULT_PER_PAGE)
         .clamp(1, MAX_PER_PAGE);
     let page = input.page.unwrap_or(1).max(1);
-    let rows: Vec<PullRow> = client::get(
-        data_dir,
-        &input.repo.path("/pulls")?,
-        &[
-            ("state", state.clone()),
-            ("sort", "updated".to_string()),
-            ("direction", "desc".to_string()),
-            ("per_page", per_page.to_string()),
-            ("page", page.to_string()),
-        ],
-    )
-    .await?;
+    let rows: Vec<PullRow> = client::API
+        .get(
+            data_dir,
+            &input.repo.path("/pulls")?,
+            &[
+                ("state", state.clone()),
+                ("sort", "updated".to_string()),
+                ("direction", "desc".to_string()),
+                ("per_page", per_page.to_string()),
+                ("page", page.to_string()),
+            ],
+        )
+        .await?;
     let counts = comment_counts(data_dir, &input.repo, &state, per_page, page)
         .await
         .unwrap_or_default();
@@ -188,12 +189,13 @@ async fn counts_of(data_dir: &Path, repo: RepoRef, kind: &'static str) -> Github
     let total = |state: &'static str| {
         let terms = format!("repo:{}/{} is:{kind} is:{state}", repo.owner, repo.name);
         async move {
-            let found: Total = client::get(
-                data_dir,
-                "/search/issues",
-                &[("q", terms), ("per_page", "1".to_string())],
-            )
-            .await?;
+            let found: Total = client::API
+                .get(
+                    data_dir,
+                    "/search/issues",
+                    &[("q", terms), ("per_page", "1".to_string())],
+                )
+                .await?;
             GithubResult::Ok(found.total_count)
         }
     };
@@ -226,18 +228,19 @@ async fn comment_counts(
     if state != "all" {
         terms.push_str(&format!(" is:{state}"));
     }
-    let found: CountPage = client::get(
-        data_dir,
-        "/search/issues",
-        &[
-            ("q", terms),
-            ("sort", "updated".to_string()),
-            ("order", "desc".to_string()),
-            ("per_page", per_page.to_string()),
-            ("page", page.to_string()),
-        ],
-    )
-    .await?;
+    let found: CountPage = client::API
+        .get(
+            data_dir,
+            "/search/issues",
+            &[
+                ("q", terms),
+                ("sort", "updated".to_string()),
+                ("order", "desc".to_string()),
+                ("per_page", per_page.to_string()),
+                ("page", page.to_string()),
+            ],
+        )
+        .await?;
     Ok(found
         .items
         .into_iter()
@@ -247,7 +250,7 @@ async fn comment_counts(
 
 pub async fn get(data_dir: &Path, input: PullRef) -> GithubResult<Pull> {
     let path = input.repo.path(&format!("/pulls/{}", input.number))?;
-    let row: PullRow = client::get(data_dir, &path, &[]).await?;
+    let row: PullRow = client::API.get(data_dir, &path, &[]).await?;
     Ok(Pull::from(row))
 }
 
@@ -260,7 +263,7 @@ pub async fn of_commit(data_dir: &Path, input: CommitRef) -> GithubResult<Vec<Pu
         )));
     }
     let path = input.repo.path(&format!("/commits/{}/pulls", input.sha))?;
-    let rows: Vec<PullRow> = client::get(data_dir, &path, &[]).await?;
+    let rows: Vec<PullRow> = client::API.get(data_dir, &path, &[]).await?;
     let mut pulls: Vec<Pull> = rows.into_iter().map(Pull::from).collect();
     pulls.sort_by_key(|pull| pull.state != "merged");
     Ok(pulls)
@@ -539,7 +542,10 @@ pub async fn merge(data_dir: &Path, input: Merge) -> GithubResult<()> {
         .repo
         .path(&format!("/pulls/{}/merge", input.pull.number))?;
     let body = json!({ "merge_method": method, "sha": sha });
-    match client::act(data_dir, reqwest::Method::PUT, &path, Some(&body)).await {
+    match client::API
+        .write(data_dir, reqwest::Method::PUT, &path, Some(&body))
+        .await
+    {
         Err(GithubError::Http { status: 409, .. }) => Err(GithubError::Http {
             status: 409,
             message: "the branch moved since you looked; reload the pull request and try again"
@@ -575,13 +581,14 @@ pub async fn create(data_dir: &Path, input: NewPull) -> GithubResult<Pull> {
         "body": input.body,
         "draft": input.draft,
     });
-    let row: PullRow = client::send_json(
-        data_dir,
-        reqwest::Method::POST,
-        &input.repo.path("/pulls")?,
-        &body,
-    )
-    .await?;
+    let row: PullRow = client::API
+        .send_json(
+            data_dir,
+            reqwest::Method::POST,
+            &input.repo.path("/pulls")?,
+            &body,
+        )
+        .await?;
     Ok(Pull::from(row))
 }
 
@@ -597,7 +604,9 @@ pub async fn set_state(data_dir: &Path, input: SetPullState) -> GithubResult<()>
         .repo
         .path(&format!("/pulls/{}", input.pull.number))?;
     let body = json!({ "state": input.state });
-    client::act(data_dir, reqwest::Method::PATCH, &path, Some(&body)).await
+    client::API
+        .write(data_dir, reqwest::Method::PATCH, &path, Some(&body))
+        .await
 }
 
 const REVIEW_EVENTS: [&str; 3] = ["APPROVE", "REQUEST_CHANGES", "COMMENT"];
@@ -619,7 +628,9 @@ pub async fn review(data_dir: &Path, input: NewReview) -> GithubResult<()> {
         .repo
         .path(&format!("/pulls/{}/reviews", input.pull.number))?;
     let body = json!({ "event": input.event, "body": input.body });
-    client::act(data_dir, reqwest::Method::POST, &path, Some(&body)).await
+    client::API
+        .write(data_dir, reqwest::Method::POST, &path, Some(&body))
+        .await
 }
 
 #[cfg(test)]

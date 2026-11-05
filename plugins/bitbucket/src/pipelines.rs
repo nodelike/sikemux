@@ -15,6 +15,8 @@ use sikemux_plugin_api::codehost::{
     WorkflowFile,
 };
 
+use sikemux_plugin_api::http::Read;
+
 use crate::client;
 use crate::error::{BitbucketError, BitbucketResult};
 use crate::repo::{self, avatar_of, login_of, uuid_segment, Place, User};
@@ -203,8 +205,9 @@ pub async fn list(data_dir: &Path, input: RunQuery) -> BitbucketResult<RunPage> 
     if let Some(branch) = &input.branch {
         query.push(("target.branch", branch.clone()));
     }
-    let found: client::Page<PipelineRow> =
-        client::get(data_dir, &input.repo.path("/pipelines/")?, &query).await?;
+    let found: client::Page<PipelineRow> = client::API
+        .get(data_dir, &input.repo.path("/pipelines/")?, &query)
+        .await?;
     let runs: Vec<Run> = found
         .values
         .iter()
@@ -233,7 +236,9 @@ fn pipeline_path(repo: &RepoRef, run_id: &str, rest: &str) -> BitbucketResult<St
 }
 
 async fn pipeline(data_dir: &Path, repo: &RepoRef, run_id: &str) -> BitbucketResult<PipelineRow> {
-    client::get(data_dir, &pipeline_path(repo, run_id, "")?, &[]).await
+    client::API
+        .get(data_dir, &pipeline_path(repo, run_id, "")?, &[])
+        .await
 }
 
 /// Bitbucket finds a pipeline by its build number only when reading it, so
@@ -320,7 +325,7 @@ pub async fn timing(data_dir: &Path, input: RunRef) -> BitbucketResult<RunTiming
 pub async fn cancel(data_dir: &Path, input: RunRef) -> BitbucketResult<()> {
     let run_id = run_uuid(data_dir, &input.repo, &input.run_id).await?;
     let path = pipeline_path(&input.repo, &run_id, "/stopPipeline")?;
-    client::post_empty(data_dir, &path, None).await
+    client::API.write(data_dir, Method::POST, &path, None).await
 }
 
 /// The parts of a pipeline's target that say what to build, without the
@@ -357,13 +362,14 @@ pub async fn rerun(data_dir: &Path, input: Rerun) -> BitbucketResult<()> {
     }
     let row = pipeline(data_dir, &input.run.repo, &input.run.run_id).await?;
     let body = json!({ "target": target_to_repeat(&row.target) });
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.run.repo.path("/pipelines/")?,
-        &body,
-    )
-    .await?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.run.repo.path("/pipelines/")?,
+            &body,
+        )
+        .await?;
     Ok(())
 }
 
@@ -422,22 +428,30 @@ pub async fn log(data_dir: &Path, input: JobRef) -> BitbucketResult<JobLog> {
         &run_id,
         &format!("/steps/{}/log", uuid_segment(step_id)?),
     )?;
-    let (status, bytes, truncated) =
-        client::send_limited(data_dir, Method::GET, &path, &[], None, MAX_LOG_BYTES, true).await?;
-    if status.as_u16() == 404 {
+    let answer = client::API
+        .send(
+            data_dir,
+            Method::GET,
+            &path,
+            &[],
+            None,
+            Read::Tail(MAX_LOG_BYTES),
+        )
+        .await?;
+    if answer.status.as_u16() == 404 {
         return Ok(JobLog {
             lines: Vec::new(),
             expired: false,
             truncated: false,
         });
     }
-    if !status.is_success() {
-        return Err(client::classify(status, &bytes));
+    if !answer.status.is_success() {
+        return Err(answer.refused());
     }
     Ok(JobLog {
-        lines: lines_of(&String::from_utf8_lossy(&bytes), truncated),
+        lines: lines_of(&String::from_utf8_lossy(&answer.bytes), answer.cut),
         expired: false,
-        truncated,
+        truncated: answer.cut,
     })
 }
 
@@ -513,12 +527,13 @@ fn pipelines_in(file: &str) -> Vec<(String, String)> {
 
 pub async fn file(data_dir: &Path, repo: &RepoRef) -> BitbucketResult<String> {
     let branch = repo::default_branch(data_dir, repo).await?;
-    client::get_text(
-        data_dir,
-        &repo.path(&format!("/src/{branch}/{PIPELINES_FILE}"))?,
-        &[],
-    )
-    .await
+    client::API
+        .get_text(
+            data_dir,
+            &repo.path(&format!("/src/{branch}/{PIPELINES_FILE}"))?,
+            &[],
+        )
+        .await
 }
 
 pub async fn workflows(data_dir: &Path, repo: RepoRef) -> BitbucketResult<Vec<Workflow>> {
@@ -590,13 +605,14 @@ fn dispatch_body(input: &Dispatch) -> BitbucketResult<Value> {
 
 pub async fn dispatch(data_dir: &Path, input: Dispatch) -> BitbucketResult<()> {
     let body = dispatch_body(&input)?;
-    let _: Value = client::send_json(
-        data_dir,
-        Method::POST,
-        &input.repo.path("/pipelines/")?,
-        &body,
-    )
-    .await?;
+    let _: Value = client::API
+        .send_json(
+            data_dir,
+            Method::POST,
+            &input.repo.path("/pipelines/")?,
+            &body,
+        )
+        .await?;
     Ok(())
 }
 

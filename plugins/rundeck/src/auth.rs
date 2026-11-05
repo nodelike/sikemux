@@ -30,11 +30,10 @@ pub struct Connection {
     pub allow_insecure_private_http: bool,
 }
 
-const MAX_AUTH_RESPONSE_BYTES: usize = 1024 * 1024;
 const LOGIN_DEADLINE: Duration = Duration::from_secs(20);
 
 async fn response_text_limited(resp: Response) -> RundeckResult<String> {
-    let bytes = http::read_body(resp, MAX_AUTH_RESPONSE_BYTES)
+    let bytes = http::read_body(resp, http::MAX_IDENTITY)
         .await
         .map_err(|error| RundeckError::Auth(error.to_string()))?;
     String::from_utf8(bytes)

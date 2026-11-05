@@ -67,7 +67,7 @@ struct CheckRunRow {
 /// table, whatever it wanted read rather than dug out of the log.
 pub async fn summary(data_dir: &Path, input: CheckRunRef) -> GithubResult<Option<JobSummary>> {
     let path = check_run_path(&input, "")?;
-    let row: CheckRunRow = client::get(data_dir, &path, &[]).await?;
+    let row: CheckRunRow = client::API.get(data_dir, &path, &[]).await?;
     let output = match row.output {
         Some(output) => output,
         None => return Ok(None),
