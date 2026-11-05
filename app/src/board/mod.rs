@@ -135,7 +135,7 @@ pub(crate) fn pane(bench: &Workbench, window: &Window, cx: &mut Context<Workbenc
     let Some(pane) = &bench.board else {
         return crate::ui::pane(cx).into_any_element();
     };
-    if bench.claims_keys(crate::workbench::TakesKeys::Board) {
+    if bench.claims_keys(crate::keyboard::TakesKeys::Board) {
         let focus = pane.read(cx).focus_handle(cx);
         cx.defer_in(window, move |_, window, cx| window.focus(&focus, cx));
     }

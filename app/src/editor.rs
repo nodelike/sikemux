@@ -21,10 +21,11 @@ use sikemux_view::prefs::{DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
 
 use crate::core::{Ask, Target};
 use crate::hosts::Place as Host;
+use crate::keyboard::TakesKeys;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
 use crate::ui;
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
-use crate::workbench::{Strip, TakesKeys, Workbench};
+use crate::workbench::{Strip, Workbench};
 
 mod blame;
 mod copies;

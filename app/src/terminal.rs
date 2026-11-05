@@ -36,11 +36,12 @@ use tokio::sync::{mpsc, oneshot};
 use crate::core::{Ask, Screenful, TerminalAsk};
 use crate::hosts::Place;
 use crate::icons::Icon;
+use crate::keyboard::TakesKeys;
 use crate::send_to::{self, Recipient};
 use crate::theme::{self, Tokens, SPACE_0, SPACE_1H, SPACE_2};
 use crate::ui;
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
-use crate::workbench::{TakesKeys, Workbench};
+use crate::workbench::Workbench;
 
 const PAGE: u64 = 256;
 /// History lines kept around the ones in view.

@@ -8,16 +8,19 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::Duration;
 
 use gpui_kit::{
-    div, AnyElement, Context, IntoElement, ParentElement, Render, SharedString, Styled, WeakEntity,
-    Window,
+    div, AnyElement, AppContext, Context, IntoElement, ParentElement, Render, SharedString, Styled,
+    WeakEntity, Window,
 };
 use serde_json::{json, Value};
+use sikemux_view::layout::PaneKind;
 use sikemux_wire::changed::Topic;
 
 use crate::core::Target;
-use crate::page_view::{self, PageEvent, Room};
-use crate::theme::{self, Tokens, TEXT_XS};
-use crate::workbench::Workbench;
+use crate::hosts::Place;
+use crate::page_view::{PageEvent, Room};
+use crate::theme::{Tokens, TEXT_XS};
+use crate::workbench::{Strip, Workbench};
+use crate::{page_view, theme};
 
 const BRIDGE: &str = include_str!("mod_pane/bridge.js");
 /// How long a burst of changes gathers before the watches it moved read again.
@@ -472,5 +475,88 @@ impl Render for ModPane {
             (None, None) => div().size_full().into_any_element(),
         };
         div().size_full().child(drawn)
+    }
+}
+
+impl Workbench {
+    /// Keeps a pane for each mod view of the strip in front, showing those of the tab in front
+    /// and pausing the rest, and lets go of the others.
+    pub(crate) fn mod_panes(&mut self, cx: &mut Context<Self>) {
+        let views_in = |pane: &sikemux_view::layout::Pane| -> Vec<(String, String)> {
+            crate::panes::views(pane)
+                .filter(|view| view.kind == PaneKind::Mod)
+                .map(|view| (view.id.clone(), view.target.clone()))
+                .collect()
+        };
+        let shown: Vec<(String, String)> = self
+            .strip()
+            .map(|strip| {
+                self.tabs(&strip)
+                    .iter()
+                    .flat_map(|tab| views_in(&tab.pane))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let in_front = self
+            .tab()
+            .map(|tab| views_in(&tab.pane))
+            .unwrap_or_default();
+        let core = self.target();
+        let project = match self.strip() {
+            Some(Strip::Project(_)) => self
+                .project()
+                .map(|project| project.path.to_string_lossy().into_owned()),
+            _ => None,
+        };
+        self.mod_panes.retain(|view, pane| {
+            let kept = shown.iter().any(|(id, target)| {
+                let pane = pane.read(cx);
+                id == view && &pane.id == target && pane.core.place() == core.place()
+            });
+            match kept && in_front.iter().any(|(id, _)| id == view) {
+                true => pane.update(cx, |pane, cx| pane.show(cx)),
+                false => pane.update(cx, |pane, _| pane.hide()),
+            }
+            kept
+        });
+        for (view, id) in shown {
+            if let std::collections::hash_map::Entry::Vacant(slot) = self.mod_panes.entry(view) {
+                let bench = cx.weak_entity();
+                let pane = crate::mod_pane::ModPane::new(id, core.clone(), project.clone(), bench);
+                slot.insert(cx.new(|_| pane));
+            }
+        }
+    }
+
+    /// The core at `place` said the files of the mods in `paths` moved, or of any mod without.
+    pub(crate) fn mods_moved(
+        &mut self,
+        place: &Place,
+        paths: Option<&[String]>,
+        cx: &mut Context<Self>,
+    ) {
+        for pane in self.mod_panes.values() {
+            let moved = {
+                let pane = pane.read(cx);
+                pane.core.place() == place && paths.is_none_or(|paths| paths.contains(&pane.id))
+            };
+            if moved {
+                pane.update(cx, |pane, cx| pane.files_moved(cx));
+            }
+        }
+    }
+
+    /// Something the mods on `place` may watch moved.
+    pub(crate) fn mods_follow(
+        &mut self,
+        place: &Place,
+        moved: crate::mod_pane::Moved,
+        cx: &mut Context<Self>,
+    ) {
+        for pane in self.mod_panes.values() {
+            if pane.read(cx).core.place() == place {
+                pane.update(cx, |pane, cx| pane.moved(moved, cx));
+            }
+        }
     }
 }

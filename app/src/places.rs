@@ -164,7 +164,7 @@ impl Workbench {
     }
 
     fn open_board(&self, project: &ProjectInfo, cx: &mut App) {
-        self.take_keys_when_shown(crate::workbench::TakesKeys::Board, cx);
+        self.take_keys_when_shown(crate::keyboard::TakesKeys::Board, cx);
         self.call_in_front(
             "openTab",
             json!({ "project": project.id, "kind": "board", "target": project.path.to_string_lossy() }),

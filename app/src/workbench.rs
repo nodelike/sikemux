@@ -1,3 +1,5 @@
+use crate::keyboard::Keyboard;
+use crate::keyboard::TakesKeys;
 use sikemux_wire::changed::Topic;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -399,7 +401,6 @@ impl Workbench {
             }
         })
         .detach();
-        let focus = cx.focus_handle();
         let voice = cx.new(|_| crate::voice::Dictation::default());
         let voice_heard = [
             cx.subscribe_in(&voice, window, |bench, _, heard, window, cx| {
@@ -432,36 +433,7 @@ impl Workbench {
             preferences: None,
             voice,
             _voice_heard: voice_heard,
-            keys: Keyboard {
-                pending: Cell::new(None),
-                _settle: [
-                    cx.on_focus_lost(window, |bench, window, cx| bench.settle_keys(window, cx)),
-                    cx.observe_window_activation(window, |bench, window, cx| {
-                        if window.is_window_active() {
-                            bench.settle_keys(window, cx)
-                        }
-                    }),
-                    cx.on_focus(&focus, window, |bench, window, cx| {
-                        bench.settle_keys(window, cx)
-                    }),
-                ],
-                _before_shortcuts: {
-                    let this = cx.weak_entity();
-                    cx.intercept_keystrokes(move |event, window, cx| {
-                        let _ = this.update(cx, |bench, cx| {
-                            if !bench.catch_loose_keys(event, window, cx) {
-                                crate::settings::before_shortcut(
-                                    bench,
-                                    &event.keystroke,
-                                    window,
-                                    cx,
-                                )
-                            }
-                        });
-                    })
-                },
-                focus,
-            },
+            keys: Keyboard::new(window, cx),
             window_active: window.is_window_active(),
             on_screen: None,
             watched_project: None,
@@ -1471,18 +1443,6 @@ impl Workbench {
         self.preferences.as_ref().unwrap_or(&UNREAD)
     }
 
-    /// Gives the workbench the keyboard if `held`, which is going away, has it.
-    fn release_keys(&self, held: FocusHandle, cx: &mut Context<Self>) {
-        let (window, focus) = (self.window, self.keys.focus.clone());
-        cx.defer(move |cx| {
-            let _ = window.update(cx, |_, window, cx| {
-                if held.is_focused(window) {
-                    window.focus(&focus, cx)
-                }
-            });
-        });
-    }
-
     /// Shows `note` in the window's notifications.
     pub fn notify(&self, note: Notification, cx: &mut Context<Self>) {
         let window = self.window;
@@ -2384,126 +2344,6 @@ impl Workbench {
         }
     }
 
-    /// Gives the keyboard to `wants` once it shows. Only what the person opens asks for this,
-    /// never what an agent opens beside them.
-    /// The stage draws again at once, so a view already in front takes the keys too.
-    pub fn take_keys_when_shown(&self, wants: TakesKeys, cx: &mut App) {
-        let from = self.tab().map(|tab| tab.id.clone());
-        self.keys.pending.set(Some(PendingKeys { wants, from }));
-        self.parts.redraw_stage(cx);
-    }
-
-    /// Whether `shown`, now drawn, is what waits for the keyboard. It stops waiting once claimed.
-    pub fn claims_keys(&self, shown: TakesKeys) -> bool {
-        match self.keys.pending.take() {
-            Some(pending) if pending.wants == shown => true,
-            other => {
-                self.keys.pending.set(other);
-                false
-            }
-        }
-    }
-
-    /// What holds the keyboard, as the last frame drawn tells.
-    fn keys(&self, window: &Window, cx: &App) -> Keys {
-        let Some(held) = window.focused(cx) else {
-            return Keys::Loose;
-        };
-        if held == self.keys.focus {
-            return Keys::Loose;
-        }
-        let stack = window.context_stack();
-        match stack.last() {
-            None => Keys::Gone,
-            Some(own) if stack.len() == 1 || own.contains(crate::keymap::SHELL) => Keys::Loose,
-            Some(_) => Keys::Held,
-        }
-    }
-
-    /// Gives the keyboard to the view in front, its terminal or its chat's draft, when nothing
-    /// with keys of its own holds it: nothing, a view no longer drawn, the workbench itself or a
-    /// button of its chrome. The workbench keeps it over Settings, a palette or a question, and
-    /// while a view waits to take it.
-    pub(crate) fn settle_keys(&self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.keys(window, cx) == Keys::Held {
-            return;
-        }
-        let held = window.focused(cx);
-        let kept = self.settings.read(cx).is_open()
-            || self.overlays.take_keys()
-            || self.front_asks(cx).is_some()
-            || self.waits_for_keys();
-        if kept {
-            // What holds them may be a field not drawn yet, which takes them once it is.
-            if held.is_none() {
-                self.keys.focus.focus(window, cx);
-            }
-            return;
-        }
-        match (self.window_view, &self.goals) {
-            (WindowView::Goals, Some(goals)) => {
-                if let Some(keys) = goals.read(cx).keys_go_to(&self.chats, cx) {
-                    keys.focus(window, cx);
-                }
-            }
-            _ => {
-                if let Some(view) = self.focused_view() {
-                    self.focus_view(&view, window, cx);
-                }
-            }
-        }
-        if window.focused(cx) == held {
-            self.keys.focus.focus(window, cx);
-        }
-    }
-
-    /// Presses a key again on the workbench when nothing in it held the keyboard, such as a view
-    /// no longer drawn, so the window's shortcuts work wherever the focus was.
-    fn catch_loose_keys(
-        &mut self,
-        event: &gpui_kit::KeystrokeEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        // Below the window's own root, anything in focus has a context of its own.
-        if event.context_stack.len() > 1 {
-            return false;
-        }
-        self.keys.focus.focus(window, cx);
-        if !self.keys.focus.is_focused(window) {
-            return false;
-        }
-        cx.stop_propagation();
-        let keystroke = event.keystroke.clone();
-        window.defer(cx, move |window, cx| {
-            window.dispatch_keystroke(keystroke, cx);
-        });
-        true
-    }
-
-    fn waits_for_keys(&self) -> bool {
-        let pending = self.keys.pending.take();
-        let waits = pending.is_some();
-        self.keys.pending.set(pending);
-        waits
-    }
-
-    /// Stops waiting to give the keyboard away once another kind of tab comes to the front,
-    /// so what failed to open never takes the keys later.
-    fn settle_takes_keys(&self) {
-        let Some(pending) = self.keys.pending.take() else {
-            return;
-        };
-        let front = self.tab();
-        let moved = front.map(|tab| &tab.id) != pending.from.as_ref();
-        let shows = front
-            .and_then(|tab| tabs::first_view(&tab.pane))
-            .is_some_and(|(kind, _)| pending.wants.kind() == kind);
-        if !moved || shows {
-            self.keys.pending.set(Some(pending));
-        }
-    }
-
     /// Brings forward the first terminal tab in the strip in front, else opens a terminal.
     fn focus_terminal(&self, cx: &mut App) {
         let terminal = self.strip().and_then(|strip| {
@@ -2604,82 +2444,6 @@ impl Workbench {
         }
         let bench = cx.weak_entity();
         self.search = Some(cx.new(|cx| SearchPane::new(target, project, bench, cx)));
-    }
-
-    /// Keeps a pane for each mod view of the strip in front, showing those of the tab in front
-    /// and pausing the rest, and lets go of the others.
-    fn mod_panes(&mut self, cx: &mut Context<Self>) {
-        let views_in = |pane: &sikemux_view::layout::Pane| -> Vec<(String, String)> {
-            crate::panes::views(pane)
-                .filter(|view| view.kind == PaneKind::Mod)
-                .map(|view| (view.id.clone(), view.target.clone()))
-                .collect()
-        };
-        let shown: Vec<(String, String)> = self
-            .strip()
-            .map(|strip| {
-                self.tabs(&strip)
-                    .iter()
-                    .flat_map(|tab| views_in(&tab.pane))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let in_front = self
-            .tab()
-            .map(|tab| views_in(&tab.pane))
-            .unwrap_or_default();
-        let core = self.target();
-        let project = match self.strip() {
-            Some(Strip::Project(_)) => self
-                .project()
-                .map(|project| project.path.to_string_lossy().into_owned()),
-            _ => None,
-        };
-        self.mod_panes.retain(|view, pane| {
-            let kept = shown.iter().any(|(id, target)| {
-                let pane = pane.read(cx);
-                id == view && &pane.id == target && pane.core.place() == core.place()
-            });
-            match kept && in_front.iter().any(|(id, _)| id == view) {
-                true => pane.update(cx, |pane, cx| pane.show(cx)),
-                false => pane.update(cx, |pane, _| pane.hide()),
-            }
-            kept
-        });
-        for (view, id) in shown {
-            if let std::collections::hash_map::Entry::Vacant(slot) = self.mod_panes.entry(view) {
-                let bench = cx.weak_entity();
-                let pane = crate::mod_pane::ModPane::new(id, core.clone(), project.clone(), bench);
-                slot.insert(cx.new(|_| pane));
-            }
-        }
-    }
-
-    /// The core at `place` said the files of the mods in `paths` moved, or of any mod without.
-    fn mods_moved(&mut self, place: &Place, paths: Option<&[String]>, cx: &mut Context<Self>) {
-        for pane in self.mod_panes.values() {
-            let moved = {
-                let pane = pane.read(cx);
-                pane.core.place() == place && paths.is_none_or(|paths| paths.contains(&pane.id))
-            };
-            if moved {
-                pane.update(cx, |pane, cx| pane.files_moved(cx));
-            }
-        }
-    }
-
-    /// Something the mods on `place` may watch moved.
-    fn mods_follow(
-        &mut self,
-        place: &Place,
-        moved: crate::mod_pane::Moved,
-        cx: &mut Context<Self>,
-    ) {
-        for pane in self.mod_panes.values() {
-            if pane.read(cx).core.place() == place {
-                pane.update(cx, |pane, cx| pane.moved(moved, cx));
-            }
-        }
     }
 
     /// Makes the board pane when the project's board tab comes to the front.
@@ -3353,55 +3117,6 @@ impl Render for Part {
     }
 }
 
-/// A view that takes the keyboard once it shows, after the person opened it.
-#[derive(Clone, PartialEq)]
-pub enum TakesKeys {
-    Terminal,
-    Git,
-    File(PathBuf),
-    Board,
-}
-
-impl TakesKeys {
-    fn kind(&self) -> PaneKind {
-        match self {
-            Self::Terminal => PaneKind::Terminal,
-            Self::Git => PaneKind::Git,
-            Self::File(_) => PaneKind::Files,
-            Self::Board => PaneKind::Board,
-        }
-    }
-}
-
-#[derive(PartialEq)]
-enum Keys {
-    /// Nothing with keys of its own holds the keyboard.
-    Loose,
-    /// A view the last frame did not draw holds it: one gone, or one not drawn yet.
-    Gone,
-    Held,
-}
-
-/// Where the window's keys go when nothing drawn holds them.
-pub struct Keyboard {
-    /// Holds the keyboard while nothing in the window does, so the window's shortcuts reach it.
-    pub(crate) focus: FocusHandle,
-    /// What the person just opened, which takes the keyboard once it shows.
-    pending: Cell<Option<PendingKeys>>,
-    /// Give the view in front the keyboard whenever nothing else holds it: once a view in
-    /// focus stops being drawn, the window comes forward or the workbench itself is given it.
-    _settle: [Subscription; 3],
-    /// Catches the keys pressed while nothing holds the keyboard, and the shortcuts Settings
-    /// answers first.
-    _before_shortcuts: Subscription,
-}
-
-/// A view waiting to take the keyboard, and the tab in front when it was asked for.
-struct PendingKeys {
-    wants: TakesKeys,
-    from: Option<String>,
-}
-
 /// The window's parts. A plain `cx.notify()` on the store draws them all again; output that
 /// touches one part, such as a terminal's, draws only that one.
 #[derive(Clone)]
@@ -3448,7 +3163,7 @@ impl Parts {
                     crate::desk::prepare(bench, window, cx);
                     bench.settle_takes_keys();
                     // The frame being drawn is not done, so a view not drawn yet may still show in it.
-                    if bench.keys(window, cx) == Keys::Loose {
+                    if bench.keys(window, cx) == crate::keyboard::Keys::Loose {
                         cx.defer_in(window, |bench, window, cx| bench.settle_keys(window, cx));
                     }
                     let frame = bench.stage_frame.clone();

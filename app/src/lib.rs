@@ -13,6 +13,7 @@ mod boot;
 mod buddy_picker;
 mod chat;
 mod goals;
+mod keyboard;
 pub use chat::changes as chat_changes;
 pub use chat::composer;
 mod closing;

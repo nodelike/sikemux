@@ -435,7 +435,7 @@ impl Workbench {
     /// A terminal of no project on the account host `host`, and the person moved there.
     pub fn new_terminal_on(&mut self, host: &str, cx: &mut Context<Self>) {
         self.show_workbench(cx);
-        self.take_keys_when_shown(crate::workbench::TakesKeys::Terminal, cx);
+        self.take_keys_when_shown(crate::keyboard::TakesKeys::Terminal, cx);
         core::Target::new(&self.asks, Place::Account(host.to_owned())).call(
             "newTerminal",
             crate::workbench::Strip::Terminals.with(json!({})),

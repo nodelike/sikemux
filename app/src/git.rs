@@ -91,7 +91,7 @@ pub(crate) fn pane(
     }
     match &bench.git.pane {
         Some(pane) => {
-            if bench.claims_keys(crate::workbench::TakesKeys::Git) {
+            if bench.claims_keys(crate::keyboard::TakesKeys::Git) {
                 let focused = pane.clone();
                 cx.defer_in(window, move |_, window, cx| {
                     focused.update(cx, |pane, cx| pane.take_keys(window, cx));
