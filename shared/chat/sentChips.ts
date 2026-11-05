@@ -2,10 +2,10 @@ import { isImagePath } from "../lib/imagePaths";
 import { contextChip } from "./promptContext";
 import type { SentContext } from "./types";
 
-export type SentChip = { kind: "agent" | "chat" | "file" | "image" | "issue" | "pull"; label: string };
+type SentChip = { kind: "agent" | "chat" | "file" | "image" | "issue" | "pull"; label: string };
 
 /** A sent message's text in order: its words, and the chips the draft wrote into it. */
-export type SentSpan = string | { written: string; chip: SentChip };
+type SentSpan = string | { written: string; chip: SentChip };
 
 const AGENT_URIS = ["sikemux://agent/", "sikemux://woken/"];
 

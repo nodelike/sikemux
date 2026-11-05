@@ -5,7 +5,7 @@ import type { ChatPart, ToolDetail } from "./types";
 type ToolPart = Extract<ChatPart, { kind: "tool" }>;
 
 /** What a tool's opened row fetched, and the error when the fetch failed; `detail` stays null when the host sends nothing. */
-export type FetchedDetail = { detail: ToolDetail | null; error: unknown };
+type FetchedDetail = { detail: ToolDetail | null; error: unknown };
 
 /** Fetches what a call did once its row is `wanted`, and again as a running call goes on. */
 export function useToolDetail(

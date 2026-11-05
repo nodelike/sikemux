@@ -54,7 +54,7 @@ function Commands({ matches, onPick }: { matches: ChatCommandInfo[]; onPick: (na
   );
 }
 
-export type ComposerQuestion = {
+type ComposerQuestion = {
   name: string;
   cli: string;
   text: string;

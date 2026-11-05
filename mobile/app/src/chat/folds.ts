@@ -49,7 +49,7 @@ export function useFold(id: string, otherwise: boolean): [boolean, (open: boolea
 /** How a row of a finished turn shows: under the summary it opens with, hidden while its work is folded, or only its reply. */
 type WorkFold = NonNullable<ChatMessage['fold']>;
 
-export type RowFold = {
+type RowFold = {
   /** The fold whose summary goes above this row, its first. */
   summary: WorkFold | null;
   hidden: boolean;

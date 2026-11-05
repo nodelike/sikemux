@@ -10,7 +10,7 @@ import { deviceIdentity } from '@/phone/identity';
 import { notificationsChoice } from './setting';
 
 /** What the server last took from this phone, so an unchanged token is not sent again. */
-export type SentToken = { device: string; tokenSha256: string; app: PushApp; apnsEnvironment?: ApnsEnvironment; at: number };
+type SentToken = { device: string; tokenSha256: string; app: PushApp; apnsEnvironment?: ApnsEnvironment; at: number };
 
 const ITEM = 'sikemux.push-token';
 /** FCM tokens can go quiet without changing; sending one again now and then keeps the server's copy fresh. */
@@ -28,7 +28,7 @@ export function shouldSend(sent: SentToken | null, wanted: Omit<SentToken, 'at'>
 }
 
 /** Dev builds have their own package, Firebase project and bundle id, and reach a server that serves only them. */
-export function pushApp(): PushApp {
+function pushApp(): PushApp {
   return Application.applicationId?.endsWith('.dev') ? 'dev' : 'production';
 }
 

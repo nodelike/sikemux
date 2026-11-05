@@ -4,7 +4,7 @@ import type { MdElement } from "../markdown/types";
 
 const LONG_TEXT_LIMIT = 20_000;
 
-export interface TextCut {
+interface TextCut {
     head: string;
     hidden: number;
 }
@@ -39,7 +39,7 @@ export function cutLongText(text: string, limit = LONG_TEXT_LIMIT): TextCut | nu
     return { head, hidden };
 }
 
-export interface BlocksCut {
+interface BlocksCut {
     blocks: MdElement[];
     hidden: number;
 }

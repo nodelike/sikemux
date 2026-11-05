@@ -19,14 +19,14 @@ export type ShareChat = {
 };
 
 /** The project a new chat would start in, on its host. */
-export type ShareNewChat = { host: string; hostName: string; project: string; projectPath: string };
+type ShareNewChat = { host: string; hostName: string; project: string; projectPath: string };
 
 export type ShareChats = { chats: ShareChat[]; newChat?: ShareNewChat };
 
 const SHOWN = 4;
 
 /** The chats used last across every host this phone has full access to, and a new chat in the newest one's project. */
-export function shareChats(hosts: readonly { device: PairedDevice; snapshot: Snapshot | undefined }[]): ShareChats {
+function shareChats(hosts: readonly { device: PairedDevice; snapshot: Snapshot | undefined }[]): ShareChats {
   const found: (ShareChat & { projectPath: string })[] = [];
   for (const { device, snapshot } of hosts) {
     if (device.access !== 'full' || !snapshot) continue;

@@ -44,7 +44,7 @@ const PROVIDER_ICONS: Record<Provider, IconName> = {
   muse: 'IconMuse',
 };
 
-export function isProvider(name: string): name is Provider {
+function isProvider(name: string): name is Provider {
   return name in PROVIDER_ICONS;
 }
 

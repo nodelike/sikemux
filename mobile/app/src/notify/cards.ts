@@ -56,7 +56,7 @@ const quiet: CoreListener = {
   closed() {},
 };
 
-export function isGone(error: unknown): boolean {
+function isGone(error: unknown): boolean {
   return MobileError.Refused.instanceOf(error) && /no longer pending/.test(error.inner.message);
 }
 

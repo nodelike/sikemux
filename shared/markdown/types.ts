@@ -2,7 +2,7 @@
 
 export type MdNode = string | MdElement;
 
-export type MdAlign = "left" | "center" | "right" | null;
+type MdAlign = "left" | "center" | "right" | null;
 
 export type MdElement =
     | { t: "p" | "quote" | "ul" | "em" | "strong" | "del"; c: MdNode[] }

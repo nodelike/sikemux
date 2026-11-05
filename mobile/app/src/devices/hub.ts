@@ -313,7 +313,7 @@ function readCatalog(core: string, found: Entry, connection: ConnectionLike) {
 const hosts = new WeakMap<ConnectionLike, Promise<HostInfo>>();
 
 /** What the host behind `connection` says it is, asked once per connection. */
-export function hostOf(connection: ConnectionLike): Promise<HostInfo> {
+function hostOf(connection: ConnectionLike): Promise<HostInfo> {
   let host = hosts.get(connection);
   if (!host) {
     host = connection.host().then(readHost);

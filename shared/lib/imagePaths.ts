@@ -32,7 +32,7 @@ export function isImagePath(path: string | null | undefined): boolean {
     return !!path && imageType(path) !== undefined;
 }
 
-export function localPath(uri: string | null | undefined): string | null {
+function localPath(uri: string | null | undefined): string | null {
     if (!uri) return null;
     if (!uri.startsWith("file://")) return uri.startsWith("/") ? uri : null;
     return fileUriToPath(uri);

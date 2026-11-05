@@ -1,6 +1,6 @@
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export type RunningUpdate = { id: string | null; createdAt: Date | null; embedded: boolean };
+type RunningUpdate = { id: string | null; createdAt: Date | null; embedded: boolean };
 
 /**
  * The installed release and the commit of the code running on it: `0.1.0-nightly.5 · cef3bae`, or

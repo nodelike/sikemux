@@ -14,7 +14,7 @@ export type { SharedChat };
 /** What a viewer asks the host, before it is numbered. */
 type Question = { [Type in ShareAsk["type"]]: Omit<Extract<ShareAsk, { type: Type }>, "id"> }[ShareAsk["type"]];
 
-export type ShareStatus =
+type ShareStatus =
     /** Reaching the server, or waiting for the chat's first snapshot. */
     | "connecting"
     | "live"
@@ -50,7 +50,7 @@ export function sharedChatTitle(snapshot: ShareSnapshot): string {
     return `${agentLabel(snapshot.chat?.provider ?? "agent")} chat`;
 }
 
-export interface ShareSessionOptions {
+interface ShareSessionOptions {
     link: ShareLink;
     /** The share socket, such as `wss://api.sikemux.com/v1/share`. */
     url: string;

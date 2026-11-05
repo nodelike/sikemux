@@ -1,6 +1,6 @@
 import type { ContextUsage } from "./types";
 
-export type ContextTone = "steady" | "warm" | "hot";
+type ContextTone = "steady" | "warm" | "hot";
 
 /** How much of the context window is used, from 0 to 1. */
 export function contextShare(usage: ContextUsage): number {

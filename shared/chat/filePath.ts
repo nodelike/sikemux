@@ -81,7 +81,7 @@ export function parsePathRef(raw: string, roots: PathRoots): PathRef | null {
     return path ? { path, line, column } : null;
 }
 
-export interface PathCandidate {
+interface PathCandidate {
     /** Where the candidate starts in the run of text it came from. */
     start: number;
     end: number;

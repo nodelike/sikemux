@@ -4,7 +4,7 @@ import type { Device } from '@sikemux/protocol';
 import { readWhole, writeWhole } from './disk';
 
 /** The hosts an account had when this phone last looked, so only one that signs in afterwards connects by itself. */
-export type SeenHosts = { account: string; keys: string[] };
+type SeenHosts = { account: string; keys: string[] };
 
 /**
  * Which of `hosts` are new on `account` since `seen`. The first look at an account only remembers what is there:

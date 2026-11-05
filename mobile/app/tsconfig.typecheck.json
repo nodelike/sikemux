@@ -1,5 +1,6 @@
 {
   "extends": "./tsconfig.json",
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts", "../showcase/native.ts"],
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"],

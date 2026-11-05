@@ -6,7 +6,7 @@ import type { AgentQuestion } from '@shared/wire.generated';
 import { callHost, useHostCall } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 
-export type QuestionAnswer =
+type QuestionAnswer =
   { readonly answer: string } | { readonly choice: number } | { readonly choices: number[] } | { readonly fine: true };
 
 const NONE: AgentQuestion[] = [];

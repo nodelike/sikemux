@@ -34,7 +34,7 @@ function hostsChanged() {
 }
 
 /** The hosts on the account; `loaded` once the server has answered since signing in, `problem` while the last read failed. */
-export type AccountHosts = { hosts: Device[]; loaded: boolean; problem?: string };
+type AccountHosts = { hosts: Device[]; loaded: boolean; problem?: string };
 
 const NO_HOSTS: AccountHosts = { hosts: [], loaded: false };
 const accountHostsNow = externalValue(NO_HOSTS);

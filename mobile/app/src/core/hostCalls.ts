@@ -5,12 +5,12 @@ import { problem } from '@/core/problem';
 import type { CoreCalls } from '@shared/wire.generated';
 
 /** What the core takes for `method`: its declared params, or anything for a call that names none. */
-export type CallParams<M extends string> = M extends keyof CoreCalls ? CoreCalls[M]['params'] : unknown;
+type CallParams<M extends string> = M extends keyof CoreCalls ? CoreCalls[M]['params'] : unknown;
 /** What the core answers `method` with: its declared answer, or unknown for a call that names none. */
-export type CallAnswer<M extends string> = M extends keyof CoreCalls ? CoreCalls[M]['answer'] : unknown;
+type CallAnswer<M extends string> = M extends keyof CoreCalls ? CoreCalls[M]['answer'] : unknown;
 
 /** What the host last answered a call with, and why the latest read failed if it did. */
-export type HostRead<T> = { data?: T; problem?: string };
+type HostRead<T> = { data?: T; problem?: string };
 
 /** Calls the core's `method` on the host. */
 export async function callHost<M extends string>(connection: ConnectionLike, method: M, params: CallParams<M>): Promise<CallAnswer<M>> {

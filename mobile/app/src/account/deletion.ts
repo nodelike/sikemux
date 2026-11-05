@@ -1,6 +1,6 @@
 import { confirmsDeletion } from '@shared/account/account';
 
-export type DeletionPhase = { name: 'confirm' } | { name: 'deleting' } | { name: 'done' };
+type DeletionPhase = { name: 'confirm' } | { name: 'deleting' } | { name: 'done' };
 
 export type DeletionState = { typed: string; problem?: string; phase: DeletionPhase };
 

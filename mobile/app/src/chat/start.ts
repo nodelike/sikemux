@@ -7,7 +7,7 @@ import { chatSession } from './useChat';
 import { uploadEach, type Attachment } from './uploads';
 
 /** A new chat's first message, and how far an earlier try at sending it got. */
-export type FirstMessage = {
+type FirstMessage = {
   core: string;
   launcherId: string;
   projectId: string;
@@ -22,7 +22,7 @@ export type FirstMessage = {
 };
 
 /** `failed` hands the files back as they ended up, and says whether the host made the worktree for the next try. */
-export type StartOutcome =
+type StartOutcome =
   { kind: 'started'; agentId: string } | { kind: 'failed'; problem: string; files: Attachment[]; inWorktree: boolean };
 
 type Progress = {

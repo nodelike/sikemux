@@ -2,7 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 import type { AccountEvent, LiveApp, RevokeReason } from '@sikemux/protocol';
 import { LiveClient, type SocketHandlers, type SocketLike } from '@shared/account/live';
 
-export type Cursor = { load(): Promise<number>; save(id: number): Promise<void> };
+type Cursor = { load(): Promise<number>; save(id: number): Promise<void> };
 
 export type LiveDeps = {
   url: string;

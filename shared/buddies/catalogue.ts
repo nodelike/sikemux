@@ -12,7 +12,7 @@ export type { BuddyPack, BuddyShape, BuddyState } from "./shared";
 
 export const BUDDY_PACKS: readonly BuddyPack[] = [buddies, glow, googly, soot, peekers, cyclops, matrix, screens, japan, chibiPack, personas];
 
-export interface ResolvedBuddy {
+interface ResolvedBuddy {
     pack: BuddyPack;
     shape: BuddyShape;
     color: string;

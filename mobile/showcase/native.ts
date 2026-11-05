@@ -5,6 +5,7 @@
  */
 import AGENT_CATALOG from '../../shared/agents/catalog.generated.json';
 import type { ChatMessage } from '@shared/chat/types';
+import type { CoreCalls } from '@shared/wire.generated';
 import { ChatAttachment, CoreEvent, MobileError } from '../app/test/mocks/sikemux-native';
 import {
   BOARDS,
@@ -225,6 +226,28 @@ async function withTrees(rows: ChatMessage[]): Promise<ChatMessage[]> {
   return rows;
 }
 
+/** What the pretend host answers, by the core's own call names, so a renamed call fails the typecheck. */
+const HOST_CALLS: { [M in keyof CoreCalls]?: (params: CoreCalls[M]['params']) => unknown } & {
+  agentMessages: (params: { project: string }) => unknown;
+} = {
+  boards: () => BOARDS,
+  board: ({ project }) => BOARDS.find((known) => known.project === project) ?? { ...BOARDS[0], project, cards: [] },
+  questions: () => QUESTIONS,
+  agentCatalog: () => AGENT_CATALOG,
+  agentMessages: ({ project }) => ({ project, entries: project === BOARDS[0].project ? MESSAGES : [] }),
+  chatToolDetail: () => ({}),
+  closedAgents: () => [],
+  agentSessions: () => [],
+  projectEntries: ({ query }) =>
+    PROJECT_FILES.filter((path) => path.toLowerCase().includes((query ?? '').toLowerCase())).map((path) => ({ path, folder: false })),
+  codeHostTracked: () => ({ value: TRACKED }),
+  codeHostTrackedContext: ({ number }) => {
+    const item = TRACKED.find((known) => known.number === number);
+    return { value: { uri: item?.url ?? '', title: `#${number} ${item?.title ?? ''}`, text: item?.title ?? '' } };
+  },
+  promptChat: () => ({}),
+};
+
 class Connection {
   private open = true;
 
@@ -278,34 +301,9 @@ class Connection {
     return undefined;
   }
   async call(method: string, params: string): Promise<string> {
-    if (method === 'boards') return JSON.stringify(BOARDS);
-    if (method === 'board') {
-      const { project } = JSON.parse(params) as { project: string };
-      const board = BOARDS.find((known) => known.project === project);
-      return JSON.stringify(board ?? { ...BOARDS[0], project, cards: [] });
-    }
-    if (method === 'questions') return JSON.stringify(QUESTIONS);
-    if (method === 'agentCatalog') return JSON.stringify(AGENT_CATALOG);
-    if (method === 'agentMessages') {
-      const { project } = JSON.parse(params) as { project: string };
-      return JSON.stringify({ project, entries: project === BOARDS[0].project ? MESSAGES : [] });
-    }
-    if (method === 'digest') return JSON.stringify({ away: false, finished: [], failed: [], waiting: [] });
-    if (method === 'chatToolDetail') return '{}';
-    if (method === 'closedAgents' || method === 'agentSessions') return '[]';
-    if (method === 'projectEntries') {
-      const { query } = JSON.parse(params) as { query: string };
-      const found = PROJECT_FILES.filter((path) => path.toLowerCase().includes(query.toLowerCase()));
-      return JSON.stringify(found.map((path) => ({ path, folder: false })));
-    }
-    if (method === 'codeHostTracked') return JSON.stringify({ value: TRACKED });
-    if (method === 'codeHostTrackedContext') {
-      const { number } = JSON.parse(params) as { number: number };
-      const item = TRACKED.find((known) => known.number === number);
-      return JSON.stringify({ value: { uri: item?.url ?? '', title: `#${number} ${item?.title ?? ''}`, text: item?.title ?? '' } });
-    }
-    if (method === 'promptChat') return '{}';
-    throw new Error(`the showcase host does not know ${method}`);
+    const answer = HOST_CALLS[method as keyof typeof HOST_CALLS] as ((params: never) => unknown) | undefined;
+    if (!answer) throw new Error(`the showcase host does not know ${method}`);
+    return JSON.stringify(answer(JSON.parse(params) as never));
   }
   async callToFile(method: string): Promise<string> {
     throw new Error(`the showcase host does not know ${method}`);

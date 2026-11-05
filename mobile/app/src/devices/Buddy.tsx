@@ -17,7 +17,7 @@ export interface Faces {
 
 export const FacesContext = createContext<Faces | undefined>(undefined);
 
-export const useFaces = () => useContext(FacesContext);
+const useFaces = () => useContext(FacesContext);
 
 type Motion = { axis: 'translateX' | 'translateY'; ms: number; at: number[]; by: number[]; bounce?: boolean };
 

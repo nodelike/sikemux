@@ -3,7 +3,7 @@ import type { FindAnswer, FindAt, FindHit } from '@shared/wire.generated';
 import type { Finding, Range } from './found';
 import type { ChatSession } from './session';
 
-export type FindState = {
+type FindState = {
   text: string;
   matchCase: boolean;
   wholeWord: boolean;

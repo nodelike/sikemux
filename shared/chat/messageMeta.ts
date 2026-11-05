@@ -15,7 +15,7 @@ export function rateLabel(rate: number): string {
 /* What a reader means by "copy this message": the prose, the agent's reasoning
    where it showed it, and the files a turn was sent with. Tool rows are the
    pane's own bookkeeping and stay behind. */
-export function messageText(message: ChatMessage): string {
+function messageText(message: ChatMessage): string {
     const blocks = message.parts
         .map((part) => (part.kind === "text" || part.kind === "thought" ? part.text.trim() : ""))
         .filter((text) => text.length > 0);

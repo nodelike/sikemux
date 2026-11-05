@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 
-export type AppleConsent = { cancelled: true } | { cancelled: false; code?: string };
+type AppleConsent = { cancelled: true } | { cancelled: false; code?: string };
 
 /**
  * Before an account that signs in with Apple is deleted, shows Apple's sheet for a fresh

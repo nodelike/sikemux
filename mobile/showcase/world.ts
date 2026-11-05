@@ -3,6 +3,7 @@
  * terminals and chats, written to read well in a screenshot.
  */
 
+import type { PermissionMode } from '@shared/wire.generated';
 import type { ChatMessage, ChatPart, ChatView, PermissionAsk, ToolAction, ToolCall } from '@shared/chat/types';
 
 export const CORE = 'showcase0000000000000000000000000000000000000000000000000000core';
@@ -37,7 +38,7 @@ const next = (prefix: string) => `${prefix}-${++ids}`;
 const user = (text: string): Step => ({ ask: text });
 const say = (text: string): Step => ({ part: { kind: 'text', id: next('part'), text } });
 const think = (text: string): Step => ({ part: { kind: 'thought', id: next('part'), text } });
-const tool = (kind: ToolAction, title: string, status = 'completed', row: Partial<ToolCall['row']> = {}): Step => ({
+const tool = (kind: ToolAction, title: string, status: ToolCall['status'] = 'completed', row: Partial<ToolCall['row']> = {}): Step => ({
   part: {
     kind: 'tool',
     id: next('part'),
@@ -84,7 +85,7 @@ const PICKERS: Record<string, Pickers> = {
   hermes: { model: gpt },
 };
 
-export type DemoChat = {
+type DemoChat = {
   agentId: string;
   /** What the host's core named the agent. */
   name: string;
@@ -427,7 +428,7 @@ export function chatHead(chat: DemoChat): ChatView['head'] {
     connection: 'ready',
     running: chat.running,
     turned: true,
-    permissionMode: chat.permissionMode,
+    permissionMode: chat.permissionMode as PermissionMode,
     commands: [],
     capabilities: {},
     setup: {},

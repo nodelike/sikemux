@@ -19,7 +19,7 @@ export interface SocketHandlers {
     closed(code: number): void;
 }
 
-export interface LiveClientDeps {
+interface LiveClientDeps {
     url: string;
     connect(url: string, on: SocketHandlers): SocketLike;
     /** The hello answering the challenge's nonce, or null once signed out, which stops the connection. */

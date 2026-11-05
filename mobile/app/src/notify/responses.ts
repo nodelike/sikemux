@@ -19,7 +19,7 @@ type CardInfo = {
 };
 
 /** What tapping a card asks for: its chat to open, and an answer when Allow or Reject was tapped. */
-export type CardTap = { path: string | null; answer: CardAnswer | null };
+type CardTap = { path: string | null; answer: CardAnswer | null };
 
 /** The screen a host's link names: `sikemux://device/<host>/chat/<agent>` opens that chat in this build. */
 export function cardPath(url: string): string | null {

@@ -86,10 +86,10 @@ export type SignInStep =
 type Answer = Promise<{ error: unknown }>;
 
 /** How Clerk moves on once the person is signed in; a navigate that does nothing keeps them where they are. */
-export type Finalize = { navigate?: () => undefined };
+type Finalize = { navigate?: () => undefined };
 
 /** The parts of Clerk's sign-in the flow uses, as @clerk/react and @clerk/expo both shape them. */
-export interface ClerkSignIn {
+interface ClerkSignIn {
     readonly status: string | null;
     create(params: { identifier: string }): Answer;
     password(params: { password: string }): Answer;
@@ -105,7 +105,7 @@ export interface ClerkSignIn {
     };
 }
 
-export interface ClerkSignUp {
+interface ClerkSignUp {
     readonly status: string | null;
     password(params: { emailAddress: string; password: string }): Answer;
     finalize(params?: Finalize): Answer;

@@ -15,7 +15,7 @@ import { useAppActive } from '@/ui/motion';
 export type LibraryPhoto = Pick<AssetMetadata, 'id' | 'filename' | 'width' | 'height'>;
 
 /** `asking` until the person answers; `limited` when they gave the app only some photos. */
-export type LibraryAccess = 'asking' | 'all' | 'limited' | 'denied';
+type LibraryAccess = 'asking' | 'all' | 'limited' | 'denied';
 
 /** A multiple of the grid's four columns, so a page never leaves a row half full. */
 const PAGE = 96;

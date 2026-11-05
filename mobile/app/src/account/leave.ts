@@ -10,7 +10,7 @@ import { forgetCursor, stopLive } from './live';
 
 let leaving: Promise<void> | undefined;
 
-export type Leaving = {
+type Leaving = {
   farewell?: Farewell | null;
   /** The server took this phone off the account. Without that, the phone comes back as a new device. */
   confirmed: boolean;

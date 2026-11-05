@@ -43,7 +43,7 @@ export const callsLabel = (count: number): string => `${count} tool ${count === 
 
 export const callCount = (count: number): string => `${count} ${count === 1 ? "call" : "calls"}`;
 
-export interface ToolGroupSummary {
+interface ToolGroupSummary {
     /** The call still running, if one is. */
     current: ToolPart | undefined;
     /** While a call runs, what the agent said it is for. */

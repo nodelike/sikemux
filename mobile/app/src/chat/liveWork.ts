@@ -32,7 +32,7 @@ export function liveWork(chat: Pick<ChatRows, 'plan' | 'runningSubagents' | 'tas
 export type StripPiece = { key: string; task?: string; count: string; word: string };
 
 /** The one line docked on the composer: a count for each kind of work, and the running things it turns through. */
-export type LiveStripView = { pieces: StripPiece[]; lines: string[]; working: boolean };
+type LiveStripView = { pieces: StripPiece[]; lines: string[]; working: boolean };
 
 export function liveStrip(work: LiveWork): LiveStripView {
   const done = work.plan.filter((entry) => entry.status === 'completed').length;

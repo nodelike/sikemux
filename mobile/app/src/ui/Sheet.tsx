@@ -29,7 +29,7 @@ const OPEN_DRAG = 60;
 const OPEN_SPEED = 0.5;
 
 /** A sheet that rests `peek` tall and drags up to fill the screen; its content sets `full` back to false. */
-export type Expand = { full: boolean; peek: number; onFull: (full: boolean) => void };
+type Expand = { full: boolean; peek: number; onFull: (full: boolean) => void };
 
 /** How far the keyboard covers the screen; Android lifts a sheet above it by itself. */
 function useKeyboardHeight(): number {

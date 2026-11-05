@@ -20,7 +20,7 @@ const SETTLE_MS = 150;
 export type MentionMark = { agent: string | undefined; provider: string } | { icon: IconName };
 
 /** One thing the menu offers, and what taking it writes into the draft. */
-export type MentionRow = {
+type MentionRow = {
   key: string;
   title: string;
   /** The title is words, such as a chat's, rather than a handle to type. */

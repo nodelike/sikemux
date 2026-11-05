@@ -12,7 +12,7 @@ export const AWAY_MS = 60_000;
  * locked: waiting for Face ID, Touch ID or the passcode.
  * `opened` turns true the first time the app shows itself after it starts. `on` is the person's choice, off until they turn it on.
  */
-export type LockState = { phase: 'open' | 'covered' | 'locked'; asking: boolean; opened: boolean; on: boolean };
+type LockState = { phase: 'open' | 'covered' | 'locked'; asking: boolean; opened: boolean; on: boolean };
 
 const ITEM = 'sikemux.lock';
 const guarded = Platform.OS !== 'web';
