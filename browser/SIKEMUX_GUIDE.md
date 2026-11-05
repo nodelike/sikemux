@@ -320,7 +320,8 @@ Layout:
 - Links the person clicks open on your desk, not in the page.
 
 Theme. Sikemux sets these on `:root` and changes them live with the person's
-theme, so style with them rather than fixed colours:
+theme. Style with them when the page is your own answer, such as a chart, table,
+diagram or comparison:
 
 - `--background` (the chat's ground; the page itself is transparent over it),
   `--foreground`, `--muted-foreground`, `--faint-foreground`
@@ -333,6 +334,10 @@ theme, so style with them rather than fixed colours:
 
 The base styles set the page's colour and font from these, a 14px body and no
 body margin; your own CSS overrides them.
+
+A page showing the design of something else, such as a mockup of the app being
+built, follows that design and not Sikemux's: take its colours, fonts and radius
+from its own code, use them as fixed values, and paint its own background.
 
 ### Reactions and GIFs
 
