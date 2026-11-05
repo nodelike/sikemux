@@ -784,7 +784,7 @@ fn read_on(
     host: &str,
     key: &'static str,
     watch: &Watch,
-    current: &Arc<Mutex<HashMap<&'static str, u64>>>,
+    current: &WatchGenerations,
     updates: &mpsc::UnboundedSender<Update>,
 ) {
     let (linked, host, watch, current, updates) = (
@@ -796,13 +796,7 @@ fn read_on(
     );
     tokio::spawn(async move {
         let answer = call_on(&linked, &host, watch.method, watch.params).await;
-        if current.lock().expect("watch generations").get(key) != Some(&watch.generation) {
-            return;
-        }
-        let _ = updates.send(match answer {
-            Ok(value) => Update::Read(key, value),
-            Err(error) => Update::Refused(key, error),
-        });
+        send_read(key, watch.generation, answer, &current, &updates);
     });
 }
 
@@ -2146,19 +2140,34 @@ fn read(
         failed.clone(),
     );
     tokio::spawn(async move {
-        let value = match client.call(watch.method, watch.params).await {
-            Ok(value) => value,
-            Err(error) => {
-                failed.lock().expect("failed watches").insert(key);
-                return eprintln!("sikemux: the core refused {}: {error}", watch.method);
-            }
+        let answer = client.call(watch.method, watch.params).await;
+        let answer = answer.map_err(|error| error.to_string());
+        let mut failed = failed.lock().expect("failed watches");
+        match answer.is_ok() {
+            true => failed.remove(key),
+            false => failed.insert(key),
         };
-        failed.lock().expect("failed watches").remove(key);
-        if current.lock().expect("watch generations").get(key) == Some(&watch.generation) {
-            #[cfg(feature = "drive")]
-            crate::drive::trace(format_args!("link read {key}"));
-            let _ = updates.send(Update::Read(key, value));
-        }
+        drop(failed);
+        send_read(key, watch.generation, answer, &current, &updates);
+    });
+}
+
+/// Sends what `key`'s watch was answered, unless another watch has replaced it.
+fn send_read(
+    key: &'static str,
+    generation: u64,
+    answer: Result<Value, String>,
+    current: &WatchGenerations,
+    updates: &mpsc::UnboundedSender<Update>,
+) {
+    if current.lock().expect("watch generations").get(key) != Some(&generation) {
+        return;
+    }
+    #[cfg(feature = "drive")]
+    crate::drive::trace(format_args!("link read {key}"));
+    let _ = updates.send(match answer {
+        Ok(value) => Update::Read(key, value),
+        Err(error) => Update::Refused(key, error),
     });
 }
 
