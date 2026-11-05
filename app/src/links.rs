@@ -152,9 +152,10 @@ fn take_up(bench: &mut Workbench, resume: Resume, add: bool, cx: &mut Context<Wo
     let path = resume.project.to_string_lossy().into_owned();
     cx.spawn(async move |bench, cx| {
         if add {
-            if let Err(error) = core::request(&asks, "addProject", json!({ "path": path })).await {
-                let note = toast::error(format!("The folder did not open as a project: {error}"));
-                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+            let Ok(added) = bench.update(cx, |bench, cx| bench.add_project(&path, cx)) else {
+                return;
+            };
+            if added.await.is_none() {
                 return;
             }
         }

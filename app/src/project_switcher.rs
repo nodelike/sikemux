@@ -16,6 +16,7 @@ use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_2, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
+use crate::toast;
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::ui::path::tilde;
@@ -40,16 +41,16 @@ struct Choice {
     home: Option<String>,
 }
 
-/// The open switcher: its search, the row the keys are on, and the folders found on disk.
+/// The open switcher: its search and the row the keys are on.
 pub struct Switcher {
     bench: WeakEntity<Workbench>,
     on_pick: OnPick,
     cwd: String,
     query: Entity<InputState>,
     chosen: usize,
-    found: Vec<String>,
     close: Dismiss,
     _typing: Subscription,
+    _found: Subscription,
 }
 
 fn name(path: &str) -> String {
@@ -86,70 +87,44 @@ impl Switcher {
                 cx.notify();
             }
         });
-        let (asks, roots) = {
-            let bench = bench.read(cx);
-            (
-                bench.asks.clone(),
-                bench.preferences().project_roots.clone(),
-            )
-        };
-        if !roots.is_empty() {
-            cx.spawn(async move |switcher, cx| {
-                let Ok(found) =
-                    core::request(&asks, "projectRoots", json!({ "roots": roots })).await
-                else {
-                    return;
-                };
-                let found: Vec<String> = found
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|entry| entry["path"].as_str().map(str::to_owned))
-                    .collect();
-                let _ = switcher.update(cx, |switcher, cx| {
-                    switcher.found = found;
-                    cx.notify();
-                });
-            })
-            .detach();
-        }
+        bench.read(cx).read_project_folders();
+        let found = cx.observe(bench, |_, _, cx| cx.notify());
         Self {
             bench: bench.downgrade(),
             on_pick,
             cwd,
             query,
             chosen: 0,
-            found: Vec::new(),
             close,
             _typing: typing,
+            _found: found,
         }
     }
 
     /// The projects open here, then the folders found on disk, matched to the search.
     fn choices(&self, cx: &App) -> Vec<Choice> {
-        let open: Vec<Choice> = self
-            .bench
-            .upgrade()
-            .map(|bench| {
-                let bench = bench.read(cx);
-                let home = bench.home_at(&bench.place());
-                bench
-                    .projects()
-                    .iter()
-                    .map(|project| Choice {
-                        path: project.path.to_string_lossy().into_owned(),
-                        project: Some(project.id.clone()),
-                        home: home.clone(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let found: Vec<Choice> = self
-            .found
+        let Some(bench) = self.bench.upgrade() else {
+            return Vec::new();
+        };
+        let bench = bench.read(cx);
+        let home = bench.home_at(&bench.place());
+        let open: Vec<Choice> = bench
+            .projects()
             .iter()
-            .filter(|path| !open.iter().any(|choice| choice.path == **path))
+            .map(|project| Choice {
+                path: project.path.to_string_lossy().into_owned(),
+                project: Some(project.id.clone()),
+                home: home.clone(),
+            })
+            .collect();
+        let found: Vec<Choice> = bench
+            .reads
+            .picker_folders
+            .iter()
+            .map(|entry| entry.path.clone())
+            .filter(|path| !open.iter().any(|choice| choice.path == *path))
             .map(|path| Choice {
-                path: path.clone(),
+                path,
                 project: None,
                 home: crate::ui::path::this_home(),
             })
@@ -178,24 +153,20 @@ impl Switcher {
         let Some(bench) = self.bench.upgrade() else {
             return;
         };
-        let asks = bench.read(cx).asks.clone();
+        let added = match &choice.project {
+            Some(_) => None,
+            None => Some(bench.update(cx, |bench, cx| bench.add_project(&choice.path, cx))),
+        };
         let on_pick = self.on_pick.clone();
         cx.spawn(async move |_, cx| {
-            let project = match choice.project {
-                Some(project) => project,
-                None => {
-                    let added =
-                        core::request(&asks, "addProject", json!({ "path": choice.path })).await;
-                    match added
-                        .ok()
-                        .and_then(|project| project["id"].as_str().map(str::to_owned))
-                    {
-                        Some(project) => project,
-                        None => return,
-                    }
-                }
+            let project = match (choice.project, added) {
+                (Some(project), _) => Some(project),
+                (None, Some(added)) => added.await,
+                (None, None) => None,
             };
-            cx.update(|cx| on_pick(project, cx));
+            if let Some(project) = project {
+                cx.update(|cx| on_pick(project, cx));
+            }
         })
         .detach();
     }
@@ -339,11 +310,12 @@ pub fn around(
         let Some(asks) = bench.upgrade().map(|bench| bench.read(cx).asks.clone()) else {
             return;
         };
-        let agent = moved.clone();
-        cx.background_spawn(async move {
+        let (agent, bench) = (moved.clone(), bench.clone());
+        cx.spawn(async move |cx| {
             let moving = json!({ "agentId": agent, "project": project });
             if let Err(error) = core::request(&asks, "moveAgentToProject", moving).await {
-                eprintln!("sikemux: the chat stayed where it was: {error}");
+                let note = toast::error(format!("The chat stayed where it was: {error}"));
+                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
             }
         })
         .detach();

@@ -11,6 +11,7 @@ use crate::core::Ask;
 use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
 use crate::reads::Read;
+use crate::toast;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::{Strip, Workbench};
 
@@ -100,6 +101,34 @@ impl Workbench {
         Some((agent, held.cwd.as_path()))
     }
 
+    /// Asks again what lies under the project roots, for either project picker to offer.
+    pub(crate) fn read_project_folders(&self) {
+        let roots = &self.preferences().project_roots;
+        if !roots.is_empty() {
+            let _ = self.asks.send(Ask::Answer {
+                read: Read::PickerFolders,
+                params: json!({ "roots": roots }),
+            });
+        }
+    }
+
+    /// Makes the folder at `path` a project, answering its id, or tells the person why not.
+    pub(crate) fn add_project(
+        &self,
+        path: &str,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Task<Option<String>> {
+        let added = crate::core::request(&self.asks, "addProject", json!({ "path": path }));
+        cx.spawn(async move |bench, cx| match added.await {
+            Ok(project) => project["id"].as_str().map(str::to_owned),
+            Err(error) => {
+                let note = toast::error(format!("The folder did not open as a project: {error}"));
+                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+                None
+            }
+        })
+    }
+
     fn open_picker(
         &mut self,
         picking: Picking,
@@ -108,13 +137,7 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         if picking.projects() {
-            let roots = self.preferences().project_roots.clone();
-            if !roots.is_empty() {
-                let _ = self.asks.send(Ask::Answer {
-                    read: Read::PickerFolders,
-                    params: json!({ "roots": roots }),
-                });
-            }
+            self.read_project_folders();
         }
         if picking.hosts() {
             let _ = self.asks.send(Ask::Answer {
@@ -296,13 +319,10 @@ impl Workbench {
                 self.start_chat_in(project, window, cx);
             }
         } else if let Some(path) = key.strip_prefix(FOLDER) {
-            let added = crate::core::request(&self.asks, "addProject", json!({ "path": path }));
+            let added = self.add_project(path, cx);
             cx.spawn_in(window, async move |bench, cx| {
-                let project = match added.await {
-                    Ok(project) => project["id"].as_str().unwrap_or_default().to_owned(),
-                    Err(error) => {
-                        return eprintln!("sikemux: the core would not add the project: {error}")
-                    }
+                let Some(project) = added.await else {
+                    return;
                 };
                 let _ = bench.update_in(cx, |bench, window, cx| {
                     bench.activate_project(&project);
