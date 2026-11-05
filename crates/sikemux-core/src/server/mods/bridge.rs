@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sikemux_plugin_api::codehost as host_method;
 use sikemux_plugin_api::{AgentTool, Manifest};
 
 use super::super::connection::{blocking, ClientConn};
@@ -129,8 +130,8 @@ fn connector(manifests: &[&Manifest], name: &str) -> Option<Asked> {
     let tool = manifest.tools.iter().find(|tool| tool.method == method);
     let reads = match tool {
         Some(tool) => tool_reads(tool)?,
-        None if manifest.code_host.is_some() && codehost_reads(method) => true,
-        None if manifest.writes.iter().any(|write| write == method) => false,
+        None if manifest.code_host.is_some() && host_method::reads(method) => true,
+        None if manifest.code_host.is_some() && host_method::writes(method) => false,
         None => return None,
     };
     let reach = Reach::Plugin {
@@ -141,10 +142,6 @@ fn connector(manifests: &[&Manifest], name: &str) -> Option<Asked> {
         true => Asked::read(wanted, reach),
         false => Asked::write(name, reach),
     })
-}
-
-fn codehost_reads(method: &str) -> bool {
-    sikemux_plugin_api::codehost::reads(method)
 }
 
 #[derive(Deserialize)]

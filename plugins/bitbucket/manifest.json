@@ -2,7 +2,6 @@
   "id": "sikemux.bitbucket",
   "name": "Bitbucket",
   "callTimeoutSecs": 120,
-  "writes": ["addComment", "cancel", "createIssue", "createPull", "dispatch", "editPull", "mergePull", "rerun", "reviewPull", "setIssueState", "setPullState"],
   "accountMethods": ["setDefaultAccount", "signInWithBrowser", "signInWithToken", "signOut"],
   "tokenForm": {
     "method": "signInWithToken",

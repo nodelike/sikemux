@@ -68,6 +68,14 @@ macro_rules! code_host {
                 _ => false,
             }
         }
+
+        /// Whether the code host method `method` changes something on the host.
+        pub fn writes(method: &str) -> bool {
+            match method {
+                $($name => !code_host!(@read $($read)?),)*
+                _ => false,
+            }
+        }
     };
     (@read read) => { true };
     (@read) => { false };

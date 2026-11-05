@@ -246,6 +246,49 @@ for (const entry of await readdir(pluginsPath, { withFileTypes: true })) {
     tools: plugin.tools ?? [],
   });
 }
+
+// A manifest's methods are only reached by name, so a typo shows only when
+// someone fills in the form. Each must be a literal in the plugin's sources,
+// or a method of the code host trait for a code host.
+const codeHostMethods = [
+  ...(
+    await readFile(
+      resolve(root, "crates/sikemux-plugin-api/src/codehost/host.rs"),
+      "utf8",
+    )
+  ).matchAll(/^\s+[a-z_]+ "(\w+)"(?: read)? \(/gmu),
+].map(([, method]) => method);
+for (const entry of await readdir(pluginsPath, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  const where = `plugins/${entry.name}`;
+  const plugin = JSON.parse(
+    await readFile(resolve(pluginsPath, entry.name, "manifest.json"), "utf8"),
+  );
+  const sources = resolve(pluginsPath, entry.name, "src");
+  const files = await readdir(sources, { recursive: true });
+  let source = "";
+  for (const file of files.filter((name) => name.endsWith(".rs")))
+    source += await readFile(resolve(sources, file), "utf8");
+  const named = [
+    ...(plugin.tools ?? []).flatMap((tool) => [
+      tool.method,
+      tool.approve?.check,
+    ]),
+    ...(plugin.accountMethods ?? []),
+    plugin.tokenForm?.method,
+    plugin.tokenForm?.otherWay?.method,
+  ].filter(Boolean);
+  for (const method of named) {
+    const known =
+      source.includes(`"${method}"`) ||
+      (plugin.codeHost && codeHostMethods.includes(method));
+    if (!known)
+      throw new Error(
+        `${where}/manifest.json names ${method}, which its sources never answer`,
+      );
+  }
+}
+
 const unionOf = (source, type) =>
   new Set(
     [

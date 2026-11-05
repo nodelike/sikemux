@@ -214,12 +214,12 @@ pub(crate) fn manifest(core: &Core, plugin: &str) -> Option<&'static Manifest> {
         .find(|manifest| manifest.id == plugin)
 }
 
-/// `plugin` ran `method`; when its manifest names it as a write, what the core keeps of its
-/// code host is read again at once, and again once the service has settled.
+/// `plugin` ran `method`; when that is a code host's write, what the core keeps of the host
+/// is read again at once, and again once the service has settled.
 pub(crate) fn wrote(core: &Arc<Core>, plugin: &str, method: &str, params: &Value) {
-    if !manifest(core, plugin)
-        .is_some_and(|manifest| manifest.writes.iter().any(|write| write == method))
-    {
+    if !manifest(core, plugin).is_some_and(|manifest| {
+        manifest.code_host.is_some() && sikemux_plugin_api::codehost::writes(method)
+    }) {
         return;
     }
     super::codehost::wrote(core, plugin, params);

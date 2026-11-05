@@ -24,10 +24,6 @@ pub struct Manifest {
     /// the Dock starts without them, so the host copies them in from the login shell.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environment: Vec<String>,
-    /// The methods that change what the core keeps of a code host, so it reads
-    /// it again after one succeeds.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub writes: Vec<String>,
     /// The methods that sign the person in or out or pick another account, after
     /// which clients read the plugins again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
