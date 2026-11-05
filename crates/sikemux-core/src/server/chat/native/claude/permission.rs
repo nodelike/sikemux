@@ -142,7 +142,7 @@ pub(crate) fn request(
     if !locations.is_empty() {
         tool_call["locations"] = json!(locations);
     }
-    json!({ "sessionId": session, "toolCall": tool_call, "options": options })
+    crate::server::chat::permission::request(session, tool_call, &options)
 }
 
 /// Whether Claude Code itself asks, rather than the model: it waits for the
@@ -169,17 +169,17 @@ pub(crate) fn claude_code_question(session: &str, tool_id: &str, input: &Value) 
             Some(option(&format!("{CHOICE}{label}"), label, kind))
         })
         .collect();
-    json!({
-        "sessionId": session,
-        "toolCall": {
+    crate::server::chat::permission::request(
+        session,
+        json!({
             "toolCallId": tool_id,
             "title": asked["question"],
             "kind": "other",
             "status": "pending",
             "rawInput": input,
-        },
-        "options": options,
-    })
+        }),
+        &options,
+    )
 }
 
 /// Claude Code's answer for the option the person chose, or for no answer.

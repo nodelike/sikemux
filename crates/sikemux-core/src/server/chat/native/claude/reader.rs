@@ -578,14 +578,14 @@ impl Reader {
         let session = parent.unwrap_or_else(|| self.data.session_id.clone());
         if name == "AskUserQuestion" && permission::is_claude_code_question(&tool_id) {
             let asked = permission::claude_code_question(&session, &tool_id, &input);
-            let reply = json!({
-                "requestId": request_id,
-                "toolId": tool_id,
-                "input": input,
-                "request": request,
-            });
+            let reply = Asked {
+                request_id,
+                tool_id,
+                input,
+                request,
+            };
             self.sink
-                .ask_person(asked, reply.clone(), self.asking.responder(reply));
+                .ask_person(asked, reply, |reply| self.asking.responder(reply));
             return;
         }
         if name == "AskUserQuestion" {
@@ -618,14 +618,14 @@ impl Reader {
             &self.data.cwd,
             &mode,
         );
-        let reply = json!({
-            "requestId": request_id,
-            "toolId": tool_id,
-            "input": input,
-            "request": request,
-        });
+        let reply = Asked {
+            request_id,
+            tool_id,
+            input,
+            request,
+        };
         self.sink
-            .ask(asked, reply.clone(), self.asking.responder(reply));
+            .ask(asked, reply, |reply| self.asking.responder(reply));
     }
 
     /// What answers Claude's permission requests.
@@ -1592,6 +1592,16 @@ impl Reads for Reader {
 
 /// Claude's permission requests still waiting on the person, by Claude's
 /// own request id, and how the answer goes back.
+/// What answers one of Claude's permission requests.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Asked {
+    request_id: String,
+    tool_id: String,
+    input: Value,
+    request: Value,
+}
+
 #[derive(Clone)]
 pub(crate) struct Asking {
     control: Control,
@@ -1601,24 +1611,21 @@ pub(crate) struct Asking {
 impl Asking {
     /// Answers the request `reply` holds with the person's choice, unless
     /// Claude has taken the request back by then.
-    pub fn responder(&self, reply: Value) -> Respond {
-        let Some(id) = reply["requestId"].as_str().map(str::to_owned) else {
-            return Box::new(|_| {});
-        };
-        self.open.locked().insert(id.clone());
+    pub fn responder(&self, reply: Asked) -> Respond {
+        self.open.locked().insert(reply.request_id.clone());
         let asking = self.clone();
         Box::new(move |chosen| {
-            let still_open = asking.open.locked().remove(&id);
+            let still_open = asking.open.locked().remove(&reply.request_id);
             if !still_open {
                 return;
             }
             let answer = permission::answer(
-                reply["toolId"].as_str().unwrap_or_default(),
-                &reply["input"],
-                &reply["request"],
+                &reply.tool_id,
+                &reply.input,
+                &reply.request,
                 chosen.as_deref(),
             );
-            asking.control.respond(&id, answer);
+            asking.control.respond(&reply.request_id, answer);
         })
     }
 

@@ -481,6 +481,8 @@ impl Claude {
 }
 
 impl Backend for Claude {
+    type Reply = reader::Asked;
+
     const INSTRUCTIONS: bool = true;
 
     async fn start(
@@ -831,7 +833,7 @@ impl Backend for Claude {
         })
     }
 
-    fn responder(&self, reply: Value) -> Respond {
+    fn responder(&self, reply: reader::Asked) -> Respond {
         self.running.asking.responder(reply)
     }
 }

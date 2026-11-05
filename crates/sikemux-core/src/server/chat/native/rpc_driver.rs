@@ -136,6 +136,9 @@ pub(super) trait RpcSession {
 pub(super) trait RpcAgent:
     RpcSession + Default + Serialize + DeserializeOwned + Send + Sized + 'static
 {
+    /// What a question needs kept to answer the agent.
+    type Reply: Serialize + DeserializeOwned + Send + 'static;
+
     /// Words in the agent's refusal of a steer that mean the turn had already
     /// ended. It has no error code for that.
     const TURN_ENDED: &'static [&'static str];
@@ -154,7 +157,7 @@ pub(super) trait RpcAgent:
     fn purpose_answered(driver: &Driver<Self>, purpose: Purpose, result: Answered);
 
     /// Tells the agent what the person chose for the question `reply` holds.
-    fn decide(driver: &Driver<Self>, reply: &Value, chosen: Option<String>);
+    fn decide(driver: &Driver<Self>, reply: Self::Reply, chosen: Option<String>);
 }
 
 /// What the reader and the chat's loop share.
@@ -226,9 +229,9 @@ impl<S: RpcAgent> Driver<S> {
         self.apply(effects);
     }
 
-    pub fn responder(&self, reply: Value) -> Respond {
+    pub fn responder(&self, reply: S::Reply) -> Respond {
         let driver = self.clone();
-        Box::new(move |chosen| S::decide(&driver, &reply, chosen))
+        Box::new(move |chosen| S::decide(&driver, reply, chosen))
     }
 
     pub fn say(&self, text: &str) {

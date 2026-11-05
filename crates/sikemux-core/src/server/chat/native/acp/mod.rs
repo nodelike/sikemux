@@ -33,6 +33,12 @@ use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered, TurnEnd};
 
 /// The error code an agent turns a prompt down with when it needs a sign-in.
+/// What answers one of the agent's permission requests.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct Asked {
+    id: Value,
+}
+
 const AUTH_REQUIRED: i64 = -32000;
 
 /// An agent's error in words, its details included.
@@ -130,28 +136,26 @@ impl Driver {
     }
 
     fn ask(&self, id: Value, request: Value) {
-        let reply = json!({ "id": id });
-        self.sink.ask(request, reply.clone(), self.responder(reply));
+        self.sink
+            .ask(request, Asked { id }, |reply| self.responder(reply));
     }
 
-    fn responder(&self, reply: Value) -> Respond {
+    fn responder(&self, reply: Asked) -> Respond {
         let driver = self.clone();
-        Box::new(move |chosen| driver.answer_permission(&reply, chosen))
+        Box::new(move |chosen| driver.answer_permission(reply, chosen))
     }
 
     /// Tells the agent the option the person chose for the permission
     /// request `reply` names, or that they never chose.
-    fn answer_permission(&self, reply: &Value, chosen: Option<String>) {
+    fn answer_permission(&self, reply: Asked, chosen: Option<String>) {
         let outcome = match chosen {
             Some(option_id) => {
                 RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
             }
             None => RequestPermissionOutcome::Cancelled,
         };
-        self.rpc.respond(
-            reply["id"].clone(),
-            json!(RequestPermissionResponse::new(outcome)),
-        );
+        self.rpc
+            .respond(reply.id, json!(RequestPermissionResponse::new(outcome)));
     }
 
     /// The answer to a request sent with `purpose`.
@@ -425,6 +429,8 @@ impl Acp {
 }
 
 impl Backend for Acp {
+    type Reply = Asked;
+
     async fn start(
         launch: &ChatLaunch,
         _brief: Option<&str>,
@@ -649,7 +655,7 @@ impl Backend for Acp {
         })
     }
 
-    fn responder(&self, reply: Value) -> Respond {
+    fn responder(&self, reply: Asked) -> Respond {
         self.driver.responder(reply)
     }
 }

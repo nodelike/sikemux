@@ -8,6 +8,7 @@ use std::os::fd::OwnedFd;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -337,20 +338,32 @@ impl Sink {
     /// permission request: the session, the tool call and its `options`.
     /// `reply` is what the backend needs to answer the agent, kept with the
     /// question so a core that takes the chat over can answer it too.
-    /// `respond` is told the chosen option's id, or none when it was
-    /// cancelled.
-    pub fn ask(&self, request: Value, reply: Value, respond: Respond) {
+    /// `responder` makes from it what is told the chosen option's id, or none
+    /// when it was cancelled.
+    pub fn ask<R: Serialize>(
+        &self,
+        request: Value,
+        reply: R,
+        responder: impl FnOnce(R) -> Respond,
+    ) {
         if self.chat.approves() {
             if let Some(option_id) = permission::approval(&request) {
-                respond(Some(option_id));
+                responder(reply)(Some(option_id));
                 return;
             }
         }
-        self.ask_person(request, reply, respond);
+        self.ask_person(request, reply, responder);
     }
 
     /// Like `ask`, for what only the person may answer, even under YOLO.
-    pub fn ask_person(&self, mut request: Value, reply: Value, respond: Respond) {
+    pub fn ask_person<R: Serialize>(
+        &self,
+        mut request: Value,
+        reply: R,
+        responder: impl FnOnce(R) -> Respond,
+    ) {
+        let kept = serde_json::to_value(&reply).unwrap_or(Value::Null);
+        let respond = responder(reply);
         let option_ids = request
             .get("options")
             .and_then(Value::as_array)
@@ -364,7 +377,7 @@ impl Sink {
         }
         if self
             .chat
-            .hold_permission(request_id, option_ids, respond, request.clone(), reply)
+            .hold_permission(request_id, option_ids, respond, request.clone(), kept)
         {
             self.chat.emit(ChatEventKind::PermissionRequest, request);
         }
@@ -439,6 +452,9 @@ fn brief_context(brief: String) -> ChatContext {
 
 /// One agent the core speaks to in its own protocol.
 pub(crate) trait Backend: Sized + Send {
+    /// What it needs kept with a question to answer the agent.
+    type Reply: DeserializeOwned;
+
     /// The agent takes instructions of the core's own as it starts, so a
     /// chat's brief goes there rather than with its first message.
     const INSTRUCTIONS: bool = false;
@@ -540,7 +556,7 @@ pub(crate) trait Backend: Sized + Send {
 
     /// What answers the agent with the person's choice for a question whose
     /// backend data is `reply`.
-    fn responder(&self, reply: Value) -> Respond;
+    fn responder(&self, reply: Self::Reply) -> Respond;
 }
 
 /// Where the chat's loop stands, as plain data, for a core that takes the
@@ -689,8 +705,12 @@ pub(crate) async fn run<B: Backend>(
                 Ok(backend) => {
                     chat.note_agent(backend.pid());
                     for asked in asked {
-                        let respond = backend.responder(asked.reply.clone());
-                        chat.hold_again(asked, respond);
+                        match serde_json::from_value(asked.reply.clone()) {
+                            Ok(reply) => chat.hold_again(asked, backend.responder(reply)),
+                            Err(error) => eprintln!(
+                                "sikemux core: a question handed over could not be read: {error}"
+                            ),
+                        }
                     }
                     chat.mark_ready(session.start());
                     chat.finish_held();

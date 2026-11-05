@@ -114,14 +114,25 @@ impl Driver {
         if !self.session.locked().ask(question.key()) {
             return;
         }
-        let wire_session = params["sessionId"].as_str().unwrap_or_default().to_owned();
-        let reply = json!({ "session": wire_session, "question": question });
-        self.sink
-            .ask(question.request, reply.clone(), self.responder(reply));
+        let reply = Asked {
+            session: params["sessionId"].as_str().unwrap_or_default().to_owned(),
+            question,
+        };
+        let request = reply.question.request.clone();
+        self.sink.ask(request, reply, |reply| self.responder(reply));
     }
 }
 
+/// What answers one of Muse's approvals.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct Asked {
+    session: String,
+    question: Question,
+}
+
 impl RpcAgent for Session {
+    type Reply = Asked;
+
     const TURN_ENDED: &'static [&'static str] = &["expected", "not running", "no running", "idle"];
 
     fn addressed(id: &str) -> Value {
@@ -205,12 +216,9 @@ impl RpcAgent for Session {
         }
     }
 
-    fn decide(driver: &Driver, reply: &Value, chosen: Option<String>) {
-        let Ok(question) = serde_json::from_value::<Question>(reply["question"].clone()) else {
-            return;
-        };
-        let session = reply["session"].as_str().unwrap_or_default();
-        let Some(decision) = question.decision(session, command_id(), chosen.as_deref()) else {
+    fn decide(driver: &Driver, reply: Asked, chosen: Option<String>) {
+        let Asked { session, question } = reply;
+        let Some(decision) = question.decision(&session, command_id(), chosen.as_deref()) else {
             return;
         };
         let sent = driver.rpc.start("approval/decide", decision);
@@ -621,6 +629,8 @@ async fn page_history(rpc: &Rpc, session_id: &str) -> Vec<Value> {
 }
 
 impl Backend for Muse {
+    type Reply = Asked;
+
     async fn start(
         launch: &ChatLaunch,
         _brief: Option<&str>,
@@ -897,7 +907,7 @@ impl Backend for Muse {
         })
     }
 
-    fn responder(&self, reply: Value) -> Respond {
+    fn responder(&self, reply: Asked) -> Respond {
         self.host.driver.responder(reply)
     }
 }

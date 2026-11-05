@@ -1,4 +1,4 @@
-//! Muse asking before it acts, as the ACP permission requests the chat shows,
+//! Muse asking before it acts, as the permission requests the chat shows,
 //! and the person's choice back as the decision Muse takes.
 
 use serde_json::{json, Value};
@@ -6,12 +6,12 @@ use serde_json::{json, Value};
 use sikemux_view::chat::PermissionKind;
 
 use super::super::json::{text, text_or_empty};
-use crate::server::chat::permission::{allow_first, for_session, option};
+use crate::server::chat::permission::{allow_first, for_session, option, request};
 
 /// One stage of an approval the person is asked about, and how to tell Muse
 /// what they chose.
 #[derive(serde::Serialize, serde::Deserialize)]
-pub(super) struct Question {
+pub(crate) struct Question {
     pub request: Value,
     approval_id: String,
     requirement: Value,
@@ -142,24 +142,8 @@ pub(super) fn question(session: &str, params: &Value) -> Option<Question> {
     if let Some(path) = text(subject, "path") {
         tool_call["locations"] = json!([{ "path": path }]);
     }
-    let mut permission = json!({ "version": 1, "title": title(params) });
-    let reasons: Vec<&str> = [
-        (params["judgeEscalated"] == true).then_some("Muse's reviewer wants you to decide"),
-        (params["protectedWrite"] == true).then_some("This writes to a protected path"),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    if !reasons.is_empty() {
-        permission["description"] = json!(reasons.join(". "));
-    }
     Some(Question {
-        request: json!({
-            "sessionId": session,
-            "toolCall": tool_call,
-            "options": options,
-            "_meta": { "permission": permission },
-        }),
+        request: request(session, tool_call, &options),
         approval_id,
         requirement,
         choices,

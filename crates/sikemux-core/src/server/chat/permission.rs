@@ -7,6 +7,12 @@ use sikemux_view::chat::PermissionKind;
 
 use sikemux_wire::protocol::PermissionChoices;
 
+/// A permission request as the chat reads it: the session, the tool call and
+/// what can be answered.
+pub fn request(session: &str, tool_call: Value, options: &[Value]) -> Value {
+    json!({ "sessionId": session, "toolCall": tool_call, "options": options })
+}
+
 /// One answer a permission request offers.
 pub fn option(id: &str, name: &str, kind: PermissionKind) -> Value {
     json!({ "optionId": id, "name": name, "kind": kind })

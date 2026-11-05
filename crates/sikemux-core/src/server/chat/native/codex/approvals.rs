@@ -1,5 +1,5 @@
-//! Codex asking before it acts, as the ACP permission requests its adapter
-//! sends, and the person's choice back as the answer Codex expects.
+//! Codex asking before it acts, as permission requests the chat reads, and the
+//! person's choice back as the answer Codex expects.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -7,31 +7,8 @@ use serde_json::{json, Value};
 use sikemux_view::chat::PermissionKind;
 
 use super::items::strip_shell;
-use crate::server::chat::permission::{allow_first, for_session, kind_of, option};
+use crate::server::chat::permission::{allow_first, for_session, kind_of, option, request};
 use sikemux_fold::update::text_content;
-
-fn request(
-    session_id: &str,
-    tool_call: Value,
-    options: &[Value],
-    title: &str,
-    reason: &Value,
-) -> Value {
-    let mut permission = json!({ "version": 1, "title": title });
-    if let Some(reason) = reason
-        .as_str()
-        .map(str::trim)
-        .filter(|reason| !reason.is_empty())
-    {
-        permission["description"] = json!(reason);
-    }
-    json!({
-        "sessionId": session_id,
-        "toolCall": tool_call,
-        "options": options,
-        "_meta": { "permission": permission },
-    })
-}
 
 fn unique(paths: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut seen = Vec::new();
@@ -54,7 +31,7 @@ fn with_locations(tool_call: &mut Value, paths: Vec<String>) {
 
 /// A question for the person, and how to tell Codex what they chose.
 #[derive(Serialize, Deserialize)]
-pub(super) struct Question {
+pub(crate) struct Question {
     pub request: Value,
     answer: Answer,
     /// The tool call to mark running again once the person allows it.
@@ -453,13 +430,8 @@ pub(super) fn command(session_id: &str, params: &Value) -> Option<Question> {
     if !content.is_empty() {
         tool_call["content"] = json!(content);
     }
-    let title = if network.is_null() {
-        "Run command?"
-    } else {
-        "Allow network access?"
-    };
     Some(Question {
-        request: request(session_id, tool_call, &options, title, &params["reason"]),
+        request: request(session_id, tool_call, &options),
         answer: Answer::Decisions(answers, json!("cancel")),
         resumes: None,
     })
@@ -494,13 +466,7 @@ pub(super) fn file_change(session_id: &str, params: &Value, item: Option<&Value>
         .filter_map(|change| change["path"].as_str().map(str::to_owned));
     with_locations(&mut tool_call, unique(paths));
     Question {
-        request: request(
-            session_id,
-            tool_call,
-            &options,
-            "Make edits?",
-            &params["reason"],
-        ),
+        request: request(session_id, tool_call, &options),
         answer: Answer::Decisions(
             vec![
                 ("allow_once".into(), json!("accept")),
@@ -555,13 +521,7 @@ pub(super) fn permissions(session_id: &str, params: &Value) -> Question {
         tool_call["content"] = json!(content);
     }
     Question {
-        request: request(
-            session_id,
-            tool_call,
-            &options,
-            "Grant permissions?",
-            &params["reason"],
-        ),
+        request: request(session_id, tool_call, &options),
         answer: Answer::Permissions(permissions.clone()),
         resumes: None,
     }
@@ -611,70 +571,30 @@ pub(super) fn elicitation(
                 .is_some_and(|scopes| scopes.iter().any(|item| item == scope))
     };
     let (session, always) = (persists("session"), persists("always"));
-    let described = |id: &str, name: &str, kind: PermissionKind, description: &str| {
-        let mut option = option(id, name, kind);
-        option["_meta"] = json!({ "permission": { "version": 1, "description": description } });
-        option
-    };
     let mut options = vec![if tool {
-        described(
-            "allow_once",
-            "Allow",
-            PermissionKind::AllowOnce,
-            "Run the tool and continue.",
-        )
+        option("allow_once", "Allow", PermissionKind::AllowOnce)
     } else {
-        described(
-            "accept",
-            "Allow",
-            PermissionKind::AllowOnce,
-            "Allow this request and continue.",
-        )
+        option("accept", "Allow", PermissionKind::AllowOnce)
     }];
     if session {
-        options.push(for_session(described(
+        options.push(for_session(option(
             "allow_session",
             "Allow for this session",
             PermissionKind::AllowAlways,
-            if tool {
-                "Run the tool and remember this choice for this session."
-            } else {
-                "Allow this request and remember this choice for this session."
-            },
         )));
     }
     if always {
-        options.push(described(
+        options.push(option(
             "allow_always",
             "Always allow",
             PermissionKind::AllowAlways,
-            if tool {
-                "Run the tool and remember this choice for future tool calls."
-            } else {
-                "Allow this request and remember this choice for future requests."
-            },
         ));
     }
     if tool {
-        options.push(described(
-            "cancel",
-            "Cancel",
-            PermissionKind::RejectOnce,
-            "Cancel this tool call",
-        ));
+        options.push(option("cancel", "Cancel", PermissionKind::RejectOnce));
     } else {
-        options.push(described(
-            "decline",
-            "Deny",
-            PermissionKind::RejectOnce,
-            "Decline this request and continue.",
-        ));
-        options.push(described(
-            "cancel",
-            "Cancel",
-            PermissionKind::RejectOnce,
-            "Cancel this request",
-        ));
+        options.push(option("decline", "Deny", PermissionKind::RejectOnce));
+        options.push(option("cancel", "Cancel", PermissionKind::RejectOnce));
     }
     let message = text_content(params["message"].as_str().unwrap_or_default());
     let mut request = json!({ "sessionId": session_id, "options": options });
@@ -689,7 +609,6 @@ pub(super) fn elicitation(
         });
     } else if let Some(call) = correlated {
         request["toolCall"] = json!({ "toolCallId": call, "kind": "execute", "status": "pending" });
-        request["_meta"] = json!({ "is_mcp_tool_approval": true });
         resumes = Some(call);
     } else {
         request["toolCall"] = json!({
@@ -699,9 +618,6 @@ pub(super) fn elicitation(
             "content": [message],
             "rawInput": { "serverName": params["serverName"], "schema": params["requestedSchema"] },
         });
-        if tool {
-            request["_meta"] = json!({ "is_mcp_tool_approval": true });
-        }
     }
     Some(Question {
         request,
@@ -728,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn a_command_offers_the_adapters_choices_in_order() {
+    fn a_command_offers_its_choices_in_order() {
         let params = json!({
             "threadId": "t", "turnId": "u", "itemId": "exec-1", "reason": "needs network",
             "command": "/bin/zsh -lc 'git push'", "cwd": "/w",
@@ -759,10 +675,6 @@ mod tests {
         assert_eq!(
             request["options"][2]["name"],
             "Yes, and don't ask again for commands that start with `git push`"
-        );
-        assert_eq!(
-            request["_meta"],
-            json!({ "permission": { "version": 1, "title": "Run command?", "description": "needs network" } })
         );
         assert_eq!(
             question.answer(Some("allow_once")),
@@ -814,10 +726,6 @@ mod tests {
             "Yes, just this once"
         );
         assert_eq!(
-            question.request["_meta"]["permission"]["title"],
-            "Allow network access?"
-        );
-        assert_eq!(
             question.answer(Some("apply_network_policy_amendment:0")),
             json!({ "decision": { "applyNetworkPolicyAmendment": {
                 "network_policy_amendment": { "host": "example.com", "action": "deny" },
@@ -851,10 +759,6 @@ mod tests {
         assert_eq!(
             question.request["toolCall"]["locations"],
             json!([{ "path": "/w/a" }, { "path": "/w/b" }])
-        );
-        assert_eq!(
-            question.request["_meta"]["permission"]["title"],
-            "Make edits?"
         );
         assert_eq!(
             question.answer(Some("allow_for_session")),

@@ -39,6 +39,8 @@ use state::{user_input_told, Reply, Session};
 type Driver = rpc_driver::Driver<Session>;
 
 impl RpcAgent for Session {
+    type Reply = Asked;
+
     const TURN_ENDED: &'static [&'static str] = &["no active turn", "expected active turn"];
 
     fn addressed(id: &str) -> Value {
@@ -70,23 +72,19 @@ impl RpcAgent for Session {
                 .rpc
                 .refuse(id, &format!("Sikemux does not handle {method}")),
             Reply::Ask(question) => {
-                let reply = json!({ "id": id, "question": question });
+                let reply = Asked { id, question };
+                let request = reply.question.request.clone();
                 driver
                     .sink
-                    .ask(question.request, reply.clone(), driver.responder(reply));
+                    .ask(request, reply, |reply| driver.responder(reply));
             }
         }
     }
 
     fn purpose_answered(_: &Driver, _: Purpose, _: Answered) {}
 
-    fn decide(driver: &Driver, reply: &Value, chosen: Option<String>) {
-        let Ok(question) = serde_json::from_value::<Question>(reply["question"].clone()) else {
-            driver
-                .rpc
-                .refuse(reply["id"].clone(), "The question could not be read");
-            return;
-        };
+    fn decide(driver: &Driver, reply: Asked, chosen: Option<String>) {
+        let Asked { id, question } = reply;
         if let Some(call) = question
             .resumes
             .as_ref()
@@ -98,10 +96,15 @@ impl RpcAgent for Session {
                 json!({ "sessionUpdate": UpdateKind::ToolCallUpdate, "toolCallId": call, "status": "in_progress" }),
             );
         }
-        driver
-            .rpc
-            .respond(reply["id"].clone(), question.answer(chosen.as_deref()));
+        driver.rpc.respond(id, question.answer(chosen.as_deref()));
     }
+}
+
+/// What answers one of Codex's questions.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct Asked {
+    id: Value,
+    question: Question,
 }
 
 /// What a Codex chat knows of its session, as it hands it to a core that
@@ -448,6 +451,8 @@ impl Codex {
 }
 
 impl Backend for Codex {
+    type Reply = Asked;
+
     const INSTRUCTIONS: bool = true;
 
     async fn start(
@@ -749,7 +754,7 @@ impl Backend for Codex {
         })
     }
 
-    fn responder(&self, reply: Value) -> Respond {
+    fn responder(&self, reply: Asked) -> Respond {
         self.driver.responder(reply)
     }
 }
