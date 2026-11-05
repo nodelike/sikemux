@@ -6,21 +6,28 @@ use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
+use cards::*;
+use changes::Changed;
+use composing::*;
 use gpui_kit::base::{Button as BaseButton, Scrollbar};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, px, relative, AnyElement, App, AppContext, Context, Div, Entity, FontWeight,
-    HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement, Radians,
-    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, StyledText, Subscription,
-    Transformation, WeakEntity, Window,
+    actions, div, px, relative, AnyElement, App, AppContext, Context, Div, Entity, Focusable,
+    FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement,
+    Radians, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, StyledText,
+    Subscription, Transformation, WeakEntity, Window,
 };
 use gpui_transcript::{
     AwayChanged, Change, CodeColours, EmptyChanged, FoundChanged, Markdown, Pen, Row, RowsChanged,
     Style, Transcript,
 };
+use looks::*;
+use questions::*;
+use rows::*;
 use serde_json::{json, Value};
 use sikemux_view::catalog::Driver;
 use sikemux_view::chat::{
@@ -28,34 +35,28 @@ use sikemux_view::chat::{
     FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk,
     SubagentCard, SubagentState, ToolDetail, WorkFold,
 };
+use sikemux_view::layout::PaneKind;
 use sikemux_view::prefs::{DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
 use sikemux_view::questions::{AgentQuestion, QuestionState};
 use sikemux_wire::protocol::{
     AgentStatus, ChatAttachment, ChatContext, ChatMark, ConfigPicker, PermissionMode,
     WorkspaceAgent,
 };
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::agents::rows::AgentRow;
 use crate::agents::setup::Installing;
 use crate::chat::composer::{Act, Composer, Notice, Strip};
 use crate::core::{Ask, ChatAsk, ChatNews, Target};
 use crate::icons::Icon;
-use crate::motion;
 use crate::picture::Picture;
-use crate::syntax;
-use crate::theme::{self, Tokens};
+use crate::theme::Tokens;
 use crate::ui::shimmer::shimmer;
-use crate::ui::{self, Button, IconButton, Variant};
+use crate::ui::{Button, IconButton, Variant};
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
-use crate::workbench::Workbench;
+use crate::workbench::{shows, Workbench};
 use crate::worktree_switch::Switch;
-use cards::*;
-use changes::Changed;
-use composing::*;
-use looks::*;
-use questions::*;
-use rows::*;
-use tokio::sync::mpsc::UnboundedSender;
+use crate::{motion, syntax, theme, ui};
 
 mod attach;
 mod cards;
@@ -127,6 +128,10 @@ struct Doc {
     markdown: Markdown,
     units: usize,
 }
+
+/// How long a chat stays attached once its tab leaves the front, so flicking between tabs
+/// keeps them live while a long-hidden one stops streaming every change to the app.
+const CHAT_RESTS_AFTER: Duration = Duration::from_secs(60);
 
 impl Doc {
     fn new(part: &str, text: &str, md: Option<&PartTree>) -> Doc {
@@ -1738,5 +1743,171 @@ impl Workbench {
             _dismissed: dismissed,
         });
         self.parts.redraw_stage(cx);
+    }
+}
+
+impl Workbench {
+    pub fn ask_chat(&self, ask: ChatAsk) {
+        self.chat_target(ask.agent()).ask(Ask::Chat(ask));
+    }
+
+    /// Where `agent`'s chat asks: the core of the host the agent runs on.
+    pub fn chat_target(&self, agent: &str) -> Target {
+        self.chats.open.get(agent).map_or_else(
+            || Target::new(&self.asks, self.place()),
+            |chat| chat.target.clone(),
+        )
+    }
+
+    /// Holds the chat of the agent the tab in front shows, attaching to it the first time.
+    pub(crate) fn open_chat(&mut self, cx: &mut Context<Self>) {
+        let Some(AgentRow {
+            id: agent,
+            provider,
+            ..
+        }) = self.agent()
+        else {
+            return;
+        };
+        if let Some(chat) = self.chats.open.get_mut(&agent) {
+            if std::mem::take(&mut chat.resting) {
+                let since = chat.mark.clone();
+                self.ask_chat(ChatAsk::Attach { agent, since });
+            }
+            return;
+        }
+        let mut chat = Chat::new(
+            agent.clone(),
+            &provider,
+            cx.weak_entity(),
+            Target::new(&self.asks, self.place()),
+            cx,
+        );
+        chat.rescale(self.preferences().chat_text_scale as f32, cx);
+        self.chats.open.insert(agent.clone(), chat);
+        self.ask_chat(ChatAsk::Attach { agent, since: None });
+    }
+
+    /// Lets go of the chats out of sight once they have stayed so for `CHAT_RESTS_AFTER`.
+    pub(crate) fn rest_chats_later(&mut self, cx: &mut Context<Self>) {
+        let front = self.agent().map(|agent| agent.id);
+        let anyone = self
+            .chats
+            .open
+            .iter()
+            .any(|(agent, chat)| !chat.resting && Some(agent) != front.as_ref());
+        if !anyone {
+            self.chats.resting = None;
+            return;
+        }
+        if self
+            .chats
+            .resting
+            .as_ref()
+            .is_some_and(|(counted_from, _)| *counted_from == front)
+        {
+            return;
+        }
+        let task = cx.spawn(async move |bench, cx| {
+            cx.background_executor().timer(CHAT_RESTS_AFTER).await;
+            let _ = bench.update(cx, |bench, cx| {
+                bench.rest_chats();
+                bench.rest_chats_later(cx);
+            });
+        });
+        self.chats.resting = Some((front, task));
+    }
+
+    pub(crate) fn rest_chats(&mut self) {
+        self.chats.resting = None;
+        let front = self.agent().map(|agent| agent.id);
+        let resting: Vec<String> = self
+            .chats
+            .open
+            .iter_mut()
+            .filter(|(agent, chat)| {
+                Some(*agent) != front.as_ref() && !chat.resting && chat.can_rest()
+            })
+            .map(|(agent, chat)| {
+                chat.resting = true;
+                agent.clone()
+            })
+            .collect();
+        for agent in resting {
+            self.ask_chat(ChatAsk::Detach { agent });
+        }
+    }
+
+    /// Lets go of the chats whose agents no longer have a tab. A draft let go of gives the
+    /// keyboard back to the workbench, and the chat takes it again if it comes back.
+    pub(crate) fn close_chats(&mut self, cx: &mut Context<Self>) {
+        let Some(view) = self.shown() else {
+            return;
+        };
+        let tabs = view
+            .layout
+            .projects
+            .values()
+            .flat_map(|layout| &layout.tabs);
+        let shown: Vec<&String> = tabs.filter_map(|tab| shows(tab, PaneKind::Agent)).collect();
+        let gone: Vec<String> = self
+            .chats
+            .open
+            .keys()
+            .filter(|agent| !shown.contains(agent))
+            .cloned()
+            .collect();
+        let closed = !gone.is_empty();
+        for agent in gone {
+            if let Some(composing) = self
+                .chats
+                .open
+                .remove(&agent)
+                .and_then(|chat| chat.composer)
+            {
+                self.release_keys(composing.draft.read(cx).focus_handle(cx), cx);
+            }
+            self.chats.focused.take_if(|(shown, _)| *shown == agent);
+            self.ask_chat(ChatAsk::Detach { agent });
+        }
+        if closed {
+            self.watch_drafts();
+        }
+    }
+
+    /// Asks for the rows after the last the chat holds, when those were dropped.
+    pub fn ask_later(&mut self, agent: &str) {
+        if let Some(ask) = self
+            .chats
+            .open
+            .get_mut(agent)
+            .and_then(|chat| chat.later(agent))
+        {
+            self.ask_chat(ask);
+        }
+    }
+
+    /// Brings `agent`'s chat to its latest rows.
+    pub fn show_latest(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if let Some(ask) = self
+            .chats
+            .open
+            .get_mut(agent)
+            .and_then(|chat| chat.show_latest(agent, cx))
+        {
+            self.ask_chat(ask);
+        }
+    }
+
+    /// Asks for the turns before the earliest the chat holds.
+    pub fn ask_earlier(&mut self, agent: &str) {
+        if let Some(ask) = self
+            .chats
+            .open
+            .get_mut(agent)
+            .and_then(|chat| chat.earlier(agent))
+        {
+            self.ask_chat(ask);
+        }
     }
 }
