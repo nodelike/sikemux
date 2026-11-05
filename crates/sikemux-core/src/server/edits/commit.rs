@@ -13,6 +13,7 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::committer;
 use super::footer::{agent, attributed, known};
 use super::named;
 use super::owners::{git, run, traced, Diff, FileOwners, Hunk, Owners};
@@ -304,8 +305,11 @@ pub(crate) fn commit(
             if !attributed {
                 return message.to_owned();
             }
-            let footer =
-                crate::trailers::footer(Vec::from_iter(signer).as_slice(), commit, key.as_ref());
+            let footer = crate::trailers::footer(
+                Vec::from_iter(signer.clone()).as_slice(),
+                commit,
+                key.as_ref(),
+            );
             crate::trailers::append(message, &footer)
         };
         let (commit, message, blobs) = build(&diff, &changes, signed)?;
@@ -323,6 +327,9 @@ pub(crate) fn commit(
         );
         match moved {
             Ok(_) => {
+                if let Some(signer) = signer.as_ref().filter(|_| !attributed) {
+                    committer::record(core, &diff.top, &commit, signer);
+                }
                 let note = share(&diff.top, &changes, &blobs).err();
                 let paths: Vec<String> = changes.iter().map(|change| change.path.clone()).collect();
                 let (project, on_branch) = core.workspaces.project_checkout(&diff.top);

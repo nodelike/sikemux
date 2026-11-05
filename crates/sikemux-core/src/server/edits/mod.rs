@@ -6,6 +6,7 @@
 //! held goes beside it, in the project's folder, until they are committed.
 
 pub(crate) mod commit;
+mod committer;
 pub(crate) mod footer;
 pub(crate) mod generate;
 pub(crate) mod guard;

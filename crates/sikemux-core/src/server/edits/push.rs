@@ -8,8 +8,10 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+use super::committer;
 use super::footer::verified;
 use super::note;
 use super::owners::{git, run};
@@ -65,13 +67,24 @@ pub(super) fn push(
 ) -> Result<Pushed, String> {
     let session = core.names.last_session(agent_id);
     let whose = |commit: &str| {
-        let agents = verified(core, dir, commit)?;
-        let mine = agents.iter().any(|agent| {
-            agent.chat == agent_id
+        let is_me = |chat: &str, of: Option<&str>| {
+            chat == agent_id
                 || session
                     .as_deref()
-                    .is_some_and(|session| agent.session.as_deref() == Some(session))
-        });
+                    .is_some_and(|session| of == Some(session))
+        };
+        let agents = verified(core, dir, commit)?;
+        if agents.is_empty() {
+            if let Some(made_by) = committer::of(core, dir, commit) {
+                return Ok((
+                    is_me(&made_by.chat, made_by.session.as_deref()),
+                    made_by.name,
+                ));
+            }
+        }
+        let mine = agents
+            .iter()
+            .any(|agent| is_me(&agent.chat, agent.session.as_deref()));
         let names: Vec<&str> = agents.iter().map(|agent| agent.name.as_str()).collect();
         Ok((mine, names.join(", ")))
     };
@@ -369,15 +382,36 @@ pub(super) fn replay(
             ));
         }
         let made = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        carry_note(top, id, &was, &made, &made_of, key.as_ref(), hosts);
+        carry_note::<note::Note>(
+            top,
+            NOTES_REF,
+            id,
+            &was,
+            &made,
+            &made_of,
+            key.as_ref(),
+            hosts,
+        );
+        carry_note::<committer::Committer>(
+            top,
+            committer::NOTES_REF,
+            id,
+            &was,
+            &made,
+            &made_of,
+            key.as_ref(),
+            hosts,
+        );
         onto = made;
     }
     Ok(onto)
 }
 
-/// Puts `from`'s note saying whose lines it holds on `to`, signed for it.
-fn carry_note(
+/// Puts `from`'s note under `notes` on `to`, signed for it.
+#[allow(clippy::too_many_arguments)]
+fn carry_note<Holds: DeserializeOwned>(
     top: &Path,
+    notes: &str,
     from: &str,
     was: &Commit,
     to: &str,
@@ -386,27 +420,20 @@ fn carry_note(
     hosts: &[iroh::PublicKey],
 ) {
     let Some(key) = key else { return };
-    let Ok(blob) = git(top, &["notes", &format!("--ref={NOTES_REF}"), "show", from]) else {
+    let notes = format!("--ref={notes}");
+    let Ok(blob) = git(top, &["notes", &notes, "show", from]) else {
         return;
     };
     let Some(text) = trailers::verify_note(&blob, was, hosts) else {
         return;
     };
-    if serde_json::from_str::<note::Note>(text).is_err() {
+    if serde_json::from_str::<Holds>(text).is_err() {
         return;
     }
     let signed = trailers::signed_note(text, made_of, key);
     let _ = run(
         top,
-        &[
-            "notes",
-            &format!("--ref={NOTES_REF}"),
-            "add",
-            "-f",
-            "-F",
-            "-",
-            to,
-        ],
+        &["notes", &notes, "add", "-f", "-F", "-", to],
         None,
         Some(signed.as_bytes()),
     );
