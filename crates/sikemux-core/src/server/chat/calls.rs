@@ -77,7 +77,8 @@ pub(crate) async fn steer_chat(
     mut context: Vec<ChatContext>,
 ) -> CoreResult<String> {
     super::wake_for_message(core, agent_id, &mut context).await?;
-    super::steer(core, agent_id, text, paths, context).await
+    let steered = super::steer(core, agent_id, text, paths, context).await?;
+    Ok(steered.word().to_owned())
 }
 
 #[derive(Deserialize)]
