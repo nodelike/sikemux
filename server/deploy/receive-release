@@ -78,27 +78,17 @@ publish_update() {
   exit 0
 }
 
-promote_update() {
-  local id="$1"
+# Runs one update command under the deploy lock: what it is doing, what is true after, and the command.
+update_command() {
+  local doing="$1" done="$2"
+  shift 2
 
   exec 9>"$ROOT/deploy.lock"
   flock 9
 
-  say "promoting $id to stable"
-  api promote-update "$id" || fail "promoting $id was refused"
-  say "$id is on stable"
-  exit 0
-}
-
-withdraw_update() {
-  local id="$1"
-
-  exec 9>"$ROOT/deploy.lock"
-  flock 9
-
-  say "withdrawing $id"
-  api withdraw-update "$id" || fail "withdrawing $id was refused"
-  say "$id is withdrawn"
+  say "$doing"
+  api "$@" || fail "$doing was refused"
+  say "$done"
   exit 0
 }
 
@@ -128,11 +118,11 @@ case "${words[0]:-}" in
     ;;
   promote-update)
     [ "${#words[@]}" -eq 2 ] || usage
-    promote_update "${words[1]}"
+    update_command "promoting ${words[1]} to stable" "${words[1]} is on stable" promote-update "${words[1]}"
     ;;
   withdraw-update)
     [ "${#words[@]}" -eq 2 ] || usage
-    withdraw_update "${words[1]}"
+    update_command "withdrawing ${words[1]}" "${words[1]} is withdrawn" withdraw-update "${words[1]}"
     ;;
   roll-back-update)
     [ "${#words[@]}" -eq 2 ] || usage

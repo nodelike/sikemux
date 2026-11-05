@@ -23,7 +23,7 @@ api.sikemux.com {
 		path /v1/stash
 	}
 	request_body @small_body {
-		max_size 1MB
+		max_size 1MiB
 	}
 	# Only the relay, on this machine, asks the API at /internal.
 	@internal path /internal/*

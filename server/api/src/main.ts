@@ -6,7 +6,7 @@ import type { Level } from "pino";
 
 import { purgeAccounts, pruneHistory } from "./account/purge.ts";
 import { loadConfig, loadMigrationConfig, loadPurgeConfig } from "./config.ts";
-import { openDatabase } from "./db.ts";
+import { openDatabase, type Database } from "./db.ts";
 import { createLogger } from "./log.ts";
 import { migrate, readMigrations } from "./migrations.ts";
 import { startServer } from "./server.ts";
@@ -21,12 +21,6 @@ import {
   withdrawUpdate,
 } from "./updates/publish.ts";
 
-const UPDATE_COMMANDS = [
-  "publish-update",
-  "promote-update",
-  "withdraw-update",
-  "roll-back-update",
-];
 const MAX_DIRECTIVE_FILE_BYTES = 16 * 1024;
 
 const updatesCertificate = () =>
@@ -60,37 +54,78 @@ function startLogging(level: Level) {
   return log;
 }
 
-const command = process.argv[2] ?? "serve";
+type Log = ReturnType<typeof startLogging>;
 
-if (command === "serve") {
-  const config = loadConfig(process.env);
-  startServer(config, startLogging(config.logLevel));
-} else if (command === "migrate") {
-  const config = loadMigrationConfig(process.env);
-  const log = startLogging(config.logLevel);
-  const database = openDatabase(config.databaseUrl, log);
+/** Opens the database for a command that runs and exits: any failure is logged and fails the process. */
+async function withDatabase(
+  { databaseUrl, logLevel }: { databaseUrl: string; logLevel: Level },
+  failed: string,
+  run: (database: Database, log: Log) => Promise<void>,
+) {
+  const log = startLogging(logLevel);
+  const database = openDatabase(databaseUrl, log);
   try {
-    const migrations = await readMigrations(
-      fileURLToPath(new URL("../migrations", import.meta.url)),
-    );
-    const applied = await migrate(database.pool, migrations, log);
-    log.info(
-      { applied: applied.length, total: migrations.length },
-      "the database is up to date",
-    );
+    await run(database, log);
   } catch (error) {
-    log.fatal({ err: error }, "migrating failed");
+    if (error instanceof UpdateRefused) log.error(error.message);
+    else log.fatal({ err: error }, failed);
     process.exitCode = 1;
   } finally {
     await database.close();
   }
-} else if (UPDATE_COMMANDS.includes(command)) {
-  const config = loadMigrationConfig(process.env);
-  const log = startLogging(config.logLevel);
-  const [first, second] = process.argv.slice(3);
-  const database = openDatabase(config.databaseUrl, log);
-  try {
-    if (command === "publish-update") {
+}
+
+const updateCommand =
+  (
+    name: string,
+    run: (
+      database: Database,
+      log: Log,
+      first?: string,
+      second?: string,
+    ) => Promise<void>,
+  ) =>
+  async () => {
+    const [first, second] = process.argv.slice(3);
+    await withDatabase(
+      loadMigrationConfig(process.env),
+      `${name} failed`,
+      (database, log) => run(database, log, first, second),
+    );
+  };
+
+const COMMANDS: Record<string, () => void | Promise<void>> = {
+  serve() {
+    const config = loadConfig(process.env);
+    startServer(config, startLogging(config.logLevel));
+  },
+  migrate: () =>
+    withDatabase(
+      loadMigrationConfig(process.env),
+      "migrating failed",
+      async (database, log) => {
+        const migrations = await readMigrations(
+          fileURLToPath(new URL("../migrations", import.meta.url)),
+        );
+        const applied = await migrate(database.pool, migrations, log);
+        log.info(
+          { applied: applied.length, total: migrations.length },
+          "the database is up to date",
+        );
+      },
+    ),
+  purge() {
+    const config = loadPurgeConfig(process.env);
+    return withDatabase(config, "purging failed", async (database, log) => {
+      await purgeAccounts(database.db, log);
+      await pruneHistory(database.db, log);
+      await purgeStash(database.db, config.stashDir, log);
+      await purgeHookDeliveries(database.db, log);
+    });
+  },
+  "publish-update": updateCommand(
+    "publish-update",
+    async (database, log, first, second) => {
       if (!first || !second)
         throw new UpdateRefused(
           "usage: publish-update <unpacked bundle> <asset folder>",
@@ -106,7 +141,11 @@ if (command === "serve") {
           ? "published an update"
           : "the update was already published",
       );
-    } else if (command === "withdraw-update") {
+    },
+  ),
+  "withdraw-update": updateCommand(
+    "withdraw-update",
+    async (database, log, first) => {
       if (!first) throw new UpdateRefused("usage: withdraw-update <update id>");
       const withdrawn = await withdrawUpdate(database.db, first);
       log.info(
@@ -115,7 +154,11 @@ if (command === "serve") {
           ? "withdrew an update"
           : "the update was already withdrawn",
       );
-    } else if (command === "roll-back-update") {
+    },
+  ),
+  "roll-back-update": updateCommand(
+    "roll-back-update",
+    async (database, log, first, second) => {
       if (!first || !second)
         throw new UpdateRefused(
           "usage: roll-back-update <update id> <directive file>",
@@ -126,7 +169,11 @@ if (command === "serve") {
         certificate: updatesCertificate(),
       });
       log.info(rolledBack, "rolled phones back from an update");
-    } else {
+    },
+  ),
+  "promote-update": updateCommand(
+    "promote-update",
+    async (database, log, first) => {
       if (!first) throw new UpdateRefused("usage: promote-update <update id>");
       const promoted = await promoteUpdate(database.db, first);
       log.info(
@@ -135,46 +182,31 @@ if (command === "serve") {
           ? "promoted an update to stable"
           : "the update is already on stable",
       );
+    },
+  ),
+  async "check-stash"() {
+    const log = startLogging("info");
+    const [dir, ...ids] = process.argv.slice(3);
+    const key = process.env.STASH_KEY?.trim() ?? "";
+    if (!dir || !/^[0-9a-f]{64}$/.test(key)) {
+      log.fatal("usage: STASH_KEY=<hex> check-stash <folder> <item id>...");
+      process.exitCode = 2;
+    } else {
+      const files = new StashFiles({ dir, key: Buffer.from(key, "hex") });
+      if (await checkStashFiles(files, ids, log))
+        log.info({ files: ids.length }, "the stashed files decrypt");
+      else process.exitCode = 1;
     }
-  } catch (error) {
-    if (error instanceof UpdateRefused) log.error(error.message);
-    else log.fatal({ err: error }, `${command} failed`);
-    process.exitCode = 1;
-  } finally {
-    await database.close();
-  }
-} else if (command === "purge") {
-  const config = loadPurgeConfig(process.env);
-  const log = startLogging(config.logLevel);
-  const database = openDatabase(config.databaseUrl, log);
-  try {
-    await purgeAccounts(database.db, log);
-    await pruneHistory(database.db, log);
-    await purgeStash(database.db, config.stashDir, log);
-    await purgeHookDeliveries(database.db, log);
-  } catch (error) {
-    log.fatal({ err: error }, "purging failed");
-    process.exitCode = 1;
-  } finally {
-    await database.close();
-  }
-} else if (command === "check-stash") {
-  const log = startLogging("info");
-  const [dir, ...ids] = process.argv.slice(3);
-  const key = process.env.STASH_KEY?.trim() ?? "";
-  if (!dir || !/^[0-9a-f]{64}$/.test(key)) {
-    log.fatal("usage: STASH_KEY=<hex> check-stash <folder> <item id>...");
-    process.exitCode = 2;
-  } else {
-    const files = new StashFiles({ dir, key: Buffer.from(key, "hex") });
-    if (await checkStashFiles(files, ids, log))
-      log.info({ files: ids.length }, "the stashed files decrypt");
-    else process.exitCode = 1;
-  }
-} else {
+  },
+};
+
+const command = process.argv[2] ?? "serve";
+const run = COMMANDS[command];
+if (run) await run();
+else {
   startLogging("info").fatal(
     { command },
-    `unknown command; use serve, migrate, purge, check-stash or ${UPDATE_COMMANDS.join(", ")}`,
+    `unknown command; use ${Object.keys(COMMANDS).join(", ")}`,
   );
   process.exitCode = 2;
 }
