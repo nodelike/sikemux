@@ -32,7 +32,7 @@ use super::super::Respond;
 use super::file_link;
 use super::parts::{context_text, parts, Part};
 use super::pending::Purpose;
-use super::process::{Lines, Process, Reading, Released, Writer};
+use super::process::{self, Lines, Process, Reading, Released, Writer};
 use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink};
 use control::Control;
@@ -804,18 +804,17 @@ impl Backend for Claude {
             reading,
             task_stops: _,
         } = running;
-        let (reader, lines) = reading.stop().await.ok_or("Claude stopped")?;
-        let (reader, shared) = reader.into_state();
-        let shared = std::mem::take(&mut *shared.locked());
-        let state = ClaudeState {
-            control: control.state(),
-            shared,
-            reader,
-            kept,
-        };
-        let state = serde_json::to_value(state).map_err(|error| error.to_string())?;
-        let released = process.release(lines).await?;
-        Ok((state, released))
+        process::hand_over(process, reading, "Claude", |reader| {
+            let (reader, shared) = reader.into_state();
+            let shared = std::mem::take(&mut *shared.locked());
+            ClaudeState {
+                control: control.state(),
+                shared,
+                reader,
+                kept,
+            }
+        })
+        .await
     }
 
     fn adopt(

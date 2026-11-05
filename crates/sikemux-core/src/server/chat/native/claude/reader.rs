@@ -1035,7 +1035,7 @@ impl Reader {
             SystemEvent::SessionStateChanged { state } if state.as_deref() == Some("idle") => {
                 self.idle()
             }
-            SystemEvent::Init if !self.turn_running() => self.sink.work_started(),
+            SystemEvent::Init => self.sink.work_started(),
             SystemEvent::Status {
                 status,
                 uuid,

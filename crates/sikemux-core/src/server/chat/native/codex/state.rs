@@ -14,23 +14,14 @@ use crate::server::chat::failure::{Failure, FailureKind};
 use super::super::super::reset::{month_day, WallClock, Zone};
 use super::super::super::states::{self, Outcome, Subagent};
 use super::super::json::text_or_empty as text;
-use super::super::session::TurnEnd;
-use super::super::turns::{self, Ended, Prompted, Started, Turns};
+use super::super::rpc_driver::{self, RpcSession};
+use super::super::turns::{Ended, Prompted, Started, Turns};
 use super::approvals::{self, Question};
 use super::items::{self, Items};
 use super::notifications::{self, EndedTurn, Notification};
 use super::subagents::{Route, Subagents};
 
-/// What one notification does to the chat.
-pub(super) enum Effect {
-    /// A session update, for the session with this id.
-    Update(String, Value),
-    End(u64, TurnEnd),
-    WorkStarted,
-    WorkEnded(&'static str),
-    /// Ask Codex to stop the turn with this id.
-    Interrupt(String),
-}
+pub(super) type Effect = rpc_driver::Effect<std::convert::Infallible>;
 
 /// How to answer one of Codex's requests.
 pub(super) enum Reply {
@@ -185,88 +176,16 @@ impl Session {
         }
     }
 
-    /// Codex answered turn `number` with its id for it.
-    pub fn started(&mut self, number: u64, id: &str) -> Vec<Effect> {
-        let Some(cancelled) = self.turns.started(number, id) else {
-            return Vec::new();
-        };
-        let mut effects = Vec::new();
-        if cancelled {
-            effects.push(Effect::Interrupt(id.to_owned()));
-        }
-        if let Some(ended) = self.last_ended.take().filter(|turn| turn.id == id) {
-            if let Ended::Prompted(turn) = self.turns.completed(id) {
-                effects.extend(self.finish_prompted(turn, &ended));
-            }
-        }
-        effects
-    }
-
-    pub fn cancel(&mut self) -> Vec<Effect> {
-        self.turns
-            .cancel()
-            .map(Effect::Interrupt)
-            .into_iter()
-            .collect()
-    }
-
-    /// Codex took the interrupt of turn `id`. The turn is over for the chat
-    /// now, and what Codex still says of it is dropped.
-    pub fn interrupted(&mut self, id: &str) -> Vec<Effect> {
-        match self.turns.interrupted(id) {
-            Ended::Prompted(turn) => {
-                let ended = EndedTurn {
-                    id: id.to_owned(),
-                    status: "interrupted".to_owned(),
-                    error: None,
-                };
-                self.finish_prompted(turn, &ended)
-            }
-            Ended::Unprompted => {
-                let mut effects = self.finish_subagents(Subagent::Cancelled);
-                effects.push(Effect::WorkEnded("cancelled"));
-                effects
-            }
-            Ended::Neither => Vec::new(),
-        }
-    }
-
-    fn finish_subagents(&mut self, state: Subagent) -> Vec<Effect> {
-        let mut out = Vec::new();
-        self.subagents.finish_outstanding(state, &mut out);
-        out.into_iter()
-            .map(|(session, update)| Effect::Update(session, update))
-            .collect()
-    }
-
-    fn payload(&self, stop_reason: &str) -> Value {
-        let mut payload = json!({ "stopReason": stop_reason });
-        if let Some(usage) = self.token_usage.as_ref().and_then(items::turn_usage) {
-            payload["usage"] = usage;
-        }
-        payload
-    }
-
-    fn finish_prompted(&mut self, mut turn: Prompted, ended: &EndedTurn) -> Vec<Effect> {
+    fn finish_prompted(&mut self, turn: Prompted, ended: &EndedTurn) -> Vec<Effect> {
         let error = self.errors.remove(&ended.id);
-        let mut effects: Vec<Effect> = self
-            .turns
-            .title(&mut turn)
-            .map(|title| Effect::Update(self.thread_id.clone(), title))
-            .into_iter()
-            .collect();
         let outcome = states::outcome(&ended.status).unwrap_or(Outcome::Failed);
-        let (subagents, end) = turns::prompted_end(outcome, self.payload("end_turn"), || {
+        let payload = self.payload();
+        self.end_prompted(turn, outcome, payload, || {
             let error = error
                 .or_else(|| ended.error.clone().filter(|error| !error.is_null()))
                 .unwrap_or_else(|| json!({ "message": "Turn failed", "codexErrorInfo": null }));
             failure(&error)
-        });
-        if let Some(state) = subagents {
-            effects.extend(self.finish_subagents(state));
-        }
-        effects.push(Effect::End(turn.number, end));
-        effects
+        })
     }
 
     fn turn_completed(&mut self, ended: &EndedTurn) -> Vec<Effect> {
@@ -276,19 +195,16 @@ impl Session {
         match self.turns.completed(id) {
             Ended::Unprompted => {
                 self.errors.remove(id);
-                let outcome = states::outcome(&ended.status).unwrap_or(Outcome::Failed);
-                let (subagents, reason) = turns::unprompted_end(outcome);
-                let mut effects = subagents
-                    .map(|state| self.finish_subagents(state))
-                    .unwrap_or_default();
                 if unnamed {
                     self.last_ended = Some(ended.clone());
                 }
-                effects.push(Effect::WorkEnded(reason));
-                effects
+                self.end_unprompted(states::outcome(&ended.status).unwrap_or(Outcome::Failed))
             }
             Ended::Prompted(turn) => self.finish_prompted(turn, ended),
-            Ended::Neither => Vec::new(),
+            Ended::Neither => {
+                self.errors.remove(id);
+                Vec::new()
+            }
         }
     }
 
@@ -318,7 +234,9 @@ impl Session {
                 match notifications::read(method, params) {
                     Some(Notification::Unreadable { method, error }) => {
                         if root {
-                            effects.extend(self.unreadable(method, error));
+                            if method == "turn/completed" {
+                                effects.extend(self.ended_unreadably(error));
+                            }
                         }
                     }
                     Some(notification) => {
@@ -419,38 +337,6 @@ impl Session {
             }
             _ => Vec::new(),
         }
-    }
-
-    /// A turn whose end Codex sent unreadably ends for the chat as failed,
-    /// rather than leaving it waiting on an end it cannot read.
-    fn unreadable(&mut self, method: &str, error: String) -> Vec<Effect> {
-        if method != "turn/completed" {
-            return Vec::new();
-        }
-        let Some(mut turn) = self.turns.give_up() else {
-            return Vec::new();
-        };
-        let mut effects: Vec<Effect> = self
-            .turns
-            .title(&mut turn)
-            .map(|title| Effect::Update(self.thread_id.clone(), title))
-            .into_iter()
-            .collect();
-        effects.extend(self.finish_subagents(Subagent::Failed));
-        let failure = Failure {
-            kind: FailureKind::Other,
-            title: "Codex ended the turn in a way Sikemux could not read".to_owned(),
-            details: Some(error),
-            resets_at: None,
-        };
-        effects.push(Effect::End(
-            turn.number,
-            TurnEnd::Failed {
-                failure,
-                response: Some(self.payload("end_turn")),
-            },
-        ));
-        effects
     }
 
     /// The session updates a notification makes, in whichever session it is for.
@@ -591,8 +477,62 @@ impl Session {
     }
 }
 
+impl Default for Session {
+    fn default() -> Self {
+        Self::new(String::new())
+    }
+}
+
+impl RpcSession for Session {
+    type Own = std::convert::Infallible;
+    const NAME: &'static str = "Codex";
+
+    fn id(&self) -> &str {
+        &self.thread_id
+    }
+
+    fn turns(&mut self) -> &mut Turns {
+        &mut self.turns
+    }
+
+    fn finish_subagents(&mut self, state: Subagent) -> Vec<Effect> {
+        let mut out = Vec::new();
+        self.subagents.finish_outstanding(state, &mut out);
+        out.into_iter()
+            .map(|(session, update)| Effect::Update(session, update))
+            .collect()
+    }
+
+    fn payload(&self) -> Value {
+        let mut payload = json!({ "stopReason": "end_turn" });
+        if let Some(usage) = self.token_usage.as_ref().and_then(items::turn_usage) {
+            payload["usage"] = usage;
+        }
+        payload
+    }
+
+    /// A turn can end before Codex answers the request that began it, when its
+    /// end was kept to tell the prompt now.
+    fn started(&mut self, number: u64, id: &str) -> Vec<Effect> {
+        let Some(cancelled) = self.turns.started(number, id) else {
+            return Vec::new();
+        };
+        let mut effects = Vec::new();
+        if cancelled {
+            effects.push(Effect::Interrupt(id.to_owned()));
+        }
+        if let Some(ended) = self.last_ended.take().filter(|turn| turn.id == id) {
+            if let Ended::Prompted(turn) = self.turns.completed(id) {
+                effects.extend(self.finish_prompted(turn, &ended));
+            }
+        }
+        effects
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::super::super::session::TurnEnd;
     use super::*;
 
     fn session() -> Session {

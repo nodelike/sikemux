@@ -53,6 +53,15 @@ pub struct Failure {
 }
 
 impl Failure {
+    pub fn other(title: impl Into<String>) -> Self {
+        Self {
+            kind: FailureKind::Other,
+            title: title.into(),
+            details: None,
+            resets_at: None,
+        }
+    }
+
     pub fn sign_in(title: impl Into<String>) -> Self {
         Self {
             kind: FailureKind::SignIn,

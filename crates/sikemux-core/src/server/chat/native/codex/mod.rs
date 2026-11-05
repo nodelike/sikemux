@@ -13,7 +13,6 @@ mod subagents;
 
 use sikemux_fold::UpdateKind;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -28,71 +27,63 @@ use super::file_link;
 use super::models::Models;
 use super::parts::{context_text, parts, picture, Part};
 use super::pending::{Answered, Purpose};
-use super::process::{Lines, Process, Reading, Reads, Released, Writer};
-use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
+use super::process::{Lines, Process, Reading, Released, Writer};
+use super::rpc::Rpc;
+use super::rpc_driver::{self, RpcAgent};
 use super::servers;
-use super::session::{self, Backend, Opened, Prompt, Sink, TurnEnd};
+use super::session::{self, Backend, Opened, Prompt, Sink};
 use approvals::Question;
 use commands::Command;
-use state::{user_input_told, Effect, Reply, Session};
+use state::{user_input_told, Reply, Session};
 
-/// What the reader and the chat's loop share.
-#[derive(Clone)]
-struct Driver {
-    rpc: Rpc,
-    sink: Sink,
-    session: Arc<Mutex<Session>>,
-}
+type Driver = rpc_driver::Driver<Session>;
 
-impl Driver {
-    fn apply(&self, effects: Vec<Effect>) {
-        for effect in effects {
-            match effect {
-                Effect::Update(session, update) => self.sink.update(&session, update),
-                Effect::End(turn, end) => self.sink.end_turn(turn, end),
-                Effect::WorkStarted if !self.sink.running() => self.sink.work_started(),
-                Effect::WorkStarted => {}
-                Effect::WorkEnded(stop_reason) => self.sink.work_ended(stop_reason),
-                Effect::Interrupt(turn_id) => self.interrupt(turn_id),
+impl RpcAgent for Session {
+    const TURN_ENDED: &'static [&'static str] = &["no active turn", "expected active turn"];
+
+    fn addressed(id: &str) -> Value {
+        json!({ "threadId": id })
+    }
+
+    fn turn_id_in(answer: &Value) -> Option<&str> {
+        answer["turn"]["id"].as_str()
+    }
+
+    fn carry_out(_: &Driver, own: Self::Own) {
+        match own {}
+    }
+
+    fn notification(driver: &Driver, method: &str, params: Value) {
+        let effects = driver.session.locked().handle(method, &params);
+        driver.apply(effects);
+    }
+
+    fn request(driver: &Driver, id: Value, method: &str, params: &Value) {
+        let reply = driver.session.locked().question(method, params);
+        match reply {
+            Reply::Answer(answer) => driver.rpc.respond(id, answer),
+            Reply::PutQuestion => {
+                let told = driver.sink.question(params);
+                driver.rpc.respond(id, user_input_told(params, &told));
+            }
+            Reply::Refuse => driver
+                .rpc
+                .refuse(id, &format!("Sikemux does not handle {method}")),
+            Reply::Ask(question) => {
+                let reply = json!({ "id": id, "question": question });
+                driver
+                    .sink
+                    .ask(question.request, reply.clone(), driver.responder(reply));
             }
         }
     }
 
-    /// Asks Codex to stop the turn with this id. Codex never answers an
-    /// interrupt for a turn that is not running.
-    fn interrupt(&self, turn_id: String) {
-        let thread_id = self.session.locked().thread_id.clone();
-        let _ = self.rpc.send_for(
-            "turn/interrupt",
-            json!({ "threadId": thread_id, "turnId": turn_id }),
-            Purpose::Interrupt(turn_id),
-        );
-    }
+    fn purpose_answered(_: &Driver, _: Purpose, _: Answered) {}
 
-    /// The answer to a request sent with `purpose`.
-    fn purpose_answered(&self, purpose: Purpose, result: Answered) {
-        if result.is_err() {
-            return;
-        }
-        match purpose {
-            Purpose::Interrupt(turn_id) => {
-                let effects = self.session.locked().interrupted(&turn_id);
-                self.apply(effects);
-            }
-            Purpose::Steer { text, paths } => self.sink.prompted(&text, &paths),
-            _ => {}
-        }
-    }
-
-    fn responder(&self, reply: Value) -> Respond {
-        let driver = self.clone();
-        Box::new(move |chosen| driver.answer_question(&reply, chosen))
-    }
-
-    /// Tells Codex what the person chose for the question `reply` holds.
-    fn answer_question(&self, reply: &Value, chosen: Option<String>) {
+    fn decide(driver: &Driver, reply: &Value, chosen: Option<String>) {
         let Ok(question) = serde_json::from_value::<Question>(reply["question"].clone()) else {
-            self.rpc
+            driver
+                .rpc
                 .refuse(reply["id"].clone(), "The question could not be read");
             return;
         };
@@ -102,55 +93,14 @@ impl Driver {
             .filter(|_| question.allows(chosen.as_deref()))
         {
             let session = question.request["sessionId"].as_str().unwrap_or_default();
-            self.sink.update(
+            driver.sink.update(
                 session,
                 json!({ "sessionUpdate": UpdateKind::ToolCallUpdate, "toolCallId": call, "status": "in_progress" }),
             );
         }
-        self.rpc
+        driver
+            .rpc
             .respond(reply["id"].clone(), question.answer(chosen.as_deref()));
-    }
-
-    fn notification(&self, method: &str, params: &Value) {
-        let effects = self.session.locked().handle(method, params);
-        self.apply(effects);
-    }
-
-    fn request(&self, id: Value, method: &str, params: &Value) {
-        let reply = self.session.locked().question(method, params);
-        match reply {
-            Reply::Answer(answer) => self.rpc.respond(id, answer),
-            Reply::PutQuestion => {
-                let told = self.sink.question(params);
-                self.rpc.respond(id, user_input_told(params, &told));
-            }
-            Reply::Refuse => self
-                .rpc
-                .refuse(id, &format!("Sikemux does not handle {method}")),
-            Reply::Ask(question) => {
-                let reply = json!({ "id": id, "question": question });
-                self.sink
-                    .ask(question.request, reply.clone(), self.responder(reply));
-            }
-        }
-    }
-}
-
-impl Reads for Driver {
-    type Nudge = ();
-    type Message = Value;
-
-    fn message(&mut self, message: Value) {
-        match self.rpc.read(message) {
-            Some(Incoming::Notification { method, params }) => self.notification(&method, &params),
-            Some(Incoming::Request { id, method, params }) => self.request(id, &method, &params),
-            Some(Incoming::Answer { purpose, result }) => self.purpose_answered(purpose, result),
-            None => {}
-        }
-    }
-
-    fn closed(&mut self) {
-        self.rpc.close();
     }
 }
 
@@ -167,15 +117,6 @@ struct Kept {
     mode: PermissionMode,
     account: Value,
     servers: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CodexState {
-    rpc: RpcState,
-    session: Session,
-    #[serde(flatten)]
-    kept: Kept,
 }
 
 pub(crate) struct Codex {
@@ -320,46 +261,11 @@ fn input(parts: Vec<Part>, images: bool) -> Vec<Value> {
 }
 
 impl Codex {
-    /// Writes a steer to Codex now, so a stop sent after it reaches Codex
-    /// after it too. None when no turn is running.
-    fn send_steer(&self, prompt: &Prompt) -> Result<Option<Sent>, String> {
-        let Some(turn_id) = self.driver.session.locked().turns.active() else {
-            return Ok(None);
-        };
-        let input = self.prompt_input(prompt)?;
-        self.driver
-            .rpc
-            .start_for(
-                "turn/steer",
-                json!({ "threadId": self.kept.thread_id, "expectedTurnId": turn_id, "input": input }),
-                Some(Purpose::Steer {
-                    text: prompt.text.clone(),
-                    paths: prompt.paths.clone(),
-                }),
-            )
-            .map(Some)
-            .map_err(|error| error_text(&error))
-    }
-
     fn prompt_input(&self, prompt: &Prompt) -> Result<Vec<Value>, String> {
         Ok(input(
             parts(prompt)?,
             self.kept.models.takes_images(&self.kept.model),
         ))
-    }
-
-    fn say(&self, text: &str) {
-        self.driver.sink.update(
-            &self.kept.thread_id,
-            sikemux_fold::update::agent_text(text, None),
-        );
-    }
-
-    fn answered(&self, turn: u64) {
-        self.driver.sink.end_turn(
-            turn,
-            TurnEnd::Completed(json!({ "stopReason": "end_turn" })),
-        );
     }
 
     /// Sends a request that begins turn `turn` in Codex.
@@ -370,25 +276,9 @@ impl Codex {
         method: &str,
         params: Value,
     ) -> Result<(), String> {
-        self.driver.session.locked().turns.begin(
-            turn,
-            None,
-            prompt.message_id.clone(),
-            history::title(&prompt.text),
-        );
-        match self.driver.rpc.request(method, params).await {
-            Ok(result) => {
-                if let Some(id) = result["turn"]["id"].as_str() {
-                    let effects = self.driver.session.locked().started(turn, id);
-                    self.driver.apply(effects);
-                }
-                Ok(())
-            }
-            Err(error) => {
-                self.driver.session.locked().turns.abandon(turn);
-                Err(error)
-            }
-        }
+        self.driver
+            .send_turn(turn, prompt, None, method, params)
+            .await
     }
 
     async fn command(&self, turn: u64, prompt: &Prompt, command: Command) -> Result<(), String> {
@@ -420,18 +310,19 @@ impl Codex {
                 let skills = rpc
                     .request("skills/list", json!({ "cwds": [self.kept.cwd] }))
                     .await?;
-                self.say(&commands::skills_text(&skills));
+                self.driver.say(&commands::skills_text(&skills));
             }
             Command::Mcp => {
                 let statuses = rpc
                     .request("mcpServerStatus/list", json!({ "threadId": thread }))
                     .await?;
                 let statuses = statuses["data"].as_array().cloned().unwrap_or_default();
-                self.say(&commands::servers_text(&statuses, &self.kept.servers));
+                self.driver
+                    .say(&commands::servers_text(&statuses, &self.kept.servers));
             }
             Command::Status => {
                 let token_usage = self.driver.session.locked().token_usage.clone();
-                self.say(&commands::status_text(&commands::Status {
+                self.driver.say(&commands::status_text(&commands::Status {
                     model: &self.kept.model,
                     cwd: &self.kept.cwd,
                     approval: config::approval_policy(self.kept.mode),
@@ -441,9 +332,9 @@ impl Codex {
                     token_usage: token_usage.as_ref(),
                 }));
             }
-            Command::Usage(text) => self.say(&text),
+            Command::Usage(text) => self.driver.say(&text),
         }
-        self.answered(turn);
+        self.driver.answered(turn);
         Ok(())
     }
 
@@ -574,11 +465,7 @@ impl Backend for Codex {
             Vec::<(String, String)>::new(),
         )?;
         let rpc = Rpc::new(writer, false);
-        let driver = Driver {
-            rpc: rpc.clone(),
-            sink,
-            session: Arc::new(Mutex::new(Session::new(String::new()))),
-        };
+        let driver = Driver::new(rpc.clone(), sink, Session::default());
         let (reading, _) = Reading::start(driver.clone(), lines);
         let failed = |error: String| process.start_error(error);
 
@@ -767,31 +654,14 @@ impl Backend for Codex {
         &mut self,
         prompt: Prompt,
     ) -> impl std::future::Future<Output = Result<String, String>> + Send + 'static {
-        let sent = self.send_steer(&prompt);
-        async move {
-            let Some(sent) = sent? else {
-                return Ok("promptRequired".to_owned());
-            };
-            match sent
-                .answer(Some(ANSWER_WAIT))
-                .await
-                .map_err(|error| error_text(&error))
-            {
-                Ok(_) => Ok("injected".to_owned()),
-                Err(error)
-                    if error.contains("no active turn")
-                        || error.contains("expected active turn") =>
-                {
-                    Ok("promptRequired".to_owned())
-                }
-                Err(error) => Err(error),
-            }
-        }
+        Driver::steered(
+            self.driver
+                .send_steer(&prompt, || self.prompt_input(&prompt)),
+        )
     }
 
     async fn cancel(&mut self) -> Result<(), String> {
-        let effects = self.driver.session.locked().cancel();
-        self.driver.apply(effects);
+        self.driver.cancel();
         Ok(())
     }
 
@@ -866,20 +736,11 @@ impl Backend for Codex {
     async fn release(self) -> Result<(Value, Released), String> {
         let Self {
             process,
-            driver,
+            driver: _,
             reading,
             kept,
         } = self;
-        let (_, lines) = reading.stop().await.ok_or("Codex stopped")?;
-        let session = std::mem::replace(&mut *driver.session.locked(), Session::new(String::new()));
-        let state = CodexState {
-            rpc: driver.rpc.state(),
-            session,
-            kept,
-        };
-        let state = serde_json::to_value(state).map_err(|error| error.to_string())?;
-        let released = process.release(lines).await?;
-        Ok((state, released))
+        Driver::release(process, reading, kept).await
     }
 
     fn adopt(
@@ -888,18 +749,12 @@ impl Backend for Codex {
         state: Value,
         (process, writer, lines): (Process, Writer, Lines),
     ) -> Result<Self, String> {
-        let state: CodexState = serde_json::from_value(state).map_err(|error| error.to_string())?;
-        let driver = Driver {
-            rpc: Rpc::restored(writer, state.rpc),
-            sink,
-            session: Arc::new(Mutex::new(state.session)),
-        };
-        let (reading, _) = Reading::start(driver.clone(), lines);
+        let (driver, reading, kept) = Driver::adopt(sink, state, writer, lines)?;
         Ok(Self {
             process,
             driver,
             reading,
-            kept: state.kept,
+            kept,
         })
     }
 

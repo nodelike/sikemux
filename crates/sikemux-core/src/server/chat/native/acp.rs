@@ -26,7 +26,7 @@ use crate::server::chat::prompt::prompt_blocks;
 
 use super::super::Respond;
 use super::pending::{Answered, Purpose};
-use super::process::{Lines, Process, Reading, Reads, Released, Writer};
+use super::process::{self, Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
 use super::session::{Backend, Opened, Prompt, Sink, TurnEnd};
 use super::{mcp_calls, servers};
@@ -624,17 +624,12 @@ impl Backend for Acp {
             provider: _,
             kept,
         } = self;
-        let (driver_back, lines) = reading.stop().await.ok_or("The agent stopped")?;
-        drop(driver_back);
-        let turns = std::mem::take(&mut *driver.turns.locked());
-        let state = AcpState {
+        process::hand_over(process, reading, "The agent", |_| AcpState {
             rpc: driver.rpc.state(),
-            turns,
+            turns: std::mem::take(&mut *driver.turns.locked()),
             kept,
-        };
-        let state = serde_json::to_value(state).map_err(|error| error.to_string())?;
-        let released = process.release(lines).await?;
-        Ok((state, released))
+        })
+        .await
     }
 
     fn adopt(

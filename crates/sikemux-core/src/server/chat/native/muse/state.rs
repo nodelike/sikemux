@@ -12,20 +12,12 @@ use crate::server::chat::failure::{Failure, FailureKind};
 
 use super::super::super::states::{self, Outcome, Subagent};
 use super::super::json::{text, text_or_empty};
-use super::super::session::TurnEnd;
-use super::super::turns::{self, Ended, Prompted, Started, Turns};
+use super::super::rpc_driver::{self, RpcSession};
+use super::super::turns::{Ended, Started, Turns};
 use super::items::{Follow, Items};
 use super::notifications::{Notification, Stage, Todo, Totals, TurnCompleted, TurnUsage, Window};
 
-/// What one notification does to the chat.
-pub(super) enum Effect {
-    /// A session update, for the session with this id.
-    Update(String, Value),
-    End(u64, TurnEnd),
-    WorkStarted,
-    WorkEnded(&'static str),
-    Follow(Follow),
-}
+pub(super) type Effect = rpc_driver::Effect<Follow>;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct Session {
@@ -99,27 +91,6 @@ impl Session {
         }
     }
 
-    /// Muse took the interrupt of turn `id`. The turn is over for the chat
-    /// now, and what Muse still says of it is dropped.
-    pub fn interrupted(&mut self, id: &str) -> Vec<Effect> {
-        match self.turns.interrupted(id) {
-            Ended::Prompted(turn) => {
-                let mut effects = self.finish_subagents(Subagent::Cancelled);
-                effects.push(Effect::End(
-                    turn.number,
-                    TurnEnd::Completed(json!({ "stopReason": "cancelled" })),
-                ));
-                effects
-            }
-            Ended::Unprompted => {
-                let mut effects = self.finish_subagents(Subagent::Cancelled);
-                effects.push(Effect::WorkEnded("cancelled"));
-                effects
-            }
-            Ended::Neither => Vec::new(),
-        }
-    }
-
     /// The conversation goes on in `session_id`, a copy of this one up to
     /// before turn `turn_id`.
     pub fn moved(&mut self, session_id: String, turn_id: &str) {
@@ -142,27 +113,12 @@ impl Session {
             .to_owned()
     }
 
-    fn finish_subagents(&mut self, state: Subagent) -> Vec<Effect> {
-        self.items
-            .finish_outstanding(state)
-            .into_iter()
-            .map(|(session, update)| Effect::Update(session, update))
-            .collect()
-    }
-
     fn turn_completed(&mut self, ended: &TurnCompleted) -> Vec<Effect> {
         let outcome = states::outcome(&ended.terminal).unwrap_or(Outcome::Failed);
         match self.turns.completed(&ended.turn_id) {
-            Ended::Unprompted => {
-                let (subagents, reason) = turns::unprompted_end(outcome);
-                let mut effects = subagents
-                    .map(|state| self.finish_subagents(state))
-                    .unwrap_or_default();
-                effects.push(Effect::WorkEnded(reason));
-                effects
-            }
+            Ended::Unprompted => self.end_unprompted(outcome),
             Ended::Prompted(turn) => {
-                let mut payload = json!({ "stopReason": "end_turn" });
+                let mut payload = self.payload();
                 if let Some(usage) = &ended.usage {
                     payload["usage"] = turn_usage(usage);
                 }
@@ -183,27 +139,6 @@ impl Session {
             }
             Ended::Neither => Vec::new(),
         }
-    }
-
-    fn end_prompted(
-        &mut self,
-        mut turn: Prompted,
-        outcome: Outcome,
-        payload: Value,
-        failure: impl FnOnce() -> Failure,
-    ) -> Vec<Effect> {
-        let mut effects: Vec<Effect> = self
-            .turns
-            .title(&mut turn)
-            .map(|title| Effect::Update(self.session_id.clone(), title))
-            .into_iter()
-            .collect();
-        let (subagents, end) = turns::prompted_end(outcome, payload, failure);
-        if let Some(state) = subagents {
-            effects.extend(self.finish_subagents(state));
-        }
-        effects.push(Effect::End(turn.number, end));
-        effects
     }
 
     /// The effects of one notification from Muse.
@@ -294,29 +229,17 @@ impl Session {
             }
             _ => {}
         }
-        effects.extend(follow.into_iter().map(Effect::Follow));
+        effects.extend(follow.into_iter().map(Effect::Own));
         effects
     }
 
-    /// A turn whose end Muse sent unreadably ends for the chat as failed,
-    /// rather than leaving it waiting on an end it cannot read.
     fn unreadable(&mut self, notification: Notification) -> Vec<Effect> {
-        let Notification::Unreadable { method, error } = notification else {
-            return Vec::new();
-        };
-        if method != "turn/completed" {
-            return Vec::new();
+        match notification {
+            Notification::Unreadable { method, error } if method == "turn/completed" => {
+                self.ended_unreadably(error)
+            }
+            _ => Vec::new(),
         }
-        let Some(turn) = self.turns.give_up() else {
-            return Vec::new();
-        };
-        let payload = json!({ "stopReason": "end_turn" });
-        self.end_prompted(turn, Outcome::Failed, payload, || Failure {
-            kind: FailureKind::Other,
-            title: "Muse ended the turn in a way Sikemux could not read".to_owned(),
-            details: Some(error),
-            resets_at: None,
-        })
     }
 
     /// Tells a subagent's card its conversation, read after it ended.
@@ -341,5 +264,32 @@ impl Session {
     pub fn subagent_said(&mut self, child: &str, result: &str) -> Vec<Effect> {
         self.items.child_spoke(child);
         vec![Effect::Update(child.to_owned(), agent_text(result, None))]
+    }
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self::new(String::new(), String::new())
+    }
+}
+
+impl RpcSession for Session {
+    type Own = Follow;
+    const NAME: &'static str = "Muse";
+
+    fn id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn turns(&mut self) -> &mut Turns {
+        &mut self.turns
+    }
+
+    fn finish_subagents(&mut self, state: Subagent) -> Vec<Effect> {
+        self.items
+            .finish_outstanding(state)
+            .into_iter()
+            .map(|(session, update)| Effect::Update(session, update))
+            .collect()
     }
 }

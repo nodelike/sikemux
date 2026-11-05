@@ -15,6 +15,7 @@ mod patch;
 mod pending;
 mod process;
 mod rpc;
+mod rpc_driver;
 mod servers;
 mod session;
 mod turns;

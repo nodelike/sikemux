@@ -582,3 +582,21 @@ impl<R> Drop for Reading<R> {
         self.task.abort();
     }
 }
+
+/// Lets go of an agent without stopping it: stops reading it, turns what the
+/// reader leaves into `state`, and hands the process over. On failure the agent
+/// is stopped. `name` says who stopped, should its output already have closed.
+pub(super) async fn hand_over<R: Reads, State: Serialize>(
+    process: Process,
+    reading: Reading<R>,
+    name: &str,
+    state: impl FnOnce(R) -> State + Send,
+) -> Result<(Value, Released), String> {
+    let (reader, lines) = reading
+        .stop()
+        .await
+        .ok_or_else(|| format!("{name} stopped"))?;
+    let state = serde_json::to_value(state(reader)).map_err(|error| error.to_string())?;
+    let released = process.release(lines).await?;
+    Ok((state, released))
+}
