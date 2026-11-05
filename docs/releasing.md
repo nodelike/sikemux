@@ -3,11 +3,11 @@
 Releases publish from the **Release** GitHub Actions workflow, never from a laptop. Commit the version bump and a `RELEASE_NOTES.md` headed `# Sikemux v<version>`, then push the matching tag. Tag a commit already on `main` for a nightly, or on its `release/<major.minor>` branch for stable. Only the owner can push a `v*` tag, so only the owner can start a release:
 
 ```bash
-make preflight
+make build
 git tag v0.4.1 && git push origin v0.4.1
 ```
 
-Pushes run no checks locally; CI checks every push to `main`, so tag only a commit whose CI run is green. `make preflight` builds the DMG against its size limit, which otherwise surfaces only in the Release run.
+Pushes run no checks locally; CI checks every push to `main`, so tag only a commit whose CI run is green. `make build` builds the DMG against its size limit, which otherwise surfaces only in the Release run.
 
 A run is titled with its tag, so the approval names what it will publish, and it stops if the tag disagrees with `package.json` or the release already exists. The workflow reads the version from `package.json` and builds, signs and verifies the Mac release while the full CI suite runs. No job that runs the build's dependencies holds signing material, and no job that holds it runs them or anything they built:
 
