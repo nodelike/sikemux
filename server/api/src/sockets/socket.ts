@@ -53,7 +53,7 @@ export async function byeAll(
 }
 
 /** The close codes every socket protocol defines. */
-export interface CloseCodes {
+interface CloseCodes {
   badMessage: number;
   unauthenticated: number;
   helloTimeout: number;
@@ -78,7 +78,7 @@ export interface SocketContext {
 }
 
 export class HelloRefused extends Error {}
-export class HelloLimited extends HelloRefused {}
+class HelloLimited extends HelloRefused {}
 
 const protocol = validator();
 

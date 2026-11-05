@@ -18,7 +18,7 @@ import {
 import type { HookHost, HookHosts } from "./hosts.ts";
 import type { HookOptions } from "./options.ts";
 
-export interface HookContext extends SocketContext {
+interface HookContext extends SocketContext {
   hosts: HookHosts;
   options: HookOptions;
 }

@@ -1,7 +1,7 @@
 import type { Theme } from "@shared/wire.generated";
 
 /** The variables a page styles against, named as the guide's `pages` topic lists them. */
-export function pageThemeVariables(theme: Theme): Record<string, string> {
+function pageThemeVariables(theme: Theme): Record<string, string> {
   const { chrome, editor, terminal } = theme;
   return {
     "--background": chrome.bg,

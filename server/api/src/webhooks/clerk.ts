@@ -12,7 +12,7 @@ const TOLERANCE_S = 5 * 60;
 const REMEMBER_MS = 24 * 60 * 60_000;
 
 /** Whether Svix signed this body with the endpoint's secret, recently. */
-export function verifySvix(
+function verifySvix(
   secret: string,
   headers: {
     id: string | undefined;

@@ -26,7 +26,7 @@ export function toDevice(row: Selectable<Tables["devices"]>): Device {
  * Who is registering: the account, how it signed in, and a phone's Clerk session. A host signs in
  * to add the app on it as a client, which then joins the account's other hosts as a phone does.
  */
-export interface Registrant {
+interface Registrant {
   userId: string;
   via: string;
   sessionId?: string | undefined;

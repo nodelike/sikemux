@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 
 /** Text inside these is a painted copy, not something the reader sees twice. */
-export const SHIMMER_COPY = ".chat-shimmer-band";
+const SHIMMER_COPY = ".chat-shimmer-band";
 
 /* WebKit works out a running slide's distance once, so after the label
    resizes a band would keep moving its old width and cut the text short until

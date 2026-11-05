@@ -14,7 +14,7 @@ import {
 } from "./socket.ts";
 
 /** One WebSocket path the API serves, and how it takes a connection. */
-export interface SocketRoute {
+interface SocketRoute {
   path: string;
   kind: SocketKind;
   /**
@@ -30,7 +30,7 @@ export interface SocketRoute {
   accept(ws: WebSocket, ip: string): void;
 }
 
-export interface RoutedSockets {
+interface RoutedSockets {
   /** Refuses new connections from now on. */
   stop(): void;
 }

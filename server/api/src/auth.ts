@@ -43,7 +43,7 @@ export interface Verifier {
   verify(token: string): Promise<Identity>;
 }
 
-export interface VerifierOptions {
+interface VerifierOptions {
   issuer: string;
   macClientId: string;
   /** Browser origins a session token may come from. Native apps send none. */

@@ -7,7 +7,7 @@ import {
 } from "react";
 
 // How far above the last line still counts as reading the latest message.
-export const BOTTOM_SLACK = 72;
+const BOTTOM_SLACK = 72;
 
 /* How far the reader is from the bottom. The transcript is laid out from the
    bottom, so its scroll position is 0 there and negative above it. */

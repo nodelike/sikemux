@@ -5,7 +5,7 @@ import { audit, type Actor } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 
-export interface Removal {
+interface Removal {
   userId: string;
   key: string;
   reason: RevokeReason;

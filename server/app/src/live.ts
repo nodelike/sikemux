@@ -5,7 +5,7 @@ import { useEffect, useEffectEvent } from "react";
 
 import { config } from "./config.ts";
 
-export type LiveHandlers = {
+type LiveHandlers = {
   /** Something changed on the account; events arrive oldest first. */
   onEvents: (events: AccountEvent[]) => void;
   /** Connected again after a gap, so changes may have been missed. */

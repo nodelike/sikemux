@@ -6,7 +6,7 @@ import type { Tables } from "./db.ts";
 export type Actor =
   `user:${string}` | `device:${string}` | "clerk" | "system" | "deploy";
 
-export type AuditAction =
+type AuditAction =
   | "device.registered"
   | "device.updated"
   | "device.renamed"
@@ -28,7 +28,7 @@ export type AuditAction =
   | "update.withdrawn"
   | "update.rolled_back";
 
-export interface AuditEntry {
+interface AuditEntry {
   /** The account it happened to, or null for what belongs to none. */
   userId: string | null;
   actor: Actor;

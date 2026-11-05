@@ -24,7 +24,7 @@ import {
 import type { Hub, Member } from "./hub.ts";
 import type { LiveOptions } from "./options.ts";
 
-export interface LiveContext extends SocketContext {
+interface LiveContext extends SocketContext {
   hub: Hub;
   options: LiveOptions;
   pusher: Pusher;

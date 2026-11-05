@@ -17,9 +17,9 @@ export const PURGE_AFTER_DAYS = release.account.restorableDays;
 const RETRY_BASE_MS = 60_000;
 const RETRY_MAX_MS = 60 * 60_000;
 /** After this many failures every further one is logged as an error, which alerts. */
-export const ALERT_AFTER_ATTEMPTS = 6;
+const ALERT_AFTER_ATTEMPTS = 6;
 
-export interface DeletionRequest {
+interface DeletionRequest {
   userId: string;
   actor: Actor;
   via: string;
@@ -27,13 +27,13 @@ export interface DeletionRequest {
   deletedInClerk: boolean;
 }
 
-export interface Deletion {
+interface Deletion {
   requestedAt: Date;
   deletesAt: Date;
   deletedInClerk: boolean;
 }
 
-export function retryDelayMs(attempts: number): number {
+function retryDelayMs(attempts: number): number {
   return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1));
 }
 

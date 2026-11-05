@@ -11,7 +11,7 @@ import { HOOK_OPTIONS, HOOKS_PATH, type HookOptions } from "./options.ts";
 import { HOOK_SOCKET, HookSocket, recheckHookHosts } from "./socket.ts";
 import { byeAll } from "../sockets/socket.ts";
 
-export interface HookServices {
+interface HookServices {
   database: Database;
   verifier: Verifier;
   limiter: RateLimiter;

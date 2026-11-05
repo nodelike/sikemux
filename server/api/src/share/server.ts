@@ -14,7 +14,7 @@ import { byeAll } from "../sockets/socket.ts";
 /** The Mac app's window, which watches a shared chat from its own page. */
 const MAC_ORIGIN = "tauri://localhost";
 
-export interface ShareServices {
+interface ShareServices {
   database: Database;
   verifier: Verifier;
   limiter: RateLimiter;

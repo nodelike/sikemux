@@ -34,7 +34,7 @@ export const GENERIC_ALERT = {
 };
 
 /** The ES256 provider token Apple checks on every request. */
-export function signProviderToken(key: AppleKey, nowMs: number): string {
+function signProviderToken(key: AppleKey, nowMs: number): string {
   return signAppleToken(key, {
     iss: key.teamId,
     iat: Math.floor(nowMs / 1000),
@@ -48,14 +48,14 @@ export interface ApnsReply {
 }
 
 /** Sends one request over HTTP/2, the only protocol APNs speaks. */
-export type ApnsTransport = (
+type ApnsTransport = (
   origin: string,
   headers: OutgoingHttpHeaders,
   body: string,
 ) => Promise<ApnsReply>;
 
 /** Keeps one HTTP/2 connection to each origin, as Apple asks, and opens a new one when it closes. */
-export class Http2Transport {
+class Http2Transport {
   private readonly sessions = new Map<string, ClientHttp2Session>();
 
   readonly send: ApnsTransport = (origin, headers, body) =>
@@ -107,7 +107,7 @@ export class Http2Transport {
   }
 }
 
-export interface ApnsOptions {
+interface ApnsOptions {
   topic: string;
   /** Where each of Apple's push servers is; tests point them at a fake. */
   endpoints?: Record<ApnsEnvironment, string>;

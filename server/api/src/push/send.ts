@@ -6,7 +6,7 @@ import type { RateLimiter } from "../limits.ts";
 import type { Logger } from "../log.ts";
 import type { Delivery, PushProviders } from "./provider.ts";
 
-export interface PushLimits {
+interface PushLimits {
   /** Pushes a minute from one host to one phone. */
   perPair: number;
   /** Pushes a minute to one phone, from all its hosts together. */
@@ -19,7 +19,7 @@ export interface PushLimits {
   maxRetryAfterMs: number;
 }
 
-export const PUSH_LIMITS: PushLimits = {
+const PUSH_LIMITS: PushLimits = {
   perPair: 30,
   perPhone: 120,
   retryDelaysMs: [1_000, 2_000, 4_000],
@@ -30,7 +30,7 @@ export const PUSH_LIMITS: PushLimits = {
 /** A token that failed this many times in a row, with no success in 30 days, is deleted. */
 const FAILURES_BEFORE_FORGETTING = 20;
 
-export interface Sender {
+interface Sender {
   userId: string;
   key: string;
 }

@@ -25,7 +25,7 @@ import type {
   WorkflowAgent,
 } from "@shared/chat/types";
 
-export type GroupFolds = {
+type GroupFolds = {
   folded: ReadonlySet<string>;
   toggle: (kind: string) => void;
 };

@@ -22,7 +22,7 @@ import {
 import type { ShareOptions } from "./options.ts";
 import { Room, type HostLink, type Relay, type ViewerLink } from "./relay.ts";
 
-export interface ShareContext extends SocketContext {
+interface ShareContext extends SocketContext {
   relay: Relay;
   options: ShareOptions;
 }
@@ -44,7 +44,7 @@ type Who =
     };
 
 /** Marks the share ended in the database and tells everyone on it. */
-export async function endShare(
+async function endShare(
   context: Pick<ShareContext, "db" | "relay" | "log">,
   id: string,
   reason: ShareEndReason,

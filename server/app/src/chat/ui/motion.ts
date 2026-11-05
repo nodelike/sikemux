@@ -1,15 +1,15 @@
 /** Whether the system has been asked for less animation. */
-export function prefersReducedMotion(): boolean {
+function prefersReducedMotion(): boolean {
   return (
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
   );
 }
 
-export const EASE_OUT = "cubic-bezier(0.16, 1, 0.3, 1)";
+const EASE_OUT = "cubic-bezier(0.16, 1, 0.3, 1)";
 export const EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
 
 /** Whether this element may animate now. Also false under jsdom, which has no Web Animations. */
-export function canAnimate(el: Element | null | undefined): el is HTMLElement {
+function canAnimate(el: Element | null | undefined): el is HTMLElement {
   return (
     !!el &&
     typeof (el as HTMLElement).animate === "function" &&

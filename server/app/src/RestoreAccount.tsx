@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 
-export type AccountState =
+type AccountState =
   | { state: "loading" }
   /** How long a deletion stays restorable is unknown when the account could not be read. */
   | { state: "active"; restorableDays?: number }

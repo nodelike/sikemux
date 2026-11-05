@@ -9,7 +9,7 @@ export function clampPageHeight(height: number): number {
   );
 }
 
-export type PageMessage =
+type PageMessage =
   | { kind: "height"; height: number }
   | { kind: "link"; url: string }
   | { kind: "wheel"; deltaY: number };

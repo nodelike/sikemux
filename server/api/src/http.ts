@@ -19,7 +19,7 @@ export interface Env {
 }
 
 /** What an error says beyond its code and message, such as how recently to verify again. */
-export type ErrorExtras = Omit<ErrorDetail, "code" | "message" | "requestId">;
+type ErrorExtras = Omit<ErrorDetail, "code" | "message" | "requestId">;
 
 /** Thrown by a handler to answer with an error the caller can act on. */
 export class ApiFailure extends Error {

@@ -8,7 +8,7 @@ import {
   type PathRoots,
 } from "@shared/chat/filePath";
 
-export type PathKind = "file" | "dir";
+type PathKind = "file" | "dir";
 
 const PathRootsContext = createContext<PathRoots>({ cwd: "" });
 
@@ -26,7 +26,7 @@ export function PathRootsProvider({
   );
 }
 
-export function usePathRoots(): PathRoots {
+function usePathRoots(): PathRoots {
   return useContext(PathRootsContext);
 }
 

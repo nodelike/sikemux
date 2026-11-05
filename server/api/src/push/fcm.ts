@@ -72,7 +72,7 @@ export function readServiceAccount(path: string): ServiceAccount {
 }
 
 /** The signed assertion Google trades for an access token (RFC 7523). */
-export function signAssertion(account: ServiceAccount, nowMs: number): string {
+function signAssertion(account: ServiceAccount, nowMs: number): string {
   const iat = Math.floor(nowMs / 1000);
   return signJwt(
     {
@@ -121,7 +121,7 @@ class TokenRefused extends Error {
   }
 }
 
-export interface FcmOptions {
+interface FcmOptions {
   /** Where FCM's API is; tests point it at a fake. */
   endpoint?: string;
   now?: () => number;

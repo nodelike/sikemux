@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { languageOf } from "@shared/languages/index";
 
 /** The Material file icon theme's lookup tables, as scripts/generate-file-icons.mjs writes them. */
-export interface FileIconIndex {
+interface FileIconIndex {
   file: string;
   names: Record<string, string>;
   extensions: Record<string, string>;
@@ -25,7 +25,7 @@ function byName(grouped: Record<string, string>): Map<string, string> {
   return map;
 }
 
-export function fileIconTables(index: FileIconIndex): FileIconTables {
+function fileIconTables(index: FileIconIndex): FileIconTables {
   return {
     file: index.file,
     names: byName(index.names),
@@ -36,7 +36,7 @@ export function fileIconTables(index: FileIconIndex): FileIconTables {
 }
 
 /** The icon a file shows, matched the way VS Code matches it: whole name, then longest extension, then language. */
-export function fileIconOf(tables: FileIconTables, name: string): string {
+function fileIconOf(tables: FileIconTables, name: string): string {
   const lower = name.toLowerCase();
   const named = tables.names.get(lower);
   if (named) return named;
@@ -95,7 +95,7 @@ function IconImage({
 }
 
 // An icon drawn differently on a light theme keeps both pictures and CSS shows one, since swapping an SVG's source re-reads it.
-export function ThemeIcon({
+function ThemeIcon({
   icon,
   size = 15,
 }: {

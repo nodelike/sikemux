@@ -44,7 +44,7 @@ function remember(
    frame for a single huge answer from the parser. */
 const WARM_SLICE = 64;
 
-export interface MarkdownText {
+interface MarkdownText {
   readonly text: string;
   readonly options: MarkdownOptions;
 }
@@ -97,7 +97,7 @@ function sameNode(a: unknown, b: unknown): boolean {
 }
 
 /** Keeps every block that came back unchanged as the object already drawn, so it is not drawn again. */
-export function settleBlocks(
+function settleBlocks(
   previous: readonly MdElement[] | undefined,
   skip: number,
   tail: readonly MdElement[],

@@ -16,7 +16,7 @@ const STASH_EVENTS = accountEventTypeValues.filter((type) =>
  * revoked; phones never learn of other phones; the web app sees the whole account. Everyone hears
  * of the stash.
  */
-export function visibleTo(role: LiveRole, ownKey: string | null) {
+function visibleTo(role: LiveRole, ownKey: string | null) {
   return (eb: ExpressionBuilder<Tables, "events">): Expression<SqlBool> => {
     if (role === "web") return eb.lit(true);
     const own = ownKey === null ? eb.lit(false) : eb("subject", "=", ownKey);
@@ -36,7 +36,7 @@ export function visibleTo(role: LiveRole, ownKey: string | null) {
   };
 }
 
-export interface BacklogQuery {
+interface BacklogQuery {
   userId: string;
   role: LiveRole;
   key: string | null;

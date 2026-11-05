@@ -12,7 +12,7 @@ export interface Places {
 export const NO_PLACES: Places = { near: () => null };
 
 /** DB-IP's free databases (CC BY 4.0), which setup-citadel.sh refreshes each month. */
-export const PLACE_FILES = {
+const PLACE_FILES = {
   country: "dbip-country-lite.mmdb",
   network: "dbip-asn-lite.mmdb",
 } as const;

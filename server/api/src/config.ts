@@ -11,18 +11,18 @@ import { readNetwork } from "./network/network.ts";
 import { readPush, type PushSettings } from "./push/settings.ts";
 import { version } from "./version.ts";
 
-export interface MigrationConfig {
+interface MigrationConfig {
   databaseUrl: string;
   logLevel: Level;
 }
 
-export interface PurgeConfig extends MigrationConfig {
+interface PurgeConfig extends MigrationConfig {
   /** Where stashed files are kept, so purging can delete them with their items; null without a stash. */
   stashDir: string | null;
 }
 
 /** Where stashed files are kept and the key they are encrypted with. */
-export interface StashSettings {
+interface StashSettings {
   dir: string;
   key: Buffer;
 }

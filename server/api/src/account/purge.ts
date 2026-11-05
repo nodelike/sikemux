@@ -9,7 +9,7 @@ import type { Logger } from "../log.ts";
  * How long each kind of history is kept. A host someone removed keeps its record until its
  * account is purged, so it cannot add itself back.
  */
-export const RETENTION_DAYS = {
+const RETENTION_DAYS = {
   events: 400,
   removedDevices: 30,
   audit: 400,
@@ -82,7 +82,7 @@ export async function purgeAccounts(
   return purged;
 }
 
-export interface Pruned {
+interface Pruned {
   events: number;
   removedDevices: number;
   audit: number;
