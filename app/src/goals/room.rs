@@ -2,15 +2,17 @@
 //! find box, and the rows, of which only those in view are drawn. Filtering, ranking and which row
 //! is chosen are the only things decided here.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, linear_color_stop, linear_gradient, list, px, relative, AnyElement, App, AppContext,
-    ClickEvent, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ListAlignment, ListOffset, ListState, ParentElement, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Subscription, Task, Window,
+    canvas, div, linear_color_stop, linear_gradient, list, px, relative, AnyElement, App,
+    AppContext, ClickEvent, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState, ParentElement,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Task, Window,
 };
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
@@ -43,6 +45,12 @@ const DESK_W: f32 = 112.;
 const CLOCK_W: f32 = 46.;
 const MARK_SIZE: f32 = 16.;
 const MARKS_SHOWN: usize = 4;
+/// The agents' column once it holds one mark and how many more.
+const CREW_ONE_W: f32 = 44.;
+/// What a row takes besides its title and end columns: its mark, padding and gaps.
+const ROW_LEAD: f32 = 51.;
+/// The room a title keeps before the row's end columns start to go.
+const TITLE_MIN_W: f32 = 300.;
 const FIND_W: f32 = 190.;
 /// The least each keeps on a narrow row: the find box shows all its placeholder, and how much
 /// happened still says more than its number.
@@ -53,6 +61,76 @@ const HAPPENED_MIN_W: f32 = 76.;
 const READ_SPACING: Duration = Duration::from_millis(500);
 /// How often the clocks on the rows are drawn again.
 const CLOCK_TICK: Duration = Duration::from_secs(30);
+
+/// Which of a row's end columns its width leaves room for. All rows share them, so they line up.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Fit {
+    clock: bool,
+    bar: bool,
+    desk: bool,
+    marks: usize,
+}
+
+impl Fit {
+    /// As a row narrows its title keeps its room: the clock goes, then the slice bar, then the
+    /// desk counts, then all but one of the agents' marks.
+    const WIDEST_FIRST: [Fit; 5] = [
+        Fit {
+            clock: true,
+            bar: true,
+            desk: true,
+            marks: MARKS_SHOWN,
+        },
+        Fit {
+            clock: false,
+            bar: true,
+            desk: true,
+            marks: MARKS_SHOWN,
+        },
+        Fit {
+            clock: false,
+            bar: false,
+            desk: true,
+            marks: MARKS_SHOWN,
+        },
+        Fit {
+            clock: false,
+            bar: false,
+            desk: false,
+            marks: MARKS_SHOWN,
+        },
+        Fit {
+            clock: false,
+            bar: false,
+            desk: false,
+            marks: 1,
+        },
+    ];
+
+    fn of(row_width: f32) -> Fit {
+        let fits = |fit: &&Fit| row_width - ROW_LEAD - fit.ends_width() >= TITLE_MIN_W;
+        (Self::WIDEST_FIRST.iter().find(fits))
+            .copied()
+            .unwrap_or(Self::WIDEST_FIRST[4])
+    }
+
+    fn crew_width(self) -> f32 {
+        if self.marks == 1 {
+            CREW_ONE_W
+        } else {
+            CREW_W
+        }
+    }
+
+    fn ends_width(self) -> f32 {
+        let gap = f32::from(SPACE_3);
+        let column = |shown: bool, width: f32| if shown { width + gap } else { 0. };
+        self.crew_width()
+            + column(self.bar, BAR_W)
+            + column(self.desk, DESK_W)
+            + column(self.clock, CLOCK_W)
+    }
+}
 
 /// The tabs over the list.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -153,6 +231,8 @@ pub(super) struct Room {
     find_input: Option<(Entity<InputState>, Subscription)>,
     pub(super) chosen: Option<Chosen>,
     entries: Vec<Entry>,
+    /// What the rows' width, as last drawn, leaves room for.
+    fit: Rc<Cell<Fit>>,
     counts: Counts,
     stats: Stats,
     rows: ListState,
@@ -188,6 +268,7 @@ impl Room {
             find_input: None,
             chosen: None,
             entries: Vec::new(),
+            fit: Rc::new(Cell::new(Fit::WIDEST_FIRST[0])),
             counts: Counts::default(),
             stats: Stats::default(),
             rows,
@@ -703,6 +784,7 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
     let (counts, stats, rank) = (pane.room.counts, pane.room.stats, pane.room.rank);
     let sub = |words: String, tint: Option<Hsla>| {
         ui::text(words, TEXT_2XS_H, FontWeight::NORMAL)
+            .truncate()
             .mt(px(1.))
             .text_color(tint.unwrap_or(t.text_tertiary))
     };
@@ -731,6 +813,7 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
             )
             .child(
                 ui::text(label, TEXT_XS, FontWeight::NORMAL)
+                    .truncate()
                     .mt(px(5.))
                     .text_color(if lit {
                         t.text_primary
@@ -983,6 +1066,7 @@ fn rows(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
     })
     .size_full();
     let clear = crate::see_through::clear(cx);
+    let fit = pane.room.fit.clone();
     div()
         .id("goals-rows")
         .key_context("GoalsList")
@@ -1005,6 +1089,22 @@ fn rows(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
             )
         })
         .child(rows)
+        .child(
+            canvas(
+                |_, _, _| {},
+                move |bounds, _, window, _| {
+                    let now = Fit::of(f32::from(bounds.size.width));
+                    if fit.replace(now) != now {
+                        window.refresh();
+                    }
+                },
+            )
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(14.))
+            .right(px(14.)),
+        )
         .when_some(pane.section_on_top().filter(|_| !clear), |rows, section| {
             rows.child(
                 div()
@@ -1217,6 +1317,7 @@ fn goal_row(pane: &GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
         }
     }))
     .child(ends(
+        pane.room.fit.get(),
         slice_bar(row, cx).into_any_element(),
         crew(pane, &row.agents, cx).into_any_element(),
         desk_counts(&row.desk, cx).into_any_element(),
@@ -1267,6 +1368,7 @@ fn need_row(pane: &GoalsPane, need: &LooseNeed, cx: &mut Context<GoalsPane>) -> 
         }
     }))
     .child(ends(
+        pane.room.fit.get(),
         div().into_any_element(),
         crew(pane, need.agent.as_slice(), cx).into_any_element(),
         div().into_any_element(),
@@ -1318,6 +1420,7 @@ fn agent_row(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -
         }
     }))
     .child(ends(
+        pane.room.fit.get(),
         div().into_any_element(),
         crew(pane, std::slice::from_ref(&agent.id), cx).into_any_element(),
         desk_counts(&desk, cx).into_any_element(),
@@ -1336,8 +1439,10 @@ pub(super) fn agent_state(agent: &GoalAgent) -> SliceState {
     }
 }
 
-/// A row's four columns: its slices, its agents, what is on their desks and its clock.
+/// A row's end columns, as many as its width leaves room for: its slices, its agents, what is
+/// on their desks and its clock.
 fn ends(
+    fit: Fit,
     bar: AnyElement,
     crew: AnyElement,
     desk: AnyElement,
@@ -1350,20 +1455,26 @@ fn ends(
         .items_center()
         .gap(SPACE_3)
         .ml(SPACE_1)
-        .child(div().w(px(BAR_W)).flex_none().child(bar))
-        .child(div().w(px(CREW_W)).flex_none().child(crew))
-        .child(div().w(px(DESK_W)).flex_none().child(desk))
-        .child(
-            div()
-                .w(px(CLOCK_W))
-                .flex_none()
-                .flex()
-                .justify_end()
-                .children(clock.map(|clock| {
-                    ui::text(clock, TEXT_XS, FontWeight::NORMAL)
-                        .text_color(Tokens::get(cx).text_tertiary)
-                })),
-        )
+        .when(fit.bar, |ends| {
+            ends.child(div().w(px(BAR_W)).flex_none().child(bar))
+        })
+        .child(div().w(px(fit.crew_width())).flex_none().child(crew))
+        .when(fit.desk, |ends| {
+            ends.child(div().w(px(DESK_W)).flex_none().child(desk))
+        })
+        .when(fit.clock, |ends| {
+            ends.child(
+                div()
+                    .w(px(CLOCK_W))
+                    .flex_none()
+                    .flex()
+                    .justify_end()
+                    .children(clock.map(|clock| {
+                        ui::text(clock, TEXT_XS, FontWeight::NORMAL)
+                            .text_color(Tokens::get(cx).text_tertiary)
+                    })),
+            )
+        })
 }
 
 /// A goal's slices as a slim line of segments, each in its state's colour; one with no slices
@@ -1393,14 +1504,15 @@ fn slice_bar(row: &GoalRow, cx: &App) -> Div {
 /// The first of a row's agents by their own marks, and how many more there are.
 fn crew(pane: &GoalsPane, agents: &[String], cx: &App) -> Div {
     let t = Tokens::get(cx);
-    let extra = agents.len().saturating_sub(MARKS_SHOWN);
+    let shown = pane.room.fit.get().marks;
+    let extra = agents.len().saturating_sub(shown);
     div()
         .flex()
         .items_center()
-        .justify_end()
+        .when(shown > 1, |crew| crew.justify_end())
         .gap(px(2.))
         .children(
-            (agents.iter().take(MARKS_SHOWN))
+            (agents.iter().take(shown))
                 .filter_map(|id| pane.room.agent(id))
                 .map(|agent| agent_face(agent, MARK_SIZE, cx)),
         )
