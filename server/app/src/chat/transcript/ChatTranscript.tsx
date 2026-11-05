@@ -12,7 +12,7 @@ import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
 import { copyText } from "@shared/chat/messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
 import { formatDetail, shownParts } from "@shared/chat/transcript";
-import type { PermissionAsk, ChatMessage, ChatRows } from "@shared/chat/types";
+import type { ChatMessage, ChatRows } from "@shared/chat/types";
 import { WorkSummary } from "./WorkSummary";
 
 /* A long transcript mounts its newest rows first and the older ones above
@@ -63,42 +63,26 @@ function useOlderRows(count: number): number {
   return Math.min(start, count);
 }
 
-export interface TranscriptPermissions {
-  requests: readonly PermissionAsk[];
-  /** The request whose answer is on its way. */
-  busy: string | null;
-  /** Without it the requests are shown but cannot be answered. */
-  onReply?: (requestId: string, optionId?: string) => void;
-}
-
 /**
  * The scrolling part of a chat: its messages, folded into work summaries,
- * what the agent is doing now, its plan and what it waits on. The agent's
- * pane and a shared chat draw it the same way.
+ * what the agent is doing now, its plan and what it waits on.
  */
 export function ChatTranscript({
   state,
   foldMemory,
-  unfolded,
   scrollRef,
   contentRef,
   onScroll,
   activity,
-  permissions,
-  onEdit,
   before,
   after,
 }: {
   state: ChatRows;
   foldMemory: FoldMemory;
-  /** Shows every fold open, as while finding in the chat. */
-  unfolded: boolean;
   scrollRef: RefObject<HTMLDivElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
   onScroll: (event: UIEvent<HTMLDivElement>) => void;
   activity: string | null;
-  permissions: TranscriptPermissions;
-  onEdit?: (message: ChatMessage, text: string) => void;
   /** Drawn above the messages. */
   before?: ReactNode;
   /** Drawn below everything else. */
@@ -136,8 +120,7 @@ export function ChatTranscript({
             const span = spans.get(index);
             const fold = span && message.fold;
             const workId = fold ? fold.id : "";
-            const folded =
-              span !== undefined && !unfolded && !openWork.has(workId);
+            const folded = span !== undefined && !openWork.has(workId);
             const summary = span &&
               fold &&
               index === Math.max(span.start, firstRow) && (
@@ -175,11 +158,6 @@ export function ChatTranscript({
                       : (meta?.at ?? null)
                   }
                   took={meta?.took ?? null}
-                  onEdit={
-                    onEdit && message.role === "user" && message.promptId
-                      ? onEdit
-                      : undefined
-                  }
                 />
               </div>
             );
@@ -200,18 +178,8 @@ export function ChatTranscript({
             <pre>{plan}</pre>
           </details>
         )}
-        {permissions.requests.map((request) => (
-          <PermissionRequest
-            key={request.requestId}
-            request={request}
-            busy={permissions.busy === request.requestId}
-            onReply={
-              permissions.onReply
-                ? (optionId) =>
-                    permissions.onReply?.(request.requestId, optionId)
-                : undefined
-            }
-          />
+        {state.permissions.map((request) => (
+          <PermissionRequest key={request.requestId} request={request} />
         ))}
         {after}
       </div>

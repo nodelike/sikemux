@@ -7,14 +7,12 @@ import {
   IconClose,
   IconFile,
   IconInfo,
-  IconPencil,
   IconPlug,
   IconTimer,
   IconUser,
   IconWarning,
   IconWorkflow,
 } from "@shared/ui/Icons";
-import { Tooltip } from "../ui/Tooltip";
 import { AgentMark } from "../agents/AgentMark";
 import sikemuxMark from "../../../../../brand/mark/mark-purple.svg";
 import { AnsweredQuestion } from "./AgentQuestions";
@@ -54,7 +52,6 @@ import type {
 import { ContextChipLabel } from "./ContextChip";
 import type { MdElement } from "@shared/markdown/types";
 import { Shimmer } from "../ui/Shimmer";
-import { MessageEditor } from "./MessageEditor";
 
 function ResourceLinkPart({
   content,
@@ -440,13 +437,7 @@ function TeammateLetter({ id, letter }: { id: string; letter: AgentLetter }) {
           </span>
           <span>
             Message from{" "}
-            <button
-              type="button"
-              className="chat-letter-name"
-              title={`Open ${letter.name}`}
-            >
-              {letter.name}
-            </button>
+            <span className="chat-letter-name">{letter.name}</span>
           </span>
         </span>
       </div>
@@ -507,7 +498,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   rate,
   at,
   took,
-  onEdit,
   from = null,
 }: {
   message: ChatMessage;
@@ -516,37 +506,18 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   rate: number | null;
   at: number | null;
   took: number | null;
-  /** Given when the person may write this message again. */
-  onEdit?: (message: ChatMessage, text: string) => void;
   /** Where the shown parts start, when the work before them is folded away. */
   from?: number | null;
 }) {
   const { parts, letters } = message;
   const context = message.context ?? [];
   const shown = useMemo(() => shownParts(parts, from), [parts, from]);
-  const [editing, setEditing] = useState(false);
   const attachments = message.attachments ?? [];
   const written = parts
     .flatMap((part) => (part.kind === "text" ? [part.text] : []))
     .join("\n\n");
   if (letters?.length)
     return <AgentLetters id={message.id} letters={letters} at={at} />;
-  if (editing && onEdit) {
-    return (
-      <article className={`chat-message ${message.role}`}>
-        <div className="chat-message-content">
-          <MessageEditor
-            initial={written}
-            onCancel={() => setEditing(false)}
-            onSend={(text) => {
-              setEditing(false);
-              onEdit(message, text);
-            }}
-          />
-        </div>
-      </article>
-    );
-  }
   return (
     <article className={`chat-message ${message.role}`}>
       <div className="chat-message-content">
@@ -575,18 +546,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
         <PartGroups parts={shown} live={live} typed={message.role === "user"} />
         {copyable && (
           <div className="chat-message-meta">
-            {onEdit && context.length === 0 && (
-              <Tooltip label="Edit message">
-                <button
-                  type="button"
-                  className="copy-btn"
-                  aria-label="Edit message"
-                  onClick={() => setEditing(true)}
-                >
-                  <IconPencil size={15} />
-                </button>
-              </Tooltip>
-            )}
             <CopyButton
               value={copyable}
               label={message.role === "user" ? "message" : "reply"}

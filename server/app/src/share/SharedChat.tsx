@@ -184,15 +184,10 @@ export function SharedChat({
                         <ChatTranscript
                           state={state}
                           foldMemory={foldMemory}
-                          unfolded={false}
                           scrollRef={scrollRef}
                           contentRef={contentRef}
                           onScroll={onScroll}
                           activity={activity}
-                          permissions={{
-                            requests: state.permissions,
-                            busy: null,
-                          }}
                           before={before}
                           after={after}
                         />
