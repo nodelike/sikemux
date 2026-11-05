@@ -717,10 +717,10 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
     let held = |note: String| finish::hold(core, &project, id, agent_id, Hold::Unblock, note);
     match ending {
         Ending::Finished => {
-            if core.harness.questions.waits_on_answer(agent_id)
-                || core.harness.mailbox.has_waiting(agent_id)
+            let now = core.agent_now(agent_id);
+            if now.waits_on_something()
                 || !(held_back || stage.ships_on_turn_end())
-                || workers_busy(core, agent_id, agent_id)
+                || now.workers_busy(agent_id)
             {
                 return;
             }
@@ -736,26 +736,6 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
             _ => format!("{name} stopped running"),
         }),
     }
-}
-
-/// Whether the agent is in the middle of a turn.
-pub(super) fn mid_turn(core: &Core, agent_id: &str) -> bool {
-    if let Some(chat) = core.chats.get(agent_id) {
-        return chat.turn_running();
-    }
-    core.agent_session(agent_id)
-        .and_then(|session| session.agent.as_ref().map(|agent| agent.busy()))
-        .unwrap_or(false)
-}
-
-/// Whether an agent `lead` started, or one that agent started, other than
-/// `but`, is still at work or has messages on the way to it.
-pub(super) fn workers_busy(core: &Core, lead: &str, but: &str) -> bool {
-    core.running_agents().iter().any(|agent| {
-        agent != but
-            && core.names.leads(lead, agent)
-            && (mid_turn(core, agent) || core.harness.mailbox.has_waiting(agent))
-    })
 }
 
 /// A turn ended of an agent one of Auto's agents started. One that reports
@@ -782,11 +762,8 @@ fn worker_ended(core: &Arc<Core>, agent_id: &str) {
     let Some((project, id)) = found else {
         return;
     };
-    if mid_turn(core, &lead)
-        || core.harness.questions.waits_on_answer(&lead)
-        || core.harness.mailbox.has_waiting(&lead)
-        || workers_busy(core, &lead, agent_id)
-    {
+    let now = core.agent_now(&lead);
+    if now.mid_turn() || now.waits_on_something() || now.workers_busy(agent_id) {
         return;
     }
     finish::ship(core, project, id);

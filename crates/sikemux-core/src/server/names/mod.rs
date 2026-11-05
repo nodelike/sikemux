@@ -219,6 +219,10 @@ impl Names {
         open
     }
 
+    pub(crate) fn is_pinned(&self, agent_id: &str) -> bool {
+        self.pinned.locked().contains(agent_id)
+    }
+
     /// The agents on linked hosts this host knows, whose names it keeps.
     pub(crate) fn pin(&self, agent_ids: HashSet<String>) {
         *self.pinned.locked() = agent_ids;

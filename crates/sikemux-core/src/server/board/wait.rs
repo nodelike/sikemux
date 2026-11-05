@@ -10,7 +10,6 @@ use std::collections::{HashMap, VecDeque};
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::slice::{CheckRun, Verdict, Wait, WaitOn};
 
-use super::auto::mid_turn;
 use super::{eta, Board, Card, State, Status};
 use crate::server::notify::GoalMoved;
 use crate::server::Core;
@@ -144,7 +143,9 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
             return Some(wait(on, since, ends, now));
         }
     }
-    let owner = card.owner_id().filter(|owner| mid_turn(core, owner))?;
+    let owner = card
+        .owner_id()
+        .filter(|owner| core.agent_now(owner).mid_turn())?;
     let since = (core.seen.started_at(owner))
         .or_else(|| core.seen.active_at(owner))
         .unwrap_or_else(|| slice.waiting_since());

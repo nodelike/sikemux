@@ -1076,9 +1076,8 @@ fn name_of(core: &Core, agent_id: &str) -> String {
 /// or on a linked host, or while Auto runs it. An owner that closed answers for
 /// nothing, so its card counts as nobody's and can't be left stuck.
 fn holder<'a>(core: &Core, card: &'a Card) -> Option<&'a str> {
-    card.owner_id().filter(|owner| {
-        card.kept_run().is_some() || core.names.open_with(core.open_agents()).contains(*owner)
-    })
+    card.owner_id()
+        .filter(|owner| card.kept_run().is_some() || core.agent_now(owner).open())
 }
 
 /// Whether `agent_id` may change a card `holder` answers for: its own, one held by
@@ -3267,19 +3266,11 @@ pub(crate) async fn person_remove(
 /// From when the agent has sat idle a while with nothing waiting for it, or
 /// none while it is at work or something waits for it.
 fn idle_from(core: &Core, agent_id: &str) -> Option<u64> {
-    if core.harness.mailbox.has_waiting(agent_id)
-        || core.harness.questions.waits_on_answer(agent_id)
-    {
+    let now = core.agent_now(agent_id);
+    if now.waits_on_something() {
         return None;
     }
-    let at_rest = match core.chats.get(agent_id) {
-        Some(chat) => chat.is_ready() && !chat.turn_running(),
-        None => core
-            .agent_session(agent_id)
-            .and_then(|session| session.agent.as_ref().map(|agent| agent.idle()))
-            .unwrap_or(false),
-    };
-    at_rest.then(|| {
+    now.resting().then(|| {
         core.seen
             .active_at(agent_id)
             .map_or(0, |at| at + IDLE_BEFORE_OFFER_MS)

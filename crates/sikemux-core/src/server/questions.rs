@@ -663,36 +663,18 @@ fn recommended(label: &str) -> (&str, bool) {
     }
 }
 
-fn running(core: &Core, agent_id: &str) -> bool {
-    core.chats.get(agent_id).is_some()
-        || core.agent_session(agent_id).is_some()
-        || core.hosts.team.get(agent_id).is_some()
-}
-
 /// Whether the person closed the agent, so its questions go with it.
 fn gone(core: &Core, agent_id: &str) -> bool {
-    !running(core, agent_id) && core.workspaces.closed(agent_id)
+    !core.agent_now(agent_id).running() && core.workspaces.closed(agent_id)
 }
 
 /// Whether a message reaches the agent now: it runs, or it sleeps in an open
 /// window that wakes it. The window may not have said yet which chats it holds.
 fn reachable(core: &Core, agent_id: &str) -> bool {
-    running(core, agent_id)
+    core.agent_now(agent_id).running()
         || (core.window.is_open()
             && !core.workspaces.closed(agent_id)
             && core.workspaces.published(agent_id) != Some(false))
-}
-
-fn busy(core: &Core, agent_id: &str) -> bool {
-    if let Some(chat) = core.chats.get(agent_id) {
-        return chat.turn_running();
-    }
-    if let Some(foreign) = core.hosts.team.get(agent_id) {
-        return foreign.status == sikemux_wire::protocol::AgentStatus::Working;
-    }
-    core.agent_session(agent_id)
-        .and_then(|session| session.agent.as_ref().map(|agent| !agent.idle()))
-        .unwrap_or(false)
 }
 
 fn cli_of(core: &Core, agent_id: &str) -> String {
@@ -1874,7 +1856,10 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let leads: HashMap<String, (bool, bool)> = leads
         .into_iter()
         .map(|lead| {
-            let state = (reachable(core, &lead), busy(core, &lead));
+            let state = (
+                reachable(core, &lead),
+                core.agent_now(&lead).maybe_mid_turn(),
+            );
             (lead, state)
         })
         .collect();

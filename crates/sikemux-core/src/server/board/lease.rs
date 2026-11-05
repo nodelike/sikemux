@@ -101,9 +101,9 @@ fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
 /// Whether the owner waits on something that brings it back by itself, or that the person knows
 /// of already, such as having stopped everything themselves.
 fn waits_elsewhere(core: &Core, owner: &str, running: &HashSet<String>) -> bool {
+    let now = core.agent_now(owner);
     core.workspaces.held(owner)
-        || core.harness.questions.waits_on_answer(owner)
-        || core.harness.mailbox.has_waiting(owner)
+        || now.waits_on_something()
         || core.seen.viewed(owner)
         || core.inbox.failing(owner)
         || running.contains(owner)
@@ -112,7 +112,7 @@ fn waits_elsewhere(core: &Core, owner: &str, running: &HashSet<String>) -> bool 
             .waiting()
             .iter()
             .any(|held| held.agent_id == owner)
-        || super::auto::workers_busy(core, owner, owner)
+        || now.workers_busy(owner)
 }
 
 /// Takes each lapsed slice from its owner, and answers when the next lease runs out.

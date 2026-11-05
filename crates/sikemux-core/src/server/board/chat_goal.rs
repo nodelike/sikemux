@@ -14,7 +14,7 @@ use sikemux_view::chat::{ChatGoal, GoalMarker};
 use sikemux_view::slice::{SliceState, Wait, WaitOn};
 
 use super::{
-    add_card, auto, holder, lease, slice, title_of, waits, Adding, Board, By, Card, Status,
+    add_card, holder, lease, slice, title_of, waits, Adding, Board, By, Card, Status,
     MAX_TITLE_CHARS,
 };
 use crate::server::chat::feed::{Feed, Said};
@@ -533,17 +533,9 @@ fn plain_state(core: &Core, board: &Board, goal: &Card) -> Option<SliceState> {
     Some(match goal.status {
         Status::Done => SliceState::Done,
         _ if waits(core, &board.settings, goal).is_some() => SliceState::NeedsYou,
-        _ if at_work(core, owner) => SliceState::Moving,
+        _ if core.agent_now(owner).at_work() => SliceState::Moving,
         _ => SliceState::Waiting,
     })
-}
-
-/// Whether the agent is working, or something on its way will have it work without anyone asking.
-fn at_work(core: &Core, agent: &str) -> bool {
-    auto::mid_turn(core, agent)
-        || (core.chats.get(agent)).is_some_and(|chat| chat.feed.running_subagents() > 0)
-        || core.harness.mailbox.has_waiting(agent)
-        || auto::workers_busy(core, agent, agent)
 }
 
 /// Whether nothing moves the slice `card` on for now: its owner is not at work and no check it
@@ -553,7 +545,8 @@ pub(super) fn owner_idle(core: &Core, board: &Board, card: &Card) -> bool {
         return false;
     };
     let checking = |wait: Wait| matches!(wait.on, WaitOn::Check { .. });
-    !at_work(core, owner) && !super::wait::of(core, board, card, epoch_ms()).is_some_and(checking)
+    !core.agent_now(owner).at_work()
+        && !super::wait::of(core, board, card, epoch_ms()).is_some_and(checking)
 }
 
 /// The goal each open chat works on now: the goal above the card it holds, or the slice it lost

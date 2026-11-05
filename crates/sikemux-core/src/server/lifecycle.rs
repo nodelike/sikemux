@@ -339,9 +339,7 @@ fn kept(core: &Core, agent_id: &str) -> bool {
 }
 
 fn idle(core: &Core, agent_id: &str) -> bool {
-    core.chats
-        .get(agent_id)
-        .is_some_and(|chat| chat.state_now() == AgentState::Idle)
+    core.agent_now(agent_id).chat_state() == Some(AgentState::Idle)
 }
 
 impl super::part::Part for Lifecycle {

@@ -90,9 +90,8 @@ fn costs(worktree: &AgentWorktree) -> (usize, usize) {
 }
 
 fn busy(core: &Core, agent_id: &str) -> bool {
-    core.chats
-        .get(agent_id)
-        .is_some_and(|chat| chat.state_now() != AgentState::Idle)
+    let state = core.agent_now(agent_id).chat_state();
+    state.is_some_and(|state| state != AgentState::Idle)
 }
 
 /// What an agent's worktree shows of its work, as its review lays it out.

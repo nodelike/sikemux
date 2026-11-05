@@ -15,7 +15,6 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use super::super::agent::AgentActivity;
 use super::super::connection::blocking;
 use super::super::{layout, workspace, Core, CoreError, CoreResult};
 use super::code::Scratch;
@@ -231,11 +230,7 @@ struct Sent {
 
 /// Whether `agent` is in a turn, in its chat or its terminal.
 fn at_work(core: &Core, agent: &WorkspaceAgent) -> bool {
-    let terminal = agent
-        .pty_id
-        .and_then(|pty| core.session(pty))
-        .is_some_and(|session| session.agent.as_ref().is_some_and(AgentActivity::busy));
-    core.chats.at_work(&agent.id) || terminal
+    core.chats.at_work(&agent.id) || core.agent_now(&agent.id).mid_turn()
 }
 
 /// Closes the chats `sent` here and removes their saved files, now that another host holds
