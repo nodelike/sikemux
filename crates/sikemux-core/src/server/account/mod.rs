@@ -24,8 +24,8 @@ use sikemux_process::sync::Locked;
 use tokio::sync::{oneshot, watch};
 
 use crate::accounts::protocol::{AccountProfile, Challenge, DeviceRegistration, DeviceRole};
-use crate::protocol::HostRegistration;
 use sikemux_view::device::AccountInfo;
+use sikemux_wire::protocol::HostRegistration;
 
 use super::access::Peer;
 use super::changed::Topic;

@@ -18,8 +18,8 @@ use serde_json::{json, Value};
 use sikemux_process::vars;
 use sikemux_pty::launch::{LaunchKind, PtyAgentProfile, PtyContext, PtyDirectCommand};
 use sikemux_wire::protocol::{
-    ask, ChatAccount, ChatLaunch, ChatStart, Continuation, Event, LaunchIdentity, RequestId, SessionId,
-    SpawnTarget, TerminalSpawn, WAKE_WAIT,
+    ask, ChatAccount, ChatLaunch, ChatStart, Continuation, Event, LaunchIdentity, RequestId,
+    SessionId, SpawnTarget, TerminalSpawn, WAKE_WAIT,
 };
 
 use super::chat;

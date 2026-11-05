@@ -12,7 +12,7 @@ use tokio::sync::Notify;
 use super::connection::ClientConn;
 use super::{access, display, goals, inbox, layout, load, updates, workspace, Core};
 use sikemux_view::device::DeviceView;
-use sikemux_wire::protocol::{encode_device_view, AgentGroup, Event};
+use sikemux_wire::protocol::{encode_device_view, AgentGroup};
 
 /// How often what a paired device shows of this host is looked at again
 /// while something in it moves by itself, such as an agent mid-turn.

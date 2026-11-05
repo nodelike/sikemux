@@ -8,8 +8,8 @@ use sikemux_process::sync::Shared;
 use sikemux_pty::validate_pty_dimensions;
 use tokio::sync::mpsc;
 
-use crate::protocol::{ask, encode_lines, Request, RequestId, SessionId};
 use crate::server::changed::What;
+use sikemux_wire::protocol::{ask, encode_lines, Request, RequestId, SessionId};
 
 use super::access::{self, Peer, Rule};
 use super::calls;

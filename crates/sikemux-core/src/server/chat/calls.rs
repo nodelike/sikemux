@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use sikemux_wire::protocol::ChatContext;
 use crate::server::{Core, CoreResult};
+use sikemux_wire::protocol::ChatContext;
 
 /// A page of a chat's rows: those before or after an event, or around the row holding one.
 #[derive(Deserialize)]
