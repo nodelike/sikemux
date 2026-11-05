@@ -17,6 +17,7 @@ use sikemux_view::layout::PaneKind;
 use sikemux_wire::protocol::LauncherInfo;
 
 use crate::agents::menu::AgentMenu;
+use crate::agents::rows::AgentRow;
 use crate::icons::Icon;
 use crate::motion;
 use crate::rail::{Edge, RailWidth};
@@ -25,8 +26,9 @@ use crate::theme::{
     TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, Field, Group, IconButton, Row, Segmented};
-use crate::workbench::{AgentRow, Strip, TeamLink, Workbench};
+use crate::workbench::{Strip, Workbench};
 use sikemux_view::inbox::RemoteAgent;
+use sikemux_view::inbox::TeamLink;
 use sikemux_view::prefs::TabRailPage;
 
 pub const TAB_RAIL: RailWidth = RailWidth {
@@ -39,6 +41,7 @@ pub mod card;
 pub mod menu;
 pub mod palette;
 pub mod review;
+pub mod rows;
 pub mod setup;
 
 pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {

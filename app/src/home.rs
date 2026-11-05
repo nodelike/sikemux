@@ -26,7 +26,8 @@ use crate::theme::{
 use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Toggle, Variant};
 use sikemux_view::prefs::WindowView;
 
-use crate::workbench::{AgentRow, Workbench};
+use crate::agents::rows::AgentRow;
+use crate::workbench::Workbench;
 use crate::{chat, terminal};
 
 const WEEKS: i64 = 53;

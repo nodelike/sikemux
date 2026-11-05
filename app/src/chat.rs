@@ -35,6 +35,7 @@ use sikemux_wire::protocol::{
     WorkspaceAgent,
 };
 
+use crate::agents::rows::AgentRow;
 use crate::agents::setup::Installing;
 use crate::chat::composer::{Act, Composer, Notice, Strip};
 use crate::core::{Ask, ChatAsk, ChatNews, Target};
@@ -46,7 +47,7 @@ use crate::theme::{self, Tokens};
 use crate::ui::shimmer::shimmer;
 use crate::ui::{self, Button, IconButton, Variant};
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
-use crate::workbench::{AgentRow, Workbench};
+use crate::workbench::Workbench;
 use crate::worktree_switch::Switch;
 use cards::*;
 use changes::Changed;
@@ -84,8 +85,8 @@ mod rows;
 mod schema;
 mod status;
 mod tools;
-
 pub(crate) use installing::installs_moved;
+
 mod worktree;
 
 pub use attach::{drop_hint, lasting, takes_drops};

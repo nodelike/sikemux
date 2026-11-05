@@ -16,6 +16,7 @@ use sikemux_view::layout::PaneKind;
 use sikemux_view::prefs::{Preferences, TabRailPage, TabRailScope, WindowView};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus, ProjectInfo};
 
+use crate::agents::rows::AgentRow;
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
 use crate::install_pane::{SetUp, Words};
@@ -24,7 +25,7 @@ use crate::theme::{
     TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{Button, Group, IconButton, Row, Tone, Variant};
-use crate::workbench::{AgentRow, Strip, Workbench};
+use crate::workbench::{Strip, Workbench};
 use crate::{agents, keymap, motion, rail, tabs, ui};
 
 /// A side of the window a rail lives on.

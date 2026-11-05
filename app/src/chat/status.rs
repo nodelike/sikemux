@@ -16,12 +16,13 @@ use sikemux_core::server::Resuming;
 use sikemux_view::chat::{ChatConnection, ChatPart, FailureKind, ToolAction};
 
 use super::Chat;
+use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_3XS_H, TEXT_SM};
 use crate::ui::{self, Button, Variant};
-use crate::workbench::{AgentRow, Workbench};
+use crate::workbench::Workbench;
 
 /// The line under the last row while a turn runs: what the agent is doing, and for how
 /// long. Each second the app's clock draws this line again in place, leaving the chat around

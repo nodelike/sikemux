@@ -1,3 +1,4 @@
+use crate::agents::rows::AgentRow;
 use crate::keyboard::Keyboard;
 use crate::keyboard::TakesKeys;
 use crate::rail::DraggedRail;
@@ -28,8 +29,8 @@ use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::layout::{PaneKind, ProjectLayout, Tab};
 use sikemux_view::prefs::{MidTurnSend, Preferences, TabRailPage, WindowView};
 use sikemux_wire::protocol::{
-    AgentFace, AgentGroup, AgentStatus, LauncherInfo, NoticeGoal, PermissionMode, ProjectCodeHost,
-    ProjectInfo, RemoteStatus, SessionId, SessionInfo,
+    LauncherInfo, NoticeGoal, PermissionMode, ProjectCodeHost, ProjectInfo, RemoteStatus,
+    SessionId, SessionInfo,
 };
 use tokio::sync::mpsc;
 
@@ -234,50 +235,6 @@ pub struct Retitling {
 
 /// How often the Limits panel reads the plan limits again while it shows, as the Mac app does.
 const LIMITS_EVERY: Duration = Duration::from_secs(5 * 60);
-
-/// An agent as the rails and tabs show it.
-#[derive(Clone)]
-pub struct AgentRow {
-    pub id: String,
-    pub provider: String,
-    pub title: String,
-    pub name: Option<String>,
-    pub status: AgentStatus,
-    pub subagents: u32,
-    pub tasks: u32,
-    pub project: String,
-    /// The face it wears, else none and its agent's mark is drawn.
-    pub face: Option<AgentFace>,
-    pub group: AgentGroup,
-    /// Mid-turn or waiting on an answer, so stopping it now loses work.
-    pub busy: bool,
-    /// It still has subagents or shells running.
-    pub background: bool,
-    /// When it last worked, in Unix milliseconds; 0 when the core does not know.
-    pub active_at: u64,
-    /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
-    pub next_trigger: Option<u64>,
-    /// When it was last named with `@` or messaged by another agent, in Unix milliseconds.
-    pub called_at: Option<u64>,
-    /// Its place on its lead's team, which the rows after a lead belong to.
-    pub team: Option<TeamLink>,
-}
-
-pub use sikemux_view::inbox::TeamLink;
-
-impl AgentRow {
-    /// Its face, or its agent's mark while it wears none, `size` across.
-    pub fn mark(&self, size: f32, cx: &App) -> AnyElement {
-        crate::ui::agent_mark(
-            &self.id,
-            &self.provider,
-            self.face.as_ref(),
-            self.group,
-            size,
-            cx,
-        )
-    }
-}
 
 impl Workbench {
     pub fn new(link: Link, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -2374,15 +2331,6 @@ impl Workbench {
         self.on_screen = Some(shown);
     }
 
-    /// The agent the tab in front shows.
-    pub fn agent(&self) -> Option<AgentRow> {
-        let project = self.project()?;
-        let target = shows(self.tab()?, PaneKind::Agent)?;
-        self.agents_of(&project.id)
-            .into_iter()
-            .find(|agent| &agent.id == target)
-    }
-
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {
         self.this_view()?
             .sessions
@@ -2412,98 +2360,6 @@ impl Workbench {
     /// The agent whose chat last took the keys.
     pub fn focused_agent(&self) -> Option<&str> {
         self.chats.focused.as_ref().map(|(agent, _)| agent.as_str())
-    }
-
-    pub fn agent_by_id(&self, id: &str) -> Option<AgentRow> {
-        let view = self.shown()?;
-        let agent = view.workspace.agents.iter().find(|agent| agent.id == id)?;
-        Some(self.agent_row(view, agent))
-    }
-
-    pub fn agents_of(&self, project: &str) -> Vec<AgentRow> {
-        let Some(view) = self.shown() else {
-            return Vec::new();
-        };
-        let ranked: Vec<&str> = view
-            .inbox
-            .agents
-            .iter()
-            .map(|agent| agent.agent_id.as_str())
-            .collect();
-        let mut rows: Vec<AgentRow> = view
-            .workspace
-            .agents
-            .iter()
-            .filter(|agent| agent.project == project)
-            .map(|agent| self.agent_row(view, agent))
-            .collect();
-        rows.sort_by_key(|row| {
-            ranked
-                .iter()
-                .position(|id| *id == row.id)
-                .unwrap_or(usize::MAX)
-        });
-        rows
-    }
-
-    /// One agent as the rails and tabs show it, from what the view says of it.
-    fn agent_row(
-        &self,
-        view: &DeviceView,
-        agent: &sikemux_wire::protocol::WorkspaceAgent,
-    ) -> AgentRow {
-        let shown = view
-            .inbox
-            .agents
-            .iter()
-            .find(|row| row.agent_id == agent.id);
-        let status = shown.map_or(
-            if agent.asleep {
-                AgentStatus::Asleep
-            } else {
-                AgentStatus::Idle
-            },
-            |row| row.status,
-        );
-        AgentRow {
-            active_at: shown.and_then(|row| row.active_at).unwrap_or(0),
-            next_trigger: shown.and_then(|row| row.next_trigger),
-            called_at: shown.and_then(|row| row.called_at),
-            team: shown.and_then(|row| row.team),
-            id: agent.id.clone(),
-            provider: agent.provider.clone(),
-            title: self.title_of(agent),
-            name: agent.name.clone().filter(|_| self.titled(agent)),
-            status,
-            group: status.group(),
-            busy: shown.is_some_and(|row| row.busy),
-            background: shown.is_some_and(|row| row.background),
-            subagents: shown.map_or(0, |row| row.subagents),
-            tasks: shown.map_or(0, |row| row.tasks),
-            project: agent.project.clone(),
-            face: agent.face.clone(),
-        }
-    }
-
-    /// The rows the agent rail lists: this project's, or every project's.
-    pub fn listed_agents(&self) -> Vec<AgentRow> {
-        let focus = self.rails.goal_focus.as_ref();
-        let mut rows: Vec<AgentRow> = if self.rails.all_projects || focus.is_some() {
-            self.projects()
-                .iter()
-                .flat_map(|project| self.agents_of(&project.id))
-                .collect()
-        } else {
-            self.project()
-                .map(|project| self.agents_of(&project.id))
-                .unwrap_or_default()
-        };
-        if let Some(focus) = focus {
-            rows.retain(|row| focus.agents.contains(&row.id));
-        }
-        let filter = self.filter_text();
-        rows.retain(|row| row.title.to_lowercase().contains(filter));
-        rows
     }
 
     /// Narrows the agent rail to a goal's agents and shows the workbench with the first in front.
@@ -2552,57 +2408,6 @@ impl Workbench {
             None => self.rails.goal_focus = None,
         }
         cx.notify();
-    }
-
-    /// Whether the agent has a title of its own: the person named it, or it is neither empty,
-    /// its kind nor its account's name. Until then its @name stands as its title.
-    pub fn titled(&self, agent: &sikemux_wire::protocol::WorkspaceAgent) -> bool {
-        let title = agent.title.trim();
-        let account = (agent.profile_id.as_deref())
-            .and_then(|id| self.accounts.profile(id))
-            .map(|profile| profile.name.as_str());
-        agent.renamed || !(title.is_empty() || title == agent.provider || Some(title) == account)
-    }
-
-    /// What the agent is called in its header, tab and rail row.
-    pub fn title_of(&self, agent: &sikemux_wire::protocol::WorkspaceAgent) -> String {
-        match &agent.name {
-            Some(name) if !self.titled(agent) => format!("@{name}"),
-            _ => agent.title.clone(),
-        }
-    }
-
-    /// The project's saved chats no agent holds, which the agent list already shows.
-    pub fn recent_of(&self, project: &str) -> Vec<&RecentInfo> {
-        self.chats_of(project)
-            .into_iter()
-            .filter(|recent| recent.agent_id.is_none())
-            .collect()
-    }
-
-    /// The project's pinned chats, held by an agent or not.
-    pub fn pinned_of(&self, project: &str) -> Vec<&RecentInfo> {
-        self.chats_of(project)
-            .into_iter()
-            .filter(|recent| recent.pinned)
-            .collect()
-    }
-
-    /// The saved chat the agent holds, once the core lists it.
-    pub fn chat_of(&self, agent: &str) -> Option<&RecentInfo> {
-        self.shown()?
-            .recent
-            .iter()
-            .find(|recent| recent.agent_id.as_deref() == Some(agent))
-    }
-
-    fn chats_of(&self, project: &str) -> Vec<&RecentInfo> {
-        let provider = self.launcher().map(|launcher| launcher.provider.as_str());
-        self.saved_chats(project)
-            .into_iter()
-            .filter(|recent| self.rails.all_harnesses || provider == Some(recent.provider.as_str()))
-            .filter(|recent| recent.title.to_lowercase().contains(self.filter_text()))
-            .collect()
     }
 
     pub fn sign_in(&mut self) {

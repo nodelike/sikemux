@@ -23,13 +23,14 @@ use sikemux_wire::protocol::MAX_ATTACHMENT_BYTES;
 use tokio::sync::oneshot;
 
 use super::Composing;
+use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
 use crate::drag::DraggedPath;
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, TEXT_SM};
 use crate::ui;
-use crate::workbench::{AgentRow, Workbench};
+use crate::workbench::Workbench;
 
 const IMAGE_EXTENSIONS: [&str; 13] = [
     "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif",

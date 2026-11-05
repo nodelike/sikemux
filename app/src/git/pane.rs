@@ -32,6 +32,7 @@ use history::{commit_card, commit_row, graph, CommitOwner, Graph, Inks};
 mod branches;
 mod history;
 use super::review::{review, Review};
+use crate::agents::rows::AgentRow;
 use crate::core::Target;
 use crate::editor::OpenAt;
 use crate::files::Mark;
@@ -44,7 +45,7 @@ use crate::theme::{
 use crate::toast;
 use crate::track::{self, Scrolled, Slide};
 use crate::ui::{self, Cheatsheet, Choice, Choices, Confirm, Prompt};
-use crate::workbench::{AgentRow, Workbench};
+use crate::workbench::Workbench;
 
 pub(crate) const ROW_HEIGHT: f32 = 26.;
 /// The pane's keys, by page, as its cheatsheet lists them.

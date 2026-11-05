@@ -17,6 +17,7 @@ use serde_json::json;
 use sikemux_core::git::log::GitCommit;
 
 use super::GitPane;
+use crate::agents::rows::AgentRow;
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::theme::{
@@ -25,7 +26,7 @@ use crate::theme::{
 };
 use crate::toast;
 use crate::ui;
-use crate::workbench::{AgentRow, Workbench};
+use crate::workbench::Workbench;
 
 pub const ROW_HEIGHT: f32 = 32.;
 const LANE_WIDTH: f32 = 14.;

@@ -49,7 +49,7 @@ pub enum Mark {
     /// An agent's CLI, in its brand colour.
     Agent(String),
     /// An open agent: its face, or its CLI's mark when faces are off.
-    Open(Box<crate::workbench::AgentRow>),
+    Open(Box<crate::agents::rows::AgentRow>),
 }
 
 #[derive(Clone)]

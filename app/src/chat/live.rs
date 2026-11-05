@@ -17,6 +17,7 @@ use sikemux_view::chat::{
 
 use super::tools::word;
 use super::Chat;
+use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
 use crate::icons::Icon;
 use crate::motion;
@@ -25,7 +26,7 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::ui::shimmer::shimmer;
-use crate::workbench::{AgentRow, Workbench};
+use crate::workbench::Workbench;
 
 /// The groups, one above another, ending on the composer's top border in its fill.
 pub fn stack(groups: Vec<AnyElement>, t: &Tokens) -> Option<AnyElement> {

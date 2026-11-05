@@ -13,10 +13,11 @@ use serde_json::json;
 use sikemux_plugin_api::codehost::PullList;
 use sikemux_wire::protocol::WorkspaceAgent;
 
+use crate::agents::rows::AgentRow;
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_SM, TEXT_XS};
 use crate::ui;
-use crate::workbench::{AgentRow, Workbench};
+use crate::workbench::Workbench;
 
 const OPEN_AFTER: Duration = Duration::from_millis(450);
 const CLOSE_AFTER: Duration = Duration::from_millis(140);
