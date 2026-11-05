@@ -357,19 +357,13 @@ pub(crate) fn commit(
                     note,
                 });
             }
-            Err(error) if head(&diff.top) == diff.base => return Err(error.into()),
+            Err(error) if crate::git::head(&diff.top) == diff.base => return Err(error.into()),
             Err(_) => {}
         }
     }
     Err(Refusal::Other(
         "the branch kept moving while committing; call this again".into(),
     ))
-}
-
-fn head(top: &Path) -> Option<String> {
-    git(top, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
-        .ok()
-        .map(|head| head.trim().to_owned())
 }
 
 fn nothing_yours(left: &[Left]) -> String {

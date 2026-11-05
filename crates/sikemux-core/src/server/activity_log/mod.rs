@@ -253,7 +253,7 @@ impl ActivityLog {
         let log = self.clone();
         let agent_id = agent_id.to_owned();
         in_background(move || {
-            let head = head(&cwd);
+            let head = crate::git::head(&cwd);
             if let Some(turn) = log
                 .turns
                 .locked()
@@ -318,7 +318,7 @@ impl ActivityLog {
 
     /// A commit the person made in Sikemux.
     pub(crate) fn record_commit(&self, repo: &str) {
-        if let Some(sha) = head(repo) {
+        if let Some(sha) = crate::git::head(repo) {
             self.insert_commits(repo, &[(&sha, epoch_ms() as i64)], None);
         }
     }
@@ -457,12 +457,6 @@ fn git(repo: &str, args: &[&str]) -> Option<String> {
         .limit(1024 * 1024)
         .text(args)
         .ok()
-}
-
-fn head(repo: &str) -> Option<String> {
-    git(repo, &["rev-parse", "--verify", "--quiet", "HEAD"])
-        .map(|sha| sha.trim().to_string())
-        .filter(|sha| !sha.is_empty())
 }
 
 // ---- tokens ------------------------------------------------------------

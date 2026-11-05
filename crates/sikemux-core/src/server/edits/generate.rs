@@ -146,18 +146,7 @@ fn bring_up_to_date(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git_in(dir: &Path, args: &[&str]) -> String {
-        let mut command = sikemux_process::user_environment::command("git");
-        let output = command
-            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
-            .args(args)
-            .current_dir(dir)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "git {args:?}: {output:?}");
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
-    }
+    use crate::server::edits::tests_git::git_in;
 
     #[test]
     fn stale_outputs_are_committed_on_top_and_reach_the_project_checkout() {

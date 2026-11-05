@@ -80,22 +80,7 @@ fn made_of(dir: &Path, commit: &str) -> Option<(String, Vec<String>)> {
 mod tests {
     use super::super::push::{replay, Signing, Unpushed};
     use super::*;
-
-    fn git_in(dir: &Path, args: &[&str]) -> String {
-        let mut command = sikemux_process::user_environment::command("git");
-        let output = command
-            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
-            .args(args)
-            .env("GIT_AUTHOR_NAME", "t")
-            .env("GIT_AUTHOR_EMAIL", "t@t")
-            .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@t")
-            .current_dir(dir)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "git {args:?}: {output:?}");
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
-    }
+    use crate::server::edits::tests_git::git_in;
 
     fn commit(dir: &Path, file: &str) -> String {
         std::fs::write(dir.join(file), file).unwrap();

@@ -459,18 +459,7 @@ fn remote_git(top: &Path, args: &[&str]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git_in(dir: &Path, args: &[&str]) -> String {
-        let mut command = sikemux_process::user_environment::command("git");
-        let output = command
-            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
-            .args(args)
-            .current_dir(dir)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "git {args:?}: {output:?}");
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
-    }
+    use crate::server::edits::tests_git::git_in;
 
     fn commit(dir: &Path, file: &str, text: &str, subject: &str) {
         std::fs::write(dir.join(file), text).unwrap();

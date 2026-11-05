@@ -636,3 +636,25 @@ pub(crate) async fn on_disk(core: &Core, method: &str, params: Value) -> CoreRes
     }
     Ok(ran.answer)
 }
+
+#[cfg(test)]
+pub(crate) mod tests_git {
+    use std::path::Path;
+
+    /// Runs git in `dir` as a person named `t`, and what it said on its standard output.
+    pub(crate) fn git_in(dir: &Path, args: &[&str]) -> String {
+        let mut command = sikemux_process::user_environment::command("git");
+        let output = command
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git {args:?}: {output:?}");
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+}

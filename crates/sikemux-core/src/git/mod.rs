@@ -110,6 +110,14 @@ pub fn git_command(dir: impl AsRef<std::path::Path>) -> Command {
     command
 }
 
+/// The commit `dir` is at, none before its first or outside a repository.
+pub(crate) fn head(dir: impl AsRef<std::path::Path>) -> Option<String> {
+    Git::quick(dir)
+        .trimmed(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
+        .ok()
+        .filter(|sha| !sha.is_empty())
+}
+
 /// One git run in a folder, bounded in time and output.
 pub struct Git<'a> {
     command: Command,
