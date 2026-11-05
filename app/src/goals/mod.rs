@@ -132,7 +132,9 @@ pub struct GoalsPane {
     /// Home's list of every goal and agent.
     room: room::Room,
     /// What takes the tab rail's place while Home shows.
-    panel: Option<Entity<panel::Panel>>,
+    panel: Option<Entity<panel::PaneView>>,
+    /// Home's numbers, tabs and rows.
+    list: Option<Entity<panel::PaneView>>,
     /// The box that starts work, at the top of Home.
     start: start::Start,
     /// The line on a goal that writes a new assertion.
@@ -171,6 +173,7 @@ impl GoalsPane {
             busy: false,
             room: room::Room::new(cx),
             panel: None,
+            list: None,
             start: start::Start::default(),
             asserting: None,
             environments: None,
@@ -186,10 +189,18 @@ impl GoalsPane {
     }
 
     /// What takes the tab rail's place while Home shows, made the first time it does.
-    pub fn panel(&mut self, cx: &mut Context<Self>) -> Entity<panel::Panel> {
+    pub fn panel(&mut self, cx: &mut Context<Self>) -> Entity<panel::PaneView> {
         let pane = cx.entity();
         self.panel
-            .get_or_insert_with(|| cx.new(|cx| panel::Panel::new(&pane, cx)))
+            .get_or_insert_with(|| cx.new(|cx| panel::PaneView::new(&pane, panel::draw, cx)))
+            .clone()
+    }
+
+    /// Home's numbers, tabs and rows, made the first time they show.
+    fn list(&mut self, cx: &mut Context<Self>) -> Entity<panel::PaneView> {
+        let pane = cx.entity();
+        self.list
+            .get_or_insert_with(|| cx.new(|cx| panel::PaneView::new(&pane, room::draw, cx)))
             .clone()
     }
 
@@ -1007,7 +1018,7 @@ impl Render for GoalsPane {
                 column(empty(None, "reading the goals…", cx)).into_any_element(),
                 cx,
             ),
-            (true, At::Home | At::Chat, _) => framed(home::home(self, window, cx), cx),
+            (true, At::Home | At::Chat, _) => framed(home::home(self, cx), cx),
             (true, At::Environments, _) => {
                 framed(column(environments::page(self, cx)).into_any_element(), cx)
             }

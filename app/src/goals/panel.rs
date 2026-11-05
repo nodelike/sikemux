@@ -23,30 +23,43 @@ use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_2XS_
 use crate::theme::{TEXT_SM, TEXT_XS, TEXT_XS_H};
 use crate::ui::{self, Button, Variant};
 
-/// Draws the panel apart from the window, so moving through the list redraws only it.
-pub struct Panel {
+/// Part of Home drawn on its own and cached, so the window redrawing for an agent's stream does
+/// not draw it again unless the pane changed.
+pub struct PaneView {
     pane: WeakEntity<GoalsPane>,
+    draw: fn(&mut GoalsPane, &mut Window, &mut Context<GoalsPane>) -> AnyElement,
     _following: Subscription,
 }
 
-impl Panel {
-    pub(super) fn new(pane: &Entity<GoalsPane>, cx: &mut Context<Self>) -> Self {
+impl PaneView {
+    pub(super) fn new(
+        pane: &Entity<GoalsPane>,
+        draw: fn(&mut GoalsPane, &mut Window, &mut Context<GoalsPane>) -> AnyElement,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self {
             pane: pane.downgrade(),
+            draw,
             _following: cx.observe(pane, |_, _, cx| cx.notify()),
         }
     }
 }
 
-impl Render for Panel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl Render for PaneView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let draw = self.draw;
         self.pane
-            .update(cx, draw)
+            .update(cx, |pane, cx| draw(pane, window, cx))
             .unwrap_or_else(|_| div().into_any_element())
     }
 }
 
-fn draw(pane: &mut GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
+/// What takes the tab rail's place: the row chosen in Home's list.
+pub(super) fn draw(
+    pane: &mut GoalsPane,
+    _: &mut Window,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     match pane.room.chosen.clone() {
         Some(Chosen::Goal(project, card)) => match pane.room.goal(&project, card).cloned() {
             Some(row) => goal(pane, &row, cx),
@@ -307,6 +320,7 @@ fn seeded_offer(
     let folder = item.project.clone()?;
     Some(
         div()
+            .flex()
             .pb(px(14.))
             .child(
                 Button::new("seeded-bring", "Go to its project", Variant::Outline)

@@ -85,6 +85,7 @@ fn goals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEleme
                 .then(|| goals.update(cx, |goals, cx| goals.panel(cx)))
         });
     if let Some(panel) = panel {
+        let panel = panel.cached(gpui_kit::StyleRefinement::default().size_full());
         return Some(panel.into_any_element());
     }
     let rows = crate::goals::goal_rows(bench, cx)?;

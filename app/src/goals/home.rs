@@ -7,12 +7,12 @@ use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, Anchor, AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Pixels, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
+    ParentElement, Pixels, SharedString, Stateful, StatefulInteractiveElement, StyleRefinement,
+    Styled, Window,
 };
 use sikemux_core::server::call;
 use sikemux_core::server::{AnswerParams, BoardCardParams, BoardHandOnParams};
 use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
-use sikemux_wire::memory::Seeding;
 
 use super::evidence::minute;
 use super::goal::{crumb, row};
@@ -123,38 +123,17 @@ impl GoalsPane {
 }
 
 /// Home: the numbers, the tabs and the rows, over the composer that starts work.
-pub(super) fn home(
-    pane: &mut GoalsPane,
-    window: &mut Window,
-    cx: &mut Context<GoalsPane>,
-) -> AnyElement {
+pub(super) fn home(pane: &mut GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
     let Some(bench) = pane.bench.upgrade() else {
         return div().into_any_element();
     };
-    let (composer, happened) = {
-        let bench = bench.read(cx);
-        (
-            bench.composing(START).map(|start| start.view.clone()),
-            pane.happened(bench).len(),
-        )
-    };
-    let reading_rules = matches!(
-        pane.memory
-            .as_ref()
-            .and_then(|memory| memory.seeding.as_ref()),
-        Some(Seeding::Reading { .. })
-    );
+    let composer = (bench.read(cx).composing(START)).map(|start| start.view.clone());
+    let list = pane
+        .list(cx)
+        .cached(StyleRefinement::default().w_full().flex_1().min_h_0());
     let home = div().size_full().relative().flex().flex_col();
     crate::chat::takes_drops(home, START, pane.bench.clone())
-        .child(super::room::stats(pane, cx))
-        .child(super::room::tools(pane, happened, window, cx))
-        .when(reading_rules, |home| {
-            home.children(
-                super::rules::offer(pane, false, cx)
-                    .map(|reading| div().px(px(32.)).child(reading)),
-            )
-        })
-        .child(super::room::rows(pane, cx))
+        .child(list)
         .children(composer.map(|composer| {
             div()
                 .flex_none()

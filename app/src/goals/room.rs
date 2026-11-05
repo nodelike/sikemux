@@ -9,7 +9,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, linear_color_stop, linear_gradient, list, px, relative, AnyElement, App, AppContext,
     ClickEvent, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ListAlignment, ListState, ParentElement, SharedString, Stateful,
+    IntoElement, ListAlignment, ListOffset, ListState, ParentElement, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Subscription, Task, Window,
 };
 use sikemux_core::server::call;
@@ -18,6 +18,7 @@ use sikemux_wire::goals::{
     DeskCounts, GoalAgent, GoalClock, GoalNext, GoalRow, GoalsView, LooseNeed,
 };
 use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
+use sikemux_wire::memory::Seeding;
 use sikemux_wire::protocol::{AgentGroup, AgentStatus, NoticeGoal};
 use sikemux_wire::slice::SliceState;
 
@@ -44,7 +45,7 @@ const MARK_SIZE: f32 = 16.;
 const MARKS_SHOWN: usize = 4;
 const FIND_W: f32 = 190.;
 /// How long after one read the goals are read again, however often the core says they moved.
-const READ_SPACING: Duration = Duration::from_millis(250);
+const READ_SPACING: Duration = Duration::from_millis(500);
 /// How often the clocks on the rows are drawn again.
 const CLOCK_TICK: Duration = Duration::from_secs(30);
 
@@ -81,16 +82,29 @@ impl Rank {
     }
 }
 
-/// One line of the list.
-#[derive(Clone, PartialEq)]
+/// One line of the list, by what stays the same while the rows around it change.
+#[derive(Clone)]
 enum Entry {
     Section(&'static str, usize),
-    /// A goal, by its place in the core's view.
-    Goal(usize),
+    /// A goal, by its project's folder and card.
+    Goal(String, u64),
     /// Something that waits on the person about no goal, by the inbox's id.
     Need(String),
-    /// An agent working no goal, by its place in the core's view.
-    Agent(usize),
+    /// An agent working no goal, by id.
+    Agent(String),
+}
+
+impl PartialEq for Entry {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Entry::Section(one, _), Entry::Section(two, _)) => one == two,
+            (Entry::Goal(one, card), Entry::Goal(two, other)) => card == other && one == two,
+            (Entry::Need(one), Entry::Need(two)) | (Entry::Agent(one), Entry::Agent(two)) => {
+                one == two
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The row the panel beside the list shows.
@@ -189,12 +203,9 @@ impl Room {
     fn entry_chosen(&self, entry: &Entry) -> Option<Chosen> {
         match entry {
             Entry::Section(..) => None,
-            Entry::Goal(at) => {
-                let row = self.view.goals.get(*at)?;
-                Some(Chosen::Goal(row.project.clone(), row.card))
-            }
+            Entry::Goal(project, card) => Some(Chosen::Goal(project.clone(), *card)),
             Entry::Need(id) => Some(Chosen::Need(id.clone())),
-            Entry::Agent(at) => Some(Chosen::Agent(self.view.agents.get(*at)?.id.clone())),
+            Entry::Agent(id) => Some(Chosen::Agent(id.clone())),
         }
     }
 }
@@ -278,6 +289,9 @@ impl GoalsPane {
         let moved = self.room.view != view;
         self.room.view = view;
         self.room.read = true;
+        if let Some(panel) = &self.panel {
+            panel.update(cx, |_, cx| cx.notify());
+        }
         if moved {
             self.relist(cx);
             let goals = &self.room.view;
@@ -321,9 +335,9 @@ impl GoalsPane {
                 folder_of(bench, agent.project.as_deref()).as_deref() == Some(scope)
             })
         };
-        let no_goal: Vec<usize> = (room.view.no_goal.iter())
-            .filter_map(|id| room.view.agents.iter().position(|agent| agent.id == *id))
-            .filter(|at| agent_scoped(&room.view.agents[*at]))
+        let no_goal: Vec<&GoalAgent> = (room.view.no_goal.iter())
+            .filter_map(|id| room.agent(id))
+            .filter(|agent| agent_scoped(agent))
             .collect();
 
         let count = |state: SliceState| scoped.iter().filter(|row| row.state == state).count();
@@ -347,6 +361,10 @@ impl GoalsPane {
         }
 
         let goal_at = |at: &usize| &room.view.goals[*at];
+        let goal_entry = |at: usize| {
+            let row = &room.view.goals[at];
+            Entry::Goal(row.project.clone(), row.card)
+        };
         let shown: Vec<usize> = (0..room.view.goals.len())
             .filter(|at| {
                 let row = goal_at(at);
@@ -366,14 +384,16 @@ impl GoalsPane {
                 .collect(),
             _ => Vec::new(),
         };
-        let agent_found = |at: &usize| {
-            let agent = &room.view.agents[*at];
+        let agent_found = |agent: &&GoalAgent| {
             find.is_empty()
                 || agent.task.to_lowercase().contains(&find)
                 || (agent.name.as_deref()).is_some_and(|name| name.to_lowercase().contains(&find))
         };
-        let loose_agents: Vec<usize> = match room.filter {
-            Filter::Active => no_goal.iter().copied().filter(agent_found).collect(),
+        let loose_agents: Vec<String> = match room.filter {
+            Filter::Active => (no_goal.iter().copied())
+                .filter(agent_found)
+                .map(|agent| agent.id.clone())
+                .collect(),
             _ => Vec::new(),
         };
 
@@ -383,7 +403,7 @@ impl GoalsPane {
             Some(rank) => {
                 let mut ranked = shown;
                 ranked.sort_by_key(|at| std::cmp::Reverse(rank.of(goal_at(at))));
-                entries.extend(ranked.into_iter().map(Entry::Goal));
+                entries.extend(ranked.into_iter().map(goal_entry));
                 entries.extend(loose_ids.into_iter().map(Entry::Need));
                 entries.extend(loose_agents.into_iter().map(Entry::Agent));
             }
@@ -396,9 +416,9 @@ impl GoalsPane {
                     + loose_ids.len();
                 if needing > 0 {
                     entries.push(Entry::Section("Needs you", needing));
-                    entries.extend(of(SliceState::NeedsYou).map(Entry::Goal));
+                    entries.extend(of(SliceState::NeedsYou).map(goal_entry));
                     entries.extend(loose_ids.into_iter().map(Entry::Need));
-                    entries.extend(of(SliceState::Failed).map(Entry::Goal));
+                    entries.extend(of(SliceState::Failed).map(goal_entry));
                 }
                 for (name, state) in [
                     ("Moving", SliceState::Moving),
@@ -407,7 +427,7 @@ impl GoalsPane {
                     let count = of(state).count();
                     if count > 0 {
                         entries.push(Entry::Section(name, count));
-                        entries.extend(of(state).map(Entry::Goal));
+                        entries.extend(of(state).map(goal_entry));
                     }
                 }
                 if !loose_agents.is_empty() {
@@ -417,12 +437,27 @@ impl GoalsPane {
                 let count = of(SliceState::Done).count();
                 if count > 0 {
                     entries.push(Entry::Section("Done", count));
-                    entries.extend(of(SliceState::Done).map(Entry::Goal));
+                    entries.extend(of(SliceState::Done).map(goal_entry));
                 }
             }
         }
 
+        let top = self.room.rows.logical_scroll_top();
+        let anchor = self.room.entries.get(top.item_ix).cloned();
         crate::git::relist(&self.room.rows, &self.room.entries, &entries);
+        if top.item_ix > 0 || top.offset_in_item > px(0.) {
+            let kept = anchor.and_then(|anchor| entries.iter().position(|entry| *entry == anchor));
+            self.room.rows.scroll_to(match kept {
+                Some(item_ix) => ListOffset {
+                    item_ix,
+                    offset_in_item: top.offset_in_item,
+                },
+                None => ListOffset {
+                    item_ix: top.item_ix.min(entries.len().saturating_sub(1)),
+                    offset_in_item: px(0.),
+                },
+            });
+        }
         self.room.entries = entries;
         self.room.counts = counts;
         self.room.stats = stats;
@@ -628,8 +663,37 @@ impl GoalsPane {
     }
 }
 
+/// Home's numbers, tabs and rows.
+pub(super) fn draw(
+    pane: &mut GoalsPane,
+    window: &mut Window,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
+    let happened = (pane.bench.upgrade()).map_or(0, |bench| pane.happened(bench.read(cx)).len());
+    let reading_rules = matches!(
+        pane.memory
+            .as_ref()
+            .and_then(|memory| memory.seeding.as_ref()),
+        Some(Seeding::Reading { .. })
+    );
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .child(stats(pane, cx))
+        .child(tools(pane, happened, window, cx))
+        .when(reading_rules, |list| {
+            list.children(
+                super::rules::offer(pane, false, cx)
+                    .map(|reading| div().px(px(32.)).child(reading)),
+            )
+        })
+        .child(rows(pane, cx))
+        .into_any_element()
+}
+
 /// The six numbers over the list. Clicking one ranks the list by it; again goes back.
-pub(super) fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
+fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let (counts, stats, rank) = (pane.room.counts, pane.room.stats, pane.room.rank);
     let sub = |words: String, tint: Option<Hsla>| {
@@ -738,7 +802,7 @@ pub(super) fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoE
 }
 
 /// The filter tabs, how much happened while the person was away and the find box.
-pub(super) fn tools(
+fn tools(
     pane: &mut GoalsPane,
     happened: usize,
     window: &mut Window,
@@ -874,7 +938,7 @@ pub(super) fn tools(
 }
 
 /// The rows. Only those in view are drawn, under the name of the section the top one is in.
-pub(super) fn rows(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
+fn rows(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let view = cx.entity();
     let rows = list(pane.room.rows.clone(), move |at, _, cx| {
@@ -949,7 +1013,7 @@ fn section_line(name: &'static str, count: usize, cx: &App) -> Div {
 fn entry_row(pane: &GoalsPane, at: usize, cx: &mut Context<GoalsPane>) -> AnyElement {
     match pane.room.entries.get(at) {
         Some(Entry::Section(name, count)) => section_line(name, *count, cx).into_any_element(),
-        Some(Entry::Goal(goal)) => match pane.room.view.goals.get(*goal) {
+        Some(Entry::Goal(project, card)) => match pane.room.goal(project, *card) {
             Some(row) => goal_row(pane, row, cx),
             None => div().into_any_element(),
         },
@@ -959,7 +1023,7 @@ fn entry_row(pane: &GoalsPane, at: usize, cx: &mut Context<GoalsPane>) -> AnyEle
                 None => div().into_any_element(),
             }
         }
-        Some(Entry::Agent(agent)) => match pane.room.view.agents.get(*agent) {
+        Some(Entry::Agent(agent)) => match pane.room.agent(agent) {
             Some(agent) => agent_row(pane, agent, cx),
             None => div().into_any_element(),
         },
