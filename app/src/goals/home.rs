@@ -234,6 +234,8 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
         .iter()
         .partition(|(_, goal)| super::goal_mark(goal) != SliceState::Done);
     moving.retain(|(_, goal)| !goal.goal_stalled);
+    let (waiting, moving): (Vec<_>, Vec<_>) =
+        (moving.into_iter()).partition(|(_, goal)| super::goal_mark(goal) == SliceState::Waiting);
     div()
         .flex()
         .flex_col()
@@ -290,6 +292,13 @@ fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
         .when(!moving.is_empty(), |view| {
             view.child(section("Moving", moving.len(), cx)).children(
                 moving
+                    .iter()
+                    .map(|(board, goal)| goal_row(pane, board, goal, cx)),
+            )
+        })
+        .when(!waiting.is_empty(), |view| {
+            view.child(section("Waiting", waiting.len(), cx)).children(
+                waiting
                     .iter()
                     .map(|(board, goal)| goal_row(pane, board, goal, cx)),
             )
@@ -365,7 +374,11 @@ fn needs_row(
                 .as_ref()
                 .map(|hold| crate::approvals::held_action(&hold.id, &hold.what, cx)),
         )
-        .children(about.map(|about| ui::meta(about, cx).flex_shrink_1().min_w_0().truncate()))
+        .children(
+            about
+                .filter(|about| !item.what.contains(about.as_str()))
+                .map(|about| ui::meta(about, cx).flex_shrink_1().min_w_0().truncate()),
+        )
         .child(
             ui::meta(project.to_owned(), cx)
                 .flex_shrink_1()

@@ -60,7 +60,13 @@ struct Entry: Identifiable, Equatable {
 
     var id: String { item.id }
     var provider: String { item.cli ?? "" }
-    var title: String { agent?.title ?? item.title ?? item.card?.title ?? item.what }
+    /// What it is about, or what it says when that already names it, as "Stalled on" a card does.
+    var title: String {
+        guard let about = agent?.title ?? item.title ?? item.card?.title,
+            !item.what.contains(about)
+        else { return item.what }
+        return about
+    }
     /// Subagents, and shells or monitors, its agent still has going.
     var subagents: Int { agent?.subagents ?? 0 }
     var tasks: Int { agent?.tasks ?? 0 }
@@ -92,7 +98,8 @@ struct Entry: Identifiable, Equatable {
 
     /// What the item says, and for a question why it reached the person rather than its lead.
     var what: String {
-        [item.what, question?.viaNote].compactMap { $0 }.joined(separator: " · ")
+        [title == item.what ? nil : item.what, question?.viaNote]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 }
 
