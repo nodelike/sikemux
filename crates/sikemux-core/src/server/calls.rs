@@ -1335,7 +1335,6 @@ pub(super) async fn prompt_chat(core: &Arc<Core>, params: PromptChatParams) -> C
         messages::from_person(core, &agent_id, text)?;
     } else {
         super::chat::wake_for_prompt(core, &agent_id, &mut context).await?;
-        context.extend(board::chat_goal::take_note(core, &agent_id));
         super::chat::prompt(core, &agent_id, message_id, text, paths, context)?;
     }
     Ok(())

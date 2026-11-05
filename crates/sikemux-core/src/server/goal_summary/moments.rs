@@ -207,7 +207,7 @@ fn workers(core: &Core, board: &BoardView, goal: &CardView, cards: &[&CardView])
 
 /// What the person's message `text` says, without the tag an answer to an agent's question
 /// comes in.
-fn person_said(text: &str) -> Option<String> {
+pub(crate) fn person_said(text: &str) -> Option<String> {
     let text = text.trim();
     if !text.starts_with("<question-answer") {
         return person_prose(text).map(|line| clipped(&line, MAX_PERSON_CHARS));
@@ -222,7 +222,7 @@ fn person_said(text: &str) -> Option<String> {
 }
 
 /// The start and end of a long answer, which are where it says what it did and what is left.
-fn answer_text(text: &str) -> String {
+pub(super) fn answer_text(text: &str) -> String {
     let line = one_line(&sikemux_markdown::words(&prose_of(text)));
     let count = line.chars().count();
     if count <= MAX_ANSWER_CHARS {

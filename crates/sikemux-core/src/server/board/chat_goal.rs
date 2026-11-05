@@ -55,8 +55,6 @@ const AFTER_NOT_NOW: Bar = Bar {
     worked_ms: 20 * 60 * 1000,
 };
 
-/// How much of what the person asked goes on the card.
-const MAX_DETAILS_CHARS: usize = 4000;
 /// Chats kept, past which those touched longest ago go.
 const MAX_CHATS: usize = 512;
 const FILE: &str = "chat-goals.json";
@@ -291,18 +289,19 @@ pub(crate) fn take_note(core: &Core, agent: &str) -> Option<ChatContext> {
     Some(note)
 }
 
-/// The first draft of a goal, there at once: the chat's title, or else what the person asked.
+/// The first draft of a goal, there at once: the chat's title, or else what the person last
+/// asked, which is not always what the agent was last sent, as a teammate's report comes in too.
 fn first_guess(chat: &Chat) -> (String, String, String) {
     const READ_TURNS: usize = 6;
     const READ_BYTES: usize = 64 * 1024;
     let said = chat.feed.excerpt(None, READ_TURNS, READ_BYTES).said;
     let asked = (said.iter().rev())
         .find_map(|(_, _, said)| match said {
-            Said::Asked(text) => Some(text.trim().to_owned()),
+            Said::Asked(text) => goal_summary::person_said(text),
             _ => None,
         })
         .unwrap_or_default();
-    let first_line = asked.lines().next().unwrap_or_default();
+    let first_line = asked.as_str();
     let title = clipped(
         chat.feed.title().as_deref().unwrap_or(first_line),
         MAX_TITLE_CHARS,
@@ -353,7 +352,7 @@ fn track_now(core: &Arc<Core>, agent: &str) -> Result<(String, u64, String), Str
     }
     let adding = Adding {
         title: title_of(&title)?,
-        details: super::long_text("details", &clipped(&asked, MAX_DETAILS_CHARS))?,
+        details: super::long_text("details", &asked)?,
         acceptance: String::new(),
         promise: Some(slice::promise_of(&promise)?),
         asserts: Vec::new(),

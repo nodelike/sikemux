@@ -21,8 +21,8 @@ use sikemux_wire::slice::{GoalSummary, GoalSummaryParams, GoalSummaryView};
 use tokio::sync::Semaphore;
 
 pub(crate) use self::draft::{draft_goal, GoalDraft};
-pub(crate) use self::moments::title_is_chopped;
 use self::moments::Gathered;
+pub(crate) use self::moments::{person_said, title_is_chopped};
 use super::board;
 use super::changed::Topic;
 use super::connection::blocking;

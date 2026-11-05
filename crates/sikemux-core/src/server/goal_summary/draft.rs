@@ -1,9 +1,10 @@
 //! A goal's title and promise, drafted by a model from what a chat said lately, for when the
-//! person tracks a chat's work as a goal.
+//! person tracks a chat's work as a goal. It reads what a summary does: the person's own words
+//! and the agent's answers, without what may be a secret or other agents' reports.
 
 use serde::Deserialize;
 
-use super::moments::ASKED;
+use super::moments::{answer_text, person_said, ASKED};
 use crate::agent_catalog::AgentKind;
 use crate::server::chat::feed::Said;
 use crate::server::{saved, Core};
@@ -37,8 +38,14 @@ pub(crate) fn draft_goal(core: &Core, agent: &str) -> Option<GoalDraft> {
     let mut chat_said = String::new();
     for (_, _, said) in chat.feed.excerpt(None, READ_TURNS, READ_BYTES).said {
         match said {
-            Said::Asked(text) => chat_said.push_str(&format!("Person: {text}\n")),
-            Said::Message(text) => chat_said.push_str(&format!("Agent: {text}\n")),
+            Said::Asked(text) => {
+                if let Some(line) = person_said(&text) {
+                    chat_said.push_str(&format!("Person: {line}\n"));
+                }
+            }
+            Said::Message(text) => {
+                chat_said.push_str(&format!("Agent: {}\n", answer_text(&text)));
+            }
             _ => {}
         }
     }
