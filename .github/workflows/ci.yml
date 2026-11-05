@@ -163,38 +163,14 @@ jobs:
       - name: Install the generators' dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check project formatting
-        run: pnpm format:check
+      - name: Check generated files match their sources
+        run: pnpm check:generated
 
-      - name: Lint shared code
-        run: pnpm lint
+      - name: Install shellcheck
+        run: brew install shellcheck
 
-      - name: Typecheck shared code
-        run: pnpm typecheck
-
-      - name: Check the grammar manifest matches the installed grammars
-        run: pnpm grammars:check
-
-      - name: Check the generated wire types match the core's Rust
-        run: pnpm wire:check
-
-      - name: Check the generated agent tool list matches its source
-        run: pnpm agent-tools:check
-
-      - name: Check the generated agent catalog matches its source
-        run: pnpm agent-catalog:check
-
-      - name: Check the docs reference pages match their source
-        run: pnpm docs:reference:check
-
-      - name: Check the file icons match the installed icon theme
-        run: pnpm file-icons:check
-
-      - name: Check release tooling without credentials
-        run: pnpm release:check
-
-      - name: Lint shell scripts
-        run: brew install shellcheck && shellcheck scripts/*.sh
+      - name: Check formatting, lint, types and release tooling
+        run: pnpm check:code
 
   rust:
     name: Rust formatting, lint, and tests
@@ -222,6 +198,18 @@ jobs:
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
+
+      - name: Install cargo-hakari
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/hakari.tar.gz" https://github.com/guppy-rs/guppy/releases/download/cargo-hakari-0.9.39/cargo-hakari-0.9.39-universal-apple-darwin.tar.gz
+          echo "c1f84026b805cc7fb31c271e8b0720abadb8d9416d126c76d6fc50a2a147d7f9  $RUNNER_TEMP/hakari.tar.gz" | shasum -a 256 -c -
+          bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+          mkdir -p "$bin"
+          tar -xzf "$RUNNER_TEMP/hakari.tar.gz" -C "$bin"
+          echo "$bin" >>"$GITHUB_PATH"
+
+      - name: Check workspace-hack is up to date
+        run: cargo hakari generate --diff
 
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings

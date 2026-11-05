@@ -1,4 +1,4 @@
-.PHONY: dev dev-stop build preflight run icons format format-check lint tsc rust-fmt rust-clippy rust-test rust-audit shell-lint release-check hooks prepush check ci clean clean-dev prune
+.PHONY: dev dev-stop build preflight run icons format format-check lint tsc rust-fmt rust-clippy rust-test rust-audit shell-lint release-check hooks check ci clean clean-dev prune
 
 # Homebrew's Rust ignores rust-toolchain.toml, so rustup's proxies must come first.
 export PATH := $(HOME)/.cargo/bin:$(PATH)
@@ -65,9 +65,6 @@ release-check:
 
 hooks:
 	git config core.hooksPath .githooks
-
-prepush:
-	pnpm prepush
 
 check:
 	pnpm check

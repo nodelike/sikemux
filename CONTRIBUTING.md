@@ -86,11 +86,10 @@ Merging a change under `server/` to `main` deploys it: `.github/workflows/server
 CI runs these gates on every push. To run them before pushing:
 
 ```bash
-make prepush          # the CI gates, limited to what your commits touched
-make check            # every gate, regardless of what changed
+make check            # every gate
 ```
 
-`make check` runs Prettier in check mode, ShellCheck, ESLint and TypeScript over `shared/`, `cargo audit`, `cargo fmt --check`, Clippy with warnings denied, Rust tests, and credential-free release-tooling checks. It also checks that generated files (wire types, agent tools, grammars, icons) match their sources. These are the same quality gates enforced by CI.
+`make check` runs Prettier in check mode, ShellCheck, ESLint and TypeScript over `shared/`, the dependency audit, `cargo fmt --check`, the `workspace-hack` check, Clippy with warnings denied, Rust tests, and credential-free release-tooling checks. It also checks that generated files (wire types, agent tools, grammars, icons) match their sources. These are the same quality gates enforced by CI.
 
 One CI job stays out of every push: **GPUI in a real window**. It runs daily and when CI is started by hand with `window` checked; start it that way if you touched how the app draws or launches.
 

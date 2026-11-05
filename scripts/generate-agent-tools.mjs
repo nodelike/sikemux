@@ -36,8 +36,7 @@ const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 const methods = manifest.tools.map((tool) => tool.method);
 const names = manifest.tools.map((tool) => tool.name);
 
-if (methods.length === 0)
-  throw new Error("tools/tools.json declares no tools");
+if (methods.length === 0) throw new Error("tools/tools.json declares no tools");
 if (new Set(methods).size !== methods.length)
   throw new Error("tools/tools.json declares a duplicate method");
 if (new Set(names).size !== names.length)
