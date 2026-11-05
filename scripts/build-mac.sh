@@ -13,9 +13,12 @@ APP_IDENTIFIER="$(node scripts/app-metadata.mjs identifier)"
 MINIMUM_MACOS="$(node scripts/app-metadata.mjs minimum-macos)"
 ICON_ASSET="sikemux"
 
+# shellcheck source=/dev/null
+source "$ROOT/scripts/release-shape.sh"
+CORE_LINK_TARGET="$(node scripts/app-metadata.mjs core-link)"
+
 # No signing material reaches the build.
-unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
-unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+unset "${SIGNING_SECRETS[@]}"
 
 # The Release workflow compiles the app and packs it on separate machines, so
 # the app compiles while the core does: BUILD_STEP=compile, then BUILD_STEP=package.
@@ -56,7 +59,7 @@ mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$APP_PATH/Co
 /usr/bin/ditto "$ROOT/target/release/sikemux" "$APP_PATH/Contents/MacOS/sikemux"
 /usr/bin/ditto "$ROOT/packaging/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"
 /usr/bin/ditto "$ROOT/packaging/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"
-ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Contents/MacOS/sikemux-host"
+ln -s "$CORE_LINK_TARGET" "$APP_PATH/Contents/MacOS/sikemux-host"
 /usr/bin/ditto "$ROOT/packaging/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"
 /usr/bin/ditto "$ROOT/packaging/icons/icon.icns" "$APP_PATH/Contents/Resources/icon.icns"
 /usr/libexec/PlistBuddy \
@@ -76,9 +79,6 @@ ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Conte
   "$PLIST" >/dev/null
 /usr/bin/codesign --force --options runtime --entitlements "$ROOT/packaging/Entitlements.plist" --sign - "$APP_PATH"
 
-# The README and sikemux.com promise a small download, so a release that grows
-# past this fails here instead of shipping. scripts/sign-mac.sh checks it again.
-DMG_BUDGET_BYTES=30000000
 
 # The DMG holds what every release's has: the app, a link to Applications, the
 # background and the volume's icon, packed with LZMA.
@@ -125,7 +125,7 @@ ARCHS="$(/usr/bin/lipo -archs "$EXECUTABLE")"
 CORE_APP="$APP_PATH/Contents/Helpers/Sikemux Core.app"
 CLI_EXECUTABLE="$CORE_APP/Contents/MacOS/sikemux-host"
 [[ -x "$CLI_EXECUTABLE" && ! -L "$CLI_EXECUTABLE" ]] || fail "bundled core is missing or not executable"
-[[ "$(readlink "$APP_PATH/Contents/MacOS/sikemux-host")" == "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" ]] ||
+[[ "$(readlink "$APP_PATH/Contents/MacOS/sikemux-host")" == "$CORE_LINK_TARGET" ]] ||
   fail "Contents/MacOS/sikemux-host does not link to the bundled core"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$CORE_APP/Contents/Info.plist")" == "$APP_IDENTIFIER.core" ]] ||
   fail "the core's CFBundleIdentifier is not $APP_IDENTIFIER.core"
@@ -135,55 +135,35 @@ grep -q 'flags=.*runtime' <<<"$CORE_SIGNATURE" || fail "the core lacks the harde
 CLI_ARCHS="$(/usr/bin/lipo -archs "$CLI_EXECUTABLE")"
 [[ "$CLI_ARCHS" == "$ARCHS" ]] || fail "core architecture ($CLI_ARCHS) differs from app ($ARCHS)"
 [[ -s "$CORE_APP/Contents/Resources/sikemux_pi_tools.ts" ]] || fail "bundled Pi browser extension is missing"
-# The voice helper is published beside the release and downloaded with the
-# speech model, so it must be built and signed but stay out of the app.
-VOICE_EXECUTABLE="$ROOT/packaging/binaries/sikemux-voice-aarch64-apple-darwin"
-[[ -x "$VOICE_EXECUTABLE" ]] || fail "voice helper is missing or not executable"
-[[ ! -e "$APP_PATH/Contents/MacOS/sikemux-voice" ]] || fail "the voice helper is bundled in the app"
-/usr/bin/codesign --verify --strict "$VOICE_EXECUTABLE" || fail "voice helper signature is invalid"
-VOICE_SIGNATURE="$(/usr/bin/codesign -dv "$VOICE_EXECUTABLE" 2>&1)"
-grep -q 'flags=.*runtime' <<<"$VOICE_SIGNATURE" || fail "voice helper lacks the hardened runtime"
-VOICE_ARCHS="$(/usr/bin/lipo -archs "$VOICE_EXECUTABLE")"
-sorted_archs() { tr ' ' '\n' <<<"$1" | sort | tr '\n' ' '; }
-[[ "$(sorted_archs "$VOICE_ARCHS")" == "$(sorted_archs "$ARCHS")" ]] || fail "voice helper architecture ($VOICE_ARCHS) differs from app ($ARCHS)"
+# Fails when a binary links a library from the build machine's package manager.
+# Such binaries pass codesign verification but fail at launch on user machines
+# (or under library-validation Team ID checks).
+check_libraries() {
+  local libraries
+  libraries="$(/usr/bin/otool -L "$1")"
+  if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$libraries"; then
+    echo "$libraries" >&2
+    fail "$2 links to a package-manager library"
+  fi
+}
+# The published helpers must be built and signed but stay out of the app.
+for helper in "${PUBLISHED_HELPERS[@]}"; do
+  executable="$ROOT/packaging/binaries/$helper-aarch64-apple-darwin"
+  [[ -x "$executable" ]] || fail "$helper is missing or not executable"
+  [[ ! -e "$APP_PATH/Contents/MacOS/$helper" ]] || fail "$helper is bundled in the app"
+  /usr/bin/codesign --verify --strict "$executable" || fail "$helper signature is invalid"
+  grep -q 'flags=.*runtime' <<<"$(/usr/bin/codesign -dv "$executable" 2>&1)" || fail "$helper lacks the hardened runtime"
+  [[ "$(/usr/bin/lipo -archs "$executable")" == "$ARCHS" ]] || fail "$helper architecture differs from the app's ($ARCHS)"
+  check_libraries "$executable" "$helper"
+done
 NOTCH_APP="$APP_PATH/Contents/Helpers/Sikemux Notch.app"
 NOTCH_EXECUTABLE="$NOTCH_APP/Contents/MacOS/sikemux-notch"
 [[ -x "$NOTCH_EXECUTABLE" ]] || fail "notch helper is missing or not executable"
 /usr/bin/codesign --verify --strict "$NOTCH_APP" || fail "notch helper signature is invalid"
 NOTCH_ARCHS="$(/usr/bin/lipo -archs "$NOTCH_EXECUTABLE")"
-[[ "$(sorted_archs "$NOTCH_ARCHS")" == "$(sorted_archs "$ARCHS")" ]] || fail "notch helper architecture ($NOTCH_ARCHS) differs from app ($ARCHS)"
-# The simulator helper is published and downloaded the same way.
-SIM_EXECUTABLE="$ROOT/packaging/binaries/sikemux-sim-aarch64-apple-darwin"
-[[ -x "$SIM_EXECUTABLE" ]] || fail "simulator helper is missing or not executable"
-[[ ! -e "$APP_PATH/Contents/MacOS/sikemux-sim" ]] || fail "the simulator helper is bundled in the app"
-/usr/bin/codesign --verify --strict "$SIM_EXECUTABLE" || fail "simulator helper signature is invalid"
-grep -q 'flags=.*runtime' <<<"$(/usr/bin/codesign -dv "$SIM_EXECUTABLE" 2>&1)" || fail "simulator helper lacks the hardened runtime"
-SIM_ARCHS="$(/usr/bin/lipo -archs "$SIM_EXECUTABLE")"
-[[ "$(sorted_archs "$SIM_ARCHS")" == "$(sorted_archs "$ARCHS")" ]] || fail "simulator helper architecture ($SIM_ARCHS) differs from app ($ARCHS)"
-
-# Packaged apps must never depend on libraries from the build machine's
-# Homebrew/MacPorts installation. Such binaries pass codesign verification but
-# fail at launch on user machines (or under library-validation Team ID checks).
-DYNAMIC_LIBS="$(/usr/bin/otool -L "$EXECUTABLE")"
-if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$DYNAMIC_LIBS"; then
-  echo "$DYNAMIC_LIBS" >&2
-  fail "bundle executable links to a package-manager library"
-fi
-CLI_DYNAMIC_LIBS="$(/usr/bin/otool -L "$CLI_EXECUTABLE")"
-if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$CLI_DYNAMIC_LIBS"; then
-  echo "$CLI_DYNAMIC_LIBS" >&2
-  fail "the core links to a package-manager library"
-fi
-VOICE_DYNAMIC_LIBS="$(/usr/bin/otool -L "$VOICE_EXECUTABLE")"
-if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$VOICE_DYNAMIC_LIBS"; then
-  echo "$VOICE_DYNAMIC_LIBS" >&2
-  fail "voice helper links to a package-manager library"
-fi
-SIM_DYNAMIC_LIBS="$(/usr/bin/otool -L "$SIM_EXECUTABLE")"
-if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$SIM_DYNAMIC_LIBS"; then
-  echo "$SIM_DYNAMIC_LIBS" >&2
-  fail "simulator helper links to a package-manager library"
-fi
+[[ "$NOTCH_ARCHS" == "$ARCHS" ]] || fail "notch helper architecture ($NOTCH_ARCHS) differs from app ($ARCHS)"
+check_libraries "$EXECUTABLE" "bundle executable"
+check_libraries "$CLI_EXECUTABLE" "the core"
 
 # Test kits build the app with `drive` and the core with `fake-plugins`, which answer to
 # a socket or to files instead of the person; each leaves this text in what it builds.
@@ -203,13 +183,10 @@ if ! grep -Fq "Missing SIKEMUX_TOOLS_AGENT_ID" <<<"$TOOLS_START"; then
   fail "bundled tools MCP server does not start"
 fi
 
-# The signed voice helper must still start under the hardened runtime.
-if [[ "$VOICE_ARCHS" == *"$(uname -m)"* ]]; then
-  "$VOICE_EXECUTABLE" --version | grep -Fq "sikemux-voice" || fail "signed voice helper does not start"
-fi
-if [[ "$SIM_ARCHS" == *"$(uname -m)"* ]]; then
-  "$SIM_EXECUTABLE" --version | grep -Fq "sikemux-sim" || fail "signed simulator helper does not start"
-fi
+# The signed helpers must still start under the hardened runtime.
+for helper in "${PUBLISHED_HELPERS[@]}"; do
+  "$ROOT/packaging/binaries/$helper-aarch64-apple-darwin" --version | grep -Fq "$helper" || fail "signed $helper does not start"
+done
 
 # A release requires a structurally valid ad hoc signature before it signs the app again.
 if /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH" 2>/dev/null; then
@@ -227,5 +204,3 @@ echo "  app: $APP_PATH"
 echo "  version: $APP_VERSION"
 echo "  architectures: $ARCHS"
 echo "  core: $CLI_EXECUTABLE ($CLI_ARCHS)"
-echo "  voice helper: $VOICE_EXECUTABLE ($VOICE_ARCHS)"
-echo "  simulator helper: $SIM_EXECUTABLE ($SIM_ARCHS)"

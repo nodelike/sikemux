@@ -39,9 +39,7 @@ const PROVIDERS = ["routed", "reads"];
 const ROUTED_APIS = ["anthropic", "responses", "chat"];
 
 /** Everything the share page paints in an agent's colour, as a selector with `%` for the agent and the property it sets. */
-const BRANDED = [
-  [".agent-glyph.%", "color"],
-];
+const BRANDED = [[".agent-glyph.%", "color"]];
 
 const { agents } = JSON.parse(await readFile(sourcePath, "utf8"));
 if (!Array.isArray(agents) || agents.length === 0)

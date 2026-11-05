@@ -11,6 +11,7 @@ VERSION="$(node -p "require('./package.json').version")"
 # packages say ~ to let a stable release overtake its nightlies.
 PACKAGE_VERSION="${VERSION/-/\~}"
 SUMMARY="$(node scripts/app-metadata.mjs description)"
+APP_IDENTIFIER="$(node scripts/app-metadata.mjs identifier)"
 TRIPLE=x86_64-unknown-linux-gnu
 
 LINUXDEPLOY_URL=https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
@@ -84,7 +85,7 @@ Exec=$1 %u
 Icon=sikemux
 Terminal=false
 Categories=Development;
-StartupWMClass=com.nodelike.sikemux
+StartupWMClass=$APP_IDENTIFIER
 MimeType=x-scheme-handler/sikemux;
 DESKTOP
 }
@@ -92,7 +93,7 @@ DESKTOP
 lay_out_shared() {
   local root="$1"
   mkdir -p "$root/usr/share/applications"
-  desktop_entry sikemux >"$root/usr/share/applications/com.nodelike.sikemux.desktop"
+  desktop_entry sikemux >"$root/usr/share/applications/$APP_IDENTIFIER.desktop"
   for icon in 32x32:32x32 128x128:128x128 128x128@2x:256x256 icon:512x512; do
     mkdir -p "$root/usr/share/icons/hicolor/${icon#*:}/apps"
     install -m 644 "$ROOT/packaging/icons/${icon%%:*}.png" "$root/usr/share/icons/hicolor/${icon#*:}/apps/sikemux.png"
@@ -169,7 +170,7 @@ $(sed '1{/^#!/d}' "$POSTINST")
 /usr/lib/sikemux
 /usr/bin/sikemux
 /usr/bin/sikemux-host
-/usr/share/applications/com.nodelike.sikemux.desktop
+/usr/share/applications/$APP_IDENTIFIER.desktop
 /usr/share/icons/hicolor/*/apps/sikemux.png
 SPEC
 } >"$RPM_TOP/SPECS/sikemux.spec"
@@ -212,7 +213,7 @@ done
   ./linuxdeploy --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/sikemux" --executable "$APPDIR/usr/bin/sikemux-host" \
     --deploy-deps-only "$APPDIR$WEBKIT_DIR" \
-    --desktop-file "$APPDIR/usr/share/applications/com.nodelike.sikemux.desktop" \
+    --desktop-file "$APPDIR/usr/share/applications/$APP_IDENTIFIER.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/512x512/apps/sikemux.png" \
     --plugin gtk --plugin gstreamer
 )

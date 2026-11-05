@@ -58,9 +58,9 @@ if [[ "$CHANNEL" == "stable" && "$VERSION_WITHOUT_BUILD" == *-* ]]; then
   exit 2
 fi
 
-SIGNING_VARS=(TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_SIGNING_IDENTITY
-  APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
-  APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD)
+# shellcheck source=/dev/null
+source "$ROOT/scripts/release-shape.sh"
+SIGNING_VARS=("${SIGNING_SECRETS[@]}" APPLE_SIGNING_IDENTITY)
 # Load local signing configuration without printing it. Explicit environment
 # values win over .env values.
 for name in "${SIGNING_VARS[@]}"; do
@@ -142,9 +142,7 @@ package_version() {
   '
 }
 CARGO_VER="$(package_version sikemux-host <<<"$CARGO_METADATA")" || fail "could not read the core's version"
-GPUI_VER="$(package_version sikemux-gpui <<<"$CARGO_METADATA")" || fail "could not read the GPUI app's version"
-[[ "$PKG_VER" == "$CARGO_VER" && "$PKG_VER" == "$GPUI_VER" ]] || \
-  fail "current versions disagree (package=$PKG_VER cargo=$CARGO_VER gpui=$GPUI_VER)"
+[[ "$PKG_VER" == "$CARGO_VER" ]] || fail "current versions disagree (package=$PKG_VER cargo=$CARGO_VER)"
 CURRENT_VERSION="$PKG_VER" NEXT_VERSION="$VERSION" node - <<'NODE' || fail "version must not be less than $PKG_VER"
 const parse = (value) => {
   const [, major, minor, patch, prerelease] = value.match(/^(\d+)\.(\d+)\.(\d+)(?:-([^+]+))?(?:\+.*)?$/);
@@ -209,7 +207,7 @@ else
   echo "✓ Preflight passed; bumping version to $VERSION"
 fi
 BACKUP="$(mktemp -d)"
-FILES=(package.json Cargo.toml Cargo.lock app/Cargo.toml latest.json)
+FILES=(package.json Cargo.toml Cargo.lock latest.json)
 for file in "${FILES[@]}"; do
   if [[ -e "$file" ]]; then mkdir -p "$BACKUP/$(dirname "$file")"; cp "$file" "$BACKUP/$file"; fi
 done
@@ -250,13 +248,12 @@ path = pathlib.Path("package.json")
 data = json.loads(path.read_text())
 data["version"] = version
 path.write_text(json.dumps(data, indent=2) + "\n")
-for name in ("Cargo.toml", "app/Cargo.toml"):
-    path = pathlib.Path(name)
-    text = path.read_text()
-    updated, count = re.subn(r'(?m)^(version = ")[^"]+("\s*)$', rf'\g<1>{version}\2', text, count=1)
-    if count != 1:
-        raise SystemExit(f"could not update {name} package version")
-    path.write_text(updated)
+path = pathlib.Path("Cargo.toml")
+text = path.read_text()
+updated, count = re.subn(r'(?m)^(version = ")[^"]+("\s*)$', rf'\g<1>{version}\2', text, count=1)
+if count != 1:
+    raise SystemExit("could not update the workspace version")
+path.write_text(updated)
 PY
 # Cargo.lock records the workspace version and the sidecar builds with --locked,
 # so the bump has to reach the lock file or the build fails partway through.

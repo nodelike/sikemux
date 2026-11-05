@@ -60,7 +60,7 @@ A nightly is a prerelease of the next stable release. After a stable `0.x.y`, `m
 A nightly that has been in use becomes stable without anything newer from `main`. On `release/<major.minor>`:
 
 1. A merge commit whose content is exactly that nightly's tagged commit.
-2. A commit that sets the stable version in `package.json`, `[workspace.package]` in `Cargo.toml`, the GPUI app's `app/Cargo.toml` and the workspace's own crates in `Cargo.lock`, and writes `RELEASE_NOTES.md` for everything since the last stable release.
+2. A commit that sets the stable version in `package.json`, `[workspace.package]` in `Cargo.toml` and the workspace's own crates in `Cargo.lock`, and writes `RELEASE_NOTES.md` for everything since the last stable release.
 3. The `v<version>` tag on that commit.
 
 None of this lands on `main`. Commits made to `main` meanwhile stay out of the release.
@@ -86,7 +86,7 @@ export GIT_INDEX_FILE=$(mktemp -u); git read-tree "${merge}"
 from=$(git show "${merge}:package.json" | sed -n 's/.*"version": "\(.*\)".*/\1/p')
 put() { git update-index --cacheinfo "100644,$(git hash-object -w --stdin),$1"; }
 git show "${merge}:package.json" | sed "s/\"version\": \"${from}\"/\"version\": \"${version}\"/" | put package.json
-for file in Cargo.toml app/Cargo.toml Cargo.lock; do
+for file in Cargo.toml Cargo.lock; do
   git show "${merge}:${file}" | sed "s/^version = \"${from}\"$/version = \"${version}\"/" | put "${file}"
 done
 put RELEASE_NOTES.md < /path/to/notes.md

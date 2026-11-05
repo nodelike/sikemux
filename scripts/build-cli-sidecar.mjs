@@ -85,7 +85,7 @@ function bundleCore(binary) {
     CFBundlePackageType: "APPL",
     CFBundleShortVersionString: config.version,
     CFBundleVersion: config.version,
-    LSMinimumSystemVersion: "11.0",
+    LSMinimumSystemVersion: config["minimum-macos"],
     LSUIElement: true,
   };
   for (const [key, value] of Object.entries(appInfo)) {
@@ -106,10 +106,7 @@ function bundleCore(binary) {
   copyFileSync(binary, executable);
   chmodSync(executable, 0o755);
   mkdirSync(join(staging, "MacOS"));
-  symlinkSync(
-    "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host",
-    join(staging, "MacOS", "sikemux-host"),
-  );
+  symlinkSync(config["core-link"], join(staging, "MacOS", "sikemux-host"));
   const identity = process.env.APPLE_SIGNING_IDENTITY || "-";
   run("codesign", [
     "--force",

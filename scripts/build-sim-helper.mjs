@@ -23,7 +23,11 @@ const buildDir = join(simDir, ".build");
 const args = process.argv.slice(2);
 const dev = args.includes("--dev");
 const name = "sikemux-sim";
-const deploymentTarget = "15.0";
+const deploymentTarget = `${
+  readFileSync(join(simDir, "Package.swift"), "utf8").match(
+    /\.macOS\(\.v(\d+)\)/,
+  )[1]
+}.0`;
 
 const frameworks = join(simDir, "Frameworks");
 

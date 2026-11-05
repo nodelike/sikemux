@@ -82,8 +82,7 @@ for host in sys.argv[1:]:
 path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 
-STABLE_GH_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}" "$MANIFEST")
-NIGHTLY_GH_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" --prerelease "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}")
+RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}")
 POINTER_NOTES="Update feed for the nightly channel.
 
 The installable build for this feed is [v$VERSION](https://github.com/nodelike/sikemux/releases/tag/v$VERSION).
@@ -91,11 +90,11 @@ The installable build for this feed is [v$VERSION](https://github.com/nodelike/s
 This release carries only \`latest.json\`. Its \`nightly\` tag is a fixed URL anchor that shipped clients resolve against, not a source revision — do not attach builds here."
 if [[ "$CHANNEL" == "stable" ]]; then
   echo "→ Publishing stable v$VERSION"
-  "${STABLE_GH_CMD[@]}"
+  "${RELEASE_CMD[@]}" "$MANIFEST"
   echo "✓ Released stable v$VERSION"
 else
   echo "→ Publishing nightly v$VERSION"
-  "${NIGHTLY_GH_CMD[@]}"
+  "${RELEASE_CMD[@]}" --prerelease
   if gh release view nightly >/dev/null 2>&1; then
     gh release upload nightly "$MANIFEST" --clobber
     gh release edit nightly --title "Nightly feed (v$VERSION)" --notes "$POINTER_NOTES" --prerelease

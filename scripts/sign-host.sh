@@ -7,7 +7,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
 VERSION="${1:-}"
-TAURI_CLI_VERSION=2.12.0
+# shellcheck source=/dev/null
+source "$ROOT/scripts/release-shape.sh"
 TAURI_CLI_SHA256=8544e19c4312f653e80f92241ee4212b4d928ad33461bfb1d2997c52560c418f
 
 fail() {

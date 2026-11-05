@@ -11,6 +11,7 @@ import {
   mkdirSync,
   rmSync,
   writeFileSync,
+  readFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -83,7 +84,11 @@ const appName = dev ? "Sikemux Notch Dev" : "Sikemux Notch";
 const bundle = dev
   ? join(root, "target", "debug", `${appName}.app`)
   : join(root, "packaging", "binaries", "notch", `${appName}.app`);
-const { version } = appMetadata();
+const { version, identifier } = appMetadata();
+const minimumMacos = readFileSync(
+  join(packageDir, "Package.swift"),
+  "utf8",
+).match(/\.macOS\(\.v(\d+)\)/)[1];
 rmSync(bundle, { recursive: true, force: true });
 mkdirSync(join(bundle, "Contents", "MacOS"), { recursive: true });
 mkdirSync(join(bundle, "Contents", "Resources", "Fonts"), { recursive: true });
@@ -93,13 +98,13 @@ writeFileSync(
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleIdentifier</key><string>com.nodelike.sikemux.notch${dev ? ".dev" : ""}</string>
+  <key>CFBundleIdentifier</key><string>${identifier}.notch${dev ? ".dev" : ""}</string>
   <key>CFBundleName</key><string>${appName}</string>
   <key>CFBundleExecutable</key><string>${name}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
   <key>CFBundleVersion</key><string>${version}</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSMinimumSystemVersion</key><string>${minimumMacos}.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
 </dict>

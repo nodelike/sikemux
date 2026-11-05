@@ -136,10 +136,7 @@ function assemble() {
 `,
   );
   rmSync(coreLink, { force: true });
-  symlinkSync(
-    "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host",
-    coreLink,
-  );
+  symlinkSync(appMetadata()["core-link"], coreLink);
   rmSync(join(macos, "Sikemux Notch Dev.app"), {
     recursive: true,
     force: true,
@@ -158,7 +155,7 @@ function assemble() {
   <key>CFBundleExecutable</key><string>sikemux</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSMinimumSystemVersion</key><string>${app["minimum-macos"]}</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 `,

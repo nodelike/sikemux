@@ -6,11 +6,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
+APP_IDENTIFIER="$(node "$(dirname "$0")/app-metadata.mjs" identifier)"
 
 for helper in "$@"; do
   case "$(basename "$helper")" in
-    sikemux-voice-*) identifier=com.nodelike.sikemux.voice ;;
-    sikemux-sim-*) identifier=com.nodelike.sikemux.sim ;;
+    sikemux-voice-*) identifier="$APP_IDENTIFIER.voice" ;;
+    sikemux-sim-*) identifier="$APP_IDENTIFIER.sim" ;;
     *) echo "not a helper: $helper" >&2; exit 2 ;;
   esac
   [[ -f "$helper" && ! -L "$helper" ]] || { echo "missing helper: $helper" >&2; exit 1; }

@@ -84,7 +84,7 @@ if (!publish.includes('"$VOICE" "$SIM"')) fail("releases do not publish the simu
 if (!linuxBuild.includes('"$PI_TOOLS" "$PACKAGE/usr/lib/sikemux/sikemux_pi_tools.ts"')) fail("Linux packages do not carry the Pi browser extension");
 if (!macBuild.includes("build-cli-sidecar.mjs")) fail("macOS build does not build the CLI sidecar");
 if (!macBuild.includes('"$ROOT/packaging/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"')) fail("the macOS bundle must carry the core app");
-if (!macBuild.includes('ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Contents/MacOS/sikemux-host"')) fail("the macOS bundle must link Contents/MacOS/sikemux-host to the core");
+if (app["core-link"] !== "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" || !macBuild.includes('ln -s "$CORE_LINK_TARGET" "$APP_PATH/Contents/MacOS/sikemux-host"')) fail("the macOS bundle must link Contents/MacOS/sikemux-host to the core");
 for (const profile of ["sikemux-developer-id", "sikemux-core-developer-id"]) {
   if (!fs.existsSync(`packaging/macos/${profile}.provisionprofile`)) fail(`packaging/macos/${profile}.provisionprofile is missing`);
 }
@@ -118,7 +118,7 @@ grep -Fq 'gh release upload nightly "$MANIFEST" --clobber' scripts/publish-relea
   exit 1
 }
 # shellcheck disable=SC2016
-grep -Fq 'NIGHTLY_GH_CMD=(gh release create "v$VERSION"' scripts/publish-release.sh || {
+grep -Fq 'RELEASE_CMD=(gh release create "v$VERSION"' scripts/publish-release.sh || {
   echo "nightly channel does not publish an immutable versioned release" >&2
   exit 1
 }

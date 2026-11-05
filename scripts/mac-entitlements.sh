@@ -5,7 +5,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-TEAM=D577WD6Z5U
+ROOT="$(pwd -P)"
+# shellcheck source=/dev/null
+source "$ROOT/scripts/release-shape.sh"
 APP_IDENTIFIER="$(node scripts/app-metadata.mjs identifier)"
 case "${1:-}" in
   app) APPLICATION="$TEAM.$APP_IDENTIFIER" ;;

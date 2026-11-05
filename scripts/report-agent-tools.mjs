@@ -5,6 +5,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { appMetadata } from "./app-metadata.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const manifest = JSON.parse(
@@ -106,7 +107,8 @@ for (const entry of (await readdir(pluginsDir, { withFileTypes: true })).filter(
 
 // Sikemux counts each tool call on this machine. A tool nobody calls is a
 // schema paid for on every request with nothing back.
-const identifiers = ["com.nodelike.sikemux", "com.nodelike.sikemux.dev"];
+const { identifier, "dev-identifier": devIdentifier } = appMetadata();
+const identifiers = [identifier, devIdentifier];
 const methodNames = new Map(
   manifest.tools.map((tool) => [tool.method, tool.name]),
 );

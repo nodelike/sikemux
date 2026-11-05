@@ -9,7 +9,8 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
 VERSION="${1:-}"
 NOTARIZED="${RELEASE_NOTARIZED:-0}"
-TAURI_CLI_VERSION=2.12.0
+# shellcheck source=/dev/null
+source "$ROOT/scripts/release-shape.sh"
 
 fail() {
   echo "Release signing failed: $*" >&2
@@ -40,8 +41,7 @@ fi
 # Each tool below gets only the secret it needs.
 UPDATER_KEY="$TAURI_SIGNING_PRIVATE_KEY"
 UPDATER_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
-unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
-unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+unset "${SIGNING_SECRETS[@]}"
 
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 APP_IDENTIFIER="$(node scripts/app-metadata.mjs identifier)"
@@ -52,7 +52,7 @@ SIG="$TAR.sig"
 NOTCH_APP="$APP/Contents/Helpers/Sikemux Notch.app"
 CORE_APP="$APP/Contents/Helpers/Sikemux Core.app"
 CORE_LINK="$APP/Contents/MacOS/sikemux-host"
-CORE_LINK_TARGET="../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host"
+CORE_LINK_TARGET="$(node scripts/app-metadata.mjs core-link)"
 
 WORK="$(mktemp -d)"
 MOUNT=""

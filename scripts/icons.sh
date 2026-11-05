@@ -40,7 +40,7 @@ actool "$ICON_SOURCE" \
   --enable-on-demand-resources NO \
   --development-region en \
   --target-device mac \
-  --minimum-deployment-target 11.0 \
+  --minimum-deployment-target "$(node scripts/app-metadata.mjs minimum-macos)" \
   --platform macosx >/dev/null
 
 if [[ ! -f "$ICON_BUILD/Assets.car" ]]; then

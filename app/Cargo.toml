@@ -1,12 +1,11 @@
 [package]
 name = "sikemux-gpui"
-version = "0.6.1-nightly.4"
+version.workspace = true
 edition = "2021"
 publish = false
 description = "The desktop UI on GPUI, a client of the core"
 
-# How the app is named and known to the system, for the release scripts and the core. The
-# app's version is this package's.
+# How the app is named and known to the system, for the release scripts and the core.
 [package.metadata.sikemux]
 name = "Sikemux"
 description = "The IDE for you and your coding agents"
@@ -14,6 +13,7 @@ identifier = "com.nodelike.sikemux"
 dev-name = "Sikemux Dev"
 dev-identifier = "com.nodelike.sikemux.dev"
 minimum-macos = "11.0"
+core-link = "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host"
 updater-key = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg5NDQ0RDU4NDA4ODY0NEYKUldSUFpJaEFXRTFFaVhCRmkrNmFmZDNNb1djWmNvbkdYMXkxT1Z4cUJlb1VWNzJCMnE5blJkMkMK"
 
 # The core trusts the program named this beside it as its app.
