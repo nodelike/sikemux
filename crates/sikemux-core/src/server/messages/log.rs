@@ -45,8 +45,8 @@ pub enum Outcome {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Entry {
     pub at: u64,
-    /// The sending agent's id, `person`, `board` or `auto`; unknown for a
-    /// message that came back unread.
+    /// The sending agent's id, or a [`super::Sender`]'s; unknown for a message that came back
+    /// unread.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
     /// What the sender was called then, as its name goes once it closes.
@@ -162,7 +162,7 @@ pub enum Tone {
 pub struct Row {
     pub sent_at: u64,
     pub at: u64,
-    /// The sending agent's id, or `person`, `board`, `auto` or `sikemux`.
+    /// The sending agent's id, or a [`super::Sender`]'s.
     pub from: Option<String>,
     /// The sending agent's name now, else when it was logged; none for those that are
     /// not agents.
@@ -175,8 +175,6 @@ pub struct Row {
     pub waited: bool,
     pub tone: Option<Tone>,
 }
-
-const NOT_AGENTS: [&str; 4] = ["person", "board", "auto", "sikemux"];
 
 fn still_going(outcome: Outcome) -> bool {
     matches!(
@@ -199,7 +197,7 @@ fn tone(outcome: Outcome) -> Option<Tone> {
 /// `name_of` gives an open agent's name now, ahead of the one it was logged with.
 pub(crate) fn rows(entries: &[Entry], name_of: impl Fn(&str) -> Option<String>) -> Vec<Row> {
     let name = |id: Option<&str>, logged: &Option<String>| {
-        let id = id.filter(|id| !NOT_AGENTS.contains(id))?;
+        let id = id.filter(|id| super::Sender::of(id).is_none())?;
         name_of(id).or_else(|| logged.clone())
     };
     let mut rows: Vec<Row> = Vec::with_capacity(entries.len());

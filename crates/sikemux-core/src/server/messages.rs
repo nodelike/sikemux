@@ -32,14 +32,8 @@ pub(crate) mod log;
 const FILE: &str = "agent-mailbox.json";
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_WAITING: usize = 10;
-const BOARD: &str = "board";
-const TRIGGER: &str = "trigger";
-const AUTO: &str = "auto";
-/// Notes about teammates on linked hosts come from here.
-const HOSTS: &str = "hosts";
 const HOSTS_NOTE: &str =
     "Sent by Sikemux about a teammate on another host, not by the person or another agent.";
-const SIKEMUX: &str = "sikemux";
 /// The same text to the same agent again within this long is dropped.
 const REPEAT_WINDOW_MS: u64 = 2 * 60 * 1000;
 /// Two agents answering each other forever stop here.
@@ -124,10 +118,76 @@ pub(crate) struct Carried {
     pub question: Option<String>,
 }
 
+/// Who a message comes from when no agent sent it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Sender {
+    Board,
+    Trigger,
+    Auto,
+    Sikemux,
+    /// Notes about teammates on linked hosts come from here.
+    Hosts,
+    Person,
+}
+
+impl Sender {
+    const ALL: [Sender; 6] = [
+        Sender::Board,
+        Sender::Trigger,
+        Sender::Auto,
+        Sender::Sikemux,
+        Sender::Hosts,
+        Sender::Person,
+    ];
+
+    pub(crate) fn of(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|sender| sender.id() == id)
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Sender::Board => "board",
+            Sender::Trigger => "trigger",
+            Sender::Auto => "auto",
+            Sender::Sikemux => "sikemux",
+            Sender::Hosts => "hosts",
+            Sender::Person => "person",
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Sender::Board => "Board",
+            Sender::Trigger => "Trigger",
+            Sender::Auto => "Auto",
+            Sender::Sikemux | Sender::Hosts => "Sikemux",
+            Sender::Person => "the person",
+        }
+    }
+
+    /// A part of Sikemux that carries work on: what it sends is no repeat, and does not count
+    /// as reaching an agent the board offered a card to.
+    fn carries_work_on(self) -> bool {
+        matches!(self, Sender::Board | Sender::Trigger | Sender::Sikemux)
+    }
+}
+
 impl Letter {
-    /// Sent by a part of Sikemux that carries work on, not by an agent.
     fn by_sikemux(&self) -> bool {
-        self.from_id == BOARD || self.from_id == TRIGGER || self.from_id == SIKEMUX
+        Sender::of(&self.from_id).is_some_and(Sender::carries_work_on)
+    }
+
+    fn from_sender(sender: Sender, kind: Kind, text: String, note: Option<String>) -> Self {
+        Self {
+            kind,
+            from_id: sender.id().to_owned(),
+            from_name: sender.name().to_owned(),
+            cli: "sikemux".to_owned(),
+            text,
+            at: epoch_ms(),
+            note,
+            answers: None,
+        }
     }
 
     fn carried(&self, to: &str, question: Option<String>) -> Carried {
@@ -563,7 +623,7 @@ pub(crate) async fn hand_task(
         .names
         .get(agent_id)
         .and_then(|named| named.parent)
-        .unwrap_or_else(|| AUTO.to_owned());
+        .unwrap_or_else(|| Sender::Auto.id().to_owned());
     let queued = Queued {
         text: task.clone(),
         origin: Some(Origin {
@@ -905,16 +965,12 @@ pub(crate) async fn from_hosts(
         .await
         .map_err(|error| error.to_string())?
     };
-    let letter = Letter {
-        kind: Kind::Message,
-        from_id: HOSTS.to_owned(),
-        from_name: "Sikemux".to_owned(),
-        cli: "sikemux".to_owned(),
+    let letter = Letter::from_sender(
+        Sender::Hosts,
+        Kind::Message,
         text,
-        at: epoch_ms(),
-        note: Some(HOSTS_NOTE.to_owned()),
-        answers: None,
-    };
+        Some(HOSTS_NOTE.to_owned()),
+    );
     deliver(core, &target, letter).await
 }
 
@@ -986,8 +1042,8 @@ pub(crate) async fn answer(
     };
     let mut letters = answers.into_iter().map(|(answered, text, note)| Letter {
         kind: Kind::Answer,
-        from_id: "person".to_owned(),
-        from_name: "the person".to_owned(),
+        from_id: Sender::Person.id().to_owned(),
+        from_name: Sender::Person.name().to_owned(),
         cli: "person".to_owned(),
         text,
         at: epoch_ms(),
@@ -1036,16 +1092,7 @@ pub(crate) async fn from_board(
     note: String,
 ) -> Result<Value, String> {
     let target = running(core, to).await?;
-    let letter = Letter {
-        kind: Kind::Message,
-        from_id: BOARD.to_owned(),
-        from_name: "Board".to_owned(),
-        cli: "sikemux".to_owned(),
-        text,
-        at: epoch_ms(),
-        note: Some(note),
-        answers: None,
-    };
+    let letter = Letter::from_sender(Sender::Board, Kind::Message, text, Some(note));
     deliver(core, &target, letter).await
 }
 
@@ -1064,16 +1111,7 @@ pub(crate) async fn from_trigger(
             .map_err(|error| format!("it is asleep and did not wake: {error}"))?;
         target = running(core, to).await?;
     }
-    let letter = Letter {
-        kind: Kind::Message,
-        from_id: TRIGGER.to_owned(),
-        from_name: "Trigger".to_owned(),
-        cli: "sikemux".to_owned(),
-        text,
-        at: epoch_ms(),
-        note: Some(note),
-        answers: None,
-    };
+    let letter = Letter::from_sender(Sender::Trigger, Kind::Message, text, Some(note));
     deliver(core, &target, letter).await
 }
 
@@ -1085,16 +1123,12 @@ pub(crate) async fn from_sikemux(
     text: String,
 ) -> Result<Value, String> {
     let target = running(core, to).await?;
-    let letter = Letter {
-        kind: Kind::Notice,
-        from_id: SIKEMUX.to_owned(),
-        from_name: "Sikemux".to_owned(),
-        cli: "sikemux".to_owned(),
+    let letter = Letter::from_sender(
+        Sender::Sikemux,
+        Kind::Notice,
         text,
-        at: epoch_ms(),
-        note: Some("Sent by Sikemux itself, not by the person or another agent.".to_owned()),
-        answers: None,
-    };
+        Some("Sent by Sikemux itself, not by the person or another agent.".to_owned()),
+    );
     deliver(core, &target, letter).await
 }
 
@@ -1107,34 +1141,26 @@ pub(crate) async fn for_person(
     text: String,
 ) -> Result<Value, String> {
     let target = running(core, to).await?;
-    let letter = Letter {
-        kind: Kind::Message,
-        from_id: SIKEMUX.to_owned(),
-        from_name: "Sikemux".to_owned(),
-        cli: "sikemux".to_owned(),
+    let letter = Letter::from_sender(
+        Sender::Sikemux,
+        Kind::Message,
         text,
-        at: epoch_ms(),
-        note: Some(
+        Some(
             "Sent by Sikemux with the person's answer about an action it held for them.".to_owned(),
         ),
-        answers: None,
-    };
+    );
     deliver(core, &target, letter).await
 }
 
 const AUTO_NOTE: &str = "Sent by Sikemux's Auto, which runs this project's board for the person, not by the person or another agent.";
 
 fn auto_letter(text: String) -> Letter {
-    Letter {
-        kind: Kind::Message,
-        from_id: AUTO.to_owned(),
-        from_name: "Auto".to_owned(),
-        cli: "sikemux".to_owned(),
+    Letter::from_sender(
+        Sender::Auto,
+        Kind::Message,
         text,
-        at: epoch_ms(),
-        note: Some(AUTO_NOTE.to_owned()),
-        answers: None,
-    }
+        Some(AUTO_NOTE.to_owned()),
+    )
 }
 
 /// The task Auto gives an agent it started, as that agent reads it.
