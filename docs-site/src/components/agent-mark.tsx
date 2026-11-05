@@ -1,6 +1,6 @@
-import codex from "@/assets/agents/codex.svg";
-import muse from "@/assets/agents/muse.svg";
-import omp from "@/assets/agents/omp.svg";
+import codex from "../../../shared/assets/agent-logos/codex.svg";
+import muse from "../../../shared/assets/agent-logos/muse.svg";
+import omp from "../../../shared/assets/agent-logos/omp.svg";
 import type { ReactNode } from "react";
 
 const drawn: Record<string, [string, ReactNode]> = {

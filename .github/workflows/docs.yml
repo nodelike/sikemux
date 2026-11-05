@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "docs-site/**"
+      - "shared/assets/agent-logos/**"
+      - shared/chat/defaultPalette.json
+      - brand/mark/mark-white.svg
       - .github/workflows/docs.yml
   workflow_dispatch:
 

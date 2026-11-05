@@ -1,10 +1,17 @@
+import markSvg from "../../../brand/mark/mark-white.svg?raw";
+
+const mark = markSvg.match(/<g[^>]*>(.*)<\/g>/s)?.[1] ?? "";
+
 export function Logo({ size = 20 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="82 24 265 265" fill="currentColor" aria-hidden="true">
-      <polygon points="257,72 331,29 331,114" />
-      <polygon points="98,199 172,241 98,284" />
-      <path d="M108 54 C100 72, 96 90, 98 104 C100 119, 106 133, 121 144 C129 151, 139 158, 151 164 L286 223 C297 228, 306 236, 313 245 C317 250, 320 255, 321 259 C327 246, 331 229, 331 209 C330 201, 328 194, 324 189 C319 181, 314 175, 308 169 C300 162, 290 155, 278 149 L143 90 C137 87, 132 84, 128 80 C122 76, 117 71, 108 54 Z" />
-    </svg>
+    <svg
+      width={size}
+      height={size}
+      viewBox="82 24 265 265"
+      fill="currentColor"
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: mark }}
+    />
   );
 }
 

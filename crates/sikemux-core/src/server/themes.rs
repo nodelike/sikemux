@@ -660,7 +660,7 @@ mod tests {
     /// The shared chat page draws with this copy, having no core to ask.
     const COPY: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../server/app/src/chat/themes/defaultPalette.json"
+        "/../../shared/chat/defaultPalette.json"
     );
 
     #[test]
@@ -675,7 +675,7 @@ mod tests {
                 .expect("the copy parses");
         assert!(
             copy == serde_json::to_value(&palette).expect("a palette serializes"),
-            "server/app/src/chat/themes/defaultPalette.json is out of date: run \
+            "shared/chat/defaultPalette.json is out of date: run \
              SIKEMUX_WRITE_DEFAULT_PALETTE=1 cargo test -p sikemux-core --lib default_palette_copy"
         );
     }

@@ -1,5 +1,5 @@
 import type { Palette, Theme } from "@shared/wire.generated";
-import defaultPalette from "./defaultPalette.json";
+import defaultPalette from "@shared/chat/defaultPalette.json";
 
 /* The core keeps this file the same as its own default palette. */
 export const DEFAULT_PALETTE = defaultPalette as Palette;
