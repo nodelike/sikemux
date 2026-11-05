@@ -257,7 +257,7 @@ async fn play_window(
 async fn open_window(core: &TestCore) -> (std::sync::Arc<CoreClient>, tokio::task::JoinHandle<()>) {
     let (client, events) = CoreClient::connect(&core.socket).await.expect("connect");
     let client = std::sync::Arc::new(client);
-    client.register_window().await.expect("register");
+    client.ask(ask::RegisterWindow).await.expect("register");
     let player = tokio::spawn(play_window(client.clone(), events));
     (client, player)
 }
@@ -432,7 +432,7 @@ async fn a_call_waiting_on_a_window_that_leaves_fails_and_a_new_window_takes_ove
     let endpoint = core.endpoint.clone();
 
     let (silent, mut silent_events) = CoreClient::connect(&core.socket).await.expect("connect");
-    silent.register_window().await.expect("register");
+    silent.ask(ask::RegisterWindow).await.expect("register");
     let pending = {
         let (endpoint, project) = (endpoint.clone(), project.clone());
         tokio::spawn(async move {

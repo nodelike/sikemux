@@ -144,13 +144,13 @@ fn claude_launch(agent_id: &str, config: &Path) -> ChatLaunch {
 
 async fn prompt(client: &CoreClient, agent_id: &str, message_id: &str, text: &str) {
     client
-        .acp_prompt(
-            agent_id.into(),
-            Some(message_id.into()),
-            text.into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.into(),
+            message_id: Some(message_id.into()),
+            text: text.into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
 }
@@ -264,7 +264,11 @@ async fn a_claude_tool_waits_for_the_persons_answer() {
     assert_eq!(asked.tool_call.title, "echo hi");
     let (request, allow) = allow_once(&asked);
     client
-        .acp_permission_reply("claude-b".into(), request, Some(allow))
+        .ask(ask::AcpPermissionReply {
+            agent_id: "claude-b".into(),
+            request_id: request,
+            option_id: Some(allow),
+        })
         .await
         .expect("reply");
     chat.turn_ended().await;
@@ -282,7 +286,12 @@ async fn a_stopped_claude_turn_ends_cancelled() {
         .expect("start");
     prompt(&client, "claude-c", &message_id(), "hold 10000").await;
     chat.until(|chat| chat.text().contains("holding")).await;
-    client.acp_cancel("claude-c".into()).await.expect("cancel");
+    client
+        .ask(ask::AcpCancel {
+            agent_id: "claude-c".into(),
+        })
+        .await
+        .expect("cancel");
     assert_eq!(chat.turn_ended().await, Some(StopReason::Cancelled));
     assert!(!chat.text().contains("held"));
 }
@@ -311,13 +320,13 @@ async fn an_edited_claude_message_takes_the_chat_back_to_before_it() {
         .await;
 
     client
-        .acp_edit(
-            "claude-d".into(),
-            second.clone(),
-            "count".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpEdit {
+            agent_id: "claude-d".into(),
+            message_id: second.clone(),
+            text: "count".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("edit");
     chat.until(|chat| !chat.head().running && chat.text().contains("earlier"))
@@ -358,7 +367,12 @@ async fn a_resumed_claude_chat_replays_what_was_said() {
         .expect("start");
     prompt(&client, "claude-e", &message_id(), "hello there").await;
     chat.turn_ended().await;
-    client.acp_stop("claude-e".into()).await.expect("stop");
+    client
+        .ask(ask::AcpStop {
+            agent_id: "claude-e".into(),
+        })
+        .await
+        .expect("stop");
 
     let (again, mut resumed) = core.connect("claude-f").await;
     let mut launch = claude_launch("claude-f", config.path());
@@ -438,7 +452,10 @@ async fn a_claude_prompt_stopped_by_a_limit_is_answered_on_the_account_it_moves_
         ]),
     };
     client
-        .acp_switch_account("claude-l".into(), spare)
+        .ask(ask::AcpSwitchAccount {
+            agent_id: "claude-l".into(),
+            account: spare,
+        })
         .await
         .expect("switch");
     chat.until(|chat| !chat.head().running && chat.text() == "echo: hello there")
@@ -516,7 +533,11 @@ async fn a_codex_command_waits_for_the_persons_answer() {
     prompt(&client, "codex-b", &message_id(), "ask").await;
     let (request, allow) = allow_once(&until_asked(&mut chat).await);
     client
-        .acp_permission_reply("codex-b".into(), request, Some(allow))
+        .ask(ask::AcpPermissionReply {
+            agent_id: "codex-b".into(),
+            request_id: request,
+            option_id: Some(allow),
+        })
         .await
         .expect("reply");
     chat.turn_ended().await;
@@ -534,7 +555,12 @@ async fn a_stopped_codex_turn_ends_cancelled() {
         .expect("start");
     prompt(&client, "codex-c", &message_id(), "hold 10000").await;
     chat.until(|chat| chat.text().contains("holding")).await;
-    client.acp_cancel("codex-c".into()).await.expect("cancel");
+    client
+        .ask(ask::AcpCancel {
+            agent_id: "codex-c".into(),
+        })
+        .await
+        .expect("cancel");
     assert_eq!(chat.turn_ended().await, Some(StopReason::Cancelled));
 }
 
@@ -554,13 +580,13 @@ async fn an_edited_codex_message_takes_the_thread_back_to_before_it() {
     chat.turn_ended().await;
 
     client
-        .acp_edit(
-            "codex-d".into(),
-            second,
-            "count".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpEdit {
+            agent_id: "codex-d".into(),
+            message_id: second,
+            text: "count".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("edit");
     chat.until(|chat| !chat.head().running && chat.text().contains("earlier"))
@@ -580,7 +606,12 @@ async fn a_resumed_codex_thread_replays_what_was_said() {
         .expect("start");
     prompt(&client, "codex-e", &message_id(), "hello there").await;
     chat.turn_ended().await;
-    client.acp_stop("codex-e".into()).await.expect("stop");
+    client
+        .ask(ask::AcpStop {
+            agent_id: "codex-e".into(),
+        })
+        .await
+        .expect("stop");
 
     let (again, mut resumed) = core.connect("codex-f").await;
     let mut launch = codex_launch("codex-f", home.path());
@@ -622,7 +653,11 @@ async fn changing_the_claude_model_starts_no_turn() {
         .expect("start");
     chat.until_ready().await;
     let options = client
-        .acp_set_config("claude-model".into(), "model".into(), "small".into())
+        .ask(ask::AcpSetConfig {
+            agent_id: "claude-model".into(),
+            config_id: "model".into(),
+            value: "small".into(),
+        })
         .await
         .expect("set model");
     assert_eq!(options["configOptions"][0]["currentValue"], "small");
@@ -701,20 +736,26 @@ async fn live_claude_streams_edits_and_resumes() {
     chat.turn_ended().await;
 
     client
-        .acp_edit(
-            "live".into(),
-            second,
-            "How many messages did I send you before this one? Answer with just the digit.".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpEdit {
+            agent_id: "live".into(),
+            message_id: second,
+            text: "How many messages did I send you before this one? Answer with just the digit."
+                .into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("edit");
     assert_eq!(chat.turn_ended().await, Some(StopReason::EndTurn));
     let answer = chat.text();
     assert!(answer.trim_end().ends_with('1'), "{answer}");
 
-    client.acp_stop("live".into()).await.expect("stop");
+    client
+        .ask(ask::AcpStop {
+            agent_id: "live".into(),
+        })
+        .await
+        .expect("stop");
     let (again, mut resumed) = core.connect("live-again").await;
     let mut resume = launch;
     resume.agent_id = "live-again".into();
@@ -791,7 +832,12 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
     while let Some(from) = before {
         let page: ChatPage = serde_json::from_value(
             client
-                .acp_history("claude-long".into(), mark.feed.clone(), from, 20)
+                .ask(ask::AcpHistory {
+                    agent_id: "claude-long".into(),
+                    feed: mark.feed.clone(),
+                    before: from,
+                    turns: 20,
+                })
                 .await
                 .expect("a page"),
         )

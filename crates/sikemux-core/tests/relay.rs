@@ -4,6 +4,7 @@
 
 #![cfg(unix)]
 
+use sikemux_wire::protocol::ask;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
@@ -179,8 +180,11 @@ async fn a_phone_reaches_a_core_through_the_relay_alone() {
             client.ack(stream, screen.header.frame);
         }
     }
-    client.kill(id).await.expect("the phone ends the terminal");
+    client
+        .ask(ask::Kill { id })
+        .await
+        .expect("the phone ends the terminal");
 
-    let _ = app.shutdown(true).await;
+    let _ = app.ask(ask::Shutdown { stop_all: true }).await;
     let _ = core.join();
 }

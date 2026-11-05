@@ -13,6 +13,7 @@
 //! As a device, keeping its key in `<key-file>`:
 //!   remote device <key-file> sessions <core-id>
 
+use sikemux_wire::protocol::ask;
 use std::path::Path;
 use std::time::Duration;
 
@@ -122,7 +123,13 @@ async fn chat(socket: &Path, prompt: &str) -> Result<(), Failure> {
     println!("chat {agent}");
     if !prompt.is_empty() {
         client
-            .acp_prompt(agent, None, prompt.into(), Vec::new(), Vec::new())
+            .ask(ask::AcpPrompt {
+                agent_id: agent,
+                message_id: None,
+                text: prompt.into(),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
             .await?;
     }
     Ok(())
@@ -140,7 +147,12 @@ async fn backdrop(socket: &Path, texture: bool, image: Option<&str>) -> Result<(
         }
         None => None,
     };
-    client.publish_backdrop(texture, picture).await?;
+    client
+        .ask(ask::PublishBackdrop {
+            texture,
+            image: picture,
+        })
+        .await?;
     println!("published the backdrop");
     Ok(())
 }
@@ -167,7 +179,7 @@ async fn chats(socket: &Path) -> Result<(), Failure> {
     let (client, _events) = CoreClient::connect(socket).await?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&client.acp_list().await?)?
+        serde_json::to_string_pretty(&client.ask(ask::AcpList).await?)?
     );
     Ok(())
 }
@@ -196,7 +208,13 @@ async fn sleepy(socket: &Path) -> Result<(), Failure> {
 async fn say(socket: &Path, agent: &str, text: &str) -> Result<(), Failure> {
     let (client, _events) = CoreClient::connect(socket).await?;
     client
-        .acp_prompt(agent.into(), None, text.into(), Vec::new(), Vec::new())
+        .ask(ask::AcpPrompt {
+            agent_id: agent.into(),
+            message_id: None,
+            text: text.into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await?;
     Ok(())
 }
@@ -232,13 +250,13 @@ async fn sessions(key_file: &Path, core: &str) -> Result<(), Failure> {
     let started = std::time::Instant::now();
     let (client, _events) = remote::connect(&endpoint, core_addr(core)?).await?;
     println!("connected in {:?}", started.elapsed());
-    for session in client.list().await? {
+    for session in client.ask(ask::List).await? {
         println!(
             "{} {:?} running={}",
             session.id, session.kind, session.running
         );
     }
-    for chat in client.acp_list().await? {
+    for chat in client.ask(ask::AcpList).await? {
         println!(
             "chat {} {} in {}",
             chat.agent_id,

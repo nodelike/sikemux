@@ -6,9 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use sikemux_wire::grid::{FindResult, GridPoint, TerminalInput};
-use sikemux_wire::pty::agent_detection::{DetectionExplain, ManifestReloadReport};
-use sikemux_wire::pty::output_log::{OutputPage, OutputQuery};
+use sikemux_wire::grid::{FindResult, GridPoint};
+use sikemux_wire::pty::agent_detection::DetectionExplain;
 use sikemux_wire::pty::shell_protocol::ShellMetadataSnapshot;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -17,12 +16,10 @@ use tokio::task::JoinHandle;
 
 use sikemux_wire::protocol::{
     ask, ask::Ask, decode_grid, decode_lines, decode_snapshot, device_view_json, encode_control,
-    encode_input, read_frame, AllowedDevice, Attention, BackdropImage, BuildIdentity, CallId,
-    ChatAccount, ChatAttachment, ChatContext, ChatInfo, ChatLaunch, ChatMark, ChatStart,
-    ClientMessage, DeviceAccess, Event, FrameKind, HostRegistration, LaunchIdentity,
-    PermissionMode, RemoteStatus, Request, RequestId, Response, ServerMessage, SessionId,
-    SessionInfo, SpawnTarget, StreamId, WindowAnswer, WindowCall, Workspace, MAX_FRAME_BYTES,
-    OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
+    encode_input, read_frame, AllowedDevice, BuildIdentity, CallId, ChatAttachment, ChatLaunch,
+    ChatStart, ClientMessage, DeviceAccess, Event, FrameKind, LaunchIdentity, RemoteStatus,
+    Request, RequestId, Response, ServerMessage, SessionId, SpawnTarget, StreamId, WindowAnswer,
+    WindowCall, MAX_FRAME_BYTES, OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -419,18 +416,6 @@ impl CoreClient {
         Ok(())
     }
 
-    pub async fn resize(&self, id: SessionId, cols: u16, rows: u16) -> Result<(), ClientError> {
-        self.ask(ask::Resize { id, cols, rows }).await
-    }
-
-    pub async fn kill(&self, id: SessionId) -> Result<(), ClientError> {
-        self.ask(ask::Kill { id }).await
-    }
-
-    pub async fn list(&self) -> Result<Vec<SessionInfo>, ClientError> {
-        self.ask(ask::List).await
-    }
-
     pub async fn attach(&self, id: SessionId) -> Result<Attached, ClientError> {
         match self
             .submit(ask::Attach { id }.into(), |reply| reply)?
@@ -439,15 +424,6 @@ impl CoreClient {
             Reply::Attached(attached) => Ok(attached),
             _ => Err(ClientError::UnexpectedReply),
         }
-    }
-
-    /// No frame of the stream arrives after this resolves.
-    pub async fn detach(&self, stream: StreamId) -> Result<(), ClientError> {
-        self.ask(ask::Detach { stream }).await
-    }
-
-    pub async fn input(&self, id: SessionId, input: TerminalInput) -> Result<(), ClientError> {
-        self.ask(ask::TerminalInput { id, input }).await
     }
 
     /// History lines `start..start + count`, as many as the core still has.
@@ -480,55 +456,10 @@ impl CoreClient {
         self.ask(find).await
     }
 
-    /// The first line on the terminal's screen containing `containing`, once
-    /// one shows, or none when the terminal ends first.
-    pub async fn line_shown(
-        &self,
-        id: SessionId,
-        containing: String,
-    ) -> Result<Option<String>, ClientError> {
-        self.ask(ask::TerminalWaitFor { id, containing }).await
-    }
-
-    pub async fn clear(&self, id: SessionId) -> Result<(), ClientError> {
-        self.ask(ask::TerminalClear { id }).await
-    }
-
-    pub async fn reset_modes(&self, id: SessionId) -> Result<(), ClientError> {
-        self.ask(ask::ResetModes { id }).await
-    }
-
-    pub async fn shell_at_prompt(&self, id: SessionId) -> Result<bool, ClientError> {
-        self.ask(ask::ShellAtPrompt { id }).await
-    }
-
     /// Reports the last frame of a stream this client has drawn. Never
     /// answered.
     pub fn ack(&self, stream: StreamId, frame: u32) {
         self.send(&ClientMessage::Ack { stream, frame });
-    }
-
-    pub async fn task_output(
-        &self,
-        id: SessionId,
-        query: OutputQuery,
-    ) -> Result<OutputPage, ClientError> {
-        self.ask(ask::TaskOutput { id, query }).await
-    }
-
-    pub async fn configure(
-        &self,
-        manifest_dir: Option<PathBuf>,
-    ) -> Result<ManifestReloadReport, ClientError> {
-        self.ask(ask::Configure { manifest_dir }).await
-    }
-
-    pub async fn list_manifests(&self) -> Result<ManifestReloadReport, ClientError> {
-        self.ask(ask::ListManifests).await
-    }
-
-    pub async fn reload_manifests(&self) -> Result<ManifestReloadReport, ClientError> {
-        self.ask(ask::ReloadManifests).await
     }
 
     pub async fn explain_agent_detection(
@@ -537,11 +468,6 @@ impl CoreClient {
     ) -> Result<DetectionExplain, ClientError> {
         let explain = self.ask(ask::ExplainAgentDetection { agent_id }).await?;
         Ok(*explain)
-    }
-
-    /// Tool calls that need the window come to this connection from now on.
-    pub async fn register_window(&self) -> Result<(), ClientError> {
-        self.ask(ask::RegisterWindow).await
     }
 
     fn send(&self, message: &ClientMessage) {
@@ -559,21 +485,6 @@ impl CoreClient {
         self.send(&ClientMessage::WindowOpenClosed { call_id });
     }
 
-    pub async fn plugins_changed(&self) -> Result<(), ClientError> {
-        self.ask(ask::PluginsChanged).await
-    }
-
-    /// Kills every session. The core keeps running.
-    pub async fn stop_all(&self) -> Result<(), ClientError> {
-        self.ask(ask::StopAll).await
-    }
-
-    /// `stop_all` kills every session first; without it the core refuses to
-    /// exit while any session is running.
-    pub async fn shutdown(&self, stop_all: bool) -> Result<(), ClientError> {
-        self.ask(ask::Shutdown { stop_all }).await
-    }
-
     /// Starts a chat agent. Its events reach this connection from the first.
     pub async fn acp_start(&self, launch: ChatLaunch) -> Result<ChatStart, ClientError> {
         let launch = Box::new(launch);
@@ -583,79 +494,9 @@ impl CoreClient {
     /// Takes up a running chat. Its live events follow the replay on the
     /// event stream.
     pub async fn acp_attach(&self, agent_id: String) -> Result<ChatAttachment, ClientError> {
-        self.acp_attach_since(agent_id, None).await
-    }
-
-    /// Takes the chat up again from `since`, hearing only what was missed
-    /// when the core still has it.
-    pub async fn acp_attach_since(
-        &self,
-        agent_id: String,
-        since: Option<ChatMark>,
-    ) -> Result<ChatAttachment, ClientError> {
-        self.ask(ask::AcpAttach { agent_id, since }).await
-    }
-
-    /// The chat's rows before event `before` of its run `feed`, a
-    /// `ChatPage` as JSON, for a client shown only the
-    /// chat's end.
-    pub async fn acp_history(
-        &self,
-        agent_id: String,
-        feed: String,
-        before: u64,
-        turns: u32,
-    ) -> Result<serde_json::Value, ClientError> {
-        self.ask(ask::AcpHistory {
+        self.ask(ask::AcpAttach {
             agent_id,
-            feed,
-            before,
-            turns,
-        })
-        .await
-    }
-
-    /// No more of the chat's events reach this client.
-    pub async fn acp_detach(&self, agent_id: String) -> Result<(), ClientError> {
-        self.ask(ask::AcpDetach { agent_id }).await
-    }
-
-    pub async fn acp_list(&self) -> Result<Vec<ChatInfo>, ClientError> {
-        self.ask(ask::AcpList).await
-    }
-
-    pub async fn acp_prompt(
-        &self,
-        agent_id: String,
-        message_id: Option<String>,
-        text: String,
-        paths: Vec<String>,
-        context: Vec<ChatContext>,
-    ) -> Result<(), ClientError> {
-        self.ask(ask::AcpPrompt {
-            agent_id,
-            message_id,
-            text,
-            paths,
-            context,
-        })
-        .await
-    }
-
-    pub async fn acp_edit(
-        &self,
-        agent_id: String,
-        message_id: String,
-        text: String,
-        paths: Vec<String>,
-        context: Vec<ChatContext>,
-    ) -> Result<(), ClientError> {
-        self.ask(ask::AcpEdit {
-            agent_id,
-            message_id,
-            text,
-            paths,
-            context,
+            since: None,
         })
         .await
     }
@@ -679,80 +520,11 @@ impl CoreClient {
         .await
     }
 
-    pub async fn acp_cancel(&self, agent_id: String) -> Result<(), ClientError> {
-        self.ask(ask::AcpCancel { agent_id }).await
-    }
-
-    pub async fn acp_stop_task(
-        &self,
-        agent_id: String,
-        task_id: String,
-    ) -> Result<(), ClientError> {
-        self.ask(ask::AcpStopTask { agent_id, task_id }).await
-    }
-
-    pub async fn acp_permission_reply(
-        &self,
-        agent_id: String,
-        request_id: String,
-        option_id: Option<String>,
-    ) -> Result<(), ClientError> {
-        self.ask(ask::AcpPermissionReply {
-            agent_id,
-            request_id,
-            option_id,
-        })
-        .await
-    }
-
-    pub async fn acp_stop(&self, agent_id: String) -> Result<(), ClientError> {
-        self.ask(ask::AcpStop { agent_id }).await
-    }
-
-    pub async fn acp_set_permission_mode(
-        &self,
-        agent_id: String,
-        mode: PermissionMode,
-    ) -> Result<(), ClientError> {
-        self.ask(ask::AcpSetPermissionMode { agent_id, mode }).await
-    }
-
-    pub async fn acp_set_config(
-        &self,
-        agent_id: String,
-        config_id: String,
-        value: String,
-    ) -> Result<serde_json::Value, ClientError> {
-        self.ask(ask::AcpSetConfig {
-            agent_id,
-            config_id,
-            value,
-        })
-        .await
-    }
-
-    pub async fn acp_switch_account(
-        &self,
-        agent_id: String,
-        account: ChatAccount,
-    ) -> Result<(), ClientError> {
-        self.ask(ask::AcpSwitchAccount { agent_id, account }).await
-    }
-
     async fn remote<A: Ask<Answer = Box<RemoteStatus>>>(
         &self,
         request: A,
     ) -> Result<RemoteStatus, ClientError> {
         Ok(*self.ask(request).await?)
-    }
-
-    /// Signs the registration text for the accounts server with the core's key.
-    pub async fn sign_registration(
-        &self,
-        nonce: String,
-        user_id: String,
-    ) -> Result<HostRegistration, ClientError> {
-        self.ask(ask::SignRegistration { nonce, user_id }).await
     }
 
     pub async fn set_owner(&self, owner: Option<String>) -> Result<RemoteStatus, ClientError> {
@@ -787,52 +559,6 @@ impl CoreClient {
     ) -> Result<serde_json::Value, ClientError> {
         let method = method.to_owned();
         self.ask(ask::Call { method, params }).await
-    }
-
-    /// Removes this device from the core's paired devices.
-    pub async fn unpair(&self) -> Result<(), ClientError> {
-        self.ask(ask::Unpair).await
-    }
-
-    pub async fn publish_backdrop(
-        &self,
-        texture: bool,
-        image: Option<BackdropImage>,
-    ) -> Result<(), ClientError> {
-        self.ask(ask::PublishBackdrop { texture, image }).await
-    }
-
-    pub async fn backdrop_image(&self) -> Result<Option<String>, ClientError> {
-        self.ask(ask::BackdropImage).await
-    }
-
-    pub async fn publish_on_screen(
-        &self,
-        agent_ids: Vec<String>,
-        focused: bool,
-    ) -> Result<(), ClientError> {
-        self.ask(ask::PublishOnScreen { agent_ids, focused }).await
-    }
-
-    pub async fn focus_agent(&self, agent_id: String) -> Result<(), ClientError> {
-        self.ask(ask::FocusAgent { agent_id }).await
-    }
-
-    /// The device view arrives as events from now on, starting with the whole.
-    pub async fn watch_view(&self) -> Result<(), ClientError> {
-        self.ask(ask::WatchView).await
-    }
-
-    pub async fn acp_wake(&self, agent_id: String) -> Result<(), ClientError> {
-        self.ask(ask::AcpWake { agent_id }).await
-    }
-
-    pub async fn attentions(&self) -> Result<Vec<Attention>, ClientError> {
-        self.ask(ask::Attentions).await
-    }
-
-    pub async fn workspace(&self) -> Result<Workspace, ClientError> {
-        self.ask(ask::Workspace).await
     }
 
     /// Starts a chat agent in one of the app's projects. Answers with the

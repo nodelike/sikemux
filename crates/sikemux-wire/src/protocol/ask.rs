@@ -42,6 +42,7 @@ pub struct Attach {
     pub id: SessionId,
 }
 
+/// No frame of the stream arrives after this resolves.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Detach {
@@ -145,6 +146,8 @@ pub struct ExplainAgentDetection {
     pub agent_id: String,
 }
 
+/// `stop_all` kills every session first; without it the core refuses to
+/// exit while any session is running.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Shutdown {

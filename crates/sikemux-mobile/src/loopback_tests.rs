@@ -1,5 +1,6 @@
 //! The phone's client against a real core on this machine, over loopback.
 
+use sikemux_wire::protocol::ask;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -31,7 +32,7 @@ impl Drop for TestCore {
                 let deadline = Instant::now() + WAIT;
                 while Instant::now() < deadline {
                     if let Ok((client, _events)) = CoreClient::connect(&socket).await {
-                        if client.shutdown(true).await.is_ok() {
+                        if client.ask(ask::Shutdown { stop_all: true }).await.is_ok() {
                             return;
                         }
                     }
@@ -316,7 +317,7 @@ fn closing_a_connection_fails_what_waits_on_it_and_tells_the_app_nothing_more() 
     let core = start_core(&core_key, Some(&phone_key));
     block_on(async {
         let (app, _events) = CoreClient::connect(&core.socket).await.expect("app");
-        app.register_window()
+        app.ask(ask::RegisterWindow)
             .await
             .expect("the app opens its window");
         let addr = core_addr(&app).await;
@@ -336,7 +337,7 @@ fn closing_a_connection_fails_what_waits_on_it_and_tells_the_app_nothing_more() 
             .expect("the accounts");
         let deadline = Instant::now() + WAIT;
         while !app
-            .workspace()
+            .ask(ask::Workspace)
             .await
             .expect("the workspace")
             .launchers

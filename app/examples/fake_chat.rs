@@ -23,6 +23,7 @@
 //! `FAKE_PROFILES=<JSON list>` gives the agent those accounts instead, one of them `fake`,
 //! the one the chat starts on, such as two with their own `configPath`.
 
+use sikemux_wire::protocol::ask;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -44,7 +45,7 @@ async fn run() -> anyhow::Result<()> {
         .next()
         .ok_or_else(|| anyhow::anyhow!("where is sikemux-fake-acp-agent?"))?;
     let (client, _events) = CoreClient::connect(&socket).await?;
-    client.register_window().await?;
+    client.ask(ask::RegisterWindow).await?;
     let provider = std::env::var("FAKE_PROVIDER").unwrap_or("opencode".into());
     let profile = json!({ "id": "fake", "name": "Fake", "provider": provider, "accent": "#a277ff", "executablePath": agent });
     let profiles = match std::env::var("FAKE_PROFILES") {
@@ -78,7 +79,12 @@ async fn run() -> anyhow::Result<()> {
     if let Ok(mode) = std::env::var("FAKE_MODE") {
         std::thread::sleep(Duration::from_secs(2));
         let mode = PermissionMode::parse(&mode).map_err(anyhow::Error::msg)?;
-        client.acp_set_permission_mode(chat.clone(), mode).await?;
+        client
+            .ask(ask::AcpSetPermissionMode {
+                agent_id: chat.clone(),
+                mode,
+            })
+            .await?;
     }
     let mentions: Vec<ChatContext> = std::env::var("FAKE_MENTION")
         .into_iter()
@@ -94,7 +100,13 @@ async fn run() -> anyhow::Result<()> {
         .map_or(Duration::from_secs(2), Duration::from_millis);
     for prompt in args {
         client
-            .acp_prompt(chat.clone(), None, prompt, Vec::new(), mentions.clone())
+            .ask(ask::AcpPrompt {
+                agent_id: chat.clone(),
+                message_id: None,
+                text: prompt,
+                paths: Vec::new(),
+                context: mentions.clone(),
+            })
             .await?;
         std::thread::sleep(pause);
     }

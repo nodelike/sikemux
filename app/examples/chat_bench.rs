@@ -10,6 +10,7 @@
 //! It draws offscreen on a simulated clock at 120 Hz and prints, for each phase,
 //! the CPU each frame's draw of the whole window took.
 
+use sikemux_wire::protocol::ask;
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -547,7 +548,7 @@ fn layout() -> anyhow::Result<DeviceView> {
     let socket = PathBuf::from(socket);
     tokio::runtime::Runtime::new()?.block_on(async {
         let (client, mut events) = CoreClient::connect(&socket).await?;
-        client.watch_view().await?;
+        client.ask(ask::WatchView).await?;
         while let Some(event) = events.recv().await {
             if let ClientEvent::DeviceView(view) = event {
                 return Ok(serde_json::from_str(&view)?);

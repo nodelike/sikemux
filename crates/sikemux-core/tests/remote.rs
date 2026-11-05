@@ -2,6 +2,7 @@
 
 mod folded;
 
+use sikemux_wire::protocol::ask;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::thread::JoinHandle;
@@ -98,7 +99,7 @@ impl Drop for TestCore {
                 let runtime = tokio::runtime::Runtime::new().expect("runtime");
                 runtime.block_on(async {
                     if let Ok((client, _events)) = CoreClient::connect(&socket).await {
-                        let _ = client.shutdown(true).await;
+                        let _ = client.ask(ask::Shutdown { stop_all: true }).await;
                     }
                 });
             })
@@ -276,14 +277,17 @@ async fn a_paired_device_drives_a_terminal_over_the_network() {
         .expect("the phone starts a terminal");
     until_output(&client, &mut events, id, "remote-hello").await;
     let session = app
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
         .find(|session| session.id == id)
         .expect("the phone's terminal");
     assert_eq!(session.started_by, Some(phone.id()));
-    client.kill(id).await.expect("the phone ends the terminal");
+    client
+        .ask(ask::Kill { id })
+        .await
+        .expect("the phone ends the terminal");
 
     let status = app.remote_status().await.expect("status");
     assert_eq!(status.connected, vec![phone.id()]);
@@ -337,7 +341,9 @@ async fn only_the_app_types_into_a_setup_terminal() {
         "the lock outlives the app's typing"
     );
 
-    app.kill(id).await.expect("the set-up terminal ends");
+    app.ask(ask::Kill { id })
+        .await
+        .expect("the set-up terminal ends");
     let after = device.write(id, fake).await;
     assert!(
         !locked(after),
@@ -361,14 +367,22 @@ async fn a_watching_device_reads_but_cannot_drive_or_reach_the_core() {
     let (client, _events) = remote::connect(&endpoint, core_addr(&status))
         .await
         .expect("the watcher connects");
-    let sessions = client.list().await.expect("the watcher lists sessions");
+    let sessions = client
+        .ask(ask::List)
+        .await
+        .expect("the watcher lists sessions");
     let session = sessions.iter().find(|session| session.id == id);
     assert_eq!(session.expect("the app's terminal").started_by, None);
-    assert!(refusal(client.kill(id).await).contains("watch"));
+    assert!(refusal(client.ask(ask::Kill { id }).await).contains("watch"));
     assert!(refusal(client.write(id, b"exit\n").await).contains("watch"));
-    assert!(refusal(client.stop_all().await).contains("only Sikemux on this host"));
+    assert!(refusal(client.ask(ask::StopAll).await).contains("only Sikemux on this host"));
     assert!(refusal(client.set_remote_access(false).await).contains("only Sikemux on this host"));
-    assert!(app.list().await.expect("list").iter().any(|s| s.id == id));
+    assert!(app
+        .ask(ask::List)
+        .await
+        .expect("list")
+        .iter()
+        .any(|s| s.id == id));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -403,7 +417,7 @@ async fn a_device_that_forgets_the_mac_is_unpaired() {
         .await
         .expect("the phone connects");
 
-    client.unpair().await.expect("unpair");
+    client.ask(ask::Unpair).await.expect("unpair");
     until_disconnected(&client).await;
     let status = app.remote_status().await.expect("status");
     assert!(status.devices.is_empty());
@@ -437,7 +451,7 @@ async fn revoking_or_narrowing_a_device_takes_effect_on_its_open_connection() {
     app.set_device_access(phone.id(), DeviceAccess::Watch)
         .await
         .expect("narrow the phone");
-    assert!(refusal(phone_client.kill(id).await).contains("watch"));
+    assert!(refusal(phone_client.ask(ask::Kill { id }).await).contains("watch"));
 
     let status = app.revoke_device(tablet.id()).await.expect("revoke");
     assert_eq!(status.devices.len(), 1);
@@ -543,13 +557,13 @@ async fn a_prompt_reaches_everyone_watching_and_stays_in_the_replay() {
     let mut sending = Chat::new(events, &agent_id);
 
     client
-        .acp_prompt(
-            agent_id.clone(),
-            None,
-            "from the phone".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: "from the phone".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
     watching
@@ -582,13 +596,13 @@ async fn a_phone_is_sent_a_long_chat_s_last_turns_and_pages_back_to_its_start() 
     assert!(!start.session_id.is_empty());
     let mut chat = Chat::new(app_events, "agent-long");
     for n in 0..55 {
-        app.acp_prompt(
-            "agent-long".into(),
-            None,
-            format!("turn {n}"),
-            Vec::new(),
-            Vec::new(),
-        )
+        app.ask(ask::AcpPrompt {
+            agent_id: "agent-long".into(),
+            message_id: None,
+            text: format!("turn {n}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
         chat.until_turns_ended(n + 1).await;
@@ -628,7 +642,12 @@ async fn a_phone_is_sent_a_long_chat_s_last_turns_and_pages_back_to_its_start() 
     while let Some(from) = older {
         let earlier = page(
             client
-                .acp_history("agent-long".into(), mark.feed.clone(), from, 3)
+                .ask(ask::AcpHistory {
+                    agent_id: "agent-long".into(),
+                    feed: mark.feed.clone(),
+                    before: from,
+                    turns: 3,
+                })
                 .await
                 .expect("a watching phone reads the history"),
         );
@@ -655,7 +674,7 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
     let phone = Device::new("Phone", DeviceAccess::Full);
     let core = start_core(&core_key, &[&phone]);
     let (app, _app_events) = CoreClient::connect(&core.socket).await.expect("app");
-    app.register_window()
+    app.ask(ask::RegisterWindow)
         .await
         .expect("the app opens its window");
     publish_fake_agent(&app).await;
@@ -677,7 +696,7 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
     .expect("rename the chat");
     keep_agent(&app, "agent-sleepy", "Tidy the docs", true).await;
     keep_agent(&app, "agent-failed", "Try Codex", false).await;
-    let chats = client.acp_list().await.expect("list chats");
+    let chats = client.ask(ask::AcpList).await.expect("list chats");
     let titled = |id: &str| {
         chats
             .iter()
@@ -697,10 +716,12 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
     assert_eq!(titled("agent-failed").state, ChatState::Stopped);
 
     client
-        .acp_wake("agent-sleepy".into())
+        .ask(ask::AcpWake {
+            agent_id: "agent-sleepy".into(),
+        })
         .await
         .expect("the core wakes the chat itself");
-    let chats = client.acp_list().await.expect("list chats");
+    let chats = client.ask(ask::AcpList).await.expect("list chats");
     let sleepy = chats
         .iter()
         .find(|chat| chat.agent_id == "agent-sleepy")
@@ -715,7 +736,7 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
         Ok(ChatAttachment::Live { .. })
     ));
 
-    let workspace = client.workspace().await.expect("workspace");
+    let workspace = client.ask(ask::Workspace).await.expect("workspace");
     assert_eq!(
         workspace.palette.get("ground").map(String::as_str),
         Some("#0f0f13"),
@@ -725,27 +746,51 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
         id: "pane-1".into(),
         data_url: "data:image/jpeg;base64,AAAA".into(),
     };
-    app.publish_backdrop(true, Some(picture))
+    app.ask(ask::PublishBackdrop {
+        texture: true,
+        image: Some(picture),
+    })
+    .await
+    .expect("publish backdrop");
+    let backdrop = client
+        .ask(ask::Workspace)
         .await
-        .expect("publish backdrop");
-    let backdrop = client.workspace().await.expect("workspace").backdrop;
+        .expect("workspace")
+        .backdrop;
     assert!(backdrop.texture);
     assert_eq!(backdrop.image.as_deref(), Some("pane-1"));
-    let data_url = client.backdrop_image().await.expect("backdrop image");
+    let data_url = client
+        .ask(ask::BackdropImage)
+        .await
+        .expect("backdrop image");
     assert_eq!(data_url.as_deref(), Some("data:image/jpeg;base64,AAAA"));
     let not_a_picture = BackdropImage {
         id: "pane-2".into(),
         data_url: "data:text/plain,hi".into(),
     };
-    let refused = app.publish_backdrop(true, Some(not_a_picture)).await;
+    let refused = app
+        .ask(ask::PublishBackdrop {
+            texture: true,
+            image: Some(not_a_picture),
+        })
+        .await;
     assert!(refusal(refused).contains("not an image"));
-    let refused = app.unpair().await;
+    let refused = app.ask(ask::Unpair).await;
     assert!(refusal(refused).contains("only a paired device"));
-    let refused = client.publish_on_screen(Vec::new(), true).await;
+    let refused = client
+        .ask(ask::PublishOnScreen {
+            agent_ids: Vec::new(),
+            focused: true,
+        })
+        .await;
     assert!(refusal(refused).contains("only Sikemux on this host"));
-    let refused = client.watch_view().await;
+    let refused = client.ask(ask::WatchView).await;
     assert!(refusal(refused).contains("only Sikemux on this host"));
-    let refused = client.acp_wake("agent-gone".into()).await;
+    let refused = client
+        .ask(ask::AcpWake {
+            agent_id: "agent-gone".into(),
+        })
+        .await;
     assert!(refusal(refused).contains("no longer on this host"));
 }
 
@@ -772,7 +817,7 @@ async fn ready_after_writing(app: &CoreClient, agent_id: &str) -> bool {
         .expect("the person begins writing");
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
-        let chats = app.acp_list().await.expect("list chats");
+        let chats = app.ask(ask::AcpList).await.expect("list chats");
         if chats
             .iter()
             .any(|chat| chat.agent_id == agent_id && chat.state == ChatState::Ready)
@@ -799,7 +844,7 @@ async fn a_sleeping_chat_shows_its_history_and_wakes_when_the_person_writes() {
         let (socket, accounts) = (core.socket.clone(), accounts.clone());
         async move {
             let (app, events) = CoreClient::connect(&socket).await.expect("app");
-            app.register_window().await.expect("the window");
+            app.ask(ask::RegisterWindow).await.expect("the window");
             app.call("setAgentAccounts", accounts)
                 .await
                 .expect("accounts");
@@ -815,13 +860,13 @@ async fn a_sleeping_chat_shows_its_history_and_wakes_when_the_person_writes() {
         .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("a chat");
-    app.acp_prompt(
-        acp.clone(),
-        None,
-        "hello acp".into(),
-        Vec::new(),
-        Vec::new(),
-    )
+    app.ask(ask::AcpPrompt {
+        agent_id: acp.clone(),
+        message_id: None,
+        text: "hello acp".into(),
+        paths: Vec::new(),
+        context: Vec::new(),
+    })
     .await
     .expect("a message");
     assert!(shown_with(&core, &acp, "echo").await, "the agent answered");
@@ -842,13 +887,13 @@ async fn a_sleeping_chat_shows_its_history_and_wakes_when_the_person_writes() {
             .await
             .expect("a Claude chat");
         other
-            .acp_prompt(
-                claude.clone(),
-                None,
-                "hello claude".into(),
-                Vec::new(),
-                Vec::new(),
-            )
+            .ask(ask::AcpPrompt {
+                agent_id: claude.clone(),
+                message_id: None,
+                text: "hello claude".into(),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
             .await
             .expect("a message");
         assert!(
@@ -856,7 +901,7 @@ async fn a_sleeping_chat_shows_its_history_and_wakes_when_the_person_writes() {
             "Claude answered"
         );
         let session = other
-            .workspace()
+            .ask(ask::Workspace)
             .await
             .expect("workspace")
             .agents
@@ -890,7 +935,7 @@ async fn closing_a_tab_already_closed_does_nothing() {
     let core_key = SecretKey::generate();
     let core = start_core(&core_key, &[]);
     let (app, _app_events) = CoreClient::connect(&core.socket).await.expect("app");
-    app.register_window()
+    app.ask(ask::RegisterWindow)
         .await
         .expect("the app opens its window");
     publish_fake_agent(&app).await;
@@ -946,7 +991,7 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
     let (client, events) = remote::connect(&endpoint, core_addr(&status))
         .await
         .expect("the phone connects");
-    let workspace = client.workspace().await.expect("workspace");
+    let workspace = client.ask(ask::Workspace).await.expect("workspace");
     assert_eq!(workspace.projects[0].name, "tmp");
     let fake = workspace
         .launchers
@@ -978,20 +1023,20 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
     assert_eq!(begun.permission_mode, PermissionMode::WorkspaceWrite);
     assert_eq!(begun.started_by, Some(phone.id()));
     client
-        .acp_prompt(
-            agent_id.clone(),
-            None,
-            "hello from the phone".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: "hello from the phone".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
     Chat::new(events, &agent_id)
         .until_said("echo: hello from the phone")
         .await;
 
-    let chats = client.acp_list().await.expect("list chats");
+    let chats = client.ask(ask::AcpList).await.expect("list chats");
     let chat = chats
         .iter()
         .find(|chat| chat.agent_id == agent_id)
@@ -1017,7 +1062,12 @@ async fn a_watching_device_cannot_start_a_chat() {
         .await
         .expect("the watcher connects");
     assert_eq!(
-        client.workspace().await.expect("workspace").projects.len(),
+        client
+            .ask(ask::Workspace)
+            .await
+            .expect("workspace")
+            .projects
+            .len(),
         1
     );
     let refused = client
@@ -1127,13 +1177,13 @@ async fn a_device_sends_a_file_for_a_chat_and_the_agent_is_given_its_path() {
 
     let sent = path.to_string_lossy().into_owned();
     client
-        .acp_prompt(
-            agent_id.clone(),
-            None,
-            "look at this".into(),
-            vec![sent.clone()],
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: "look at this".into(),
+            paths: vec![sent.clone()],
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
     let prompted = app_chat
@@ -1193,7 +1243,13 @@ async fn a_watching_device_sees_a_permission_request_it_never_attached_to_and_an
         .await
         .expect("start");
     driver
-        .acp_prompt(agent_id.clone(), None, "ask".into(), Vec::new(), Vec::new())
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: "ask".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
 
@@ -1208,7 +1264,7 @@ async fn a_watching_device_sees_a_permission_request_it_never_attached_to_and_an
     } = attention;
     assert_eq!(kind, AttentionKind::Permission);
     assert_eq!(waiting, agent_id);
-    let listed = watcher.attentions().await.expect("attentions");
+    let listed = watcher.ask(ask::Attentions).await.expect("attentions");
     assert_eq!(
         listed
             .iter()
@@ -1222,11 +1278,19 @@ async fn a_watching_device_sees_a_permission_request_it_never_attached_to_and_an
         .to_owned();
 
     watcher
-        .acp_permission_reply(agent_id.clone(), id.clone(), Some(option.clone()))
+        .ask(ask::AcpPermissionReply {
+            agent_id: agent_id.clone(),
+            request_id: id.clone(),
+            option_id: Some(option.clone()),
+        })
         .await
         .expect("the watch answers");
     until_view(&mut watcher_events, |view| view.attentions.is_empty()).await;
-    assert!(watcher.attentions().await.expect("attentions").is_empty());
+    assert!(watcher
+        .ask(ask::Attentions)
+        .await
+        .expect("attentions")
+        .is_empty());
     Chat::new(driver_events, &agent_id)
         .until_said(&option)
         .await;
@@ -1305,13 +1369,13 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
     let mark = mark.clone();
     chat.attached(&attachment);
     first
-        .acp_prompt(
-            agent_id.clone(),
-            None,
-            "say one".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: "say one".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
     let seqs = numbered_until(&mut chat, "echo: say one").await;
@@ -1329,13 +1393,13 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
     };
     let held = chat.folded.clone();
     first
-        .acp_prompt(
-            agent_id.clone(),
-            None,
-            "say four".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: "say four".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
     numbered_until(&mut chat, "echo: say four").await;
@@ -1343,13 +1407,13 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
     drop(chat);
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    app.acp_prompt(
-        agent_id.clone(),
-        None,
-        "say two".into(),
-        Vec::new(),
-        Vec::new(),
-    )
+    app.ask(ask::AcpPrompt {
+        agent_id: agent_id.clone(),
+        message_id: None,
+        text: "say two".into(),
+        paths: Vec::new(),
+        context: Vec::new(),
+    })
     .await
     .expect("the app prompts while the phone is away");
     let (second, mut second_events) = remote::connect(&endpoint, core_addr(&status))
@@ -1357,7 +1421,10 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
         .expect("the phone reconnects");
     tokio::time::sleep(Duration::from_millis(500)).await;
     let resumed = second
-        .acp_attach_since(agent_id.clone(), Some(seen.clone()))
+        .ask(ask::AcpAttach {
+            agent_id: agent_id.clone(),
+            since: Some(seen.clone()),
+        })
         .await
         .expect("resume");
     let ChatAttachment::Resumed { changes, mark } = &resumed else {
@@ -1393,21 +1460,29 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
     };
     assert!(matches!(
         second
-            .acp_attach_since(agent_id.clone(), Some(stale))
+            .ask(ask::AcpAttach {
+                agent_id: agent_id.clone(),
+                since: Some(stale)
+            })
             .await
             .expect("attach"),
         ChatAttachment::Live { .. }
     ));
 
-    second.acp_detach(agent_id.clone()).await.expect("detach");
+    second
+        .ask(ask::AcpDetach {
+            agent_id: agent_id.clone(),
+        })
+        .await
+        .expect("detach");
     while second_events.try_recv().is_ok() {}
-    app.acp_prompt(
-        agent_id.clone(),
-        None,
-        "say three".into(),
-        Vec::new(),
-        Vec::new(),
-    )
+    app.ask(ask::AcpPrompt {
+        agent_id: agent_id.clone(),
+        message_id: None,
+        text: "say three".into(),
+        paths: Vec::new(),
+        context: Vec::new(),
+    })
     .await
     .expect("prompt");
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -1445,13 +1520,13 @@ async fn a_device_holding_a_mark_from_before_the_chat_restarted_is_sent_the_new_
     let before = before.clone();
     chat.attached(&attachment);
     client
-        .acp_prompt(
-            "agent-again".into(),
-            None,
-            "first run".into(),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: "agent-again".into(),
+            message_id: None,
+            text: "first run".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt");
     let heard = numbered_until(&mut chat, "first run").await;
@@ -1460,12 +1535,19 @@ async fn a_device_holding_a_mark_from_before_the_chat_restarted_is_sent_the_new_
         seq: heard.last().copied().unwrap_or(before.seq),
     };
 
-    app.acp_stop("agent-again".into()).await.expect("stop");
+    app.ask(ask::AcpStop {
+        agent_id: "agent-again".into(),
+    })
+    .await
+    .expect("stop");
     app.acp_start(fake_launch("agent-again"))
         .await
         .expect("the app starts it again");
     let ChatAttachment::Live { mark, view } = client
-        .acp_attach_since("agent-again".into(), Some(seen))
+        .ask(ask::AcpAttach {
+            agent_id: "agent-again".into(),
+            since: Some(seen),
+        })
         .await
         .expect("attach")
     else {

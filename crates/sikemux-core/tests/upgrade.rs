@@ -5,6 +5,7 @@
 
 mod folded;
 
+use sikemux_wire::protocol::ask;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, TcpStream};
@@ -394,7 +395,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
         .as_str()
         .expect("cursor")
         .to_owned();
-    let before = client.list().await.expect("list");
+    let before = client.ask(ask::List).await.expect("list");
     let shell_pid = before
         .iter()
         .find(|session| session.id == shell)
@@ -410,7 +411,7 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     assert!(alive(shell_pid), "the shell died in the update");
 
     let (client, mut stream) = connect(&core).await;
-    let after = client.list().await.expect("list");
+    let after = client.ask(ask::List).await.expect("list");
     assert_eq!(
         after
             .iter()
@@ -434,7 +435,12 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
     let attached = client.attach(shell).await.expect("attach after the update");
     let text = screen_of(&attached.frame).text();
     assert!(text.contains("before-42"), "{text:?}");
-    client.detach(attached.stream).await.expect("detach");
+    client
+        .ask(ask::Detach {
+            stream: attached.stream,
+        })
+        .await
+        .expect("detach");
     stream.attach(&client, shell).await;
     client
         .write(shell, b"echo after-$((6*7))\r")
@@ -448,13 +454,13 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
         .expect("the running task")
         .id;
     let page = client
-        .task_output(
-            running_pty,
-            OutputQuery {
+        .ask(ask::TaskOutput {
+            id: running_pty,
+            query: OutputQuery {
                 limit: 8192,
                 ..OutputQuery::default()
             },
-        )
+        })
         .await
         .expect("task output");
     assert!(String::from_utf8_lossy(&page.bytes).contains("task-out"));
@@ -573,7 +579,7 @@ async fn an_upgrade_is_refused_for_a_binary_that_cannot_take_over() {
     let (client, _stream) = connect(&core).await;
     let shell = spawn_shell(&client).await;
     let shell_pid = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -603,7 +609,7 @@ async fn a_damaged_hand_over_keeps_the_sessions_it_can_adopt() {
     client.write(shell, b"echo kept\r").await.expect("write");
     stream.until_output(&client, shell, "kept").await;
     let shell_pid = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -623,7 +629,7 @@ async fn a_damaged_hand_over_keeps_the_sessions_it_can_adopt() {
 
     let (client, mut stream) = connect(&core).await;
     let kept = client
-        .list()
+        .ask(ask::List)
         .await
         .expect("list")
         .into_iter()
@@ -746,7 +752,10 @@ async fn until_chats(
 /// The chat a client attaching is sent, when it is still running there.
 async fn attached(client: &CoreClient, agent_id: &str, since: Option<ChatMark>) -> Option<Folded> {
     let attachment = client
-        .acp_attach_since(agent_id.into(), since)
+        .ask(ask::AcpAttach {
+            agent_id: agent_id.into(),
+            since,
+        })
         .await
         .expect("attach");
     if !matches!(attachment, ChatAttachment::Live { .. }) {
@@ -776,19 +785,25 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     }
     for agent_id in &asking {
         client
-            .acp_prompt(agent_id.clone(), None, "ask".into(), Vec::new(), Vec::new())
+            .ask(ask::AcpPrompt {
+                agent_id: agent_id.clone(),
+                message_id: None,
+                text: "ask".into(),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
             .await
             .expect("prompt");
     }
     for agent_id in &holding {
         client
-            .acp_prompt(
-                agent_id.clone(),
-                None,
-                "hold 8000".into(),
-                Vec::new(),
-                Vec::new(),
-            )
+            .ask(ask::AcpPrompt {
+                agent_id: agent_id.clone(),
+                message_id: None,
+                text: "hold 8000".into(),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
             .await
             .expect("prompt");
     }
@@ -816,7 +831,7 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     assert_eq!(children(core.pid()), agents, "{}", core.log());
 
     let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let chats = client.acp_list().await.expect("list");
+    let chats = client.ask(ask::AcpList).await.expect("list");
     assert_eq!(chats.len(), 6, "{}", core.log());
     for chat in &chats {
         assert!(chat.running, "{} stopped in the update", chat.agent_id);
@@ -853,7 +868,11 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
             .option_id
             .clone();
         client
-            .acp_permission_reply(agent_id.clone(), request.request_id.clone(), Some(allow))
+            .ask(ask::AcpPermissionReply {
+                agent_id: agent_id.clone(),
+                request_id: request.request_id.clone(),
+                option_id: Some(allow),
+            })
             .await
             .unwrap_or_else(|error| panic!("{agent_id}: {error}\n{}", core.log()));
     }
@@ -890,13 +909,13 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
     }
     for agent_id in &chats {
         client
-            .acp_prompt(
-                agent_id.clone(),
-                None,
-                "hold 600000".into(),
-                Vec::new(),
-                Vec::new(),
-            )
+            .ask(ask::AcpPrompt {
+                agent_id: agent_id.clone(),
+                message_id: None,
+                text: "hold 600000".into(),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
             .await
             .expect("prompt");
     }
@@ -927,7 +946,7 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
     let deadline = Instant::now() + WAIT * 2;
     loop {
         let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
-        let listed = client.acp_list().await.expect("list");
+        let listed = client.ask(ask::AcpList).await.expect("list");
         let finished = chats.iter().all(|agent_id| {
             listed.iter().any(|chat| {
                 chat.agent_id == *agent_id && chat.session_id.is_some() && !chat.running
@@ -1042,7 +1061,7 @@ async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
     let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
     let deadline = Instant::now() + WAIT;
     while !client
-        .acp_list()
+        .ask(ask::AcpList)
         .await
         .expect("list")
         .iter()

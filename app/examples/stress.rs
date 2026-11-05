@@ -20,6 +20,7 @@
 //! Each ends by typing in the front chat's composer while its load runs. `make-repo <folder> [files]` writes a
 //! generated repository to stress `repo` with.
 
+use sikemux_wire::protocol::ask;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -270,17 +271,19 @@ impl Driver {
     /// does before it sends to a sleeping chat.
     fn prompt(&self, chat: &str, text: String) {
         let send = |text: String| {
-            self.runtime.block_on(self.client.acp_prompt(
-                chat.to_owned(),
-                None,
+            self.runtime.block_on(self.client.ask(ask::AcpPrompt {
+                agent_id: chat.to_owned(),
+                message_id: None,
                 text,
-                Vec::new(),
-                Vec::new(),
-            ))
+                paths: Vec::new(),
+                context: Vec::new(),
+            }))
         };
         let sent = match send(text.clone()) {
             Err(error) if error.to_string().contains("not running") => {
-                if let Err(error) = self.runtime.block_on(self.client.acp_wake(chat.to_owned())) {
+                if let Err(error) = self.runtime.block_on(self.client.ask(ask::AcpWake {
+                    agent_id: chat.to_owned(),
+                })) {
                     eprintln!("wake {chat}: {error}");
                 }
                 send(text)

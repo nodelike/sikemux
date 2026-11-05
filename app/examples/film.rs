@@ -40,6 +40,7 @@
 //!   wait S / mark KIND / still NAME / end [HOLD]
 //!   snap NAME                   saves the window alone as drawn, without the stage or cursor
 
+use sikemux_wire::protocol::ask;
 use std::cell::RefCell;
 use std::io::Write;
 use std::os::unix::process::CommandExt;
@@ -537,13 +538,13 @@ impl World {
                 _ => None,
             };
             if let Some(prompt) = prompt {
-                self.runtime.block_on(self.client.acp_prompt(
-                    chat.clone(),
-                    None,
-                    prompt,
-                    Vec::new(),
-                    Vec::new(),
-                ))?;
+                self.runtime.block_on(self.client.ask(ask::AcpPrompt {
+                    agent_id: chat.clone(),
+                    message_id: None,
+                    text: prompt,
+                    paths: Vec::new(),
+                    context: Vec::new(),
+                }))?;
             }
         }
         std::thread::sleep(Duration::from_secs(2));

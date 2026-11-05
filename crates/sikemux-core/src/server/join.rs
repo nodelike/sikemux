@@ -156,6 +156,7 @@ mod tests {
     use crate::join::vector::{vector, Vector};
     use sikemux_client::join::JOIN_ALPN;
     use sikemux_wire::accounts::protocol::JoinTicket;
+    use sikemux_wire::protocol::ask;
     use sikemux_wire::protocol::{AllowedDevice, BuildIdentity, DeviceAccess, RemoteStatus};
 
     const ACCOUNT: &str = "user_2vectorTest";
@@ -306,7 +307,7 @@ mod tests {
             "the joined phone hears the host's view first, as a paired one does"
         );
         client
-            .list()
+            .ask(ask::List)
             .await
             .expect("the joined phone lists sessions");
 

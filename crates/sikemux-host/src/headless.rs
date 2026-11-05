@@ -2,6 +2,7 @@
 //! `logout`, `start`, `stop`, `restart`, `enable` and `disable`. They are all
 //! a host with no window needs to join an account and keep its core running.
 
+use sikemux_wire::protocol::ask;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -156,7 +157,7 @@ fn stop() -> Result<(), String> {
 
 async fn shut_down(socket: &Path) -> Result<(), ClientError> {
     let (client, _events) = CoreClient::connect(socket).await?;
-    client.shutdown(true).await
+    client.ask(ask::Shutdown { stop_all: true }).await
 }
 
 fn end_stuck(pid: u32, socket: &Path) -> Result<(), String> {

@@ -8,6 +8,7 @@
 
 mod folded;
 
+use sikemux_wire::protocol::ask;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::thread::JoinHandle;
@@ -93,7 +94,7 @@ impl Drop for TestCore {
                 let runtime = tokio::runtime::Runtime::new().expect("runtime");
                 runtime.block_on(async {
                     if let Ok((client, _events)) = CoreClient::connect(&socket).await {
-                        let _ = client.shutdown(true).await;
+                        let _ = client.ask(ask::Shutdown { stop_all: true }).await;
                     }
                 });
             })
@@ -269,13 +270,13 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
         "prompt": "run cat b.txt && printf done > c.txt && git add c.txt && git -c user.name=W -c user.email=w@example.com commit -qm worker",
     });
     lead_app
-        .acp_prompt(
-            lead.clone(),
-            None,
-            format!("tool agent.spawn {spawn}"),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: lead.clone(),
+            message_id: None,
+            text: format!("tool agent.spawn {spawn}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt the lead");
     let answered = said.until_said("tool ").await;
@@ -309,13 +310,13 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
 
     let listed = json!({});
     lead_app
-        .acp_prompt(
-            lead.clone(),
-            None,
-            format!("tool agent.list {listed}"),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: lead.clone(),
+            message_id: None,
+            text: format!("tool agent.list {listed}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt the lead");
     let list = said.until_said("tool answered").await;
@@ -324,13 +325,13 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
     let worker_name = branch.rsplit('/').next().expect("worker name").to_owned();
     let read = json!({ "agent": format!("{worker_name} on studio") });
     lead_app
-        .acp_prompt(
-            lead.clone(),
-            None,
-            format!("tool agent.read {read}"),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: lead.clone(),
+            message_id: None,
+            text: format!("tool agent.read {read}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt the lead");
     let read = said.until_said("tool answered").await;
@@ -338,13 +339,13 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
 
     let send = json!({ "to": format!("{worker_name} on studio"), "text": "run echo second-task" });
     lead_app
-        .acp_prompt(
-            lead.clone(),
-            None,
-            format!("tool agent.send {send}"),
-            Vec::new(),
-            Vec::new(),
-        )
+        .ask(ask::AcpPrompt {
+            agent_id: lead.clone(),
+            message_id: None,
+            text: format!("tool agent.send {send}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
         .await
         .expect("prompt the lead");
     said.until_said("second-task").await;

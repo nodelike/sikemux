@@ -1133,13 +1133,18 @@ async fn run(
                 let mut stopping = false;
                 let client = Arc::new(client);
                 let _ = updates.send(Update::Connected(client.hello().build.version.clone()));
-                if let Err(error) = client.configure(home.manifest_dir.clone()).await {
+                if let Err(error) = client
+                    .ask(ask::Configure {
+                        manifest_dir: home.manifest_dir.clone(),
+                    })
+                    .await
+                {
                     eprintln!("sikemux: the core could not read the agent manifests: {error}");
                 }
-                if let Err(error) = client.watch_view().await {
+                if let Err(error) = client.ask(ask::WatchView).await {
                     let _ = updates.send(Update::Lost(error.to_string()));
                 }
-                if let Err(error) = client.register_window().await {
+                if let Err(error) = client.ask(ask::RegisterWindow).await {
                     eprintln!("sikemux: the core would not hand this window its calls: {error}");
                 }
                 let mut remote_on = client
@@ -1335,7 +1340,7 @@ async fn run(
                             Some(Ask::RegisterWindow) => {
                                 let client = client.clone();
                                 tokio::spawn(async move {
-                                    if let Err(error) = client.register_window().await {
+                                    if let Err(error) = client.ask(ask::RegisterWindow).await {
                                         eprintln!("sikemux: the core would not hand this window its calls: {error}");
                                     }
                                 });
@@ -1343,7 +1348,7 @@ async fn run(
                             Some(Ask::OnScreen { agent_ids, focused }) => {
                                 let client = client.clone();
                                 tokio::spawn(async move {
-                                    report("tell the core which agent is on screen", client.publish_on_screen(agent_ids, focused).await);
+                                    report("tell the core which agent is on screen", client.ask(ask::PublishOnScreen { agent_ids, focused }).await);
                                 });
                             }
                             Some(Ask::AnswerWindow(call_id, answer)) => client.answer_window(call_id, answer),
@@ -1485,8 +1490,8 @@ async fn run(
                                 let client = client.clone();
                                 tokio::spawn(async move {
                                     let answer = match detection {
-                                        Detection::List => client.list_manifests().await.map(serde_json::to_value),
-                                        Detection::Reload => client.reload_manifests().await.map(serde_json::to_value),
+                                        Detection::List => client.ask(ask::ListManifests).await.map(serde_json::to_value),
+                                        Detection::Reload => client.ask(ask::ReloadManifests).await.map(serde_json::to_value),
                                         Detection::Explain(agent) => client
                                             .explain_agent_detection(agent)
                                             .await
@@ -1526,7 +1531,7 @@ async fn run(
                             }
                             Some(Ask::StartCore) => {}
                             Some(Ask::Shutdown) => {
-                                let answered = tokio::time::timeout(SHUT_DOWN_ANSWER, client.shutdown(true)).await;
+                                let answered = tokio::time::timeout(SHUT_DOWN_ANSWER, client.ask(ask::Shutdown { stop_all: true })).await;
                                 if !matches!(answered, Ok(Ok(()))) {
                                     let (socket, pid) = (home.socket.clone(), client.hello().pid);
                                     let _ = tokio::task::spawn_blocking(move || core_start::end(&socket, pid)).await;
@@ -1536,7 +1541,7 @@ async fn run(
                             Some(Ask::MoveChat { agent, account }) => {
                                 let client = client.clone();
                                 tokio::spawn(async move {
-                                    if let Err(error) = client.acp_switch_account(agent, account).await {
+                                    if let Err(error) = client.ask(ask::AcpSwitchAccount { agent_id: agent, account }).await {
                                         eprintln!("sikemux: the chat stayed on its account: {error}");
                                     }
                                 });
@@ -1667,7 +1672,14 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             None => return,
         },
         ChatAsk::Move { agent, patch } => {
-            report("stop", client.acp_stop(agent.clone()).await);
+            report(
+                "stop",
+                client
+                    .ask(ask::AcpStop {
+                        agent_id: agent.clone(),
+                    })
+                    .await,
+            );
             let changed = client
                 .call("updateAgent", json!({ "agentId": agent, "patch": patch }))
                 .await;
@@ -1690,7 +1702,15 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             feed,
             before,
             turns,
-        } => match client.acp_history(agent.clone(), feed, before, turns).await {
+        } => match client
+            .ask(ask::AcpHistory {
+                agent_id: agent.clone(),
+                feed,
+                before,
+                turns,
+            })
+            .await
+        {
             Ok(page) => (agent, ChatNews::Page(page_of(page))),
             Err(error) => return eprintln!("sikemux: the core gave no earlier page: {error}"),
         },
@@ -1727,7 +1747,12 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             Ok(found) => (agent, ChatNews::Found { asked, found }),
             Err(error) => return eprintln!("sikemux: the core's find failed: {error}"),
         },
-        ChatAsk::Detach { agent } => return report("detach", client.acp_detach(agent).await),
+        ChatAsk::Detach { agent } => {
+            return report(
+                "detach",
+                client.ask(ask::AcpDetach { agent_id: agent }).await,
+            )
+        }
         ChatAsk::Prompt {
             agent,
             text,
@@ -1735,7 +1760,13 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             context,
             attach: attaching,
         } => match client
-            .acp_prompt(agent.clone(), None, text.clone(), paths, context)
+            .ask(ask::AcpPrompt {
+                agent_id: agent.clone(),
+                message_id: None,
+                text: text.clone(),
+                paths,
+                context,
+            })
             .await
         {
             Ok(()) if !attaching => (agent, ChatNews::Taken(None)),
@@ -1775,7 +1806,13 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             text,
             paths,
         } => match client
-            .acp_edit(agent.clone(), message, text.clone(), paths, Vec::new())
+            .ask(ask::AcpEdit {
+                agent_id: agent.clone(),
+                message_id: message,
+                text: text.clone(),
+                paths,
+                context: Vec::new(),
+            })
             .await
         {
             Ok(()) => return,
@@ -1787,14 +1824,20 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
                 },
             ),
         },
-        ChatAsk::Cancel { agent } => return report("stop", client.acp_cancel(agent).await),
+        ChatAsk::Cancel { agent } => {
+            return report("stop", client.ask(ask::AcpCancel { agent_id: agent }).await)
+        }
         ChatAsk::Permission {
             agent,
             request,
             option,
         } => {
             let replied = client
-                .acp_permission_reply(agent.clone(), request.clone(), option)
+                .ask(ask::AcpPermissionReply {
+                    agent_id: agent.clone(),
+                    request_id: request.clone(),
+                    option_id: option,
+                })
                 .await;
             let error = replied.err().map(|error| error.to_string());
             (agent, ChatNews::Replied { request, error })
@@ -1806,11 +1849,23 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
         } => {
             return report(
                 "change the settings of",
-                client.acp_set_config(agent, config, value).await.map(drop),
+                client
+                    .ask(ask::AcpSetConfig {
+                        agent_id: agent,
+                        config_id: config,
+                        value,
+                    })
+                    .await
+                    .map(drop),
             )
         }
         ChatAsk::StopTask { agent, task } => {
-            let stopped = client.acp_stop_task(agent.clone(), task.clone()).await;
+            let stopped = client
+                .ask(ask::AcpStopTask {
+                    agent_id: agent.clone(),
+                    task_id: task.clone(),
+                })
+                .await;
             let error = stopped.err().map(|error| error.to_string());
             (agent, ChatNews::TaskStopped { task, error })
         }
@@ -1829,7 +1884,12 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
         ChatAsk::Mode { agent, mode } => {
             return report(
                 "switch the mode of",
-                client.acp_set_permission_mode(agent, mode).await,
+                client
+                    .ask(ask::AcpSetPermissionMode {
+                        agent_id: agent,
+                        mode,
+                    })
+                    .await,
             )
         }
     };
@@ -1887,7 +1947,12 @@ async fn attach(
     agent: &str,
     since: Option<ChatMark>,
 ) -> Result<ChatAttachment, ClientError> {
-    client.acp_attach_since(agent.to_owned(), since).await
+    client
+        .ask(ask::AcpAttach {
+            agent_id: agent.to_owned(),
+            since,
+        })
+        .await
 }
 
 fn report(what: &str, done: Result<(), ClientError>) {
@@ -1994,7 +2059,13 @@ impl Streams {
             self.place.clone(),
         );
         tokio::spawn(async move {
-            let _ = client.resize(session, cols, rows).await;
+            let _ = client
+                .ask(ask::Resize {
+                    id: session,
+                    cols,
+                    rows,
+                })
+                .await;
             tokio::time::sleep(RESIZE_GAP).await;
             let _ = settle.send((host, Settled::Resized(session)));
         });
@@ -2023,7 +2094,7 @@ impl Streams {
                 };
                 let (settle, host) = (self.settle_tx.clone(), self.place.clone());
                 tokio::spawn(async move {
-                    let _ = client.detach(stream).await;
+                    let _ = client.ask(ask::Detach { stream }).await;
                     let _ = settle.send((host, Settled::Detached(stream)));
                 });
             }
@@ -2032,11 +2103,9 @@ impl Streams {
                     client.ack(stream, frame);
                 }
             }
-            TerminalAsk::Input(input) => {
-                drop(tokio::spawn(
-                    async move { client.input(session, input).await },
-                ))
-            }
+            TerminalAsk::Input(input) => drop(tokio::spawn(async move {
+                client.ask(ask::TerminalInput { id: session, input }).await
+            })),
             TerminalAsk::Resize(cols, rows) => self.resize(session, cols, rows),
             TerminalAsk::Lines { start, count } => {
                 let (updates, place) = (self.updates.clone(), self.place.clone());
@@ -2082,18 +2151,20 @@ impl Streams {
                     let _ = updates.send(Update::Terminal(place, session, Screenful::Found(found)));
                 });
             }
-            TerminalAsk::Clear => drop(tokio::spawn(async move { client.clear(session).await })),
+            TerminalAsk::Clear => drop(tokio::spawn(async move {
+                client.ask(ask::TerminalClear { id: session }).await
+            })),
             TerminalAsk::Text { range, reply } => drop(tokio::spawn(async move {
                 if let Ok(text) = client.text(session, range).await {
                     let _ = reply.send(text);
                 }
             })),
-            TerminalAsk::ResetModes => {
-                drop(tokio::spawn(
-                    async move { client.reset_modes(session).await },
-                ))
-            }
-            TerminalAsk::Kill => drop(tokio::spawn(async move { client.kill(session).await })),
+            TerminalAsk::ResetModes => drop(tokio::spawn(async move {
+                client.ask(ask::ResetModes { id: session }).await
+            })),
+            TerminalAsk::Kill => drop(tokio::spawn(async move {
+                client.ask(ask::Kill { id: session }).await
+            })),
         }
     }
 }

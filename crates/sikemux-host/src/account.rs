@@ -1,6 +1,7 @@
 //! The accounts server, as a host reaches it. A host with no browser signs in
 //! by a code its person approves on a device already signed in.
 
+use sikemux_wire::protocol::ask;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -72,7 +73,10 @@ pub async fn sign_in_by_code(
     };
     sikemux_client::accounts::check_user_id(&account).map_err(|error| error.to_string())?;
     let signed = core
-        .sign_registration(nonce.clone(), account.clone())
+        .ask(ask::SignRegistration {
+            nonce: nonce.clone(),
+            user_id: account.clone(),
+        })
         .await
         .map_err(|error| error.to_string())?;
     let finish = HostSignInFinish {
